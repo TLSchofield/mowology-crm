@@ -28,6 +28,22 @@ $csrfToken = generateCSRFToken();
 // Get portfolio stats
 $portfolioStats = getPortfolioStats();
 
+// Load recommendations data if viewing that tab
+$recommendationsData = [];
+$recommendationStats = ['total' => 0, 'new' => 0, 'accepted' => 0, 'applied' => 0];
+if ($activeTab === 'recommendations' && $isAdmin) {
+    $seoDataFile = dirname(__DIR__) . '/portfolio/recommendations-data.php';
+    if (file_exists($seoDataFile)) {
+        $recommendationsData = include $seoDataFile;
+        // Calculate stats
+        $recStmt = $db->query("SELECT status, COUNT(*) as cnt FROM seo_recommendations GROUP BY status");
+        while ($row = $recStmt->fetch(PDO::FETCH_ASSOC)) {
+            $recommendationStats[$row['status']] = $row['cnt'];
+        }
+        $recommendationStats['total'] = array_sum($recommendationStats);
+    }
+}
+
 // Handle filters for Projects tab
 $statusFilter = $_GET['status'] ?? '';
 $searchQuery = trim($_GET['search'] ?? '');
@@ -567,14 +583,234 @@ $activePage = 'portfolio';
 
           <!-- TAB: RECOMMENDATIONS (Admin) -->
           <?php if ($activeTab === 'recommendations' && $isAdmin): ?>
-              <div class="card">
-                  <div class="card-body">
-                      <h5 class="card-title mb-4"><i data-feather="lightbulb"></i> Smart Recommendations</h5>
-                      <div class="alert alert-info">
-                          Coming soon: AI-generated landing page and portfolio item suggestions based on search data.
+
+              <!-- Stats Bar -->
+              <div class="mw-recommendations-stats">
+                  <div class="mw-rec-stat-card">
+                      <h6>Total</h6>
+                      <div class="value"><?php echo $recommendationStats['total']; ?></div>
+                  </div>
+                  <div class="mw-rec-stat-card">
+                      <h6>New</h6>
+                      <div class="value"><?php echo $recommendationStats['new'] ?? 0; ?></div>
+                  </div>
+                  <div class="mw-rec-stat-card">
+                      <h6>Accepted</h6>
+                      <div class="value"><?php echo $recommendationStats['accepted'] ?? 0; ?></div>
+                  </div>
+                  <div class="mw-rec-stat-card">
+                      <h6>Applied</h6>
+                      <div class="value"><?php echo $recommendationStats['applied'] ?? 0; ?></div>
+                  </div>
+              </div>
+
+              <!-- Filter Card -->
+              <div class="card mb-4">
+                  <div class="card-body mw-rec-filters">
+                      <h6 class="card-title mb-3"><i data-feather="filter"></i> Filter & Actions</h6>
+                      <div class="row g-3">
+                          <div class="col-md-3">
+                              <label class="form-label mb-2">Status</label>
+                              <select id="recStatusFilter" class="form-control form-control-sm" onchange="filterRecommendations()">
+                                  <option value="">All</option>
+                                  <option value="new">New</option>
+                                  <option value="accepted">Accepted</option>
+                                  <option value="applied">Applied</option>
+                                  <option value="done">Done</option>
+                                  <option value="ignored">Ignored</option>
+                              </select>
+                          </div>
+                          <div class="col-md-3">
+                              <label class="form-label mb-2">Type</label>
+                              <select id="recTypeFilter" class="form-control form-control-sm" onchange="filterRecommendations()">
+                                  <option value="">All</option>
+                                  <option value="create_page">Create Page</option>
+                                  <option value="improve_page">Improve Page</option>
+                                  <option value="title_meta">Title/Meta</option>
+                                  <option value="internal_links">Internal Links</option>
+                                  <option value="add_photos">Add Photos</option>
+                                  <option value="schema">Schema</option>
+                                  <option value="seasonal">Seasonal</option>
+                              </select>
+                          </div>
+                          <div class="col-md-3">
+                              <label class="form-label mb-2">Target</label>
+                              <select id="recTargetFilter" class="form-control form-control-sm" onchange="filterRecommendations()">
+                                  <option value="">All</option>
+                                  <?php if (!empty($recommendationsData['targets'])): ?>
+                                      <?php foreach ($recommendationsData['targets'] as $target): ?>
+                                          <option value="<?php echo $target['id']; ?>"><?php echo h($target['name']); ?></option>
+                                      <?php endforeach; ?>
+                                  <?php endif; ?>
+                              </select>
+                          </div>
+                          <div class="col-md-3">
+                              <label class="form-label mb-2">Season</label>
+                              <select id="recSeasonFilter" class="form-control form-control-sm" onchange="filterRecommendations()">
+                                  <option value="">All</option>
+                                  <?php if (!empty($recommendationsData['seasons'])): ?>
+                                      <?php foreach ($recommendationsData['seasons'] as $season): ?>
+                                          <option value="<?php echo $season['id']; ?>"><?php echo h($season['label']); ?></option>
+                                      <?php endforeach; ?>
+                                  <?php endif; ?>
+                              </select>
+                          </div>
+                      </div>
+                      <div class="row g-2 mt-2">
+                          <div class="col-auto">
+                              <button type="button" class="btn btn-sm btn-primary" id="generateRecBtn" onclick="generateRecommendations()">
+                                  <i data-feather="refresh-cw" style="width: 14px; height: 14px; display: inline; margin-right: 4px;"></i>Generate Recommendations
+                              </button>
+                          </div>
+                          <div class="col-auto">
+                              <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle="collapse" data-target="#targetingSettings">
+                                  <i data-feather="settings" style="width: 14px; height: 14px; display: inline; margin-right: 4px;"></i>Targeting Settings
+                              </button>
+                          </div>
                       </div>
                   </div>
               </div>
+
+              <!-- Targeting Settings (Collapsible) -->
+              <div class="collapse mb-4" id="targetingSettings">
+                  <div class="card">
+                      <div class="card-body mw-targeting-settings">
+                          <h6><i data-feather="map-pin"></i> Geographic Targets</h6>
+                          <p class="text-muted mb-3">Active geographic targets used for boost scoring and local intent detection.</p>
+                          <div id="targetsList" style="max-height: 400px; overflow-y: auto;">
+                              <?php if (!empty($recommendationsData['targets'])): ?>
+                                  <?php foreach ($recommendationsData['targets'] as $target): ?>
+                                      <div class="mw-target-item">
+                                          <div class="mw-target-item-header">
+                                              <div>
+                                                  <span class="mw-target-item-name"><?php echo h($target['name']); ?></span>
+                                                  <span class="mw-target-item-type"><?php echo ucfirst($target['target_type']); ?></span>
+                                              </div>
+                                          </div>
+                                          <div class="mw-target-item-details">
+                                              <strong><?php echo h($target['canonical_slug']); ?></strong>
+                                          </div>
+                                      </div>
+                                  <?php endforeach; ?>
+                              <?php else: ?>
+                                  <p class="text-muted">No targets configured. Create targets to enable geographic boosting.</p>
+                              <?php endif; ?>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+              <!-- Recommendations Table -->
+              <div class="card">
+                  <div class="card-body">
+                      <h6 class="card-title mb-3">Recommendations</h6>
+                      <?php if (empty($recommendationsData['recommendations'])): ?>
+                          <div class="alert alert-info mb-0">
+                              <i data-feather="info" style="width: 16px; height: 16px; display: inline; margin-right: 6px;"></i>
+                              No recommendations yet. Click "Generate Recommendations" to analyze GSC data.
+                          </div>
+                      <?php else: ?>
+                          <div class="table-responsive">
+                              <table class="table table-hover mb-0 mw-rec-table" id="recommendationsTable">
+                                  <thead class="table-light">
+                                      <tr>
+                                          <th style="width: 50px;">Score</th>
+                                          <th>Query</th>
+                                          <th style="width: 80px;">Volume</th>
+                                          <th style="width: 60px;">CTR</th>
+                                          <th style="width: 60px;">Pos</th>
+                                          <th style="width: 100px;">Target</th>
+                                          <th style="width: 100px;">Type</th>
+                                          <th style="width: 80px;">Status</th>
+                                          <th style="width: 120px;">Actions</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      <?php foreach ($recommendationsData['recommendations'] as $rec): ?>
+                                          <tr data-rec-id="<?php echo $rec['id']; ?>" data-status="<?php echo $rec['status']; ?>" data-type="<?php echo $rec['rec_type']; ?>" data-target="<?php echo $rec['target_id'] ?? ''; ?>" data-season="<?php echo $rec['season_id'] ?? ''; ?>">
+                                              <td>
+                                                  <span class="badge <?php echo $rec['priority_score'] >= 80 ? 'mw-rec-score-high' : ($rec['priority_score'] >= 60 ? 'mw-rec-score-medium' : 'mw-rec-score-low'); ?>">
+                                                      <?php echo $rec['priority_score']; ?>
+                                                  </span>
+                                              </td>
+                                              <td>
+                                                  <strong><?php echo h($rec['query_text']); ?></strong><br>
+                                                  <small class="text-muted"><?php echo h($rec['suggested_slug']); ?></small>
+                                              </td>
+                                              <td><?php echo $rec['impressions'] ?? $rec['search_volume'] ?? '-'; ?></td>
+                                              <td><?php echo number_format($rec['ctr'] * 100, 1); ?>%</td>
+                                              <td><?php echo $rec['avg_position'] ? number_format($rec['avg_position'], 1) : '-'; ?></td>
+                                              <td>
+                                                  <?php if ($rec['target_id']): ?>
+                                                      <span class="mw-rec-badge mw-rec-badge-target"><?php echo h($rec['target_name'] ?? 'Unknown'); ?></span>
+                                                  <?php else: ?>
+                                                      <span class="text-muted">-</span>
+                                                  <?php endif; ?>
+                                              </td>
+                                              <td>
+                                                  <span class="mw-rec-badge mw-rec-badge-type"><?php echo str_replace('_', ' ', $rec['rec_type']); ?></span>
+                                              </td>
+                                              <td>
+                                                  <?php
+                                                  $statusClass = 'status-' . $rec['status'];
+                                                  ?>
+                                                  <span class="mw-rec-badge mw-rec-badge-status <?php echo $statusClass; ?>"><?php echo ucfirst($rec['status']); ?></span>
+                                              </td>
+                                              <td>
+                                                  <?php if ($rec['status'] === 'new'): ?>
+                                                      <button type="button" class="btn btn-xs btn-success" onclick="acceptRecommendation(<?php echo $rec['id']; ?>)" title="Accept">✓</button>
+                                                      <button type="button" class="btn btn-xs btn-secondary" onclick="ignoreRecommendation(<?php echo $rec['id']; ?>)" title="Ignore">✕</button>
+                                                  <?php elseif ($rec['status'] === 'accepted'): ?>
+                                                      <button type="button" class="btn btn-xs btn-primary" onclick="applyRecommendation(<?php echo $rec['id']; ?>)" title="Apply">Apply</button>
+                                                  <?php elseif ($rec['status'] === 'applied'): ?>
+                                                      <button type="button" class="btn btn-xs btn-success" onclick="markRecommendationDone(<?php echo $rec['id']; ?>)" title="Done">Done</button>
+                                                  <?php endif; ?>
+                                              </td>
+                                          </tr>
+                                      <?php endforeach; ?>
+                                  </tbody>
+                              </table>
+                          </div>
+
+                          <!-- Pagination (if applicable) -->
+                          <?php if (!empty($recommendationsData['pagination']) && $recommendationsData['pagination']['total_pages'] > 1): ?>
+                              <nav class="mt-3 mw-rec-pagination">
+                                  <ul class="pagination pagination-sm">
+                                      <?php
+                                      $currentPage = $recommendationsData['pagination']['page'];
+                                      $totalPages = $recommendationsData['pagination']['total_pages'];
+                                      for ($p = 1; $p <= $totalPages; $p++):
+                                      ?>
+                                          <li class="page-item <?php echo $p === $currentPage ? 'active' : ''; ?>">
+                                              <a class="page-link" href="?tab=recommendations&page=<?php echo $p; ?>"><?php echo $p; ?></a>
+                                          </li>
+                                      <?php endfor; ?>
+                                  </ul>
+                              </nav>
+                          <?php endif; ?>
+                      <?php endif; ?>
+                  </div>
+              </div>
+
+              <!-- Apply Recommendation Modal -->
+              <div class="modal fade" id="applyModal" tabindex="-1" role="dialog">
+                  <div class="modal-dialog modal-lg" role="document">
+                      <div class="modal-content">
+                          <div class="modal-header">
+                              <h5 class="modal-title">Apply Recommendation</h5>
+                              <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                          </div>
+                          <div class="modal-body">
+                              <div id="applyModalBody">Loading...</div>
+                          </div>
+                          <div class="modal-footer">
+                              <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                              <button type="button" class="btn btn-primary" id="applyConfirmBtn" onclick="confirmApplyRecommendation()">Create Draft</button>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
           <?php endif; ?>
 
           <!-- TAB: ROI DASHBOARD (Admin) -->
@@ -992,4 +1228,277 @@ style.textContent = `
   }
 `;
 document.head.appendChild(style);
+
+// ============================================================
+// SEO Recommendations Functions (Phase 2)
+// ============================================================
+
+/**
+ * Filter recommendations table based on dropdown selections
+ */
+function filterRecommendations() {
+    const statusFilter = document.getElementById('recStatusFilter')?.value || '';
+    const typeFilter = document.getElementById('recTypeFilter')?.value || '';
+    const targetFilter = document.getElementById('recTargetFilter')?.value || '';
+    const seasonFilter = document.getElementById('recSeasonFilter')?.value || '';
+
+    const table = document.getElementById('recommendationsTable');
+    if (!table) return;
+
+    const rows = table.querySelectorAll('tbody tr');
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+        const rowStatus = row.dataset.status;
+        const rowType = row.dataset.type;
+        const rowTarget = row.dataset.target;
+        const rowSeason = row.dataset.season;
+
+        let show = true;
+        if (statusFilter && rowStatus !== statusFilter) show = false;
+        if (typeFilter && rowType !== typeFilter) show = false;
+        if (targetFilter && rowTarget !== targetFilter) show = false;
+        if (seasonFilter && rowSeason !== seasonFilter) show = false;
+
+        row.style.display = show ? '' : 'none';
+        if (show) visibleCount++;
+    });
+
+    // Show message if no rows match
+    if (visibleCount === 0) {
+        table.parentElement.innerHTML += '<p class="text-muted text-center py-4">No recommendations match filters</p>';
+    }
+}
+
+/**
+ * Generate recommendations via API
+ */
+function generateRecommendations() {
+    const btn = document.getElementById('generateRecBtn');
+    const originalHtml = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⟳</span> Generating...';
+
+    const formData = new FormData();
+    formData.append('csrf_token', CSRF_TOKEN);
+
+    fetch('/crm/api/seo/generate.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Generation failed: ' + response.statusText);
+        }
+        return response.json();
+    })
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        if (data.success) {
+            alert('✓ Recommendations generated!\n\n' + data.message);
+            setTimeout(() => location.reload(), 500);
+        } else {
+            alert('Error: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        alert('Error: ' + err.message);
+        console.error('Generation error:', err);
+    });
+}
+
+/**
+ * Accept a recommendation (change status from 'new' to 'accepted')
+ */
+function acceptRecommendation(recId) {
+    if (!confirm('Accept this recommendation?')) return;
+
+    const formData = new FormData();
+    formData.append('recommendation_id', recId);
+    formData.append('status', 'accepted');
+    formData.append('csrf_token', CSRF_TOKEN);
+
+    fetch('/crm/api/seo/status.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert('✓ Recommendation accepted');
+            location.reload();
+        } else {
+            alert('Error: ' + (data.message || 'Unknown'));
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+        console.error(err);
+    });
+}
+
+/**
+ * Ignore a recommendation (change status to 'ignored')
+ */
+function ignoreRecommendation(recId) {
+    if (!confirm('Ignore this recommendation?')) return;
+
+    const formData = new FormData();
+    formData.append('recommendation_id', recId);
+    formData.append('status', 'ignored');
+    formData.append('csrf_token', CSRF_TOKEN);
+
+    fetch('/crm/api/seo/status.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert('✓ Recommendation ignored');
+            location.reload();
+        } else {
+            alert('Error: ' + (data.message || 'Unknown'));
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+        console.error(err);
+    });
+}
+
+/**
+ * Apply a recommendation (create draft page)
+ */
+function applyRecommendation(recId) {
+    const modalBody = document.getElementById('applyModalBody');
+    modalBody.innerHTML = '<p class="text-center"><span style="display: inline-block; animation: spin 1s linear infinite;">⟳</span> Loading preview...</p>';
+
+    fetch(`/crm/api/seo/apply-preview.php?id=${recId}`)
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const preview = data.content;
+            modalBody.innerHTML = `
+                <div class="mb-3">
+                    <h6>SEO Title</h6>
+                    <p class="text-monospace small" style="background: #f5f5f5; padding: 8px; border-radius: 3px;">
+                        ${escapeHtml(preview.title)}
+                    </p>
+                </div>
+                <div class="mb-3">
+                    <h6>Meta Description</h6>
+                    <p class="text-monospace small" style="background: #f5f5f5; padding: 8px; border-radius: 3px;">
+                        ${escapeHtml(preview.meta_description)}
+                    </p>
+                </div>
+                <div class="mb-3">
+                    <h6>H1 Heading</h6>
+                    <p class="text-monospace small" style="background: #f5f5f5; padding: 8px; border-radius: 3px;">
+                        ${escapeHtml(preview.h1)}
+                    </p>
+                </div>
+                <div class="mb-3">
+                    <h6>Suggested Slug</h6>
+                    <p class="text-monospace small" style="background: #f5f5f5; padding: 8px; border-radius: 3px;">
+                        /${escapeHtml(preview.slug)}
+                    </p>
+                </div>
+                <div class="alert alert-info mb-0">
+                    <strong>Content:</strong> ${preview.sections_count} sections + ${preview.images_count} images + schema markup
+                </div>
+            `;
+            document.getElementById('applyConfirmBtn').dataset.recId = recId;
+            $('#applyModal').modal('show');
+        } else {
+            modalBody.innerHTML = '<div class="alert alert-danger">Error: ' + (data.message || 'Unknown') + '</div>';
+        }
+    })
+    .catch(err => {
+        modalBody.innerHTML = '<div class="alert alert-danger">Error: ' + err.message + '</div>';
+        console.error(err);
+    });
+}
+
+/**
+ * Confirm apply and create draft
+ */
+function confirmApplyRecommendation() {
+    const recId = document.getElementById('applyConfirmBtn').dataset.recId;
+    const btn = document.getElementById('applyConfirmBtn');
+    const originalHtml = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⟳</span> Creating...';
+
+    const formData = new FormData();
+    formData.append('recommendation_id', recId);
+    formData.append('csrf_token', CSRF_TOKEN);
+
+    fetch('/crm/api/seo/apply.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        if (data.success) {
+            alert('✓ Draft page created (ID: ' + data.draft_id + ')');
+            $('#applyModal').modal('hide');
+            setTimeout(() => location.reload(), 500);
+        } else {
+            alert('Error: ' + (data.message || 'Unknown'));
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        alert('Error: ' + err.message);
+        console.error(err);
+    });
+}
+
+/**
+ * Mark recommendation as done
+ */
+function markRecommendationDone(recId) {
+    if (!confirm('Mark as done?')) return;
+
+    const formData = new FormData();
+    formData.append('recommendation_id', recId);
+    formData.append('status', 'done');
+    formData.append('csrf_token', CSRF_TOKEN);
+
+    fetch('/crm/api/seo/status.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert('✓ Recommendation marked as done');
+            location.reload();
+        } else {
+            alert('Error: ' + (data.message || 'Unknown'));
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+        console.error(err);
+    });
+}
+
+/**
+ * Escape HTML for safe display
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 </script>
