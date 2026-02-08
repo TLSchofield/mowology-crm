@@ -22,6 +22,10 @@ crm/backup/
 /storage/pdfs/quotes/*.pdf
 /storage/pdfs/invoices/*.pdf
 
+# Weather & geocoding cache (transient data)
+/storage/weather/
+/storage/geocode/
+
 # OS files
 .DS_Store
 Thumbs.db

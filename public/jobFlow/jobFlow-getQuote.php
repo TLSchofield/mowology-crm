@@ -562,13 +562,22 @@ function initAutocomplete() {
         // Log geocodes to console for verification
         console.log('✓ Geocodes extracted - Latitude:', latitude, 'Longitude:', longitude);
 
-        // Extract address components (city, postal code)
+        // Extract address components (street address, city, postal code)
+        let streetAddress = '';
         let city = '';
         let postalCode = '';
 
         if (place.address_components) {
             for (let component of place.address_components) {
                 const types = component.types;
+
+                // Extract street number and street name
+                if (types.includes('street_number')) {
+                    streetAddress = component.long_name + ' ' + streetAddress;
+                }
+                if (types.includes('route')) {
+                    streetAddress = streetAddress + component.long_name;
+                }
 
                 // Extract postal code
                 if (types.includes('postal_code')) {
@@ -579,6 +588,15 @@ function initAutocomplete() {
                 if (types.includes('locality')) {
                     city = component.long_name;
                 }
+            }
+        }
+
+        // Populate address field with street address only (not city/postal)
+        if (streetAddress.trim()) {
+            const addressInput = document.getElementById('address');
+            if (addressInput) {
+                addressInput.value = streetAddress.trim();
+                console.log('✓ Address populated:', streetAddress.trim());
             }
         }
 
