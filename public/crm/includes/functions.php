@@ -268,7 +268,7 @@ function createJobFromQuote($quoteId, $userId) {
 
         // Create ROI attribution (link job to lead event)
         if (!empty($quote['lead_event_id'])) {
-            require_once dirname(__DIR__) . '/crm/includes/roi-functions.php';
+            require_once __DIR__ . '/roi-functions.php';
             createROIAttribution(
                 $jobId,
                 (int)$quote['lead_event_id'],
@@ -285,7 +285,7 @@ function createJobFromQuote($quoteId, $userId) {
         $contactStmt->execute([$quoteId]);
         $contactRow = $contactStmt->fetch(PDO::FETCH_ASSOC);
         if (!empty($contactRow['contact_id'])) {
-            require_once dirname(__DIR__) . '/crm/includes/roi-functions.php';
+            require_once __DIR__ . '/roi-functions.php';
             updateContactToClient((int)$contactRow['contact_id']);
         }
 
