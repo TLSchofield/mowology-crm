@@ -105,6 +105,7 @@ $activePage = 'products';
                 </div>
                 <div class="modal-body">
                   <form id="productForm">
+                    <input type="hidden" name="id" value="">
 
                     <!-- Basic Information -->
                     <div class="mw-product-form-section">
@@ -753,9 +754,33 @@ $activePage = 'products';
               $('#productModal').modal('show');
             }
 
-            // Edit product (placeholder)
+            // Edit product
             function editProduct(productId) {
-              alert('Edit product ' + productId + ' - feature coming soon');
+              const product = allProducts.find(p => p.id === productId);
+              if (!product) {
+                alert('Product not found');
+                return;
+              }
+
+              // Populate form with product data
+              const form = document.getElementById('productForm');
+              form.elements['id'].value = product.id;
+              form.elements['name'].value = product.name;
+              form.elements['sku'].value = product.sku || '';
+              form.elements['category_id'].value = product.category_id;
+              form.elements['unit_type_id'].value = product.unit_type_id;
+              form.elements['description'].value = product.description || '';
+              form.elements['long_description'].value = product.long_description || '';
+              form.elements['image_url'].value = product.image_url || '';
+              form.elements['base_cost'].value = product.base_cost;
+              form.elements['base_price'].value = product.base_price;
+              form.elements['markup_percentage'].value = product.markup_percentage;
+              form.elements['taxable'].checked = product.taxable;
+              form.elements['gst_rate'].value = product.gst_rate;
+              form.elements['pst_rate'].value = product.pst_rate;
+
+              document.getElementById('modalTitle').textContent = 'Edit Product/Service';
+              $('#productModal').modal('show');
             }
 
             // Save product

@@ -19,9 +19,9 @@ if (!$user || $user['role'] !== 'admin') {
 
 $db = getDB();
 
-// Get latest snapshot
+// Get latest snapshot with correct ID aliases
 $stmt = $db->prepare("
-    SELECT gp.id, gp.site_url, gs.snapshot_date, gs.data_json, gs.pulled_at
+    SELECT gs.id AS snapshot_id, gs.property_id, gp.site_url, gs.snapshot_date, gs.data_json, gs.pulled_at
     FROM gsc_snapshots gs
     JOIN gsc_properties gp ON gs.property_id = gp.id
     ORDER BY gs.snapshot_date DESC
@@ -41,7 +41,7 @@ if ($latestSnapshot) {
         ORDER BY impressions DESC
         LIMIT 20
     ");
-    $stmt->execute([$latestSnapshot['id']]);
+    $stmt->execute([$latestSnapshot['snapshot_id']]);
     $topQueries = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -56,7 +56,7 @@ if ($latestSnapshot) {
         ORDER BY clicks DESC
         LIMIT 20
     ");
-    $stmt->execute([$latestSnapshot['id']]);
+    $stmt->execute([$latestSnapshot['snapshot_id']]);
     $topPages = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
@@ -72,7 +72,7 @@ if ($latestSnapshot) {
         ORDER BY impressions DESC
         LIMIT 10
     ");
-    $stmt->execute([$latestSnapshot['id']]);
+    $stmt->execute([$latestSnapshot['snapshot_id']]);
     $lowCTR = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 

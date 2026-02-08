@@ -15,11 +15,33 @@ if (php_sapi_name() !== 'cli') {
     $user = getCurrentUser();
     if (!$user || $user['role'] !== 'admin') {
         http_response_code(403);
-        die('Admin access required');
+        header('Content-Type: application/json');
+        die(json_encode(['success' => false, 'message' => 'Admin access required']));
+    }
+
+    // Verify CSRF token on web requests
+    $csrfToken = $_POST['csrf_token'] ?? '';
+    if (!verifyCSRFToken($csrfToken)) {
+        http_response_code(403);
+        header('Content-Type: application/json');
+        die(json_encode(['success' => false, 'message' => 'CSRF token invalid']));
     }
 }
 
 $db = getDB();
+
+/**
+ * Normalize site URL for GSC API and DB storage
+ */
+function normalizeSiteUrl(string $url, string $format = 'db'): string {
+    $domain = preg_replace('|^(https?://)?sc-domain:|', '', $url);
+    $domain = trim($domain, '/');
+
+    if ($format === 'api') {
+        return 'sc-domain:' . $domain;
+    }
+    return $domain;
+}
 
 try {
     // Get GSC properties
@@ -40,13 +62,25 @@ try {
         // Refresh token if expired
         $expiresAt = strtotime($property['expires_at']);
         if ($expiresAt < time()) {
-            $tokenResponse = refreshAccessToken(decryptToken($property['refresh_token_encrypted']));
+            $refreshToken = decryptToken($property['refresh_token_encrypted']);
+
+            if (empty($refreshToken)) {
+                error_log("GSC: No refresh token for property {$property['site_url']}, skipping");
+                $failed++;
+                continue;
+            }
+
+            $tokenResponse = refreshAccessToken($refreshToken);
             if ($tokenResponse) {
                 $accessToken = encryptToken($tokenResponse['access_token']);
-                $expiresAt = date('Y-m-d H:i:s', time() + ($tokenResponse['expires_in'] ?? 3600));
+                $expiresAtNew = date('Y-m-d H:i:s', time() + ($tokenResponse['expires_in'] ?? 3600));
                 $upd = $db->prepare("UPDATE gsc_properties SET access_token_encrypted = ?, expires_at = ? WHERE id = ?");
-                $upd->execute([$accessToken, $expiresAt, $property['id']]);
+                $upd->execute([$accessToken, $expiresAtNew, $property['id']]);
                 $property['access_token_encrypted'] = $accessToken;
+            } else {
+                error_log("GSC: Failed to refresh token for property {$property['site_url']}");
+                $failed++;
+                continue;
             }
         }
 
@@ -76,7 +110,17 @@ try {
             json_encode($gscData, JSON_UNESCAPED_SLASHES)
         ]);
 
-        $snapshotId = $db->lastInsertId();
+        // Get the correct snapshot ID (works for both INSERT and UPDATE)
+        $snapshotQuery = $db->prepare("SELECT id FROM gsc_snapshots WHERE property_id = ? AND snapshot_date = ?");
+        $snapshotQuery->execute([$property['id'], date('Y-m-d')]);
+        $snapshotRow = $snapshotQuery->fetch(PDO::FETCH_ASSOC);
+        $snapshotId = $snapshotRow ? (int)$snapshotRow['id'] : 0;
+
+        if ($snapshotId === 0) {
+            error_log("GSC: Failed to get snapshot ID for property {$property['id']}");
+            $failed++;
+            continue;
+        }
 
         // Parse and store query/page stats
         if (isset($gscData['rows']) && is_array($gscData['rows'])) {
@@ -134,10 +178,16 @@ try {
  * Fetch GSC data via API
  */
 function fetchGSCData($accessToken, $siteUrl) {
-    // Remove protocol for API
-    $site = preg_replace('|^https?://|', '', $siteUrl);
+    if (empty($accessToken)) {
+        error_log("GSC: Empty access token for {$siteUrl}");
+        return null;
+    }
 
-    $ch = curl_init("https://www.googleapis.com/webmasters/v3/sites/sc-domain:$site/searchAnalytics/query");
+    // Convert to API format: sc-domain:mowology.ca
+    $apiSiteUrl = 'sc-domain:' . preg_replace('|^(https?://)?sc-domain:|', '', $siteUrl);
+    $apiSiteUrl = trim($apiSiteUrl, '/');
+
+    $ch = curl_init("https://www.googleapis.com/webmasters/v3/sites/" . rawurlencode($apiSiteUrl) . "/searchAnalytics/query");
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'Authorization: Bearer ' . $accessToken,
@@ -176,6 +226,10 @@ function refreshAccessToken($refreshToken) {
         return null;
     }
 
+    if (empty($refreshToken)) {
+        return null;
+    }
+
     $postData = [
         'client_id' => GOOGLE_CLIENT_ID,
         'client_secret' => GOOGLE_CLIENT_SECRET,
@@ -205,7 +259,7 @@ function refreshAccessToken($refreshToken) {
  * Encrypt token
  */
 function encryptToken($token) {
-    if (!defined('APP_ENCRYPTION_KEY')) {
+    if (!defined('APP_ENCRYPTION_KEY') || !$token) {
         return $token;
     }
 
@@ -218,13 +272,18 @@ function encryptToken($token) {
  * Decrypt token
  */
 function decryptToken($encryptedToken) {
-    if (!defined('APP_ENCRYPTION_KEY')) {
+    if (!defined('APP_ENCRYPTION_KEY') || !$encryptedToken) {
         return $encryptedToken;
     }
 
     $data = base64_decode($encryptedToken);
+    if (!$data) {
+        return '';
+    }
+
     $ivLen = openssl_cipher_iv_length('aes-256-cbc');
     $iv = substr($data, 0, $ivLen);
     $encrypted = substr($data, $ivLen);
-    return openssl_decrypt($encrypted, 'aes-256-cbc', APP_ENCRYPTION_KEY, OPENSSL_RAW_DATA, $iv);
+    $decrypted = openssl_decrypt($encrypted, 'aes-256-cbc', APP_ENCRYPTION_KEY, OPENSSL_RAW_DATA, $iv);
+    return $decrypted ?: '';
 }

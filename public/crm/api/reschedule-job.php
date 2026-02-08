@@ -15,13 +15,58 @@
  */
 
 declare(strict_types=1);
+
+// Suppress any output and capture all headers
+ob_start();
+
+// Catch fatal errors
+set_error_handler(function($errno, $errstr, $errfile, $errline) {
+    error_log("PHP Error [$errno]: $errstr in $errfile:$errline");
+    http_response_code(500);
+    ob_clean();
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'Server error']);
+    exit;
+});
+
+register_shutdown_function(function() {
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        error_log("Fatal PHP Error: " . $error['message']);
+        http_response_code(500);
+        ob_clean();
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Server fatal error']);
+    }
+});
+
 header('Content-Type: application/json');
 
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 
+/**
+ * Log activity to activity_log table
+ */
+function logActivity($db, $userId, $actionType, $description, $jobId = null) {
+    try {
+        $stmt = $db->prepare("
+            INSERT INTO activity_log (user_id, action_type, description, job_id, created_at)
+            VALUES (?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([$userId, $actionType, $description, $jobId]);
+    } catch (Exception $e) {
+        // Silently fail logging to not interrupt main operation
+        error_log("Failed to log activity: " . $e->getMessage());
+    }
+}
+
 requireLogin();
 $user = getCurrentUser();
+
+error_log("=== RESCHEDULE API START ===");
+error_log("User: " . $user['id'] . " (" . $user['role'] . ")");
+error_log("Request method: " . $_SERVER['REQUEST_METHOD']);
 
 // Only allow POST requests
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -30,8 +75,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// Get JSON payload
-$input = json_decode(file_get_contents('php://input'), true);
+// Get JSON payload (read once and reuse)
+$rawInput = file_get_contents('php://input');
+error_log("Reschedule API called with payload: " . $rawInput);
+$input = json_decode($rawInput, true);
 
 if (!$input) {
     http_response_code(400);
@@ -68,8 +115,19 @@ if ($newTimeStart && !preg_match('/^\d{2}:\d{2}:\d{2}$/', $newTimeStart)) {
 try {
     $db = getDB();
 
+    if (!$db) {
+        throw new Exception('Failed to connect to database');
+    }
+
+    error_log("Database connected successfully");
+
     // Verify job exists and user has permission to modify
     $stmt = $db->prepare("SELECT id, company_id, assigned_to FROM jobs WHERE id = ?");
+
+    if (!$stmt) {
+        throw new Exception('Failed to prepare SELECT statement');
+    }
+
     $stmt->execute([$jobId]);
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -106,12 +164,32 @@ try {
     // Add job ID as final parameter
     $params[] = $jobId;
 
-    $updateQuery = "UPDATE jobs SET " . implode(', ', $updateFields) . " WHERE id = ?";
-    $stmt = $db->prepare($updateQuery);
-
-    if (!$stmt->execute($params)) {
-        throw new Exception('Database update failed');
+    $updateFieldsStr = implode(', ', $updateFields);
+    if (empty($updateFieldsStr)) {
+        throw new Exception('No fields to update');
     }
+
+    $updateQuery = "UPDATE jobs SET " . $updateFieldsStr . " WHERE id = ?";
+    error_log("Executing update query: " . $updateQuery);
+    error_log("With parameters: " . json_encode($params));
+
+    $stmt = $db->prepare($updateQuery);
+    if (!$stmt) {
+        $dbError = $db->errorInfo();
+        $errorMsg = is_array($dbError) ? implode(', ', $dbError) : 'Unknown prepare error';
+        error_log("Prepare failed: " . $errorMsg);
+        throw new Exception('Failed to prepare statement: ' . $errorMsg);
+    }
+
+    $result = $stmt->execute($params);
+    if (!$result) {
+        $stmtError = $stmt->errorInfo();
+        $errorMsg = is_array($stmtError) ? implode(', ', $stmtError) : 'Unknown execute error';
+        error_log("Execute failed. Error info: " . $errorMsg);
+        throw new Exception('Database update failed: ' . $errorMsg);
+    }
+
+    error_log("Update succeeded for job ID: " . $jobId);
 
     // Log the reschedule action
     logActivity($db, $user['id'], 'job_rescheduled', "Job {$jobId} rescheduled to {$newDate}" . ($newTimeStart ? " at {$newTimeStart}" : ""), $jobId);
@@ -140,27 +218,25 @@ try {
     ]);
 
 } catch (PDOException $e) {
-    error_log("Database error during job reschedule: " . $e->getMessage());
+    $errorMsg = "Database error during job reschedule: " . $e->getMessage();
+    error_log($errorMsg);
+    error_log("PDO Error Code: " . $e->getCode());
+    $errorInfo = $e->errorInfo;
+    $sqlState = is_array($errorInfo) ? implode(',', $errorInfo) : 'N/A';
+    error_log("SQL State: " . $sqlState);
     http_response_code(500);
+    ob_clean();
     echo json_encode(['error' => 'Database error occurred']);
 } catch (Exception $e) {
-    error_log("Error during job reschedule: " . $e->getMessage());
+    $errorMsg = "Error during job reschedule: " . $e->getMessage();
+    error_log($errorMsg);
+    error_log("Stack trace: " . $e->getTraceAsString());
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    ob_clean();
+    echo json_encode(['error' => 'Reschedule failed: ' . substr($errorMsg, 0, 100)]);
 }
 
-/**
- * Log activity to activity_log table
- */
-function logActivity($db, $userId, $actionType, $description, $jobId = null) {
-    try {
-        $stmt = $db->prepare("
-            INSERT INTO activity_log (user_id, action_type, description, job_id, created_at)
-            VALUES (?, ?, ?, ?, NOW())
-        ");
-        $stmt->execute([$userId, $actionType, $description, $jobId]);
-    } catch (Exception $e) {
-        // Silently fail logging to not interrupt main operation
-        error_log("Failed to log activity: " . $e->getMessage());
-    }
+// Flush output buffer to ensure JSON is sent
+if (ob_get_level() > 0) {
+    ob_end_flush();
 }

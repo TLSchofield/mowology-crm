@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Drag-Drop Test</title>
+    <style>
+        .mw-time-slot {
+            border: 2px solid #ddd;
+            padding: 10px;
+            margin: 5px;
+            min-height: 100px;
+            background: #f9f9f9;
+        }
+
+        .mw-time-slot.drag-over {
+            background: #e6f2ff;
+            border: 2px dashed #2D8659;
+        }
+
+        .mw-job-card-sched {
+            background: white;
+            border-left: 4px solid #2D8659;
+            padding: 8px;
+            margin: 5px 0;
+            cursor: move;
+            border-radius: 4px;
+        }
+
+        .mw-job-card-sched.dragging {
+            opacity: 0.5;
+            background: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Drag-Drop Test</h1>
+    <div id="slot1" class="mw-time-slot" data-date="2026-02-09" data-hour="9">
+        <strong>9:00 AM</strong>
+        <div class="mw-job-card-sched" draggable="true" data-job-id="1" data-scheduled-date="2026-02-09" data-scheduled-time="09:00:00">
+            Job 1: Lawn Mowing
+        </div>
+    </div>
+
+    <div id="slot2" class="mw-time-slot" data-date="2026-02-09" data-hour="10">
+        <strong>10:00 AM</strong>
+    </div>
+
+    <script>
+        let draggedJob = null;
+
+        document.querySelectorAll('.mw-job-card-sched').forEach(card => {
+            card.addEventListener('dragstart', function(e) {
+                draggedJob = this;
+                this.classList.add('dragging');
+                console.log('Drag started on', this.textContent);
+                e.dataTransfer.effectAllowed = 'move';
+            });
+
+            card.addEventListener('dragend', function(e) {
+                draggedJob = null;
+                this.classList.remove('dragging');
+                console.log('Drag ended');
+            });
+        });
+
+        document.querySelectorAll('.mw-time-slot').forEach(slot => {
+            slot.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                this.classList.add('drag-over');
+                console.log('Dragover on slot', this.dataset.hour);
+            });
+
+            slot.addEventListener('dragleave', function(e) {
+                const rect = this.getBoundingClientRect();
+                const x = e.clientX;
+                const y = e.clientY;
+                const isOutside = (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom);
+                if (isOutside) {
+                    this.classList.remove('drag-over');
+                    console.log('Dragleave on slot', this.dataset.hour);
+                }
+            });
+
+            slot.addEventListener('drop', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.classList.remove('drag-over');
+
+                if (draggedJob) {
+                    console.log('Drop detected! Moving job to slot:', this.dataset.hour);
+                    this.appendChild(draggedJob);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

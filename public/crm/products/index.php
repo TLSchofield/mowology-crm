@@ -39,13 +39,6 @@ $activePage = 'products';
                   <span class="mw-badge-tag">Quote Tool</span>
               </a>
 
-              <a href="#" class="mw-tool-card" onclick="alert('Coming soon!'); return false;">
-                  <span class="mw-tool-icon">📋</span>
-                  <h3>Quote Builder</h3>
-                  <p>Create professional quotes, add products, apply GGOB bundles, and send to customers.</p>
-                  <span class="mw-badge-tag warning">Coming Soon</span>
-              </a>
-
               <a href="quote-requests.php" class="mw-tool-card">
                   <span class="mw-tool-icon">📊</span>
                   <h3>Quote Requests</h3>
@@ -53,11 +46,11 @@ $activePage = 'products';
                   <span class="mw-badge-tag">View Requests</span>
               </a>
 
-              <a href="#" class="mw-tool-card" onclick="alert('Coming soon!'); return false;">
+              <a href="categories.php" class="mw-tool-card">
                   <span class="mw-tool-icon">📁</span>
                   <h3>Categories</h3>
                   <p>Organize products into categories for better organization and reporting.</p>
-                  <span class="mw-badge-tag warning">Coming Soon</span>
+                  <span class="mw-badge-tag">Product Organization</span>
               </a>
           </div>
 

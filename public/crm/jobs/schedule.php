@@ -15,6 +15,15 @@ $db = getDB();
 $startDate = isset($_GET['start']) ? $_GET['start'] : date('Y-m-d', strtotime('monday this week'));
 $endDate = date('Y-m-d', strtotime($startDate . ' +6 days'));
 
+// Fetch weather for the week upfront (like dashboard does)
+$weekWeather = [];
+$currentDate = new DateTime($startDate);
+for ($i = 0; $i < 7; $i++) {
+    $dateStr = $currentDate->format('Y-m-d');
+    $weekWeather[$dateStr] = getWeatherForecast('Vancouver', 'BC', $dateStr);
+    $currentDate->modify('+1 day');
+}
+
 // Get jobs for the date range
 $stmt = $db->prepare("
     SELECT
@@ -117,16 +126,27 @@ $activePage = 'schedule';
                   for ($i = 0; $i < 7; $i++):
                       $dateStr = $currentDate->format('Y-m-d');
                       $isToday = ($dateStr === date('Y-m-d'));
+                      $weather = $weekWeather[$dateStr] ?? [];
+                      $icon = getWeatherIcon($weather['condition'] ?? 'Clear');
+                      $high = (int)($weather['temp_high'] ?? 12);
+                      $low = (int)($weather['temp_low'] ?? 8);
+                      $condition = strtolower($weather['condition'] ?? '');
+
+                      // Determine if salting is needed (freezing temps or snow/ice)
+                      $saltNeeded = $low <= 0 || strpos($condition, 'snow') !== false || strpos($condition, 'ice') !== false;
                   ?>
-                      <div class="mw-calendar-date-cell <?php echo $isToday ? 'today' : ''; ?>" data-date="<?php echo $dateStr; ?>" data-day-index="<?php echo $i; ?>">
+                      <div class="mw-calendar-date-cell <?php echo $isToday ? 'today' : ''; ?><?php echo $saltNeeded ? ' salt-needed' : ''; ?>" data-date="<?php echo $dateStr; ?>" data-day-index="<?php echo $i; ?>">
                           <div class="mw-date-number"><?php echo $currentDate->format('j'); ?></div>
-                          <div class="mw-weather-icon" title="<?php echo getWeatherForecast('Vancouver', 'BC', $dateStr)['condition'] ?? 'Clear'; ?>">
-                              <?php
-                              $weather = getWeatherForecast('Vancouver', 'BC', $dateStr);
-                              echo getWeatherIcon($weather['condition'] ?? 'Clear');
-                              ?>
+                          <div class="mw-weather-display">
+                              <div class="mw-weather-icon" title="<?php echo htmlspecialchars($weather['condition'] ?? 'Clear'); ?>">
+                                  <?php echo $icon; ?>
+                              </div>
+                              <div class="mw-weather-condition"><?php echo htmlspecialchars($weather['condition'] ?? 'Clear'); ?></div>
                           </div>
-                          <div class="mw-temp-range"><?php echo (int)$weather['temp_high']; ?>°/<?php echo (int)$weather['temp_low']; ?>°</div>
+                          <div class="mw-temp-range"><?php echo $high; ?>°/<?php echo $low; ?>°</div>
+                          <?php if ($saltNeeded): ?>
+                              <div class="mw-salt-warning" title="Salting required">🧂</div>
+                          <?php endif; ?>
                       </div>
                   <?php
                       $currentDate->modify('+1 day');

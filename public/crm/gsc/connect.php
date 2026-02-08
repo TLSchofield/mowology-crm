@@ -19,6 +19,23 @@ if (!$user || $user['role'] !== 'admin') {
 
 $db = getDB();
 
+/**
+ * Normalize site URL for GSC API and DB storage
+ * @param string $url URL or domain (https://mowology.ca, mowology.ca, sc-domain:mowology.ca)
+ * @param string $format 'api' => sc-domain:mowology.ca | 'db' => mowology.ca
+ * @return string Formatted URL
+ */
+function normalizeSiteUrl(string $url, string $format = 'db'): string {
+    // Remove protocol and sc-domain: prefix if present
+    $domain = preg_replace('|^(https?://)?sc-domain:|', '', $url);
+    $domain = trim($domain, '/');
+
+    if ($format === 'api') {
+        return 'sc-domain:' . $domain;
+    }
+    return $domain; // 'db' format
+}
+
 // Step 1: User initiates connection
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'start') {
     // Generate CSRF token for OAuth state
@@ -39,6 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         'scope' => 'https://www.googleapis.com/auth/webmasters.readonly',
         'state' => $state,
         'access_type' => 'offline',
+        'prompt' => 'consent',  // Force refresh token to be issued every time
     ]);
 
     header('Location: ' . $authUrl);
@@ -66,30 +84,54 @@ if (isset($_GET['step']) && $_GET['step'] === 'callback') {
         die('Failed to exchange OAuth code for tokens');
     }
 
-    // Store tokens in database
-    $stmt = $db->prepare("
-        INSERT INTO gsc_properties (site_url, access_token_encrypted, refresh_token_encrypted, expires_at, connected_at)
-        VALUES (?, ?, ?, ?, NOW())
-        ON DUPLICATE KEY UPDATE
-            access_token_encrypted = VALUES(access_token_encrypted),
-            refresh_token_encrypted = VALUES(refresh_token_encrypted),
-            expires_at = VALUES(expires_at)
-    ");
-
-    $siteUrl = 'https://mowology.ca'; // Production domain
+    $siteUrl = normalizeSiteUrl('mowology.ca', 'db');
     $accessToken = encryptToken($tokenResponse['access_token']);
-    $refreshToken = encryptToken($tokenResponse['refresh_token'] ?? '');
     $expiresAt = date('Y-m-d H:i:s', time() + ($tokenResponse['expires_in'] ?? 3600));
 
-    $stmt->execute([
-        $siteUrl,
-        $accessToken,
-        $refreshToken,
-        $expiresAt
-    ]);
+    // Handle refresh token: preserve existing if new one is empty
+    $newRefreshToken = $tokenResponse['refresh_token'] ?? '';
+
+    if ($newRefreshToken) {
+        // New refresh token provided: use it
+        $refreshToken = encryptToken($newRefreshToken);
+        $stmt = $db->prepare("
+            INSERT INTO gsc_properties (site_url, access_token_encrypted, refresh_token_encrypted, expires_at, connected_at)
+            VALUES (?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE
+                access_token_encrypted = VALUES(access_token_encrypted),
+                refresh_token_encrypted = VALUES(refresh_token_encrypted),
+                expires_at = VALUES(expires_at)
+        ");
+        $stmt->execute([$siteUrl, $accessToken, $refreshToken, $expiresAt]);
+    } else {
+        // No refresh token provided: preserve existing one if it exists
+        $existing = $db->prepare("SELECT refresh_token_encrypted FROM gsc_properties WHERE site_url = ? LIMIT 1");
+        $existing->execute([$siteUrl]);
+        $existingRow = $existing->fetch(PDO::FETCH_ASSOC);
+
+        if ($existingRow && !empty($existingRow['refresh_token_encrypted'])) {
+            // Keep existing refresh token
+            $stmt = $db->prepare("
+                UPDATE gsc_properties
+                SET access_token_encrypted = ?, expires_at = ?
+                WHERE site_url = ?
+            ");
+            $stmt->execute([$accessToken, $expiresAt, $siteUrl]);
+        } else {
+            // No existing token: store empty (will need reconnect with prompt=consent)
+            $stmt = $db->prepare("
+                INSERT INTO gsc_properties (site_url, access_token_encrypted, refresh_token_encrypted, expires_at, connected_at)
+                VALUES (?, ?, ?, ?, NOW())
+                ON DUPLICATE KEY UPDATE
+                    access_token_encrypted = VALUES(access_token_encrypted),
+                    expires_at = VALUES(expires_at)
+            ");
+            $stmt->execute([$siteUrl, $accessToken, '', $expiresAt]);
+        }
+    }
 
     // Log activity
-    logActivity($user['id'], null, 'Google Search Console connected', 'Site: ' . $siteUrl);
+    logActivity($user['id'], null, 'Google Search Console connected', 'Domain: ' . $siteUrl);
 
     header('Location: /crm/portfolio/index.php?tab=insights&connected=1');
     exit;
@@ -102,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         die('CSRF token invalid');
     }
 
-    $siteUrl = 'https://mowology.ca'; // Production domain
+    $siteUrl = normalizeSiteUrl('mowology.ca', 'db');
     $stmt = $db->prepare("DELETE FROM gsc_properties WHERE site_url = ?");
     $stmt->execute([$siteUrl]);
 
@@ -113,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Default: show connection status
-$siteUrl = 'https://mowology.ca'; // Production domain
+$siteUrl = normalizeSiteUrl('mowology.ca', 'db');
 $stmt = $db->prepare("SELECT connected_at, expires_at FROM gsc_properties WHERE site_url = ? LIMIT 1");
 $stmt->execute([$siteUrl]);
 $gscStatus = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -211,8 +253,8 @@ function exchangeOAuthCode($code) {
  * Encrypt token for storage
  */
 function encryptToken($token) {
-    if (!defined('APP_ENCRYPTION_KEY')) {
-        return $token; // Fallback: no encryption
+    if (!defined('APP_ENCRYPTION_KEY') || !$token) {
+        return $token; // Fallback: no encryption or empty token
     }
 
     $iv = openssl_random_pseudo_bytes(openssl_cipher_iv_length('aes-256-cbc'));
@@ -224,13 +266,18 @@ function encryptToken($token) {
  * Decrypt token from storage
  */
 function decryptToken($encryptedToken) {
-    if (!defined('APP_ENCRYPTION_KEY')) {
-        return $encryptedToken; // Fallback: no encryption
+    if (!defined('APP_ENCRYPTION_KEY') || !$encryptedToken) {
+        return $encryptedToken; // Fallback: no encryption or empty token
     }
 
     $data = base64_decode($encryptedToken);
+    if (!$data) {
+        return ''; // Invalid base64
+    }
+
     $ivLen = openssl_cipher_iv_length('aes-256-cbc');
     $iv = substr($data, 0, $ivLen);
     $encrypted = substr($data, $ivLen);
-    return openssl_decrypt($encrypted, 'aes-256-cbc', APP_ENCRYPTION_KEY, OPENSSL_RAW_DATA, $iv);
+    $decrypted = openssl_decrypt($encrypted, 'aes-256-cbc', APP_ENCRYPTION_KEY, OPENSSL_RAW_DATA, $iv);
+    return $decrypted ?: '';
 }

@@ -367,15 +367,18 @@ $activePage = 'portfolio';
                                           <td><?php echo intval($project['display_order']); ?></td>
                                           <td><?php echo formatDate($project['created_at']); ?></td>
                                           <td>
-                                              <div class="btn-group btn-group-sm" role="group">
-                                                  <a href="view.php?id=<?php echo $project['id']; ?>" class="btn btn-outline-primary" title="View">
-                                                      <i data-feather="eye"></i>
+                                              <div class="mw-action-buttons">
+                                                  <a href="view.php?id=<?php echo $project['id']; ?>" class="mw-action-btn mw-action-view" title="View project details">
+                                                      <i data-feather="eye" style="width: 16px; height: 16px; margin-right: 4px;"></i>
+                                                      <span class="mw-action-label">View</span>
                                                   </a>
-                                                  <a href="edit.php?id=<?php echo $project['id']; ?>" class="btn btn-outline-secondary" title="Edit">
-                                                      <i data-feather="edit"></i>
+                                                  <a href="edit.php?id=<?php echo $project['id']; ?>" class="mw-action-btn mw-action-edit" title="Edit project information">
+                                                      <i data-feather="edit" style="width: 16px; height: 16px; margin-right: 4px;"></i>
+                                                      <span class="mw-action-label">Edit</span>
                                                   </a>
-                                                  <button type="button" class="btn btn-outline-danger" title="Delete" onclick="deleteProject(<?php echo $project['id']; ?>)">
-                                                      <i data-feather="trash-2"></i>
+                                                  <button type="button" class="mw-action-btn mw-action-delete" title="Delete this project" onclick="deleteProject(<?php echo $project['id']; ?>)">
+                                                      <i data-feather="trash-2" style="width: 16px; height: 16px; margin-right: 4px;"></i>
+                                                      <span class="mw-action-label">Delete</span>
                                                   </button>
                                               </div>
                                           </td>
@@ -403,7 +406,12 @@ $activePage = 'portfolio';
                   <div class="card-body">
                       <div class="d-flex justify-content-between align-items-center">
                           <h5 class="card-title mb-0"><i data-feather="bar-chart-2"></i> Google Search Console Insights</h5>
-                          <a href="/crm/gsc/connect.php" class="btn btn-sm btn-primary">Manage Connection</a>
+                          <div class="d-flex gap-2">
+                              <button class="btn btn-sm btn-outline-secondary" id="syncGscBtn" onclick="syncGSCData()">
+                                  <i data-feather="refresh-cw" style="width: 14px; height: 14px; display: inline;"></i> Sync Now
+                              </button>
+                              <a href="/crm/gsc/connect.php" class="btn btn-sm btn-primary">Manage Connection</a>
+                          </div>
                       </div>
                   </div>
               </div>
@@ -934,4 +942,54 @@ function deleteProject(projectId) {
         window.location.href = 'delete.php?id=' + projectId;
     }
 }
+
+function syncGSCData() {
+    const btn = document.getElementById('syncGscBtn');
+    const originalHtml = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⟳</span> Syncing...';
+
+    const formData = new FormData();
+    formData.append('csrf_token', CSRF_TOKEN);
+
+    fetch('/crm/gsc/sync-cron.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Sync failed: ' + response.statusText);
+        }
+        return response.json();
+    })
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+
+        if (data.success) {
+            alert('✓ GSC data synced successfully! ' + (data.message || ''));
+            // Reload page to show updated data
+            setTimeout(() => location.reload(), 500);
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        alert('Sync error: ' + err.message);
+        console.error('GSC sync error:', err);
+    });
+}
+
+// Spinner animation
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+`;
+document.head.appendChild(style);
 </script>

@@ -28,9 +28,22 @@
     jobCards.forEach((card) => {
       card.addEventListener('dragstart', handleDragStart);
       card.addEventListener('dragend', handleDragEnd);
+      // Also listen for drag events on the card itself (so they bubble to parent slot)
+      card.addEventListener('dragover', handleDragOver);
+      card.addEventListener('dragleave', handleDragLeave);
+      card.addEventListener('drop', handleDrop);
     });
 
-    // Get all drop zones (calendar days)
+    // Get all drop zones (time slots in hourly grid)
+    const timeSlots = document.querySelectorAll('.mw-time-slot');
+
+    timeSlots.forEach((slot) => {
+      slot.addEventListener('dragover', handleDragOver);
+      slot.addEventListener('dragleave', handleDragLeave);
+      slot.addEventListener('drop', handleDrop);
+    });
+
+    // Also allow dropping on day containers (for other calendar views)
     const dayContainers = document.querySelectorAll('.mw-day-jobs-container');
 
     dayContainers.forEach((container) => {
@@ -39,8 +52,9 @@
       container.addEventListener('drop', handleDrop);
     });
 
-    // Also allow dropping on empty calendar days
+    // And on calendar days
     const calendarDays = document.querySelectorAll('.mw-calendar-day');
+
     calendarDays.forEach((day) => {
       day.addEventListener('dragover', handleDragOver);
       day.addEventListener('dragleave', handleDragLeave);
@@ -82,13 +96,23 @@
    */
   function handleDragOver(e) {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
 
-    // Add visual feedback
-    if (this.classList.contains('mw-day-jobs-container')) {
-      this.classList.add('drag-over');
-    } else if (this.classList.contains('mw-calendar-day')) {
-      this.classList.add('drag-over');
+    // Add visual feedback - handle both the slot and items inside it
+    let target = this;
+
+    // If this is a job card inside a time slot, bubble up to the slot
+    if (!target.classList.contains('mw-time-slot') &&
+        !target.classList.contains('mw-day-jobs-container') &&
+        !target.classList.contains('mw-calendar-day')) {
+      target = target.closest('.mw-time-slot') ||
+               target.closest('.mw-day-jobs-container') ||
+               target.closest('.mw-calendar-day');
+    }
+
+    if (target) {
+      target.classList.add('drag-over');
     }
   }
 
@@ -96,9 +120,28 @@
    * Handle drag leave
    */
   function handleDragLeave(e) {
-    // Only remove if leaving the actual element, not a child
-    if (e.target === this) {
-      this.classList.remove('drag-over');
+    // Determine the actual drop zone (in case this is a child element)
+    let target = this;
+    if (!target.classList.contains('mw-time-slot') &&
+        !target.classList.contains('mw-day-jobs-container') &&
+        !target.classList.contains('mw-calendar-day')) {
+      target = target.closest('.mw-time-slot') ||
+               target.closest('.mw-day-jobs-container') ||
+               target.closest('.mw-calendar-day');
+    }
+
+    if (!target) return;
+
+    // Check if we're leaving this element (not just leaving a child)
+    // For time slots, check if the relatedTarget is outside
+    const rect = target.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+
+    const isOutside = (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom);
+
+    if (isOutside) {
+      target.classList.remove('drag-over');
     }
   }
 
@@ -111,38 +154,67 @@
 
     if (!draggedJob) return;
 
-    let targetContainer = this;
-    let targetDay = null;
+    let newDate = null;
+    let newTime = null;
+    let dropZone = this;
 
-    // If dropped on container, get parent day
-    if (this.classList.contains('mw-day-jobs-container')) {
-      targetDay = this.closest('.mw-calendar-day');
-      targetContainer = this;
-    } else if (this.classList.contains('mw-calendar-day')) {
-      targetDay = this;
-      targetContainer = this.querySelector('.mw-day-jobs-container');
+    // Find the actual drop zone (time slot, day container, or calendar day)
+    if (!dropZone.classList.contains('mw-time-slot') &&
+        !dropZone.classList.contains('mw-day-jobs-container') &&
+        !dropZone.classList.contains('mw-calendar-day')) {
+      // We might have dropped on a child element, bubble up
+      dropZone = dropZone.closest('.mw-time-slot') ||
+                 dropZone.closest('.mw-day-jobs-container') ||
+                 dropZone.closest('.mw-calendar-day');
     }
 
-    this.classList.remove('drag-over');
+    if (!dropZone) return;
 
-    if (!targetDay) return;
+    // If dropped on a time slot (hourly grid view)
+    if (dropZone.classList.contains('mw-time-slot')) {
+      newDate = dropZone.dataset.date;
+      const hour = parseInt(dropZone.dataset.hour, 10);
+      console.log('Dropped on time slot:', {
+        'data-date': dropZone.dataset.date,
+        'data-hour': dropZone.dataset.hour,
+        'parsed hour': hour,
+        newDate,
+        newTime: hour >= 0 ? `${String(hour).padStart(2, '0')}:00:00` : 'undefined'
+      });
+      if (hour >= 0) {
+        newTime = `${String(hour).padStart(2, '0')}:00:00`;
+      }
+      dropZone.classList.remove('drag-over');
+    }
+    // If dropped on container (day view), get parent day
+    else if (dropZone.classList.contains('mw-day-jobs-container')) {
+      const targetDay = dropZone.closest('.mw-calendar-day');
+      if (!targetDay) return;
+      newDate = targetDay.dataset.date;
+      dropZone.classList.remove('drag-over');
+    }
+    // If dropped on calendar day directly
+    else if (dropZone.classList.contains('mw-calendar-day')) {
+      newDate = dropZone.dataset.date;
+      dropZone.classList.remove('drag-over');
+    }
 
-    const newDate = targetDay.dataset.date;
+    if (!newDate) return;
 
-    // If dropped on same date, ask about time change
-    if (newDate === originalDate) {
-      showFeedback('Job not moved (same day)', 'warning');
+    // If dropped on same date and time, don't reschedule
+    if (newDate === originalDate && (!newTime || newTime === originalTime)) {
+      showFeedback('Job not moved (same slot)', 'warning');
       return;
     }
 
     // Reschedule the job
-    rescheduleJob(draggedJob, newDate, null, targetContainer);
+    rescheduleJob(draggedJob, newDate, newTime);
   }
 
   /**
    * Reschedule job via API
    */
-  function rescheduleJob(jobCard, newDate, newTime, targetContainer) {
+  function rescheduleJob(jobCard, newDate, newTime) {
     const jobId = parseInt(jobCard.dataset.jobId);
     const jobNumber = jobCard.dataset.jobNumber;
 
@@ -156,12 +228,28 @@
       payload.scheduled_time_start = newTime;
     }
 
+    // Validate payload before sending
+    if (!newDate || !newDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      showFeedback('Invalid date format: "' + newDate + '"', 'validation');
+      console.error('Date validation failed:', { newDate, jobId, jobNumber });
+      return;
+    }
+
+    if (newTime && !newTime.match(/^\d{2}:\d{2}:\d{2}$/)) {
+      showFeedback('Invalid time format: "' + newTime + '"', 'validation');
+      console.error('Time validation failed:', { newTime, jobId, jobNumber });
+      return;
+    }
+
     // Show loading state
     jobCard.style.opacity = '0.6';
     showFeedback('Updating schedule...', 'loading');
 
-    // Send API request
-    fetch('/crm/api/reschedule-job.php', {
+    // Log the payload being sent for debugging
+    console.log('Sending reschedule request:', { payload, jobId, jobNumber, newDate, newTime });
+
+    // Send API request (using simplified version for debugging)
+    fetch('/crm/api/reschedule-job-simple.php', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -171,19 +259,24 @@
       .then((response) => {
         if (!response.ok) {
           return response.json().then((data) => {
-            throw new Error(data.error || 'Failed to reschedule job');
+            const errorMsg = data.error || 'Failed to reschedule job';
+            console.error('API error response:', { status: response.status, data });
+            throw new Error(errorMsg);
+          }).catch((parseError) => {
+            console.error('Failed to parse error response:', parseError);
+            throw new Error('Server error: ' + response.status);
           });
         }
         return response.json();
       })
       .then((data) => {
-        // Move card to new container
-        if (targetContainer && !targetContainer.querySelector('.mw-empty-day')) {
-          targetContainer.appendChild(jobCard);
-        }
+        console.log('Reschedule successful:', data);
 
         // Update data attributes
         jobCard.dataset.scheduledDate = newDate;
+        if (newTime) {
+          jobCard.dataset.scheduledTime = newTime;
+        }
         jobCard.style.opacity = '1';
 
         // Show success message
@@ -193,18 +286,26 @@
           month: 'short',
           day: 'numeric',
         });
+        const timeStr = newTime ? ` at ${newTime.substring(0, 5)}` : '';
         showFeedback(
-          `${jobNumber} rescheduled to ${dateStr}`,
+          `${jobNumber} rescheduled to ${dateStr}${timeStr}`,
           'success'
         );
+
+        // Refresh the page after 2 seconds to show the job in its new location
+        setTimeout(() => {
+          location.reload();
+        }, 2000);
 
         draggedJob = null;
       })
       .catch((error) => {
         // Restore original state
         jobCard.style.opacity = '1';
-        showFeedback(`Error: ${error.message}`, 'error');
+        const errorMsg = error.message || 'Failed to reschedule job';
+        showFeedback(`API Error: ${errorMsg}`, 'error');
         console.error('Reschedule error:', error);
+        console.error('Full error:', error);
 
         draggedJob = null;
       });
@@ -225,8 +326,18 @@
 
     feedbackEl.style.display = 'block';
 
-    // Auto-hide after 3 seconds (5 seconds for loading)
-    const timeout = type === 'loading' ? 10000 : 3000;
+    // Auto-hide timing: errors and validation messages stay longer for analysis
+    let timeout;
+    if (type === 'error' || type === 'validation') {
+      timeout = 30000; // 30 seconds for errors and validation issues
+    } else if (type === 'loading') {
+      timeout = 10000; // 10 seconds for loading
+    } else if (type === 'success') {
+      timeout = 5000; // 5 seconds for success
+    } else {
+      timeout = 3000; // 3 seconds default
+    }
+
     setTimeout(() => {
       feedbackEl.style.display = 'none';
     }, timeout);

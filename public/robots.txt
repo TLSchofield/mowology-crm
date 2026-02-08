@@ -1,28 +1,23 @@
-# If the Joomla site is installed within a folder
-# eg www.example.com/joomla/ then the robots.txt file
-# MUST be moved to the site root
-# eg www.example.com/robots.txt
-# AND the joomla folder name MUST be prefixed to all of the
-# paths.
-# eg the Disallow rule for the /administrator/ folder MUST
-# be changed to read
-# Disallow: /joomla/administrator/
-#
-# For more information about the robots.txt standard, see:
-# https://www.robotstxt.org/orig.html
+# Mowology Landscaping - robots.txt
+# https://www.robotstxt.org/
 
 User-agent: *
-Disallow: /administrator/
-Disallow: /bin/
-Disallow: /cache/
-Disallow: /cli/
-Disallow: /components/
+Allow: /
+Disallow: /app_config/
+Disallow: /crm/
+Disallow: /jobFlow/
+Disallow: /customer/
+Disallow: /loginAuth/
+Disallow: /sessions/
+Disallow: /uploads/
 Disallow: /includes/
-Disallow: /installation/
-Disallow: /language/
-Disallow: /layouts/
-Disallow: /libraries/
-Disallow: /logs/
-Disallow: /modules/
-Disallow: /plugins/
-Disallow: /tmp/
+Disallow: /crinum/
+Disallow: /DEBUG_UTILITY.php
+Disallow: /POPULATE_TEST_DATA.php
+Disallow: /api/
+
+# Crawl delay to respect server resources
+Crawl-delay: 1
+
+# Sitemap location
+Sitemap: https://mowology.ca/sitemap.xml
