@@ -3165,3 +3165,198 @@ a:hover {
 .mw-view-toggle-btn:hover {
   border-color: var(--mw-green);
 }
+
+/* Business Settings Page */
+.mw-settings-nav {
+  border-bottom: 2px solid #dee2e6 !important;
+}
+
+.mw-settings-nav .nav-link {
+  color: #6c757d;
+  border: none;
+  border-bottom: 3px solid transparent;
+  font-weight: 500;
+  padding: 10px 20px;
+  transition: all 0.2s;
+}
+
+.mw-settings-nav .nav-link:hover {
+  color: var(--mw-green);
+  border-bottom-color: var(--mw-green);
+}
+
+.mw-settings-nav .nav-link.active {
+  color: var(--mw-green);
+  border-bottom-color: var(--mw-green);
+  background: transparent;
+}
+
+.tab-content {
+  padding: 20px 0;
+}
+
+.form-control-color {
+  height: 38px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.form-control-color:focus {
+  border-color: var(--mw-green);
+  box-shadow: 0 0 0 0.2rem rgba(45, 134, 89, 0.25);
+}
+
+#logoPreview {
+  border-radius: 6px;
+}
+
+#logoPreview img {
+  object-fit: contain;
+}
+
+.card {
+  border-color: #dee2e6;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.card-header {
+  background: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  padding: 15px 20px;
+}
+
+.card-header .card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #212529;
+}
+
+.card-body {
+  padding: 20px;
+}
+
+.form-label {
+  font-weight: 500;
+  color: #212529;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.form-control,
+.form-select {
+  border-color: #ced4da;
+  font-size: 14px;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--mw-green);
+  box-shadow: 0 0 0 0.2rem rgba(45, 134, 89, 0.25);
+}
+
+textarea.form-control {
+  resize: vertical;
+  font-family: inherit;
+}
+
+textarea.font-monospace {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'monospace' !important;
+  font-size: 12px;
+}
+
+.alert {
+  border: none;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.alert-danger {
+  background-color: #f8d7da;
+  color: #721c24;
+  padding: 12px 20px;
+}
+
+.alert-success {
+  background-color: #d4edda;
+  color: #155724;
+  padding: 12px 20px;
+}
+
+.spinner-border {
+  width: 3rem;
+  height: 3rem;
+}
+
+.btn {
+  font-weight: 500;
+  border-radius: 6px;
+  transition: all 0.2s;
+  padding: 10px 24px;
+  font-size: 14px;
+}
+
+.btn-primary {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--mw-dark);
+  border-color: var(--mw-dark);
+  color: #fff;
+}
+
+.btn-primary:disabled {
+  background: #6c757d;
+  border-color: #6c757d;
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: #6c757d;
+  border-color: #6c757d;
+  color: #fff;
+}
+
+.btn-secondary:hover {
+  background: #5a6268;
+  border-color: #5a6268;
+}
+
+.btn-lg {
+  padding: 12px 32px;
+  font-size: 15px;
+}
+
+.input-group .form-control:focus ~ .form-control-color,
+.input-group .form-control-color:focus {
+  z-index: 5;
+}
+
+.text-danger {
+  color: #dc3545;
+}
+
+.text-muted {
+  color: #6c757d !important;
+}
+
+.small {
+  font-size: 0.875rem;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .mw-settings-nav .nav-link {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .card {
+    margin-bottom: 15px;
+  }
+}
