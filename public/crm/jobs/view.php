@@ -189,7 +189,7 @@ if (isset($_GET['rescheduled'])) { $message = 'Job rescheduled!'; $messageType =
 if (isset($_GET['note_added'])) { $message = 'Note added!'; $messageType = 'success'; }
 if (isset($_GET['photo_added'])) { $message = 'Photo uploaded!'; $messageType = 'success'; }
 
-$pageTitle = 'Job ' . htmlspecialchars($job['job_number']);
+$pageTitle = 'Job ' . htmlspecialchars($job['job_number'] ?? 'Unknown');
 $activePage = 'jobs';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
@@ -206,7 +206,7 @@ $activePage = 'jobs';
                     <div class="mt-2">
                         <?php echo getStatusBadge($job['status'], 'job'); ?>
                         <span class="ml-3 text-muted">
-                            <?php echo htmlspecialchars($job['title']); ?>
+                            <?php echo htmlspecialchars($job['title'] ?? ''); ?>
                         </span>
                     </div>
                 </div>
@@ -274,7 +274,7 @@ $activePage = 'jobs';
                         <div class="card-body">
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Company</span>
-                                <span class="mw-detail-value"><?php echo htmlspecialchars($job['company_name']); ?></span>
+                                <span class="mw-detail-value"><?php echo htmlspecialchars($job['company_name'] ?? 'N/A'); ?></span>
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Contact</span>
@@ -285,15 +285,23 @@ $activePage = 'jobs';
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Phone</span>
                                 <span class="mw-detail-value">
-                                    <a href="tel:<?php echo htmlspecialchars($job['contact_phone'] ?: $job['billing_phone']); ?>">
-                                        <?php echo htmlspecialchars($job['contact_phone'] ?: $job['billing_phone'] ?: 'N/A'); ?>
-                                    </a>
+                                    <?php $phone = $job['contact_phone'] ?: $job['billing_phone']; ?>
+                                    <?php if ($phone): ?>
+                                        <a href="tel:<?php echo htmlspecialchars($phone); ?>">
+                                            <?php echo htmlspecialchars($phone); ?>
+                                        </a>
+                                    <?php else: ?>
+                                        N/A
+                                    <?php endif; ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
                                 <span class="mw-detail-label">Property</span>
                                 <span class="mw-detail-value">
-                                    <?php echo htmlspecialchars($job['property_address'] . ', ' . $job['property_city']); ?>
+                                    <?php
+                                        $propertyDisplay = trim(($job['property_address'] ?? '') . ', ' . ($job['property_city'] ?? ''));
+                                        echo htmlspecialchars($propertyDisplay ?: 'N/A');
+                                    ?>
                                 </span>
                             </div>
 
