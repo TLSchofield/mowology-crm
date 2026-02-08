@@ -105,6 +105,7 @@ try {
     }
 
     if (php_sapi_name() !== 'cli') {
+        header('Content-Type: application/json');
         die(json_encode([
             'success' => true,
             'pulled' => $pulled,
@@ -119,6 +120,7 @@ try {
     error_log("GSC sync error: " . $e->getMessage());
     if (php_sapi_name() !== 'cli') {
         http_response_code(500);
+        header('Content-Type: application/json');
         die(json_encode(['success' => false, 'message' => $e->getMessage()]));
     } else {
         echo "Error: " . $e->getMessage() . "\n";
@@ -143,12 +145,12 @@ function fetchGSCData($accessToken, $siteUrl) {
     ]);
     curl_setopt($ch, CURLOPT_POST, true);
 
-    // Request last 28 days of data
+    // Request last 28 days of data for sc-domain:mowology.ca
     $requestBody = [
         'startDate' => date('Y-m-d', strtotime('-28 days')),
         'endDate' => date('Y-m-d', strtotime('-1 day')),
         'dimensions' => ['query', 'page'],
-        'rowLimit' => 10000,
+        'rowLimit' => 25000,
     ];
 
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($requestBody));
