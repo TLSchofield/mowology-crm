@@ -97,8 +97,10 @@ $activePage = 'schedule';
               <?php endforeach; ?>
           </div>
 
+          <!-- Hourly Calendar with Time Grid -->
           <div class="mw-calendar-container">
               <div class="mw-calendar-header">
+                  <div class="mw-calendar-time-label">TIME</div>
                   <div class="mw-calendar-header-cell">Monday</div>
                   <div class="mw-calendar-header-cell">Tuesday</div>
                   <div class="mw-calendar-header-cell">Wednesday</div>
@@ -108,85 +110,78 @@ $activePage = 'schedule';
                   <div class="mw-calendar-header-cell">Sunday</div>
               </div>
 
-              <div class="mw-calendar-grid">
+              <div class="mw-calendar-dates-header">
+                  <div class="mw-calendar-time-label"></div>
                   <?php
                   $currentDate = new DateTime($startDate);
-                  $today = date('Y-m-d');
-
                   for ($i = 0; $i < 7; $i++):
                       $dateStr = $currentDate->format('Y-m-d');
-                      $dayJobs = $jobsByDate[$dateStr] ?? [];
-                      $isToday = ($dateStr === $today);
-
-                      // Get weather for this day
-                      $weather = getWeatherForecast('Vancouver', 'BC', $dateStr);
-                      $weatherIcon = getWeatherIcon($weather['condition'] ?? 'Clear');
-                      $workSuitability = getWorkSuitability($weather);
-                      $suitabilityClass = $workSuitability >= 70 ? 'good' : ($workSuitability >= 40 ? 'fair' : 'poor');
+                      $isToday = ($dateStr === date('Y-m-d'));
                   ?>
-                      <div class="mw-calendar-day <?php echo $isToday ? 'today' : ''; ?>" data-date="<?php echo $dateStr; ?>" data-day-index="<?php echo $i; ?>">
-                          <div class="mw-day-header">
-                              <div>
-                                  <span class="mw-day-number"><?php echo $currentDate->format('j'); ?></span>
-                                  <span class="mw-day-name"><?php echo $currentDate->format('D'); ?></span>
-                              </div>
-                              <?php if (count($dayJobs) > 0): ?>
-                                  <span class="mw-job-count"><?php echo count($dayJobs); ?> job<?php echo count($dayJobs) > 1 ? 's' : ''; ?></span>
-                              <?php endif; ?>
+                      <div class="mw-calendar-date-cell <?php echo $isToday ? 'today' : ''; ?>" data-date="<?php echo $dateStr; ?>" data-day-index="<?php echo $i; ?>">
+                          <div class="mw-date-number"><?php echo $currentDate->format('j'); ?></div>
+                          <div class="mw-weather-icon" title="<?php echo getWeatherForecast('Vancouver', 'BC', $dateStr)['condition'] ?? 'Clear'; ?>">
+                              <?php
+                              $weather = getWeatherForecast('Vancouver', 'BC', $dateStr);
+                              echo getWeatherIcon($weather['condition'] ?? 'Clear');
+                              ?>
                           </div>
-
-                          <!-- Weather Forecast -->
-                          <div class="mw-day-weather weather-<?php echo $suitabilityClass; ?>">
-                              <div class="mw-day-weather-header">
-                                  <span class="mw-day-weather-icon"><?php echo $weatherIcon; ?></span>
-                                  <span class="mw-day-weather-temp"><?php echo (int)$weather['temp_high']; ?>°/<?php echo (int)$weather['temp_low']; ?>°</span>
-                              </div>
-                              <div class="mw-day-weather-condition"><?php echo htmlspecialchars($weather['condition'] ?? 'Clear'); ?></div>
-                              <div>
-                                  <span class="mw-day-weather-precip">💧 <?php echo (int)$weather['precipitation']; ?>%</span>
-                                  <span class="mw-day-weather-wind">💨 <?php echo (int)$weather['wind']; ?> km/h</span>
-                              </div>
-                              <div class="mw-suitability-badge mw-suitability-<?php echo $suitabilityClass; ?>">
-                                  <?php if ($workSuitability >= 70): ?>
-                                      ✓ Good for work
-                                  <?php elseif ($workSuitability >= 40): ?>
-                                      ⚠ Fair conditions
-                                  <?php else: ?>
-                                      ✗ Poor conditions
-                                  <?php endif; ?>
-                              </div>
-                          </div>
-
-                          <div class="mw-day-jobs-container">
-                              <?php if (empty($dayJobs)): ?>
-                                  <div class="mw-empty-day">No jobs</div>
-                              <?php else: ?>
-                                  <?php foreach ($dayJobs as $job): ?>
-                                      <div class="mw-job-card-sched <?php echo $job['status'] === 'in_progress' ? 'in-progress' : ''; ?>"
-                                           data-job-id="<?php echo $job['id']; ?>"
-                                           data-job-number="<?php echo htmlspecialchars($job['job_number']); ?>"
-                                           data-scheduled-date="<?php echo $job['scheduled_date']; ?>"
-                                           data-scheduled-time="<?php echo $job['scheduled_time_start'] ?? ''; ?>"
-                                           draggable="true"
-                                           style="border-left-color: <?php echo getServiceColor($job['service_type']); ?>">
-                                          <?php if ($job['scheduled_time_start']): ?>
-                                              <div class="mw-job-time"><?php echo date('g:i A', strtotime($job['scheduled_time_start'])); ?></div>
-                                          <?php endif; ?>
-                                          <div class="mw-job-title-sched"><?php echo htmlspecialchars($job['title'] ?: $job['job_number']); ?></div>
-                                          <div class="mw-job-client-sched"><?php echo htmlspecialchars($job['company_name']); ?></div>
-                                          <?php if ($job['assigned_to_name']): ?>
-                                              <div class="mw-job-assigned-sched"><?php echo htmlspecialchars($job['assigned_to_name']); ?></div>
-                                          <?php endif; ?>
-                                          <a href="view.php?id=<?php echo $job['id']; ?>" class="mw-job-card-view-link" title="View job details">View</a>
-                                      </div>
-                                  <?php endforeach; ?>
-                              <?php endif; ?>
-                          </div>
+                          <div class="mw-temp-range"><?php echo (int)$weather['temp_high']; ?>°/<?php echo (int)$weather['temp_low']; ?>°</div>
                       </div>
                   <?php
                       $currentDate->modify('+1 day');
                   endfor;
                   ?>
+              </div>
+
+              <!-- Time Grid -->
+              <div class="mw-calendar-grid-hourly">
+                  <?php
+                  // Time slots from 6 AM to 6 PM
+                  for ($hour = 6; $hour < 19; $hour++):
+                      $timeLabel = date('g A', strtotime("$hour:00"));
+                  ?>
+                      <div class="mw-time-row">
+                          <div class="mw-time-label"><?php echo $timeLabel; ?></div>
+
+                          <?php
+                          $currentDate = new DateTime($startDate);
+                          for ($dayIdx = 0; $dayIdx < 7; $dayIdx++):
+                              $dateStr = $currentDate->format('Y-m-d');
+                              $dayJobs = $jobsByDate[$dateStr] ?? [];
+                          ?>
+                              <div class="mw-time-slot" data-date="<?php echo $dateStr; ?>" data-hour="<?php echo $hour; ?>">
+                                  <?php foreach ($dayJobs as $job):
+                                      if (!$job['scheduled_time_start']) continue;
+                                      $jobStartHour = (int)date('H', strtotime($job['scheduled_time_start']));
+                                      if ($jobStartHour === $hour):
+                                  ?>
+                                      <div class="mw-job-card-sched <?php echo $job['status'] === 'in_progress' ? 'in-progress' : ''; ?>"
+                                           data-job-id="<?php echo (int)$job['id']; ?>"
+                                           data-job-number="<?php echo htmlspecialchars($job['job_number']); ?>"
+                                           data-scheduled-date="<?php echo $job['scheduled_date']; ?>"
+                                           data-scheduled-time="<?php echo htmlspecialchars($job['scheduled_time_start'] ?? ''); ?>"
+                                           draggable="true"
+                                           style="border-left-color: <?php echo getServiceColor($job['service_type']); ?>">
+                                          <div class="mw-job-time"><?php echo date('g:i A', strtotime($job['scheduled_time_start'])); ?></div>
+                                          <div class="mw-job-title-sched"><?php echo htmlspecialchars($job['title'] ?: $job['job_number']); ?></div>
+                                          <div class="mw-job-client-sched"><?php echo htmlspecialchars(($job['company_name'] ?? 'Unknown Client')); ?></div>
+                                          <?php if ($job['assigned_to_name']): ?>
+                                              <div class="mw-job-assigned-sched"><?php echo htmlspecialchars($job['assigned_to_name']); ?></div>
+                                          <?php endif; ?>
+                                          <a href="view.php?id=<?php echo (int)$job['id']; ?>" class="mw-job-card-view-link" title="View job details">View</a>
+                                      </div>
+                                  <?php
+                                      endif;
+                                  endforeach;
+                                  ?>
+                              </div>
+                          <?php
+                              $currentDate->modify('+1 day');
+                          endfor;
+                          ?>
+                      </div>
+                  <?php endfor; ?>
               </div>
           </div>
 
