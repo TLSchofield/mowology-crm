@@ -1,0 +1,127 @@
+/* =====================================================
+   jobFlow – Success (Step 3)
+   ===================================================== */
+
+.jobflow-page.success-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.success-card {
+    background: white;
+    border-radius: 20px;
+    padding: 64px 48px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.success-icon {
+    font-size: 80px;
+    margin-bottom: 24px;
+}
+
+.success-card h1 {
+    color: var(--mowology-green);
+    font-size: 36px;
+    margin-bottom: 16px;
+}
+
+.success-card p {
+    color: #6c757d;
+    font-size: 18px;
+    line-height: 1.6;
+    margin-bottom: 32px;
+}
+
+/* Info box */
+.info-box {
+    background: #f8f9fa;
+    padding: 24px;
+    border-radius: 12px;
+    margin-bottom: 32px;
+    text-align: left;
+}
+
+.info-box h2 {
+    font-size: 18px;
+    color: var(--mowology-dark);
+    margin-bottom: 16px;
+}
+
+.info-row {
+    display: flex;
+    align-items: center;
+    padding: 12px 0;
+}
+
+.info-row svg {
+    width: 24px;
+    height: 24px;
+    margin-right: 12px;
+    color: var(--mowology-green);
+    flex-shrink: 0;
+}
+
+.info-row span {
+    color: #212529;
+}
+
+/* Contact box */
+.contact-box {
+    background: var(--mowology-green);
+    color: white;
+    padding: 24px;
+    border-radius: 12px;
+    margin-bottom: 32px;
+}
+
+.contact-box h3 {
+    margin-bottom: 12px;
+}
+
+.contact-box p {
+    font-size: 16px;
+    margin-bottom: 8px;
+    color: rgba(255,255,255,.9);
+}
+
+.contact-box .phone {
+    font-size: 24px;
+    font-weight: 700;
+    margin-top: 12px;
+}
+
+/* Success page buttons */
+.success-card .btn {
+    display: inline-block;
+    padding: 16px 32px;
+    background: linear-gradient(135deg, var(--mowology-green), var(--mowology-dark));
+    color: white;
+    text-decoration: none;
+    border-radius: 12px;
+    font-weight: 600;
+    margin: 8px;
+}
+
+.success-card .btn-outline {
+    background: white;
+    color: var(--mowology-dark);
+    border: 2px solid var(--mowology-dark);
+}
+
+/* Success page footer */
+.success-footer {
+    margin-top: 40px;
+    padding-top: 32px;
+    border-top: 2px solid #e9ecef;
+    font-size: 14px;
+    color: #6c757d;
+    line-height: 1.8;
+}
+
+.success-footer strong {
+    display: block;
+    color: var(--mowology-dark);
+    margin-bottom: 8px;
+}

@@ -1,0 +1,26 @@
+# Allow PHP includes but block direct web access to vendor files
+# This allows the application to require/include files (php-includes)
+# while preventing users from directly accessing vendor files via HTTP
+
+<IfModule mod_authz_core.c>
+    # Allow file access for internal PHP includes
+    <Files ~ "\.php$">
+        Require all granted
+    </Files>
+    # Deny directory listings
+    <FilesMatch "^\.">
+        Require all denied
+    </FilesMatch>
+    # Block other file types
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    # Fallback for older Apache (allow PHP, deny others)
+    Order deny,allow
+    Deny from all
+    <FilesMatch "\.php$">
+        Order allow,deny
+        Allow from all
+    </FilesMatch>
+</IfModule>

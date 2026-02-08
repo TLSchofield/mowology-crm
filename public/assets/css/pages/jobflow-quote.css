@@ -1,0 +1,328 @@
+/* =====================================================
+   jobFlow – Get Quote (Step 1)
+   ===================================================== */
+
+/* jobFlow shared page background */
+.jobflow-page {
+    font-family: 'Inter', sans-serif;
+    background: linear-gradient(135deg, var(--mowology-dark) 0%, #0D3B2E 100%);
+    min-height: 100vh;
+    padding: 40px 20px;
+}
+
+/* Narrow container override for jobFlow forms */
+.jobflow-page .container {
+    max-width: 700px;
+}
+
+/* jobFlow header */
+.jobflow-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.jobflow-logo {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.jobflow-header h1 {
+    color: white;
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+
+.jobflow-header p {
+    color: var(--mowology-lime);
+    font-size: 18px;
+}
+
+/* Progress bar */
+.progress-bar {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 40px;
+    padding: 0 20px;
+}
+
+.progress-step {
+    flex: 1;
+    text-align: center;
+    position: relative;
+}
+
+.progress-step::after {
+    content: '';
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    width: 100%;
+    height: 2px;
+    background: rgba(255,255,255,0.2);
+    z-index: 0;
+}
+
+.progress-step:last-child::after {
+    display: none;
+}
+
+.progress-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 8px;
+    position: relative;
+    z-index: 1;
+    font-weight: 600;
+}
+
+.progress-step.active .progress-circle {
+    background: var(--mowology-lime);
+    color: var(--mowology-dark);
+}
+
+.progress-step.completed .progress-circle {
+    background: var(--mowology-green);
+    color: white;
+    font-weight: 700;
+}
+
+.progress-label {
+    color: rgba(255,255,255,0.7);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.progress-step.active .progress-label,
+.progress-step.completed .progress-label {
+    color: white;
+    font-weight: 600;
+}
+
+/* Quote form card */
+.jobflow-page .form-card {
+    background: white;
+    border-radius: 24px;
+    padding: 40px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+
+/* Form grid (2-column) */
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.form-group.full-width {
+    grid-column: 1 / -1;
+}
+
+/* jobFlow-specific form overrides */
+.jobflow-page .form-group {
+    margin-bottom: 20px;
+}
+
+.jobflow-page label {
+    display: block;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.jobflow-page .required::after {
+    content: " *";
+    color: #EF4444;
+}
+
+.jobflow-page input,
+.jobflow-page select,
+.jobflow-page textarea {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #E5E7EB;
+    border-radius: 12px;
+    font-size: 16px;
+    font-family: inherit;
+    transition: all 0.2s;
+    background: white;
+}
+
+.jobflow-page input:focus,
+.jobflow-page select:focus,
+.jobflow-page textarea:focus {
+    outline: none;
+    border-color: var(--mowology-green);
+    box-shadow: 0 0 0 3px rgba(45, 134, 89, 0.1);
+}
+
+.jobflow-page textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+/* Checkbox items */
+.jobflow-page .checkbox-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.checkbox-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    background: #F9FAFB;
+    border: 2px solid #E5E7EB;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex: 1;
+    min-width: 140px;
+}
+
+.checkbox-item:hover {
+    border-color: var(--mowology-green);
+    background: rgba(45, 134, 89, 0.05);
+}
+
+.checkbox-item input[type="checkbox"] {
+    width: auto;
+    margin-right: 10px;
+}
+
+/* Consent section */
+.consent-section {
+    background: #F9FAFB;
+    padding: 24px;
+    border-radius: 16px;
+    margin: 24px 0;
+}
+
+.jobflow-page .consent-item {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+
+.jobflow-page .consent-item:last-child {
+    margin-bottom: 0;
+}
+
+.jobflow-page .consent-item input[type="checkbox"] {
+    width: auto;
+    margin-right: 12px;
+    margin-top: 2px;
+}
+
+.consent-label {
+    font-size: 14px;
+    color: #4B5563;
+    line-height: 1.4;
+}
+
+.consent-label strong {
+    color: #374151;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.consent-label small {
+    color: #6B7280;
+    display: block;
+    margin-top: 4px;
+}
+
+/* Submit button */
+.submit-button {
+    width: 100%;
+    padding: 16px 24px;
+    background: linear-gradient(135deg, var(--mowology-green) 0%, var(--mowology-dark) 100%);
+    color: white;
+    border: none;
+    border-radius: 16px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: 20px;
+    box-shadow: 0 10px 30px rgba(45, 134, 89, 0.3);
+}
+
+.submit-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 40px rgba(45, 134, 89, 0.4);
+}
+
+.submit-button:active {
+    transform: translateY(0);
+}
+
+/* Error states */
+.error-message {
+    color: #EF4444;
+    font-size: 13px;
+    margin-top: 6px;
+    font-weight: 500;
+    display: none;
+}
+
+.jobflow-page .form-group.error input,
+.jobflow-page .form-group.error select,
+.jobflow-page .form-group.error textarea {
+    border-color: #EF4444;
+}
+
+.jobflow-page .form-group.error .error-message {
+    display: block;
+}
+
+/* Address options (existing customer) */
+.address-options {
+    text-align: center;
+}
+
+.address-options h3 {
+    color: var(--mowology-dark);
+    font-size: 24px;
+    margin-bottom: 12px;
+}
+
+.address-card {
+    display: block;
+    text-align: left;
+    padding: 16px;
+    margin: 12px 0;
+    border-radius: 14px;
+    border: 2px solid #E5E7EB;
+    cursor: pointer;
+    background: #F9FAFB;
+}
+
+.address-card input {
+    margin-right: 10px;
+    width: auto;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .jobflow-page .form-card {
+        padding: 28px;
+    }
+
+    .jobflow-header h1 {
+        font-size: 28px;
+    }
+}

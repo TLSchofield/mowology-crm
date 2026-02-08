@@ -1,0 +1,87 @@
+/* =====================================================
+   Buttons
+   ===================================================== */
+
+.btn {
+    display: inline-block;
+    padding: 14px 32px;
+    text-decoration: none;
+    border-radius: 5px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    text-align: center;
+    font-size: 16px;
+}
+
+.btn-primary {
+    background: var(--color-accent);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #c75003;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(232, 93, 4, 0.3);
+}
+
+.btn-secondary {
+    background: white;
+    color: var(--color-primary);
+    border: 2px solid white;
+}
+
+.btn-secondary:hover {
+    background: transparent;
+    color: white;
+}
+
+.btn-primary-large {
+    background: var(--color-accent);
+    color: white;
+    padding: 18px 40px;
+    font-size: 18px;
+}
+
+.btn-primary-large:hover {
+    background: #c75003;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(232, 93, 4, 0.4);
+}
+
+.btn-secondary-large {
+    background: transparent;
+    color: var(--color-primary);
+    border: 2px solid var(--color-primary);
+    padding: 18px 40px;
+    font-size: 18px;
+}
+
+.btn-secondary-large:hover {
+    background: var(--color-primary);
+    color: white;
+}
+
+.btn-link {
+    color: var(--color-primary);
+    font-weight: 600;
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+.btn-link:hover {
+    color: var(--color-accent);
+}
+
+/* Submit button (jobFlow / forms) */
+
+.submit-btn {
+    width: 100%;
+    padding: 18px;
+    background: linear-gradient(135deg, var(--mowology-green), var(--mowology-dark));
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 700;
+    cursor: pointer;
+}

@@ -1,0 +1,4 @@
+# Deny all direct web access to stored PDFs
+# PDFs are served only through PHP endpoints with auth
+Order deny,allow
+Deny from all

@@ -1,0 +1,17 @@
+/* =====================================================
+   Typography – body, headings, font families
+   ===================================================== */
+
+body {
+    font-family: 'Open Sans', sans-serif;
+    line-height: 1.6;
+    color: var(--text-dark);
+    background-color: var(--bg-white);
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--text-dark);
+}

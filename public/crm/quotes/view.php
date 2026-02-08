@@ -1,0 +1,689 @@
+<?php
+/**
+ * Quote View - Internal CRM View
+ * AppStack layout via shared includes.
+ */
+require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/smtp_mailer.php';
+require_once dirname(__DIR__) . '/includes/roi-functions.php';
+// Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
+
+requireLogin();
+$user = getCurrentUser();
+
+$quoteId = isset($_GET['id']) ? intval($_GET['id']) : 0;
+
+if (!$quoteId) {
+    header('Location: index.php');
+    exit;
+}
+
+$db = getDB();
+
+// Get quote with related data - also check quote_requests for original contact info
+$stmt = $db->prepare("
+    SELECT
+        q.*,
+        p.address as property_address,
+        p.city as property_city,
+        p.postal_code as property_postal,
+        p.property_type,
+        c.company_name,
+        c.billing_email,
+        c.billing_phone,
+        ct.first_name as contact_first,
+        ct.last_name as contact_last,
+        ct.email as contact_email,
+        ct.phone as contact_phone,
+        qr.contact_id as qr_contact_id,
+        qrc.first_name as qr_first_name,
+        qrc.last_name as qr_last_name,
+        qrc.email as qr_email,
+        qrc.phone as qr_phone,
+        u.full_name as created_by_name
+    FROM quotes q
+    LEFT JOIN properties p ON q.property_id = p.id
+    LEFT JOIN company_properties cp ON p.id = cp.property_id AND cp.is_primary = 1
+    LEFT JOIN companies c ON q.company_id = c.id
+    LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
+    LEFT JOIN quote_requests qr ON qr.quote_id = q.id
+    LEFT JOIN contacts qrc ON qr.contact_id = qrc.id
+    LEFT JOIN users u ON q.created_by = u.id
+    WHERE q.id = ?
+");
+$stmt->execute([$quoteId]);
+$quote = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$quote) {
+    header('Location: index.php');
+    exit;
+}
+
+// Get line items
+$stmt = $db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
+$stmt->execute([$quoteId]);
+$lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get activity for this quote
+$stmt = $db->prepare("
+    SELECT a.*, u.full_name
+    FROM activity_log a
+    LEFT JOIN users u ON a.user_id = u.id
+    WHERE a.quote_id = ?
+    ORDER BY a.created_at DESC
+    LIMIT 10
+");
+$stmt->execute([$quoteId]);
+$activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get notes for this quote
+$quoteNotes = getQuoteNotes($quoteId);
+
+// Handle actions
+$message = '';
+$messageType = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'send') {
+        // Validate we have an email to send to
+        $customerEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['billing_email'] ?? null;
+        $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['billing_phone'] ?? null;
+        $customerConsentsToSms = false;
+
+        // Check if customer has opted in to SMS
+        if (!empty($quote['qr_contact_id'])) {
+            $smsStmt = $db->prepare("SELECT receive_sms FROM contacts WHERE id = ?");
+            $smsStmt->execute([$quote['qr_contact_id']]);
+            $contactPrefs = $smsStmt->fetch(PDO::FETCH_ASSOC);
+            $customerConsentsToSms = !empty($contactPrefs['receive_sms']);
+        }
+
+        if (!$customerEmail && !$customerPhone) {
+            $message = 'Error: No contact information found (no email or phone). Please add contact details first.';
+            $messageType = 'error';
+        } else {
+            $emailSent = false;
+            $smsSent = false;
+            $sentVia = [];
+
+            // Generate access token if not exists
+            if (empty($quote['access_token'])) {
+                $accessToken = generateAccessToken();
+                $stmt = $db->prepare("UPDATE quotes SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?");
+                $stmt->execute([$accessToken, $quoteId]);
+                $quote['access_token'] = $accessToken;
+            }
+
+            // Build email and SMS content
+            $customerName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? '')) ?: ($quote['company_name'] ?? 'Valued Customer');
+            $quoteUrl = "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token'];
+
+            // --- SEND EMAIL ---
+            if ($customerEmail) {
+                $emailSubject = "Quote {$quote['quote_number']} from Mowology";
+                $emailBody = "
+                    <h2>Your Quote is Ready</h2>
+                    <p>Hi " . htmlspecialchars($customerName ?: 'Valued Customer') . ",</p>
+                    <p>Thank you for your interest in Mowology's services. Please find your quote details below:</p>
+                    <p><strong>Quote Number:</strong> {$quote['quote_number']}<br>
+                    <strong>Amount:</strong> " . formatCurrency($quote['amount']) . "<br>
+                    <strong>Valid Until:</strong> " . formatDate($quote['valid_until']) . "</p>
+                    <p><a href='{$quoteUrl}' style='display: inline-block; padding: 14px 28px; background: #2D8659; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;'>View & Accept Quote</a></p>
+                    <p>If you have any questions, please don't hesitate to contact us at (778) 846-9273.</p>
+                    <p>Thank you,<br>The Mowology Team</p>
+                ";
+
+                $attachPath = null;
+
+                try {
+                    // Always generate and attach PDF quote by default
+                    require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
+                    require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
+
+                    $pdfGen = new PdfGenerator();
+                    $existingPath = $pdfGen->getPdfPath('quote', $quoteId);
+                    if ($existingPath) {
+                        $attachPath = $existingPath;
+                    } else {
+                        $pdfResult = $pdfGen->generateQuotePdf($quoteId);
+                        if ($pdfResult['success']) {
+                            $attachPath = $pdfResult['path'];
+                        } else {
+                            error_log("Quote PDF generation failed for quote {$quoteId}: " . ($pdfResult['error'] ?? 'unknown'));
+                        }
+                    }
+
+                    // Send email via native mail
+                    $emailSent = sendCrmEmail($customerEmail, $emailSubject, $emailBody, $attachPath);
+                    if ($emailSent) {
+                        $sentVia[] = 'email';
+                    }
+
+                } catch (Exception $e) {
+                    error_log("Email send error for quote {$quoteId}: " . $e->getMessage());
+                    $emailSent = false;
+                }
+            }
+
+            // --- SEND SMS (if consented) ---
+            if ($customerPhone && $customerConsentsToSms) {
+                // SMS message with short quote link
+                $smsMessage = "Hi {$customerName}! Your quote #{$quote['quote_number']} from Mowology is ready. View it here: {$quoteUrl}";
+
+                // TODO: Integrate with SMS provider (Twilio, etc)
+                // For now, log the attempt
+                error_log("SMS Send - Quote #{$quoteId} to {$customerPhone}: {$smsMessage}");
+
+                // Mark as sent for logging purposes
+                // In production, check return from SMS API
+                $smsSent = true;
+                $sentVia[] = 'SMS';
+            }
+
+            // --- UPDATE QUOTE STATUS ---
+            if ($emailSent || $smsSent) {
+                $stmt = $db->prepare("UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?");
+                $stmt->execute([implode(',', $sentVia), $quoteId]);
+
+                // Log quote_sent conversion event for ROI tracking
+                logQuoteSentEvent($quoteId);
+
+                // Build comprehensive activity log message
+                $activityDetails = "Quote sent to " . implode(' + ', $sentVia);
+                if ($customerEmail) {
+                    $activityDetails .= " (email: {$customerEmail})";
+                }
+                if ($customerPhone && $customerConsentsToSms) {
+                    $activityDetails .= " (SMS: {$customerPhone})";
+                }
+                if ($attachPath ?? false) {
+                    $activityDetails .= " with PDF attached";
+                }
+
+                logActivityExtended($user['id'], 'Quote sent', $activityDetails, null, null, $quoteId);
+
+                $quote['status'] = 'sent';
+                $sentViaText = implode(' & ', $sentVia);
+                $message = "Quote sent successfully via {$sentViaText}";
+                $messageType = 'success';
+            } else {
+                $message = 'Error sending quote. Please check that the email address is valid and try again. Check server logs for details.';
+                $messageType = 'error';
+                error_log("Quote send failed for quote {$quoteId}");
+            }
+        }
+    }
+
+    if ($action === 'convert_to_job') {
+        $result = createJobFromQuote($quoteId, $user['id']);
+        if ($result['success']) {
+            header("Location: ../jobs/view.php?id={$result['job_id']}&created=1");
+            exit;
+        } else {
+            $message = "Error creating job: " . $result['error'];
+            $messageType = 'error';
+        }
+    }
+}
+
+$csrfToken = generateCSRFToken();
+
+// Check for saved message
+if (isset($_GET['saved'])) {
+    $message = 'Quote saved successfully!';
+    $messageType = 'success';
+}
+if (isset($_GET['pdf_generated'])) {
+    $message = 'PDF generated successfully.';
+    $messageType = 'success';
+}
+
+$pageTitle = 'Quote ' . htmlspecialchars($quote['quote_number']);
+$activePage = 'quotes';
+?>
+<?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+
+          <a href="index.php" class="mw-back-link">&larr; Back to Quotes</a>
+
+          <?php if ($message): ?>
+              <div class="mw-message <?php echo $messageType; ?>"><?php echo htmlspecialchars($message); ?></div>
+          <?php endif; ?>
+
+          <div class="mw-page-header">
+              <div>
+                  <h1 class="h3 mb-1"><?php echo htmlspecialchars($quote['quote_number']); ?></h1>
+                  <div>
+                      <?php echo getStatusBadge($quote['status']); ?>
+                      <?php if ($quote['title']): ?>
+                          <span class="ml-2 text-muted"><?php echo htmlspecialchars($quote['title']); ?></span>
+                      <?php endif; ?>
+                  </div>
+              </div>
+              <div class="mw-header-actions">
+                  <!-- PDF Actions -->
+                  <a href="../documents/generate_pdf.php?type=quote&id=<?php echo $quoteId; ?>&action=download"
+                     class="btn btn-outline-secondary" title="Download PDF">
+                      <i data-feather="download" class="mr-1"></i> PDF
+                  </a>
+                  <form method="POST" action="../documents/generate_pdf.php?type=quote&id=<?php echo $quoteId; ?>&action=generate" class="d-inline">
+                      <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                      <button type="submit" class="btn btn-outline-secondary" title="Regenerate PDF">
+                          <i data-feather="refresh-cw" class="mr-1"></i> Regenerate PDF
+                      </button>
+                  </form>
+
+                  <a href="create.php?id=<?php echo $quoteId; ?>" class="btn btn-secondary">Edit</a>
+
+                  <?php if ($quote['status'] === 'draft'): ?>
+                      <form method="POST" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <button type="submit" name="action" value="send" class="btn btn-primary">
+                              <i data-feather="send" class="mr-1"></i> Send to Customer
+                          </button>
+                      </form>
+                  <?php elseif ($quote['status'] === 'sent'): ?>
+                      <form method="POST" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <button type="submit" name="action" value="send" class="btn btn-secondary">
+                              <i data-feather="send" class="mr-1"></i> Resend
+                          </button>
+                      </form>
+                  <?php elseif ($quote['status'] === 'accepted'): ?>
+                      <form method="POST" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <button type="submit" name="action" value="convert_to_job" class="btn btn-primary">
+                              <i data-feather="tool" class="mr-1"></i> Convert to Job
+                          </button>
+                      </form>
+                  <?php endif; ?>
+              </div>
+          </div>
+
+          <div class="mw-content-grid">
+              <div>
+                  <!-- Customer Info -->
+                  <div class="card">
+                      <div class="card-header">
+                          <h5 class="card-title mb-0">Customer Information</h5>
+                      </div>
+                      <div class="card-body">
+                          <?php
+                              // For commercial properties, show company. For residential, show contact name as primary
+                              $isResidential = $quote['property_type'] === 'residential';
+
+                              // Prefer quote_request contact info if available (from original request)
+                              $contactName = trim(($quote['qr_first_name'] ?? '') . ' ' . ($quote['qr_last_name'] ?? ''));
+                              $contactEmail = $quote['qr_email'] ?? null;
+                              $contactPhone = $quote['qr_phone'] ?? null;
+
+                              // Fall back to company contact if no quote request contact
+                              if (!$contactName) {
+                                  $contactName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+                                  $contactEmail = $quote['contact_email'] ?? null;
+                                  $contactPhone = $quote['contact_phone'] ?? null;
+                              }
+
+                              // Final fallback
+                              if (!$contactName) {
+                                  $contactName = 'N/A';
+                              }
+                              if (!$contactEmail) {
+                                  $contactEmail = $quote['billing_email'] ?? 'N/A';
+                              }
+                              if (!$contactPhone) {
+                                  $contactPhone = $quote['billing_phone'] ?? 'N/A';
+                              }
+                          ?>
+                          <?php if (!$isResidential && $quote['company_name']): ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Company</span>
+                              <span class="mw-detail-value"><?php echo htmlspecialchars($quote['company_name']); ?></span>
+                          </div>
+                          <?php endif; ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label"><?php echo $isResidential ? 'Owner Name' : 'Contact'; ?></span>
+                              <span class="mw-detail-value"><?php echo htmlspecialchars($contactName); ?></span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Email</span>
+                              <span class="mw-detail-value"><?php echo htmlspecialchars($contactEmail); ?></span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Phone</span>
+                              <span class="mw-detail-value"><?php echo htmlspecialchars($contactPhone); ?></span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Property</span>
+                              <span class="mw-detail-value">
+                                  <?php echo htmlspecialchars($quote['property_address'] . ', ' . $quote['property_city']); ?>
+                              </span>
+                          </div>
+                      </div>
+                  </div>
+
+                  <!-- Line Items -->
+                  <div class="card">
+                      <div class="card-header">
+                          <h5 class="card-title mb-0">Services</h5>
+                      </div>
+                      <div class="card-body">
+                          <table class="mw-line-items-table">
+                              <thead>
+                                  <tr>
+                                      <th>Service</th>
+                                      <th>Description</th>
+                                      <th>Qty</th>
+                                      <th class="text-right">Price</th>
+                                      <th class="text-right">Total</th>
+                                  </tr>
+                              </thead>
+                              <tbody>
+                                  <?php foreach ($lineItems as $item): ?>
+                                      <tr>
+                                          <td><?php echo htmlspecialchars($item['service_type']); ?></td>
+                                          <td><?php echo htmlspecialchars($item['description'] ?: '-'); ?></td>
+                                          <td><?php echo $item['quantity']; ?></td>
+                                          <td class="text-right mw-amount"><?php echo formatCurrency($item['unit_price']); ?></td>
+                                          <td class="text-right mw-amount"><?php echo formatCurrency($item['line_total']); ?></td>
+                                      </tr>
+                                  <?php endforeach; ?>
+                              </tbody>
+                          </table>
+
+                          <div class="mw-totals">
+                              <div class="mw-total-row">
+                                  <span>Subtotal</span>
+                                  <span class="mw-totals-value"><?php echo formatCurrency($quote['subtotal'] ?: $quote['amount']); ?></span>
+                              </div>
+                              <div class="mw-total-row">
+                                  <span>GST (<?php echo ($quote['tax_rate'] ?: 0.05) * 100; ?>%)</span>
+                                  <span class="mw-totals-value"><?php echo formatCurrency($quote['tax_amount'] ?: 0); ?></span>
+                              </div>
+                              <div class="mw-total-row mw-grand">
+                                  <span>Total</span>
+                                  <span class="mw-totals-value"><?php echo formatCurrency($quote['amount']); ?></span>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <!-- Terms -->
+                  <?php if ($quote['terms']): ?>
+                      <div class="card">
+                          <div class="card-header">
+                              <h5 class="card-title mb-0">Terms &amp; Conditions</h5>
+                          </div>
+                          <div class="card-body">
+                              <p class="mb-0" style="white-space: pre-line;"><?php echo htmlspecialchars($quote['terms']); ?></p>
+                          </div>
+                      </div>
+                  <?php endif; ?>
+
+                  <!-- Signature if accepted -->
+                  <?php if ($quote['status'] === 'accepted' && $quote['signature_data']): ?>
+                      <div class="card">
+                          <div class="card-header">
+                              <h5 class="card-title mb-0">Customer Signature</h5>
+                          </div>
+                          <div class="card-body">
+                              <div class="mw-signature-section">
+                                  <img src="<?php echo htmlspecialchars($quote['signature_data']); ?>" alt="Customer Signature">
+                                  <div class="mw-signature-info">
+                                      Signed by: <?php echo htmlspecialchars($quote['accepted_by_name']); ?><br>
+                                      Date: <?php echo formatDateTime($quote['signature_timestamp']); ?><br>
+                                      IP: <?php echo htmlspecialchars($quote['accepted_ip_address']); ?>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  <?php endif; ?>
+              </div>
+
+              <div>
+                  <!-- Quote Details -->
+                  <div class="card">
+                      <div class="card-header">
+                          <h5 class="card-title mb-0">Quote Details</h5>
+                      </div>
+                      <div class="card-body">
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Status</span>
+                              <span class="mw-detail-value"><?php echo getStatusBadge($quote['status']); ?></span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Created</span>
+                              <span class="mw-detail-value"><?php echo formatDateTime($quote['created_at']); ?></span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Valid Until</span>
+                              <span class="mw-detail-value"><?php echo formatDate($quote['valid_until']); ?></span>
+                          </div>
+                          <?php if ($quote['sent_at']): ?>
+                              <div class="mw-detail-row">
+                                  <span class="mw-detail-label">Sent</span>
+                                  <span class="mw-detail-value"><?php echo formatDateTime($quote['sent_at']); ?></span>
+                              </div>
+                          <?php endif; ?>
+                          <?php if ($quote['viewed_at']): ?>
+                              <div class="mw-detail-row">
+                                  <span class="mw-detail-label">Viewed</span>
+                                  <span class="mw-detail-value"><?php echo formatDateTime($quote['viewed_at']); ?> (<?php echo $quote['view_count']; ?>x)</span>
+                              </div>
+                          <?php endif; ?>
+                          <?php if ($quote['accepted_at']): ?>
+                              <div class="mw-detail-row">
+                                  <span class="mw-detail-label">Accepted</span>
+                                  <span class="mw-detail-value"><?php echo formatDateTime($quote['accepted_at']); ?></span>
+                              </div>
+                          <?php endif; ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Created By</span>
+                              <span class="mw-detail-value"><?php echo htmlspecialchars($quote['created_by_name'] ?? 'Unknown'); ?></span>
+                          </div>
+                          <?php if (!empty($quote['pdf_version']) && $quote['pdf_version'] > 0): ?>
+                              <div class="mw-detail-row">
+                                  <span class="mw-detail-label">PDF Version</span>
+                                  <span class="mw-detail-value">
+                                      v<?php echo (int)$quote['pdf_version']; ?>
+                                      <?php if (!empty($quote['pdf_generated_at'])): ?>
+                                          <span class="text-muted ml-1">(<?php echo formatDateTime($quote['pdf_generated_at']); ?>)</span>
+                                      <?php endif; ?>
+                                  </span>
+                              </div>
+                          <?php endif; ?>
+
+                          <?php if ($quote['access_token'] && in_array($quote['status'], ['sent', 'accepted'])): ?>
+                              <div class="mt-3">
+                                  <span class="mw-detail-label">Customer Link:</span>
+                                  <div class="mw-customer-link">
+                                      <?php echo "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token']; ?>
+                                  </div>
+                              </div>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <!-- Internal Notes -->
+                  <?php if ($quote['notes_internal']): ?>
+                      <div class="card">
+                          <div class="card-header">
+                              <h5 class="card-title mb-0">Internal Notes</h5>
+                          </div>
+                          <div class="card-body">
+                              <p class="mb-0" style="white-space: pre-line; font-size: 14px;"><?php echo htmlspecialchars($quote['notes_internal']); ?></p>
+                          </div>
+                      </div>
+                  <?php endif; ?>
+
+                  <!-- Notes & Comments -->
+                  <div class="card mw-notes-panel">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="card-title mb-0">Notes & Comments</h5>
+                          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleNoteForm()">
+                              <i data-feather="plus" style="width: 14px; height: 14px;"></i> Add Note
+                          </button>
+                      </div>
+                      <div class="card-body">
+                          <!-- Add Note Form -->
+                          <div id="noteForm" class="mw-note-form mb-3" style="display: none;">
+                              <div class="mw-form-group mb-2">
+                                  <textarea id="noteContent" class="form-control" rows="3" placeholder="Write your note here..." style="font-size: 13px;"></textarea>
+                              </div>
+                              <div class="mw-form-group mb-3">
+                                  <select id="noteType" class="form-control form-control-sm" style="font-size: 13px;">
+                                      <option value="general">General Note</option>
+                                      <option value="follow_up">Follow-up</option>
+                                      <option value="issue">Issue</option>
+                                      <option value="customer_request">Customer Request</option>
+                                      <option value="internal">Internal</option>
+                                  </select>
+                              </div>
+                              <div class="d-flex gap-2">
+                                  <button type="button" class="btn btn-sm btn-primary" onclick="saveNote()">Save Note</button>
+                                  <button type="button" class="btn btn-sm btn-secondary" onclick="toggleNoteForm()">Cancel</button>
+                              </div>
+                          </div>
+
+                          <!-- Notes List -->
+                          <?php if (empty($quoteNotes)): ?>
+                              <p class="text-muted mb-0" style="font-size: 13px;">No notes yet. Add one to get started.</p>
+                          <?php else: ?>
+                              <ul class="list-unstyled" id="notesList">
+                                  <?php foreach ($quoteNotes as $note): ?>
+                                      <li class="mw-note-item mb-3 pb-3 border-bottom">
+                                          <div class="mw-note-header d-flex justify-content-between align-items-start mb-1">
+                                              <span class="badge <?php echo getNoteTypeClass($note['note_type']); ?>" style="font-size: 11px;">
+                                                  <?php echo getNoteTypeLabel($note['note_type']); ?>
+                                              </span>
+                                              <small class="text-muted"><?php echo timeAgo($note['created_at']); ?></small>
+                                          </div>
+                                          <div class="mw-note-content" style="font-size: 13px; line-height: 1.5; white-space: pre-wrap;">
+                                              <?php echo htmlspecialchars($note['content']); ?>
+                                          </div>
+                                          <div class="mw-note-footer mt-1">
+                                              <small class="text-muted">by <?php echo htmlspecialchars($note['created_by_name'] ?? 'System'); ?></small>
+                                          </div>
+                                      </li>
+                                  <?php endforeach; ?>
+                              </ul>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <!-- Activity -->
+                  <div class="card">
+                      <div class="card-header">
+                          <h5 class="card-title mb-0">Activity</h5>
+                      </div>
+                      <div class="card-body">
+                          <?php if (empty($activities)): ?>
+                              <p class="text-muted mb-0" style="font-size: 14px;">No activity recorded yet.</p>
+                          <?php else: ?>
+                              <ul class="mw-activity-list">
+                                  <?php foreach ($activities as $activity): ?>
+                                      <li class="mw-activity-item">
+                                          <div><?php echo htmlspecialchars($activity['action']); ?></div>
+                                          <div class="mw-activity-time">
+                                              <?php echo htmlspecialchars($activity['full_name'] ?? 'System'); ?> -
+                                              <?php echo formatDateTime($activity['created_at']); ?>
+                                          </div>
+                                      </li>
+                                  <?php endforeach; ?>
+                              </ul>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+          <script>
+            const quoteId = <?php echo (int)$quoteId; ?>;
+            const csrfToken = '<?php echo htmlspecialchars($csrfToken); ?>';
+
+            function toggleNoteForm() {
+              const form = document.getElementById('noteForm');
+              form.style.display = form.style.display === 'none' ? 'block' : 'none';
+              if (form.style.display === 'block') {
+                document.getElementById('noteContent').focus();
+              } else {
+                document.getElementById('noteContent').value = '';
+                document.getElementById('noteType').value = 'general';
+              }
+            }
+
+            function saveNote() {
+              const content = document.getElementById('noteContent').value.trim();
+              const noteType = document.getElementById('noteType').value;
+
+              if (!content) {
+                alert('Please enter a note.');
+                return;
+              }
+
+              const formData = new FormData();
+              formData.append('quote_id', quoteId);
+              formData.append('content', content);
+              formData.append('note_type', noteType);
+              formData.append('csrf_token', csrfToken);
+
+              fetch('handle-note-save.php', {
+                method: 'POST',
+                body: formData
+              })
+              .then(response => response.json())
+              .then(data => {
+                if (data.success) {
+                  // Add note to list
+                  addNoteToList(data.note);
+                  // Clear form
+                  document.getElementById('noteContent').value = '';
+                  document.getElementById('noteType').value = 'general';
+                  toggleNoteForm();
+                } else {
+                  alert('Error: ' + (data.error || 'Failed to save note'));
+                }
+              })
+              .catch(err => {
+                console.error('Error:', err);
+                alert('Error saving note');
+              });
+            }
+
+            function addNoteToList(note) {
+              const notesList = document.getElementById('notesList');
+              const noNotesMsg = document.querySelector('.mw-notes-panel .text-muted');
+
+              // Remove "no notes" message if it exists
+              if (noNotesMsg && noNotesMsg.textContent.includes('No notes')) {
+                noNotesMsg.remove();
+              }
+
+              // Create note item HTML
+              const noteHtml = `
+                <li class="mw-note-item mb-3 pb-3 border-bottom">
+                  <div class="mw-note-header d-flex justify-content-between align-items-start mb-1">
+                    <span class="badge ${note.type_class}" style="font-size: 11px;">
+                      ${note.type_label}
+                    </span>
+                    <small class="text-muted">just now</small>
+                  </div>
+                  <div class="mw-note-content" style="font-size: 13px; line-height: 1.5; white-space: pre-wrap;">
+                    ${note.content}
+                  </div>
+                  <div class="mw-note-footer mt-1">
+                    <small class="text-muted">by ${note.created_by_name}</small>
+                  </div>
+                </li>
+              `;
+
+              // Insert at beginning of list
+              if (notesList) {
+                notesList.insertAdjacentHTML('afterbegin', noteHtml);
+              }
+            }
+          </script>
+
+<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

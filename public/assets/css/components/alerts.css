@@ -1,0 +1,16 @@
+/* =====================================================
+   Alerts & notifications
+   ===================================================== */
+
+.alert {
+    padding: 16px 20px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+    font-weight: 500;
+}
+
+.alert-danger {
+    background: #FEE2E2;
+    color: #991B1B;
+    border: 1px solid #FECACA;
+}

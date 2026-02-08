@@ -1,0 +1,906 @@
+<?php
+require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once __DIR__ . '/config.php';
+
+requireLogin();
+$user = getCurrentUser();
+$db = getDB();
+
+// Check if property_id is passed
+$propertyId = isset($_GET['property_id']) ? (int)$_GET['property_id'] : null;
+$property = null;
+$contact = null;
+$existingMeasurements = [];
+
+if ($propertyId) {
+    // Load property data
+    $stmt = $db->prepare("
+        SELECT p.*,
+               CONCAT(c.first_name, ' ', c.last_name) as contact_name,
+               c.phone as contact_phone,
+               c.email as contact_email
+        FROM properties p
+        LEFT JOIN contacts c ON p.site_contact_id = c.id
+        WHERE p.id = ?
+    ");
+    $stmt->execute([$propertyId]);
+    $property = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Load existing measurements for this property
+    if ($property) {
+        $stmt = $db->prepare("
+            SELECT m.*, u.full_name as measured_by_name
+            FROM property_measurements m
+            LEFT JOIN users u ON m.measured_by = u.id
+            WHERE m.property_id = ?
+            ORDER BY m.created_at DESC
+        ");
+        $stmt->execute([$propertyId]);
+        $existingMeasurements = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
+
+// Handle AJAX save request
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    header('Content-Type: application/json');
+
+    if ($_POST['action'] === 'save_measurements') {
+        $propId = (int)($_POST['property_id'] ?? 0);
+        $measurements = json_decode($_POST['measurements'] ?? '[]', true);
+
+        if (!$propId || empty($measurements)) {
+            echo json_encode(['success' => false, 'error' => 'Missing property ID or measurements']);
+            exit;
+        }
+
+        try {
+            $db->beginTransaction();
+
+            // Delete existing measurements for this property (replace all)
+            $db->prepare("DELETE FROM property_measurements WHERE property_id = ?")->execute([$propId]);
+
+            // Insert new measurements
+            $stmt = $db->prepare("
+                INSERT INTO property_measurements
+                    (property_id, measurement_name, measurement_type, area_sqft, area_sqm, perimeter_ft, polygon_coords, measured_by)
+                VALUES
+                    (?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+
+            $totalLawn = 0;
+            $totalDriveway = 0;
+
+            foreach ($measurements as $m) {
+                $sqft = (float)($m['sqFt'] ?? 0);
+                $sqm = $sqft / 10.764;
+                $type = $m['type'] ?? 'other';
+
+                $stmt->execute([
+                    $propId,
+                    $m['name'] ?? 'Unnamed Area',
+                    $type,
+                    $sqft,
+                    round($sqm, 2),
+                    $m['perimeter'] ?? null,
+                    isset($m['coords']) ? json_encode($m['coords']) : null,
+                    $user['id']
+                ]);
+
+                // Tally totals
+                if (in_array($type, ['lawn', 'garden'])) {
+                    $totalLawn += $sqft;
+                } elseif (in_array($type, ['driveway', 'walkway', 'parking', 'patio'])) {
+                    $totalDriveway += $sqft;
+                }
+            }
+
+            // Update property summary fields
+            $db->prepare("
+                UPDATE properties SET
+                    total_lawn_sqft = ?,
+                    total_driveway_sqft = ?,
+                    measurements_updated_at = NOW()
+                WHERE id = ?
+            ")->execute([$totalLawn, $totalDriveway, $propId]);
+
+            // Log activity
+            $db->prepare("
+                INSERT INTO activity_log (user_id, property_id, action, details, ip_address)
+                VALUES (?, ?, 'Measurements updated', ?, ?)
+            ")->execute([
+                $user['id'],
+                $propId,
+                count($measurements) . ' areas measured. Total: ' . number_format($totalLawn + $totalDriveway) . ' sq ft',
+                $_SERVER['REMOTE_ADDR'] ?? ''
+            ]);
+
+            $db->commit();
+            echo json_encode(['success' => true, 'message' => 'Measurements saved successfully']);
+        } catch (Exception $e) {
+            $db->rollBack();
+            error_log("Save measurements error: " . $e->getMessage());
+            echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
+        }
+        exit;
+    }
+}
+
+$apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+
+$pageTitle = 'Area Measurement';
+$activePage = 'products';
+$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey) . '&libraries=drawing,geometry&callback=initMap" async defer></script>';
+?>
+<?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+
+          <a href="index.php" class="mw-back-link">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+              Back to Products & Services
+          </a>
+
+          <h1 class="h3 mb-3">Area Measurement Tool</h1>
+
+          <?php if ($property): ?>
+          <div class="card mb-3">
+              <div class="card-body py-2">
+                  <div class="d-flex align-items-center justify-content-between">
+                      <div>
+                          <strong><?php echo htmlspecialchars($property['address']); ?></strong>
+                          <span class="text-muted ml-2"><?php echo htmlspecialchars($property['city'] . ', ' . ($property['province'] ?? 'BC')); ?></span>
+                          <?php if ($property['contact_name']): ?>
+                              <span class="text-muted ml-2">| Contact: <?php echo htmlspecialchars(trim($property['contact_name'])); ?></span>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+                  <input type="hidden" id="propertyId" value="<?php echo $propertyId; ?>">
+              </div>
+          </div>
+          <?php endif; ?>
+
+          <div class="row">
+              <!-- Map Column -->
+              <div class="col-lg-8 mb-3">
+                  <div class="card">
+                      <div class="card-header d-flex align-items-center justify-content-between py-2">
+                          <h5 class="card-title mb-0">Map</h5>
+                          <div class="d-flex align-items-center">
+                              <label class="mb-0 mr-2 small font-weight-bold">Map Type:</label>
+                              <select id="mapTypeSelector" class="form-control form-control-sm" style="width: auto;">
+                                  <option value="roadmap">Roadmap</option>
+                                  <option value="satellite" selected>Satellite</option>
+                                  <option value="hybrid">Hybrid</option>
+                                  <option value="terrain">Terrain</option>
+                              </select>
+                          </div>
+                      </div>
+                      <div class="card-body p-0">
+                          <div id="map" class="mw-measure-map-container" style="height: 500px;"></div>
+                      </div>
+                  </div>
+              </div>
+
+              <!-- Sidebar Tools Column -->
+              <div class="col-lg-4">
+                  <!-- Address Search -->
+                  <div class="card mb-3">
+                      <div class="card-header py-2">
+                          <h5 class="card-title mb-0">Property Location</h5>
+                      </div>
+                      <div class="card-body">
+                          <div class="form-group mb-2">
+                              <label class="small font-weight-bold">Enter Address</label>
+                              <input type="text" id="addressInput" class="form-control" placeholder="123 Main St, Vancouver, BC"
+                                     value="<?php echo $property ? htmlspecialchars($property['address'] . ', ' . $property['city'] . ', ' . ($property['province'] ?? 'BC')) : ''; ?>">
+                          </div>
+                          <button class="btn btn-primary btn-block" onclick="searchAddress()">Find Location</button>
+                          <?php if ($property && $property['latitude'] && $property['longitude']): ?>
+                              <input type="hidden" id="propertyLat" value="<?php echo $property['latitude']; ?>">
+                              <input type="hidden" id="propertyLng" value="<?php echo $property['longitude']; ?>">
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <!-- Drawing Tools -->
+                  <div class="card mb-3">
+                      <div class="card-header py-2">
+                          <h5 class="card-title mb-0">Drawing Tools</h5>
+                      </div>
+                      <div class="card-body">
+                          <div class="alert alert-info py-2 small mb-2">
+                              Click on the map to draw the area outline. Double-click to finish.
+                          </div>
+                          <div class="mw-measure-tools">
+                              <button class="btn btn-outline-secondary btn-sm" id="drawPolygonBtn" onclick="startDrawing('polygon')">Draw Area</button>
+                              <button class="btn btn-outline-secondary btn-sm" id="drawRectangleBtn" onclick="startDrawing('rectangle')">Rectangle</button>
+                              <button class="btn btn-outline-secondary btn-sm" onclick="clearCurrentDrawing()">Clear Drawing</button>
+                              <button class="btn btn-outline-danger btn-sm" onclick="clearAllAreas()">Clear All</button>
+                          </div>
+                      </div>
+                  </div>
+
+                  <!-- Current Measurement -->
+                  <div class="card mb-3" id="currentMeasurement" style="display: none;">
+                      <div class="card-header py-2">
+                          <h5 class="card-title mb-0">Current Measurement</h5>
+                      </div>
+                      <div class="card-body">
+                          <div class="mw-measurement-display mb-3">
+                              <div class="mw-measurement-row">
+                                  <span class="mw-measurement-label">Area (sq ft)</span>
+                                  <span class="mw-measurement-value mw-measurement-large" id="currentSqFt">0</span>
+                              </div>
+                              <div class="mw-measurement-row">
+                                  <span class="mw-measurement-label">Area (sq m)</span>
+                                  <span class="mw-measurement-value" id="currentSqM">0</span>
+                              </div>
+                              <div class="mw-measurement-row">
+                                  <span class="mw-measurement-label">Acres</span>
+                                  <span class="mw-measurement-value" id="currentAcres">0</span>
+                              </div>
+                              <div class="mw-measurement-row">
+                                  <span class="mw-measurement-label">Perimeter</span>
+                                  <span class="mw-measurement-value" id="currentPerimeter">0 ft</span>
+                              </div>
+                          </div>
+
+                          <div class="form-group mb-2">
+                              <label class="small font-weight-bold">Area Name/Label</label>
+                              <input type="text" id="areaName" class="form-control" list="areaNameSuggestions" placeholder="e.g., Front Lawn, Backyard">
+                              <datalist id="areaNameSuggestions">
+                                  <option value="Front Lawn">
+                                  <option value="Back Lawn">
+                                  <option value="Side Left">
+                                  <option value="Side Right">
+                                  <option value="Boulevard Front">
+                                  <option value="Boulevard Side">
+                                  <option value="Lane">
+                                  <option value="Garden Bed Front">
+                                  <option value="Garden Bed Back">
+                                  <option value="Driveway">
+                                  <option value="Walkway">
+                                  <option value="Patio">
+                              </datalist>
+                          </div>
+
+                          <div class="form-group mb-3">
+                              <label class="small font-weight-bold">Area Type</label>
+                              <select id="areaType" class="form-control">
+                                  <option value="lawn">Lawn/Grass</option>
+                                  <option value="garden">Garden Bed</option>
+                                  <option value="driveway">Driveway</option>
+                                  <option value="walkway">Walkway/Sidewalk</option>
+                                  <option value="patio">Patio/Deck</option>
+                                  <option value="parking">Parking Lot</option>
+                                  <option value="hedge">Hedge</option>
+                                  <option value="other">Other</option>
+                              </select>
+                          </div>
+
+                          <button class="btn btn-primary btn-block" onclick="saveArea()">Save This Area</button>
+                      </div>
+                  </div>
+
+                  <!-- Saved Areas -->
+                  <div class="card mb-3">
+                      <div class="card-header py-2">
+                          <h5 class="card-title mb-0">Measured Areas (<span id="areaCount">0</span>)</h5>
+                      </div>
+                      <div class="card-body">
+                          <?php if (!empty($existingMeasurements)): ?>
+                              <div class="alert alert-success py-2 small mb-2">
+                                  <strong>Existing measurements loaded!</strong><br>
+                                  <small>Last updated: <?php echo date('M j, Y g:i A', strtotime($existingMeasurements[0]['updated_at'])); ?></small>
+                              </div>
+                          <?php endif; ?>
+                          <div id="areasList" style="max-height: 300px; overflow-y: auto;">
+                              <p class="text-muted text-center small py-4">
+                                  No areas measured yet
+                              </p>
+                          </div>
+
+                          <div class="mw-measurement-display mt-3">
+                              <div class="mw-measurement-row">
+                                  <span class="mw-measurement-label"><strong>Total Area</strong></span>
+                                  <span class="mw-measurement-value mw-measurement-large" id="totalArea">0 sq ft</span>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <!-- Quote Calculator -->
+                  <div class="card mb-3">
+                      <div class="card-header py-2">
+                          <h5 class="card-title mb-0">Estimate Pricing</h5>
+                      </div>
+                      <div class="card-body">
+                          <div class="form-group mb-2">
+                              <label class="small font-weight-bold">Service Type</label>
+                              <select id="serviceType" class="form-control" onchange="calculatePricing()">
+                                  <option value="lawn-mowing">Weekly Lawn Mowing</option>
+                                  <option value="fertilization">Fertilization</option>
+                                  <option value="aeration">Aeration</option>
+                                  <option value="overseeding">Overseeding</option>
+                                  <option value="mulch">Mulch Installation</option>
+                                  <option value="salt-application">Salt Application (per visit)</option>
+                                  <option value="snow-removal">Snow Removal</option>
+                                  <option value="custom">Custom Service</option>
+                              </select>
+                          </div>
+
+                          <div class="form-group mb-2" id="customRateInput" style="display: none;">
+                              <label class="small font-weight-bold">Rate per sq ft</label>
+                              <input type="number" id="customRate" class="form-control" step="0.01" placeholder="0.00" onchange="calculatePricing()">
+                          </div>
+
+                          <div id="pricingDisplay" style="display: none;">
+                              <div class="mw-measurement-display">
+                                  <div class="mw-measurement-row">
+                                      <span class="mw-measurement-label">Area:</span>
+                                      <span class="mw-measurement-value" id="pricingArea">0 sq ft</span>
+                                  </div>
+                                  <div class="mw-measurement-row">
+                                      <span class="mw-measurement-label">Rate:</span>
+                                      <span class="mw-measurement-value" id="pricingRate">$0.00/sq ft</span>
+                                  </div>
+                                  <div class="mw-measurement-row">
+                                      <span class="mw-measurement-label">Subtotal:</span>
+                                      <span class="mw-measurement-value" id="pricingSubtotal">$0.00</span>
+                                  </div>
+                                  <div class="mw-measurement-row">
+                                      <span class="mw-measurement-label">GST (5%):</span>
+                                      <span class="mw-measurement-value" id="pricingGST">$0.00</span>
+                                  </div>
+                                  <div class="mw-measurement-row" style="border-top: 2px solid var(--mw-green); padding-top: 0.75rem; margin-top: 0.25rem;">
+                                      <span class="mw-measurement-label"><strong>Total Price:</strong></span>
+                                      <span class="mw-measurement-value mw-measurement-large" id="pricingTotal">$0.00</span>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <button class="btn btn-primary btn-block mt-3" onclick="addToQuote()">
+                              Add to Quote
+                          </button>
+                      </div>
+                  </div>
+
+                  <!-- Export Options -->
+                  <div class="card mb-3">
+                      <div class="card-header py-2">
+                          <h5 class="card-title mb-0">Export & Save</h5>
+                      </div>
+                      <div class="card-body">
+                          <?php if ($property): ?>
+                              <button class="btn btn-success btn-block mb-2" onclick="saveToProperty()">
+                                  Save Measurements to Property
+                              </button>
+                              <div id="saveStatus" class="mb-2" style="display: none; padding: 0.75rem; border-radius: 6px; font-size: 14px;"></div>
+                          <?php endif; ?>
+                          <div class="row">
+                              <div class="col-6 mb-2">
+                                  <button class="btn btn-outline-secondary btn-block btn-sm" onclick="exportToJSON()">Export JSON</button>
+                              </div>
+                              <div class="col-6 mb-2">
+                                  <button class="btn btn-outline-secondary btn-block btn-sm" onclick="exportScreenshot()">Screenshot</button>
+                              </div>
+                              <div class="col-6">
+                                  <button class="btn btn-outline-secondary btn-block btn-sm" onclick="printMeasurements()">Print</button>
+                              </div>
+                              <div class="col-6">
+                                  <button class="btn btn-outline-secondary btn-block btn-sm" onclick="exportToPDF()">PDF Report</button>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+    <script>
+        let map;
+        let drawingManager;
+        let geocoder;
+        let currentShape = null;
+        let savedAreas = [];
+        let areaCounter = 0;
+
+        // Service pricing rates (per sq ft)
+        const servicePrices = {
+            'lawn-mowing': 0.015,      // $0.015/sq ft
+            'fertilization': 0.008,     // $0.008/sq ft
+            'aeration': 0.012,          // $0.012/sq ft
+            'overseeding': 0.010,       // $0.010/sq ft
+            'mulch': 0.25,              // $0.25/sq ft
+            'salt-application': 0.008,  // $0.008/sq ft
+            'snow-removal': 0.020       // $0.020/sq ft
+        };
+
+        // Existing measurements from database
+        const existingMeasurements = <?php echo json_encode($existingMeasurements); ?>;
+
+        function initMap() {
+            // Check if we have property coordinates
+            const propLat = document.getElementById('propertyLat');
+            const propLng = document.getElementById('propertyLng');
+
+            let initialCenter = { lat: 49.2827, lng: -123.1207 }; // Vancouver default
+            let initialZoom = 18;
+
+            if (propLat && propLng) {
+                initialCenter = {
+                    lat: parseFloat(propLat.value),
+                    lng: parseFloat(propLng.value)
+                };
+                initialZoom = 20; // Closer zoom for property
+            }
+
+            // Initialize map
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: initialCenter,
+                zoom: initialZoom,
+                mapTypeId: 'satellite',
+                mapTypeControl: false,
+                streetViewControl: true,
+                fullscreenControl: true
+            });
+
+            // Initialize geocoder
+            geocoder = new google.maps.Geocoder();
+
+            // Initialize drawing manager
+            drawingManager = new google.maps.drawing.DrawingManager({
+                drawingMode: null,
+                drawingControl: false,
+                polygonOptions: {
+                    fillColor: '#4a7c2c',
+                    fillOpacity: 0.4,
+                    strokeWeight: 2,
+                    strokeColor: '#2d5016',
+                    editable: true,
+                    draggable: true
+                },
+                rectangleOptions: {
+                    fillColor: '#4a7c2c',
+                    fillOpacity: 0.4,
+                    strokeWeight: 2,
+                    strokeColor: '#2d5016',
+                    editable: true,
+                    draggable: true
+                }
+            });
+
+            drawingManager.setMap(map);
+
+            // Listen for shape completion
+            google.maps.event.addListener(drawingManager, 'overlaycomplete', function(event) {
+                if (currentShape) {
+                    currentShape.setMap(null);
+                }
+
+                currentShape = event.overlay;
+                drawingManager.setDrawingMode(null);
+
+                // Update button states
+                document.querySelectorAll('.mw-measure-tools .btn').forEach(btn => {
+                    btn.classList.remove('mw-tool-active');
+                });
+
+                // Calculate and display measurements
+                updateMeasurements();
+
+                // Listen for shape edits
+                if (event.type === 'polygon') {
+                    google.maps.event.addListener(currentShape.getPath(), 'set_at', updateMeasurements);
+                    google.maps.event.addListener(currentShape.getPath(), 'insert_at', updateMeasurements);
+                } else if (event.type === 'rectangle') {
+                    google.maps.event.addListener(currentShape, 'bounds_changed', updateMeasurements);
+                }
+            });
+
+            // Map type selector
+            document.getElementById('mapTypeSelector').addEventListener('change', function() {
+                map.setMapTypeId(this.value);
+            });
+
+            // Add property marker if we have coordinates
+            if (propLat && propLng) {
+                new google.maps.Marker({
+                    map: map,
+                    position: initialCenter,
+                    title: 'Property Location',
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 10,
+                        fillColor: '#4a7c2c',
+                        fillOpacity: 1,
+                        strokeColor: '#fff',
+                        strokeWeight: 2
+                    }
+                });
+            }
+            // If we have address but no coords, auto-search
+            else if (document.getElementById('addressInput').value) {
+                setTimeout(searchAddress, 500);
+            }
+
+            // Load existing measurements if available
+            if (existingMeasurements && existingMeasurements.length > 0) {
+                loadExistingMeasurements();
+            }
+        }
+
+        function loadExistingMeasurements() {
+            existingMeasurements.forEach((m, index) => {
+                // Create area object without shape (we don't store polygon coords yet)
+                const area = {
+                    id: ++areaCounter,
+                    name: m.measurement_name,
+                    type: m.measurement_type,
+                    sqFt: parseFloat(m.area_sqft),
+                    shape: null, // No shape to display yet
+                    color: getRandomColor(),
+                    fromDb: true
+                };
+
+                savedAreas.push(area);
+            });
+
+            updateAreasList();
+            calculatePricing();
+        }
+
+        function searchAddress() {
+            const address = document.getElementById('addressInput').value;
+            if (!address) return;
+
+            geocoder.geocode({ address: address }, function(results, status) {
+                if (status === 'OK') {
+                    map.setCenter(results[0].geometry.location);
+                    map.setZoom(19);
+
+                    // Add marker
+                    new google.maps.Marker({
+                        map: map,
+                        position: results[0].geometry.location,
+                        title: 'Property Location'
+                    });
+                } else {
+                    alert('Address not found: ' + status);
+                }
+            });
+        }
+
+        function startDrawing(type) {
+            // Clear previous drawing mode
+            drawingManager.setDrawingMode(null);
+
+            // Remove active class from all buttons
+            document.querySelectorAll('.mw-measure-tools .btn').forEach(btn => {
+                btn.classList.remove('mw-tool-active');
+            });
+
+            // Set new drawing mode and activate button
+            if (type === 'polygon') {
+                drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
+                document.getElementById('drawPolygonBtn').classList.add('mw-tool-active');
+            } else if (type === 'rectangle') {
+                drawingManager.setDrawingMode(google.maps.drawing.OverlayType.RECTANGLE);
+                document.getElementById('drawRectangleBtn').classList.add('mw-tool-active');
+            }
+        }
+
+        function clearCurrentDrawing() {
+            if (currentShape) {
+                currentShape.setMap(null);
+                currentShape = null;
+                document.getElementById('currentMeasurement').style.display = 'none';
+            }
+        }
+
+        function updateMeasurements() {
+            if (!currentShape) return;
+
+            let area;
+            let perimeter = 0;
+
+            if (currentShape.getPath) {
+                // Polygon
+                const path = currentShape.getPath();
+                area = google.maps.geometry.spherical.computeArea(path);
+
+                // Calculate perimeter
+                for (let i = 0; i < path.getLength(); i++) {
+                    const start = path.getAt(i);
+                    const end = path.getAt((i + 1) % path.getLength());
+                    perimeter += google.maps.geometry.spherical.computeDistanceBetween(start, end);
+                }
+            } else {
+                // Rectangle
+                const bounds = currentShape.getBounds();
+                const ne = bounds.getNorthEast();
+                const sw = bounds.getSouthWest();
+                const nw = new google.maps.LatLng(ne.lat(), sw.lng());
+                const se = new google.maps.LatLng(sw.lat(), ne.lng());
+
+                // Calculate area
+                const path = [nw, ne, se, sw];
+                area = google.maps.geometry.spherical.computeArea(path);
+
+                // Calculate perimeter
+                const width = google.maps.geometry.spherical.computeDistanceBetween(nw, ne);
+                const height = google.maps.geometry.spherical.computeDistanceBetween(ne, se);
+                perimeter = 2 * (width + height);
+            }
+
+            // Convert to various units
+            const sqMeters = area;
+            const sqFeet = sqMeters * 10.764;
+            const acres = sqMeters * 0.000247105;
+            const perimeterFeet = perimeter * 3.28084;
+
+            // Display measurements
+            document.getElementById('currentSqFt').textContent = Math.round(sqFeet).toLocaleString();
+            document.getElementById('currentSqM').textContent = Math.round(sqMeters).toLocaleString();
+            document.getElementById('currentAcres').textContent = acres.toFixed(3);
+            document.getElementById('currentPerimeter').textContent = Math.round(perimeterFeet).toLocaleString() + ' ft';
+
+            document.getElementById('currentMeasurement').style.display = 'block';
+        }
+
+        function saveArea() {
+            if (!currentShape) return;
+
+            const areaName = document.getElementById('areaName').value || `Area ${areaCounter + 1}`;
+            const areaType = document.getElementById('areaType').value;
+            const sqFt = parseInt(document.getElementById('currentSqFt').textContent.replace(/,/g, ''));
+
+            const area = {
+                id: ++areaCounter,
+                name: areaName,
+                type: areaType,
+                sqFt: sqFt,
+                shape: currentShape,
+                color: getRandomColor()
+            };
+
+            // Update shape color
+            currentShape.setOptions({
+                fillColor: area.color,
+                fillOpacity: 0.3,
+                editable: false,
+                draggable: false
+            });
+
+            savedAreas.push(area);
+            updateAreasList();
+
+            // Clear current drawing
+            currentShape = null;
+            document.getElementById('currentMeasurement').style.display = 'none';
+            document.getElementById('areaName').value = '';
+
+            calculatePricing();
+        }
+
+        function updateAreasList() {
+            const container = document.getElementById('areasList');
+
+            if (savedAreas.length === 0) {
+                container.innerHTML = '<p class="text-muted text-center small py-4">No areas measured yet</p>';
+                return;
+            }
+
+            container.innerHTML = savedAreas.map(area => `
+                <div class="mw-area-item" style="border-left: 4px solid ${area.color};">
+                    <div class="mw-area-item-info">
+                        <div class="mw-area-item-name">${area.name}</div>
+                        <div class="mw-area-item-detail">${area.type} - ${area.sqFt.toLocaleString()} sq ft</div>
+                    </div>
+                    <div class="mw-area-item-actions">
+                        <button onclick="zoomToArea(${area.id})" title="Zoom to area">Zoom</button>
+                        <button onclick="deleteArea(${area.id})" title="Delete">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+
+            // Update totals
+            const totalSqFt = savedAreas.reduce((sum, area) => sum + area.sqFt, 0);
+            document.getElementById('areaCount').textContent = savedAreas.length;
+            document.getElementById('totalArea').textContent = totalSqFt.toLocaleString() + ' sq ft';
+        }
+
+        function deleteArea(id) {
+            const area = savedAreas.find(a => a.id === id);
+            if (area) {
+                if (area.shape) area.shape.setMap(null);
+                savedAreas = savedAreas.filter(a => a.id !== id);
+                updateAreasList();
+                calculatePricing();
+            }
+        }
+
+        function zoomToArea(id) {
+            const area = savedAreas.find(a => a.id === id);
+            if (!area || !area.shape) return;
+
+            let bounds = new google.maps.LatLngBounds();
+
+            if (area.shape.getPath) {
+                area.shape.getPath().forEach(point => bounds.extend(point));
+            } else {
+                bounds = area.shape.getBounds();
+            }
+
+            map.fitBounds(bounds);
+        }
+
+        function clearAllAreas() {
+            if (confirm('Clear all measured areas?')) {
+                savedAreas.forEach(area => { if (area.shape) area.shape.setMap(null); });
+                savedAreas = [];
+                clearCurrentDrawing();
+                updateAreasList();
+                document.getElementById('pricingDisplay').style.display = 'none';
+            }
+        }
+
+        function calculatePricing() {
+            const serviceType = document.getElementById('serviceType').value;
+            const totalSqFt = savedAreas.reduce((sum, area) => sum + area.sqFt, 0);
+
+            if (totalSqFt === 0) {
+                document.getElementById('pricingDisplay').style.display = 'none';
+                return;
+            }
+
+            let rate;
+            if (serviceType === 'custom') {
+                document.getElementById('customRateInput').style.display = 'block';
+                rate = parseFloat(document.getElementById('customRate').value) || 0;
+            } else {
+                document.getElementById('customRateInput').style.display = 'none';
+                rate = servicePrices[serviceType] || 0;
+            }
+
+            const subtotal = totalSqFt * rate;
+            const gst = subtotal * 0.05;
+            const total = subtotal + gst;
+
+            document.getElementById('pricingArea').textContent = totalSqFt.toLocaleString() + ' sq ft';
+            document.getElementById('pricingRate').textContent = '$' + rate.toFixed(3) + '/sq ft';
+            document.getElementById('pricingSubtotal').textContent = '$' + subtotal.toFixed(2);
+            document.getElementById('pricingGST').textContent = '$' + gst.toFixed(2);
+            document.getElementById('pricingTotal').textContent = '$' + total.toFixed(2);
+
+            document.getElementById('pricingDisplay').style.display = 'block';
+        }
+
+        function addToQuote() {
+            const quoteData = {
+                areas: savedAreas.map(a => ({
+                    name: a.name,
+                    type: a.type,
+                    sqFt: a.sqFt
+                })),
+                service: document.getElementById('serviceType').value,
+                pricing: {
+                    subtotal: document.getElementById('pricingSubtotal').textContent,
+                    gst: document.getElementById('pricingGST').textContent,
+                    total: document.getElementById('pricingTotal').textContent
+                }
+            };
+
+            console.log('Adding to quote:', quoteData);
+            alert('Quote data ready! This will be integrated with your quote system.');
+
+            // In production, this would send data to the quote builder
+            // window.parent.postMessage({ type: 'ADD_TO_QUOTE', data: quoteData }, '*');
+        }
+
+        function exportToJSON() {
+            const data = {
+                timestamp: new Date().toISOString(),
+                address: document.getElementById('addressInput').value,
+                areas: savedAreas.map(a => ({
+                    id: a.id,
+                    name: a.name,
+                    type: a.type,
+                    sqFt: a.sqFt
+                })),
+                totalSqFt: savedAreas.reduce((sum, a) => sum + a.sqFt, 0)
+            };
+
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'area-measurements.json';
+            a.click();
+        }
+
+        function exportScreenshot() {
+            alert('Screenshot feature will capture the map view. This requires additional setup with html2canvas library.');
+        }
+
+        function printMeasurements() {
+            window.print();
+        }
+
+        function exportToPDF() {
+            alert('PDF export feature will generate a professional measurement report. This requires jsPDF library integration.');
+        }
+
+        function saveToProperty() {
+            const propertyId = document.getElementById('propertyId');
+            if (!propertyId) {
+                alert('No property selected. Please access this page from a property link.');
+                return;
+            }
+
+            if (savedAreas.length === 0) {
+                alert('No areas to save. Please measure at least one area first.');
+                return;
+            }
+
+            const statusDiv = document.getElementById('saveStatus');
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = '#dbeafe';
+            statusDiv.style.color = '#1e40af';
+            statusDiv.textContent = 'Saving measurements...';
+
+            // Prepare measurement data
+            const measurements = savedAreas.map(area => {
+                let coords = null;
+                if (area.shape && area.shape.getPath) {
+                    coords = area.shape.getPath().getArray().map(p => ({
+                        lat: p.lat(),
+                        lng: p.lng()
+                    }));
+                }
+
+                return {
+                    name: area.name,
+                    type: area.type,
+                    sqFt: area.sqFt,
+                    perimeter: area.perimeter || null,
+                    coords: coords
+                };
+            });
+
+            // Send to server
+            const formData = new FormData();
+            formData.append('action', 'save_measurements');
+            formData.append('property_id', propertyId.value);
+            formData.append('measurements', JSON.stringify(measurements));
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    statusDiv.style.background = '#d1fae5';
+                    statusDiv.style.color = '#065f46';
+                    statusDiv.textContent = data.message;
+                } else {
+                    statusDiv.style.background = '#fee2e2';
+                    statusDiv.style.color = '#991b1b';
+                    statusDiv.textContent = data.error || 'Failed to save';
+                }
+            })
+            .catch(error => {
+                statusDiv.style.background = '#fee2e2';
+                statusDiv.style.color = '#991b1b';
+                statusDiv.textContent = 'Error: ' + error.message;
+            });
+        }
+
+        function getRandomColor() {
+            const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#6366f1'];
+            return colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        // Service type change handler
+        document.getElementById('serviceType').addEventListener('change', calculatePricing);
+    </script>
+
+<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

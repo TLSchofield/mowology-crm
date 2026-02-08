@@ -1,0 +1,35 @@
+# Sensitive files & secrets
+crm/config.php
+public/app_config/secrets.php
+.env
+*.log
+
+# Local development tools (NEVER commit to repo)
+public/loginAuth/local-bypass.php
+public/DEBUG_UTILITY.php
+LOCAL_DEV_SETUP.md
+
+# Database backups
+*.sql
+!database/migrations/*.sql
+crm/backup/
+
+# Composer vendor directory — committed to repo for cPanel hosting (no CLI access)
+# /public/vendor/
+
+# Generated PDFs (keep directory structure via .gitkeep)
+/storage/pdfs/quotes/*.pdf
+/storage/pdfs/invoices/*.pdf
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Temp files
+crm/logs/
+tmp/
+cache/

@@ -1,0 +1,10 @@
+{
+    "name": "mowology/crm",
+    "description": "Mowology Landscaping CRM",
+    "require": {
+        "mpdf/mpdf": "^8.2"
+    },
+    "config": {
+        "vendor-dir": "vendor"
+    }
+}

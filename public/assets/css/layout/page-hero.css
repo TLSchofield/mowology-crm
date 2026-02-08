@@ -1,0 +1,27 @@
+/* =====================================================
+   Page Hero – used on inner pages (services, about, etc.)
+   ===================================================== */
+
+.page-hero {
+    background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+    color: white;
+    padding: 80px 0;
+    text-align: center;
+}
+
+.page-hero h1 {
+    font-size: 48px;
+    color: white;
+    margin-bottom: 15px;
+}
+
+.page-hero p {
+    font-size: 20px;
+    opacity: 0.95;
+}
+
+@media (max-width: 768px) {
+    .page-hero h1 {
+        font-size: 36px;
+    }
+}

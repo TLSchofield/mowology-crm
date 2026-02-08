@@ -1,0 +1,21 @@
+# Sensitive files
+crm/config.php
+.env
+*.log
+
+# Database backups
+*.sql
+crm/backup/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Temp files
+crm/logs/
+tmp/
+cache/

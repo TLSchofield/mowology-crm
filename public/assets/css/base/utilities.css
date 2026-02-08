@@ -1,0 +1,12 @@
+/* =====================================================
+   Utilities – scroll behavior, selection, helpers
+   ===================================================== */
+
+html {
+    scroll-behavior: smooth;
+}
+
+::selection {
+    background: var(--color-primary);
+    color: white;
+}

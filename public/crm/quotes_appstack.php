@@ -1,0 +1,506 @@
+<?php
+/**
+ * Quotes Hub — Shows incoming quote requests and formal quotes
+ */
+require_once __DIR__ . '/../loginAuth/auth.php';
+require_once 'includes/functions.php';
+
+requireLogin();
+$user = getCurrentUser();
+$db = getDB();
+
+// Initialize variables
+$quoteRequests = [];
+$newCount = 0;
+$quotes = [];
+$statusCounts = [];
+$totalQuotes = 0;
+
+// --- Incoming Quote Requests ---
+try {
+    $quoteRequests = $db->query("
+        SELECT
+            qr.id, qr.service_types, qr.urgency, qr.status, qr.created_at, qr.quote_id,
+            c.first_name, c.last_name, c.email, c.phone,
+            p.address, p.city, p.property_type
+        FROM quote_requests qr
+        LEFT JOIN contacts c ON qr.contact_id = c.id
+        LEFT JOIN properties p ON qr.property_id = p.id
+        WHERE qr.status IN ('new', 'reviewing')
+        ORDER BY
+            CASE qr.urgency WHEN 'asap' THEN 1 WHEN 'soon' THEN 2 ELSE 3 END,
+            qr.created_at DESC
+        LIMIT 20
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
+    $requestCounts = $db->query("
+        SELECT status, COUNT(*) as count
+        FROM quote_requests
+        GROUP BY status
+    ")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $newCount = ($requestCounts['new'] ?? 0) + ($requestCounts['reviewing'] ?? 0);
+
+} catch (PDOException $e) {
+    $quoteRequests = [];
+    $newCount = 0;
+    error_log("Quotes page - quote requests error: " . $e->getMessage());
+}
+
+// --- Formal Quotes ---
+$statusFilter = $_GET['status'] ?? '';
+$searchQuery = trim($_GET['search'] ?? '');
+
+// Initialize arrays
+$quotesByStatus = [
+    'draft' => [],
+    'sent' => [],
+    'accepted' => [],
+    'scheduled' => []
+];
+$statusCounts = ['draft' => 0, 'sent' => 0, 'accepted' => 0, 'scheduled' => 0];
+$quotes = [];
+$totalQuotes = 0;
+
+try {
+    // Step 1: Get all quotes with basic info (simple, reliable query)
+    $quotesResult = $db->query("
+        SELECT
+            q.id, q.quote_number, q.status, q.total_amount,
+            q.created_at, q.expiry_date, q.property_id, q.company_id, q.created_by,
+            q.service_types
+        FROM quotes q
+        ORDER BY q.created_at DESC
+        LIMIT 500
+    ");
+
+    if (!$quotesResult) {
+        throw new Exception("Failed to execute quotes query");
+    }
+
+    $allQuotes = $quotesResult->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($allQuotes)) {
+        error_log("WARNING: No quotes returned from database");
+    }
+
+    // Step 2: For each quote, fetch related data
+    foreach ($allQuotes as &$quote) {
+        $qid = (int)$quote['id'];
+
+        // Get company name if company_id exists
+        if (!empty($quote['company_id'])) {
+            $companyResult = $db->query("SELECT company_name FROM companies WHERE id = " . (int)$quote['company_id']);
+            $companyRow = $companyResult->fetch(PDO::FETCH_ASSOC);
+            $quote['company_name'] = $companyRow['company_name'] ?? null;
+        }
+
+        // Get property address if property_id exists
+        if (!empty($quote['property_id'])) {
+            $propResult = $db->query("SELECT address, city FROM properties WHERE id = " . (int)$quote['property_id']);
+            $propRow = $propResult->fetch(PDO::FETCH_ASSOC);
+            $quote['property_address'] = $propRow['address'] ?? null;
+            $quote['property_city'] = $propRow['city'] ?? null;
+        }
+
+        // Check if quote has a linked job
+        $jobResult = $db->query("SELECT id FROM jobs WHERE quote_id = " . $qid . " LIMIT 1");
+        $jobRow = $jobResult->fetch(PDO::FETCH_ASSOC);
+        $quote['job_id'] = $jobRow['id'] ?? null;
+    }
+    unset($quote);
+
+    // Step 3: Organize quotes by status for kanban view
+    foreach ($allQuotes as $quote) {
+        $status = $quote['status'] ?? '';
+        $hasJob = !empty($quote['job_id']);
+
+        if ($status === 'accepted' && $hasJob) {
+            // Accepted quote with linked job goes to "scheduled" column
+            $quotesByStatus['scheduled'][] = $quote;
+            $statusCounts['scheduled']++;
+        } elseif ($status === 'draft') {
+            $quotesByStatus['draft'][] = $quote;
+            $statusCounts['draft']++;
+        } elseif ($status === 'sent') {
+            $quotesByStatus['sent'][] = $quote;
+            $statusCounts['sent']++;
+        } elseif ($status === 'accepted') {
+            $quotesByStatus['accepted'][] = $quote;
+            $statusCounts['accepted']++;
+        }
+    }
+
+    // For table view, filter by status if requested
+    if ($statusFilter === 'accepted') {
+        // Show all accepted quotes (both with and without jobs)
+        $quotes = array_merge($quotesByStatus['accepted'], $quotesByStatus['scheduled']);
+    } elseif ($statusFilter === 'draft') {
+        $quotes = $quotesByStatus['draft'];
+    } elseif ($statusFilter === 'sent') {
+        $quotes = $quotesByStatus['sent'];
+    } else {
+        // Show all quotes for table view (default)
+        $quotes = $allQuotes;
+    }
+
+    // Calculate total for all statuses
+    $totalQuotes = array_sum($statusCounts);
+
+} catch (PDOException $e) {
+    error_log("Quotes page - PDO error: " . $e->getMessage());
+    $quotes = [];
+    $quotesByStatus = ['draft' => [], 'sent' => [], 'accepted' => [], 'scheduled' => []];
+    $statusCounts = ['draft' => 0, 'sent' => 0, 'accepted' => 0, 'scheduled' => 0];
+    $totalQuotes = 0;
+} catch (Exception $e) {
+    error_log("Quotes page - General error: " . $e->getMessage());
+    $quotes = [];
+    $quotesByStatus = ['draft' => [], 'sent' => [], 'accepted' => [], 'scheduled' => []];
+    $statusCounts = ['draft' => 0, 'sent' => 0, 'accepted' => 0, 'scheduled' => 0];
+    $totalQuotes = 0;
+}
+
+$pageTitle = 'Quotes';
+$activePage = 'quotes';
+?>
+<?php include 'includes/appstack_head.php'; ?>
+
+          <div class="d-flex justify-content-between align-items-center mb-4">
+              <div>
+                  <h1 class="h3 mb-0">Quotes</h1>
+                  <p class="text-muted mb-0">Incoming requests &amp; quote management</p>
+              </div>
+              <a href="quotes/create.php" class="btn btn-primary">
+                  <i data-feather="plus"></i> Create Quote
+              </a>
+          </div>
+
+          <!-- Incoming Quote Requests -->
+          <?php if (!empty($quoteRequests)): ?>
+          <div class="card mb-4">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                  <h5 class="card-title mb-0">
+                      Incoming Quote Requests
+                      <span class="badge badge-warning ml-2"><?php echo $newCount; ?> pending</span>
+                  </h5>
+                  <a href="products/quote-requests.php" class="btn btn-sm btn-outline-secondary">View All Requests</a>
+              </div>
+              <div class="card-body">
+                  <div class="row">
+                      <?php foreach ($quoteRequests as $qr):
+                          $qrName = trim(($qr['first_name'] ?? '') . ' ' . ($qr['last_name'] ?? ''));
+                          if (empty($qrName)) $qrName = 'Unknown Contact';
+                          $qrServices = formatServiceTypes($qr['service_types']);
+                          $qrServicesStr = !empty($qrServices) ? implode(', ', $qrServices) : 'Not specified';
+                      ?>
+                          <div class="col-xl-4 col-md-6 mb-3">
+                              <a href="quote-workflow.php?request_id=<?php echo (int)$qr['id']; ?>" class="mw-qr-card mw-status-<?php echo h($qr['status']); ?>">
+                                  <div class="mw-qr-card-name">
+                                      <?php echo h($qrName); ?>
+                                      <span class="mw-urgency-badge mw-urgency-<?php echo h($qr['urgency'] ?? 'inquiring'); ?>">
+                                          <?php echo h(ucfirst($qr['urgency'] ?? 'inquiring')); ?>
+                                      </span>
+                                  </div>
+                                  <div class="mw-qr-card-services"><?php echo h($qrServicesStr); ?></div>
+                                  <div class="mw-qr-card-meta">
+                                      <span><?php echo h(timeAgo($qr['created_at'])); ?></span>
+                                      <span class="mw-status-badge <?php echo h($qr['status']); ?>"><?php echo h(ucfirst($qr['status'])); ?></span>
+                                  </div>
+                                  <?php if ($qr['address']): ?>
+                                      <div class="mw-qr-card-services mt-1" style="font-size: 0.8rem;">
+                                          <?php echo h($qr['address']); ?><?php if ($qr['city']): ?>, <?php echo h($qr['city']); ?><?php endif; ?>
+                                      </div>
+                                  <?php endif; ?>
+                              </a>
+                          </div>
+                      <?php endforeach; ?>
+                  </div>
+              </div>
+          </div>
+          <?php endif; ?>
+
+          <!-- Formal Quotes - Kanban View & Table View Toggle -->
+          <!-- View Toggle Buttons -->
+          <div class="mw-view-toggle">
+              <button type="button" class="mw-view-toggle-btn active" data-view="kanban">Kanban Board</button>
+              <button type="button" class="mw-view-toggle-btn" data-view="table">Table View</button>
+          </div>
+
+          <!-- Search Box -->
+          <form class="mw-search-box" method="GET" style="margin-bottom: 16px;">
+              <input type="text" name="search" class="mw-search-input"
+                     placeholder="Search quotes, clients, addresses..."
+                     value="<?php echo htmlspecialchars($searchQuery); ?>">
+          </form>
+
+          <!-- KANBAN VIEW -->
+          <div id="kanban-view">
+              <!-- Kanban Board with 4 columns -->
+              <div class="mw-kanban-board">
+                  <!-- Column 1: Quote Enquiry (Draft) -->
+                  <div class="mw-kanban-column">
+                      <div class="mw-kanban-column-header">
+                          <span>Quote Enquiry</span>
+                          <span class="mw-kanban-column-count"><?php echo $statusCounts['draft']; ?></span>
+                      </div>
+                      <div class="mw-kanban-cards">
+                          <?php if (empty($quotesByStatus['draft'])): ?>
+                              <div class="mw-kanban-empty">No quotes</div>
+                          <?php else: ?>
+                              <?php foreach ($quotesByStatus['draft'] as $quote):
+                                  $clientName = '';
+                                  if (!empty($quote['company_name'])) {
+                                      $clientName = $quote['company_name'];
+                                  } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
+                                      $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+                                  } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
+                                      $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                  }
+                                  if (empty($clientName)) $clientName = 'N/A';
+                              ?>
+                                  <a href="quotes/view.php?id=<?php echo $quote['id']; ?>" class="mw-kanban-card status-<?php echo h($quote['status']); ?>">
+                                      <div class="mw-kanban-card-header">
+                                          <span class="mw-kanban-card-number"><?php echo h($quote['quote_number']); ?></span>
+                                          <span class="mw-kanban-card-amount"><?php echo formatCurrency($quote['total_amount']); ?></span>
+                                      </div>
+                                      <div class="mw-kanban-card-client"><?php echo h($clientName); ?></div>
+                                      <div class="mw-kanban-card-meta">
+                                          <span class="mw-kanban-card-date"><?php echo formatDate($quote['created_at'], 'M j'); ?></span>
+                                      </div>
+                                  </a>
+                              <?php endforeach; ?>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <!-- Column 2: Quote Sent -->
+                  <div class="mw-kanban-column">
+                      <div class="mw-kanban-column-header">
+                          <span>Quote Sent</span>
+                          <span class="mw-kanban-column-count"><?php echo $statusCounts['sent']; ?></span>
+                      </div>
+                      <div class="mw-kanban-cards">
+                          <?php if (empty($quotesByStatus['sent'])): ?>
+                              <div class="mw-kanban-empty">No quotes</div>
+                          <?php else: ?>
+                              <?php foreach ($quotesByStatus['sent'] as $quote):
+                                  $clientName = '';
+                                  if (!empty($quote['company_name'])) {
+                                      $clientName = $quote['company_name'];
+                                  } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
+                                      $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+                                  } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
+                                      $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                  }
+                                  if (empty($clientName)) $clientName = 'N/A';
+                              ?>
+                                  <a href="quotes/view.php?id=<?php echo $quote['id']; ?>" class="mw-kanban-card status-<?php echo h($quote['status']); ?>">
+                                      <div class="mw-kanban-card-header">
+                                          <span class="mw-kanban-card-number"><?php echo h($quote['quote_number']); ?></span>
+                                          <span class="mw-kanban-card-amount"><?php echo formatCurrency($quote['total_amount']); ?></span>
+                                      </div>
+                                      <div class="mw-kanban-card-client"><?php echo h($clientName); ?></div>
+                                      <div class="mw-kanban-card-meta">
+                                          <span class="mw-kanban-card-date"><?php echo formatDate($quote['created_at'], 'M j'); ?></span>
+                                      </div>
+                                  </a>
+                              <?php endforeach; ?>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <!-- Column 3: Quote Approved (GOLDEN STATUS) -->
+                  <div class="mw-kanban-column column-approved">
+                      <div class="mw-kanban-column-header">
+                          <span>Quote Approved</span>
+                          <span class="mw-kanban-column-count"><?php echo $statusCounts['accepted']; ?></span>
+                      </div>
+                      <div class="mw-kanban-cards">
+                          <?php if (empty($quotesByStatus['accepted'])): ?>
+                              <div class="mw-kanban-empty">No quotes</div>
+                          <?php else: ?>
+                              <?php foreach ($quotesByStatus['accepted'] as $quote):
+                                  $clientName = '';
+                                  if (!empty($quote['company_name'])) {
+                                      $clientName = $quote['company_name'];
+                                  } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
+                                      $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+                                  } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
+                                      $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                  }
+                                  if (empty($clientName)) $clientName = 'N/A';
+                              ?>
+                                  <a href="quotes/view.php?id=<?php echo $quote['id']; ?>" class="mw-kanban-card status-<?php echo h($quote['status']); ?>">
+                                      <div class="mw-kanban-card-header">
+                                          <span class="mw-kanban-card-number"><?php echo h($quote['quote_number']); ?></span>
+                                          <span class="mw-kanban-card-amount"><?php echo formatCurrency($quote['total_amount']); ?></span>
+                                      </div>
+                                      <div class="mw-kanban-card-client"><?php echo h($clientName); ?></div>
+                                      <div class="mw-kanban-card-meta">
+                                          <span class="mw-kanban-card-date"><?php echo formatDate($quote['created_at'], 'M j'); ?></span>
+                                      </div>
+                                  </a>
+                              <?php endforeach; ?>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+
+                  <!-- Column 4: Approved & Scheduled (with linked jobs) -->
+                  <div class="mw-kanban-column">
+                      <div class="mw-kanban-column-header">
+                          <span>Approved & Scheduled</span>
+                          <span class="mw-kanban-column-count"><?php echo $statusCounts['scheduled']; ?></span>
+                      </div>
+                      <div class="mw-kanban-cards">
+                          <?php if (empty($quotesByStatus['scheduled'])): ?>
+                              <div class="mw-kanban-empty">No quotes</div>
+                          <?php else: ?>
+                              <?php foreach ($quotesByStatus['scheduled'] as $quote):
+                                  $clientName = '';
+                                  if (!empty($quote['company_name'])) {
+                                      $clientName = $quote['company_name'];
+                                  } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
+                                      $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+                                  } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
+                                      $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                  }
+                                  if (empty($clientName)) $clientName = 'N/A';
+                              ?>
+                                  <a href="quotes/view.php?id=<?php echo $quote['id']; ?>" class="mw-kanban-card status-<?php echo h($quote['status']); ?>">
+                                      <div class="mw-kanban-card-header">
+                                          <span class="mw-kanban-card-number"><?php echo h($quote['quote_number']); ?></span>
+                                          <span class="mw-kanban-card-amount"><?php echo formatCurrency($quote['total_amount']); ?></span>
+                                      </div>
+                                      <div class="mw-kanban-card-client"><?php echo h($clientName); ?></div>
+                                      <div class="mw-kanban-card-meta">
+                                          <span class="mw-kanban-card-date"><?php echo formatDate($quote['created_at'], 'M j'); ?></span>
+                                      </div>
+                                  </a>
+                              <?php endforeach; ?>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+              </div>
+          </div>
+
+          <!-- TABLE VIEW (hidden by default) -->
+          <div id="table-view" style="display: none;">
+              <!-- Filter Tabs for Table View -->
+              <div class="mw-filter-tabs" style="margin-bottom: 16px;">
+                  <a href="?status=" class="mw-filter-tab <?php echo !$statusFilter ? 'active' : ''; ?>">
+                      All <span class="count"><?php echo $totalQuotes; ?></span>
+                  </a>
+                  <a href="?status=draft" class="mw-filter-tab <?php echo $statusFilter === 'draft' ? 'active' : ''; ?>">
+                      Draft <span class="count"><?php echo $statusCounts['draft']; ?></span>
+                  </a>
+                  <a href="?status=sent" class="mw-filter-tab <?php echo $statusFilter === 'sent' ? 'active' : ''; ?>">
+                      Sent <span class="count"><?php echo $statusCounts['sent']; ?></span>
+                  </a>
+                  <a href="?status=accepted" class="mw-filter-tab <?php echo $statusFilter === 'accepted' ? 'active' : ''; ?>">
+                      Accepted <span class="count"><?php echo ($statusCounts['accepted'] + $statusCounts['scheduled']); ?></span>
+                  </a>
+              </div>
+
+              <div class="mw-table-card">
+                  <?php if (empty($quotes)): ?>
+                      <div class="mw-empty-state">
+                          <span class="mw-empty-state-icon" data-feather="file-text"></span>
+                          <p class="text-muted">No quotes yet. Create a quote from an incoming request or start a new one.</p>
+                      </div>
+                  <?php else: ?>
+                      <div class="table-responsive">
+                          <table class="mw-table">
+                              <thead>
+                                  <tr>
+                                      <th>Quote #</th>
+                                      <th>Client</th>
+                                      <th>Service</th>
+                                      <th>Amount</th>
+                                      <th>Status</th>
+                                      <th>Created</th>
+                                      <th>Valid Until</th>
+                                      <th>Actions</th>
+                                  </tr>
+                              </thead>
+                              <tbody>
+                                  <?php foreach ($quotes as $quote):
+                                      $clientName = '';
+                                      if (!empty($quote['company_name'])) {
+                                          $clientName = $quote['company_name'];
+                                      } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
+                                          $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+                                      } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
+                                          $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                      }
+                                      if (empty($clientName)) $clientName = 'N/A';
+                                  ?>
+                                      <tr>
+                                          <td>
+                                              <strong><?php echo htmlspecialchars($quote['quote_number']); ?></strong>
+                                          </td>
+                                          <td>
+                                              <div class="font-weight-bold"><?php echo htmlspecialchars($clientName); ?></div>
+                                              <small class="text-muted"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></small>
+                                          </td>
+                                          <td><?php echo ucfirst(str_replace('_', ' ', $quote['service_types'] ?? '')); ?></td>
+                                          <td><strong><?php echo formatCurrency($quote['total_amount']); ?></strong></td>
+                                          <td><?php echo getStatusBadge($quote['status']); ?></td>
+                                          <td><?php echo formatDate($quote['created_at']); ?></td>
+                                          <td><?php echo $quote['expiry_date'] ? formatDate($quote['expiry_date']) : '-'; ?></td>
+                                          <td class="actions">
+                                              <a href="quotes/view.php?id=<?php echo $quote['id']; ?>" class="mw-action-btn mw-action-btn-view">View</a>
+                                              <?php if ($quote['status'] === 'accepted' && empty($quote['job_id'])): ?>
+                                                  <a href="jobs/create.php?quote_id=<?php echo $quote['id']; ?>" class="mw-action-btn mw-action-btn-convert">Create Job</a>
+                                              <?php endif; ?>
+                                          </td>
+                                      </tr>
+                                  <?php endforeach; ?>
+                              </tbody>
+                          </table>
+                      </div>
+                  <?php endif; ?>
+              </div>
+          </div>
+
+          <!-- View Toggle JavaScript -->
+          <script>
+          document.addEventListener('DOMContentLoaded', function() {
+              // Get saved view preference from localStorage
+              const savedView = localStorage.getItem('quotesViewMode') || 'kanban';
+
+              // Set initial active button and visibility
+              document.querySelectorAll('.mw-view-toggle-btn').forEach(btn => {
+                  if (btn.dataset.view === savedView) {
+                      btn.classList.add('active');
+                  } else {
+                      btn.classList.remove('active');
+                  }
+              });
+
+              document.getElementById('kanban-view').style.display = savedView === 'kanban' ? 'block' : 'none';
+              document.getElementById('table-view').style.display = savedView === 'table' ? 'block' : 'none';
+
+              // Attach click handlers
+              document.querySelectorAll('.mw-view-toggle-btn').forEach(btn => {
+                  btn.addEventListener('click', function(e) {
+                      e.preventDefault();
+                      const view = this.dataset.view;
+
+                      // Update button states
+                      document.querySelectorAll('.mw-view-toggle-btn').forEach(b => {
+                          b.classList.remove('active');
+                      });
+                      this.classList.add('active');
+
+                      // Show/hide views
+                      document.getElementById('kanban-view').style.display = view === 'kanban' ? 'block' : 'none';
+                      document.getElementById('table-view').style.display = view === 'table' ? 'block' : 'none';
+
+                      // Save preference
+                      localStorage.setItem('quotesViewMode', view);
+                  });
+              });
+          });
+          </script>
+
+<?php include 'includes/appstack_footer.php'; ?>

@@ -1,0 +1,21 @@
+:root {
+  /* Brand */
+  --mowology-green: #2D8659;
+  --mowology-dark: #1A5F4A;
+  --mowology-lime: #7FD858;
+
+  /* Semantic aliases */
+  --color-primary: var(--mowology-green);
+  --color-primary-dark: var(--mowology-dark);
+  --color-accent: #e85d04;
+
+  /* Text */
+  --text-dark: #1a1a1a;
+  --text-medium: #4a4a4a;
+  --text-light: #6a6a6a;
+
+  /* Backgrounds & borders */
+  --bg-light: #f8f9fa;
+  --bg-white: #ffffff;
+  --border-color: #e0e0e0;
+}

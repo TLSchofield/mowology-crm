@@ -1,0 +1,145 @@
+/* =====================================================
+   jobFlow – Confirm (Step 2)
+   ===================================================== */
+
+.review-card {
+    background: white;
+    border-radius: 20px;
+    padding: 48px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.review-card .section {
+    margin-bottom: 32px;
+    padding-bottom: 32px;
+    border-bottom: 2px solid #e9ecef;
+}
+
+.review-card .section:last-of-type {
+    border-bottom: none;
+}
+
+.review-card .section-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--mowology-dark);
+    margin-bottom: 16px;
+    text-align: left;
+}
+
+.review-row {
+    display: flex;
+    padding: 12px 0;
+}
+
+.review-label {
+    font-weight: 600;
+    color: #6c757d;
+    width: 180px;
+    flex-shrink: 0;
+}
+
+.review-value {
+    flex: 1;
+    color: #212529;
+}
+
+.service-tag {
+    display: inline-block;
+    padding: 6px 12px;
+    background: var(--mowology-green);
+    color: white;
+    border-radius: 6px;
+    margin-right: 8px;
+    font-size: 14px;
+    margin-bottom: 6px;
+}
+
+/* Consent summary */
+.consent-summary {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 12px;
+}
+
+.review-card .consent-item {
+    padding: 8px 0;
+    display: flex;
+    align-items: center;
+}
+
+.review-card .consent-item svg {
+    width: 20px;
+    height: 20px;
+    margin-right: 8px;
+}
+
+.consent-yes {
+    color: var(--mowology-green);
+}
+
+.consent-no {
+    color: #6c757d;
+}
+
+/* Button group */
+.button-group {
+    display: flex;
+    gap: 16px;
+    margin-top: 24px;
+}
+
+/* Confirm-page button overrides */
+.review-card .btn {
+    padding: 16px 32px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+}
+
+.review-card .btn-primary {
+    background: linear-gradient(135deg, var(--mowology-green), var(--mowology-dark));
+    color: white;
+    border: none;
+    flex: 1;
+}
+
+.review-card .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(45, 134, 89, 0.3);
+}
+
+.review-card .btn-secondary {
+    background: white;
+    color: var(--mowology-dark);
+    border: 2px solid var(--mowology-dark);
+}
+
+.review-card .btn-secondary:hover {
+    background: #f8f9fa;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .review-card {
+        padding: 32px 24px;
+    }
+
+    .review-row {
+        flex-direction: column;
+    }
+
+    .review-label {
+        width: 100%;
+        margin-bottom: 4px;
+    }
+
+    .button-group {
+        flex-direction: column;
+    }
+}

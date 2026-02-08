@@ -1,0 +1,26 @@
+# Disable directory browsing
+Options -Indexes
+
+# Default documents (public site)
+DirectoryIndex index.php index.html
+
+# Protect sensitive files
+<FilesMatch "^(config\.php|auth\.php|session_config\.php|secrets\.php)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# ── URL Rewrites ──
+RewriteEngine On
+
+# Force HTTPS (uncomment on production)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# /quote → /quote.php (pass query string through)
+RewriteRule ^quote/?$ /quote.php [L,QSA]
+
+# /services/slug → /services/slug.php (clean URLs for service landing pages)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^services/([a-z0-9\-]+)/?$ /services/$1.php [L,QSA]

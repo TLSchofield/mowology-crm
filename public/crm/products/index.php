@@ -1,0 +1,64 @@
+<?php
+/**
+ * Products & Services Management Hub
+ * Mowology CRM - AppStack layout
+ */
+
+require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+
+requireLogin();
+$user = getCurrentUser();
+
+$pageTitle = 'Products & Services';
+$activePage = 'products';
+?>
+<?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+
+          <h1 class="h3 mb-3">Products & Services</h1>
+          <p class="text-muted mb-4">Manage your catalog, pricing, and quote tools</p>
+
+          <div class="mw-tools-grid">
+              <a href="cost-factors.php" class="mw-tool-card">
+                  <span class="mw-tool-icon">💰</span>
+                  <h3>Cost Factors</h3>
+                  <p>Manage labor rates, equipment costs, overhead percentages, and profit margins.</p>
+                  <span class="mw-badge-tag">Essential Setup</span>
+              </a>
+
+              <a href="products-manager.php" class="mw-tool-card">
+                  <span class="mw-tool-icon">📦</span>
+                  <h3>Products Catalog</h3>
+                  <p>Add and manage services, materials, and bundles. Set pricing, create GGOB packages.</p>
+                  <span class="mw-badge-tag">Product Management</span>
+              </a>
+
+              <a href="area-measurement.php" class="mw-tool-card">
+                  <span class="mw-tool-icon">🗺️</span>
+                  <h3>Area Measurement</h3>
+                  <p>Use Google Maps to measure lawn areas, driveways, and walkways for accurate quotes.</p>
+                  <span class="mw-badge-tag">Quote Tool</span>
+              </a>
+
+              <a href="#" class="mw-tool-card" onclick="alert('Coming soon!'); return false;">
+                  <span class="mw-tool-icon">📋</span>
+                  <h3>Quote Builder</h3>
+                  <p>Create professional quotes, add products, apply GGOB bundles, and send to customers.</p>
+                  <span class="mw-badge-tag warning">Coming Soon</span>
+              </a>
+
+              <a href="quote-requests.php" class="mw-tool-card">
+                  <span class="mw-tool-icon">📊</span>
+                  <h3>Quote Requests</h3>
+                  <p>View all incoming quote requests from the website. Review details and create formal quotes.</p>
+                  <span class="mw-badge-tag">View Requests</span>
+              </a>
+
+              <a href="#" class="mw-tool-card" onclick="alert('Coming soon!'); return false;">
+                  <span class="mw-tool-icon">📁</span>
+                  <h3>Categories</h3>
+                  <p>Organize products into categories for better organization and reporting.</p>
+                  <span class="mw-badge-tag warning">Coming Soon</span>
+              </a>
+          </div>
+
+<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

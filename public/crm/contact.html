@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Contact Mowology for professional landscaping services. Get a free quote for your property in Vancouver, Burnaby, or Richmond.">
+    <title>Contact Us | Mowology Landscaping</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://www.google.com/recaptcha/api.js?render=6LfET1gsAAAAAHq2nsVOnFzVCa0LvAnIzycAm7PP"></script>
+</head>
+<body>
+    <header class="header">
+        <nav class="navbar">
+            <div class="container">
+                <div class="nav-wrapper">
+                    <a href="index.html" class="logo">
+                        <span class="logo-text">MOWOLOGY</span>
+                        <span class="logo-tagline">A HIGHER DEGREE OF SERVICE</span>
+                    </a>
+                    <button class="mobile-menu-toggle" aria-label="Toggle menu">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                    <ul class="nav-menu">
+                        <li><a href="index.html">Home</a></li>
+                        <li><a href="services.html">Services</a></li>
+                        <li><a href="portfolio.html">Portfolio</a></li>
+                        <li><a href="about.html">About</a></li>
+                        <li><a href="contact.html" class="active">Contact</a></li>
+                        <li><a href="tel:7788469273" class="nav-phone">📞 778-846-9273</a></li>
+                    </ul>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <section class="page-hero">
+        <div class="container">
+            <h1>Get Your Free Quote</h1>
+            <p>Let's discuss how we can enhance your property</p>
+        </div>
+    </section>
+
+    <section class="contact-section">
+        <div class="container">
+            <div class="contact-grid">
+                <!-- Contact Form -->
+                <div class="contact-form-wrapper">
+                    <h2>Request a Free Consultation</h2>
+                    <p class="form-intro">Fill out the form below and we'll get back to you within 24 hours with a detailed quote.</p>
+                    
+                    <form class="contact-form" id="contactForm" action="https://formsubmit.co/office@mowology.ca" method="POST" onsubmit="return submitFormWithRecaptcha(event)">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="name">Full Name *</label>
+                                <input type="text" id="name" name="name" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="email">Email Address *</label>
+                                <input type="email" id="email" name="email" required>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="phone">Phone Number *</label>
+                                <input type="tel" id="phone" name="phone" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="propertyType">Property Type *</label>
+                                <select id="propertyType" name="propertyType" required>
+                                    <option value="">Select property type</option>
+                                    <option value="strata">Strata/Condo Complex</option>
+                                    <option value="property-management">Property Management</option>
+                                    <option value="residential">Residential Home</option>
+                                    <option value="townhouse">Townhouse</option>
+                                    <option value="commercial">Commercial Property</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="address">Property Address *</label>
+                            <input type="text" id="address" name="address" placeholder="Street address, City" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="propertySize">Approximate Property Size</label>
+                            <select id="propertySize" name="propertySize">
+                                <option value="">Select size</option>
+                                <option value="small">Small (under 2,000 sq ft)</option>
+                                <option value="medium">Medium (2,000 - 5,000 sq ft)</option>
+                                <option value="large">Large (5,000 - 10,000 sq ft)</option>
+                                <option value="xlarge">Extra Large (over 10,000 sq ft)</option>
+                                <option value="multi-unit">Multi-unit Complex</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Services Interested In *</label>
+                            <div class="checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="services" value="weekly-maintenance">
+                                    Weekly Maintenance
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="services" value="lawn-care">
+                                    Lawn Care
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="services" value="hedge-trimming">
+                                    Hedge Trimming
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="services" value="garden-maintenance">
+                                    Garden Maintenance
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="services" value="seasonal-cleanup">
+                                    Seasonal Cleanup
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="services" value="planting">
+                                    Planting & Design
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" name="services" value="other-service">
+                                    Other
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="message">Tell Us About Your Project *</label>
+                            <textarea id="message" name="message" rows="5" placeholder="Describe your landscaping needs, any specific concerns, and what you'd like to accomplish..." required></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="timeline">When Would You Like to Start?</label>
+                            <select id="timeline" name="timeline">
+                                <option value="">Select timeline</option>
+                                <option value="asap">As soon as possible</option>
+                                <option value="1-2-weeks">Within 1-2 weeks</option>
+                                <option value="1-month">Within 1 month</option>
+                                <option value="planning">Just planning ahead</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="budget">Approximate Budget (Optional)</label>
+                            <select id="budget" name="budget">
+                                <option value="">Select budget range</option>
+                                <option value="under-500">Under $500/month</option>
+                                <option value="500-1000">$500 - $1,000/month</option>
+                                <option value="1000-2000">$1,000 - $2,000/month</option>
+                                <option value="2000-plus">Over $2,000/month</option>
+                                <option value="one-time">One-time project</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="newsletter" value="yes">
+                                Send me seasonal landscaping tips and special offers
+                            </label>
+                        </div>
+
+                        <!-- FormSubmit Configuration (Hidden Fields) -->
+                        <input type="hidden" name="_subject" value="New Quote Request from Mowology Website">
+                        <input type="hidden" name="_captcha" value="false">
+                        <input type="hidden" name="_next" value="https://www.mowology.ca/contact.html?success=1">
+                        <input type="text" name="_honey" style="display:none">
+                        <input type="hidden" id="g-recaptcha-response" name="g-recaptcha-response">
+
+                        <button type="submit" class="btn btn-primary-large">Submit Quote Request</button>
+                        
+                        <p class="form-note">* Required fields. We respect your privacy and will never share your information.</p>
+                    </form>
+
+                    <div id="formSuccess" class="form-success" style="display: none;">
+                        <h3>✓ Thank You!</h3>
+                        <p>Your quote request has been received. We'll contact you within 24 hours.</p>
+                    </div>
+                </div>
+
+                <!-- Contact Information -->
+                <div class="contact-info-wrapper">
+                    <div class="contact-info-card">
+                        <h3>Contact Information</h3>
+                        
+                        <div class="contact-method">
+                            <div class="contact-icon">📞</div>
+                            <div>
+                                <h4>Phone</h4>
+                                <p><a href="tel:7788469273">778-846-9273</a></p>
+                                <p class="contact-note">Mon - Fri: 8:00 AM - 4:00 PM</p>
+                            </div>
+                        </div>
+
+                        <div class="contact-method">
+                            <div class="contact-icon">✉️</div>
+                            <div>
+                                <h4>Email</h4>
+                                <p><a href="/cdn-cgi/l/email-protection#b2ddd4d4dbd1d7f2dfddc5dddeddd5cb9cd1d3"><span class="__cf_email__" data-cfemail="5a353c3c33393f1a37352d3536353d2374393b">[email&#160;protected]</span></a></p>
+                                <p class="contact-note">We respond within 24 hours</p>
+                            </div>
+                        </div>
+
+                        <div class="contact-method">
+                            <div class="contact-icon">📍</div>
+                            <div>
+                                <h4>Service Areas</h4>
+                                <p>Vancouver, Burnaby, Richmond</p>
+                                <p class="contact-note">Proudly serving Metro Vancouver</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="contact-info-card">
+                        <h3>Why Choose Mowology?</h3>
+                        <ul class="why-list">
+                            <li>✓ Free, no-obligation quotes</li>
+                            <li>✓ Photo-verified service reports</li>
+                            <li>✓ Fully insured and WCB compliant</li>
+                            <li>✓ Dedicated account managers</li>
+                            <li>✓ Same-day emergency response</li>
+                            <li>✓ Satisfaction guaranteed</li>
+                        </ul>
+                    </div>
+
+                    <div class="contact-info-card">
+                        <h3>Office Hours</h3>
+                        <div class="hours-list">
+                            <div class="hours-row">
+                                <span>Monday - Friday</span>
+                                <span>8:00 AM - 4:00 PM</span>
+                            </div>
+                            <div class="hours-row">
+                                <span>Saturday</span>
+                                <span>By Appointment</span>
+                            </div>
+                            <div class="hours-row">
+                                <span>Sunday</span>
+                                <span>Closed</span>
+                            </div>
+                        </div>
+                        <p class="contact-note">Emergency services available 24/7</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Alternative Contact Methods -->
+    <section class="alt-contact">
+        <div class="container">
+            <h2 class="section-title">Prefer to Talk?</h2>
+            <p class="section-subtitle">We'd love to hear from you directly</p>
+            <div class="alt-contact-buttons">
+                <a href="tel:7788469273" class="btn btn-primary-large">Call Now: 778-846-9273</a>
+                <a href="/cdn-cgi/l/email-protection#eb848d8d82888eab86849c8487848c92c5888a" class="btn btn-secondary-large">Email Us</a>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-col">
+                    <h4>Mowology</h4>
+                    <p>A higher degree of service in landscaping and grounds maintenance.</p>
+                    <p class="footer-tagline">Serving Vancouver, Burnaby & Richmond</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Quick Links</h4>
+                    <ul>
+                        <li><a href="index.html">Home</a></li>
+                        <li><a href="services.html">Services</a></li>
+                        <li><a href="portfolio.html">Portfolio</a></li>
+                        <li><a href="about.html">About Us</a></li>
+                        <li><a href="contact.html">Contact</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Services</h4>
+                    <ul>
+                        <li><a href="services.html#property-management">Property Management</a></li>
+                        <li><a href="services.html#residential">Residential Services</a></li>
+                        <li><a href="services.html#maintenance">Weekly Maintenance</a></li>
+                        <li><a href="services.html#seasonal">Seasonal Services</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Contact</h4>
+                    <ul>
+                        <li>📞 <a href="tel:7788469273">778-846-9273</a></li>
+                        <li>✉️ <a href="/cdn-cgi/l/email-protection#c8a7aeaea1abad88a5a7bfa7a4a7afb1e6aba9"><span class="__cf_email__" data-cfemail="b3dcd5d5dad0d6f3dedcc4dcdfdcd4ca9dd0d2">[email&#160;protected]</span></a></li>
+                        <li>🕒 Mon - Fri: 8:00 - 16:00</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 Mowology. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+    <script>
+        // Google reCAPTCHA v3 Integration
+        function submitFormWithRecaptcha(event) {
+            event.preventDefault();
+            
+            grecaptcha.ready(function() {
+                grecaptcha.execute('6LfET1gsAAAAAHq2nsVOnFzVCa0LvAnIzycAm7PP', {action: 'submit'}).then(function(token) {
+                    // Add reCAPTCHA token to form
+                    document.getElementById('g-recaptcha-response').value = token;
+                    
+                    // Submit the form
+                    document.getElementById('contactForm').submit();
+                });
+            });
+            
+            return false;
+        }
+    </script>
+</body>
+</html>

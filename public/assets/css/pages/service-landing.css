@@ -1,0 +1,302 @@
+/* ───────────────────────────────────────────────────
+   Service Landing Pages  (slh- = hero, slp- = proof)
+   Used by: /services/strata-landscaping-maintenance,
+            /services/commercial-landscape-maintenance,
+            /services/hedge-trimming, etc.
+   ─────────────────────────────────────────────────── */
+
+/* ── Hero — Above the Fold ── */
+.service-landing-hero {
+  padding: 60px 0 50px;
+  background: linear-gradient(135deg, var(--bg-light) 0%, var(--bg-white) 100%);
+}
+
+.slh-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 50px;
+  align-items: center;
+}
+
+.slh-content h1 {
+  font-size: 2.5rem;
+  line-height: 1.15;
+  color: var(--text-dark);
+  margin-bottom: 20px;
+}
+
+.slh-sub {
+  font-size: 1.15rem;
+  line-height: 1.7;
+  color: var(--text-medium);
+  margin-bottom: 30px;
+}
+
+.slh-trust {
+  margin-top: 16px;
+  font-size: 0.9rem;
+  color: var(--text-light);
+}
+
+.slh-image img {
+  width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+}
+
+/* ── Proof Sections ── */
+.slp-section {
+  padding: 70px 0;
+}
+
+.slp-section.slp-alt {
+  background: var(--bg-light);
+}
+
+.slp-heading {
+  font-size: 2rem;
+  text-align: center;
+  margin-bottom: 16px;
+  color: var(--text-dark);
+}
+
+.slp-intro {
+  text-align: center;
+  max-width: 700px;
+  margin: 0 auto 40px;
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: var(--text-medium);
+}
+
+/* ── Checklist ── */
+.slp-checklist {
+  list-style: none;
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 0;
+}
+
+.slp-checklist li {
+  position: relative;
+  padding: 12px 0 12px 36px;
+  font-size: 1.05rem;
+  color: var(--text-medium);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.slp-checklist li:last-child {
+  border-bottom: none;
+}
+
+.slp-checklist li::before {
+  content: "\2713";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  color: var(--color-primary);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+/* ── Benefits Grid ── */
+.slp-benefits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 28px;
+}
+
+.slp-benefit {
+  background: var(--bg-white);
+  padding: 28px;
+  border-radius: 10px;
+  border-left: 4px solid var(--color-primary);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.slp-benefit strong {
+  display: block;
+  font-size: 1.05rem;
+  margin-bottom: 8px;
+  color: var(--text-dark);
+}
+
+.slp-benefit p {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text-medium);
+  margin: 0;
+}
+
+/* ── Process Steps ── */
+.slp-process {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 36px;
+  margin-top: 40px;
+}
+
+.slp-step {
+  text-align: center;
+}
+
+.slp-step-num {
+  width: 60px;
+  height: 60px;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0 auto 18px;
+}
+
+.slp-step h3 {
+  font-size: 1.15rem;
+  margin-bottom: 10px;
+  color: var(--text-dark);
+}
+
+.slp-step p {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--text-medium);
+}
+
+/* ── Before / After ── */
+.slp-ba-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 36px;
+}
+
+.slp-ba-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.slp-ba-img {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.slp-ba-img img {
+  width: 100%;
+  display: block;
+}
+
+.slp-ba-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.slp-ba-label--after {
+  background: var(--color-primary);
+}
+
+.slp-ba-caption {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-light);
+  margin-top: 8px;
+}
+
+/* ── FAQ ── */
+.slp-faq {
+  background: var(--bg-white);
+}
+
+.slp-faq-list {
+  max-width: 750px;
+  margin: 40px auto 0;
+}
+
+.slp-faq-item {
+  border-bottom: 1px solid var(--border-color);
+  padding: 0;
+}
+
+.slp-faq-item summary {
+  padding: 18px 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-dark);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.slp-faq-item summary::after {
+  content: "+";
+  font-size: 1.4rem;
+  font-weight: 400;
+  color: var(--color-primary);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 16px;
+}
+
+.slp-faq-item[open] summary::after {
+  content: "\2212";
+}
+
+.slp-faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.slp-faq-item p {
+  padding: 0 0 18px;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--text-medium);
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .slh-grid {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+
+  .slh-content h1 {
+    font-size: 2rem;
+  }
+
+  .slh-image {
+    order: -1;
+  }
+
+  .slp-benefits-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .slp-process {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .slp-ba-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .slp-ba-pair {
+    grid-template-columns: 1fr;
+  }
+}
