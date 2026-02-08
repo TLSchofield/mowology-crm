@@ -4039,3 +4039,197 @@ textarea.font-monospace {
     --bs-gutter-y: 0.75rem;
   }
 }
+
+/* ── Portfolio UI Guides & Help ──────────────────────────── */
+
+/* Help icon component */
+.mw-help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--mw-green);
+  color: #fff;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: help;
+  margin-left: 4px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.mw-help-icon:hover {
+  background: var(--mw-dark);
+}
+
+/* Tooltip styling */
+.mw-tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.mw-tooltip .mw-tooltip-text {
+  visibility: hidden;
+  width: 250px;
+  background-color: var(--mw-forest);
+  color: #fff;
+  text-align: left;
+  border-radius: 6px;
+  padding: 8px 12px;
+  position: absolute;
+  z-index: 1000;
+  bottom: 125%;
+  left: -60px;
+  margin-left: -5px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  word-wrap: break-word;
+}
+
+.mw-tooltip .mw-tooltip-text::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 65px;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: var(--mw-forest) transparent transparent transparent;
+}
+
+.mw-tooltip:hover .mw-tooltip-text {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Info box for section instructions */
+.mw-guide-box {
+  background: linear-gradient(135deg, rgba(45, 134, 89, 0.08) 0%, rgba(127, 216, 88, 0.05) 100%);
+  border-left: 4px solid var(--mw-green);
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.mw-guide-box i {
+  color: var(--mw-green);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.mw-guide-box .mw-guide-text {
+  font-size: 13px;
+  color: #555;
+  line-height: 1.5;
+}
+
+.mw-guide-box strong {
+  color: var(--mw-dark);
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* Inline help text */
+.mw-help-text {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mw-help-text i {
+  width: 14px;
+  height: 14px;
+  color: var(--mw-green);
+}
+
+/* Section title with help */
+.mw-section-title-with-help {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mw-section-title-with-help h6 {
+  margin: 0;
+}
+
+/* Step indicators for workflows */
+.mw-workflow-steps {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.mw-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.mw-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--mw-light);
+  color: var(--mw-green);
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.mw-step.active .mw-step-number {
+  background: var(--mw-green);
+  color: #fff;
+}
+
+.mw-step-label {
+  color: #666;
+  font-weight: 500;
+}
+
+/* Badge for action required */
+.mw-action-required {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff3cd;
+  color: #856404;
+  padding: 4px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mw-action-required i {
+  width: 14px;
+  height: 14px;
+}
+
+/* Responsive tooltip positioning */
+@media (max-width: 768px) {
+  .mw-tooltip .mw-tooltip-text {
+    width: 200px;
+    left: -75px;
+  }
+
+  .mw-tooltip .mw-tooltip-text::after {
+    left: 80px;
+  }
+}

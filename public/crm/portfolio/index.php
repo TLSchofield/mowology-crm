@@ -167,6 +167,15 @@ $activePage = 'portfolio';
                   <div class="card-body">
                       <h5 class="card-title mb-4"><i data-feather="upload"></i> Upload Photos</h5>
 
+                      <!-- Guide Box -->
+                      <div class="mw-guide-box">
+                          <i data-feather="info"></i>
+                          <div class="mw-guide-text">
+                              <strong>Upload & Organize Marketing Assets</strong>
+                              Upload photos of your work (before/after, projects, team). All uploads go through admin review before appearing in the portfolio.
+                          </div>
+                      </div>
+
                       <!-- Drag & Drop Area -->
                       <div class="mw-upload-drop" id="dropZone">
                           <i data-feather="upload-cloud" style="width: 48px; height: 48px; margin-bottom: 16px;"></i>
@@ -175,9 +184,26 @@ $activePage = 'portfolio';
                           <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
                       </div>
 
+                      <!-- Help text below upload -->
+                      <div class="mw-help-text" style="margin-top: 12px;">
+                          <i data-feather="lightbulb"></i>
+                          <span>
+                              <strong class="mw-tooltip">
+                                  Tip: Upload high-quality photos
+                                  <span class="mw-tooltip-text">Clear, well-lit photos with landscaping work in focus get approved faster. Avoid blurry or poorly lit images.</span>
+                              </strong>
+                          </span>
+                      </div>
+
                       <!-- Recent Uploads -->
                       <hr class="my-4">
-                      <h6 class="mb-3">Recent Uploads</h6>
+                      <div class="mw-section-title-with-help">
+                          <h6>Recent Uploads</h6>
+                          <div class="mw-tooltip">
+                              <span class="mw-help-icon">?</span>
+                              <span class="mw-tooltip-text">Shows your 20 most recent uploads and their approval status. Approved uploads are ready to use in portfolio projects.</span>
+                          </div>
+                      </div>
                       <?php if (empty($recentUploads)): ?>
                           <p class="text-muted text-center py-4">No uploads yet</p>
                       <?php else: ?>
@@ -231,11 +257,25 @@ $activePage = 'portfolio';
               <div class="card">
                   <div class="card-body">
                       <h5 class="card-title mb-4"><i data-feather="check-circle"></i> Review & Approve</h5>
+
+                      <!-- Guide Box -->
+                      <div class="mw-guide-box">
+                          <i data-feather="info"></i>
+                          <div class="mw-guide-text">
+                              <strong>Quality Control Workflow</strong>
+                              Review each uploaded photo and approve if it meets quality standards (sharp, well-lit, shows finished work). Reject blurry or irrelevant photos.
+                          </div>
+                      </div>
+
                       <?php if ($portfolioStats['pending_review'] === 0): ?>
                           <p class="text-muted text-center py-4">No photos awaiting review</p>
                       <?php else: ?>
                           <div class="alert alert-info">
                               <strong><?php echo $portfolioStats['pending_review']; ?></strong> photos pending review
+                              <div class="mw-help-text" style="margin-top: 8px;">
+                                  <i data-feather="clock"></i>
+                                  <span>Review and approve/reject to keep portfolio fresh with quality content.</span>
+                              </div>
                           </div>
 
                           <div class="mw-media-grid">
@@ -263,12 +303,18 @@ $activePage = 'portfolio';
                                           <small><?php echo formatDate($media['uploaded_at'], 'M j, H:i'); ?></small>
                                       </div>
                                       <div class="d-flex gap-1" style="position: absolute; top: 6px; right: 6px;">
-                                          <button class="btn btn-sm btn-success" onclick="approveMedia(<?php echo $media['id']; ?>)" title="Approve">
-                                              <i data-feather="check" style="width: 14px; height: 14px;"></i>
-                                          </button>
-                                          <button class="btn btn-sm btn-danger" onclick="rejectMedia(<?php echo $media['id']; ?>)" title="Reject">
-                                              <i data-feather="x" style="width: 14px; height: 14px;"></i>
-                                          </button>
+                                          <div class="mw-tooltip">
+                                              <button class="btn btn-sm btn-success" onclick="approveMedia(<?php echo $media['id']; ?>)" title="Approve">
+                                                  <i data-feather="check" style="width: 14px; height: 14px;"></i>
+                                              </button>
+                                              <span class="mw-tooltip-text">Approve this photo for portfolio use</span>
+                                          </div>
+                                          <div class="mw-tooltip">
+                                              <button class="btn btn-sm btn-danger" onclick="rejectMedia(<?php echo $media['id']; ?>)" title="Reject">
+                                                  <i data-feather="x" style="width: 14px; height: 14px;"></i>
+                                              </button>
+                                              <span class="mw-tooltip-text">Reject this photo (too blurry, poor lighting, etc.)</span>
+                                          </div>
                                       </div>
                                   </div>
                               <?php endforeach; ?>
@@ -283,8 +329,24 @@ $activePage = 'portfolio';
               <div class="card">
                   <div class="card-body">
                       <h5 class="card-title mb-4"><i data-feather="heart"></i> Favorite Media</h5>
+
+                      <!-- Guide Box -->
+                      <div class="mw-guide-box">
+                          <i data-feather="info"></i>
+                          <div class="mw-guide-text">
+                              <strong>Curated Best Work</strong>
+                              Your favorite photos — high-quality images that best showcase your work. Use these for portfolio projects and marketing.
+                          </div>
+                      </div>
+
                       <?php if (empty($favorites)): ?>
-                          <p class="text-muted text-center py-4">No favorite photos yet. Mark photos during upload or review to add them here.</p>
+                          <p class="text-muted text-center py-4">
+                              No favorite photos yet.
+                              <div class="mw-help-text" style="margin-top: 12px;">
+                                  <i data-feather="heart"></i>
+                                  <span>Click the heart icon on photos to mark them as favorites.</span>
+                              </div>
+                          </p>
                       <?php else: ?>
                           <div class="mw-media-grid">
                               <?php foreach ($favorites as $media): ?>
@@ -307,6 +369,15 @@ $activePage = 'portfolio';
 
           <!-- TAB: PORTFOLIO ITEMS -->
           <?php if ($activeTab === 'items'): ?>
+              <!-- Guide Box -->
+              <div class="mw-guide-box">
+                  <i data-feather="info"></i>
+                  <div class="mw-guide-text">
+                      <strong>Manage Published Projects</strong>
+                      Create and organize portfolio projects that appear on your public website. Each project groups related photos, details, and results.
+                  </div>
+              </div>
+
               <div class="card mb-4">
                   <div class="card-header d-flex justify-content-between align-items-center">
                       <h5 class="mb-0"><i data-feather="folder"></i> Portfolio Items</h5>
@@ -345,11 +416,23 @@ $activePage = 'portfolio';
                       <table class="table table-hover mb-0">
                           <thead class="table-light">
                               <tr>
-                                  <th>Featured</th>
+                                  <th>
+                                      Featured
+                                      <div class="mw-tooltip">
+                                          <span class="mw-help-icon">?</span>
+                                          <span class="mw-tooltip-text">Featured projects appear first on your public portfolio page</span>
+                                      </div>
+                                  </th>
                                   <th>Project Name</th>
                                   <th>Location</th>
                                   <th>Status</th>
-                                  <th>Order</th>
+                                  <th>
+                                      Order
+                                      <div class="mw-tooltip">
+                                          <span class="mw-help-icon">?</span>
+                                          <span class="mw-tooltip-text">Display order on the public portfolio. Lower numbers appear first.</span>
+                                      </div>
+                                  </th>
                                   <th>Created</th>
                                   <th>Actions</th>
                               </tr>
@@ -418,14 +501,26 @@ $activePage = 'portfolio';
               $lowCTR = $gscData['low_ctr'];
               ?>
 
+              <!-- Guide Box -->
+              <div class="mw-guide-box">
+                  <i data-feather="info"></i>
+                  <div class="mw-guide-text">
+                      <strong>Search Performance Analytics</strong>
+                      Real data from Google Search Console. See which keywords people search for, which pages rank, and improvement opportunities.
+                  </div>
+              </div>
+
               <div class="card mb-4">
                   <div class="card-body">
                       <div class="d-flex justify-content-between align-items-center">
                           <h5 class="card-title mb-0"><i data-feather="bar-chart-2"></i> Google Search Console Insights</h5>
                           <div class="d-flex gap-2">
-                              <button class="btn btn-sm btn-outline-secondary" id="syncGscBtn" onclick="syncGSCData()">
-                                  <i data-feather="refresh-cw" style="width: 14px; height: 14px; display: inline;"></i> Sync Now
-                              </button>
+                              <div class="mw-tooltip">
+                                  <button class="btn btn-sm btn-outline-secondary" id="syncGscBtn" onclick="syncGSCData()">
+                                      <i data-feather="refresh-cw" style="width: 14px; height: 14px; display: inline;"></i> Sync Now
+                                  </button>
+                                  <span class="mw-tooltip-text">Manually pull latest data from Google Search Console</span>
+                              </div>
                               <a href="/crm/gsc/connect.php" class="btn btn-sm btn-primary">Manage Connection</a>
                           </div>
                       </div>
@@ -451,12 +546,22 @@ $activePage = 'portfolio';
                   <div class="alert alert-light border mb-4">
                       Data as of <strong><?php echo formatDate($latestSnapshot['snapshot_date']); ?></strong>
                       (Last pulled: <?php echo formatDate($latestSnapshot['pulled_at'], 'M j, H:i'); ?>)
+                      <div class="mw-help-text" style="margin-top: 8px;">
+                          <i data-feather="clock"></i>
+                          <span>Data syncs automatically daily. Click "Sync Now" to pull fresh data manually.</span>
+                      </div>
                   </div>
 
                   <!-- Top Queries -->
                   <div class="card mb-4">
                       <div class="card-header">
-                          <h6 class="mb-0">Top Search Queries (Last 28 Days)</h6>
+                          <div class="d-flex justify-content-between align-items-center">
+                              <h6 class="mb-0">Top Search Queries (Last 28 Days)</h6>
+                              <div class="mw-tooltip">
+                                  <span class="mw-help-icon">?</span>
+                                  <span class="mw-tooltip-text">Keywords that brought traffic to your site. Focus on queries with high impressions but low CTR.</span>
+                              </div>
+                          </div>
                       </div>
                       <div class="table-responsive">
                           <table class="table table-sm table-hover mb-0">
@@ -501,7 +606,13 @@ $activePage = 'portfolio';
                   <!-- Top Pages -->
                   <div class="card mb-4">
                       <div class="card-header">
-                          <h6 class="mb-0">Top Performing Pages</h6>
+                          <div class="d-flex justify-content-between align-items-center">
+                              <h6 class="mb-0">Top Performing Pages</h6>
+                              <div class="mw-tooltip">
+                                  <span class="mw-help-icon">?</span>
+                                  <span class="mw-tooltip-text">Pages that get the most clicks from search results. These are your best-performing content.</span>
+                              </div>
+                          </div>
                       </div>
                       <div class="table-responsive">
                           <table class="table table-sm table-hover mb-0">
@@ -543,10 +654,16 @@ $activePage = 'portfolio';
                   <?php if (!empty($lowCTR)): ?>
                       <div class="card">
                           <div class="card-header bg-warning bg-opacity-10">
-                              <h6 class="mb-0" style="color: #856404;">
-                                  <i data-feather="alert-circle" style="width: 16px; height: 16px; display: inline;"></i>
-                                  Optimization Opportunities
-                              </h6>
+                              <div class="d-flex justify-content-between align-items-center">
+                                  <h6 class="mb-0" style="color: #856404;">
+                                      <i data-feather="alert-circle" style="width: 16px; height: 16px; display: inline;"></i>
+                                      Optimization Opportunities
+                                  </h6>
+                                  <div class="mw-tooltip">
+                                      <span class="mw-help-icon" style="background: #856404;">?</span>
+                                      <span class="mw-tooltip-text">Pages with many impressions but low click-through rate. Improve titles and meta descriptions to increase clicks.</span>
+                                  </div>
+                              </div>
                           </div>
                           <div class="table-responsive">
                               <table class="table table-sm table-hover mb-0">
@@ -584,22 +701,55 @@ $activePage = 'portfolio';
           <!-- TAB: RECOMMENDATIONS (Admin) -->
           <?php if ($activeTab === 'recommendations' && $isAdmin): ?>
 
+              <!-- Guide Box -->
+              <div class="mw-guide-box">
+                  <i data-feather="info"></i>
+                  <div class="mw-guide-text">
+                      <strong>SEO Content Strategy</strong>
+                      AI-powered recommendations for content to create, improve, or publish. Track which suggestions you've accepted and applied.
+                  </div>
+              </div>
+
               <!-- Stats Bar -->
               <div class="mw-recommendations-stats">
                   <div class="mw-rec-stat-card">
-                      <h6>Total</h6>
+                      <h6>
+                          Total
+                          <div class="mw-tooltip">
+                              <span class="mw-help-icon">?</span>
+                              <span class="mw-tooltip-text">Total recommendations generated</span>
+                          </div>
+                      </h6>
                       <div class="value"><?php echo $recommendationStats['total']; ?></div>
                   </div>
                   <div class="mw-rec-stat-card">
-                      <h6>New</h6>
+                      <h6>
+                          New
+                          <div class="mw-tooltip">
+                              <span class="mw-help-icon">?</span>
+                              <span class="mw-tooltip-text">Not yet reviewed</span>
+                          </div>
+                      </h6>
                       <div class="value"><?php echo $recommendationStats['new'] ?? 0; ?></div>
                   </div>
                   <div class="mw-rec-stat-card">
-                      <h6>Accepted</h6>
+                      <h6>
+                          Accepted
+                          <div class="mw-tooltip">
+                              <span class="mw-help-icon">?</span>
+                              <span class="mw-tooltip-text">You've approved these recommendations</span>
+                          </div>
+                      </h6>
                       <div class="value"><?php echo $recommendationStats['accepted'] ?? 0; ?></div>
                   </div>
                   <div class="mw-rec-stat-card">
-                      <h6>Applied</h6>
+                      <h6>
+                          Applied
+                          <div class="mw-tooltip">
+                              <span class="mw-help-icon">?</span>
+                              <span class="mw-tooltip-text">Completed and published</span>
+                          </div>
+                      </h6>
                       <div class="value"><?php echo $recommendationStats['applied'] ?? 0; ?></div>
                   </div>
               </div>
@@ -607,7 +757,13 @@ $activePage = 'portfolio';
               <!-- Filter Card -->
               <div class="card mb-4">
                   <div class="card-body mw-rec-filters">
-                      <h6 class="card-title mb-3"><i data-feather="filter"></i> Filter & Actions</h6>
+                      <h6 class="card-title mb-3">
+                          <i data-feather="filter"></i> Filter & Actions
+                          <div class="mw-tooltip">
+                              <span class="mw-help-icon">?</span>
+                              <span class="mw-tooltip-text">Filter by status, type, target, or season to focus on specific recommendations.</span>
+                          </div>
+                      </h6>
                       <div class="row g-3">
                           <div class="col-md-3">
                               <label class="form-label mb-2">Status</label>
@@ -658,14 +814,20 @@ $activePage = 'portfolio';
                       </div>
                       <div class="row g-2 mt-2">
                           <div class="col-auto">
-                              <button type="button" class="btn btn-sm btn-primary" id="generateRecBtn" onclick="generateRecommendations()">
-                                  <i data-feather="refresh-cw" style="width: 14px; height: 14px; display: inline; margin-right: 4px;"></i>Generate Recommendations
-                              </button>
+                              <div class="mw-tooltip">
+                                  <button type="button" class="btn btn-sm btn-primary" id="generateRecBtn" onclick="generateRecommendations()">
+                                      <i data-feather="refresh-cw" style="width: 14px; height: 14px; display: inline; margin-right: 4px;"></i>Generate Recommendations
+                                  </button>
+                                  <span class="mw-tooltip-text">Analyze your site and create new SEO recommendations</span>
+                              </div>
                           </div>
                           <div class="col-auto">
-                              <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle="collapse" data-target="#targetingSettings">
-                                  <i data-feather="settings" style="width: 14px; height: 14px; display: inline; margin-right: 4px;"></i>Targeting Settings
-                              </button>
+                              <div class="mw-tooltip">
+                                  <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle="collapse" data-target="#targetingSettings">
+                                      <i data-feather="settings" style="width: 14px; height: 14px; display: inline; margin-right: 4px;"></i>Targeting Settings
+                                  </button>
+                                  <span class="mw-tooltip-text">Manage geographic and seasonal targets for recommendations</span>
+                              </div>
                           </div>
                       </div>
                   </div>
@@ -827,6 +989,15 @@ $activePage = 'portfolio';
               $funnelDetails = getConversionFunnelDetails($startDate, $endDate);
               ?>
 
+              <!-- Guide Box -->
+              <div class="mw-guide-box">
+                  <i data-feather="info"></i>
+                  <div class="mw-guide-text">
+                      <strong>Track Lead-to-Customer Conversion</strong>
+                      See your sales funnel: leads → quote requests → quotes sent → closed deals. Filter by date range and traffic source.
+                  </div>
+              </div>
+
               <div class="card mb-4">
                   <div class="card-body">
                       <h5 class="card-title mb-0"><i data-feather="trending-up"></i> ROI & Funnel Dashboard</h5>
@@ -839,15 +1010,33 @@ $activePage = 'portfolio';
                       <form method="get" class="d-flex flex-wrap align-items-center gap-3">
                           <input type="hidden" name="tab" value="roi">
                           <div>
-                              <label class="form-label mb-1">Start Date</label>
+                              <label class="form-label mb-1">
+                                  Start Date
+                                  <div class="mw-tooltip">
+                                      <span class="mw-help-icon">?</span>
+                                      <span class="mw-tooltip-text">Beginning date for this analysis</span>
+                                  </div>
+                              </label>
                               <input type="date" name="start_date" class="form-control" value="<?php echo $startDate; ?>">
                           </div>
                           <div>
-                              <label class="form-label mb-1">End Date</label>
+                              <label class="form-label mb-1">
+                                  End Date
+                                  <div class="mw-tooltip">
+                                      <span class="mw-help-icon">?</span>
+                                      <span class="mw-tooltip-text">End date for this analysis</span>
+                                  </div>
+                              </label>
                               <input type="date" name="end_date" class="form-control" value="<?php echo $endDate; ?>">
                           </div>
                           <div>
-                              <label class="form-label mb-1">Filter Source</label>
+                              <label class="form-label mb-1">
+                                  Filter Source
+                                  <div class="mw-tooltip">
+                                      <span class="mw-help-icon">?</span>
+                                      <span class="mw-tooltip-text">Show leads from a specific source (organic search, direct, ads, etc.)</span>
+                                  </div>
+                              </label>
                               <select name="source" class="form-control">
                                   <option value="">All Sources</option>
                                   <?php foreach ($revenueBySource as $item): ?>
@@ -868,7 +1057,13 @@ $activePage = 'portfolio';
               <!-- Conversion Funnel Chart -->
               <div class="card mb-4">
                   <div class="card-header">
-                      <h6 class="mb-0">Conversion Funnel (<?php echo $startDate; ?> to <?php echo $endDate; ?>)</h6>
+                      <div class="d-flex justify-content-between align-items-center">
+                          <h6 class="mb-0">Conversion Funnel (<?php echo $startDate; ?> to <?php echo $endDate; ?>)</h6>
+                          <div class="mw-tooltip">
+                              <span class="mw-help-icon">?</span>
+                              <span class="mw-tooltip-text">Shows what % of leads move to each stage. Lower percentages indicate where to optimize.</span>
+                          </div>
+                      </div>
                   </div>
                   <div class="card-body">
                       <div class="mw-funnel-chart">
