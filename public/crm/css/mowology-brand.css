@@ -1205,6 +1205,92 @@ a:hover {
 
 .mw-job-card-sched.in-progress { background: rgba(245,158,11,0.08); }
 
+/* Drag and Drop States */
+.mw-job-card-sched {
+  position: relative;
+}
+
+.mw-job-card-sched.dragging {
+  opacity: 0.5;
+  background: #f8f9fa;
+  cursor: grabbing;
+  transform: scale(0.98);
+}
+
+.mw-day-jobs-container.drag-over {
+  background: rgba(45, 134, 89, 0.05);
+  border-radius: 6px;
+  padding: 8px;
+  border: 2px dashed var(--mw-green);
+}
+
+.mw-calendar-day.drag-over {
+  background: rgba(45, 134, 89, 0.08);
+}
+
+.mw-job-card-sched {
+  cursor: grab;
+}
+
+.mw-job-card-sched:active {
+  cursor: grabbing;
+}
+
+/* Drag feedback toast */
+.mw-drag-feedback {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--mw-green);
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  font-size: 14px;
+  z-index: 1000;
+  animation: slideInUp 0.3s ease-out;
+}
+
+.mw-drag-feedback.error {
+  background: #dc3545;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mw-job-card-view-link {
+  display: none;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(45, 134, 89, 0.1);
+  color: var(--mw-green);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  text-decoration: none;
+  text-transform: uppercase;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.mw-job-card-sched:hover .mw-job-card-view-link {
+  display: block;
+}
+
+.mw-job-card-view-link:hover {
+  background: rgba(45, 134, 89, 0.2);
+  color: var(--mw-dark);
+}
+
 /* Legend */
 .mw-legend {
   display: flex;

@@ -7,6 +7,7 @@ public/app_config/secrets.php
 # Local development tools (NEVER commit to repo)
 public/loginAuth/local-bypass.php
 public/DEBUG_UTILITY.php
+public/POPULATE_TEST_DATA.php
 LOCAL_DEV_SETUP.md
 
 # Database backups

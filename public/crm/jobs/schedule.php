@@ -124,7 +124,7 @@ $activePage = 'schedule';
                       $workSuitability = getWorkSuitability($weather);
                       $suitabilityClass = $workSuitability >= 70 ? 'good' : ($workSuitability >= 40 ? 'fair' : 'poor');
                   ?>
-                      <div class="mw-calendar-day <?php echo $isToday ? 'today' : ''; ?>">
+                      <div class="mw-calendar-day <?php echo $isToday ? 'today' : ''; ?>" data-date="<?php echo $dateStr; ?>" data-day-index="<?php echo $i; ?>">
                           <div class="mw-day-header">
                               <div>
                                   <span class="mw-day-number"><?php echo $currentDate->format('j'); ?></span>
@@ -157,23 +157,31 @@ $activePage = 'schedule';
                               </div>
                           </div>
 
-                          <?php if (empty($dayJobs)): ?>
-                              <div class="mw-empty-day">No jobs</div>
-                          <?php else: ?>
-                              <?php foreach ($dayJobs as $job): ?>
-                                  <a href="view.php?id=<?php echo $job['id']; ?>" class="mw-job-card-sched <?php echo $job['status'] === 'in_progress' ? 'in-progress' : ''; ?>"
-                                       style="border-left-color: <?php echo getServiceColor($job['service_type']); ?>">
-                                      <?php if ($job['scheduled_time_start']): ?>
-                                          <div class="mw-job-time"><?php echo date('g:i A', strtotime($job['scheduled_time_start'])); ?></div>
-                                      <?php endif; ?>
-                                      <div class="mw-job-title-sched"><?php echo htmlspecialchars($job['title'] ?: $job['job_number']); ?></div>
-                                      <div class="mw-job-client-sched"><?php echo htmlspecialchars($job['company_name']); ?></div>
-                                      <?php if ($job['assigned_to_name']): ?>
-                                          <div class="mw-job-assigned-sched"><?php echo htmlspecialchars($job['assigned_to_name']); ?></div>
-                                      <?php endif; ?>
-                                  </a>
-                              <?php endforeach; ?>
-                          <?php endif; ?>
+                          <div class="mw-day-jobs-container">
+                              <?php if (empty($dayJobs)): ?>
+                                  <div class="mw-empty-day">No jobs</div>
+                              <?php else: ?>
+                                  <?php foreach ($dayJobs as $job): ?>
+                                      <div class="mw-job-card-sched <?php echo $job['status'] === 'in_progress' ? 'in-progress' : ''; ?>"
+                                           data-job-id="<?php echo $job['id']; ?>"
+                                           data-job-number="<?php echo htmlspecialchars($job['job_number']); ?>"
+                                           data-scheduled-date="<?php echo $job['scheduled_date']; ?>"
+                                           data-scheduled-time="<?php echo $job['scheduled_time_start'] ?? ''; ?>"
+                                           draggable="true"
+                                           style="border-left-color: <?php echo getServiceColor($job['service_type']); ?>">
+                                          <?php if ($job['scheduled_time_start']): ?>
+                                              <div class="mw-job-time"><?php echo date('g:i A', strtotime($job['scheduled_time_start'])); ?></div>
+                                          <?php endif; ?>
+                                          <div class="mw-job-title-sched"><?php echo htmlspecialchars($job['title'] ?: $job['job_number']); ?></div>
+                                          <div class="mw-job-client-sched"><?php echo htmlspecialchars($job['company_name']); ?></div>
+                                          <?php if ($job['assigned_to_name']): ?>
+                                              <div class="mw-job-assigned-sched"><?php echo htmlspecialchars($job['assigned_to_name']); ?></div>
+                                          <?php endif; ?>
+                                          <a href="view.php?id=<?php echo $job['id']; ?>" class="mw-job-card-view-link" title="View job details">View</a>
+                                      </div>
+                                  <?php endforeach; ?>
+                              <?php endif; ?>
+                          </div>
                       </div>
                   <?php
                       $currentDate->modify('+1 day');
@@ -182,4 +190,10 @@ $activePage = 'schedule';
               </div>
           </div>
 
+          <!-- Drag feedback toast -->
+          <div id="dragFeedback" class="mw-drag-feedback" style="display: none;">
+            <span id="dragMessage"></span>
+          </div>
+
+<script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
