@@ -37,5 +37,8 @@
   </div><!-- /.wrapper -->
 
   <script src="/crm/js/app.js"></script>
+
+  <!-- Debug Panel (development tool) -->
+  <?php include __DIR__ . '/debug-panel.php'; ?>
 </body>
 </html>
