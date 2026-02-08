@@ -76,7 +76,7 @@ if (isset($_GET['step']) && $_GET['step'] === 'callback') {
             expires_at = VALUES(expires_at)
     ");
 
-    $siteUrl = SITE_URL ?? 'https://mowology.ca';
+    $siteUrl = 'https://mowology.ca'; // Production domain
     $accessToken = encryptToken($tokenResponse['access_token']);
     $refreshToken = encryptToken($tokenResponse['refresh_token'] ?? '');
     $expiresAt = date('Y-m-d H:i:s', time() + ($tokenResponse['expires_in'] ?? 3600));
@@ -102,8 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         die('CSRF token invalid');
     }
 
+    $siteUrl = 'https://mowology.ca'; // Production domain
     $stmt = $db->prepare("DELETE FROM gsc_properties WHERE site_url = ?");
-    $stmt->execute([SITE_URL ?? 'https://mowology.ca']);
+    $stmt->execute([$siteUrl]);
 
     logActivity($user['id'], null, 'Google Search Console disconnected', null);
 
@@ -112,8 +113,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Default: show connection status
+$siteUrl = 'https://mowology.ca'; // Production domain
 $stmt = $db->prepare("SELECT connected_at, expires_at FROM gsc_properties WHERE site_url = ? LIMIT 1");
-$stmt->execute([SITE_URL ?? 'https://mowology.ca']);
+$stmt->execute([$siteUrl]);
 $gscStatus = $stmt->fetch(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Google Search Console';
