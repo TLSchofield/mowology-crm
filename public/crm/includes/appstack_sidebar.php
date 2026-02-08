@@ -16,7 +16,7 @@ $navItems = [
     ['key' => 'dashboard', 'label' => 'Dashboard',     'icon' => 'sliders',     'href' => '/crm/dashboard_appstack.php'],
     ['key' => 'clients',   'label' => 'Clients',       'icon' => 'users',       'href' => '/crm/clients_appstack.php'],
     ['key' => 'quotes',    'label' => 'Quotes',        'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php'],
-    ['key' => 'jobs',      'label' => 'Jobs',          'icon' => 'tool',        'href' => '/crm/jobs/index.php'],
+    ['key' => 'jobs',      'label' => 'Jobs',          'icon' => 'briefcase',   'href' => '/crm/jobs/index.php'],
     ['key' => 'invoices',  'label' => 'Invoices',      'icon' => 'file-text',   'href' => '/crm/invoices/index.php'],
     ['key' => 'schedule',  'label' => 'Schedule',      'icon' => 'calendar',    'href' => '/crm/jobs/schedule.php'],
     ['key' => 'map',       'label' => 'Territory Map', 'icon' => 'map',         'href' => '/crm/map_appstack.php'],

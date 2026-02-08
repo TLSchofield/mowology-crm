@@ -33,7 +33,9 @@ if (!defined('GEOCODE_CACHE_DIR')) {
 
 /**
  * Get weather forecast for a specific date and location
- * Uses cached 7-day forecast when available (1-3 hour TTL)
+ * Uses cached 7-day forecast when available (2-hour TTL)
+ * Note: API can only provide current & future forecasts, not historical data
+ * Past dates return fallback values
  *
  * @param string $city City name
  * @param string $province Province/state code
@@ -44,6 +46,19 @@ function getWeatherForecast(string $city = 'Vancouver', string $province = 'BC',
 {
     if (!$date) {
         $date = date('Y-m-d');
+    }
+
+    // If requested date is in the past, return fallback (API doesn't provide historical)
+    $today = date('Y-m-d');
+    if ($date < $today) {
+        return [
+            'temp_high' => 12,
+            'temp_low' => 8,
+            'condition' => 'Historical',
+            'precipitation' => 0,
+            'icon' => '📊',
+            'wind' => 0,
+        ];
     }
 
     // Load entire week from cache or API

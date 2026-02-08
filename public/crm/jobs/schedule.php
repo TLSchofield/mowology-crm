@@ -15,13 +15,28 @@ $db = getDB();
 $startDate = isset($_GET['start']) ? $_GET['start'] : date('Y-m-d', strtotime('monday this week'));
 $endDate = date('Y-m-d', strtotime($startDate . ' +6 days'));
 
-// Fetch weather for the week upfront (like dashboard does)
+// Fetch 7-day weather forecast from today (API doesn't provide historical forecasts)
+// We'll apply today's forecast to all 7 days in the view
+$todaysForecast = getWeekForecast('Vancouver', 'BC');
+
+// Map today's forecast to the displayed week dates
 $weekWeather = [];
 $currentDate = new DateTime($startDate);
+$todayIndex = 0;
 for ($i = 0; $i < 7; $i++) {
     $dateStr = $currentDate->format('Y-m-d');
-    $weekWeather[$dateStr] = getWeatherForecast('Vancouver', 'BC', $dateStr);
+    // Get the corresponding forecast from today's 7-day forecast
+    $forecastDate = date('Y-m-d', strtotime("+{$todayIndex} days"));
+    $weekWeather[$dateStr] = $todaysForecast[$forecastDate] ?? [
+        'temp_high' => 12,
+        'temp_low' => 8,
+        'condition' => 'Unknown',
+        'precipitation' => 0,
+        'icon' => '🌤️',
+        'wind' => 0,
+    ];
     $currentDate->modify('+1 day');
+    $todayIndex++;
 }
 
 // Get jobs for the date range
