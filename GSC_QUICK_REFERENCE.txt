@@ -1,0 +1,156 @@
+# ⚡ GSC Fix — Quick Reference
+
+## The Problem (1 sentence)
+Code adds `sc-domain:` prefix to all properties, but your property is stored as `https://mowology.ca` (URL-prefix type) so queries fail with 404.
+
+## The Fix (1 sentence)
+Store property identifiers **exactly as Google returns them**, don't transform them.
+
+---
+
+## Files Changed
+
+| File | Change |
+|---|---|
+| **Database Schema** | Add `api_site_url`, `property_type`, `display_domain` columns |
+| **sync-cron.php** | Use `api_site_url` verbatim, add validation, remove sc-domain: transformation |
+
+---
+
+## SQL Migration
+
+```bash
+# Run once:
+mysql -u user -p db < 030_gsc_properties_enhanced.sql
+
+# Verify:
+SELECT id, api_site_url, property_type FROM gsc_properties;
+```
+
+**Expected:**
+```
+4  | https://mowology.ca  | url_prefix
+```
+
+---
+
+## Code Changes
+
+### Before (BROKEN)
+```php
+// Line 223 in old sync-cron.php
+$apiSiteUrl = 'sc-domain:' . preg_replace(...); // WRONG: Hardcodes sc-domain:
+```
+
+### After (FIXED)
+```php
+// Line 164 in fixed sync-cron.php
+$apiSiteUrl = $property['api_site_url']; // CORRECT: Uses verbatim from database
+// With validation: validateSiteUrlFormat($apiSiteUrl, $propertyType)
+```
+
+---
+
+## Deployment
+
+```bash
+# 1. Apply migration
+mysql < 030_gsc_properties_enhanced.sql
+
+# 2. Replace sync script
+cp sync-cron-fixed.php sync-cron.php
+
+# 3. Test
+php sync-cron.php
+
+# Expected: "GSC sync completed: Pulled 1 properties, 0 failed"
+```
+
+---
+
+## Verification
+
+```bash
+# Does data exist?
+mysql -e "SELECT COUNT(*) FROM gsc_query_page_stats;"
+# Should show > 0
+
+# When did it last sync?
+mysql -e "SELECT last_sync_at FROM gsc_properties WHERE id = 4;"
+# Should show today
+```
+
+---
+
+## Property Types
+
+| Type | Format | Covers | API Endpoint |
+|---|---|---|---|
+| **URL-prefix** | https://example.com | Exact domain + protocol | /sites/https%3A%2F%2Fexample.com/... |
+| **Domain** | sc-domain:example.com | All protocols/subdomains | /sites/sc-domain%3Aexample.com/... |
+
+**Current property:** URL-prefix (https://mowology.ca)
+
+---
+
+## Why It Works
+
+```
+OLD (broken):
+  DB: https://mowology.ca
+  -> Transform to: sc-domain:mowology.ca
+  -> Query: GET /sites/sc-domain%3Amowology.ca/...
+  -> Google: 404 FAILED
+
+NEW (fixed):
+  DB: https://mowology.ca
+  -> Use verbatim: https://mowology.ca
+  -> Query: GET /sites/https%3A%2F%2Fmowology.ca/...
+  -> Google: 200 OK
+```
+
+---
+
+## Error Messages
+
+| Error | Cause | Fix |
+|---|---|---|
+| "Failed to fetch GSC data" | Site URL doesn't match Google's records | Migration + deployment |
+| "No refresh token" | Token needs refresh | Reconnect via /crm/gsc/connect.php |
+| "Invalid url_prefix format" | Corrupted identifier | Manually update DB or reconnect |
+
+---
+
+## Timeline
+
+| Step | Time | Status |
+|---|---|---|
+| Apply migration | 30 sec | Time |
+| Deploy code | 1 min | Time |
+| First sync | 2-5 min | Time |
+| Verify data | 1 min | Time |
+| **Total** | **~10 min** | DONE |
+
+---
+
+## Docs
+
+- **Full Analysis:** GSC_AUDIT_AND_FIX.md
+- **Setup Guide:** GSC_IMPLEMENTATION_GUIDE.md
+- **This Doc:** GSC_QUICK_REFERENCE.txt
+
+---
+
+## Rollback
+
+If something breaks:
+```bash
+# Restore old sync script
+cp sync-cron.php.backup sync-cron.php
+
+# Migration is backward-compatible, so DB stays fine
+```
+
+---
+
+Status: Ready to deploy

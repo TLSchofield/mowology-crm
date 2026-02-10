@@ -108,7 +108,9 @@
 
     const altText =
       document.getElementById('logo_alt_text').value || 'Company Logo';
-    preview.innerHTML = `<img src="${logoPath}" alt="${altText}" style="max-width: 100%; max-height: 150px;">`;
+    // Ensure path is absolute (starts with /) for proper preview loading
+    const absolutePath = logoPath.startsWith('/') ? logoPath : '/' + logoPath;
+    preview.innerHTML = `<img src="${absolutePath}" alt="${altText}" style="max-width: 100%; max-height: 150px; object-fit: contain;">`;
   }
 
   /**

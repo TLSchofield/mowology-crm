@@ -4,11 +4,16 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
 
 $db = getDB();
+
+// Initialize error handler
+$errorHandler = new CRMErrorHandler('Create Quote', $_SERVER['REQUEST_METHOD']);
+$GLOBALS['crm_error_handler'] = $errorHandler;
 $error = '';
 $success = '';
 
@@ -195,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             } catch (Exception $e) {
                 $db->rollBack();
-                error_log("Quote save error: " . $e->getMessage());
+                $errorHandler->logError('Error saving quote', $e, ['quote_id' => $quoteId, 'property_id' => $propertyId]);
                 $error = 'Error saving quote. Please try again.';
             }
         }
@@ -208,6 +213,23 @@ $pageTitle = $quoteId ? 'Edit Quote' : ($quoteRequestId ? 'Create Quote from Req
 $activePage = 'quotes';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+
+            <!-- Session Alert Display -->
+            <?php if (isset($_SESSION['alert'])):
+                $alert = $_SESSION['alert'];
+                $alertClass = [
+                    'error' => 'alert-danger',
+                    'warning' => 'alert-warning',
+                    'success' => 'alert-success',
+                    'info' => 'alert-info'
+                ][$alert['type']] ?? 'alert-info';
+            ?>
+                <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show" role="alert">
+                    <strong><?php echo ucfirst($alert['type']); ?>:</strong> <?php echo h($alert['message']); ?>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                <?php unset($_SESSION['alert']); ?>
+            <?php endif; ?>
 
             <a href="<?php echo $quoteRequestId ? '../products/quote-requests.php?id=' . $quoteRequestId : 'index.php'; ?>" class="mw-back-link">
                 &larr; Back to <?php echo $quoteRequestId ? 'Request' : 'Quotes'; ?>

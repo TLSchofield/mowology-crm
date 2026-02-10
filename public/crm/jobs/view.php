@@ -173,6 +173,159 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             }
         }
     }
+
+    if ($action === 'edit_job') {
+        // Update job details
+        $title = trim($_POST['title'] ?? '');
+        $description = trim($_POST['description'] ?? '');
+        $serviceType = trim($_POST['service_type'] ?? '');
+        $estimatedAmount = floatval($_POST['estimated_amount'] ?? 0);
+
+        // Update scheduling
+        $jobType = $_POST['job_type'] ?? 'one_time';
+        $scheduledDate = $_POST['scheduled_date'] ?? '';
+        $scheduledTimeStart = $_POST['scheduled_time_start'] ?? '';
+        $scheduledTimeEnd = $_POST['scheduled_time_end'] ?? '';
+        $estimatedDurationMinutes = intval($_POST['estimated_duration_minutes'] ?? 60);
+
+        // Validate required fields
+        if (!$title) {
+            $message = 'Job title is required.';
+            $messageType = 'error';
+        } else {
+            // Update main job fields
+            $stmt = $db->prepare("
+                UPDATE jobs SET
+                    title = ?,
+                    description = ?,
+                    service_type = ?,
+                    estimated_amount = ?,
+                    job_type = ?,
+                    scheduled_date = ?,
+                    scheduled_time_start = ?,
+                    scheduled_time_end = ?,
+                    estimated_duration_minutes = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $title,
+                $description ?: null,
+                $serviceType,
+                $estimatedAmount,
+                $jobType,
+                $scheduledDate ?: null,
+                $scheduledTimeStart ?: null,
+                $scheduledTimeEnd ?: null,
+                $estimatedDurationMinutes,
+                $jobId
+            ]);
+
+            // If recurring, update recurrence fields and generate instances
+            if ($jobType === 'recurring') {
+                $recurrencePattern = $_POST['recurrence_pattern'] ?? 'weekly';
+                $recurrenceEndDate = $_POST['recurrence_end_date'] ?? '';
+                $recurrenceInterval = intval($_POST['recurrence_interval'] ?? 1);
+                $recurrenceIntervalUnit = $_POST['recurrence_interval_unit'] ?? 'weeks';
+
+                // Calculate recurrence_day_of_week from scheduled_date
+                $recurrenceDayOfWeek = null;
+                if ($scheduledDate) {
+                    $dayNum = intval(date('w', strtotime($scheduledDate))); // 0=Sunday, 6=Saturday
+                    $dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    $recurrenceDayOfWeek = $dayNames[$dayNum];
+                }
+
+                $stmt = $db->prepare("
+                    UPDATE jobs SET
+                        recurrence_pattern = ?,
+                        recurrence_end_date = ?,
+                        recurrence_interval = ?,
+                        recurrence_interval_unit = ?,
+                        recurrence_day_of_week = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $recurrencePattern,
+                    $recurrenceEndDate ?: null,
+                    $recurrenceInterval,
+                    $recurrenceIntervalUnit,
+                    $recurrenceDayOfWeek,
+                    $jobId
+                ]);
+
+                // Generate recurring job instances for calendar
+                generateRecurringJobInstancesForParent(
+                    $jobId,
+                    $job['company_id'],
+                    $job['property_id'],
+                    $scheduledDate,
+                    $recurrenceEndDate ?: date('Y-m-d', strtotime('+1 year')),
+                    $recurrencePattern,
+                    $recurrenceInterval,
+                    $recurrenceIntervalUnit,
+                    $scheduledDate ? intval(date('w', strtotime($scheduledDate))) : 3, // 3 = Wednesday
+                    $scheduledTimeStart,
+                    $scheduledTimeEnd,
+                    $estimatedDurationMinutes,
+                    $user['id']
+                );
+            } else {
+                // Clear recurrence fields for one-time jobs
+                $stmt = $db->prepare("
+                    UPDATE jobs SET
+                        recurrence_pattern = NULL,
+                        recurrence_end_date = NULL,
+                        recurrence_interval = NULL,
+                        recurrence_interval_unit = NULL,
+                        recurrence_day_of_week = NULL
+                    WHERE id = ?
+                ");
+                $stmt->execute([$jobId]);
+
+                // Delete any child instances if job was converted from recurring to one-time
+                $stmt = $db->prepare("DELETE FROM jobs WHERE parent_job_id = ?");
+                $stmt->execute([$jobId]);
+            }
+
+            // Log the activity
+            $changeDetails = "Updated job details";
+            logActivityExtended($user['id'], 'Job updated', $changeDetails, $job['company_id'], $jobId);
+
+            // Refresh job data
+            $stmt = $db->prepare("
+                SELECT
+                    j.*,
+                    p.address as property_address,
+                    p.city as property_city,
+                    p.postal_code as property_postal,
+                    p.latitude,
+                    p.longitude,
+                    c.company_name,
+                    c.billing_email,
+                    c.billing_phone,
+                    ct.first_name as contact_first,
+                    ct.last_name as contact_last,
+                    ct.email as contact_email,
+                    ct.phone as contact_phone,
+                    u.full_name as assigned_to_name,
+                    creator.full_name as created_by_name,
+                    q.quote_number
+                FROM jobs j
+                LEFT JOIN properties p ON j.property_id = p.id
+                LEFT JOIN companies c ON j.company_id = c.id
+                LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
+                LEFT JOIN users u ON j.assigned_to = u.id
+                LEFT JOIN users creator ON j.created_by = creator.id
+                LEFT JOIN quotes q ON j.quote_id = q.id
+                WHERE j.id = ?
+            ");
+            $stmt->execute([$jobId]);
+            $job = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $message = 'Job updated successfully!';
+            $messageType = 'success';
+        }
+    }
 }
 
 // Handle URL action parameter
@@ -211,6 +364,9 @@ $activePage = 'jobs';
                     </div>
                 </div>
                 <div class="mw-header-actions">
+                    <button type="button" class="btn btn-primary" onclick="showModal('editJobModal')">
+                        ✎ Edit Job
+                    </button>
                     <?php if ($job['status'] === 'scheduled'): ?>
                         <form method="POST" style="display: inline;">
                             <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
@@ -393,6 +549,43 @@ $activePage = 'jobs';
                                 <span class="mw-detail-label">Duration</span>
                                 <span class="mw-detail-value"><?php echo $job['estimated_duration_minutes']; ?> min</span>
                             </div>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Type</span>
+                                <span class="mw-detail-value">
+                                    <?php if ($job['job_type'] === 'recurring'): ?>
+                                        <span class="mw-badge" style="background: var(--mw-lime); color: #000;">Recurring</span>
+                                    <?php else: ?>
+                                        One-Time
+                                    <?php endif; ?>
+                                </span>
+                            </div>
+                            <?php if ($job['job_type'] === 'recurring' && $job['recurrence_pattern']): ?>
+                                <div class="mw-detail-row">
+                                    <span class="mw-detail-label">Frequency</span>
+                                    <span class="mw-detail-value">
+                                        <?php
+                                            // Display custom or preset recurrence pattern
+                                            if ($job['recurrence_pattern'] === 'weekly') {
+                                                $pattern = 'Weekly';
+                                            } elseif ($job['recurrence_pattern'] === 'biweekly') {
+                                                $pattern = 'Every 2 Weeks';
+                                            } elseif ($job['recurrence_pattern'] === 'monthly') {
+                                                $pattern = 'Monthly';
+                                            } else {
+                                                // Fallback for unknown patterns
+                                                $pattern = ucfirst(str_replace('_', ' ', $job['recurrence_pattern']));
+                                            }
+                                            echo htmlspecialchars($pattern);
+                                        ?>
+                                    </span>
+                                </div>
+                                <?php if ($job['recurrence_end_date']): ?>
+                                    <div class="mw-detail-row">
+                                        <span class="mw-detail-label">Until</span>
+                                        <span class="mw-detail-value"><?php echo formatDate($job['recurrence_end_date']); ?></span>
+                                    </div>
+                                <?php endif; ?>
+                            <?php endif; ?>
                         </div>
                     </div>
 
@@ -470,6 +663,127 @@ $activePage = 'jobs';
                     </div>
                 </div>
             </div>
+
+    <!-- Edit Job Modal -->
+    <div class="mw-modal-overlay" id="editJobModal">
+        <div class="mw-modal" style="max-width: 600px;">
+            <h3 class="mw-modal-title">Edit Job</h3>
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="action" value="edit_job">
+
+                <!-- Job Details Section -->
+                <div style="border-bottom: 1px solid #e0e0e0; padding-bottom: 16px; margin-bottom: 16px;">
+                    <h5 style="margin: 0 0 12px 0; font-weight: 600; color: #333;">Job Details</h5>
+
+                    <div class="form-group">
+                        <label class="form-label">Title</label>
+                        <input type="text" name="title" class="form-control" required
+                               value="<?php echo htmlspecialchars($job['title'] ?? ''); ?>">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <textarea name="description" class="form-control" rows="3"
+                                  placeholder="Job description..."><?php echo htmlspecialchars($job['description'] ?? ''); ?></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Service Type</label>
+                        <input type="text" name="service_type" class="form-control"
+                               value="<?php echo htmlspecialchars($job['service_type'] ?? ''); ?>">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Estimated Amount ($)</label>
+                        <input type="number" name="estimated_amount" class="form-control" step="0.01"
+                               value="<?php echo htmlspecialchars($job['estimated_amount'] ?? 0); ?>">
+                    </div>
+                </div>
+
+                <!-- Scheduling Section -->
+                <div style="border-bottom: 1px solid #e0e0e0; padding-bottom: 16px; margin-bottom: 16px;">
+                    <h5 style="margin: 0 0 12px 0; font-weight: 600; color: #333;">Scheduling</h5>
+
+                    <div class="form-group">
+                        <label class="form-label">Job Type</label>
+                        <select name="job_type" id="editJobType" class="form-control" onchange="toggleEditRecurringOptions()">
+                            <option value="one_time" <?php echo $job['job_type'] === 'one_time' ? 'selected' : ''; ?>>One-Time</option>
+                            <option value="recurring" <?php echo $job['job_type'] === 'recurring' ? 'selected' : ''; ?>>Recurring</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Date</label>
+                        <input type="date" name="scheduled_date" class="form-control"
+                               value="<?php echo htmlspecialchars($job['scheduled_date'] ?? date('Y-m-d')); ?>">
+                    </div>
+
+                    <div style="display: flex; gap: 12px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Start Time</label>
+                            <input type="time" name="scheduled_time_start" class="form-control"
+                                   value="<?php echo htmlspecialchars($job['scheduled_time_start'] ?? '09:00'); ?>">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">End Time</label>
+                            <input type="time" name="scheduled_time_end" class="form-control"
+                                   value="<?php echo htmlspecialchars($job['scheduled_time_end'] ?? '10:00'); ?>">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Duration (minutes)</label>
+                        <input type="number" name="estimated_duration_minutes" class="form-control"
+                               value="<?php echo htmlspecialchars($job['estimated_duration_minutes'] ?? 60); ?>">
+                    </div>
+                </div>
+
+                <!-- Recurring Options Section (Conditional) -->
+                <div id="editRecurringOptions" style="<?php echo $job['job_type'] === 'recurring' ? '' : 'display: none;'; ?> border-bottom: 1px solid #e0e0e0; padding-bottom: 16px; margin-bottom: 16px;">
+                    <h5 style="margin: 0 0 12px 0; font-weight: 600; color: #333;">Recurring Options</h5>
+
+                    <div class="form-group">
+                        <label class="form-label">Frequency</label>
+                        <select name="recurrence_pattern" id="editRecurrencePattern" class="form-control" onchange="toggleEditCustomRecurrence()">
+                            <option value="weekly" <?php echo $job['recurrence_pattern'] === 'weekly' ? 'selected' : ''; ?>>Weekly</option>
+                            <option value="biweekly" <?php echo $job['recurrence_pattern'] === 'biweekly' ? 'selected' : ''; ?>>Every 2 Weeks</option>
+                            <option value="monthly" <?php echo $job['recurrence_pattern'] === 'monthly' ? 'selected' : ''; ?>>Monthly</option>
+                            <option value="custom" <?php echo $job['recurrence_pattern'] === 'custom' ? 'selected' : ''; ?>>Custom Interval</option>
+                        </select>
+                    </div>
+
+                    <!-- Custom Interval Options (Conditional) -->
+                    <div id="editCustomIntervalOptions" style="<?php echo $job['recurrence_pattern'] === 'custom' ? '' : 'display: none;'; ?> display: flex; gap: 12px; margin-bottom: 16px;">
+                        <div style="flex: 1;">
+                            <label class="form-label">Every</label>
+                            <input type="number" name="recurrence_interval" class="form-control" min="1"
+                                   value="<?php echo htmlspecialchars($job['recurrence_interval'] ?? 1); ?>">
+                        </div>
+                        <div style="flex: 1;">
+                            <label class="form-label">Unit</label>
+                            <select name="recurrence_interval_unit" class="form-control">
+                                <option value="days" <?php echo ($job['recurrence_interval_unit'] ?? 'weeks') === 'days' ? 'selected' : ''; ?>>Days</option>
+                                <option value="weeks" <?php echo ($job['recurrence_interval_unit'] ?? 'weeks') === 'weeks' ? 'selected' : ''; ?>>Weeks</option>
+                                <option value="months" <?php echo ($job['recurrence_interval_unit'] ?? 'weeks') === 'months' ? 'selected' : ''; ?>>Months</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">End Date</label>
+                        <input type="date" name="recurrence_end_date" class="form-control"
+                               value="<?php echo htmlspecialchars($job['recurrence_end_date'] ?? ''); ?>">
+                    </div>
+                </div>
+
+                <div class="mw-modal-actions">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('editJobModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Reschedule Modal -->
     <div class="mw-modal-overlay" id="rescheduleModal">
@@ -612,6 +926,28 @@ $activePage = 'jobs';
                 }
             });
         });
+
+        // Toggle recurring options based on job type in Edit modal
+        function toggleEditRecurringOptions() {
+            var jobType = document.getElementById('editJobType').value;
+            var recurringOptions = document.getElementById('editRecurringOptions');
+            if (jobType === 'recurring') {
+                recurringOptions.style.display = 'block';
+            } else {
+                recurringOptions.style.display = 'none';
+            }
+        }
+
+        // Toggle custom interval fields based on recurrence pattern
+        function toggleEditCustomRecurrence() {
+            var pattern = document.getElementById('editRecurrencePattern').value;
+            var customOptions = document.getElementById('editCustomIntervalOptions');
+            if (pattern === 'custom') {
+                customOptions.style.display = 'flex';
+            } else {
+                customOptions.style.display = 'none';
+            }
+        }
     </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

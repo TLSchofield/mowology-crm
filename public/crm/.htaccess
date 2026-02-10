@@ -1,8 +1,8 @@
 # Disable directory browsing
 Options -Indexes
 
-# Redirect to login page if accessing directory root
-DirectoryIndex login.php
+# Serve dashboard_appstack.php as default for /crm/ directory
+DirectoryIndex dashboard_appstack.php
 
 # Protect sensitive files
 <FilesMatch "^(config\.php|auth\.php)$">

@@ -367,3 +367,64 @@ function getDashboardStats() {
 
     return $stats;
 }
+
+/**
+ * Get business settings (logo, branding colors, company info, etc.)
+ * Loads from database or returns defaults if no settings exist
+ */
+function getBusinessSettings() {
+    static $settings = null;
+
+    // Cache settings to avoid multiple database queries
+    if ($settings !== null) {
+        return $settings;
+    }
+
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT * FROM business_settings WHERE id = 1");
+        $stmt->execute();
+        $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$settings) {
+            $settings = getDefaultBusinessSettings();
+        }
+    } catch (Exception $e) {
+        error_log("Error loading business settings: " . $e->getMessage());
+        $settings = getDefaultBusinessSettings();
+    }
+
+    return $settings;
+}
+
+/**
+ * Get default business settings
+ */
+function getDefaultBusinessSettings() {
+    return [
+        'id' => 1,
+        'company_name' => 'Mowology',
+        'company_phone' => '778-846-9273',
+        'company_email' => 'office@mowology.ca',
+        'company_website' => 'https://mowology.ca',
+        'company_address' => '',
+        'gst_registration' => '',
+        'pst_registration' => '',
+        'business_license' => '',
+        'logo_path' => '/assets/img/logo/mowology-logo.jpg',
+        'logo_alt_text' => 'Mowology Logo',
+        'brand_color_primary' => '#2D8659',
+        'brand_color_secondary' => '#7FD858',
+        'invoice_footer_text' => '',
+        'invoice_terms_text' => '',
+        'invoice_payment_instructions' => '',
+        'email_signature_text' => '',
+        'email_footer_html' => '',
+        'quote_message_header' => '',
+        'quote_message_footer' => '',
+        'invoice_message_header' => '',
+        'invoice_message_footer' => '',
+        'receipt_message_header' => '',
+        'receipt_message_footer' => '',
+    ];
+}

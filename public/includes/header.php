@@ -12,6 +12,10 @@
 
 $activeNav = $activeNav ?? '';
 
+// Static logo path
+$logoPath = '/assets/img/logo/mowology-logo.jpg';
+$logoAlt = SITE_NAME;
+
 $nav = [
   ['key' => 'home',      'label' => 'Home',      'href' => '/'],
   ['key' => 'services',  'label' => 'Services',  'href' => '/services.php'],
@@ -26,7 +30,7 @@ $nav = [
       <div class="container">
         <div class="nav-wrapper">
           <a href="/" class="logo">
-            <img src="/assets/img/logo/mowology-logo.jpg" alt="<?= h(SITE_NAME) ?>" class="logo-icon">
+            <img src="<?= h($logoPath) ?>" alt="<?= h($logoAlt) ?>" class="logo-icon">
             <div class="logo-text-group">
               <span class="logo-text"><?= h(SITE_NAME) ?></span>
               <span class="logo-tagline"><?= h(SITE_TAGLINE) ?></span>

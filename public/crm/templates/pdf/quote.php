@@ -250,15 +250,27 @@ $taxRate = floatval($quote['tax_rate'] ?? 0.05);
     <tr>
         <td style="width: 50%; vertical-align: top;">
             <?php
-                // Build correct logo path based on project root
+                // Build correct logo path for mPDF (requires absolute filesystem paths)
                 $logoPath = $projectRoot ?? dirname(__DIR__, 3);
-                // If projectRoot is above public, add /public
-                if (!file_exists($logoPath . '/assets/img/logo/mowology-logo.jpg')) {
-                    $logoPath = $logoPath . '/public';
+
+                // Try multiple possible locations (works with both repo structure and cPanel)
+                $possiblePaths = [
+                    $logoPath . '/public/assets/img/logo/mowology-logo.jpg',
+                    $logoPath . '/assets/img/logo/mowology-logo.jpg',
+                    dirname(__DIR__, 3) . '/public/assets/img/logo/mowology-logo.jpg',
+                ];
+
+                $logoPath = '';
+                foreach ($possiblePaths as $path) {
+                    if (file_exists($path)) {
+                        $logoPath = $path;
+                        break;
+                    }
                 }
-                $logoPath = $logoPath . '/assets/img/logo/mowology-logo.jpg';
             ?>
-            <img src="<?php echo $logoPath; ?>" alt="Mowology" style="max-height: 50px; margin-bottom: 8px;">
+            <?php if ($logoPath && file_exists($logoPath)): ?>
+                <img src="<?php echo htmlspecialchars($logoPath); ?>" alt="Mowology" style="max-height: 50px; margin-bottom: 8px;">
+            <?php endif; ?>
             <div class="brand-name">MOWOLOGY</div>
             <div class="brand-info">
                 Vancouver, BC<br>

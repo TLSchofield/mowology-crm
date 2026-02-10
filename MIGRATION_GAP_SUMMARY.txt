@@ -1,0 +1,229 @@
+================================================================================
+MOWOLOGY CRM: DATABASE MIGRATION GAP ANALYSIS
+================================================================================
+
+QUICK FACTS:
+  Total tables in SCHEMA_MASTER.sql:        89
+  Tables created by migrations:             66
+  Tables MISSING FROM MIGRATIONS:           27 (30.3%)
+  Schema coverage:                          69.7%
+  Migration files analyzed:                 34
+  Critical issues found:                    3
+
+================================================================================
+CRITICAL ISSUES
+================================================================================
+
+1. MISSING CORE TABLES (🔴 BLOCKER)
+   ✗ users              - Authentication will fail
+   ✗ sessions           - Session management will fail
+   ✗ quotes             - Quoting system will fail
+   → These 3 tables must be created before running other migrations
+
+2. DUPLICATE CREATE STATEMENT (⚠️ HIGH RISK)
+   seo_page_drafts created in BOTH:
+     - done-100_seo_recommendations.sql
+     - problem-501_marketing_automation_tables.sql
+   → Remove one CREATE TABLE statement to avoid conflicts
+
+3. MISSING TABLES (24 additional feature tables)
+   client_feedback, communication_log, content_recommendations, conversion_events
+   cost_factors, estimator_templates, gsc_properties, gsc_query_page_stats
+   gsc_snapshots, gsc_sync_history_with_duration, invoice_items, lead_events
+   media_activity_log, media_files, media_metadata, portfolio_curation
+   product_categories, product_cost_breakdown, products, quote_items
+   roi_attribution, service_orders, unit_types, visit_photo_sets
+
+4. OUTDATED SCHEMA_MASTER.SQL
+   Missing 4 new CMS tables:
+     - cms_media_variants
+     - cms_media_alt_suggestions
+     - cms_page_generations_log
+     - cms_case_studies_generated
+
+================================================================================
+TABLES NOT CREATED BY ANY MIGRATION
+================================================================================
+
+client_feedback
+communication_log
+content_recommendations
+conversion_events
+cost_factors
+estimator_templates
+gsc_properties
+gsc_query_page_stats
+gsc_snapshots
+gsc_sync_history_with_duration
+invoice_items
+lead_events
+media_activity_log
+media_files
+media_metadata
+portfolio_curation
+product_categories
+product_cost_breakdown
+products
+quote_items
+quotes
+roi_attribution
+service_orders
+sessions
+unit_types
+users
+visit_photo_sets
+
+================================================================================
+MIGRATION FILE STATUS
+================================================================================
+
+Active Migrations (23 files):
+  001_restructure_core_tables.sql           ✓ Creates: contacts, companies, properties, etc.
+  002_property_measurements.sql             ✓ Creates: property_measurements
+  007_job_system.sql                        ✓ Creates: jobs, invoices, job_notes, job_photos, etc.
+  008_quotes_table_alignment.sql            ✓ Alters: quotes (but quotes not created!)
+  010_pdf_generation.sql                    ✓ Alters: quotes, invoices
+  011_quote_notes_table.sql                 ✓ Creates: quote_notes
+  012_client_notes_table.sql                ✓ Creates: client_notes
+  013_portfolio_projects_table.sql          ✓ Creates: portfolio_projects
+  020_business_settings_table.sql           ✓ Creates: business_settings
+  021_add_lifecycle_stage_to_companies.sql  ✓ Creates: lifecycle_stages
+  024_create_migrations_log.sql             ✓ Creates: migrations_log
+  025_create_service_packages.sql           ✓ Creates: service_packages
+  026_create_billing_templates.sql          ✓ Creates: billing_templates
+  110_gsc_sync_history.sql                  ✓ Creates: gsc_sync_history
+  112_cms_phase3_media_optimization.sql     ✓ Creates: cms_media_variants, cms_media_alt_suggestions
+  113_cms_phase4_template_generation.sql    ✓ Creates: cms_page_generator_config, cms_page_generations_log
+  114_cms_phase5_portfolio_integration.sql  ✓ Creates: cms_case_studies_generated
+  create_password_reset_tokens_table.sql    ✓ Creates: password_reset_tokens
+
+Done Migrations (6 files - archived):
+  done-015_property_management_relationships.sql
+  done-027_create_job_proof_of_work.sql
+  done-100_seo_recommendations.sql
+  done-500_cms_core.sql
+  done-502_cms_template_library.sql
+  done-503_seo_template_library.sql
+
+Problem Migrations (2 files - needs review):
+  problem-022_location_aware_job_creation.sql
+  problem-501_marketing_automation_tables.sql (⚠️ DUPLICATE seo_page_drafts)
+
+TODO Migrations (1 file - pending):
+  todo-115_seed_generator_templates.sql
+
+================================================================================
+DUPLICATE MIGRATION FINDINGS
+================================================================================
+
+Table: seo_page_drafts
+  Created by: done-100_seo_recommendations.sql
+  Also created by: problem-501_marketing_automation_tables.sql
+
+  ACTION: Remove CREATE TABLE from problem-501_marketing_automation_tables.sql
+          Keep ALTER TABLE statements if any
+
+================================================================================
+TABLES ALTERED BY MULTIPLE MIGRATIONS
+================================================================================
+
+quotes (4 alterations - but table not created!):
+  - 001_add_roi_pipeline_fields.sql
+  - 007_job_system.sql
+  - 008_quotes_table_alignment.sql
+  - 010_pdf_generation.sql
+
+companies (3 alterations):
+  - 001_restructure_core_tables.sql (create)
+  - 021_add_lifecycle_stage_to_companies.sql
+  - 023_consolidate_lifecycle_stages.sql
+
+contacts (3 alterations):
+  - 001_restructure_core_tables.sql (create)
+  - 021_add_lifecycle_stage_to_companies.sql
+  - 023_consolidate_lifecycle_stages.sql
+
+properties (4 alterations):
+  - 001_restructure_core_tables.sql (create)
+  - 002_property_measurements.sql
+  - done-015_property_management_relationships.sql
+  - problem-022_location_aware_job_creation.sql
+
+jobs (3 alterations):
+  - 007_job_system.sql (create)
+  - 028_update_jobs_for_service_packages.sql
+  - 029_add_custom_recurrence_fields.sql
+
+gsc_snapshots (1 alteration - table not created!):
+  - 110_gsc_sync_history.sql (adds sync_history_id FK)
+
+================================================================================
+RECOMMENDATIONS (PRIORITY ORDER)
+================================================================================
+
+🔴 PRIORITY 1 - CRITICAL (Do Immediately)
+  [ ] Create 030_create_missing_core_tables.sql with all 27 missing tables
+  [ ] Put CREATE TABLE for users, sessions, quotes FIRST
+  [ ] Test migrations on fresh database to verify no errors
+
+🟠 PRIORITY 2 - HIGH (This Month)
+  [ ] Fix duplicate seo_page_drafts:
+      - Remove CREATE TABLE from problem-501_marketing_automation_tables.sql
+      - Keep IF NOT EXISTS for idempotency
+  [ ] Update SCHEMA_MASTER.sql to include 4 new CMS tables
+  [ ] Document migration order and dependencies
+
+🟡 PRIORITY 3 - MEDIUM (This Sprint)
+  [ ] Rename migration files:
+      - done-* files to sequential numbers (015, 027, 100, 500, 502, 503)
+      - problem-* files to solve issues and rename
+  [ ] Add comments documenting each migration's purpose
+  [ ] Create migration pre-flight checks (verify dependencies exist)
+
+🟢 PRIORITY 4 - NICE-TO-HAVE
+  [ ] Update migrations_log to track file hash (detect changes)
+  [ ] Add rollback capability for each migration
+  [ ] Document schema version compatibility matrix
+
+================================================================================
+MIGRATION EXECUTION CHECKLIST
+================================================================================
+
+Before running migrations on fresh database:
+  [ ] Verify MySQL 5.7+ compatibility
+  [ ] Check that 001_restructure_core_tables.sql runs first
+  [ ] Confirm users table exists before any user FK references
+  [ ] Verify quotes table exists before running 008_quotes_table_alignment.sql
+  [ ] Check gsc_snapshots exists before 110_gsc_sync_history.sql
+  [ ] Run migrations in numbered order (001, 002, 007, etc.)
+  [ ] Log results to migrations_log table
+  [ ] Verify no errors in any ALTER TABLE statements
+
+================================================================================
+FILES REFERENCED
+================================================================================
+
+/Users/timschofield/Projects/mowology-crm/database/SCHEMA_MASTER.sql
+/Users/timschofield/Projects/mowology-crm/database/migrations/
+/Users/timschofield/Projects/mowology-crm/DATABASE_MIGRATION_ANALYSIS.md (detailed report)
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Read DATABASE_MIGRATION_ANALYSIS.md for complete CREATE TABLE statements
+   for all 27 missing tables
+
+2. Create new migration file: 030_create_missing_core_tables.sql
+   with all missing tables (see analysis document for SQL)
+
+3. Fix seo_page_drafts duplicate by removing from problem-501 file
+
+4. Test on fresh database:
+   $ mysql -u root -p mowology_test < database/migrations/001_*.sql
+   $ mysql -u root -p mowology_test < database/migrations/002_*.sql
+   etc.
+
+5. Verify no "Table doesn't exist" errors for any ALTER statements
+
+================================================================================

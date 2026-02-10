@@ -35,8 +35,19 @@ if (!verifyCSRFToken($csrfToken)) {
 }
 
 // Call the cron script's logic via include
+// dirname(__DIR__, 2) from /crm/api/seo = /crm
 ob_start();
-$response = include dirname(__DIR__, 2) . '/cron/seo_recommendations.php';
+$cronPath = dirname(__DIR__, 2) . '/cron/seo_recommendations.php';
+if (!file_exists($cronPath)) {
+    ob_end_clean();
+    http_response_code(500);
+    die(json_encode([
+        'success' => false,
+        'message' => 'Cron script not found at: ' . $cronPath
+    ]));
+}
+
+$response = include $cronPath;
 $output = ob_get_clean();
 
 // If the cron script has already output JSON, just return it

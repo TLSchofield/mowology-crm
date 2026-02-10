@@ -13,7 +13,7 @@ $user = getCurrentUser();
 
 // Get active tab (default: upload)
 $activeTab = isset($_GET['tab']) ? trim($_GET['tab']) : 'upload';
-$validTabs = ['upload', 'review', 'favorites', 'items', 'insights', 'recommendations', 'roi'];
+$validTabs = ['upload', 'review', 'favorites', 'items', 'insights', 'roi'];
 if (!in_array($activeTab, $validTabs)) {
     $activeTab = 'upload';
 }
@@ -27,22 +27,6 @@ $csrfToken = generateCSRFToken();
 
 // Get portfolio stats
 $portfolioStats = getPortfolioStats();
-
-// Load recommendations data if viewing that tab
-$recommendationsData = [];
-$recommendationStats = ['total' => 0, 'new' => 0, 'accepted' => 0, 'applied' => 0];
-if ($activeTab === 'recommendations' && $isAdmin) {
-    $seoDataFile = dirname(__DIR__) . '/portfolio/recommendations-data.php';
-    if (file_exists($seoDataFile)) {
-        $recommendationsData = include $seoDataFile;
-        // Calculate stats
-        $recStmt = $db->query("SELECT status, COUNT(*) as cnt FROM seo_recommendations GROUP BY status");
-        while ($row = $recStmt->fetch(PDO::FETCH_ASSOC)) {
-            $recommendationStats[$row['status']] = $row['cnt'];
-        }
-        $recommendationStats['total'] = array_sum($recommendationStats);
-    }
-}
 
 // Handle filters for Projects tab
 $statusFilter = $_GET['status'] ?? '';
@@ -151,9 +135,6 @@ $activePage = 'portfolio';
                       <a href="?tab=insights" class="mw-portfolio-tab <?php echo $activeTab === 'insights' ? 'active' : ''; ?>">
                           <i data-feather="bar-chart-2" style="width: 16px; height: 16px; display: inline; margin-right: 6px;"></i>GSC Insights
                       </a>
-                      <a href="?tab=recommendations" class="mw-portfolio-tab <?php echo $activeTab === 'recommendations' ? 'active' : ''; ?>">
-                          <i data-feather="lightbulb" style="width: 16px; height: 16px; display: inline; margin-right: 6px;"></i>Recommendations
-                      </a>
                       <a href="?tab=roi" class="mw-portfolio-tab <?php echo $activeTab === 'roi' ? 'active' : ''; ?>">
                           <i data-feather="trending-up" style="width: 16px; height: 16px; display: inline; margin-right: 6px;"></i>ROI Dashboard
                       </a>
@@ -186,7 +167,7 @@ $activePage = 'portfolio';
 
                       <!-- Help text below upload -->
                       <div class="mw-help-text" style="margin-top: 12px;">
-                          <i data-feather="lightbulb"></i>
+                          <i data-feather="zap"></i>
                           <span>
                               <strong class="mw-tooltip">
                                   Tip: Upload high-quality photos
@@ -499,6 +480,11 @@ $activePage = 'portfolio';
               $topQueries = $gscData['top_queries'];
               $topPages = $gscData['top_pages'];
               $lowCTR = $gscData['low_ctr'];
+
+              // Load sync history
+              $syncHistoryData = include dirname(__DIR__) . '/gsc/sync-history.php';
+              $syncHistory = $syncHistoryData['history'];
+              $syncSummary = $syncHistoryData['summary'];
               ?>
 
               <!-- Guide Box -->
@@ -549,6 +535,140 @@ $activePage = 'portfolio';
                       <div class="mw-help-text" style="margin-top: 8px;">
                           <i data-feather="clock"></i>
                           <span>Data syncs automatically daily. Click "Sync Now" to pull fresh data manually.</span>
+                      </div>
+                  </div>
+
+                  <!-- Sync History Stats -->
+                  <div class="row g-3 mb-4">
+                      <div class="col-md-3">
+                          <div class="card border-0 bg-light">
+                              <div class="card-body text-center">
+                                  <div style="font-size: 24px; font-weight: bold; color: #2D8659;"><?php echo $syncSummary['total_syncs']; ?></div>
+                                  <small class="text-muted">Total Syncs (30d)</small>
+                              </div>
+                          </div>
+                      </div>
+                      <div class="col-md-3">
+                          <div class="card border-0 bg-light">
+                              <div class="card-body text-center">
+                                  <div style="font-size: 24px; font-weight: bold; color: #2D8659;"><?php echo $syncSummary['successful']; ?></div>
+                                  <small class="text-muted">Successful</small>
+                              </div>
+                          </div>
+                      </div>
+                      <div class="col-md-3">
+                          <div class="card border-0 bg-light">
+                              <div class="card-body text-center">
+                                  <div style="font-size: 24px; font-weight: bold; color: <?php echo $syncSummary['failed'] > 0 ? '#d32f2f' : '#2D8659'; ?>"><?php echo $syncSummary['failed']; ?></div>
+                                  <small class="text-muted">Failed</small>
+                              </div>
+                          </div>
+                      </div>
+                      <div class="col-md-3">
+                          <div class="card border-0 bg-light">
+                              <div class="card-body text-center">
+                                  <div style="font-size: 24px; font-weight: bold; color: #f57c00;"><?php echo $syncSummary['partial']; ?></div>
+                                  <small class="text-muted">Partial</small>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+
+                  <!-- Sync History Table -->
+                  <div class="card mb-4">
+                      <div class="card-header">
+                          <div class="d-flex justify-content-between align-items-center">
+                              <h6 class="mb-0">Data Pull History (Last 30 Days)</h6>
+                              <div class="mw-tooltip">
+                                  <span class="mw-help-icon">?</span>
+                                  <span class="mw-tooltip-text">Shows all GSC data sync attempts with status, record counts, and any errors</span>
+                              </div>
+                          </div>
+                      </div>
+                      <div class="table-responsive">
+                          <table class="table table-sm table-hover mb-0">
+                              <thead class="table-light">
+                                  <tr>
+                                      <th style="width: 150px;">Date & Time</th>
+                                      <th style="width: 80px;">Type</th>
+                                      <th style="width: 100px;">Status</th>
+                                      <th style="width: 70px;">Duration</th>
+                                      <th style="width: 80px;">Processed</th>
+                                      <th style="width: 80px;">Inserted</th>
+                                      <th style="width: 80px;">Updated</th>
+                                      <th>Notes</th>
+                                  </tr>
+                              </thead>
+                              <tbody>
+                                  <?php if (empty($syncHistory)): ?>
+                                      <tr>
+                                          <td colspan="8" class="text-center py-4 text-muted">No sync history available</td>
+                                      </tr>
+                                  <?php else: ?>
+                                      <?php foreach ($syncHistory as $sync): ?>
+                                          <tr>
+                                              <td>
+                                                  <small><?php echo formatDate($sync['started_at'], 'M j, H:i'); ?></small>
+                                                  <?php if ($sync['completed_at']): ?>
+                                                      <br><small class="text-muted">Ended: <?php echo formatDate($sync['completed_at'], 'H:i'); ?></small>
+                                                  <?php endif; ?>
+                                              </td>
+                                              <td>
+                                                  <span class="badge bg-light text-dark"><?php echo ucfirst($sync['sync_type']); ?></span>
+                                              </td>
+                                              <td>
+                                                  <?php
+                                                  $statusColor = match($sync['status']) {
+                                                      'success' => 'bg-success',
+                                                      'failed' => 'bg-danger',
+                                                      'partial' => 'bg-warning',
+                                                      'pending' => 'bg-secondary',
+                                                      default => 'bg-light'
+                                                  };
+                                                  $statusIcon = match($sync['status']) {
+                                                      'success' => '✓',
+                                                      'failed' => '✕',
+                                                      'partial' => '⚠',
+                                                      'pending' => '⋯',
+                                                      default => '?'
+                                                  };
+                                                  ?>
+                                                  <span class="badge <?php echo $statusColor; ?>"><?php echo $statusIcon; ?> <?php echo ucfirst($sync['status']); ?></span>
+                                              </td>
+                                              <td>
+                                                  <small><?php echo $sync['duration_seconds'] ?? 0; ?>s</small>
+                                              </td>
+                                              <td>
+                                                  <small><?php echo (int)$sync['rows_processed']; ?></small>
+                                              </td>
+                                              <td>
+                                                  <small><?php echo (int)$sync['rows_inserted']; ?></small>
+                                              </td>
+                                              <td>
+                                                  <small><?php echo (int)$sync['rows_updated']; ?></small>
+                                              </td>
+                                              <td>
+                                                  <small>
+                                                      <?php if ($sync['error_message']): ?>
+                                                          <span class="text-danger" title="<?php echo htmlspecialchars($sync['error_message']); ?>">
+                                                              <i data-feather="alert-circle" style="width: 14px; height: 14px; display: inline;"></i> Error
+                                                          </span>
+                                                      <?php elseif ($sync['notes']): ?>
+                                                          <?php echo htmlspecialchars(substr($sync['notes'], 0, 50)); ?>
+                                                      <?php else: ?>
+                                                          <?php if ($sync['initiated_by_name']): ?>
+                                                              Manual sync by <?php echo htmlspecialchars($sync['initiated_by_name']); ?>
+                                                          <?php else: ?>
+                                                              Automatic daily sync
+                                                          <?php endif; ?>
+                                                      <?php endif; ?>
+                                                  </small>
+                                              </td>
+                                          </tr>
+                                      <?php endforeach; ?>
+                                  <?php endif; ?>
+                              </tbody>
+                          </table>
                       </div>
                   </div>
 
@@ -698,282 +818,6 @@ $activePage = 'portfolio';
               <?php endif; ?>
           <?php endif; ?>
 
-          <!-- TAB: RECOMMENDATIONS (Admin) -->
-          <?php if ($activeTab === 'recommendations' && $isAdmin): ?>
-
-              <!-- Guide Box -->
-              <div class="mw-guide-box">
-                  <i data-feather="info"></i>
-                  <div class="mw-guide-text">
-                      <strong>SEO Content Strategy</strong>
-                      AI-powered recommendations for content to create, improve, or publish. Track which suggestions you've accepted and applied.
-                  </div>
-              </div>
-
-              <!-- Stats Bar -->
-              <div class="mw-recommendations-stats">
-                  <div class="mw-rec-stat-card">
-                      <h6>
-                          Total
-                          <div class="mw-tooltip">
-                              <span class="mw-help-icon">?</span>
-                              <span class="mw-tooltip-text">Total recommendations generated</span>
-                          </div>
-                      </h6>
-                      <div class="value"><?php echo $recommendationStats['total']; ?></div>
-                  </div>
-                  <div class="mw-rec-stat-card">
-                      <h6>
-                          New
-                          <div class="mw-tooltip">
-                              <span class="mw-help-icon">?</span>
-                              <span class="mw-tooltip-text">Not yet reviewed</span>
-                          </div>
-                      </h6>
-                      <div class="value"><?php echo $recommendationStats['new'] ?? 0; ?></div>
-                  </div>
-                  <div class="mw-rec-stat-card">
-                      <h6>
-                          Accepted
-                          <div class="mw-tooltip">
-                              <span class="mw-help-icon">?</span>
-                              <span class="mw-tooltip-text">You've approved these recommendations</span>
-                          </div>
-                      </h6>
-                      <div class="value"><?php echo $recommendationStats['accepted'] ?? 0; ?></div>
-                  </div>
-                  <div class="mw-rec-stat-card">
-                      <h6>
-                          Applied
-                          <div class="mw-tooltip">
-                              <span class="mw-help-icon">?</span>
-                              <span class="mw-tooltip-text">Completed and published</span>
-                          </div>
-                      </h6>
-                      <div class="value"><?php echo $recommendationStats['applied'] ?? 0; ?></div>
-                  </div>
-              </div>
-
-              <!-- Filter Card -->
-              <div class="card mb-4">
-                  <div class="card-body mw-rec-filters">
-                      <h6 class="card-title mb-3">
-                          <i data-feather="filter"></i> Filter & Actions
-                          <div class="mw-tooltip">
-                              <span class="mw-help-icon">?</span>
-                              <span class="mw-tooltip-text">Filter by status, type, target, or season to focus on specific recommendations.</span>
-                          </div>
-                      </h6>
-                      <div class="row g-3">
-                          <div class="col-md-3">
-                              <label class="form-label mb-2">Status</label>
-                              <select id="recStatusFilter" class="form-control form-control-sm" onchange="filterRecommendations()">
-                                  <option value="">All</option>
-                                  <option value="new">New</option>
-                                  <option value="accepted">Accepted</option>
-                                  <option value="applied">Applied</option>
-                                  <option value="done">Done</option>
-                                  <option value="ignored">Ignored</option>
-                              </select>
-                          </div>
-                          <div class="col-md-3">
-                              <label class="form-label mb-2">Type</label>
-                              <select id="recTypeFilter" class="form-control form-control-sm" onchange="filterRecommendations()">
-                                  <option value="">All</option>
-                                  <option value="create_page">Create Page</option>
-                                  <option value="improve_page">Improve Page</option>
-                                  <option value="title_meta">Title/Meta</option>
-                                  <option value="internal_links">Internal Links</option>
-                                  <option value="add_photos">Add Photos</option>
-                                  <option value="schema">Schema</option>
-                                  <option value="seasonal">Seasonal</option>
-                              </select>
-                          </div>
-                          <div class="col-md-3">
-                              <label class="form-label mb-2">Target</label>
-                              <select id="recTargetFilter" class="form-control form-control-sm" onchange="filterRecommendations()">
-                                  <option value="">All</option>
-                                  <?php if (!empty($recommendationsData['targets'])): ?>
-                                      <?php foreach ($recommendationsData['targets'] as $target): ?>
-                                          <option value="<?php echo $target['id']; ?>"><?php echo h($target['name']); ?></option>
-                                      <?php endforeach; ?>
-                                  <?php endif; ?>
-                              </select>
-                          </div>
-                          <div class="col-md-3">
-                              <label class="form-label mb-2">Season</label>
-                              <select id="recSeasonFilter" class="form-control form-control-sm" onchange="filterRecommendations()">
-                                  <option value="">All</option>
-                                  <?php if (!empty($recommendationsData['seasons'])): ?>
-                                      <?php foreach ($recommendationsData['seasons'] as $season): ?>
-                                          <option value="<?php echo $season['id']; ?>"><?php echo h($season['label']); ?></option>
-                                      <?php endforeach; ?>
-                                  <?php endif; ?>
-                              </select>
-                          </div>
-                      </div>
-                      <div class="row g-2 mt-2">
-                          <div class="col-auto">
-                              <div class="mw-tooltip">
-                                  <button type="button" class="btn btn-sm btn-primary" id="generateRecBtn" onclick="generateRecommendations()">
-                                      <i data-feather="refresh-cw" style="width: 14px; height: 14px; display: inline; margin-right: 4px;"></i>Generate Recommendations
-                                  </button>
-                                  <span class="mw-tooltip-text">Analyze your site and create new SEO recommendations</span>
-                              </div>
-                          </div>
-                          <div class="col-auto">
-                              <div class="mw-tooltip">
-                                  <button type="button" class="btn btn-sm btn-outline-secondary" data-toggle="collapse" data-target="#targetingSettings">
-                                      <i data-feather="settings" style="width: 14px; height: 14px; display: inline; margin-right: 4px;"></i>Targeting Settings
-                                  </button>
-                                  <span class="mw-tooltip-text">Manage geographic and seasonal targets for recommendations</span>
-                              </div>
-                          </div>
-                      </div>
-                  </div>
-              </div>
-
-              <!-- Targeting Settings (Collapsible) -->
-              <div class="collapse mb-4" id="targetingSettings">
-                  <div class="card">
-                      <div class="card-body mw-targeting-settings">
-                          <h6><i data-feather="map-pin"></i> Geographic Targets</h6>
-                          <p class="text-muted mb-3">Active geographic targets used for boost scoring and local intent detection.</p>
-                          <div id="targetsList" style="max-height: 400px; overflow-y: auto;">
-                              <?php if (!empty($recommendationsData['targets'])): ?>
-                                  <?php foreach ($recommendationsData['targets'] as $target): ?>
-                                      <div class="mw-target-item">
-                                          <div class="mw-target-item-header">
-                                              <div>
-                                                  <span class="mw-target-item-name"><?php echo h($target['name']); ?></span>
-                                                  <span class="mw-target-item-type"><?php echo ucfirst($target['target_type']); ?></span>
-                                              </div>
-                                          </div>
-                                          <div class="mw-target-item-details">
-                                              <strong><?php echo h($target['canonical_slug']); ?></strong>
-                                          </div>
-                                      </div>
-                                  <?php endforeach; ?>
-                              <?php else: ?>
-                                  <p class="text-muted">No targets configured. Create targets to enable geographic boosting.</p>
-                              <?php endif; ?>
-                          </div>
-                      </div>
-                  </div>
-              </div>
-
-              <!-- Recommendations Table -->
-              <div class="card">
-                  <div class="card-body">
-                      <h6 class="card-title mb-3">Recommendations</h6>
-                      <?php if (empty($recommendationsData['recommendations'])): ?>
-                          <div class="alert alert-info mb-0">
-                              <i data-feather="info" style="width: 16px; height: 16px; display: inline; margin-right: 6px;"></i>
-                              No recommendations yet. Click "Generate Recommendations" to analyze GSC data.
-                          </div>
-                      <?php else: ?>
-                          <div class="table-responsive">
-                              <table class="table table-hover mb-0 mw-rec-table" id="recommendationsTable">
-                                  <thead class="table-light">
-                                      <tr>
-                                          <th style="width: 50px;">Score</th>
-                                          <th>Query</th>
-                                          <th style="width: 80px;">Volume</th>
-                                          <th style="width: 60px;">CTR</th>
-                                          <th style="width: 60px;">Pos</th>
-                                          <th style="width: 100px;">Target</th>
-                                          <th style="width: 100px;">Type</th>
-                                          <th style="width: 80px;">Status</th>
-                                          <th style="width: 120px;">Actions</th>
-                                      </tr>
-                                  </thead>
-                                  <tbody>
-                                      <?php foreach ($recommendationsData['recommendations'] as $rec): ?>
-                                          <tr data-rec-id="<?php echo $rec['id']; ?>" data-status="<?php echo $rec['status']; ?>" data-type="<?php echo $rec['rec_type']; ?>" data-target="<?php echo $rec['target_id'] ?? ''; ?>" data-season="<?php echo $rec['season_id'] ?? ''; ?>">
-                                              <td>
-                                                  <span class="badge <?php echo $rec['priority_score'] >= 80 ? 'mw-rec-score-high' : ($rec['priority_score'] >= 60 ? 'mw-rec-score-medium' : 'mw-rec-score-low'); ?>">
-                                                      <?php echo $rec['priority_score']; ?>
-                                                  </span>
-                                              </td>
-                                              <td>
-                                                  <strong><?php echo h($rec['query_text']); ?></strong><br>
-                                                  <small class="text-muted"><?php echo h($rec['suggested_slug']); ?></small>
-                                              </td>
-                                              <td><?php echo $rec['impressions'] ?? $rec['search_volume'] ?? '-'; ?></td>
-                                              <td><?php echo number_format($rec['ctr'] * 100, 1); ?>%</td>
-                                              <td><?php echo $rec['avg_position'] ? number_format($rec['avg_position'], 1) : '-'; ?></td>
-                                              <td>
-                                                  <?php if ($rec['target_id']): ?>
-                                                      <span class="mw-rec-badge mw-rec-badge-target"><?php echo h($rec['target_name'] ?? 'Unknown'); ?></span>
-                                                  <?php else: ?>
-                                                      <span class="text-muted">-</span>
-                                                  <?php endif; ?>
-                                              </td>
-                                              <td>
-                                                  <span class="mw-rec-badge mw-rec-badge-type"><?php echo str_replace('_', ' ', $rec['rec_type']); ?></span>
-                                              </td>
-                                              <td>
-                                                  <?php
-                                                  $statusClass = 'status-' . $rec['status'];
-                                                  ?>
-                                                  <span class="mw-rec-badge mw-rec-badge-status <?php echo $statusClass; ?>"><?php echo ucfirst($rec['status']); ?></span>
-                                              </td>
-                                              <td>
-                                                  <?php if ($rec['status'] === 'new'): ?>
-                                                      <button type="button" class="btn btn-xs btn-success" onclick="acceptRecommendation(<?php echo $rec['id']; ?>)" title="Accept">✓</button>
-                                                      <button type="button" class="btn btn-xs btn-secondary" onclick="ignoreRecommendation(<?php echo $rec['id']; ?>)" title="Ignore">✕</button>
-                                                  <?php elseif ($rec['status'] === 'accepted'): ?>
-                                                      <button type="button" class="btn btn-xs btn-primary" onclick="applyRecommendation(<?php echo $rec['id']; ?>)" title="Apply">Apply</button>
-                                                  <?php elseif ($rec['status'] === 'applied'): ?>
-                                                      <button type="button" class="btn btn-xs btn-success" onclick="markRecommendationDone(<?php echo $rec['id']; ?>)" title="Done">Done</button>
-                                                  <?php endif; ?>
-                                              </td>
-                                          </tr>
-                                      <?php endforeach; ?>
-                                  </tbody>
-                              </table>
-                          </div>
-
-                          <!-- Pagination (if applicable) -->
-                          <?php if (!empty($recommendationsData['pagination']) && $recommendationsData['pagination']['total_pages'] > 1): ?>
-                              <nav class="mt-3 mw-rec-pagination">
-                                  <ul class="pagination pagination-sm">
-                                      <?php
-                                      $currentPage = $recommendationsData['pagination']['page'];
-                                      $totalPages = $recommendationsData['pagination']['total_pages'];
-                                      for ($p = 1; $p <= $totalPages; $p++):
-                                      ?>
-                                          <li class="page-item <?php echo $p === $currentPage ? 'active' : ''; ?>">
-                                              <a class="page-link" href="?tab=recommendations&page=<?php echo $p; ?>"><?php echo $p; ?></a>
-                                          </li>
-                                      <?php endfor; ?>
-                                  </ul>
-                              </nav>
-                          <?php endif; ?>
-                      <?php endif; ?>
-                  </div>
-              </div>
-
-              <!-- Apply Recommendation Modal -->
-              <div class="modal fade" id="applyModal" tabindex="-1" role="dialog">
-                  <div class="modal-dialog modal-lg" role="document">
-                      <div class="modal-content">
-                          <div class="modal-header">
-                              <h5 class="modal-title">Apply Recommendation</h5>
-                              <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
-                          </div>
-                          <div class="modal-body">
-                              <div id="applyModalBody">Loading...</div>
-                          </div>
-                          <div class="modal-footer">
-                              <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                              <button type="button" class="btn btn-primary" id="applyConfirmBtn" onclick="confirmApplyRecommendation()">Create Draft</button>
-                          </div>
-                      </div>
-                  </div>
-              </div>
-
-          <?php endif; ?>
 
           <!-- TAB: ROI DASHBOARD (Admin) -->
           <?php if ($activeTab === 'roi' && $isAdmin): ?>
@@ -1216,13 +1060,18 @@ $activePage = 'portfolio';
 
           <?php endif; ?>
 
-<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
+
 
 <script>
 const CSRF_TOKEN = '<?php echo $csrfToken; ?>';
 
+// Debug: Verify functions are loaded
+console.log('Portfolio page script loaded');
+console.log('CSRF_TOKEN:', CSRF_TOKEN ? 'set' : 'NOT SET');
+
 // File upload handling
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOMContentLoaded fired');
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
 
@@ -1243,7 +1092,7 @@ document.addEventListener('DOMContentLoaded', function() {
         fileInput.addEventListener('change', handleFileSelect, false);
     }
 
-    feather.replace();
+    hydrateFeatherIcons();
 });
 
 function preventDefaults(e) {
@@ -1399,7 +1248,16 @@ function syncGSCData() {
         btn.innerHTML = originalHtml;
 
         if (data.success) {
-            alert('✓ GSC data synced successfully! ' + (data.message || ''));
+            // Build detailed message with errors if present
+            let message = data.message || '';
+            if (data.errors && data.errors.length > 0) {
+                message += '\n\nFailed properties:\n';
+                data.errors.forEach(err => {
+                    message += `• ${err.property}: ${err.reason}\n`;
+                });
+                console.warn('GSC Sync Errors:', data.errors);
+            }
+            alert('✓ GSC data synced successfully!\n\n' + message);
             // Reload page to show updated data
             setTimeout(() => location.reload(), 500);
         } else {
@@ -1696,4 +1554,74 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+
+
+
+<!-- PAGE HTML ABOVE -->
+
+<script>
+window.generateRecommendations = function () {
+    console.log('generateRecommendations loaded');
+
+    const status = document.getElementById('rec-status');
+    const container = document.getElementById('rec-container');
+
+    status.textContent = 'Generating recommendations…';
+    container.innerHTML = '';
+
+    fetch('recommendations-data.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csrf_token: '<?= $_SESSION['csrf_token'] ?>' })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) {
+            status.textContent = 'Failed to load recommendations';
+            return;
+        }
+
+        status.textContent = '';
+        if (!data.recommendations.length) {
+            container.innerHTML = '<em>No recommendations yet</em>';
+            return;
+        }
+
+        data.recommendations.forEach(rec => {
+            const div = document.createElement('div');
+            div.className = 'rec-card rec-priority-' + rec.priority;
+            div.innerHTML = `
+                <strong>${rec.title}</strong><br>
+                <small>
+                    Query: ${rec.query || '—'} |
+                    Impressions: ${rec.impressions} |
+                    CTR: ${rec.ctr}% |
+                    Position: ${rec.position}
+                </small>
+            `;
+            container.appendChild(div);
+        });
+    })
+    .catch(err => {
+        console.error(err);
+        status.textContent = 'Error loading recommendations';
+    });
+};
 </script>
+
+<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
+
+// ============================================================================
+// VERIFICATION: Check that recommendation functions are loaded
+// ============================================================================
+console.log('=== Portfolio Script Verification ===');
+console.log('generateRecommendations:', typeof generateRecommendations === 'function' ? '✓ loaded' : '✗ NOT FOUND');
+console.log('acceptRecommendation:', typeof acceptRecommendation === 'function' ? '✓ loaded' : '✗ NOT FOUND');
+console.log('ignoreRecommendation:', typeof ignoreRecommendation === 'function' ? '✓ loaded' : '✗ NOT FOUND');
+console.log('applyRecommendation:', typeof applyRecommendation === 'function' ? '✓ loaded' : '✗ NOT FOUND');
+console.log('markRecommendationDone:', typeof markRecommendationDone === 'function' ? '✓ loaded' : '✗ NOT FOUND');
+console.log('escapeHtml:', typeof escapeHtml === 'function' ? '✓ loaded' : '✗ NOT FOUND');
+console.log('=====================================');
+</script>
+<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

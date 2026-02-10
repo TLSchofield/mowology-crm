@@ -1,0 +1,103 @@
+================================================================================
+MOWOLOGY CRM - DATABASE QUICK START
+================================================================================
+
+⚠️ PRODUCTION DATABASE VERSION: MySQL 5.7+
+================================================================================
+Your database runs on MySQL 5.7+ (cPanel standard)
+
+CRITICAL CONSTRAINTS FOR SQL QUERIES:
+  • NO window functions (ROW_NUMBER, RANK, COUNT() OVER)
+  • NO JSON functions (JSON_EXTRACT, JSON_ARRAY)
+  • NO generated columns
+  • Use utf8mb4_general_ci collation ALWAYS
+  • ALL queries MUST use prepared statements
+
+When writing SQL, refer to COMPLETE_DATABASE_SCHEMA_CLEAN.sql for syntax patterns.
+See CLAUDE.md "DATABASE VERSION REQUIREMENT" section for full rules.
+
+QUICK SETUP (phpMyAdmin)
+================================================================================
+1. Log into phpMyAdmin
+2. Create database: "mowology_landscape_crm"
+3. Select the database
+4. Import: database/COMPLETE_DATABASE_SCHEMA_CLEAN.sql
+5. Done! Database is ready.
+
+VERIFY SETUP
+================================================================================
+SELECT id, username, email FROM users;
+→ Should show: 1 | mowology | mowology@icloud.com
+
+SELECT COUNT(*) FROM lifecycle_stages;
+→ Should show: 8
+
+SELECT COUNT(*) FROM service_templates;
+→ Should show: 12
+
+ADMIN LOGIN
+================================================================================
+Email:    mowology@icloud.com
+Password: Sunwukong2026# (CHANGE THIS IN PRODUCTION!)
+
+DATABASE CONTENTS
+================================================================================
+✓ 35+ tables (all phases included)
+✓ 8 lifecycle stages (Lead, Opportunity, Prospect, Qualified, Client, Won, Inactive, Lost)
+✓ 12 service templates (Lawn Mowing, Hedge Trimming, Spring/Fall Cleanup, Snow Removal, etc.)
+✓ 4 billing templates (Per Visit, Monthly Grouped, Monthly Flat, Seasonal Prepay)
+✓ Default admin user
+
+IMPORTANT FILES
+================================================================================
+COMPLETE_DATABASE_SCHEMA_CLEAN.sql  ← USE THIS ONE (855 lines, 35KB)
+DATABASE_SCHEMA_GUIDE.md            ← Full reference documentation
+DATABASE_SETUP_COMPLETE.md          ← Detailed summary
+
+CONFIGURATION
+================================================================================
+After import, update: /app_config/secrets.php
+Set your database connection credentials there.
+
+TROUBLESHOOTING
+================================================================================
+Error: "Unknown column"
+→ Make sure ALL tables were created. Check import output for errors at top.
+
+Error: "Duplicate foreign key"
+→ Normal on re-import. Can run multiple times safely.
+
+Error: "Collation not valid"
+→ Your MySQL is very old. Use COMPLETE_DATABASE_SCHEMA_SAFE.sql instead.
+
+FEATURES INCLUDED
+================================================================================
+✓ Full quote workflow (create → send → accept/decline)
+✓ Job scheduling and management
+✓ Invoice generation and tracking
+✓ Property location and measurement tracking
+✓ Portfolio and before/after photos
+✓ Marketing consent and lead tracking
+✓ Service templates and billing options
+✓ User activity audit trail
+✓ Password reset tokens
+✓ Lifecycle stage tracking
+
+NEXT STEPS
+================================================================================
+1. Import the database (see QUICK SETUP above)
+2. Login with admin user
+3. Create additional users in CRM
+4. Customize business settings
+5. Add test companies and properties
+6. Test quote creation workflow
+
+SUPPORT
+================================================================================
+See: DATABASE_SCHEMA_GUIDE.md for full documentation
+See: CLAUDE.md for development guidelines
+See: ARCHITECTURE.md for system overview
+
+================================================================================
+Ready to deploy! 🚀
+================================================================================

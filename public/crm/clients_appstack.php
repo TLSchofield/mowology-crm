@@ -4,6 +4,7 @@
  */
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
+require_once 'includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -11,6 +12,10 @@ $user = getCurrentUser();
 $db = getDB();
 $pageTitle = 'Clients';
 $activePage = 'clients';
+
+// Initialize error handler
+$errorHandler = new CRMErrorHandler('Clients', $_SERVER['REQUEST_METHOD']);
+$GLOBALS['crm_error_handler'] = $errorHandler;
 
 // Handle form submissions
 $action = $_GET['action'] ?? null;
@@ -23,7 +28,114 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
     $jsonData = json_decode(file_get_contents('php://input'), true);
     $requestAction = $_GET['action'] ?? null;
 
-    if ($requestAction === 'convert_to_prospect') {
+    if ($requestAction === 'move_company') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $companyId = intval($jsonData['company_id'] ?? 0);
+        $newStage = trim($jsonData['new_stage'] ?? '');
+
+        if (!$companyId || !$newStage) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid company or stage']);
+            exit;
+        }
+
+        try {
+            if (updateCompanyLifecycleStage($companyId, $newStage, $user['id'])) {
+                http_response_code(200);
+                echo json_encode(['success' => true]);
+            } else {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Failed to update stage']);
+            }
+        } catch (Exception $e) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => htmlspecialchars($e->getMessage())]);
+        }
+        exit;
+    } elseif ($requestAction === 'move_contact') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $contactId = intval($jsonData['contact_id'] ?? 0);
+        $newStage = trim($jsonData['new_stage'] ?? '');
+
+        if (!$contactId || !$newStage) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid contact or stage']);
+            exit;
+        }
+
+        try {
+            if (updateContactLifecycleStage($contactId, $newStage, $user['id'])) {
+                http_response_code(200);
+                echo json_encode(['success' => true]);
+            } else {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Failed to update stage']);
+            }
+        } catch (Exception $e) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => htmlspecialchars($e->getMessage())]);
+        }
+        exit;
+    } elseif ($requestAction === 'manage_stages') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $stageAction = $jsonData['stage_action'] ?? null;
+        $stageId = intval($jsonData['stage_id'] ?? 0);
+
+        try {
+            if ($stageAction === 'add') {
+                $newStageId = addLifecycleStage([
+                    'stage_key' => $jsonData['stage_key'] ?? '',
+                    'stage_label' => $jsonData['stage_label'] ?? '',
+                    'stage_order' => $jsonData['stage_order'] ?? 0,
+                    'stage_color' => $jsonData['stage_color'] ?? '#6B7280',
+                    'description' => $jsonData['description'] ?? null
+                ]);
+
+                if ($newStageId) {
+                    http_response_code(200);
+                    echo json_encode(['success' => true, 'stage_id' => $newStageId]);
+                } else {
+                    http_response_code(400);
+                    echo json_encode(['success' => false, 'error' => 'Failed to add stage']);
+                }
+            } elseif ($stageAction === 'update') {
+                if (updateLifecycleStage($stageId, $jsonData)) {
+                    http_response_code(200);
+                    echo json_encode(['success' => true]);
+                } else {
+                    http_response_code(400);
+                    echo json_encode(['success' => false, 'error' => 'Failed to update stage']);
+                }
+            } elseif ($stageAction === 'delete') {
+                if (deleteLifecycleStage($stageId)) {
+                    http_response_code(200);
+                    echo json_encode(['success' => true]);
+                } else {
+                    http_response_code(400);
+                    echo json_encode(['success' => false, 'error' => 'Stage is in use or cannot be deleted']);
+                }
+            }
+        } catch (Exception $e) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => htmlspecialchars($e->getMessage())]);
+        }
+        exit;
+    } elseif ($requestAction === 'convert_to_prospect') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
             echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
@@ -87,8 +199,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             exit;
 
         } catch (Exception $e) {
+            $errorHandler->logError('Failed to convert quote request to prospect', $e, ['request_id' => $requestId]);
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => htmlspecialchars($e->getMessage())]);
+            echo json_encode(['success' => false, 'error' => 'Failed to convert prospect']);
             exit;
         }
     }
@@ -179,7 +292,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $db->commit();
                 } catch (PDOException $e) {
                     $db->rollBack();
-                    $message = 'Error: ' . htmlspecialchars($e->getMessage());
+                    $errorHandler->logDatabaseError($e, '', [], 'Failed to save client. Please try again.');
+                    $message = 'Failed to save client. Please try again.';
                     $messageType = 'error';
                 }
             }
@@ -192,7 +306,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $action = null;
                     $clientId = 0;
                 } catch (PDOException $e) {
-                    $message = 'Error: ' . htmlspecialchars($e->getMessage());
+                    $errorHandler->logDatabaseError($e, '', [], 'Failed to delete client. Please try again.');
+                    $message = 'Failed to delete client. Please try again.';
                     $messageType = 'error';
                 }
             }
@@ -249,6 +364,23 @@ $unconvertedRequests = $db->query("
 
 ?>
 <?php include 'includes/appstack_head.php'; ?>
+
+          <!-- Session Alert Display -->
+          <?php if (isset($_SESSION['alert'])):
+              $alert = $_SESSION['alert'];
+              $alertClass = [
+                  'error' => 'alert-danger',
+                  'warning' => 'alert-warning',
+                  'success' => 'alert-success',
+                  'info' => 'alert-info'
+              ][$alert['type']] ?? 'alert-info';
+          ?>
+              <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show" role="alert">
+                  <strong><?php echo ucfirst($alert['type']); ?>:</strong> <?php echo h($alert['message']); ?>
+                  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+              <?php unset($_SESSION['alert']); ?>
+          <?php endif; ?>
 
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h1 class="h3 mb-0">Client Management</h1>
@@ -472,7 +604,76 @@ $unconvertedRequests = $db->query("
             </div>
 
           <?php else: ?>
-            <!-- Client List -->
+            <!-- View Toggle -->
+            <div class="mb-3 d-flex justify-content-between align-items-center">
+              <div class="btn-group" role="group">
+                <input type="radio" class="btn-check" name="view_mode" id="view_kanban" value="kanban" checked>
+                <label class="btn btn-outline-secondary" for="view_kanban">
+                  <i data-feather="layout"></i> Kanban
+                </label>
+                <input type="radio" class="btn-check" name="view_mode" id="view_list" value="list">
+                <label class="btn btn-outline-secondary" for="view_list">
+                  <i data-feather="list"></i> List
+                </label>
+              </div>
+              <button class="btn btn-outline-primary" onclick="showStageManagerModal()">
+                <i data-feather="settings"></i> Manage Stages
+              </button>
+            </div>
+
+            <!-- Kanban View -->
+            <div id="kanban-view" class="mw-kanban-container">
+              <?php
+                $stagesData = getCompaniesByLifecycleStage();
+                $allStages = getLifecycleStages();
+              ?>
+              <?php foreach ($allStages as $stage): ?>
+                <div class="mw-kanban-column" data-stage="<?php echo h($stage['stage_key']); ?>" style="border-top: 4px solid <?php echo h($stage['stage_color']); ?>;">
+                  <div class="mw-kanban-header" style="background: <?php echo h($stage['stage_color']); ?>;">
+                    <h5 class="mb-0 text-white">
+                      <?php echo h($stage['stage_label']); ?>
+                      <span class="badge badge-light ml-2">
+                        <?php echo count($stagesData[$stage['stage_key']]['companies'] ?? []); ?>
+                      </span>
+                    </h5>
+                  </div>
+                  <div class="mw-kanban-cards" data-stage="<?php echo h($stage['stage_key']); ?>">
+                    <?php foreach ($stagesData[$stage['stage_key']]['companies'] ?? [] as $company): ?>
+                      <div class="mw-kanban-card" draggable="true" data-company-id="<?php echo (int)$company['id']; ?>" data-company-name="<?php echo h($company['company_name']); ?>">
+                        <div class="mw-card-header">
+                          <strong><?php echo h($company['company_name']); ?></strong>
+                        </div>
+                        <div class="mw-card-body">
+                          <small class="text-muted d-block">
+                            <i data-feather="mail" style="width: 14px; height: 14px;"></i>
+                            <?php echo h($company['billing_email'] ?? '—'); ?>
+                          </small>
+                          <small class="text-muted d-block mt-1">
+                            <i data-feather="home" style="width: 14px; height: 14px;"></i>
+                            <?php echo ucwords(str_replace('_', ' ', $company['company_type'])); ?>
+                          </small>
+                          <small class="text-muted d-block mt-1">
+                            <i data-feather="calendar" style="width: 14px; height: 14px;"></i>
+                            <?php echo formatDate($company['created_at']); ?>
+                          </small>
+                        </div>
+                        <div class="mw-card-actions mt-2 pt-2 border-top">
+                          <a href="?action=edit&id=<?php echo (int)$company['id']; ?>" class="btn btn-sm btn-outline-primary" title="Edit">
+                            <i data-feather="edit-2"></i>
+                          </a>
+                          <button class="btn btn-sm btn-outline-secondary" onclick="showCompanyDetails(<?php echo (int)$company['id']; ?>, '<?php echo h(addslashes($company['company_name'])); ?>')" title="View">
+                            <i data-feather="eye"></i>
+                          </button>
+                        </div>
+                      </div>
+                    <?php endforeach; ?>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+
+            <!-- List View -->
+            <div id="list-view" style="display: none;">
             <div class="card">
               <div class="card-header">
                 <h5 class="card-title mb-0">
@@ -612,11 +813,315 @@ $unconvertedRequests = $db->query("
                 <?php endif; ?>
               </div>
             </div>
+            </div><!-- end list-view -->
           <?php endif; ?>
 
+          <!-- Stage Manager Modal -->
+          <div class="modal fade" id="stageManagerModal" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Manage Lifecycle Stages</h5>
+                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                  </button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-4">
+                    <h6><strong>Add New Stage</strong></h6>
+                    <form id="addStageForm" onsubmit="handleAddStage(event)">
+                      <div class="row">
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>Stage Key *</label>
+                            <input type="text" class="form-control" id="stageKey" placeholder="e.g., won, lost" required>
+                            <small class="text-muted">Unique identifier (lowercase, no spaces)</small>
+                          </div>
+                        </div>
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>Stage Label *</label>
+                            <input type="text" class="form-control" id="stageLabel" placeholder="e.g., Won" required>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="row">
+                        <div class="col-md-4">
+                          <div class="form-group">
+                            <label>Sort Order</label>
+                            <input type="number" class="form-control" id="stageOrder" value="0">
+                          </div>
+                        </div>
+                        <div class="col-md-4">
+                          <div class="form-group">
+                            <label>Color</label>
+                            <input type="color" class="form-control" id="stageColor" value="#6B7280">
+                          </div>
+                        </div>
+                        <div class="col-md-4">
+                          <div class="form-group">
+                            <label>&nbsp;</label>
+                            <button type="submit" class="btn btn-success btn-block">
+                              <i data-feather="plus"></i> Add Stage
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="form-group">
+                        <label>Description</label>
+                        <textarea class="form-control" id="stageDescription" rows="2"></textarea>
+                      </div>
+                    </form>
+                  </div>
+
+                  <hr>
+
+                  <div>
+                    <h6><strong>Current Stages</strong></h6>
+                    <div id="stagesList">
+                      <?php foreach (getLifecycleStages() as $stage): ?>
+                        <div class="mw-stage-item" data-stage-id="<?php echo (int)$stage['id']; ?>">
+                          <div class="d-flex align-items-center justify-content-between p-2 border rounded mb-2" style="background: #f8f9fa;">
+                            <div>
+                              <strong><?php echo h($stage['stage_label']); ?></strong>
+                              <span class="badge" style="background: <?php echo h($stage['stage_color']); ?>; color: white;">
+                                <?php echo h($stage['stage_key']); ?>
+                              </span>
+                              <?php if ($stage['description']): ?>
+                                <p class="text-muted small mb-0 mt-1"><?php echo h($stage['description']); ?></p>
+                              <?php endif; ?>
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                              <button class="btn btn-outline-primary" onclick="editStage(<?php echo (int)$stage['id']; ?>, '<?php echo h(addslashes($stage['stage_label'])); ?>', '<?php echo h($stage['stage_color']); ?>', <?php echo (int)$stage['stage_order']; ?>)" title="Edit">
+                                <i data-feather="edit-2"></i>
+                              </button>
+                              <button class="btn btn-outline-danger" onclick="deleteStage(<?php echo (int)$stage['id']; ?>, '<?php echo h(addslashes($stage['stage_label'])); ?>')" title="Delete">
+                                <i data-feather="trash-2"></i>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <script>
+            // Kanban drag and drop functionality
+            let draggedCard = null;
+
+            function setupKanbanDragDrop() {
+              const cards = document.querySelectorAll('.mw-kanban-card');
+              const dropZones = document.querySelectorAll('.mw-kanban-cards');
+
+              cards.forEach(card => {
+                card.addEventListener('dragstart', handleDragStart);
+                card.addEventListener('dragend', handleDragEnd);
+              });
+
+              dropZones.forEach(zone => {
+                zone.addEventListener('dragover', handleDragOver);
+                zone.addEventListener('drop', handleDrop);
+              });
+            }
+
+            function handleDragStart(e) {
+              draggedCard = this;
+              this.style.opacity = '0.5';
+              e.dataTransfer.effectAllowed = 'move';
+            }
+
+            function handleDragEnd(e) {
+              this.style.opacity = '1';
+              draggedCard = null;
+            }
+
+            function handleDragOver(e) {
+              if (e.preventDefault) {
+                e.preventDefault();
+              }
+              e.dataTransfer.dropEffect = 'move';
+              return false;
+            }
+
+            function handleDrop(e) {
+              if (e.stopPropagation) {
+                e.stopPropagation();
+              }
+
+              if (!draggedCard) return false;
+
+              const targetStage = this.dataset.stage;
+              const companyId = parseInt(draggedCard.dataset.companyId);
+
+              // Move card to new column
+              this.appendChild(draggedCard);
+
+              // Update backend
+              fetch('clients_appstack.php?action=move_company', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  company_id: companyId,
+                  new_stage: targetStage,
+                  csrf_token: '<?php echo csrf_token(); ?>'
+                })
+              })
+              .then(r => r.json())
+              .then(data => {
+                if (!data.success) {
+                  alert('Error: ' + (data.error || 'Unknown error'));
+                  location.reload();
+                }
+              })
+              .catch(err => {
+                alert('Error: ' + err.message);
+                location.reload();
+              });
+
+              return false;
+            }
+
+            // View mode toggle
+            function setupViewToggle() {
+              const kanbanView = document.getElementById('kanban-view');
+              const listView = document.getElementById('list-view');
+              const kanbanRadio = document.getElementById('view_kanban');
+              const listRadio = document.getElementById('view_list');
+
+              if (!kanbanRadio || !listRadio) return;
+
+              kanbanRadio.addEventListener('change', function() {
+                if (this.checked) {
+                  kanbanView.style.display = 'flex';
+                  listView.style.display = 'none';
+                }
+              });
+
+              listRadio.addEventListener('change', function() {
+                if (this.checked) {
+                  kanbanView.style.display = 'none';
+                  listView.style.display = 'block';
+                }
+              });
+            }
+
+            // Stage management functions
+            function showStageManagerModal() {
+              const modal = document.getElementById('stageManagerModal');
+              if (modal) {
+                $(modal).modal('show');
+              }
+            }
+
+            function handleAddStage(event) {
+              event.preventDefault();
+
+              const stageKey = document.getElementById('stageKey').value.trim().toLowerCase();
+              const stageLabel = document.getElementById('stageLabel').value.trim();
+              const stageOrder = parseInt(document.getElementById('stageOrder').value) || 0;
+              const stageColor = document.getElementById('stageColor').value;
+              const stageDescription = document.getElementById('stageDescription').value.trim();
+
+              if (!stageKey || !stageLabel) {
+                alert('Please fill in Stage Key and Stage Label');
+                return;
+              }
+
+              fetch('clients_appstack.php?action=manage_stages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  stage_action: 'add',
+                  stage_key: stageKey,
+                  stage_label: stageLabel,
+                  stage_order: stageOrder,
+                  stage_color: stageColor,
+                  description: stageDescription,
+                  csrf_token: '<?php echo csrf_token(); ?>'
+                })
+              })
+              .then(r => r.json())
+              .then(data => {
+                if (data.success) {
+                  alert('Stage added! Reloading...');
+                  location.reload();
+                } else {
+                  alert('Error: ' + (data.error || 'Unknown error'));
+                }
+              })
+              .catch(err => alert('Error: ' + err.message));
+            }
+
+            function editStage(stageId, label, color, order) {
+              const newLabel = prompt('Edit stage label:', label);
+              if (!newLabel) return;
+
+              fetch('clients_appstack.php?action=manage_stages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  stage_action: 'update',
+                  stage_id: stageId,
+                  stage_label: newLabel,
+                  stage_color: color,
+                  stage_order: order,
+                  csrf_token: '<?php echo csrf_token(); ?>'
+                })
+              })
+              .then(r => r.json())
+              .then(data => {
+                if (data.success) {
+                  alert('Stage updated! Reloading...');
+                  location.reload();
+                } else {
+                  alert('Error: ' + (data.error || 'Unknown error'));
+                }
+              })
+              .catch(err => alert('Error: ' + err.message));
+            }
+
+            function deleteStage(stageId, label) {
+              if (!confirm('Delete stage "' + label + '"? This action cannot be undone and the stage must not be in use.')) {
+                return;
+              }
+
+              fetch('clients_appstack.php?action=manage_stages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  stage_action: 'delete',
+                  stage_id: stageId,
+                  csrf_token: '<?php echo csrf_token(); ?>'
+                })
+              })
+              .then(r => r.json())
+              .then(data => {
+                if (data.success) {
+                  alert('Stage deleted! Reloading...');
+                  location.reload();
+                } else {
+                  alert('Error: ' + (data.error || 'Unknown error'));
+                }
+              })
+              .catch(err => alert('Error: ' + err.message));
+            }
+
+            function showCompanyDetails(companyId, companyName) {
+              // Placeholder for company details modal - can be expanded
+              alert('Company: ' + companyName + '\nID: ' + companyId);
+            }
+
             // Toggle between existing and new company modes
             document.addEventListener('DOMContentLoaded', function() {
+              setupKanbanDragDrop();
+              setupViewToggle();
               const existingRadio = document.getElementById('company_mode_existing');
               const newRadio = document.getElementById('company_mode_new');
               const existingSection = document.getElementById('existing-company-section');

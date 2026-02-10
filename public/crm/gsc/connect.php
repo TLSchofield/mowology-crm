@@ -1,10 +1,15 @@
 <?php
 /**
  * /crm/gsc/connect.php
- * Google Search Console OAuth connection flow
+ * Google Search Console OAuth connection flow (DOMAIN PROPERTY FIRST)
+ *
+ * Key behavior:
+ * - After OAuth, fetches /sites and stores sc-domain:<domain> if available
+ * - This fixes the “connected but 0 rows” issue caused by URL-prefix properties having no data
  */
 
 declare(strict_types=1);
+
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 
@@ -12,7 +17,7 @@ requireLogin();
 $user = getCurrentUser();
 
 // Only admins can connect GSC
-if (!$user || $user['role'] !== 'admin') {
+if (!$user || ($user['role'] ?? '') !== 'admin') {
     http_response_code(403);
     die('Admin access required');
 }
@@ -20,43 +25,127 @@ if (!$user || $user['role'] !== 'admin') {
 $db = getDB();
 
 /**
- * Normalize site URL for GSC API and DB storage
- * @param string $url URL or domain (https://mowology.ca, mowology.ca, sc-domain:mowology.ca)
- * @param string $format 'api' => sc-domain:mowology.ca | 'db' => mowology.ca
- * @return string Formatted URL
+ * ✅ IMPORTANT: Set your canonical domain here
+ * Must match the DOMAIN property you see in Search Console (no protocol).
  */
-function normalizeSiteUrl(string $url, string $format = 'db'): string {
-    // Remove protocol and sc-domain: prefix if present
-    $domain = preg_replace('|^(https?://)?sc-domain:|', '', $url);
-    $domain = trim($domain, '/');
+const GSC_CANONICAL_DOMAIN = 'mowology.ca';
 
-    if ($format === 'api') {
-        return 'sc-domain:' . $domain;
+/**
+ * ✅ Redirect URI must match Google Cloud Console OAuth client configuration EXACTLY.
+ */
+$REDIRECT_URI = 'https://mowology.ca/crm/gsc/connect.php?step=callback';
+
+/**
+ * Pick best property from the /sites list:
+ * - Prefer sc-domain:<domain>
+ * - Otherwise fall back to https://<domain>/ if present
+ * - Otherwise: first site in the list (last resort)
+ */
+function pickBestGscProperty(array $sites, string $domain): ?string
+{
+    $domain = strtolower(trim($domain));
+    $wantDomainProp = 'sc-domain:' . $domain;
+
+    // 1) Prefer domain property exact match
+    foreach ($sites as $site) {
+        $siteUrl = $site['siteUrl'] ?? '';
+        if (is_string($siteUrl) && strtolower($siteUrl) === $wantDomainProp) {
+            return $siteUrl;
+        }
     }
-    return $domain; // 'db' format
+
+    // 2) Prefer URL-prefix https://domain/
+    $wantPrefix = 'https://' . $domain . '/';
+    foreach ($sites as $site) {
+        $siteUrl = $site['siteUrl'] ?? '';
+        if (is_string($siteUrl) && strtolower($siteUrl) === $wantPrefix) {
+            return $siteUrl;
+        }
+    }
+
+    // 3) Try www domain property
+    $wantWwwDomainProp = 'sc-domain:www.' . $domain;
+    foreach ($sites as $site) {
+        $siteUrl = $site['siteUrl'] ?? '';
+        if (is_string($siteUrl) && strtolower($siteUrl) === $wantWwwDomainProp) {
+            return $siteUrl;
+        }
+    }
+
+    // 4) Try https://www.domain/
+    $wantWwwPrefix = 'https://www.' . $domain . '/';
+    foreach ($sites as $site) {
+        $siteUrl = $site['siteUrl'] ?? '';
+        if (is_string($siteUrl) && strtolower($siteUrl) === $wantWwwPrefix) {
+            return $siteUrl;
+        }
+    }
+
+    // 5) Last resort: first available siteUrl
+    foreach ($sites as $site) {
+        $siteUrl = $site['siteUrl'] ?? '';
+        if (is_string($siteUrl) && $siteUrl !== '') {
+            return $siteUrl;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Fetch GSC sites list using access token
+ */
+function fetchGscSites(string $accessToken): ?array
+{
+    $ch = curl_init('https://www.googleapis.com/webmasters/v3/sites');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer ' . $accessToken,
+        'Accept: application/json',
+    ]);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+
+    $response = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+
+    if ($response === false) {
+        error_log("GSC /sites cURL error: " . $err);
+        return null;
+    }
+    if ($httpCode !== 200) {
+        error_log("GSC /sites HTTP $httpCode: " . $response);
+        return null;
+    }
+
+    $decoded = json_decode($response, true);
+    if (!is_array($decoded)) return null;
+
+    // Expected: { "siteEntry": [ ... ] }
+    $sites = $decoded['siteEntry'] ?? null;
+    return is_array($sites) ? $sites : [];
 }
 
 // Step 1: User initiates connection
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'start') {
-    // Generate CSRF token for OAuth state
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'start') {
     $state = bin2hex(random_bytes(32));
     $_SESSION['gsc_oauth_state'] = $state;
 
-    // Get OAuth credentials from secrets (must be set)
     if (!defined('GOOGLE_CLIENT_ID') || !defined('GOOGLE_CLIENT_SECRET')) {
+        http_response_code(500);
         die('Google OAuth credentials not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to secrets.php');
     }
 
-    $redirectUri = 'https://' . $_SERVER['HTTP_HOST'] . '/crm/gsc/connect.php?step=callback';
-
     $authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query([
         'client_id' => GOOGLE_CLIENT_ID,
-        'redirect_uri' => $redirectUri,
+        'redirect_uri' => $REDIRECT_URI,
         'response_type' => 'code',
         'scope' => 'https://www.googleapis.com/auth/webmasters.readonly',
         'state' => $state,
         'access_type' => 'offline',
-        'prompt' => 'consent',  // Force refresh token to be issued every time
+        'prompt' => 'consent',
+        'include_granted_scopes' => 'true',
     ]);
 
     header('Location: ' . $authUrl);
@@ -64,100 +153,114 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 // Step 2: Handle OAuth callback
-if (isset($_GET['step']) && $_GET['step'] === 'callback') {
-    $code = $_GET['code'] ?? null;
+if (($_GET['step'] ?? '') === 'callback') {
+    $code  = $_GET['code'] ?? null;
     $state = $_GET['state'] ?? null;
     $error = $_GET['error'] ?? null;
 
     if ($error) {
-        die('OAuth error: ' . htmlspecialchars($error));
+        http_response_code(400);
+        die('OAuth error: ' . htmlspecialchars((string)$error));
     }
 
     if (!$code || !$state || $state !== ($_SESSION['gsc_oauth_state'] ?? '')) {
+        http_response_code(400);
         die('Invalid OAuth state or missing code');
     }
 
-    // Exchange code for tokens
-    $tokenResponse = exchangeOAuthCode($code);
+    $tokenResponse = exchangeOAuthCode((string)$code, $REDIRECT_URI);
 
-    if (!$tokenResponse) {
+    if (!$tokenResponse || empty($tokenResponse['access_token'])) {
+        http_response_code(500);
         die('Failed to exchange OAuth code for tokens');
     }
 
-    $siteUrl = normalizeSiteUrl('mowology.ca', 'db');
-    $accessToken = encryptToken($tokenResponse['access_token']);
-    $expiresAt = date('Y-m-d H:i:s', time() + ($tokenResponse['expires_in'] ?? 3600));
+    $accessTokenPlain = (string)$tokenResponse['access_token'];
+    $expiresIn = (int)($tokenResponse['expires_in'] ?? 3600);
+    $expiresAt = date('Y-m-d H:i:s', time() + $expiresIn);
 
-    // Handle refresh token: preserve existing if new one is empty
-    $newRefreshToken = $tokenResponse['refresh_token'] ?? '';
+    $accessTokenEnc = encryptToken($accessTokenPlain);
+    $newRefreshTokenPlain = (string)($tokenResponse['refresh_token'] ?? '');
 
-    if ($newRefreshToken) {
-        // New refresh token provided: use it
-        $refreshToken = encryptToken($newRefreshToken);
+    // If Google doesn't return refresh_token, we may already have one stored
+    $existing = $db->prepare("SELECT id, refresh_token_encrypted FROM gsc_properties ORDER BY id ASC LIMIT 1");
+    $existing->execute();
+    $existingRow = $existing->fetch(PDO::FETCH_ASSOC);
+    $hasExistingRefresh = $existingRow && !empty($existingRow['refresh_token_encrypted']);
+
+    if ($newRefreshTokenPlain === '' && !$hasExistingRefresh) {
+        // Save access token anyway (but cron won’t be reliable)
         $stmt = $db->prepare("
             INSERT INTO gsc_properties (site_url, access_token_encrypted, refresh_token_encrypted, expires_at, connected_at)
-            VALUES (?, ?, ?, ?, NOW())
+            VALUES ('', ?, '', ?, NOW())
             ON DUPLICATE KEY UPDATE
                 access_token_encrypted = VALUES(access_token_encrypted),
-                refresh_token_encrypted = VALUES(refresh_token_encrypted),
                 expires_at = VALUES(expires_at)
         ");
-        $stmt->execute([$siteUrl, $accessToken, $refreshToken, $expiresAt]);
-    } else {
-        // No refresh token provided: preserve existing one if it exists
-        $existing = $db->prepare("SELECT refresh_token_encrypted FROM gsc_properties WHERE site_url = ? LIMIT 1");
-        $existing->execute([$siteUrl]);
-        $existingRow = $existing->fetch(PDO::FETCH_ASSOC);
+        $stmt->execute([$accessTokenEnc, $expiresAt]);
 
-        if ($existingRow && !empty($existingRow['refresh_token_encrypted'])) {
-            // Keep existing refresh token
-            $stmt = $db->prepare("
-                UPDATE gsc_properties
-                SET access_token_encrypted = ?, expires_at = ?
-                WHERE site_url = ?
-            ");
-            $stmt->execute([$accessToken, $expiresAt, $siteUrl]);
-        } else {
-            // No existing token: store empty (will need reconnect with prompt=consent)
-            $stmt = $db->prepare("
-                INSERT INTO gsc_properties (site_url, access_token_encrypted, refresh_token_encrypted, expires_at, connected_at)
-                VALUES (?, ?, ?, ?, NOW())
-                ON DUPLICATE KEY UPDATE
-                    access_token_encrypted = VALUES(access_token_encrypted),
-                    expires_at = VALUES(expires_at)
-            ");
-            $stmt->execute([$siteUrl, $accessToken, '', $expiresAt]);
-        }
+        logActivity($user['id'], null, 'GSC OAuth callback received (NO refresh token)', 'Domain: ' . GSC_CANONICAL_DOMAIN);
+
+        header('Location: /crm/portfolio/index.php?tab=insights&connected=0&needs_refresh=1');
+        exit;
     }
 
-    // Log activity
-    logActivity($user['id'], null, 'Google Search Console connected', 'Domain: ' . $siteUrl);
+    // Determine refresh token to store
+    $refreshTokenEnc = $hasExistingRefresh ? (string)$existingRow['refresh_token_encrypted'] : '';
+    if ($newRefreshTokenPlain !== '') {
+        $refreshTokenEnc = encryptToken($newRefreshTokenPlain);
+    }
+
+    // ✅ Fetch /sites and choose best property (domain property preferred)
+    $sites = fetchGscSites($accessTokenPlain);
+    if ($sites === null) {
+        http_response_code(500);
+        die('Connected, but failed to read Search Console sites list. Check server logs.');
+    }
+
+    $chosenSiteUrl = pickBestGscProperty($sites, GSC_CANONICAL_DOMAIN);
+    if (!$chosenSiteUrl) {
+        http_response_code(500);
+        die('Connected, but no Search Console properties were found for this account.');
+    }
+
+    // ✅ Upsert a SINGLE row for the chosen property (keeps your schema simple)
+    $stmt = $db->prepare("
+        INSERT INTO gsc_properties (site_url, access_token_encrypted, refresh_token_encrypted, expires_at, connected_at)
+        VALUES (?, ?, ?, ?, NOW())
+        ON DUPLICATE KEY UPDATE
+            access_token_encrypted = VALUES(access_token_encrypted),
+            refresh_token_encrypted = VALUES(refresh_token_encrypted),
+            expires_at = VALUES(expires_at),
+            connected_at = NOW()
+    ");
+    $stmt->execute([$chosenSiteUrl, $accessTokenEnc, $refreshTokenEnc, $expiresAt]);
+
+    logActivity($user['id'], null, 'Google Search Console connected', 'Property: ' . $chosenSiteUrl);
 
     header('Location: /crm/portfolio/index.php?tab=insights&connected=1');
     exit;
 }
 
 // Step 3: Disconnect
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'disconnect') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'disconnect') {
     $csrfToken = $_POST['csrf_token'] ?? '';
     if (!verifyCSRFToken($csrfToken)) {
+        http_response_code(400);
         die('CSRF token invalid');
     }
 
-    $siteUrl = normalizeSiteUrl('mowology.ca', 'db');
-    $stmt = $db->prepare("DELETE FROM gsc_properties WHERE site_url = ?");
-    $stmt->execute([$siteUrl]);
+    // Remove all GSC properties (you only need one anyway)
+    $db->exec("DELETE FROM gsc_properties");
 
-    logActivity($user['id'], null, 'Google Search Console disconnected', null);
+    logActivity($user['id'], null, 'Google Search Console disconnected', 'Domain: ' . GSC_CANONICAL_DOMAIN);
 
     header('Location: /crm/portfolio/index.php?tab=insights&disconnected=1');
     exit;
 }
 
-// Default: show connection status
-$siteUrl = normalizeSiteUrl('mowology.ca', 'db');
-$stmt = $db->prepare("SELECT connected_at, expires_at FROM gsc_properties WHERE site_url = ? LIMIT 1");
-$stmt->execute([$siteUrl]);
+// Default: show connection status (single row)
+$stmt = $db->query("SELECT site_url, connected_at, expires_at FROM gsc_properties ORDER BY id ASC LIMIT 1");
 $gscStatus = $stmt->fetch(PDO::FETCH_ASSOC);
 
 $pageTitle = 'Google Search Console';
@@ -166,62 +269,67 @@ $activePage = 'portfolio';
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
 <div class="card">
-    <div class="card-body">
-        <h5 class="card-title mb-4">Google Search Console Connection</h5>
+  <div class="card-body">
+    <h5 class="card-title mb-4">Google Search Console Connection</h5>
 
-        <?php if (isset($_GET['connected'])): ?>
-            <div class="alert alert-success">
-                ✓ Google Search Console connected successfully! Data will be pulled starting tomorrow.
-            </div>
-        <?php endif; ?>
+    <?php if (isset($_GET['needs_refresh']) && $_GET['needs_refresh'] === '1'): ?>
+      <div class="alert alert-warning">
+        Connected, but Google did not return a refresh token.
+        <br><strong>Fix:</strong> Google Account → Security → Third-party access → remove app access, then reconnect.
+      </div>
+    <?php endif; ?>
 
-        <?php if (isset($_GET['disconnected'])): ?>
-            <div class="alert alert-info">
-                Google Search Console disconnected.
-            </div>
-        <?php endif; ?>
+    <?php if (isset($_GET['connected']) && $_GET['connected'] === '1'): ?>
+      <div class="alert alert-success">
+        ✓ Google Search Console connected successfully!
+      </div>
+    <?php endif; ?>
 
-        <?php if ($gscStatus): ?>
-            <div class="alert alert-info">
-                <strong>Connected</strong> since <?php echo formatDate($gscStatus['connected_at']); ?>
-                <br>Token expires: <?php echo formatDate($gscStatus['expires_at']); ?>
-            </div>
+    <?php if (isset($_GET['disconnected'])): ?>
+      <div class="alert alert-info">
+        Google Search Console disconnected.
+      </div>
+    <?php endif; ?>
 
-            <form method="POST" style="margin-top: 20px;">
-                <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
-                <input type="hidden" name="action" value="disconnect">
-                <button type="submit" class="btn btn-danger" onclick="return confirm('Disconnect Google Search Console?')">
-                    Disconnect
-                </button>
-            </form>
-        <?php else: ?>
-            <p class="text-muted mb-4">
-                Connect your Google Search Console account to see top search queries, click-through rates, and ranking opportunities.
-            </p>
+    <?php if ($gscStatus): ?>
+      <div class="alert alert-info">
+        <strong>Connected</strong> since <?php echo formatDate($gscStatus['connected_at']); ?>
+        <br>Token expires: <?php echo formatDate($gscStatus['expires_at']); ?>
+        <br>Stored property: <code><?php echo htmlspecialchars((string)$gscStatus['site_url']); ?></code>
+      </div>
 
-            <form method="POST">
-                <input type="hidden" name="action" value="start">
-                <button type="submit" class="btn btn-primary">
-                    <i data-feather="link-2"></i> Connect Google Account
-                </button>
-            </form>
-        <?php endif; ?>
-    </div>
+      <form method="POST" style="margin-top: 20px;">
+        <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+        <input type="hidden" name="action" value="disconnect">
+        <button type="submit" class="btn btn-danger" onclick="return confirm('Disconnect Google Search Console?')">
+          Disconnect
+        </button>
+      </form>
+    <?php else: ?>
+      <p class="text-muted mb-4">
+        Connect your Google Search Console account to see top search queries, click-through rates, and ranking opportunities.
+      </p>
+
+      <form method="POST">
+        <input type="hidden" name="action" value="start">
+        <button type="submit" class="btn btn-primary">
+          <i data-feather="link-2"></i> Connect Google Account
+        </button>
+      </form>
+    <?php endif; ?>
+  </div>
 </div>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
 
 <?php
-
 /**
  * Exchange OAuth code for access/refresh tokens
  */
-function exchangeOAuthCode($code) {
+function exchangeOAuthCode(string $code, string $redirectUri): ?array {
     if (!defined('GOOGLE_CLIENT_ID') || !defined('GOOGLE_CLIENT_SECRET')) {
         return null;
     }
-
-    $redirectUri = 'https://' . $_SERVER['HTTP_HOST'] . '/crm/gsc/connect.php?step=callback';
 
     $postData = [
         'code' => $code,
@@ -235,49 +343,61 @@ function exchangeOAuthCode($code) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
 
     $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlErr  = curl_error($ch);
     curl_close($ch);
 
-    if ($httpCode !== 200) {
-        error_log("OAuth token exchange failed: $response");
+    if ($response === false) {
+        error_log("OAuth token exchange cURL error: " . $curlErr);
         return null;
     }
 
-    return json_decode($response, true);
+    if ($httpCode !== 200 || !$response) {
+        error_log("OAuth token exchange failed (HTTP $httpCode): " . ($response ?: '[no response]'));
+        return null;
+    }
+
+    $decoded = json_decode($response, true);
+    return is_array($decoded) ? $decoded : null;
 }
 
 /**
  * Encrypt token for storage
  */
-function encryptToken($token) {
-    if (!defined('APP_ENCRYPTION_KEY') || !$token) {
-        return $token; // Fallback: no encryption or empty token
+function encryptToken(string $token): string {
+    if (!defined('APP_ENCRYPTION_KEY') || $token === '') {
+        return $token;
     }
 
-    $iv = openssl_random_pseudo_bytes(openssl_cipher_iv_length('aes-256-cbc'));
+    $ivLen = openssl_cipher_iv_length('aes-256-cbc');
+    $iv = random_bytes($ivLen);
+
     $encrypted = openssl_encrypt($token, 'aes-256-cbc', APP_ENCRYPTION_KEY, OPENSSL_RAW_DATA, $iv);
+    if ($encrypted === false) return '';
+
     return base64_encode($iv . $encrypted);
 }
 
 /**
- * Decrypt token from storage
+ * Decrypt token from storage (kept for completeness)
  */
-function decryptToken($encryptedToken) {
-    if (!defined('APP_ENCRYPTION_KEY') || !$encryptedToken) {
-        return $encryptedToken; // Fallback: no encryption or empty token
+function decryptToken(string $encryptedToken): string {
+    if (!defined('APP_ENCRYPTION_KEY') || $encryptedToken === '') {
+        return $encryptedToken;
     }
 
-    $data = base64_decode($encryptedToken);
-    if (!$data) {
-        return ''; // Invalid base64
-    }
+    $data = base64_decode($encryptedToken, true);
+    if ($data === false) return '';
 
     $ivLen = openssl_cipher_iv_length('aes-256-cbc');
+    if (strlen($data) <= $ivLen) return '';
+
     $iv = substr($data, 0, $ivLen);
-    $encrypted = substr($data, $ivLen);
-    $decrypted = openssl_decrypt($encrypted, 'aes-256-cbc', APP_ENCRYPTION_KEY, OPENSSL_RAW_DATA, $iv);
-    return $decrypted ?: '';
+    $ciphertext = substr($data, $ivLen);
+
+    $decrypted = openssl_decrypt($ciphertext, 'aes-256-cbc', APP_ENCRYPTION_KEY, OPENSSL_RAW_DATA, $iv);
+    return $decrypted !== false ? $decrypted : '';
 }

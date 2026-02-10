@@ -1,25 +1,31 @@
 <?php
 /**
  * /crm/gsc/snapshots.php
- * Displays GSC data and insights
+ * Displays GSC data and insights (returns arrays for parent include)
  */
 
 declare(strict_types=1);
+
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
 
-// Only admins can view GSC data
-if (!$user || $user['role'] !== 'admin') {
+if (!$user || ($user['role'] ?? '') !== 'admin') {
     http_response_code(403);
-    die('Admin access required');
+    return [
+        'latest_snapshot' => null,
+        'top_queries' => [],
+        'top_pages' => [],
+        'low_ctr' => [],
+        'error' => 'Admin access required'
+    ];
 }
 
 $db = getDB();
 
-// Get latest snapshot with correct ID aliases
+// Latest snapshot
 $stmt = $db->prepare("
     SELECT gs.id AS snapshot_id, gs.property_id, gp.site_url, gs.snapshot_date, gs.data_json, gs.pulled_at
     FROM gsc_snapshots gs
@@ -28,9 +34,9 @@ $stmt = $db->prepare("
     LIMIT 1
 ");
 $stmt->execute();
-$latestSnapshot = $stmt->fetch(PDO::FETCH_ASSOC);
+$latestSnapshot = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
-// Get top queries
+// Top queries
 $topQueries = [];
 if ($latestSnapshot) {
     $stmt = $db->prepare("
@@ -41,11 +47,11 @@ if ($latestSnapshot) {
         ORDER BY impressions DESC
         LIMIT 20
     ");
-    $stmt->execute([$latestSnapshot['snapshot_id']]);
-    $topQueries = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt->execute([(int)$latestSnapshot['snapshot_id']]);
+    $topQueries = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
-// Get top pages
+// Top pages
 $topPages = [];
 if ($latestSnapshot) {
     $stmt = $db->prepare("
@@ -56,11 +62,11 @@ if ($latestSnapshot) {
         ORDER BY clicks DESC
         LIMIT 20
     ");
-    $stmt->execute([$latestSnapshot['snapshot_id']]);
-    $topPages = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt->execute([(int)$latestSnapshot['snapshot_id']]);
+    $topPages = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
-// Get low CTR opportunities (high impressions, low clicks)
+// Low CTR opportunities
 $lowCTR = [];
 if ($latestSnapshot) {
     $stmt = $db->prepare("
@@ -72,8 +78,8 @@ if ($latestSnapshot) {
         ORDER BY impressions DESC
         LIMIT 10
     ");
-    $stmt->execute([$latestSnapshot['snapshot_id']]);
-    $lowCTR = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $stmt->execute([(int)$latestSnapshot['snapshot_id']]);
+    $lowCTR = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 return [

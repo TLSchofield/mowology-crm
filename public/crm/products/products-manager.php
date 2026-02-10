@@ -576,9 +576,7 @@ $activePage = 'products';
                   </div>
                 </div>
               `).join('');
-              if (typeof feather !== 'undefined') {
-                feather.replace();
-              }
+              hydrateFeatherIcons();
             }
 
             // Add new category
@@ -697,9 +695,7 @@ $activePage = 'products';
                 </div>
               `).join('');
 
-              if (typeof feather !== 'undefined') {
-                feather.replace();
-              }
+              hydrateFeatherIcons();
             }
 
             // Archive a product

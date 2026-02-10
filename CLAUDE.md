@@ -15,6 +15,25 @@ Read the companion `ARCHITECTURE.md` for the full system map. This file is the r
 
 ---
 
+## ⚠️ DATABASE VERSION REQUIREMENT
+
+**Your production database uses MySQL 5.7+**
+
+This is a critical constraint for all SQL queries and schema changes:
+- ✅ **No window functions** (`ROW_NUMBER()`, `RANK()`, `COUNT() OVER()`) — MySQL 5.7 doesn't support them
+- ✅ **No JSON functions** (`JSON_EXTRACT()`, `JSON_ARRAY()`) — use plain VARCHAR instead
+- ✅ **No generated columns** — not in MySQL 5.7
+- ✅ **Use `utf8mb4_general_ci` collation** — strict collation matching for foreign keys
+- ✅ **Prepared statements required** — all user data queries MUST use `?` placeholders
+
+**When writing SQL:**
+- Test compatibility with MySQL 5.7 syntax checker
+- Avoid MySQL 8.0-only features
+- Use `CREATE INDEX` (not `CREATE INDEX IF NOT EXISTS`)
+- Check `/database/COMPLETE_DATABASE_SCHEMA_CLEAN.sql` for the standard pattern
+
+---
+
 ## 1. Cardinal Rules
 
 1. **NEVER modify AppStack vendor files.** The files in `/crm/css/classic.css`, `/crm/css/corporate.css`, `/crm/js/app.js`, and the entire `/crinum/` directory are vendor code. Brand customisation goes in `/crm/css/mowology-brand.css` only.

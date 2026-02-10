@@ -2,9 +2,14 @@
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
 require_once 'includes/weather-service.php';
+require_once 'includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
+
+// Initialize error handler
+$errorHandler = new CRMErrorHandler('Dashboard', $_SERVER['REQUEST_METHOD']);
+$GLOBALS['crm_error_handler'] = $errorHandler;
 
 // Get 7-day weather forecast for dashboard
 $weekWeather = getWeekForecast('Vancouver', 'BC');
@@ -70,6 +75,7 @@ try {
     ")->fetchAll();
 
 } catch(PDOException $e) {
+    $errorHandler->logDatabaseError($e, '', [], 'Unable to load dashboard data. Please refresh the page.');
     $stats = [];
     $totalClients = 0;
     $recentActivity = [];
@@ -81,12 +87,26 @@ $activePage = 'dashboard';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
+          <!-- Session Alert Display -->
+          <?php if (isset($_SESSION['alert'])):
+              $alert = $_SESSION['alert'];
+              $alertClass = [
+                  'error' => 'alert-danger',
+                  'warning' => 'alert-warning',
+                  'success' => 'alert-success',
+                  'info' => 'alert-info'
+              ][$alert['type']] ?? 'alert-info';
+          ?>
+              <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show" role="alert">
+                  <strong><?php echo ucfirst($alert['type']); ?>:</strong> <?php echo h($alert['message']); ?>
+                  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+              <?php unset($_SESSION['alert']); ?>
+          <?php endif; ?>
+
           <div class="row mb-2 mb-xl-3">
             <div class="col-auto d-none d-sm-block">
               <h3><strong>Dashboard</strong></h3>
-            </div>
-            <div class="col-auto ml-auto text-right mt-n1">
-              <span class="badge badge-success">Step 1 Complete</span>
             </div>
           </div>
 
@@ -118,6 +138,61 @@ $activePage = 'dashboard';
                   endfor;
                   ?>
               </div>
+          </div>
+
+          <!-- Incoming Quote Requests -->
+          <div class="row mb-4">
+            <div class="col-12">
+              <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h5 class="card-title mb-0">
+                    Incoming Quote Requests
+                    <?php if (!empty($quoteRequests)): ?>
+                      <span class="badge badge-primary ml-2"><?php echo count($quoteRequests); ?></span>
+                    <?php endif; ?>
+                  </h5>
+                  <a href="products/quote-requests.php" class="btn btn-sm btn-outline-secondary">View All</a>
+                </div>
+                <div class="card-body">
+                  <?php if (empty($quoteRequests)): ?>
+                    <div class="text-center text-muted py-4">
+                      <i data-feather="inbox" style="width: 36px; height: 36px;"></i>
+                      <p class="mt-2 mb-0">No pending quote requests</p>
+                    </div>
+                  <?php else: ?>
+                    <div class="row">
+                      <?php foreach ($quoteRequests as $qr):
+                        $qrName = trim(($qr['first_name'] ?? '') . ' ' . ($qr['last_name'] ?? ''));
+                        if (empty($qrName)) $qrName = 'Unknown Contact';
+                        $qrServices = formatServiceTypes($qr['service_types']);
+                        $qrServicesStr = !empty($qrServices) ? implode(', ', $qrServices) : 'Not specified';
+                      ?>
+                        <div class="col-xl-4 col-md-6 mb-3">
+                          <a href="quote-workflow.php?request_id=<?php echo (int)$qr['id']; ?>" class="mw-qr-card mw-status-<?php echo h($qr['status']); ?>">
+                            <div class="mw-qr-card-name">
+                              <?php echo h($qrName); ?>
+                              <span class="mw-urgency-badge mw-urgency-<?php echo h($qr['urgency'] ?? 'inquiring'); ?>">
+                                <?php echo h(ucfirst($qr['urgency'] ?? 'inquiring')); ?>
+                              </span>
+                            </div>
+                            <div class="mw-qr-card-services"><?php echo h($qrServicesStr); ?></div>
+                            <div class="mw-qr-card-meta">
+                              <span><?php echo h(timeAgo($qr['created_at'])); ?></span>
+                              <span class="mw-status-badge <?php echo h($qr['status']); ?>"><?php echo h(ucfirst($qr['status'])); ?></span>
+                            </div>
+                            <?php if ($qr['address']): ?>
+                              <div class="mw-qr-card-services mt-1" style="font-size: 0.8rem;">
+                                <?php echo h($qr['address']); ?><?php if ($qr['city']): ?>, <?php echo h($qr['city']); ?><?php endif; ?>
+                              </div>
+                            <?php endif; ?>
+                          </a>
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+                  <?php endif; ?>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Stats Cards -->
@@ -189,61 +264,6 @@ $activePage = 'dashboard';
                             <?php echo formatDateTime($activity['created_at'], 'M j, g:i A'); ?>
                           </span>
                           <p><?php echo ucfirst($activity['type']); ?> created: <strong><?php echo htmlspecialchars($activity['name']); ?></strong></p>
-                        </div>
-                      <?php endforeach; ?>
-                    </div>
-                  <?php endif; ?>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Incoming Quote Requests -->
-          <div class="row mb-4">
-            <div class="col-12">
-              <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                  <h5 class="card-title mb-0">
-                    Incoming Quote Requests
-                    <?php if (!empty($quoteRequests)): ?>
-                      <span class="badge badge-primary ml-2"><?php echo count($quoteRequests); ?></span>
-                    <?php endif; ?>
-                  </h5>
-                  <a href="products/quote-requests.php" class="btn btn-sm btn-outline-secondary">View All</a>
-                </div>
-                <div class="card-body">
-                  <?php if (empty($quoteRequests)): ?>
-                    <div class="text-center text-muted py-4">
-                      <i data-feather="inbox" style="width: 36px; height: 36px;"></i>
-                      <p class="mt-2 mb-0">No pending quote requests</p>
-                    </div>
-                  <?php else: ?>
-                    <div class="row">
-                      <?php foreach ($quoteRequests as $qr):
-                        $qrName = trim(($qr['first_name'] ?? '') . ' ' . ($qr['last_name'] ?? ''));
-                        if (empty($qrName)) $qrName = 'Unknown Contact';
-                        $qrServices = formatServiceTypes($qr['service_types']);
-                        $qrServicesStr = !empty($qrServices) ? implode(', ', $qrServices) : 'Not specified';
-                      ?>
-                        <div class="col-xl-4 col-md-6 mb-3">
-                          <a href="quote-workflow.php?request_id=<?php echo (int)$qr['id']; ?>" class="mw-qr-card mw-status-<?php echo h($qr['status']); ?>">
-                            <div class="mw-qr-card-name">
-                              <?php echo h($qrName); ?>
-                              <span class="mw-urgency-badge mw-urgency-<?php echo h($qr['urgency'] ?? 'inquiring'); ?>">
-                                <?php echo h(ucfirst($qr['urgency'] ?? 'inquiring')); ?>
-                              </span>
-                            </div>
-                            <div class="mw-qr-card-services"><?php echo h($qrServicesStr); ?></div>
-                            <div class="mw-qr-card-meta">
-                              <span><?php echo h(timeAgo($qr['created_at'])); ?></span>
-                              <span class="mw-status-badge <?php echo h($qr['status']); ?>"><?php echo h(ucfirst($qr['status'])); ?></span>
-                            </div>
-                            <?php if ($qr['address']): ?>
-                              <div class="mw-qr-card-services mt-1" style="font-size: 0.8rem;">
-                                <?php echo h($qr['address']); ?><?php if ($qr['city']): ?>, <?php echo h($qr['city']); ?><?php endif; ?>
-                              </div>
-                            <?php endif; ?>
-                          </a>
                         </div>
                       <?php endforeach; ?>
                     </div>

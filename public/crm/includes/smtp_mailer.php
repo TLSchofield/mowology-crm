@@ -66,10 +66,14 @@ function sendSimpleHtmlEmail(
     string $from = 'Mowology'
 ): bool {
     try {
+        // Use system default From address - more reliable on shared hosting
+        // Let the mail server handle the From address (usually user@example.com)
+        // Only set custom From if absolutely necessary for branding
+        $fromEmail = 'noreply@mowology.ca';
+
         // RFC-compliant headers
-        $headers = "From: {$from} <office@mowology.ca>\r\n";
+        $headers = "From: {$from} <{$fromEmail}>\r\n";
         $headers .= "Reply-To: office@mowology.ca\r\n";
-        $headers .= "Return-Path: office@mowology.ca\r\n";
         $headers .= "MIME-Version: 1.0\r\n";
         $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
         $headers .= "Content-Transfer-Encoding: 8bit\r\n";
@@ -81,13 +85,16 @@ function sendSimpleHtmlEmail(
         // Clean body
         $htmlBody = trim($htmlBody);
 
+        error_log("sendSimpleHtmlEmail: Attempting to send to {$to}, from: {$fromEmail}, subject: {$subject}");
+
         // Send via native mail()
+        // On shared hosting, this just queues the email - actual delivery depends on mail server config
         $result = mail($to, $subject, $htmlBody, $headers);
 
         if (!$result) {
-            error_log("sendSimpleHtmlEmail: mail() returned false for {$to}, subject: {$subject}");
+            error_log("sendSimpleHtmlEmail: mail() returned FALSE for {$to} - mail server rejected it");
         } else {
-            error_log("Email sent successfully to {$to}, subject: {$subject}");
+            error_log("sendSimpleHtmlEmail: mail() returned TRUE for {$to} - email queued (may still fail delivery)");
         }
 
         return $result;

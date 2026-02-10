@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/../loginAuth/auth.php';
+require_once 'includes/error-handler.php';
+
 requireLogin();
 $user = getCurrentUser();
 
@@ -9,10 +11,33 @@ if ($user['role'] !== 'admin') {
     exit;
 }
 
+// Initialize error handler
+$errorHandler = new CRMErrorHandler('Settings', $_SERVER['REQUEST_METHOD']);
+$GLOBALS['crm_error_handler'] = $errorHandler;
+
 $pageTitle = 'Business Settings';
 $activePage = 'settings';
+$csrfToken = generateCSRFToken();
+$extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
+
+<!-- Session Alert Display -->
+<?php if (isset($_SESSION['alert'])):
+    $alert = $_SESSION['alert'];
+    $alertClass = [
+        'error' => 'alert-danger',
+        'warning' => 'alert-warning',
+        'success' => 'alert-success',
+        'info' => 'alert-info'
+    ][$alert['type']] ?? 'alert-info';
+?>
+    <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show" role="alert">
+        <strong><?php echo ucfirst($alert['type']); ?>:</strong> <?php echo h($alert['message']); ?>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    <?php unset($_SESSION['alert']); ?>
+<?php endif; ?>
 
 <div class="mw-page-header">
     <h1 class="h3">Business Settings</h1>
@@ -21,19 +46,22 @@ $activePage = 'settings';
 <!-- Settings Tabs -->
 <ul class="mw-settings-nav nav nav-tabs mb-3" role="tablist">
     <li class="nav-item">
-        <button class="nav-link active" id="company-tab" data-bs-toggle="tab" data-bs-target="#company" type="button" role="tab">Company Info</button>
+        <a class="nav-link active" id="company-tab" data-toggle="tab" href="#company" role="tab">Company Info</a>
     </li>
     <li class="nav-item">
-        <button class="nav-link" id="branding-tab" data-bs-toggle="tab" data-bs-target="#branding" type="button" role="tab">Branding</button>
+        <a class="nav-link" id="branding-tab" data-toggle="tab" href="#branding" role="tab">Branding</a>
     </li>
     <li class="nav-item">
-        <button class="nav-link" id="invoice-tab" data-bs-toggle="tab" data-bs-target="#invoice" type="button" role="tab">Invoices</button>
+        <a class="nav-link" id="invoice-tab" data-toggle="tab" href="#invoice" role="tab">Invoices</a>
     </li>
     <li class="nav-item">
-        <button class="nav-link" id="email-tab" data-bs-toggle="tab" data-bs-target="#email" type="button" role="tab">Email</button>
+        <a class="nav-link" id="email-tab" data-toggle="tab" href="#email" role="tab">Email</a>
     </li>
     <li class="nav-item">
-        <button class="nav-link" id="messages-tab" data-bs-toggle="tab" data-bs-target="#messages" type="button" role="tab">Messages</button>
+        <a class="nav-link" id="messages-tab" data-toggle="tab" href="#messages" role="tab">Messages</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a>
     </li>
 </ul>
 
@@ -221,6 +249,84 @@ $activePage = 'settings';
                 </div>
             </div>
         </div>
+
+        <!-- Database / Migrations Tab -->
+        <div class="tab-pane fade" id="database" role="tabpanel">
+            <div class="card">
+                <div class="card-header"><h5 class="card-title">Database Health</h5></div>
+                <div class="card-body">
+                    <div id="dbHealthLoading" class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <p class="mt-2 small text-muted">Checking database...</p>
+                    </div>
+                    <div id="dbHealthInfo" style="display: none;">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="text-muted small">Database</label>
+                                <p id="dbName" class="font-monospace">-</p>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="text-muted small">MySQL Version</label>
+                                <p id="dbVersion" class="font-monospace">-</p>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="text-muted small">Status</label>
+                            <div id="dbStatus" class="badge badge-secondary">Checking...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><h5 class="card-title">Pending Migrations (<span id="pendingCount">0</span>)</h5></div>
+                <div class="card-body">
+                    <div id="pendingMigrationsLoading" class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <p class="mt-2 small text-muted">Loading migrations...</p>
+                    </div>
+                    <div id="pendingMigrationsContainer" style="display: none;">
+                        <div id="pendingMigrationsList" class="row"></div>
+                        <div id="noPendingMessage" class="alert alert-info" style="display: none;">
+                            <strong>Great!</strong> All migrations have been applied. Your database is up to date.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><h5 class="card-title">Migration History</h5></div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label small">Filter by Status</label>
+                        <select id="historyStatusFilter" class="form-select form-select-sm" style="max-width: 200px;">
+                            <option value="all">All Migrations</option>
+                            <option value="success">Applied (Success)</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                    </div>
+                    <div id="migrationHistoryLoading" class="text-center py-3">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                        <p class="mt-2 small text-muted">Loading history...</p>
+                    </div>
+                    <div id="migrationHistoryContainer" style="display: none;">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Migration</th>
+                                        <th>Status</th>
+                                        <th>Executed By</th>
+                                        <th>Executed At</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="migrationHistoryList"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Save Button -->
@@ -231,4 +337,5 @@ $activePage = 'settings';
 </form>
 
 <script src="js/business-settings.js"></script>
+<script src="js/migrations-manager.js"></script>
 <?php include 'includes/appstack_footer.php'; ?>

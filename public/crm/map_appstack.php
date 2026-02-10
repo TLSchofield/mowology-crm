@@ -1,14 +1,23 @@
 <?php
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
+require_once 'includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
 
 $db = getDB();
 
+// Initialize error handler
+$errorHandler = new CRMErrorHandler('Territory Map', $_SERVER['REQUEST_METHOD']);
+$GLOBALS['crm_error_handler'] = $errorHandler;
+
 // Get properties with jobs/quotes for the map
-$properties = $db->query("
+$properties = [];
+$quoteRequests = [];
+
+try {
+    $properties = $db->query("
     SELECT DISTINCT
         p.id, p.address, p.city, p.province, p.latitude, p.longitude,
         COUNT(DISTINCT j.id) as active_jobs,
@@ -22,27 +31,49 @@ $properties = $db->query("
     LIMIT 50
 ")->fetchAll();
 
-// Get quote requests with property info (may not have coordinates)
-$quoteRequests = $db->query("
-    SELECT
-        qr.id, qr.urgency, qr.status, qr.created_at,
-        c.first_name, c.last_name,
-        p.id as property_id, p.address, p.city, p.latitude, p.longitude,
-        GROUP_CONCAT(DISTINCT qr.service_types) as services
-    FROM quote_requests qr
-    LEFT JOIN contacts c ON qr.contact_id = c.id
-    LEFT JOIN properties p ON qr.property_id = p.id
-    WHERE qr.status IN ('new', 'reviewing')
-    GROUP BY qr.id
-    ORDER BY
-        CASE qr.urgency WHEN 'asap' THEN 1 WHEN 'soon' THEN 2 ELSE 3 END,
-        qr.created_at DESC
-")->fetchAll();
+    // Get quote requests with property info (may not have coordinates)
+    $quoteRequests = $db->query("
+        SELECT
+            qr.id, qr.urgency, qr.status, qr.created_at,
+            c.first_name, c.last_name,
+            p.id as property_id, p.address, p.city, p.latitude, p.longitude,
+            GROUP_CONCAT(DISTINCT qr.service_types) as services
+        FROM quote_requests qr
+        LEFT JOIN contacts c ON qr.contact_id = c.id
+        LEFT JOIN properties p ON qr.property_id = p.id
+        WHERE qr.status IN ('new', 'reviewing')
+        GROUP BY qr.id
+        ORDER BY
+            CASE qr.urgency WHEN 'asap' THEN 1 WHEN 'soon' THEN 2 ELSE 3 END,
+            qr.created_at DESC
+    ")->fetchAll();
+} catch (PDOException $e) {
+    $errorHandler->logDatabaseError($e, '', [], 'Unable to load map data. Please refresh the page.');
+    $properties = [];
+    $quoteRequests = [];
+}
 
 $pageTitle = 'Territory Map';
 $activePage = 'map';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
+
+          <!-- Session Alert Display -->
+          <?php if (isset($_SESSION['alert'])):
+              $alert = $_SESSION['alert'];
+              $alertClass = [
+                  'error' => 'alert-danger',
+                  'warning' => 'alert-warning',
+                  'success' => 'alert-success',
+                  'info' => 'alert-info'
+              ][$alert['type']] ?? 'alert-info';
+          ?>
+              <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show" role="alert">
+                  <strong><?php echo ucfirst($alert['type']); ?>:</strong> <?php echo h($alert['message']); ?>
+                  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+              <?php unset($_SESSION['alert']); ?>
+          <?php endif; ?>
 
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h1 class="h3 mb-0">Territory Map</h1>

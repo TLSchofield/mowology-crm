@@ -3,7 +3,7 @@ require_once __DIR__ . '/auth.php';
 
 // If already logged in, redirect to dashboard
 if (isLoggedIn()) {
-    header('Location: dashboard.php');
+    header('Location: ' . DASHBOARD_URL);
     exit();
 }
 
@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Please enter both email and password.';
         } else {
             if (loginUser($email, $password)) {
-                header('Location: dashboard.php');
+                header('Location: ' . DASHBOARD_URL);
                 exit();
             } else {
                 $error = 'Invalid email or password.';

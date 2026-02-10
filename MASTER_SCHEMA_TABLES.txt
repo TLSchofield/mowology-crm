@@ -1,0 +1,275 @@
+================================================================================
+COMPLETE MAPPING: MASTER SCHEMA TABLES TO MIGRATIONS
+================================================================================
+
+Format: TABLE_NAME | MIGRATION_FILE | STATUS | NOTES
+
+FOUNDATION TABLES (Essential):
+activity_log | 001_restructure_core_tables.sql | ✓ | Core audit log
+companies | 001_restructure_core_tables.sql | ✓ | Core business entity
+company_properties | 001_restructure_core_tables.sql | ✓ | Core relationship
+consent_log | 001_restructure_core_tables.sql | ✓ | SMS/Email consent
+contacts | 001_restructure_core_tables.sql | ✓ | Core contact entity
+properties | 001_restructure_core_tables.sql | ✓ | Core property entity
+quote_requests | 001_restructure_core_tables.sql | ✓ | Core lead/request
+users | NOT_IN_MIGRATIONS | ✗ | MISSING - Authentication required
+sessions | NOT_IN_MIGRATIONS | ✗ | MISSING - Session management required
+
+JOB SYSTEM TABLES:
+invoice_line_items | 007_job_system.sql | ✓ |
+invoices | 007_job_system.sql | ✓ |
+job_notes | 007_job_system.sql | ✓ |
+job_photos | 007_job_system.sql | ✓ |
+jobs | 007_job_system.sql | ✓ | Core job tracking
+quote_line_items | 007_job_system.sql | ✓ |
+service_templates | 007_job_system.sql | ✓ |
+invoice_items | NOT_IN_MIGRATIONS | ✗ | MISSING
+quote_items | NOT_IN_MIGRATIONS | ✗ | MISSING
+quotes | NOT_IN_MIGRATIONS | ✗ | MISSING - Altered by 4 migrations but not created!
+job_proof_of_work | done-027_create_job_proof_of_work.sql | ✓ |
+
+PROPERTY MANAGEMENT TABLES:
+property_measurements | 002_property_measurements.sql | ✓ |
+property_contacts | done-015_property_management_relationships.sql | ✓ |
+invoice_contacts | done-015_property_management_relationships.sql | ✓ |
+
+BUSINESS MANAGEMENT TABLES:
+business_settings | 020_business_settings_table.sql | ✓ |
+service_packages | 025_create_service_packages.sql | ✓ |
+billing_templates | 026_create_billing_templates.sql | ✓ |
+lifecycle_stages | 021_add_lifecycle_stage_to_companies.sql | ✓ |
+migrations_log | 024_create_migrations_log.sql | ✓ |
+password_reset_tokens | create_password_reset_tokens_table.sql | ✓ |
+
+PORTFOLIO SYSTEM TABLES:
+portfolio_projects | 013_portfolio_projects_table.sql | ✓ |
+portfolio_curation | NOT_IN_MIGRATIONS | ✗ | MISSING - Portfolio curration/featuring
+
+LOCATION & GEOGRAPHY TABLES:
+crew_location_history | problem-022_location_aware_job_creation.sql | ✓ |
+geocoding_cache | problem-022_location_aware_job_creation.sql | ✓ |
+property_visit_patterns | problem-022_location_aware_job_creation.sql | ✓ |
+gsc_properties | NOT_IN_MIGRATIONS | ✗ | MISSING - Google Search Console
+gsc_snapshots | NOT_IN_MIGRATIONS | ✗ | MISSING - GSC data snapshots
+gsc_query_page_stats | NOT_IN_MIGRATIONS | ✗ | MISSING - GSC query stats
+gsc_sync_history_with_duration | NOT_IN_MIGRATIONS | ✗ | MISSING - GSC sync tracking
+gsc_sync_history | 110_gsc_sync_history.sql | ✓ |
+
+SEO & CONTENT TABLES:
+seo_targets | done-100_seo_recommendations.sql | ✓ |
+seo_seasons | done-100_seo_recommendations.sql | ✓ |
+seo_recommendations | done-100_seo_recommendations.sql | ✓ |
+seo_page_drafts | done-100_seo_recommendations.sql / problem-501_marketing_automation_tables.sql | ⚠️ | DUPLICATE - Created in 2 files
+seo_recommendations_audit | done-100_seo_recommendations.sql | ✓ |
+seo_improvement_guidelines | done-503_seo_template_library.sql | ✓ |
+seo_recommendation_responses | done-503_seo_template_library.sql | ✓ |
+seo_response_template_versions | done-503_seo_template_library.sql | ✓ |
+seo_response_templates | done-503_seo_template_library.sql | ✓ |
+seo_template_conditions | done-503_seo_template_library.sql | ✓ |
+content_recommendations | NOT_IN_MIGRATIONS | ✗ | MISSING - Content strategy
+
+CMS CORE TABLES:
+cms_pages | done-500_cms_core.sql | ✓ |
+cms_block_types | done-500_cms_core.sql | ✓ |
+cms_blocks | done-500_cms_core.sql | ✓ |
+cms_menus | done-500_cms_core.sql | ✓ |
+cms_menu_items | done-500_cms_core.sql | ✓ |
+media_assets | done-500_cms_core.sql | ✓ |
+cms_page_revisions | done-500_cms_core.sql | ✓ |
+
+CMS TEMPLATE LIBRARY TABLES:
+cms_page_templates | done-502_cms_template_library.sql | ✓ |
+cms_page_template_versions | done-502_cms_template_library.sql | ✓ |
+cms_block_templates | done-502_cms_template_library.sql | ✓ |
+cms_block_template_versions | done-502_cms_template_library.sql | ✓ |
+cms_pages_template_audit | done-502_cms_template_library.sql | ✓ |
+cms_template_groups | done-502_cms_template_library.sql | ✓ |
+cms_template_group_members | done-502_cms_template_library.sql | ✓ |
+cms_template_presets | done-502_cms_template_library.sql | ✓ |
+cms_template_performance | done-502_cms_template_library.sql | ✓ |
+
+CMS PHASE 3-5 TABLES:
+cms_page_generator_config | 113_cms_phase4_template_generation.sql | ✓ |
+cms_media_variants | 112_cms_phase3_media_optimization.sql | ✓ | In migrations but not SCHEMA_MASTER
+cms_media_alt_suggestions | 112_cms_phase3_media_optimization.sql | ✓ | In migrations but not SCHEMA_MASTER
+cms_page_generations_log | 113_cms_phase4_template_generation.sql | ✓ | In migrations but not SCHEMA_MASTER
+cms_case_studies_generated | 114_cms_phase5_portfolio_integration.sql | ✓ | In migrations but not SCHEMA_MASTER
+
+MARKETING & LEAD TRACKING TABLES:
+marketing_queue | problem-501_marketing_automation_tables.sql | ✓ |
+marketing_logs | problem-501_marketing_automation_tables.sql | ✓ |
+marketing_performance | problem-501_marketing_automation_tables.sql | ✓ |
+seo_recommendation_status_history | problem-501_marketing_automation_tables.sql | ✓ |
+lead_events | NOT_IN_MIGRATIONS | ✗ | MISSING - Lead event tracking
+conversion_events | NOT_IN_MIGRATIONS | ✗ | MISSING - Conversion tracking
+roi_attribution | NOT_IN_MIGRATIONS | ✗ | MISSING - ROI attribution
+
+PRODUCT & COST MANAGEMENT TABLES:
+products | NOT_IN_MIGRATIONS | ✗ | MISSING - Product catalog
+product_categories | NOT_IN_MIGRATIONS | ✗ | MISSING - Product categories
+product_cost_breakdown | NOT_IN_MIGRATIONS | ✗ | MISSING - Cost analysis
+cost_factors | NOT_IN_MIGRATIONS | ✗ | MISSING - Labor/material/equipment costs
+estimator_templates | NOT_IN_MIGRATIONS | ✗ | MISSING - Estimation templates
+unit_types | NOT_IN_MIGRATIONS | ✗ | MISSING - Measurement units
+
+MEDIA & FILES TABLES:
+media_files | NOT_IN_MIGRATIONS | ✗ | MISSING - File storage
+media_metadata | NOT_IN_MIGRATIONS | ✗ | MISSING - File metadata
+media_activity_log | NOT_IN_MIGRATIONS | ✗ | MISSING - Media audit log
+visit_photo_sets | NOT_IN_MIGRATIONS | ✗ | MISSING - Photo set grouping
+
+COMMUNICATION & FEEDBACK TABLES:
+communication_log | NOT_IN_MIGRATIONS | ✗ | MISSING - Email/SMS/phone/meeting log
+client_feedback | NOT_IN_MIGRATIONS | ✗ | MISSING - Job feedback/ratings
+service_orders | NOT_IN_MIGRATIONS | ✗ | MISSING - Service order tracking
+
+================================================================================
+SUMMARY BY STATUS
+================================================================================
+
+✓ CREATED BY MIGRATIONS (62 tables):
+activity_log, billing_templates, business_settings, client_notes, companies,
+company_properties, consent_log, contacts, cost_factors (missing), crew_location_history,
+cms_block_template_versions, cms_block_templates, cms_block_types, cms_blocks,
+cms_menu_items, cms_menus, cms_page_generator_config, cms_page_revisions,
+cms_page_template_versions, cms_page_templates, cms_pages, cms_pages_template_audit,
+cms_template_group_members, cms_template_groups, cms_template_performance,
+cms_template_presets, geocoding_cache, gsc_sync_history, invoice_contacts,
+invoice_line_items, invoices, job_notes, job_photos, job_proof_of_work, jobs,
+lifecycle_stages, marketing_logs, marketing_performance, marketing_queue, migrations_log,
+password_reset_tokens, portfolio_projects, property_contacts, property_measurements,
+property_visit_patterns, quote_line_items, quote_notes, quote_requests,
+seo_improvement_guidelines, seo_recommendation_responses, seo_recommendation_status_history,
+seo_recommendations, seo_recommendations_audit, seo_response_template_versions,
+seo_response_templates, seo_seasons, seo_targets, seo_template_conditions,
+service_packages, service_templates, properties
+
+✗ MISSING FROM MIGRATIONS (27 tables):
+client_feedback, communication_log, content_recommendations, conversion_events,
+cost_factors, estimator_templates, gsc_properties, gsc_query_page_stats,
+gsc_snapshots, gsc_sync_history_with_duration, invoice_items, lead_events,
+media_activity_log, media_files, media_metadata, portfolio_curation,
+product_categories, product_cost_breakdown, products, quote_items, quotes,
+roi_attribution, service_orders, sessions, unit_types, users, visit_photo_sets
+
+⚠️ DUPLICATE CREATES (1 table):
+seo_page_drafts - Created in BOTH done-100_seo_recommendations.sql AND problem-501_marketing_automation_tables.sql
+
+📝 IN MIGRATIONS BUT NOT SCHEMA_MASTER (4 tables):
+cms_media_variants, cms_media_alt_suggestions, cms_page_generations_log, cms_case_studies_generated
+
+================================================================================
+CRITICAL MISSING TABLES
+================================================================================
+
+These 3 tables MUST exist before migrations can succeed:
+
+1. users
+   Location: Core auth module
+   Dependencies: None
+   Needed by: FK references in activity_log, contacts, etc.
+   Action: CREATE migration 030_create_missing_core_tables.sql with users table FIRST
+
+2. sessions
+   Location: Session management
+   Dependencies: users
+   Needed by: Auth system
+   Action: Add to migration 030
+
+3. quotes
+   Location: Core quoting system
+   Dependencies: contacts, properties
+   Needed by: 4 different ALTER TABLE migrations (008, 010, 001_add_roi, 007)
+   Action: Add to migration 030 BEFORE running 008_quotes_table_alignment.sql
+
+================================================================================
+MIGRATION DEPENDENCY CHAIN
+================================================================================
+
+001_restructure_core_tables.sql (MUST RUN FIRST - creates 7 core tables)
+  ↓ Depends on: Nothing
+  ↑ Needed by: Most other migrations
+
+002_property_measurements.sql
+  ↓ Depends on: properties table from 001
+
+007_job_system.sql
+  ↓ Depends on: contacts, companies, properties from 001
+  ↑ Creates: jobs, invoices, quotes, invoice_line_items, quote_line_items
+
+008_quotes_table_alignment.sql
+  ↓ Depends on: quotes table (NOT CREATED - MISSING!)
+  ✗ WILL FAIL if quotes doesn't exist
+
+010_pdf_generation.sql
+  ↓ Depends on: quotes, invoices from 007
+
+011_quote_notes_table.sql
+  ↓ Depends on: quotes (NOT CREATED - MISSING!)
+
+012_client_notes_table.sql
+  ↓ Depends on: contacts from 001
+
+013_portfolio_projects_table.sql
+  ↓ Depends on: (None specified)
+
+020_business_settings_table.sql
+  ↓ Depends on: (None specified)
+
+021_add_lifecycle_stage_to_companies.sql
+  ↓ Depends on: companies from 001
+  ↓ Creates: lifecycle_stages
+
+024_create_migrations_log.sql
+  ↓ Depends on: (None specified)
+
+025_create_service_packages.sql
+  ↓ Depends on: (None specified)
+
+026_create_billing_templates.sql
+  ↓ Depends on: (None specified)
+
+110_gsc_sync_history.sql
+  ↓ Depends on: gsc_snapshots (NOT CREATED - MISSING!)
+
+... and so on
+
+================================================================================
+EXECUTION ORDER (CORRECTED)
+================================================================================
+
+Should be run in this order:
+
+1. 001_restructure_core_tables.sql           ← FOUNDATION
+2. 030_create_missing_core_tables.sql        ← NEW - Creates users, sessions, quotes, etc.
+3. 002_property_measurements.sql
+4. 007_job_system.sql
+5. 008_quotes_table_alignment.sql
+6. 010_pdf_generation.sql
+7. 011_quote_notes_table.sql
+8. 012_client_notes_table.sql
+9. 013_portfolio_projects_table.sql
+10. 014_add_tags_to_portfolio.sql
+11. 020_business_settings_table.sql
+12. 021_add_lifecycle_stage_to_companies.sql
+13. 023_consolidate_lifecycle_stages.sql
+14. 024_create_migrations_log.sql
+15. 025_create_service_packages.sql
+16. 026_create_billing_templates.sql
+17. 028_update_jobs_for_service_packages.sql
+18. 029_add_custom_recurrence_fields.sql
+19. 110_gsc_sync_history.sql
+20. 112_cms_phase3_media_optimization.sql
+21. 113_cms_phase4_template_generation.sql
+22. 114_cms_phase5_portfolio_integration.sql
+23. create_password_reset_tokens_table.sql
+24. done-015_property_management_relationships.sql
+25. done-027_create_job_proof_of_work.sql
+26. done-100_seo_recommendations.sql
+27. done-500_cms_core.sql
+28. done-502_cms_template_library.sql
+29. done-503_seo_template_library.sql
+30. problem-022_location_aware_job_creation.sql
+31. problem-501_marketing_automation_tables.sql (REMOVE seo_page_drafts CREATE TABLE)
+
+================================================================================

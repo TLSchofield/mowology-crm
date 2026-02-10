@@ -1,0 +1,181 @@
+<?php
+/**
+ * CMS Media Editor
+ *
+ * Edit individual media asset metadata
+ * Uses AppStack layout
+ *
+ * @package Mowology CRM
+ * @subpackage CMS
+ */
+
+declare(strict_types=1);
+
+require_once dirname(__DIR__) . '/includes/bootstrap.php';
+require_once dirname(__DIR__) . '/crm/includes/cms-functions.php';
+require_once dirname(__DIR__) . '/crm/includes/admin-ui-kit.php';
+
+requireLogin();
+$user = getCurrentUser();
+
+// Access control
+if (!in_array($user['role'], ['admin', 'staff'])) {
+    http_response_code(403);
+    die('Access denied');
+}
+
+$pageTitle = 'Edit Media';
+$activePage = 'cms';
+$mediaId = (int)($_GET['id'] ?? 0);
+
+// Load media
+$media = null;
+if ($mediaId) {
+    $media = cms_getMediaAssetById($mediaId);
+    if (!$media) {
+        http_response_code(404);
+        die('Media not found');
+    }
+}
+
+?>
+<?php include dirname(__DIR__) . '/crm/includes/appstack_head.php'; ?>
+
+<div class="container-fluid p-4">
+    <div class="row">
+        <div class="col-lg-8">
+            <?php echo admin_breadcrumbs([
+                ['label' => 'CMS', 'url' => '/crm/cms-pages_appstack.php'],
+                ['label' => 'Media Library', 'url' => '/crm/cms-media_appstack.php'],
+                ['label' => 'Edit Media'],
+            ]); ?>
+
+            <h1>Edit Media</h1>
+
+            <!-- Media Editor Form -->
+            <form method="POST" action="/crm/api/save-media.php" class="mt-4">
+                <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+                <input type="hidden" name="id" value="<?php echo $mediaId; ?>">
+
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Media Information</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- File Preview -->
+                        <?php if ($media && $media['media_type'] === 'image'): ?>
+                            <div class="mb-4">
+                                <img src="<?php echo h($media['file_path']); ?>" alt="<?php echo h($media['alt_text'] ?? ''); ?>"
+                                     class="img-thumbnail" style="max-width: 100%; max-height: 400px;">
+                            </div>
+                        <?php elseif ($media && $media['media_type'] === 'video'): ?>
+                            <div class="mb-4">
+                                <video width="100%" height="auto" controls style="max-height: 400px;">
+                                    <source src="<?php echo h($media['file_path']); ?>" type="video/mp4">
+                                    Your browser does not support the video tag.
+                                </video>
+                            </div>
+                        <?php endif; ?>
+
+                        <!-- Filename -->
+                        <div class="form-group">
+                            <label for="filename">Filename</label>
+                            <input type="text" class="form-control" id="filename" readonly
+                                   value="<?php echo h($media['filename'] ?? ''); ?>">
+                        </div>
+
+                        <!-- Alt Text -->
+                        <div class="form-group">
+                            <label for="alt_text">Alt Text (Accessibility & SEO)</label>
+                            <textarea class="form-control" id="alt_text" name="alt_text" rows="2"
+                                      placeholder="Describe the image for screen readers"><?php echo h($media['alt_text'] ?? ''); ?></textarea>
+                            <small class="form-text text-muted">This text is used by screen readers and displayed if the image doesn't load</small>
+                        </div>
+
+                        <!-- File Info -->
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="media_type">File Type</label>
+                                    <input type="text" class="form-control" id="media_type" readonly
+                                           value="<?php echo h(ucfirst($media['media_type'] ?? '')); ?>">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-group">
+                                    <label for="file_size">File Size</label>
+                                    <input type="text" class="form-control" id="file_size" readonly
+                                           value="<?php echo round(($media['file_size'] ?? 0) / 1024, 1); ?> KB">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Upload Date -->
+                        <div class="form-group">
+                            <label for="uploaded_at">Uploaded</label>
+                            <input type="text" class="form-control" id="uploaded_at" readonly
+                                   value="<?php echo date('M d, Y g:i A', strtotime($media['uploaded_at'] ?? 'now')); ?>">
+                        </div>
+
+                        <!-- Uploaded By -->
+                        <div class="form-group">
+                            <label for="uploaded_by">Uploaded By</label>
+                            <input type="text" class="form-control" id="uploaded_by" readonly
+                                   value="<?php echo h($media['uploaded_by_name'] ?? 'Unknown'); ?>">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Submit Buttons -->
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary btn-lg">Save Changes</button>
+                    <a href="/crm/cms-media_appstack.php" class="btn btn-secondary btn-lg">Back to Library</a>
+                </div>
+            </form>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Usage</h5>
+                </div>
+                <div class="card-body small">
+                    <p class="text-muted">This media is used in:</p>
+                    <div id="mediaUsage" style="max-height: 300px; overflow-y: auto;">
+                        <p class="text-muted text-center py-3">Loading usage data...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load media usage data via AJAX
+    const mediaId = <?php echo $mediaId; ?>;
+    if (mediaId) {
+        fetch('/crm/api/get-media-usage.php?id=' + mediaId)
+            .then(r => r.json())
+            .then(data => {
+                const container = document.getElementById('mediaUsage');
+                if (data.usage && data.usage.length > 0) {
+                    let html = '<ul class="list-unstyled">';
+                    data.usage.forEach(item => {
+                        html += '<li><a href="' + item.url + '" target="_blank">' + item.name + '</a></li>';
+                    });
+                    html += '</ul>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<p class="text-muted text-center py-3">Not used on any pages</p>';
+                }
+            })
+            .catch(err => {
+                document.getElementById('mediaUsage').innerHTML = '<p class="text-danger text-center py-3">Error loading usage data</p>';
+            });
+    }
+});
+</script>
+
+<?php include dirname(__DIR__) . '/crm/includes/appstack_footer.php'; ?>

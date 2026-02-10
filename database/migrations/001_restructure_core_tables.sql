@@ -9,8 +9,8 @@
 -- - quote_requests: JobFlow submissions, links to contacts & properties
 -- =====================================================
 
--- IMPORTANT: Run this command FIRST in phpMyAdmin before running this script:
--- SET FOREIGN_KEY_CHECKS = 0;
+-- Disable foreign key checks to allow dropping tables with references
+SET FOREIGN_KEY_CHECKS = 0;
 
 -- =====================================================
 -- 1. CONTACTS TABLE (Independent - People)

@@ -58,7 +58,7 @@ if (!function_exists('getDB')) {
  */
 if (!defined('LOGIN_URL'))     define('LOGIN_URL',     '/loginAuth/login.php');
 if (!defined('LOGOUT_URL'))    define('LOGOUT_URL',    '/loginAuth/logout.php');
-if (!defined('DASHBOARD_URL')) define('DASHBOARD_URL', '/crm/dashboard.php');
+if (!defined('DASHBOARD_URL')) define('DASHBOARD_URL', '/crm/dashboard_appstack.php');
 
 // Escape for HTML output
 if (!function_exists('h')) {

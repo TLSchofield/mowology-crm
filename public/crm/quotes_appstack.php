@@ -4,10 +4,15 @@
  */
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
+require_once 'includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
 $db = getDB();
+
+// Initialize error handler
+$errorHandler = new CRMErrorHandler('Quotes', $_SERVER['REQUEST_METHOD']);
+$GLOBALS['crm_error_handler'] = $errorHandler;
 
 // Initialize variables
 $quoteRequests = [];
@@ -41,9 +46,9 @@ try {
     $newCount = ($requestCounts['new'] ?? 0) + ($requestCounts['reviewing'] ?? 0);
 
 } catch (PDOException $e) {
+    $errorHandler->logDatabaseError($e, '', [], 'Unable to load quote requests. Please refresh the page.');
     $quoteRequests = [];
     $newCount = 0;
-    error_log("Quotes page - quote requests error: " . $e->getMessage());
 }
 
 // --- Formal Quotes ---
@@ -147,13 +152,13 @@ try {
     $totalQuotes = array_sum($statusCounts);
 
 } catch (PDOException $e) {
-    error_log("Quotes page - PDO error: " . $e->getMessage());
+    $errorHandler->logDatabaseError($e, '', [], 'Unable to load quotes. Please refresh the page.');
     $quotes = [];
     $quotesByStatus = ['draft' => [], 'sent' => [], 'accepted' => [], 'scheduled' => []];
     $statusCounts = ['draft' => 0, 'sent' => 0, 'accepted' => 0, 'scheduled' => 0];
     $totalQuotes = 0;
 } catch (Exception $e) {
-    error_log("Quotes page - General error: " . $e->getMessage());
+    $errorHandler->logError('Unable to load quotes', $e);
     $quotes = [];
     $quotesByStatus = ['draft' => [], 'sent' => [], 'accepted' => [], 'scheduled' => []];
     $statusCounts = ['draft' => 0, 'sent' => 0, 'accepted' => 0, 'scheduled' => 0];
@@ -164,6 +169,23 @@ $pageTitle = 'Quotes';
 $activePage = 'quotes';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
+
+          <!-- Session Alert Display -->
+          <?php if (isset($_SESSION['alert'])):
+              $alert = $_SESSION['alert'];
+              $alertClass = [
+                  'error' => 'alert-danger',
+                  'warning' => 'alert-warning',
+                  'success' => 'alert-success',
+                  'info' => 'alert-info'
+              ][$alert['type']] ?? 'alert-info';
+          ?>
+              <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show" role="alert">
+                  <strong><?php echo ucfirst($alert['type']); ?>:</strong> <?php echo h($alert['message']); ?>
+                  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+              <?php unset($_SESSION['alert']); ?>
+          <?php endif; ?>
 
           <div class="d-flex justify-content-between align-items-center mb-4">
               <div>
@@ -186,6 +208,7 @@ $activePage = 'quotes';
                   <a href="products/quote-requests.php" class="btn btn-sm btn-outline-secondary">View All Requests</a>
               </div>
               <div class="card-body">
+                  <p class="text-muted small mb-3">👉 Click a request to create a draft quote, or use the Kanban board to manage quotes in progress.</p>
                   <div class="row">
                       <?php foreach ($quoteRequests as $qr):
                           $qrName = trim(($qr['first_name'] ?? '') . ' ' . ($qr['last_name'] ?? ''));
@@ -237,10 +260,10 @@ $activePage = 'quotes';
           <div id="kanban-view">
               <!-- Kanban Board with 4 columns -->
               <div class="mw-kanban-board">
-                  <!-- Column 1: Quote Enquiry (Draft) -->
+                  <!-- Column 1: Draft Quotes -->
                   <div class="mw-kanban-column">
                       <div class="mw-kanban-column-header">
-                          <span>Quote Enquiry</span>
+                          <span>Draft (In Progress)</span>
                           <span class="mw-kanban-column-count"><?php echo $statusCounts['draft']; ?></span>
                       </div>
                       <div class="mw-kanban-cards">

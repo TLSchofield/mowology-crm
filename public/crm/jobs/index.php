@@ -4,9 +4,14 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
+
+// Initialize error handler
+$errorHandler = new CRMErrorHandler('Jobs', $_SERVER['REQUEST_METHOD']);
+$GLOBALS['crm_error_handler'] = $errorHandler;
 
 // Handle filters
 $statusFilter = $_GET['status'] ?? '';
@@ -16,6 +21,12 @@ $searchQuery = trim($_GET['search'] ?? '');
 
 // Build query
 $db = getDB();
+$jobs = [];
+$statusCounts = [];
+$totalCount = 0;
+$todayCount = 0;
+
+try {
 $params = [];
 $whereConditions = ['1=1'];
 
@@ -81,16 +92,38 @@ while ($row = $countStmt->fetch()) {
 }
 $totalCount = array_sum($statusCounts);
 
-// Get staff for filter
-$staff = getStaffMembers();
+    // Get staff for filter
+    $staff = getStaffMembers();
 
-// Count today's jobs
-$todayCount = $db->query("SELECT COUNT(*) FROM jobs WHERE scheduled_date = CURDATE()")->fetchColumn();
+    // Count today's jobs
+    $todayCount = $db->query("SELECT COUNT(*) FROM jobs WHERE scheduled_date = CURDATE()")->fetchColumn();
+
+} catch (PDOException $e) {
+    $errorHandler->logDatabaseError($e, '', [], 'Unable to load jobs. Please refresh the page.');
+    $staff = [];
+}
 
 $pageTitle = 'Jobs';
 $activePage = 'jobs';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+
+          <!-- Session Alert Display -->
+          <?php if (isset($_SESSION['alert'])):
+              $alert = $_SESSION['alert'];
+              $alertClass = [
+                  'error' => 'alert-danger',
+                  'warning' => 'alert-warning',
+                  'success' => 'alert-success',
+                  'info' => 'alert-info'
+              ][$alert['type']] ?? 'alert-info';
+          ?>
+              <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show" role="alert">
+                  <strong><?php echo ucfirst($alert['type']); ?>:</strong> <?php echo h($alert['message']); ?>
+                  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+              <?php unset($_SESSION['alert']); ?>
+          <?php endif; ?>
 
           <div class="d-flex justify-content-between align-items-center mb-4">
               <div>

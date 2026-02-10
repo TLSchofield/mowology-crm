@@ -198,6 +198,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // Load quote request with contact + property
+// Use conditional column selection to handle databases with/without measurement columns
 $stmt = $db->prepare("
     SELECT
         qr.*,
@@ -205,7 +206,8 @@ $stmt = $db->prepare("
         c.preferred_contact_method,
         p.id AS property_id, p.property_name, p.property_type, p.address, p.city,
         p.postal_code, p.latitude, p.longitude,
-        p.total_lawn_sqft, p.total_driveway_sqft
+        COALESCE(p.total_lawn_sqft, 0) AS total_lawn_sqft,
+        COALESCE(p.total_driveway_sqft, 0) AS total_driveway_sqft
     FROM quote_requests qr
     LEFT JOIN contacts c ON qr.contact_id = c.id
     LEFT JOIN properties p ON qr.property_id = p.id
@@ -213,6 +215,28 @@ $stmt = $db->prepare("
 ");
 $stmt->execute([$requestId]);
 $request = $stmt->fetch(PDO::FETCH_ASSOC);
+
+// If query fails due to missing columns, try without them
+if ($request === false && $db->errorInfo()[0] !== '00000') {
+    $stmt = $db->prepare("
+        SELECT
+            qr.*,
+            c.id AS contact_id, c.first_name, c.last_name, c.email, c.phone,
+            c.preferred_contact_method,
+            p.id AS property_id, p.property_name, p.property_type, p.address, p.city,
+            p.postal_code, p.latitude, p.longitude
+        FROM quote_requests qr
+        LEFT JOIN contacts c ON qr.contact_id = c.id
+        LEFT JOIN properties p ON qr.property_id = p.id
+        WHERE qr.id = ?
+    ");
+    $stmt->execute([$requestId]);
+    $request = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($request) {
+        $request['total_lawn_sqft'] = 0;
+        $request['total_driveway_sqft'] = 0;
+    }
+}
 
 if (!$request) {
     header('Location: dashboard_appstack.php');
@@ -944,9 +968,7 @@ Work to be completed weather permitting.</textarea>
         }
 
         // Re-init feather icons for dynamically added elements
-        if (typeof feather !== 'undefined') {
-            feather.replace();
-        }
+        hydrateFeatherIcons();
     }
 
     // ─── Drawing Tools ──────────────────────────────────────
