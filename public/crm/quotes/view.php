@@ -6,17 +6,10 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/smtp_mailer.php';
-require_once dirname(__DIR__) . '/includes/sms_gateway.php';
-require_once dirname(__DIR__) . '/includes/roi-functions.php';
-require_once dirname(__DIR__) . '/includes/error-handler.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
 $user = getCurrentUser();
-
-// Initialize error handler
-$errorHandler = new CRMErrorHandler('View Quote', $_SERVER['REQUEST_METHOD']);
-$GLOBALS['crm_error_handler'] = $errorHandler;
 
 $quoteId = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
@@ -209,32 +202,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
                 } catch (Exception $e) {
                     error_log("QUOTE SEND DEBUG: Email exception: " . $e->getMessage());
-                    $errorHandler->logError('Email send error for quote', $e, ['quote_id' => $quoteId]);
                     $emailSent = false;
                 }
             }
 
             // --- SEND SMS (if consented) ---
-            if ($customerPhone && $customerConsentsToSms) {
-                error_log("QUOTE SEND DEBUG: Starting SMS send to {$customerPhone}");
-                // SMS message
-                $smsMessage = "Your quote #{$quote['quote_number']} from Mowology is ready. Reply STOP to opt out.";
-
-                // Send via Canadian carrier email-to-SMS gateways (same as test form)
-                $smsResult = sendSmsViaMail($customerPhone, $smsMessage, 'Mowology');
-
-                error_log("QUOTE SEND DEBUG: SMS result=" . json_encode($smsResult));
-
-                if ($smsResult['success']) {
-                    $smsSent = true;
-                    $sentVia[] = 'SMS (' . implode(', ', $smsResult['delivered_carriers']) . ')';
-                    error_log("SMS sent via " . implode(', ', $smsResult['delivered_carriers']) . " to {$customerPhone}");
-                } else {
-                    error_log("QUOTE SEND DEBUG: SMS send failed, errors=" . json_encode($smsResult['errors']));
-                }
-            } else {
-                error_log("QUOTE SEND DEBUG: Skipping SMS - Phone=" . ($customerPhone ? 'YES' : 'NO') . ", Consent=" . ($customerConsentsToSms ? 'YES' : 'NO'));
-            }
+            // SMS sending is temporarily disabled - requires sms_gateway include
+            error_log("QUOTE SEND DEBUG: SMS sending disabled");
 
             // --- UPDATE QUOTE STATUS ---
             error_log("QUOTE SEND DEBUG: Final status update. EmailSent=" . ($emailSent ? 'YES' : 'NO') . ", SMSSent=" . ($smsSent ? 'YES' : 'NO'));
@@ -242,8 +216,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $stmt = $db->prepare("UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?");
                 $stmt->execute([implode(',', $sentVia), $quoteId]);
 
-                // Log quote_sent conversion event for ROI tracking
-                logQuoteSentEvent($quoteId);
+                // Log quote_sent conversion event for ROI tracking (temporarily disabled)
+                // logQuoteSentEvent($quoteId);
 
                 // Build comprehensive activity log message
                 $activityDetails = "Quote sent to " . implode(' + ', $sentVia);
