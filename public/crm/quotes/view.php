@@ -6,6 +6,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/smtp_mailer.php';
+require_once dirname(__DIR__) . '/includes/sms_gateway.php';
 require_once dirname(__DIR__) . '/includes/roi-functions.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
@@ -178,17 +179,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
             // --- SEND SMS (if consented) ---
             if ($customerPhone && $customerConsentsToSms) {
-                // SMS message with short quote link
-                $smsMessage = "Hi {$customerName}! Your quote #{$quote['quote_number']} from Mowology is ready. View it here: {$quoteUrl}";
+                error_log("QUOTE SEND DEBUG: Starting SMS send to {$customerPhone}");
+                // SMS message
+                $smsMessage = "Your quote #{$quote['quote_number']} from Mowology is ready. Reply STOP to opt out.";
 
-                // TODO: Integrate with SMS provider (Twilio, etc)
-                // For now, log the attempt
-                error_log("SMS Send - Quote #{$quoteId} to {$customerPhone}: {$smsMessage}");
+                // Send via Canadian carrier email-to-SMS gateways
+                $smsResult = sendSmsViaMail($customerPhone, $smsMessage, 'Mowology');
 
-                // Mark as sent for logging purposes
-                // In production, check return from SMS API
-                $smsSent = true;
-                $sentVia[] = 'SMS';
+                error_log("QUOTE SEND DEBUG: SMS result=" . json_encode($smsResult));
+
+                if ($smsResult['success']) {
+                    $smsSent = true;
+                    $sentVia[] = 'SMS (' . implode(', ', $smsResult['delivered_carriers']) . ')';
+                    error_log("SMS sent via " . implode(', ', $smsResult['delivered_carriers']) . " to {$customerPhone}");
+                } else {
+                    error_log("QUOTE SEND DEBUG: SMS send failed, errors=" . json_encode($smsResult['errors']));
+                }
+            } else {
+                error_log("QUOTE SEND DEBUG: Skipping SMS - Phone=" . ($customerPhone ? 'YES' : 'NO') . ", Consent=" . ($customerConsentsToSms ? 'YES' : 'NO'));
             }
 
             // --- UPDATE QUOTE STATUS ---
