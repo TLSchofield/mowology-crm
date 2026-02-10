@@ -193,25 +193,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                     ]
                 );
 
-                // 3.1. Create QUOTE_REQUEST with lead_event_id link
-                $stmt = $db->prepare("
-                    INSERT INTO quote_requests
-                        (contact_id, property_id, lead_event_id, service_types, urgency, project_description,
-                         status, source, ip_address, user_agent)
-                    VALUES
-                        (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)
-                ");
-                $stmt->execute([
-                    $contactId,
-                    $propertyId,
-                    $leadEventId > 0 ? $leadEventId : null,
-                    implode(',', (array)$data['service_types']),
-                    $data['urgency'],
-                    $data['description'],
-                    $quoteSource,
-                    $data['ip_address'],
-                    substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 500)
-                ]);
+                // 3.1. Create QUOTE_REQUEST
+                // Try with lead_event_id first (new schema), fallback to without it (old schema)
+                try {
+                    $stmt = $db->prepare("
+                        INSERT INTO quote_requests
+                            (contact_id, property_id, lead_event_id, service_types, urgency, project_description,
+                             status, source, ip_address, user_agent)
+                        VALUES
+                            (?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)
+                    ");
+                    $stmt->execute([
+                        $contactId,
+                        $propertyId,
+                        $leadEventId > 0 ? $leadEventId : null,
+                        implode(',', (array)$data['service_types']),
+                        $data['urgency'],
+                        $data['description'],
+                        $quoteSource,
+                        $data['ip_address'],
+                        substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 500)
+                    ]);
+                } catch (PDOException $e) {
+                    // If lead_event_id column doesn't exist, try without it (backward compatibility)
+                    if (strpos($e->getMessage(), 'lead_event_id') !== false) {
+                        error_log("lead_event_id column missing, using fallback INSERT");
+                        $stmt = $db->prepare("
+                            INSERT INTO quote_requests
+                                (contact_id, property_id, service_types, urgency, project_description,
+                                 status, source, ip_address, user_agent)
+                            VALUES
+                                (?, ?, ?, ?, ?, 'new', ?, ?, ?)
+                        ");
+                        $stmt->execute([
+                            $contactId,
+                            $propertyId,
+                            implode(',', (array)$data['service_types']),
+                            $data['urgency'],
+                            $data['description'],
+                            $quoteSource,
+                            $data['ip_address'],
+                            substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 500)
+                        ]);
+                    } else {
+                        throw $e;
+                    }
+                }
                 $quoteRequestId = (int)$db->lastInsertId();
 
                 // 3.2. Log conversion event for this quote request (non-blocking)
