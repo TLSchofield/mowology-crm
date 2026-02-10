@@ -7,7 +7,7 @@
  *   $activePage   — string matching a key below to highlight the active nav item
  *
  * Active page keys: 'dashboard', 'clients', 'map', 'quotes', 'products', 'jobs',
- *                   'invoices', 'schedule', 'portfolio', 'settings'
+ *                   'invoices', 'schedule', 'portfolio', 'cms', 'media', 'marketing', 'settings'
  */
 if (!isset($activePage)) $activePage = '';
 if (!isset($user))       $user = ['name' => 'Admin'];
@@ -22,6 +22,9 @@ $navItems = [
     ['key' => 'map',       'label' => 'Territory Map', 'icon' => 'map',         'href' => '/crm/map_appstack.php'],
     ['key' => 'products',  'label' => 'Products',      'icon' => 'package',     'href' => '/crm/products/index.php'],
     ['key' => 'portfolio', 'label' => 'Portfolio',     'icon' => 'image',       'href' => '/crm/portfolio/index.php'],
+    ['key' => 'cms',       'label' => 'CMS',          'icon' => 'edit-3',       'href' => '/crm/cms-pages_appstack.php'],
+    ['key' => 'media',     'label' => 'Media Library', 'icon' => 'image',       'href' => '/cms/cms-media_appstack.php'],
+    ['key' => 'marketing', 'label' => 'Marketing',     'icon' => 'zap',         'href' => '/crm/marketing/recommendations.php'],
 ];
 ?>
 <nav id="sidebar" class="sidebar">
