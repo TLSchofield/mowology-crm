@@ -1,0 +1,144 @@
+╔════════════════════════════════════════════════════════════╗
+║           MOWOLOGY CRM - QUICK START                        ║
+║        Local Development Setup (3 Steps)                    ║
+╚════════════════════════════════════════════════════════════╝
+
+STEP 1: CHECK DATABASE STATUS
+────────────────────────────────────────────────────────────
+
+  cd /path/to/mowology-crm
+  php check-database.php
+
+This shows:
+  ✓ Tables that exist
+  ✗ Tables that are missing
+  Current MySQL version and database name
+
+
+STEP 2: CREATE MISSING TABLES
+────────────────────────────────────────────────────────────
+
+If missing tables found, run:
+
+  php apply-migrations-cli.php
+
+This will:
+  • Connect to your local MySQL
+  • Create all required tables
+  • Show progress
+  • Verify everything worked
+
+
+STEP 3: TEST QUOTE FORM
+────────────────────────────────────────────────────────────
+
+Visit the form:
+  https://www.mowology.ca/jobFlow/getQuote.php
+
+Submit a test quote and verify:
+  • Form submits successfully
+  • Quote appears in CRM dashboard
+  • No error messages
+
+
+WHAT'S FIXED
+────────────────────────────────────────────────────────────
+
+✓ jobFlow quote submission now works
+✓ Database schema matches production
+✓ All consent tracking enabled
+✓ ROI tracking fully functional
+✓ Activity logging in place
+
+
+TROUBLESHOOTING
+────────────────────────────────────────────────────────────
+
+Problem: MySQL connection failed
+  → Make sure MySQL is running (MAMP, Docker, etc.)
+  → Check credentials in public/app_config/config.php
+
+Problem: Tables already exist errors
+  → This is normal - script skips existing tables
+
+Problem: Quote still fails after migration
+  1. Run: php check-database.php
+  2. Look for ✗ marked tables
+  3. Check browser console (F12) for errors
+  4. Review SYNC_DATABASE_INSTRUCTIONS.md
+
+
+FILES YOU NEED
+────────────────────────────────────────────────────────────
+
+check-database.php
+  → Run first to check schema status
+  → Safe to run anytime (read-only)
+
+apply-migrations-cli.php
+  → Creates all required tables
+  → Skip if all tables already exist
+
+SETUP_GUIDE.md
+  → Detailed setup documentation
+  → Database schema overview
+  → Troubleshooting guide
+
+SYNC_DATABASE_INSTRUCTIONS.md
+  → Alternative setup methods
+  → Manual SQL option
+  → phpMyAdmin option
+
+
+COMMAND REFERENCE
+────────────────────────────────────────────────────────────
+
+# Check status
+php check-database.php
+
+# Create tables
+php apply-migrations-cli.php
+
+# Manual MySQL (if you prefer)
+mysql -u username -p database_name < database/APPLY_ALL_MIGRATIONS.sql
+
+
+NEXT STEPS
+────────────────────────────────────────────────────────────
+
+After successful setup:
+
+1. Test the quote form
+2. Submit a test quote
+3. Verify it appears in CRM
+4. Check the database for the new quote_request record
+5. You're ready for development!
+
+
+MORE INFORMATION
+────────────────────────────────────────────────────────────
+
+See SETUP_GUIDE.md for:
+  • Complete database schema documentation
+  • Detailed troubleshooting
+  • Table descriptions and relationships
+
+See SYNC_DATABASE_INSTRUCTIONS.md for:
+  • Web-based setup (if MySQL is running)
+  • phpMyAdmin import method
+  • Command-line import method
+  • Advanced options
+
+
+DONE?
+────────────────────────────────────────────────────────────
+
+✓ Tables created
+✓ Quote form working
+✓ Database synced with production
+
+You're all set! Happy coding!
+
+════════════════════════════════════════════════════════════
+Last Updated: Feb 10, 2026
+Status: Production-ready
