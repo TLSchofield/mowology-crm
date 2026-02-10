@@ -87,6 +87,21 @@ if (!isset($service) || !is_array($service)) {
     exit();
 }
 
+/**
+ * Safely render text with allowed formatting tags
+ * Escapes everything, then restores specific safe HTML tags
+ */
+function allowFormatting($text) {
+    $text = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+    // Restore safe formatting tags
+    $text = str_replace(
+        ['&lt;em&gt;', '&lt;/em&gt;', '&lt;strong&gt;', '&lt;/strong&gt;', '&lt;br&gt;', '&lt;br /&gt;'],
+        ['<em>', '</em>', '<strong>', '</strong>', '<br>', '<br>'],
+        $text
+    );
+    return $text;
+}
+
 // ── Page meta ──
 $pageTitle       = $service['meta_title']       ?? ($service['title'] . ' | ' . SITE_NAME);
 $pageDescription = $service['meta_description'] ?? '';
@@ -127,7 +142,7 @@ $ctaBlock = $service['cta'] ?? [];
     <div class="container">
       <div class="slh-grid">
         <div class="slh-content">
-          <h1><?= h($hero['headline'] ?? $service['title']) ?></h1>
+          <h1><?= allowFormatting($hero['headline'] ?? $service['title']) ?></h1>
           <?php if (!empty($hero['subheadline'])): ?>
             <p class="slh-sub"><?= h($hero['subheadline']) ?></p>
           <?php endif; ?>
