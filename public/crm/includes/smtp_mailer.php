@@ -11,6 +11,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/email_logger.php';
+
 /**
  * Send email via native PHP mail() with optional PDF attachment
  *
@@ -84,16 +86,30 @@ function sendSimpleHtmlEmail(
         // Clean body
         $htmlBody = trim($htmlBody);
 
-        error_log("sendSimpleHtmlEmail: Attempting to send to {$to}, from: {$fromEmail}, subject: {$subject}");
+        error_log("=== EMAIL SEND ATTEMPT ===");
+        error_log("To: {$to}");
+        error_log("From: {$fromEmail}");
+        error_log("Subject: {$subject}");
+        error_log("Headers:\n{$headers}");
+        error_log("Body length: " . strlen($htmlBody) . " chars");
 
         // Send via native mail()
         // On shared hosting, this just queues the email - actual delivery depends on mail server config
-        $result = mail($to, $subject, $htmlBody, $headers);
+        $result = @mail($to, $subject, $htmlBody, $headers);
+
+        // Log to visible file for debugging (since server logs aren't accessible)
+        logEmailAttempt($to, $subject, $htmlBody, $headers, $result);
 
         if (!$result) {
-            error_log("sendSimpleHtmlEmail: mail() returned FALSE for {$to} - mail server rejected it");
+            error_log("❌ mail() FAILED - returned FALSE");
+            error_log("The mail server rejected this email. Possible causes:");
+            error_log("  - Invalid recipient address");
+            error_log("  - SPF/DKIM authentication failure");
+            error_log("  - Rate limiting");
+            error_log("  - Server configuration issue");
         } else {
-            error_log("sendSimpleHtmlEmail: mail() returned TRUE for {$to} - email queued (may still fail delivery)");
+            error_log("✅ mail() ACCEPTED - returned TRUE");
+            error_log("Email accepted by mail server queue. Delivery status unknown.");
         }
 
         return $result;
