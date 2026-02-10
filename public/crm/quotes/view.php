@@ -329,79 +329,154 @@ $activePage = 'quotes';
 
           <a href="index.php" class="mw-back-link">&larr; Back to Quotes</a>
 
-          <!-- DEBUG PANEL: Shows contact info being used for sending -->
-          <?php if (isset($_GET['debug'])): ?>
-          <div style="background:#fff3cd; border:2px solid #ffc107; padding:15px; margin:20px 0; border-radius:4px;">
-              <h5 style="margin-top:0; color:#856404;">🔍 DEBUG INFO</h5>
-              <table style="width:100%; font-size:12px; color:#856404;">
-                  <tr>
-                      <td><strong>Quote ID:</strong></td>
-                      <td><?php echo $quoteId; ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>Quote Number:</strong></td>
-                      <td><?php echo htmlspecialchars($quote['quote_number']); ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>Quote Status:</strong></td>
-                      <td><?php echo htmlspecialchars($quote['status']); ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>qr_email (from quote_request):</strong></td>
-                      <td><?php echo htmlspecialchars($quote['qr_email'] ?? 'EMPTY'); ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>contact_email (from contact):</strong></td>
-                      <td><?php echo htmlspecialchars($quote['contact_email'] ?? 'EMPTY'); ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>billing_email (from company):</strong></td>
-                      <td><?php echo htmlspecialchars($quote['billing_email'] ?? 'EMPTY'); ?></td>
-                  </tr>
-                  <tr style="background:#fff8e1;">
-                      <td><strong style="color:green;">FINAL EMAIL TO USE:</strong></td>
-                      <td><?php
-                          $debugEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['billing_email'] ?? null;
-                          echo $debugEmail ? htmlspecialchars($debugEmail) : '<span style="color:red;">NO EMAIL FOUND!</span>';
-                      ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>qr_phone (from quote_request):</strong></td>
-                      <td><?php echo htmlspecialchars($quote['qr_phone'] ?? 'EMPTY'); ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>contact_phone (from contact):</strong></td>
-                      <td><?php echo htmlspecialchars($quote['contact_phone'] ?? 'EMPTY'); ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>billing_phone (from company):</strong></td>
-                      <td><?php echo htmlspecialchars($quote['billing_phone'] ?? 'EMPTY'); ?></td>
-                  </tr>
-                  <tr style="background:#fff8e1;">
-                      <td><strong style="color:green;">FINAL PHONE TO USE:</strong></td>
-                      <td><?php
-                          $debugPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['billing_phone'] ?? null;
-                          echo $debugPhone ? htmlspecialchars($debugPhone) : '<span style="color:red;">NO PHONE FOUND!</span>';
-                      ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>qr_contact_id:</strong></td>
-                      <td><?php echo htmlspecialchars($quote['qr_contact_id'] ?? 'EMPTY'); ?></td>
-                  </tr>
-                  <tr>
-                      <td><strong>access_token:</strong></td>
-                      <td><?php echo !empty($quote['access_token']) ? '✓ SET' : '✗ NOT SET'; ?></td>
-                  </tr>
-              </table>
-              <p style="font-size:11px; margin-top:10px; color:#856404;">
-                  <strong>To see this panel:</strong> Add <code>?debug</code> to the URL<br>
-                  <strong>To hide:</strong> Remove <code>?debug</code> from the URL
-              </p>
+          <!-- PRODUCTION DEBUG PANELS: Auto-collapse unless there are issues -->
+          <?php
+              // Determine if we should show debug panels
+              $showDebug = isset($_GET['debug']) || isset($_GET['_debug']);
+
+              // Check for issues that warrant showing debug info
+              $debugEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['billing_email'] ?? null;
+              $debugPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['billing_phone'] ?? null;
+              $hasEmailIssue = empty($debugEmail);
+              $hasPhoneIssue = empty($debugPhone);
+              $hasContactId = !empty($quote['qr_contact_id']);
+              $hasAccessToken = !empty($quote['access_token']);
+
+              // Auto-expand debug if there are issues
+              $autoExpandDebug = $hasEmailIssue || ($hasPhoneIssue && $quote['status'] === 'draft');
+          ?>
+
+          <!-- Contact Info Debug Panel -->
+          <div class="card" style="border-color: <?php echo $hasEmailIssue ? '#dc3545' : '#28a745'; ?>;">
+              <div class="card-header" style="background-color: <?php echo $hasEmailIssue ? '#f8d7da' : '#d4edda'; ?>; cursor: pointer;" onclick="toggleDebugPanel(this, 'contact-debug')">
+                  <h5 style="margin: 0; color: <?php echo $hasEmailIssue ? '#721c24' : '#155724'; ?>;">
+                      <span class="debug-toggle-icon" style="display: inline-block; width: 20px;">▼</span>
+                      📧 Contact Information
+                      <?php if ($hasEmailIssue): ?>
+                          <span class="badge badge-danger ml-2">No Email!</span>
+                      <?php elseif (!$hasPhoneIssue): ?>
+                          <span class="badge badge-success ml-2">✓ Complete</span>
+                      <?php else: ?>
+                          <span class="badge badge-warning ml-2">Missing Phone</span>
+                      <?php endif; ?>
+                  </h5>
+              </div>
+              <div id="contact-debug" class="card-body" style="display: <?php echo ($autoExpandDebug || $showDebug) ? 'block' : 'none'; ?>; font-size: 13px;">
+                  <table style="width: 100%;">
+                      <tr>
+                          <td><strong>Source → Email:</strong></td>
+                          <td>
+                              qr_email: <?php echo htmlspecialchars($quote['qr_email'] ?? '-'); ?><br>
+                              contact_email: <?php echo htmlspecialchars($quote['contact_email'] ?? '-'); ?><br>
+                              billing_email: <?php echo htmlspecialchars($quote['billing_email'] ?? '-'); ?>
+                          </td>
+                      </tr>
+                      <tr style="background: #f9f9f9;">
+                          <td><strong>→ FINAL EMAIL:</strong></td>
+                          <td style="color: <?php echo $debugEmail ? '#28a745' : '#dc3545'; ?>; font-weight: bold;">
+                              <?php echo $debugEmail ? htmlspecialchars($debugEmail) : '❌ NO EMAIL (SEND WILL FAIL)'; ?>
+                          </td>
+                      </tr>
+                      <tr>
+                          <td><strong>Source → Phone:</strong></td>
+                          <td>
+                              qr_phone: <?php echo htmlspecialchars($quote['qr_phone'] ?? '-'); ?><br>
+                              contact_phone: <?php echo htmlspecialchars($quote['contact_phone'] ?? '-'); ?><br>
+                              billing_phone: <?php echo htmlspecialchars($quote['billing_phone'] ?? '-'); ?>
+                          </td>
+                      </tr>
+                      <tr style="background: #f9f9f9;">
+                          <td><strong>→ FINAL PHONE:</strong></td>
+                          <td style="color: <?php echo $debugPhone ? '#28a745' : '#ffc107'; ?>; font-weight: bold;">
+                              <?php echo $debugPhone ? htmlspecialchars($debugPhone) : '⚠️ NO PHONE (SMS WILL NOT SEND)'; ?>
+                          </td>
+                      </tr>
+                  </table>
+              </div>
           </div>
-          <?php endif; ?>
+
+          <!-- SMS Consent Debug Panel -->
+          <div class="card mt-3" style="border-color: #17a2b8;">
+              <div class="card-header" style="background-color: #d1ecf1; cursor: pointer;" onclick="toggleDebugPanel(this, 'sms-debug')">
+                  <h5 style="margin: 0; color: #0c5460;">
+                      <span class="debug-toggle-icon" style="display: inline-block; width: 20px;">▶</span>
+                      📱 SMS Consent
+                  </h5>
+              </div>
+              <div id="sms-debug" class="card-body" style="display: none; font-size: 13px;">
+                  <table style="width: 100%;">
+                      <tr>
+                          <td><strong>Contact ID:</strong></td>
+                          <td><?php echo $hasContactId ? htmlspecialchars($quote['qr_contact_id']) : '❌ NOT SET'; ?></td>
+                      </tr>
+                      <tr style="background: #f9f9f9;">
+                          <td><strong>SMS Consent:</strong></td>
+                          <td>
+                              <?php if ($hasContactId):
+                                  $smsStmt = $db->prepare("SELECT receive_sms FROM contacts WHERE id = ?");
+                                  $smsStmt->execute([$quote['qr_contact_id']]);
+                                  $smsPrefs = $smsStmt->fetch(PDO::FETCH_ASSOC);
+                                  $hasSmsConsent = !empty($smsPrefs['receive_sms']);
+                                  echo $hasSmsConsent ? '✅ OPTED IN' : '❌ NOT CONSENTED';
+                              else:
+                                  echo '⚠️ Cannot check - no contact_id';
+                              endif;
+                              ?>
+                          </td>
+                      </tr>
+                  </table>
+              </div>
+          </div>
+
+          <!-- Token Debug Panel -->
+          <div class="card mt-3" style="border-color: #6c757d;">
+              <div class="card-header" style="background-color: #e2e3e5; cursor: pointer;" onclick="toggleDebugPanel(this, 'token-debug')">
+                  <h5 style="margin: 0; color: #383d41;">
+                      <span class="debug-toggle-icon" style="display: inline-block; width: 20px;">▶</span>
+                      🔐 Access Tokens
+                  </h5>
+              </div>
+              <div id="token-debug" class="card-body" style="display: none; font-size: 13px;">
+                  <table style="width: 100%;">
+                      <tr>
+                          <td><strong>Access Token:</strong></td>
+                          <td><?php echo !empty($quote['access_token']) ? '✅ SET (' . substr($quote['access_token'], 0, 8) . '...)' : '❌ NOT SET'; ?></td>
+                      </tr>
+                      <tr style="background: #f9f9f9;">
+                          <td><strong>Token Expires:</strong></td>
+                          <td><?php echo !empty($quote['token_expires_at']) ? htmlspecialchars($quote['token_expires_at']) : '❌ NOT SET'; ?></td>
+                      </tr>
+                      <tr>
+                          <td><strong>Customer Link:</strong></td>
+                          <td>
+                              <?php if (!empty($quote['access_token'])): ?>
+                                  <code style="background:#f5f5f5; padding:2px 5px; word-break: break-all;">https://<?php echo $_SERVER['HTTP_HOST']; ?>/customer/quote.php?token=<?php echo $quote['access_token']; ?></code>
+                              <?php else: ?>
+                                  Will be generated on first send
+                              <?php endif; ?>
+                          </td>
+                      </tr>
+                  </table>
+              </div>
+          </div>
+
+          <script>
+              function toggleDebugPanel(header, panelId) {
+                  const panel = document.getElementById(panelId);
+                  const icon = header.querySelector('.debug-toggle-icon');
+
+                  if (panel.style.display === 'none') {
+                      panel.style.display = 'block';
+                      icon.textContent = '▼';
+                  } else {
+                      panel.style.display = 'none';
+                      icon.textContent = '▶';
+                  }
+              }
+          </script>
 
           <?php if ($message): ?>
-              <div class="mw-message <?php echo $messageType; ?>"><?php echo htmlspecialchars($message); ?></div>
+              <div class="mw-message <?php echo $messageType; ?>" style="margin-top: 20px;"><?php echo htmlspecialchars($message); ?></div>
           <?php endif; ?>
 
           <div class="mw-page-header">
