@@ -66,10 +66,9 @@ function sendSimpleHtmlEmail(
     string $from = 'Mowology'
 ): bool {
     try {
-        // Use system default From address - more reliable on shared hosting
-        // Let the mail server handle the From address (usually user@example.com)
-        // Only set custom From if absolutely necessary for branding
-        $fromEmail = 'noreply@mowology.ca';
+        // Use the verified working From address for this hosting account
+        // Tested and confirmed working: no-reply@mowology.ca
+        $fromEmail = 'no-reply@mowology.ca';
 
         // RFC-compliant headers
         $headers = "From: {$from} <{$fromEmail}>\r\n";

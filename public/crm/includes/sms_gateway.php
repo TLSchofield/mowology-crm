@@ -98,7 +98,8 @@ function sendSmsViaMail(
 
         try {
             // Send via native mail() to carrier SMS gateway
-            $fromEmail = 'noreply@mowology.ca';
+            // Use the verified working From address: no-reply@mowology.ca
+            $fromEmail = 'no-reply@mowology.ca';
             $headers = "From: {$senderName} <{$fromEmail}>\r\n";
             $headers .= "X-Mailer: Mowology SMS Gateway\r\n";
 
