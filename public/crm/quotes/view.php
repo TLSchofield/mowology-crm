@@ -93,9 +93,17 @@ $quoteNotes = getQuoteNotes($quoteId);
 $message = '';
 $messageType = '';
 
-error_log("=== QUOTE SEND HANDLER DEBUG ===");
+// CRITICAL DEBUG: Log every request to see if POST is even hitting the server
+error_log("=== QUOTE VIEW PAGE LOADED ===");
 error_log("REQUEST_METHOD: " . $_SERVER['REQUEST_METHOD']);
-error_log("POST data: " . json_encode($_POST, JSON_UNESCAPED_SLASHES));
+error_log("REQUEST_URI: " . $_SERVER['REQUEST_URI']);
+error_log("POST data received: " . json_encode($_POST, JSON_UNESCAPED_SLASHES));
+error_log("Number of POST items: " . count($_POST));
+
+// If this is a POST, log it prominently
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    error_log("⚠️ POST REQUEST RECEIVED - NOT JUST PAGE LOAD");
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     error_log("POST request detected");
@@ -332,6 +340,23 @@ $activePage = 'quotes';
           <!-- PRODUCTION DEBUG PANELS: Auto-collapse unless there are issues -->
           <?php
               // Determine if we should show debug panels
+              $showDebug = isset($_GET['debug']) || isset($_GET['_debug']);
+
+              // Show if this was a POST request
+              $wasPostRequest = $_SERVER['REQUEST_METHOD'] === 'POST';
+          ?>
+
+          <!-- POST Request Status (shown if POST was received) -->
+          <?php if ($wasPostRequest): ?>
+          <div class="alert alert-info">
+              <strong>ℹ️ Form Submission Received:</strong> Your "Send to Customer" request was received by the server.
+              Check the Contact Information panel above for any data issues, or check server logs for detailed send attempt logs.
+          </div>
+          <?php endif; ?>
+
+          <!-- PRODUCTION DEBUG PANELS: Auto-collapse unless there are issues -->
+          <?php
+              // Determine if we should show debug panels (resumed below)
               $showDebug = isset($_GET['debug']) || isset($_GET['_debug']);
 
               // Check for issues that warrant showing debug info
