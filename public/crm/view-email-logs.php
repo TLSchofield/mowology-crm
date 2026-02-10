@@ -6,7 +6,8 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
 
-$logDir = dirname(__DIR__) . '/email-logs';
+// Path is: /public/crm/email-logs/
+$logDir = __DIR__ . '/email-logs';
 $logFile = $logDir . '/email-' . date('Y-m-d') . '.log';
 $logContent = '';
 $logExists = false;
