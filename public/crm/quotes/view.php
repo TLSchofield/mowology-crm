@@ -66,16 +66,24 @@ $stmt->execute([$quoteId]);
 $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Get activity for this quote
-$stmt = $db->prepare("
-    SELECT a.*, u.full_name
-    FROM activity_log a
-    LEFT JOIN users u ON a.user_id = u.id
-    WHERE a.quote_id = ?
-    ORDER BY a.created_at DESC
-    LIMIT 10
-");
-$stmt->execute([$quoteId]);
-$activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Note: activity_log.quote_id column may not exist in older databases
+$activities = [];
+try {
+    $stmt = $db->prepare("
+        SELECT a.*, u.full_name
+        FROM activity_log a
+        LEFT JOIN users u ON a.user_id = u.id
+        WHERE a.quote_id = ?
+        ORDER BY a.created_at DESC
+        LIMIT 10
+    ");
+    $stmt->execute([$quoteId]);
+    $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    // activity_log table doesn't have quote_id column in this database version
+    error_log("Activity log query failed - quote_id column may not exist: " . $e->getMessage());
+    $activities = [];
+}
 
 // Get notes for this quote
 $quoteNotes = getQuoteNotes($quoteId);
