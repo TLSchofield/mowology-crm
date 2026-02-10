@@ -115,43 +115,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
                 if ($existingContact) {
                     $contactId = (int)$existingContact['id'];
-                    $stmt = $db->prepare("
-                        UPDATE contacts SET
-                            consent_quote_followup = ?,
-                            consent_marketing_email = ?,
-                            consent_sms = ?,
-                            consent_timestamp = NOW(),
-                            consent_ip_address = ?,
-                            consent_source = 'website_form',
-                            updated_at = NOW()
-                        WHERE id = ?
-                    ");
-                    $stmt->execute([
-                        $data['consent_quote'] ? 1 : 0,
-                        $data['consent_marketing'] ? 1 : 0,
-                        $data['consent_sms'] ? 1 : 0,
-                        $data['ip_address'],
-                        $contactId
-                    ]);
                 } else {
                     $stmt = $db->prepare("
                         INSERT INTO contacts
-                            (first_name, last_name, email, phone, preferred_contact_method,
-                             consent_quote_followup, consent_marketing_email, consent_sms,
-                             consent_timestamp, consent_ip_address, consent_source, is_active)
+                            (first_name, last_name, email, phone, is_active)
                         VALUES
-                            (?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 'website_form', 1)
+                            (?, ?, ?, ?, 1)
                     ");
                     $stmt->execute([
                         $firstName,
                         $lastName,
                         $data['email'],
-                        $data['phone'],
-                        $data['preferred_contact'],
-                        $data['consent_quote'] ? 1 : 0,
-                        $data['consent_marketing'] ? 1 : 0,
-                        $data['consent_sms'] ? 1 : 0,
-                        $data['ip_address']
+                        $data['phone']
                     ]);
                     $contactId = (int)$db->lastInsertId();
                 }
@@ -219,7 +194,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                 );
 
                 // 3.1. Create QUOTE_REQUEST with lead_event_id link
-                // Build source: e.g. "strata-landing", "hedge-landing", "website"
                 $stmt = $db->prepare("
                     INSERT INTO quote_requests
                         (contact_id, property_id, lead_event_id, service_types, urgency, project_description,
@@ -240,14 +214,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                 ]);
                 $quoteRequestId = (int)$db->lastInsertId();
 
-                // 3.2. Log conversion event for this quote request
+                // 3.2. Log conversion event for this quote request (non-blocking)
                 if ($leadEventId > 0) {
-                    logConversionEvent($leadEventId, 'quote_request', $quoteRequestId);
+                    try {
+                        logConversionEvent($leadEventId, 'quote_request', $quoteRequestId);
+                    } catch (Throwable $trackingError) {
+                        error_log("logConversionEvent failed (non-blocking): " . $trackingError->getMessage());
+                    }
                 }
 
-                // 3.3. Update contact lifecycle to prospect after quote request
+                // 3.3. Update contact lifecycle to prospect after quote request (non-blocking)
                 if ($leadEventId > 0 && $contactId > 0) {
-                    updateContactLifecycleOnQuoteRequest($contactId);
+                    try {
+                        updateContactLifecycleOnQuoteRequest($contactId);
+                    } catch (Throwable $lifecycleError) {
+                        error_log("updateContactLifecycleOnQuoteRequest failed (non-blocking): " . $lifecycleError->getMessage());
+                    }
                 }
 
                 // 4. Log consent
@@ -292,21 +274,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
 
                 $db->commit();
 
-                error_log("Quote submission successful - ID: " . $quoteRequestId . " | Email: " . $data['email'] . " | Name: " . $data['name']);
-
-                // Send notifications
-                $notificationData = [
-                    'name' => $data['name'],
-                    'email' => $data['email'],
-                    'phone' => $data['phone'],
-                    'address' => $data['address'],
-                    'city' => $data['city'],
-                    'property_type' => $data['property_type'],
-                    'service_types' => is_array($data['service_types']) ? implode(',', $data['service_types']) : $data['service_types'],
-                    'urgency' => $data['urgency'],
-                    'description' => $data['description']
-                ];
-                sendQuoteRequestNotifications($notificationData);
+                // Send notifications (non-blocking)
+                try {
+                    $notificationData = [
+                        'name' => $data['name'],
+                        'email' => $data['email'],
+                        'phone' => $data['phone'],
+                        'address' => $data['address'],
+                        'city' => $data['city'],
+                        'property_type' => $data['property_type'],
+                        'service_types' => is_array($data['service_types']) ? implode(',', $data['service_types']) : $data['service_types'],
+                        'urgency' => $data['urgency'],
+                        'description' => $data['description']
+                    ];
+                    sendQuoteRequestNotifications($notificationData);
+                } catch (Throwable $notificationError) {
+                    error_log("sendQuoteRequestNotifications failed (non-blocking): " . $notificationError->getMessage());
+                }
 
                 unset($_SESSION['quote_data']);
                 unset($_SESSION['jf_track']);
