@@ -6,11 +6,17 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/smtp_mailer.php';
+require_once dirname(__DIR__) . '/includes/sms_gateway.php';
 require_once dirname(__DIR__) . '/includes/roi-functions.php';
+require_once dirname(__DIR__) . '/includes/error-handler.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
 $user = getCurrentUser();
+
+// Initialize error handler
+$errorHandler = new CRMErrorHandler('View Quote', $_SERVER['REQUEST_METHOD']);
+$GLOBALS['crm_error_handler'] = $errorHandler;
 
 $quoteId = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
@@ -93,21 +99,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['billing_phone'] ?? null;
         $customerConsentsToSms = false;
 
+        error_log("QUOTE SEND DEBUG: Email={$customerEmail}, Phone={$customerPhone}, QR Contact ID={$quote['qr_contact_id']}");
+
         // Check if customer has opted in to SMS
+        // Check both contacts table AND consent_log (form submission consent takes priority)
         if (!empty($quote['qr_contact_id'])) {
-            $smsStmt = $db->prepare("SELECT receive_sms FROM contacts WHERE id = ?");
-            $smsStmt->execute([$quote['qr_contact_id']]);
-            $contactPrefs = $smsStmt->fetch(PDO::FETCH_ASSOC);
-            $customerConsentsToSms = !empty($contactPrefs['receive_sms']);
+            try {
+                // First, check consent_log for the most recent SMS consent from the quote request form
+                $consentStmt = $db->prepare("
+                    SELECT consent_given
+                    FROM consent_log
+                    WHERE contact_id = ?
+                    AND consent_type = 'sms'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ");
+                $consentStmt->execute([$quote['qr_contact_id']]);
+                $consentRecord = $consentStmt->fetch(PDO::FETCH_ASSOC);
+
+                error_log("QUOTE SEND DEBUG: Consent check result=" . json_encode($consentRecord));
+
+                if ($consentRecord !== false && $consentRecord['consent_given']) {
+                    // Use the consent_log record (true source of SMS authorization)
+                    $customerConsentsToSms = true;
+                    error_log("QUOTE SEND DEBUG: SMS consent ALLOWED via consent_log");
+                } else {
+                    // Fallback to contacts table preferences if no consent_log record
+                    $smsStmt = $db->prepare("SELECT receive_sms, consent_sms FROM contacts WHERE id = ?");
+                    $smsStmt->execute([$quote['qr_contact_id']]);
+                    $contactPrefs = $smsStmt->fetch(PDO::FETCH_ASSOC);
+                    $customerConsentsToSms = !empty($contactPrefs['receive_sms']) || !empty($contactPrefs['consent_sms']);
+                    error_log("QUOTE SEND DEBUG: Fallback to contacts table, SMS consent=" . ($customerConsentsToSms ? 'YES' : 'NO'));
+                }
+            } catch (Exception $e) {
+                error_log("SMS Consent check error: " . $e->getMessage());
+                $customerConsentsToSms = false;
+            }
         }
 
         if (!$customerEmail && !$customerPhone) {
             $message = 'Error: No contact information found (no email or phone). Please add contact details first.';
             $messageType = 'error';
+            error_log("QUOTE SEND DEBUG: No email or phone found, aborting send");
         } else {
             $emailSent = false;
             $smsSent = false;
             $sentVia = [];
+
+            error_log("QUOTE SEND DEBUG: Proceeding with send. Email=" . ($customerEmail ? 'YES' : 'NO') . ", Phone=" . ($customerPhone ? 'YES' : 'NO') . ", SMSConsent=" . ($customerConsentsToSms ? 'YES' : 'NO'));
 
             // Generate access token if not exists
             if (empty($quote['access_token'])) {
@@ -119,10 +158,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
             // Build email and SMS content
             $customerName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? '')) ?: ($quote['company_name'] ?? 'Valued Customer');
-            $quoteUrl = "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token'];
+            $quoteUrl = "https://mowology.ca/customer/quote.php?token=" . $quote['access_token'];
+            $quoteUrlEscaped = htmlspecialchars($quoteUrl, ENT_QUOTES, 'UTF-8');
+
+            error_log("QUOTE SEND DEBUG: Customer name={$customerName}, Quote URL generated");
 
             // --- SEND EMAIL ---
             if ($customerEmail) {
+                error_log("QUOTE SEND DEBUG: Starting email send to {$customerEmail}");
                 $emailSubject = "Quote {$quote['quote_number']} from Mowology";
                 $emailBody = "
                     <h2>Your Quote is Ready</h2>
@@ -131,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     <p><strong>Quote Number:</strong> {$quote['quote_number']}<br>
                     <strong>Amount:</strong> " . formatCurrency($quote['amount']) . "<br>
                     <strong>Valid Until:</strong> " . formatDate($quote['valid_until']) . "</p>
-                    <p><a href='{$quoteUrl}' style='display: inline-block; padding: 14px 28px; background: #2D8659; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;'>View & Accept Quote</a></p>
+                    <p><a href='{$quoteUrlEscaped}' style='display: inline-block; padding: 14px 28px; background: #2D8659; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;'>View & Accept Quote</a></p>
                     <p>If you have any questions, please don't hesitate to contact us at (778) 846-9273.</p>
                     <p>Thank you,<br>The Mowology Team</p>
                 ";
@@ -157,33 +200,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     }
 
                     // Send email via native mail
+                    error_log("QUOTE SEND DEBUG: Calling sendCrmEmail to {$customerEmail}");
                     $emailSent = sendCrmEmail($customerEmail, $emailSubject, $emailBody, $attachPath);
+                    error_log("QUOTE SEND DEBUG: sendCrmEmail returned=" . ($emailSent ? 'true' : 'false'));
                     if ($emailSent) {
                         $sentVia[] = 'email';
                     }
 
                 } catch (Exception $e) {
-                    error_log("Email send error for quote {$quoteId}: " . $e->getMessage());
+                    error_log("QUOTE SEND DEBUG: Email exception: " . $e->getMessage());
+                    $errorHandler->logError('Email send error for quote', $e, ['quote_id' => $quoteId]);
                     $emailSent = false;
                 }
             }
 
             // --- SEND SMS (if consented) ---
             if ($customerPhone && $customerConsentsToSms) {
-                // SMS message with short quote link
-                $smsMessage = "Hi {$customerName}! Your quote #{$quote['quote_number']} from Mowology is ready. View it here: {$quoteUrl}";
+                error_log("QUOTE SEND DEBUG: Starting SMS send to {$customerPhone}");
+                // SMS message
+                $smsMessage = "Your quote #{$quote['quote_number']} from Mowology is ready. Reply STOP to opt out.";
 
-                // TODO: Integrate with SMS provider (Twilio, etc)
-                // For now, log the attempt
-                error_log("SMS Send - Quote #{$quoteId} to {$customerPhone}: {$smsMessage}");
+                // Send via Canadian carrier email-to-SMS gateways (same as test form)
+                $smsResult = sendSmsViaMail($customerPhone, $smsMessage, 'Mowology');
 
-                // Mark as sent for logging purposes
-                // In production, check return from SMS API
-                $smsSent = true;
-                $sentVia[] = 'SMS';
+                error_log("QUOTE SEND DEBUG: SMS result=" . json_encode($smsResult));
+
+                if ($smsResult['success']) {
+                    $smsSent = true;
+                    $sentVia[] = 'SMS (' . implode(', ', $smsResult['delivered_carriers']) . ')';
+                    error_log("SMS sent via " . implode(', ', $smsResult['delivered_carriers']) . " to {$customerPhone}");
+                } else {
+                    error_log("QUOTE SEND DEBUG: SMS send failed, errors=" . json_encode($smsResult['errors']));
+                }
+            } else {
+                error_log("QUOTE SEND DEBUG: Skipping SMS - Phone=" . ($customerPhone ? 'YES' : 'NO') . ", Consent=" . ($customerConsentsToSms ? 'YES' : 'NO'));
             }
 
             // --- UPDATE QUOTE STATUS ---
+            error_log("QUOTE SEND DEBUG: Final status update. EmailSent=" . ($emailSent ? 'YES' : 'NO') . ", SMSSent=" . ($smsSent ? 'YES' : 'NO'));
             if ($emailSent || $smsSent) {
                 $stmt = $db->prepare("UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?");
                 $stmt->execute([implode(',', $sentVia), $quoteId]);
@@ -245,6 +299,23 @@ $pageTitle = 'Quote ' . htmlspecialchars($quote['quote_number']);
 $activePage = 'quotes';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+
+          <!-- Session Alert Display -->
+          <?php if (isset($_SESSION['alert'])):
+              $alert = $_SESSION['alert'];
+              $alertClass = [
+                  'error' => 'alert-danger',
+                  'warning' => 'alert-warning',
+                  'success' => 'alert-success',
+                  'info' => 'alert-info'
+              ][$alert['type']] ?? 'alert-info';
+          ?>
+              <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show" role="alert">
+                  <strong><?php echo ucfirst($alert['type']); ?>:</strong> <?php echo h($alert['message']); ?>
+                  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+              <?php unset($_SESSION['alert']); ?>
+          <?php endif; ?>
 
           <a href="index.php" class="mw-back-link">&larr; Back to Quotes</a>
 
@@ -359,6 +430,120 @@ $activePage = 'quotes';
                               <span class="mw-detail-label">Property</span>
                               <span class="mw-detail-value">
                                   <?php echo htmlspecialchars($quote['property_address'] . ', ' . $quote['property_city']); ?>
+                              </span>
+                          </div>
+                      </div>
+                  </div>
+
+                  <!-- Communication Preferences -->
+                  <div class="card">
+                      <div class="card-header">
+                          <h5 class="card-title mb-0">Communication Preferences</h5>
+                      </div>
+                      <div class="card-body">
+                          <?php
+                              // Determine which contact to use (prefer quote_request contact)
+                              $commContactId = $quote['qr_contact_id'] ?? null;
+
+                              // Get communication preferences from the appropriate contact
+                              if ($commContactId) {
+                                  // Use quote_request contact preferences
+                                  $preferredMethod = $quote['qr_preferred_contact_method'] ?? 'phone';
+
+                                  // Check consent_log first (form submission - source of truth)
+                                  $consentStmt = $db->prepare("
+                                      SELECT consent_given
+                                      FROM consent_log
+                                      WHERE contact_id = ?
+                                      AND consent_type = 'sms'
+                                      ORDER BY created_at DESC
+                                      LIMIT 1
+                                  ");
+                                  $consentStmt->execute([$commContactId]);
+                                  $consentRecord = $consentStmt->fetch(PDO::FETCH_ASSOC);
+
+                                  if ($consentRecord !== false) {
+                                      $allowSms = (bool)$consentRecord['consent_given'];
+                                  } else {
+                                      // Fallback to contacts table
+                                      $allowSms = (bool)($quote['qr_receive_sms'] ?? false) || (bool)($quote['qr_consent_sms'] ?? false);
+                                  }
+                              } else {
+                                  // Fall back to company contact preferences
+                                  $preferredMethod = $quote['preferred_contact_method'] ?? 'phone';
+                                  $allowSms = (bool)($quote['contact_receive_sms'] ?? false) || (bool)($quote['contact_consent_sms'] ?? false);
+                              }
+
+                              // Check consent_log for other preferences too
+                              $quoteFollowupStmt = $db->prepare("
+                                  SELECT consent_given
+                                  FROM consent_log
+                                  WHERE contact_id = ?
+                                  AND consent_type = 'quote_followup'
+                                  ORDER BY created_at DESC
+                                  LIMIT 1
+                              ");
+                              $quoteFollowupStmt->execute([$commContactId ?? $quote['qr_contact_id']]);
+                              $quoteFollowupConsent = $quoteFollowupStmt->fetch(PDO::FETCH_ASSOC);
+                              $allowQuoteFollowup = $quoteFollowupConsent !== false ? (bool)$quoteFollowupConsent['consent_given'] : (bool)($quote['consent_quote_followup'] ?? false);
+
+                              $marketingEmailStmt = $db->prepare("
+                                  SELECT consent_given
+                                  FROM consent_log
+                                  WHERE contact_id = ?
+                                  AND consent_type = 'marketing_email'
+                                  ORDER BY created_at DESC
+                                  LIMIT 1
+                              ");
+                              $marketingEmailStmt->execute([$commContactId ?? $quote['qr_contact_id']]);
+                              $marketingEmailConsent = $marketingEmailStmt->fetch(PDO::FETCH_ASSOC);
+                              $allowMarketingEmail = $marketingEmailConsent !== false ? (bool)$marketingEmailConsent['consent_given'] : (bool)($quote['consent_marketing_email'] ?? false);
+
+                              $allowMarketing = (bool)($quote['receive_marketing'] ?? false);
+                          ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Preferred Method</span>
+                              <span class="mw-detail-value">
+                                  <?php
+                                      $methodLabel = [
+                                          'phone' => '📞 Phone',
+                                          'email' => '📧 Email',
+                                          'text' => '💬 Text/SMS'
+                                      ][$preferredMethod] ?? '📞 Phone';
+                                      echo $methodLabel;
+                                  ?>
+                              </span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Text/SMS</span>
+                              <span class="mw-detail-value">
+                                  <span class="badge <?php echo $allowSms ? 'badge-success' : 'badge-secondary'; ?>">
+                                      <?php echo $allowSms ? '✓ Allowed' : '✗ Not Allowed'; ?>
+                                  </span>
+                              </span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Quote Follow-up</span>
+                              <span class="mw-detail-value">
+                                  <span class="badge <?php echo $allowQuoteFollowup ? 'badge-success' : 'badge-secondary'; ?>">
+                                      <?php echo $allowQuoteFollowup ? '✓ Allowed' : '✗ Not Allowed'; ?>
+                                  </span>
+                              </span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Marketing Email</span>
+                              <span class="mw-detail-value">
+                                  <span class="badge <?php echo $allowMarketingEmail ? 'badge-success' : 'badge-secondary'; ?>">
+                                      <?php echo $allowMarketingEmail ? '✓ Allowed' : '✗ Not Allowed'; ?>
+                                  </span>
+                              </span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">General Marketing</span>
+                              <span class="mw-detail-value">
+                                  <span class="badge <?php echo $allowMarketing ? 'badge-success' : 'badge-secondary'; ?>">
+                                      <?php echo $allowMarketing ? '✓ Allowed' : '✗ Not Allowed'; ?>
+                                  </span>
                               </span>
                           </div>
                       </div>
