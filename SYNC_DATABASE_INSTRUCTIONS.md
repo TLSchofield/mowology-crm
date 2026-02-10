@@ -2,26 +2,40 @@
 
 Your local database schema is out of sync with production. The jobFlow quote submission form expects tables and columns that don't exist locally yet.
 
-## Quick Start
+## Quick Start (Choose One)
 
-### Option 1: Using PHP (Easiest if you have local MySQL running)
+### Option 1: CLI Tool (Recommended - Easiest)
 
-1. Start your local MySQL server (MAMP, Docker, etc.)
-2. Visit: `http://localhost/crm/api/apply-migrations.php` (requires admin login)
-3. The script will apply all migrations automatically
+```bash
+cd /path/to/mowology-crm
+php apply-migrations-cli.php
+```
 
-### Option 2: Manual SQL Import (Alternative)
+The script will:
+- Connect to your local database
+- Apply all migrations automatically
+- Show progress and verify tables
+- Tell you if there are any issues
 
-1. Open your local MySQL client (phpMyAdmin, MySQL Workbench, or command line)
+### Option 2: Using phpMyAdmin or MySQL GUI
+
+1. Open phpMyAdmin/MySQL Workbench
 2. Select your Mowology database
-3. Import `/database/APPLY_ALL_MIGRATIONS.sql`
+3. Go to Import tab
+4. Select `/database/APPLY_ALL_MIGRATIONS.sql`
+5. Click "Import"
 
-**From command line:**
+### Option 3: Command Line MySQL
+
 ```bash
 mysql -u username -p database_name < database/APPLY_ALL_MIGRATIONS.sql
 ```
 
-### Option 3: Run Individual Migration Files (if you only need specific tables)
+Replace:
+- `username` - Your MySQL user
+- `database_name` - Your Mowology database name
+
+### Option 4: Individual Migration Files (Advanced)
 
 The migrations are located in `/database/migrations/` and should be applied in this order:
 
@@ -62,7 +76,8 @@ Once the migration is complete:
 
 1. Test the jobFlow quote form: `https://www.mowology.ca/jobFlow/getQuote.php`
 2. Submit a test quote and verify it appears in the CRM
-3. Delete `public/crm/api/apply-migrations.php` for security (it was only for setup)
+3. Verify you can see the quote request in the CRM dashboard
+4. Delete `public/crm/api/apply-migrations.php` if you created it (security)
 
 ## Troubleshooting
 
