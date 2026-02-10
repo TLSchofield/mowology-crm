@@ -6,6 +6,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/smtp_mailer.php';
+require_once dirname(__DIR__) . '/includes/sms_gateway.php';
 require_once dirname(__DIR__) . '/includes/roi-functions.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
@@ -178,17 +179,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
             // --- SEND SMS (if consented) ---
             if ($customerPhone && $customerConsentsToSms) {
-                // SMS message with short quote link
-                $smsMessage = "Hi {$customerName}! Your quote #{$quote['quote_number']} from Mowology is ready. View it here: {$quoteUrl}";
+                // SMS message with quote link (condensed to fit SMS character limit)
+                $smsMessage = "Hi {$customerName}! Your quote #{$quote['quote_number']} from Mowology is ready. View: {$quoteUrl}";
 
-                // TODO: Integrate with SMS provider (Twilio, etc)
-                // For now, log the attempt
-                error_log("SMS Send - Quote #{$quoteId} to {$customerPhone}: {$smsMessage}");
+                // Send via email-to-SMS gateway (Canadian carriers)
+                $smsResult = sendSmsViaMail($customerPhone, $smsMessage, 'Mowology Quotes');
 
-                // Mark as sent for logging purposes
-                // In production, check return from SMS API
-                $smsSent = true;
-                $sentVia[] = 'SMS';
+                if ($smsResult['success']) {
+                    error_log("SMS sent successfully to {$customerPhone} via: " . implode(', ', $smsResult['delivered_carriers']));
+                    $smsSent = true;
+                    $sentVia[] = 'SMS';
+                } else {
+                    error_log("SMS failed to {$customerPhone}. Errors: " . implode('; ', $smsResult['errors']));
+                    // Don't fail the entire send if SMS fails - email already went out
+                    $smsSent = false;
+                }
             }
 
             // --- UPDATE QUOTE STATUS ---
