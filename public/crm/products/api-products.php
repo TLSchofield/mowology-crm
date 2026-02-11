@@ -118,11 +118,11 @@ try {
             $stmt = $db->prepare("
                 INSERT INTO products (
                     name, category_id, unit_type_id, description, long_description,
-                    base_cost, base_price, markup_percentage, uses_cost_calculator,
+                    base_cost, base_price, min_price, markup_percentage, uses_cost_calculator,
                     taxable, gst_rate, pst_rate, track_inventory, current_stock,
                     reorder_point, supplier_info, image_url, display_order, active,
                     featured, created_by, sku
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $data['name'],
@@ -132,6 +132,7 @@ try {
                 $data['long_description'] ?? null,
                 $data['base_cost'] ?? 0,
                 $data['base_price'] ?? 0,
+                !empty($data['min_price']) ? $data['min_price'] : null,
                 $data['markup_percentage'] ?? 35,
                 $data['uses_cost_calculator'] ?? 0,
                 $data['taxable'] ?? 1,
@@ -160,7 +161,7 @@ try {
             $stmt = $db->prepare("
                 UPDATE products SET
                     name = ?, category_id = ?, unit_type_id = ?, description = ?,
-                    long_description = ?, base_cost = ?, base_price = ?,
+                    long_description = ?, base_cost = ?, base_price = ?, min_price = ?,
                     markup_percentage = ?, taxable = ?, gst_rate = ?, pst_rate = ?,
                     track_inventory = ?, current_stock = ?, reorder_point = ?,
                     supplier_info = ?, image_url = ?, display_order = ?,
@@ -175,6 +176,7 @@ try {
                 $data['long_description'] ?? null,
                 $data['base_cost'] ?? 0,
                 $data['base_price'] ?? 0,
+                !empty($data['min_price']) ? $data['min_price'] : null,
                 $data['markup_percentage'] ?? 35,
                 $data['taxable'] ?? 1,
                 $data['gst_rate'] ?? 5,

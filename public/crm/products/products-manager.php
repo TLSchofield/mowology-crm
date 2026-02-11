@@ -207,13 +207,35 @@ $activePage = 'products';
                           <div class="col-md-6">
                             <div class="form-group">
                               <label>Base Cost (per unit) *</label>
-                              <input type="number" class="form-control" name="base_cost" step="0.01" min="0" placeholder="Your cost">
+                              <input type="number" class="form-control" name="base_cost" id="baseCostInput" step="0.01" min="0" placeholder="Your cost">
                             </div>
                           </div>
                           <div class="col-md-6">
                             <div class="form-group">
                               <label>Selling Price (per unit) *</label>
                               <input type="number" class="form-control" name="base_price" step="0.01" min="0" placeholder="Customer price">
+                            </div>
+                          </div>
+                        </div>
+                        <div class="row">
+                          <div class="col-md-6">
+                            <div class="form-group">
+                              <label>Minimum Sell Price</label>
+                              <input type="number" class="form-control" name="min_price" step="0.01" min="0" placeholder="Floor price — never sell below this">
+                              <small class="form-text text-muted">
+                                Prevents quoting below this price. Leave blank for no minimum.
+                              </small>
+                            </div>
+                          </div>
+                          <div class="col-md-6">
+                            <div class="form-group">
+                              <label>Suggested Retail Price</label>
+                              <div id="suggestedRetailPrice" class="form-control" readonly style="background:#f0fdf4;border-color:#bbf7d0;font-weight:600;color:#166534;">
+                                —
+                              </div>
+                              <small class="form-text text-muted">
+                                Auto-calculated: Base Cost + Markup %
+                              </small>
                             </div>
                           </div>
                         </div>
@@ -291,7 +313,7 @@ $activePage = 'products';
                         <div class="col-md-6">
                           <div class="form-group">
                             <label>Markup Percentage</label>
-                            <input type="number" class="form-control" name="markup_percentage" value="35" step="0.5" min="0">
+                            <input type="number" class="form-control" name="markup_percentage" id="markupInput" value="35" step="0.5" min="0">
                             <small class="form-text text-muted">
                               Applied on top of total cost (default: 35%)
                             </small>
@@ -300,9 +322,11 @@ $activePage = 'products';
                         <div class="col-md-6">
                           <div class="form-group">
                             <label>Estimated Profit Margin</label>
-                            <input type="text" class="form-control" readonly value="35%" style="background: #f8fafc;">
+                            <div id="profitMarginDisplay" class="form-control" readonly style="background: #f8fafc;font-weight:500;">
+                              —
+                            </div>
                             <small class="form-text text-mowology">
-                              Calculated based on markup
+                              Calculated from selling price vs cost
                             </small>
                           </div>
                         </div>
@@ -556,6 +580,14 @@ $activePage = 'products';
                 document.getElementById('calculatedCostSection').style.display = this.checked ? 'block' : 'none';
               });
 
+              // Live pricing calculations
+              ['baseCostInput', 'markupInput'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.addEventListener('input', updatePricingCalculations);
+              });
+              var basePriceEl = document.querySelector('[name="base_price"]');
+              if (basePriceEl) basePriceEl.addEventListener('input', updatePricingCalculations);
+
               document.getElementById('isBundle').addEventListener('change', function() {
                 document.getElementById('bundleOptions').style.display = this.checked ? 'block' : 'none';
               });
@@ -747,12 +779,17 @@ $activePage = 'products';
                     <div class="mw-product-pricing">
                       <div class="mw-product-price-item">
                         <div class="mw-product-price-label">Cost</div>
-                        <div class="mw-product-cost-value">$${parseFloat(p.base_cost).toFixed(2)}</div>
+                        <div class="mw-product-cost-value">$${parseFloat(p.base_cost || 0).toFixed(2)}</div>
                       </div>
                       <div class="mw-product-price-item">
                         <div class="mw-product-price-label">Price</div>
-                        <div class="mw-product-price-value">$${parseFloat(p.base_price).toFixed(2)}</div>
+                        <div class="mw-product-price-value">$${parseFloat(p.base_price || 0).toFixed(2)}</div>
                       </div>
+                      ${p.min_price && parseFloat(p.min_price) > 0 ? `
+                      <div class="mw-product-price-item">
+                        <div class="mw-product-price-label">Min</div>
+                        <div style="font-weight:600;color:#dc2626;font-size:0.9rem;">$${parseFloat(p.min_price).toFixed(2)}</div>
+                      </div>` : ''}
                     </div>
                     <div class="mw-product-actions">
                       <button class="btn btn-secondary btn-sm" onclick="editProduct(${p.id})">Edit</button>
@@ -841,10 +878,14 @@ $activePage = 'products';
               form.elements['long_description'].value = product.long_description || '';
               form.elements['base_cost'].value = product.base_cost;
               form.elements['base_price'].value = product.base_price;
+              form.elements['min_price'].value = product.min_price || '';
               form.elements['markup_percentage'].value = product.markup_percentage;
               form.elements['taxable'].checked = product.taxable;
               form.elements['gst_rate'].value = product.gst_rate;
               form.elements['pst_rate'].value = product.pst_rate;
+
+              // Refresh calculated displays
+              updatePricingCalculations();
 
               // Set image preview
               if (product.image_url) {
@@ -884,6 +925,36 @@ $activePage = 'products';
                 }
               })
               .catch(err => alert('Error: ' + err.message));
+            }
+
+            // ============================================================
+            // Pricing Calculations
+            // ============================================================
+
+            function updatePricingCalculations() {
+              var cost = parseFloat(document.getElementById('baseCostInput').value) || 0;
+              var markup = parseFloat(document.getElementById('markupInput').value) || 0;
+              var price = parseFloat(document.querySelector('[name="base_price"]').value) || 0;
+
+              // Suggested Retail Price = cost + (cost × markup / 100)
+              var suggestedEl = document.getElementById('suggestedRetailPrice');
+              if (cost > 0 && markup > 0) {
+                var suggested = cost * (1 + markup / 100);
+                suggestedEl.textContent = '$' + suggested.toFixed(2);
+              } else {
+                suggestedEl.textContent = '—';
+              }
+
+              // Profit Margin = (price - cost) / price × 100
+              var marginEl = document.getElementById('profitMarginDisplay');
+              if (price > 0 && cost > 0) {
+                var margin = ((price - cost) / price) * 100;
+                marginEl.textContent = margin.toFixed(1) + '%';
+                marginEl.style.color = margin >= 20 ? '#166534' : margin >= 0 ? '#ca8a04' : '#dc2626';
+              } else {
+                marginEl.textContent = '—';
+                marginEl.style.color = '';
+              }
             }
 
             // ============================================================
