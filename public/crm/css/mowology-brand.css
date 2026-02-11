@@ -2004,26 +2004,26 @@ a:hover {
   position: relative;
   padding-left: 32px;
   padding-top: 8px;
-  padding-bottom: 16px;
+  padding-bottom: 20px;
   border-left: 2px solid #e2e8f0;
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .timeline-item:last-child {
   border-left: 2px solid transparent;
-  margin-bottom: 0;
+  padding-bottom: 0;
 }
 
 .timeline-item::before {
   content: '';
   position: absolute;
-  left: -8px;
+  left: -7px;
   top: 12px;
   width: 12px;
   height: 12px;
   border-radius: 50%;
   background: var(--mw-green);
-  border: 3px solid #fff;
+  border: 2px solid #fff;
   box-shadow: 0 0 0 2px var(--mw-green);
   z-index: 1;
 }
