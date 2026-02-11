@@ -289,6 +289,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                     ]);
                 }
 
+                // 4b. Update contacts table consent columns (so CRM reads are consistent)
+                $stmt = $db->prepare("
+                    UPDATE contacts SET
+                        receive_sms              = ?,
+                        consent_sms              = ?,
+                        consent_quote_followup   = ?,
+                        consent_marketing_email  = ?,
+                        consent_timestamp        = NOW(),
+                        consent_ip_address       = ?,
+                        consent_source           = 'website_form'
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $data['consent_sms'] ? 1 : 0,
+                    $data['consent_sms'] ? 1 : 0,
+                    $data['consent_quote'] ? 1 : 0,
+                    $data['consent_marketing'] ? 1 : 0,
+                    $data['ip_address'],
+                    $contactId,
+                ]);
+
                 // 5. Activity log
                 $activityDetails = 'Via website form (source: ' . $quoteSource . ')';
                 $stmt = $db->prepare("

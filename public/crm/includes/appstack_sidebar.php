@@ -7,7 +7,7 @@
  *   $activePage   — string matching a key below to highlight the active nav item
  *
  * Active page keys: 'dashboard', 'clients', 'map', 'quotes', 'products', 'jobs',
- *                   'invoices', 'schedule', 'portfolio', 'cms', 'media', 'marketing', 'settings'
+ *                   'invoices', 'schedule', 'portfolio', 'cms', 'media', 'marketing', 'settings', 'diagnostics'
  */
 if (!isset($activePage)) $activePage = '';
 if (!isset($user))       $user = ['name' => 'Admin'];
@@ -51,6 +51,13 @@ $navItems = [
                 <a class="sidebar-link" href="/crm/settings.php">
                     <i class="align-middle" data-feather="settings"></i>
                     <span class="align-middle">Settings</span>
+                </a>
+            </li>
+
+            <li class="sidebar-item<?php echo ($activePage === 'diagnostics') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/diagnostics/">
+                    <i class="align-middle" data-feather="activity"></i>
+                    <span class="align-middle">Diagnostics</span>
                 </a>
             </li>
         </ul>

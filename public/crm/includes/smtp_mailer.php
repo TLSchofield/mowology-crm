@@ -1,26 +1,114 @@
 <?php
 /**
- * Email Service - Native PHP Mail Implementation
+ * Email Service — PHPMailer SMTP + mail() Fallback
  *
- * Reliable email delivery via cPanel mail server
- * Uses office@mowology.ca for sending
+ * Primary: PHPMailer via authenticated SMTP (mail.mowology.ca:465)
+ * Fallback: Native PHP mail() if PHPMailer unavailable or throws an error
  *
- * Note: PHPMailer not available on shared hosting.
- * Using native PHP mail() with proper MIME handling and RFC-compliant formatting.
+ * All CRM email sending flows through sendEmailViaSMTP().
+ * The alias sendCrmEmail() ensures backward compatibility.
+ *
+ * SMTP credentials loaded from secrets.php (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS)
+ * From address: no-reply@mowology.ca (verified working)
+ * Reply-To: office@mowology.ca
  */
 
 declare(strict_types=1);
 
 require_once __DIR__ . '/email_logger.php';
 
+// ─── PHPMailer Loader ────────────────────────────────────────────────
+
 /**
- * Send email via native PHP mail() with optional PDF attachment
+ * Load PHPMailer vendor files and return true if available
+ */
+function _loadPhpMailer(): bool
+{
+    static $loaded = null;
+
+    if ($loaded !== null) {
+        return $loaded;
+    }
+
+    $possibleBases = [
+        dirname(__DIR__) . '/vendor/phpmailer/src',                          // /crm/vendor/
+        dirname(dirname(dirname(__DIR__))) . '/vendor/phpmailer/src',        // repo root
+        dirname(dirname(__DIR__)) . '/vendor/phpmailer/src',                 // inside public/
+        ($_SERVER['DOCUMENT_ROOT'] ?? '') . '/vendor/phpmailer/src',         // docroot/vendor/
+        dirname($_SERVER['DOCUMENT_ROOT'] ?? '') . '/vendor/phpmailer/src',  // above docroot
+    ];
+
+    foreach ($possibleBases as $base) {
+        if (file_exists($base . '/PHPMailer.php')) {
+            require_once $base . '/Exception.php';
+            require_once $base . '/PHPMailer.php';
+            require_once $base . '/SMTP.php';
+            $loaded = true;
+            return true;
+        }
+    }
+
+    $loaded = false;
+    return false;
+}
+
+/**
+ * Create a pre-configured PHPMailer instance
+ *
+ * @return \PHPMailer\PHPMailer\PHPMailer|null  Configured instance or null if unavailable
+ */
+function _createMailer(): ?\PHPMailer\PHPMailer\PHPMailer
+{
+    if (!_loadPhpMailer()) {
+        return null;
+    }
+
+    $smtpHost = defined('SMTP_HOST') ? SMTP_HOST : null;
+    $smtpPort = defined('SMTP_PORT') ? (int)SMTP_PORT : null;
+    $smtpUser = defined('SMTP_USER') ? SMTP_USER : null;
+    $smtpPass = defined('SMTP_PASS') ? SMTP_PASS : null;
+
+    if (!$smtpHost || !$smtpUser || !$smtpPass) {
+        return null;
+    }
+
+    try {
+        $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host       = (string)$smtpHost;
+        $mail->Port       = $smtpPort ?: 465;
+        $mail->SMTPAuth   = true;
+        $mail->Username   = (string)$smtpUser;
+        $mail->Password   = (string)$smtpPass;
+        $mail->SMTPSecure = ($mail->Port === 465)
+            ? \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS
+            : \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->CharSet    = 'UTF-8';
+        $mail->Encoding   = '8bit';
+        $mail->XMailer    = 'Mowology CRM';
+
+        // Default addresses
+        $mail->setFrom('no-reply@mowology.ca', 'Mowology');
+        $mail->addReplyTo('office@mowology.ca', 'Mowology');
+
+        return $mail;
+    } catch (\Throwable $e) {
+        error_log("_createMailer error: " . $e->getMessage());
+        return null;
+    }
+}
+
+
+// ─── Public API ──────────────────────────────────────────────────────
+
+/**
+ * Send email via PHPMailer SMTP with fallback to native mail()
  *
  * @param string      $to             Recipient email
  * @param string      $subject        Email subject
  * @param string      $htmlBody       HTML email body
  * @param string|null $attachmentPath Full filesystem path to PDF (or null)
- * @param string      $from           From display name (uses office@mowology.ca)
+ * @param string      $from           From display name (default: 'Mowology')
  * @return bool       Whether send succeeded
  */
 function sendEmailViaSMTP(
@@ -31,7 +119,7 @@ function sendEmailViaSMTP(
     string $from = 'Mowology'
 ): bool {
     try {
-        // Validate email address
+        // Validate email
         if (empty($to) || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
             error_log("sendEmailViaSMTP: invalid recipient email: {$to}");
             return false;
@@ -39,17 +127,27 @@ function sendEmailViaSMTP(
 
         // Validate attachment exists
         if ($attachmentPath && !file_exists($attachmentPath)) {
-            error_log("sendEmailViaSMTP: attachment not found: {$attachmentPath}");
+            error_log("sendEmailViaSMTP: attachment not found: {$attachmentPath}, sending without it");
             $attachmentPath = null;
         }
 
-        // Without attachment: use simple HTML email (works reliably)
-        if (!$attachmentPath) {
-            return sendSimpleHtmlEmail($to, $subject, $htmlBody, $from);
+        $subject  = trim($subject);
+        $htmlBody = trim($htmlBody);
+
+        // Try PHPMailer first
+        $result = _sendViaPhpMailer($to, $subject, $htmlBody, $attachmentPath, $from);
+
+        if ($result !== null) {
+            // PHPMailer was available and attempted the send
+            return $result;
         }
 
-        // With attachment: use MIME multipart
-        return sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $from);
+        // Fallback: native mail()
+        error_log("PHPMailer unavailable — falling back to native mail()");
+        if ($attachmentPath) {
+            return sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $from);
+        }
+        return sendSimpleHtmlEmail($to, $subject, $htmlBody, $from);
 
     } catch (Throwable $e) {
         error_log("sendEmailViaSMTP error: " . $e->getMessage());
@@ -58,141 +156,7 @@ function sendEmailViaSMTP(
 }
 
 /**
- * Send simple HTML email (no attachment)
- * Most reliable method for shared hosting
- */
-function sendSimpleHtmlEmail(
-    string $to,
-    string $subject,
-    string $htmlBody,
-    string $from = 'Mowology'
-): bool {
-    try {
-        // Use the verified working From address for this hosting account
-        // Tested and confirmed working: no-reply@mowology.ca
-        $fromEmail = 'no-reply@mowology.ca';
-
-        // RFC-compliant headers
-        $headers = "From: {$from} <{$fromEmail}>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
-        $headers .= "MIME-Version: 1.0\r\n";
-        $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
-        $headers .= "Content-Transfer-Encoding: 8bit\r\n";
-        $headers .= "X-Mailer: Mowology CRM\r\n";
-
-        // Clean subject
-        $subject = trim($subject);
-
-        // Clean body
-        $htmlBody = trim($htmlBody);
-
-        error_log("=== EMAIL SEND ATTEMPT ===");
-        error_log("To: {$to}");
-        error_log("From: {$fromEmail}");
-        error_log("Subject: {$subject}");
-        error_log("Headers:\n{$headers}");
-        error_log("Body length: " . strlen($htmlBody) . " chars");
-
-        // Send via native mail()
-        // On shared hosting, this just queues the email - actual delivery depends on mail server config
-        $result = @mail($to, $subject, $htmlBody, $headers);
-
-        // Log to visible file for debugging (since server logs aren't accessible)
-        logEmailAttempt($to, $subject, $htmlBody, $headers, $result);
-
-        if (!$result) {
-            error_log("❌ mail() FAILED - returned FALSE");
-            error_log("The mail server rejected this email. Possible causes:");
-            error_log("  - Invalid recipient address");
-            error_log("  - SPF/DKIM authentication failure");
-            error_log("  - Rate limiting");
-            error_log("  - Server configuration issue");
-        } else {
-            error_log("✅ mail() ACCEPTED - returned TRUE");
-            error_log("Email accepted by mail server queue. Delivery status unknown.");
-        }
-
-        return $result;
-
-    } catch (Throwable $e) {
-        error_log("sendSimpleHtmlEmail error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Send email with MIME attachment
- * For PDF quotes and other documents
- */
-function sendEmailWithAttachment(
-    string $to,
-    string $subject,
-    string $htmlBody,
-    string $attachmentPath,
-    string $from = 'Mowology'
-): bool {
-    try {
-        $filename = basename($attachmentPath);
-
-        // Read and encode file
-        $fileContent = file_get_contents($attachmentPath);
-        if ($fileContent === false) {
-            error_log("sendEmailWithAttachment: failed to read file {$attachmentPath}");
-            return false;
-        }
-
-        // Base64 encode for MIME
-        $encodedFile = chunk_split(base64_encode($fileContent), 76, "\r\n");
-
-        // Generate unique boundary
-        $boundary = '==BOUNDARY_' . md5(time() . $to . rand()) . '==';
-
-        // Build multipart MIME body
-        $body = "This is a MIME encoded message.\r\n\r\n";
-        $body .= "--{$boundary}\r\n";
-        $body .= "Content-Type: text/html; charset=UTF-8\r\n";
-        $body .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
-        $body .= $htmlBody . "\r\n\r\n";
-
-        // PDF attachment
-        $body .= "--{$boundary}\r\n";
-        $body .= "Content-Type: application/pdf; name=\"{$filename}\"\r\n";
-        $body .= "Content-Disposition: attachment; filename=\"{$filename}\"\r\n";
-        $body .= "Content-Transfer-Encoding: base64\r\n\r\n";
-        $body .= $encodedFile . "\r\n";
-        $body .= "--{$boundary}--\r\n";
-
-        // RFC-compliant headers
-        $headers = "From: {$from} <office@mowology.ca>\r\n";
-        $headers .= "Reply-To: office@mowology.ca\r\n";
-        $headers .= "Return-Path: office@mowology.ca\r\n";
-        $headers .= "MIME-Version: 1.0\r\n";
-        $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
-        $headers .= "X-Mailer: Mowology CRM\r\n";
-
-        // Clean subject
-        $subject = trim($subject);
-
-        // Send via native mail()
-        $result = mail($to, $subject, $body, $headers);
-
-        if (!$result) {
-            error_log("sendEmailWithAttachment: mail() returned false for {$to}, subject: {$subject}, attachment: {$filename}");
-        } else {
-            error_log("Email sent successfully to {$to}, subject: {$subject}, attachment: {$filename}");
-        }
-
-        return $result;
-
-    } catch (Throwable $e) {
-        error_log("sendEmailWithAttachment error: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
  * Alias for backward compatibility
- * Redirects old sendCrmEmail() calls to new email service
  */
 function sendCrmEmail(
     string $to,
@@ -204,9 +168,192 @@ function sendCrmEmail(
     return sendEmailViaSMTP($to, $subject, $htmlBody, $attachmentPath, $from);
 }
 
+
+// ─── PHPMailer Send ──────────────────────────────────────────────────
+
 /**
- * Test email configuration
- * Sends a test email to verify setup
+ * Send via PHPMailer SMTP
+ *
+ * @return bool|null  true/false on success/failure, null if PHPMailer unavailable
+ */
+function _sendViaPhpMailer(
+    string $to,
+    string $subject,
+    string $htmlBody,
+    ?string $attachmentPath,
+    string $from
+): ?bool {
+    $mail = _createMailer();
+    if (!$mail) {
+        return null; // PHPMailer not available — caller should use fallback
+    }
+
+    try {
+        // Override from name if provided
+        $mail->setFrom('no-reply@mowology.ca', $from);
+        $mail->addAddress($to);
+        $mail->Subject = $subject;
+        $mail->isHTML(true);
+        $mail->Body    = $htmlBody;
+
+        // Add attachment if provided
+        if ($attachmentPath) {
+            $mail->addAttachment($attachmentPath, basename($attachmentPath));
+            error_log("PHPMailer: attachment added — " . basename($attachmentPath));
+        }
+
+        error_log("=== PHPMAILER SEND ===");
+        error_log("To: {$to}");
+        error_log("Subject: {$subject}");
+        error_log("Attachment: " . ($attachmentPath ? basename($attachmentPath) : 'none'));
+
+        $result = $mail->send();
+
+        // Log for debugging
+        logEmailAttempt($to, $subject, $htmlBody, 'PHPMailer SMTP (' . ($mail->Host ?? '') . ')', $result);
+
+        if ($result) {
+            error_log("PHPMailer: message sent successfully to {$to}");
+        } else {
+            error_log("PHPMailer: send failed — " . $mail->ErrorInfo);
+        }
+
+        return $result;
+
+    } catch (\PHPMailer\PHPMailer\Exception $e) {
+        error_log("PHPMailer Exception: " . $e->getMessage());
+        logEmailAttempt($to, $subject, $htmlBody, 'PHPMailer SMTP (FAILED)', false);
+
+        // Fall back to native mail()
+        error_log("Falling back to native mail() after PHPMailer error");
+        if ($attachmentPath) {
+            return sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $from);
+        }
+        return sendSimpleHtmlEmail($to, $subject, $htmlBody, $from);
+
+    } catch (Throwable $e) {
+        error_log("PHPMailer unexpected error: " . $e->getMessage());
+        logEmailAttempt($to, $subject, $htmlBody, 'PHPMailer (ERROR)', false);
+
+        // Fall back to native mail()
+        if ($attachmentPath) {
+            return sendEmailWithAttachment($to, $subject, $htmlBody, $attachmentPath, $from);
+        }
+        return sendSimpleHtmlEmail($to, $subject, $htmlBody, $from);
+    }
+}
+
+
+// ─── Native mail() Fallback Functions ────────────────────────────────
+
+/**
+ * Send simple HTML email via native mail() (fallback)
+ */
+function sendSimpleHtmlEmail(
+    string $to,
+    string $subject,
+    string $htmlBody,
+    string $from = 'Mowology'
+): bool {
+    try {
+        $fromEmail = 'no-reply@mowology.ca';
+
+        $headers = "From: {$from} <{$fromEmail}>\r\n";
+        $headers .= "Reply-To: office@mowology.ca\r\n";
+        $headers .= "MIME-Version: 1.0\r\n";
+        $headers .= "Content-Type: text/html; charset=UTF-8\r\n";
+        $headers .= "Content-Transfer-Encoding: 8bit\r\n";
+        $headers .= "X-Mailer: Mowology CRM\r\n";
+
+        $subject  = trim($subject);
+        $htmlBody = trim($htmlBody);
+
+        error_log("=== FALLBACK mail() SEND ===");
+        error_log("To: {$to}, Subject: {$subject}");
+
+        $result = @mail($to, $subject, $htmlBody, $headers);
+
+        logEmailAttempt($to, $subject, $htmlBody, $headers, $result);
+
+        if ($result) {
+            error_log("Fallback mail(): accepted for {$to}");
+        } else {
+            error_log("Fallback mail(): FAILED for {$to}");
+        }
+
+        return $result;
+
+    } catch (Throwable $e) {
+        error_log("sendSimpleHtmlEmail error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Send email with MIME attachment via native mail() (fallback)
+ */
+function sendEmailWithAttachment(
+    string $to,
+    string $subject,
+    string $htmlBody,
+    string $attachmentPath,
+    string $from = 'Mowology'
+): bool {
+    try {
+        $filename = basename($attachmentPath);
+
+        $fileContent = file_get_contents($attachmentPath);
+        if ($fileContent === false) {
+            error_log("sendEmailWithAttachment: failed to read file {$attachmentPath}");
+            return false;
+        }
+
+        $encodedFile = chunk_split(base64_encode($fileContent), 76, "\r\n");
+        $boundary = '==BOUNDARY_' . md5((string)time() . $to . (string)rand()) . '==';
+
+        $body = "This is a MIME encoded message.\r\n\r\n";
+        $body .= "--{$boundary}\r\n";
+        $body .= "Content-Type: text/html; charset=UTF-8\r\n";
+        $body .= "Content-Transfer-Encoding: 8bit\r\n\r\n";
+        $body .= $htmlBody . "\r\n\r\n";
+
+        $body .= "--{$boundary}\r\n";
+        $body .= "Content-Type: application/pdf; name=\"{$filename}\"\r\n";
+        $body .= "Content-Disposition: attachment; filename=\"{$filename}\"\r\n";
+        $body .= "Content-Transfer-Encoding: base64\r\n\r\n";
+        $body .= $encodedFile . "\r\n";
+        $body .= "--{$boundary}--\r\n";
+
+        $headers = "From: {$from} <office@mowology.ca>\r\n";
+        $headers .= "Reply-To: office@mowology.ca\r\n";
+        $headers .= "Return-Path: office@mowology.ca\r\n";
+        $headers .= "MIME-Version: 1.0\r\n";
+        $headers .= "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
+        $headers .= "X-Mailer: Mowology CRM\r\n";
+
+        $subject = trim($subject);
+
+        $result = mail($to, $subject, $body, $headers);
+
+        if ($result) {
+            error_log("Fallback mail() with attachment: sent to {$to}, file: {$filename}");
+        } else {
+            error_log("Fallback mail() with attachment: FAILED for {$to}, file: {$filename}");
+        }
+
+        return $result;
+
+    } catch (Throwable $e) {
+        error_log("sendEmailWithAttachment error: " . $e->getMessage());
+        return false;
+    }
+}
+
+
+// ─── Test Helper ─────────────────────────────────────────────────────
+
+/**
+ * Test email configuration — sends a test email
  */
 function testEmailConfig(string $testEmail): array
 {
@@ -216,18 +363,20 @@ function testEmailConfig(string $testEmail): array
         <body style='font-family: Arial, sans-serif;'>
             <h2>Email Configuration Test</h2>
             <p>If you received this email, the email system is working correctly.</p>
+            <p><strong>Method:</strong> " . (_loadPhpMailer() ? 'PHPMailer SMTP' : 'Native mail()') . "</p>
             <p><strong>Timestamp:</strong> " . date('Y-m-d H:i:s') . "</p>
             <p><strong>Server:</strong> " . gethostname() . "</p>
         </body>
         </html>
     ";
 
-    $result = sendSimpleHtmlEmail($testEmail, $subject, $body);
+    $result = sendEmailViaSMTP($testEmail, $subject, $body);
 
     return [
-        'success' => $result,
+        'success'   => $result,
+        'method'    => _loadPhpMailer() ? 'PHPMailer SMTP' : 'Native mail()',
         'timestamp' => date('Y-m-d H:i:s'),
         'recipient' => $testEmail,
-        'message' => $result ? 'Test email sent successfully' : 'Test email failed to send'
+        'message'   => $result ? 'Test email sent successfully' : 'Test email failed to send'
     ];
 }
