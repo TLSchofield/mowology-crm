@@ -196,7 +196,7 @@ foreach ($media as &$m) {
             ],
         ], [
             'row_actions' => [
-                ['label' => 'Edit', 'icon' => 'edit-2', 'href' => '/crm/cms-media-editor.php?id={{id}}'],
+                ['label' => 'Edit', 'icon' => 'edit-2', 'href' => '/cms/cms-media-editor.php?id={{id}}'],
                 ['label' => 'Delete', 'icon' => 'trash-2', 'action' => 'delete', 'confirm' => true],
             ],
             'empty_text' => 'No media found',

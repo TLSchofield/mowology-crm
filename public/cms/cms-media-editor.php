@@ -46,14 +46,16 @@ if ($mediaId) {
         <div class="col-lg-8">
             <?php echo admin_breadcrumbs([
                 ['label' => 'CMS', 'url' => '/crm/cms-pages_appstack.php'],
-                ['label' => 'Media Library', 'url' => '/crm/cms-media_appstack.php'],
+                ['label' => 'Media Library', 'url' => '/cms/cms-media_appstack.php'],
                 ['label' => 'Edit Media'],
             ]); ?>
 
             <h1>Edit Media</h1>
 
+            <div id="save-alert" class="alert d-none" role="alert"></div>
+
             <!-- Media Editor Form -->
-            <form method="POST" action="/crm/api/save-media.php" class="mt-4">
+            <form id="media-form" method="POST" action="/crm/api/save-media.php" class="mt-4">
                 <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
                 <input type="hidden" name="id" value="<?php echo $mediaId; ?>">
 
@@ -63,15 +65,15 @@ if ($mediaId) {
                     </div>
                     <div class="card-body">
                         <!-- File Preview -->
-                        <?php if ($media && $media['media_type'] === 'image'): ?>
+                        <?php if ($media && ($media['file_type'] ?? '') === 'image'): ?>
                             <div class="mb-4">
-                                <img src="<?php echo h($media['file_path']); ?>" alt="<?php echo h($media['alt_text'] ?? ''); ?>"
+                                <img src="<?php echo h((string)($media['file_path'] ?? '')); ?>" alt="<?php echo h((string)($media['alt_text'] ?? '')); ?>"
                                      class="img-thumbnail" style="max-width: 100%; max-height: 400px;">
                             </div>
-                        <?php elseif ($media && $media['media_type'] === 'video'): ?>
+                        <?php elseif ($media && ($media['file_type'] ?? '') === 'video'): ?>
                             <div class="mb-4">
                                 <video width="100%" height="auto" controls style="max-height: 400px;">
-                                    <source src="<?php echo h($media['file_path']); ?>" type="video/mp4">
+                                    <source src="<?php echo h((string)($media['file_path'] ?? '')); ?>" type="video/mp4">
                                     Your browser does not support the video tag.
                                 </video>
                             </div>
@@ -81,14 +83,14 @@ if ($mediaId) {
                         <div class="form-group">
                             <label for="filename">Filename</label>
                             <input type="text" class="form-control" id="filename" readonly
-                                   value="<?php echo h($media['filename'] ?? ''); ?>">
+                                   value="<?php echo h((string)($media['original_filename'] ?? $media['stored_filename'] ?? '')); ?>">
                         </div>
 
                         <!-- Alt Text -->
                         <div class="form-group">
                             <label for="alt_text">Alt Text (Accessibility & SEO)</label>
                             <textarea class="form-control" id="alt_text" name="alt_text" rows="2"
-                                      placeholder="Describe the image for screen readers"><?php echo h($media['alt_text'] ?? ''); ?></textarea>
+                                      placeholder="Describe the image for screen readers"><?php echo h((string)($media['alt_text'] ?? '')); ?></textarea>
                             <small class="form-text text-muted">This text is used by screen readers and displayed if the image doesn't load</small>
                         </div>
 
@@ -98,7 +100,7 @@ if ($mediaId) {
                                 <div class="form-group">
                                     <label for="media_type">File Type</label>
                                     <input type="text" class="form-control" id="media_type" readonly
-                                           value="<?php echo h(ucfirst($media['media_type'] ?? '')); ?>">
+                                           value="<?php echo h(ucfirst((string)($media['file_type'] ?? ''))); ?>">
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -112,24 +114,25 @@ if ($mediaId) {
 
                         <!-- Upload Date -->
                         <div class="form-group">
-                            <label for="uploaded_at">Uploaded</label>
-                            <input type="text" class="form-control" id="uploaded_at" readonly
-                                   value="<?php echo date('M d, Y g:i A', strtotime($media['uploaded_at'] ?? 'now')); ?>">
+                            <label for="created_at">Uploaded</label>
+                            <input type="text" class="form-control" id="created_at" readonly
+                                   value="<?php echo date('M d, Y g:i A', strtotime($media['created_at'] ?? 'now')); ?>">
                         </div>
 
-                        <!-- Uploaded By -->
+                        <?php if (!empty($media['image_width']) && !empty($media['image_height'])): ?>
                         <div class="form-group">
-                            <label for="uploaded_by">Uploaded By</label>
-                            <input type="text" class="form-control" id="uploaded_by" readonly
-                                   value="<?php echo h($media['uploaded_by_name'] ?? 'Unknown'); ?>">
+                            <label for="dimensions">Dimensions</label>
+                            <input type="text" class="form-control" id="dimensions" readonly
+                                   value="<?php echo (int)$media['image_width']; ?> × <?php echo (int)$media['image_height']; ?> px">
                         </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
                 <!-- Submit Buttons -->
                 <div class="form-group">
                     <button type="submit" class="btn btn-primary btn-lg">Save Changes</button>
-                    <a href="/crm/cms-media_appstack.php" class="btn btn-secondary btn-lg">Back to Library</a>
+                    <a href="/cms/cms-media_appstack.php" class="btn btn-secondary btn-lg">Back to Library</a>
                 </div>
             </form>
         </div>
@@ -153,6 +156,39 @@ if ($mediaId) {
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Save form via AJAX
+    const form = document.getElementById('media-form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const alertEl = document.getElementById('save-alert');
+
+            fetch('/crm/api/save-media.php', {
+                method: 'POST',
+                body: formData,
+            })
+            .then(r => r.json())
+            .then(data => {
+                alertEl.classList.remove('d-none', 'alert-danger', 'alert-success');
+                if (data.success) {
+                    alertEl.classList.add('alert-success');
+                    alertEl.textContent = 'Media updated successfully';
+                } else {
+                    alertEl.classList.add('alert-danger');
+                    alertEl.textContent = 'Error: ' + (data.error || 'Unknown error');
+                }
+                window.scrollTo(0, 0);
+            })
+            .catch(err => {
+                alertEl.classList.remove('d-none', 'alert-success');
+                alertEl.classList.add('alert-danger');
+                alertEl.textContent = 'Error: ' + err.message;
+                window.scrollTo(0, 0);
+            });
+        });
+    }
+
     // Load media usage data via AJAX
     const mediaId = <?php echo $mediaId; ?>;
     if (mediaId) {
