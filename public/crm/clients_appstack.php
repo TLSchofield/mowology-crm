@@ -405,6 +405,28 @@ $clients = $db->query("
     ORDER BY c.company_name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
+// Get standalone contacts (not linked to any company as primary or billing contact)
+$standaloneContacts = $db->query("
+    SELECT
+        ct.id,
+        ct.first_name,
+        ct.last_name,
+        ct.email,
+        ct.phone,
+        ct.is_active,
+        ct.prospect_status,
+        ct.created_at,
+        ct.notes
+    FROM contacts ct
+    WHERE ct.id NOT IN (
+        SELECT COALESCE(primary_contact_id, 0) FROM companies
+        UNION
+        SELECT COALESCE(billing_contact_id, 0) FROM companies
+    )
+    AND ct.is_active = 1
+    ORDER BY ct.last_name, ct.first_name
+")->fetchAll(PDO::FETCH_ASSOC);
+
 // Also get quote_requests without companies (not yet converted to prospects)
 $unconvertedRequests = $db->query("
     SELECT
@@ -691,6 +713,24 @@ $unconvertedRequests = $db->query("
                 $stagesData = getCompaniesByLifecycleStage();
                 $allStages = getLifecycleStages();
 
+                // Map standalone contacts into stagesData by prospect_status
+                // prospect_status maps: prospect → prospect, client → client, inactive → inactive
+                foreach ($standaloneContacts as $contact) {
+                    $contactStage = $contact['prospect_status'] ?? 'prospect';
+                    if (!isset($stagesData[$contactStage])) {
+                        $stagesData[$contactStage] = [
+                            'label' => ucfirst($contactStage),
+                            'color' => '#6B7280',
+                            'companies' => [],
+                            'contacts' => []
+                        ];
+                    }
+                    if (!isset($stagesData[$contactStage]['contacts'])) {
+                        $stagesData[$contactStage]['contacts'] = [];
+                    }
+                    $stagesData[$contactStage]['contacts'][] = $contact;
+                }
+
                 // Build effective columns: start with defined stages, then add any
                 // stages that exist in company data but aren't in the stages table
                 $kanbanColumns = [];
@@ -721,13 +761,16 @@ $unconvertedRequests = $db->query("
                 }
               ?>
               <?php foreach ($kanbanColumns as $stage): ?>
+                <?php
+                  $companyCount = count($stagesData[$stage['stage_key']]['companies'] ?? []);
+                  $contactCount = count($stagesData[$stage['stage_key']]['contacts'] ?? []);
+                  $totalCount = $companyCount + $contactCount;
+                ?>
                 <div class="mw-kanban-column" data-stage="<?php echo h($stage['stage_key']); ?>" style="border-top: 4px solid <?php echo h($stage['stage_color']); ?>;">
                   <div class="mw-kanban-header" style="background: <?php echo h($stage['stage_color']); ?>;">
                     <h5 class="mb-0 text-white">
                       <?php echo h($stage['stage_label']); ?>
-                      <span class="badge badge-light ml-2">
-                        <?php echo count($stagesData[$stage['stage_key']]['companies'] ?? []); ?>
-                      </span>
+                      <span class="badge badge-light ml-2"><?php echo $totalCount; ?></span>
                     </h5>
                   </div>
                   <div class="mw-kanban-cards" data-stage="<?php echo h($stage['stage_key']); ?>">
@@ -760,6 +803,31 @@ $unconvertedRequests = $db->query("
                         </div>
                       </div>
                     <?php endforeach; ?>
+
+                    <?php foreach ($stagesData[$stage['stage_key']]['contacts'] ?? [] as $contact): ?>
+                      <div class="mw-kanban-card" draggable="true" data-contact-id="<?php echo (int)$contact['id']; ?>" data-company-name="<?php echo h(trim($contact['first_name'] . ' ' . $contact['last_name'])); ?>" style="border-left: 3px solid var(--mw-orange);">
+                        <div class="mw-card-header">
+                          <strong><?php echo h(trim($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))); ?></strong>
+                          <span class="badge badge-light ml-1" style="font-size: 0.65rem;">Contact</span>
+                        </div>
+                        <div class="mw-card-body">
+                          <small class="text-muted d-block">
+                            <i data-feather="mail" style="width: 14px; height: 14px;"></i>
+                            <?php echo h($contact['email'] ?? '—'); ?>
+                          </small>
+                          <?php if (!empty($contact['phone'])): ?>
+                          <small class="text-muted d-block mt-1">
+                            <i data-feather="phone" style="width: 14px; height: 14px;"></i>
+                            <?php echo h($contact['phone']); ?>
+                          </small>
+                          <?php endif; ?>
+                          <small class="text-muted d-block mt-1">
+                            <i data-feather="calendar" style="width: 14px; height: 14px;"></i>
+                            <?php echo formatDate($contact['created_at']); ?>
+                          </small>
+                        </div>
+                      </div>
+                    <?php endforeach; ?>
                   </div>
                 </div>
               <?php endforeach; ?>
@@ -770,12 +838,12 @@ $unconvertedRequests = $db->query("
             <div class="card">
               <div class="card-header">
                 <h5 class="card-title mb-0">
-                  All Clients
-                  <span class="badge badge-primary ml-2"><?php echo count($clients); ?></span>
+                  All Clients &amp; Contacts
+                  <span class="badge badge-primary ml-2"><?php echo count($clients) + count($standaloneContacts); ?></span>
                 </h5>
               </div>
               <div class="card-body">
-                <?php if (empty($clients) && empty($unconvertedRequests)): ?>
+                <?php if (empty($clients) && empty($standaloneContacts) && empty($unconvertedRequests)): ?>
                   <div class="text-center text-muted py-5">
                     <i data-feather="inbox" style="width: 48px; height: 48px;"></i>
                     <p class="mt-3 mb-0">No clients yet. <a href="?action=new">Create one now</a></p>
@@ -839,6 +907,48 @@ $unconvertedRequests = $db->query("
                               <a href="?action=edit&id=<?php echo (int)$c['id']; ?>" class="btn btn-sm btn-primary">
                                 <i data-feather="edit"></i> Edit
                               </a>
+                            </td>
+                          </tr>
+                          <?php endforeach; ?>
+                        </tbody>
+                      </table>
+                    </div>
+                  <?php endif; ?>
+
+                  <!-- Standalone Contacts (not linked to a company) -->
+                  <?php if (!empty($standaloneContacts)): ?>
+                    <h6 class="mb-2 mt-2">
+                      <i data-feather="user" style="width: 18px; height: 18px; display: inline; margin-right: 4px;"></i>
+                      Standalone Contacts
+                      <span class="badge badge-secondary ml-1"><?php echo count($standaloneContacts); ?></span>
+                    </h6>
+                    <p class="text-muted small mb-2">Contacts not yet linked to a company.</p>
+                    <div class="table-responsive mb-4">
+                      <table class="table table-sm table-hover">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <?php foreach ($standaloneContacts as $ct): ?>
+                          <tr>
+                            <td>
+                              <strong><?php echo h(trim($ct['first_name'] . ' ' . ($ct['last_name'] ?? ''))); ?></strong>
+                            </td>
+                            <td><?php echo h($ct['email'] ?? '—'); ?></td>
+                            <td><?php echo h($ct['phone'] ?? '—'); ?></td>
+                            <td>
+                              <span class="badge badge-<?php echo $ct['prospect_status'] === 'client' ? 'success' : ($ct['prospect_status'] === 'inactive' ? 'secondary' : 'info'); ?>">
+                                <?php echo ucfirst($ct['prospect_status'] ?? 'prospect'); ?>
+                              </span>
+                            </td>
+                            <td>
+                              <small class="text-muted"><?php echo formatDate($ct['created_at']); ?></small>
                             </td>
                           </tr>
                           <?php endforeach; ?>
@@ -1068,32 +1178,56 @@ $unconvertedRequests = $db->query("
               if (!draggedCard) return false;
 
               const targetStage = this.dataset.stage;
-              const companyId = parseInt(draggedCard.dataset.companyId);
+              const companyId = draggedCard.dataset.companyId ? parseInt(draggedCard.dataset.companyId) : null;
+              const contactId = draggedCard.dataset.contactId ? parseInt(draggedCard.dataset.contactId) : null;
 
               // Move card to new column
               this.appendChild(draggedCard);
 
-              // Update backend
-              fetch('clients_appstack.php?action=move_company', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  company_id: companyId,
-                  new_stage: targetStage,
-                  csrf_token: '<?php echo csrf_token(); ?>'
+              // Update backend — company or contact
+              if (companyId) {
+                fetch('clients_appstack.php?action=move_company', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    company_id: companyId,
+                    new_stage: targetStage,
+                    csrf_token: '<?php echo csrf_token(); ?>'
+                  })
                 })
-              })
-              .then(r => r.json())
-              .then(data => {
-                if (!data.success) {
-                  alert('Error: ' + (data.error || 'Unknown error'));
+                .then(r => r.json())
+                .then(data => {
+                  if (!data.success) {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    location.reload();
+                  }
+                })
+                .catch(err => {
+                  alert('Error: ' + err.message);
                   location.reload();
-                }
-              })
-              .catch(err => {
-                alert('Error: ' + err.message);
-                location.reload();
-              });
+                });
+              } else if (contactId) {
+                fetch('clients_appstack.php?action=move_contact', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contact_id: contactId,
+                    new_stage: targetStage,
+                    csrf_token: '<?php echo csrf_token(); ?>'
+                  })
+                })
+                .then(r => r.json())
+                .then(data => {
+                  if (!data.success) {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    location.reload();
+                  }
+                })
+                .catch(err => {
+                  alert('Error: ' + err.message);
+                  location.reload();
+                });
+              }
 
               return false;
             }

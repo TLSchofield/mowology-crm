@@ -1020,17 +1020,40 @@ function updateContactLifecycleStage($contactId, $newStage, $userId) {
     $db = getDB();
 
     try {
-        // Verify the stage exists in lifecycle_stages
-        $stmtCheck = $db->prepare("SELECT id FROM lifecycle_stages WHERE stage_key = ? AND is_active = 1 LIMIT 1");
-        $stmtCheck->execute([$newStage]);
-        if (!$stmtCheck->fetch()) {
-            error_log("Invalid lifecycle stage: {$newStage}");
-            return false;
-        }
+        // Map stage keys to prospect_status values
+        $prospectStatusMap = [
+            'prospect' => 'prospect', 'lead' => 'prospect',
+            'qualified' => 'prospect', 'opportunity' => 'prospect',
+            'client' => 'client', 'won' => 'client',
+            'inactive' => 'inactive', 'lost' => 'inactive'
+        ];
+        $prospectStatus = $prospectStatusMap[$newStage] ?? 'prospect';
 
-        // Update contact's lifecycle_stage
-        $stmt = $db->prepare("UPDATE contacts SET lifecycle_stage = ? WHERE id = ?");
-        $result = $stmt->execute([$newStage, $contactId]);
+        // Update prospect_status (always available)
+        $stmt = $db->prepare("UPDATE contacts SET prospect_status = ? WHERE id = ?");
+        $result = $stmt->execute([$prospectStatus, $contactId]);
+
+        // Also update lifecycle_stage if column exists
+        try {
+            $colCheck = $db->query("SHOW COLUMNS FROM contacts LIKE 'lifecycle_stage'");
+            if ($colCheck->rowCount() > 0) {
+                // Verify the stage exists in lifecycle_stages if table exists
+                $stageValid = true;
+                try {
+                    $stmtCheck = $db->prepare("SELECT id FROM lifecycle_stages WHERE stage_key = ? AND is_active = 1 LIMIT 1");
+                    $stmtCheck->execute([$newStage]);
+                    $stageValid = (bool)$stmtCheck->fetch();
+                } catch (Exception $e) {
+                    // lifecycle_stages table may not exist
+                }
+
+                if ($stageValid) {
+                    $db->prepare("UPDATE contacts SET lifecycle_stage = ? WHERE id = ?")->execute([$newStage, $contactId]);
+                }
+            }
+        } catch (Exception $e) {
+            // Ignore — lifecycle_stage column may not exist
+        }
 
         if ($result) {
             logActivityExtended($userId, 'Contact lifecycle stage changed', "Changed to {$newStage}", null, null, null, null);
