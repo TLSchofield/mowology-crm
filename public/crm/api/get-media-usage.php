@@ -9,7 +9,7 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/../includes/bootstrap.php';
-require_once dirname(__DIR__) . '/cms-functions.php';
+require_once dirname(__DIR__) . '/includes/cms-functions.php';
 
 header('Content-Type: application/json');
 
