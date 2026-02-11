@@ -889,7 +889,7 @@ $activePage = 'products';
               hydrateFeatherIcons();
             }
 
-            // Open media browser modal — auto-fill search with product name
+            // Open media browser modal — always load library, score by product name
             function openMediaBrowser() {
               const productName = document.querySelector('[name="name"]').value.trim();
               const searchInput = document.getElementById('mediaSearchInput');
@@ -897,12 +897,13 @@ $activePage = 'products';
 
               if (productName) {
                 document.getElementById('mediaSuggestionHint').textContent =
-                  'Showing suggestions for "' + productName + '"';
-                searchMediaLibrary();
+                  'Suggestions for "' + productName + '" shown first';
               } else {
                 document.getElementById('mediaSuggestionHint').textContent = '';
-                loadAllMedia();
               }
+
+              // Always load the full library — matches sort to top
+              fetchMediaAssets(productName);
 
               // Show on top of the product modal
               $('#mediaBrowserModal').modal({backdrop: false});
