@@ -173,7 +173,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
             // --- SEND SMS (if consented) ---
             if ($customerPhone && $customerConsentsToSms) {
-                $smsMessage = "Your quote #{$quote['quote_number']} from Mowology is ready. Reply STOP to opt out.";
+                $smsMessage = "Your quote #{$quote['quote_number']} from Mowology is ready. Check your inbox or junk folder for details. Reply STOP to opt out.";
                 $smsResult = sendSms($customerPhone, $smsMessage);
 
                 if ($smsResult['success']) {
