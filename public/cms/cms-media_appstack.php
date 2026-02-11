@@ -156,19 +156,33 @@ foreach ($media as &$m) {
         ); ?>
     <?php else: ?>
         <?php echo admin_table($media, [
+            'file_path' => [
+                'label' => '',
+                'width' => '60px',
+                'format' => function($val, $row) {
+                    $type = $row['file_type'] ?? '';
+                    if ($type === 'image' && !empty($val)) {
+                        return '<img src="' . h((string)$val) . '" alt="' . h((string)($row['alt_text'] ?? '')) . '" style="width:48px;height:48px;object-fit:cover;border-radius:4px;">';
+                    } elseif ($type === 'video') {
+                        return '<div style="width:48px;height:48px;background:#e2e8f0;border-radius:4px;display:flex;align-items:center;justify-content:center;"><i data-feather="film" style="width:20px;height:20px;color:#64748b;"></i></div>';
+                    } else {
+                        return '<div style="width:48px;height:48px;background:#e2e8f0;border-radius:4px;display:flex;align-items:center;justify-content:center;"><i data-feather="file-text" style="width:20px;height:20px;color:#64748b;"></i></div>';
+                    }
+                },
+            ],
             'filename' => [
                 'label' => 'Filename',
-                'width' => '30%',
+                'width' => '28%',
             ],
             'alt_text' => [
                 'label' => 'Alt Text',
-                'width' => '25%',
+                'width' => '22%',
             ],
             'type_display' => [
                 'label' => 'Type',
                 'badge' => true,
-                'badge_variant' => ['image' => 'primary', 'video' => 'info', 'document' => 'secondary'],
-                'width' => '12%',
+                'badge_variant' => ['Image' => 'primary', 'Video' => 'info', 'Document' => 'secondary'],
+                'width' => '10%',
             ],
             'file_size_kb' => [
                 'label' => 'Size (KB)',
@@ -177,7 +191,7 @@ foreach ($media as &$m) {
             ],
             'uploaded_date' => [
                 'label' => 'Uploaded',
-                'width' => '15%',
+                'width' => '12%',
                 'align' => 'right',
             ],
         ], [
