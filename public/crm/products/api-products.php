@@ -320,6 +320,37 @@ try {
             'products' => $stmt->fetchAll(PDO::FETCH_ASSOC)
         ]);
 
+    } elseif ($action === 'bulk-delete') {
+        // Bulk delete products (hard delete for test data cleanup)
+        $data = json_decode(file_get_contents('php://input'), true);
+        $ids = array_filter(array_map('intval', $data['ids'] ?? []), function($id) { return $id > 0; });
+
+        if (empty($ids)) {
+            throw new Exception('No valid product IDs provided');
+        }
+
+        if (count($ids) > 100) {
+            throw new Exception('Maximum 100 products can be deleted at once');
+        }
+
+        $db->beginTransaction();
+        try {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $stmt = $db->prepare("DELETE FROM products WHERE id IN ({$placeholders})");
+            $stmt->execute($ids);
+            $deleted = $stmt->rowCount();
+            $db->commit();
+
+            echo json_encode([
+                'success' => true,
+                'deleted_count' => $deleted,
+                'message' => $deleted . ' product(s) deleted'
+            ]);
+        } catch (Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }

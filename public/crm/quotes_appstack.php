@@ -452,6 +452,9 @@ $activePage = 'quotes';
                           <table class="mw-table">
                               <thead>
                                   <tr>
+                                      <th class="mw-bulk-checkbox-cell">
+                                          <input type="checkbox" class="mw-bulk-checkbox" id="mw-quotes-select-all" title="Select all">
+                                      </th>
                                       <th>Quote #</th>
                                       <th>Client</th>
                                       <th>Service</th>
@@ -481,6 +484,9 @@ $activePage = 'quotes';
                                       if (empty($clientName)) $clientName = 'N/A';
                                   ?>
                                       <tr>
+                                          <td class="mw-bulk-checkbox-cell">
+                                              <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$quote['id']; ?>">
+                                          </td>
                                           <td>
                                               <strong><?php echo htmlspecialchars($quote['quote_number']); ?></strong>
                                           </td>
@@ -506,6 +512,17 @@ $activePage = 'quotes';
                       </div>
                   <?php endif; ?>
               </div>
+          </div>
+
+          <!-- Bulk Action Bar -->
+          <div class="mw-bulk-action-bar" id="mw-quotes-bulk-bar">
+            <div>
+              <span class="mw-bulk-count" id="mw-quotes-bulk-count">0</span> quotes selected
+              <button class="btn btn-sm mw-bulk-clear-btn ml-3" onclick="mwBulkClearQuotes()">Clear Selection</button>
+            </div>
+            <button class="btn btn-sm btn-danger" onclick="mwBulkDeleteQuotes()">
+              <i data-feather="trash-2"></i> Delete Selected
+            </button>
           </div>
 
           <!-- View Toggle JavaScript -->
@@ -547,6 +564,78 @@ $activePage = 'quotes';
                   });
               });
           });
+
+          // ── Bulk Delete ──────────────────────────────────────
+          var mwQuotesBulkSelected = new Set();
+
+          // Select-all checkbox
+          document.getElementById('mw-quotes-select-all').addEventListener('change', function() {
+              var checked = this.checked;
+              document.querySelectorAll('#table-view .mw-bulk-row-select').forEach(function(cb) {
+                  cb.checked = checked;
+                  var id = parseInt(cb.dataset.id);
+                  if (checked) {
+                      mwQuotesBulkSelected.add(id);
+                  } else {
+                      mwQuotesBulkSelected.delete(id);
+                  }
+              });
+              mwQuotesBulkUpdateBar();
+          });
+
+          // Individual row checkbox
+          document.addEventListener('change', function(e) {
+              if (e.target.classList.contains('mw-bulk-row-select') && e.target.closest('#table-view')) {
+                  var id = parseInt(e.target.dataset.id);
+                  if (e.target.checked) {
+                      mwQuotesBulkSelected.add(id);
+                  } else {
+                      mwQuotesBulkSelected.delete(id);
+                      document.getElementById('mw-quotes-select-all').checked = false;
+                  }
+                  mwQuotesBulkUpdateBar();
+              }
+          });
+
+          function mwQuotesBulkUpdateBar() {
+              var bar = document.getElementById('mw-quotes-bulk-bar');
+              var count = document.getElementById('mw-quotes-bulk-count');
+              count.textContent = mwQuotesBulkSelected.size;
+              if (mwQuotesBulkSelected.size > 0) {
+                  bar.classList.add('mw-bulk-visible');
+              } else {
+                  bar.classList.remove('mw-bulk-visible');
+              }
+          }
+
+          function mwBulkClearQuotes() {
+              mwQuotesBulkSelected.clear();
+              document.querySelectorAll('#table-view .mw-bulk-row-select').forEach(function(cb) { cb.checked = false; });
+              document.getElementById('mw-quotes-select-all').checked = false;
+              mwQuotesBulkUpdateBar();
+          }
+
+          function mwBulkDeleteQuotes() {
+              var count = mwQuotesBulkSelected.size;
+              if (count === 0) return;
+              if (!confirm('Permanently delete ' + count + ' quote(s)? This will also remove their line items and notes. Jobs linked to these quotes will be unlinked. This cannot be undone.')) return;
+
+              fetch('quotes/api-quotes.php?action=bulk-delete', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ids: Array.from(mwQuotesBulkSelected) })
+              })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                  if (data.success) {
+                      alert(data.deleted_count + ' quote(s) deleted.');
+                      location.reload();
+                  } else {
+                      alert('Error: ' + (data.error || 'Unknown error'));
+                  }
+              })
+              .catch(function(err) { alert('Error: ' + err.message); });
+          }
           </script>
 
 <?php include 'includes/appstack_footer.php'; ?>

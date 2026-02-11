@@ -4784,3 +4784,110 @@ textarea.font-monospace {
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================
+   BULK ACTIONS — Multi-select & Delete
+   ============================================ */
+
+/* Checkbox column in tables */
+.mw-bulk-checkbox-cell {
+  width: 40px;
+  text-align: center;
+  vertical-align: middle !important;
+}
+
+.mw-bulk-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--mw-green);
+}
+
+/* Checkbox overlay on product cards */
+.mw-product-card {
+  position: relative;
+}
+
+.mw-bulk-card-checkbox {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  accent-color: var(--mw-green);
+  display: none;
+}
+
+.mw-bulk-mode .mw-bulk-card-checkbox {
+  display: block;
+}
+
+.mw-product-card.mw-bulk-selected {
+  outline: 3px solid var(--mw-green);
+  outline-offset: -3px;
+}
+
+/* Floating bulk action bar */
+.mw-bulk-action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1050;
+  background: var(--mw-forest);
+  color: #fff;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.mw-bulk-action-bar.mw-bulk-visible {
+  transform: translateY(0);
+}
+
+.mw-bulk-action-bar .mw-bulk-count {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.mw-bulk-action-bar .btn-danger {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.mw-bulk-action-bar .btn-danger:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.mw-bulk-action-bar .mw-bulk-clear-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.mw-bulk-action-bar .mw-bulk-clear-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Bulk mode toggle button active state */
+.mw-bulk-toggle-btn.active {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+/* Responsive bulk bar */
+@media (max-width: 576px) {
+  .mw-bulk-action-bar {
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 16px;
+  }
+}

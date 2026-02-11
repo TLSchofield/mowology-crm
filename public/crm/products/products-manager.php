@@ -38,6 +38,9 @@ $activePage = 'products';
               <button class="btn btn-outline-secondary" onclick="openCategoryManager()">
                 <i data-feather="layers"></i> Manage Categories
               </button>
+              <button class="btn btn-outline-danger mw-bulk-toggle-btn" id="bulkModeToggle" onclick="toggleBulkMode()">
+                <i data-feather="check-square"></i> Select for Delete
+              </button>
               <button class="btn btn-primary ml-auto" onclick="openAddProductModal()">
                 <i data-feather="plus"></i> Add Product/Service
               </button>
@@ -47,6 +50,17 @@ $activePage = 'products';
           <!-- Products Grid -->
           <div class="mw-product-grid" id="productsGrid">
             <!-- Products will be loaded here -->
+          </div>
+
+          <!-- Bulk Action Bar -->
+          <div class="mw-bulk-action-bar" id="mw-products-bulk-bar">
+            <div>
+              <span class="mw-bulk-count" id="mw-products-bulk-count">0</span> products selected
+              <button class="btn btn-sm mw-bulk-clear-btn ml-3" onclick="mwBulkClearProducts()">Clear Selection</button>
+            </div>
+            <button class="btn btn-sm btn-danger" onclick="mwBulkDeleteProducts()">
+              <i data-feather="trash-2"></i> Delete Selected
+            </button>
           </div>
 
           <!-- Category Management Modal -->
@@ -764,7 +778,8 @@ $activePage = 'products';
               }
 
               grid.innerHTML = allProducts.map(p => `
-                <div class="mw-product-card ${p.is_archived ? 'mw-product-archived' : ''}">
+                <div class="mw-product-card ${p.is_archived ? 'mw-product-archived' : ''} ${mwProductsBulkSelected.has(parseInt(p.id)) ? 'mw-bulk-selected' : ''}" data-product-id="${p.id}">
+                  <input type="checkbox" class="mw-bulk-card-checkbox" data-id="${p.id}" ${mwProductsBulkSelected.has(parseInt(p.id)) ? 'checked' : ''} onchange="toggleProductSelection(${p.id}, this.checked)">
                   ${p.is_archived ? '<div class="mw-product-archived-badge">ARCHIVED</div>' : ''}
                   <div class="mw-product-image">
                     ${p.image_url
@@ -1131,6 +1146,81 @@ $activePage = 'products';
                 });
               }
             });
+
+            // ── Bulk Delete ──────────────────────────────────────
+            let bulkMode = false;
+            const mwProductsBulkSelected = new Set();
+
+            function toggleBulkMode() {
+              bulkMode = !bulkMode;
+              document.getElementById('productsGrid').classList.toggle('mw-bulk-mode', bulkMode);
+              document.getElementById('bulkModeToggle').classList.toggle('active', bulkMode);
+              if (!bulkMode) {
+                mwProductsBulkSelected.clear();
+                document.querySelectorAll('.mw-bulk-card-checkbox').forEach(function(cb) { cb.checked = false; });
+                document.querySelectorAll('.mw-product-card').forEach(function(c) { c.classList.remove('mw-bulk-selected'); });
+                mwBulkUpdateBar('products');
+              }
+            }
+
+            function toggleProductSelection(id, checked) {
+              id = parseInt(id);
+              if (checked) {
+                mwProductsBulkSelected.add(id);
+              } else {
+                mwProductsBulkSelected.delete(id);
+              }
+              var card = document.querySelector('.mw-product-card[data-product-id="' + id + '"]');
+              if (card) card.classList.toggle('mw-bulk-selected', checked);
+              mwBulkUpdateBar('products');
+            }
+
+            function mwBulkUpdateBar(entity) {
+              var bar = document.getElementById('mw-' + entity + '-bulk-bar');
+              var count = document.getElementById('mw-' + entity + '-bulk-count');
+              if (!bar || !count) return;
+              var size = mwProductsBulkSelected.size;
+              count.textContent = size;
+              if (size > 0) {
+                bar.classList.add('mw-bulk-visible');
+              } else {
+                bar.classList.remove('mw-bulk-visible');
+              }
+            }
+
+            function mwBulkClearProducts() {
+              mwProductsBulkSelected.clear();
+              document.querySelectorAll('.mw-bulk-card-checkbox').forEach(function(cb) { cb.checked = false; });
+              document.querySelectorAll('.mw-product-card').forEach(function(c) { c.classList.remove('mw-bulk-selected'); });
+              mwBulkUpdateBar('products');
+            }
+
+            function mwBulkDeleteProducts() {
+              var count = mwProductsBulkSelected.size;
+              if (count === 0) return;
+              if (!confirm('Permanently delete ' + count + ' product(s)? Existing quote line items will have their product link removed. This cannot be undone.')) return;
+
+              fetch('api-products.php?action=bulk-delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: Array.from(mwProductsBulkSelected) })
+              })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.success) {
+                  alert(data.deleted_count + ' product(s) deleted.');
+                  mwProductsBulkSelected.clear();
+                  bulkMode = false;
+                  document.getElementById('productsGrid').classList.remove('mw-bulk-mode');
+                  document.getElementById('bulkModeToggle').classList.remove('active');
+                  mwBulkUpdateBar('products');
+                  loadProducts();
+                } else {
+                  alert('Error: ' + (data.error || 'Unknown error'));
+                }
+              })
+              .catch(function(err) { alert('Error: ' + err.message); });
+            }
 
             // Utility: Escape HTML
             function escapeHtml(text) {

@@ -135,6 +135,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             echo json_encode(['success' => false, 'error' => htmlspecialchars($e->getMessage())]);
         }
         exit;
+    } elseif ($requestAction === 'bulk_delete') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $ids = array_filter(array_map('intval', $jsonData['ids'] ?? []), function($id) { return $id > 0; });
+        if (empty($ids)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'No valid IDs provided']);
+            exit;
+        }
+
+        if (count($ids) > 100) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Maximum 100 clients can be deleted at once']);
+            exit;
+        }
+
+        try {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+            // Count related records for the response
+            $relatedJobs = 0;
+            $relatedInvoices = 0;
+            try {
+                $stmt = $db->prepare("SELECT COUNT(*) FROM jobs WHERE company_id IN ({$placeholders})");
+                $stmt->execute($ids);
+                $relatedJobs = (int)$stmt->fetchColumn();
+            } catch (Exception $e) {}
+            try {
+                $stmt = $db->prepare("SELECT COUNT(*) FROM invoices WHERE company_id IN ({$placeholders})");
+                $stmt->execute($ids);
+                $relatedInvoices = (int)$stmt->fetchColumn();
+            } catch (Exception $e) {}
+
+            $db->beginTransaction();
+
+            // Clean up activity_log (no FK constraint)
+            try {
+                $db->prepare("DELETE FROM activity_log WHERE company_id IN ({$placeholders})")->execute($ids);
+            } catch (Exception $e) {}
+
+            // Delete companies (cascades: company_properties, invoices, jobs)
+            $stmt = $db->prepare("DELETE FROM companies WHERE id IN ({$placeholders})");
+            $stmt->execute($ids);
+            $deleted = $stmt->rowCount();
+
+            $db->commit();
+
+            echo json_encode([
+                'success' => true,
+                'deleted_count' => $deleted,
+                'related_jobs' => $relatedJobs,
+                'related_invoices' => $relatedInvoices
+            ]);
+        } catch (Exception $e) {
+            $db->rollBack();
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Delete failed']);
+        }
+        exit;
+
     } elseif ($requestAction === 'convert_to_prospect') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
@@ -723,6 +787,9 @@ $unconvertedRequests = $db->query("
                       <table class="table table-hover">
                         <thead>
                           <tr>
+                            <th class="mw-bulk-checkbox-cell">
+                              <input type="checkbox" class="mw-bulk-checkbox" id="mw-clients-select-all" title="Select all">
+                            </th>
                             <th>Name</th>
                             <th>Type</th>
                             <th>Email</th>
@@ -734,6 +801,9 @@ $unconvertedRequests = $db->query("
                         <tbody>
                           <?php foreach ($clients as $c): ?>
                           <tr <?php echo $c['source_type'] === 'prospect' ? 'style="background: #fef3c7; opacity: 0.9;"' : ''; ?>>
+                            <td class="mw-bulk-checkbox-cell">
+                              <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$c['id']; ?>">
+                            </td>
                             <td>
                               <strong><?php echo h($c['company_name']); ?></strong>
                               <?php if ($c['source_type'] === 'prospect'): ?>
@@ -844,6 +914,17 @@ $unconvertedRequests = $db->query("
             </div>
             </div><!-- end list-view -->
           <?php endif; ?>
+
+          <!-- Bulk Action Bar -->
+          <div class="mw-bulk-action-bar" id="mw-clients-bulk-bar">
+            <div>
+              <span class="mw-bulk-count" id="mw-clients-bulk-count">0</span> clients selected
+              <button class="btn btn-sm mw-bulk-clear-btn ml-3" onclick="mwBulkClearClients()">Clear Selection</button>
+            </div>
+            <button class="btn btn-sm btn-danger" onclick="mwBulkDeleteClients()">
+              <i data-feather="trash-2"></i> Delete Selected
+            </button>
+          </div>
 
           <!-- Stage Manager Modal -->
           <div class="modal fade" id="stageManagerModal" tabindex="-1" role="dialog">
@@ -1197,6 +1278,97 @@ $unconvertedRequests = $db->query("
                 }
               })
               .catch(err => alert('Error: ' + err.message));
+            }
+
+            // ── Bulk Delete ──────────────────────────────────────
+            var mwClientsBulkSelected = new Set();
+
+            // Select-all checkbox
+            var clientsSelectAll = document.getElementById('mw-clients-select-all');
+            if (clientsSelectAll) {
+              clientsSelectAll.addEventListener('change', function() {
+                var checked = this.checked;
+                document.querySelectorAll('#list-view .mw-bulk-row-select').forEach(function(cb) {
+                  cb.checked = checked;
+                  var id = parseInt(cb.dataset.id);
+                  if (checked) {
+                    mwClientsBulkSelected.add(id);
+                  } else {
+                    mwClientsBulkSelected.delete(id);
+                  }
+                });
+                mwClientsBulkUpdateBar();
+              });
+            }
+
+            // Individual row checkbox
+            document.addEventListener('change', function(e) {
+              if (e.target.classList.contains('mw-bulk-row-select') && e.target.closest('#list-view')) {
+                var id = parseInt(e.target.dataset.id);
+                if (e.target.checked) {
+                  mwClientsBulkSelected.add(id);
+                } else {
+                  mwClientsBulkSelected.delete(id);
+                  if (clientsSelectAll) clientsSelectAll.checked = false;
+                }
+                mwClientsBulkUpdateBar();
+              }
+            });
+
+            function mwClientsBulkUpdateBar() {
+              var bar = document.getElementById('mw-clients-bulk-bar');
+              var count = document.getElementById('mw-clients-bulk-count');
+              if (!bar || !count) return;
+              count.textContent = mwClientsBulkSelected.size;
+              if (mwClientsBulkSelected.size > 0) {
+                bar.classList.add('mw-bulk-visible');
+              } else {
+                bar.classList.remove('mw-bulk-visible');
+              }
+            }
+
+            function mwBulkClearClients() {
+              mwClientsBulkSelected.clear();
+              document.querySelectorAll('#list-view .mw-bulk-row-select').forEach(function(cb) { cb.checked = false; });
+              if (clientsSelectAll) clientsSelectAll.checked = false;
+              mwClientsBulkUpdateBar();
+            }
+
+            function mwBulkDeleteClients() {
+              var count = mwClientsBulkSelected.size;
+              if (count === 0) return;
+
+              var response = prompt(
+                'WARNING: Permanently delete ' + count + ' client(s)?\n\n' +
+                'This will CASCADE DELETE all their:\n' +
+                '• Jobs\n' +
+                '• Invoices\n' +
+                '• Property associations\n\n' +
+                'This is IRREVERSIBLE. Type DELETE to confirm:'
+              );
+              if (response !== 'DELETE') return;
+
+              fetch('?action=bulk_delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  ids: Array.from(mwClientsBulkSelected),
+                  csrf_token: '<?php echo generateCSRFToken(); ?>'
+                })
+              })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.success) {
+                  var msg = data.deleted_count + ' client(s) deleted.';
+                  if (data.related_jobs > 0) msg += '\n' + data.related_jobs + ' job(s) cascade-deleted.';
+                  if (data.related_invoices > 0) msg += '\n' + data.related_invoices + ' invoice(s) cascade-deleted.';
+                  alert(msg);
+                  location.reload();
+                } else {
+                  alert('Error: ' + (data.error || 'Unknown error'));
+                }
+              })
+              .catch(function(err) { alert('Error: ' + err.message); });
             }
           </script>
 
