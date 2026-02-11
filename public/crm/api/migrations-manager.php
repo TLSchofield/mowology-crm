@@ -105,14 +105,37 @@ function handleListMigrations() {
     $applied = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     $appliedNames = array_column($applied, 'migration_filename');
 
-    // Build pending list
+    // Build pending list with metadata
     $pending = [];
     foreach ($files as $file) {
         $filename = basename($file);
         if (!in_array($filename, $appliedNames)) {
+            // Parse metadata from SQL file comments
+            $content = file_get_contents($file);
+            $title = $filename;
+            $purpose = '';
+            $createdAt = date('Y-m-d', filemtime($file));
+
+            // Extract title from comment: "-- Migration NNN: Title" or "* Migration: Title"
+            if (preg_match('/--\s*Migration\s*\d*:?\s*(.+)/i', $content, $m)) {
+                $title = trim($m[1]);
+            } elseif (preg_match('/\*\s*Migration:\s*(.+)/i', $content, $m)) {
+                $title = trim($m[1]);
+            }
+
+            // Extract purpose from comment: "-- Purpose:" or "-- description line"
+            if (preg_match('/--\s*(?:Purpose|Description):\s*(.+)/i', $content, $m)) {
+                $purpose = trim($m[1]);
+            } elseif (preg_match('/--\s*(?:Allows|Used to|Creates?|Adds?|Updates?|Drops?|Alters?)\s+(.+)/i', $content, $m)) {
+                $purpose = trim($m[0], "- \t\n\r");
+            }
+
             $pending[] = [
                 'filename' => $filename,
-                'path' => $file
+                'title' => $title,
+                'purpose' => $purpose,
+                'created_at' => $createdAt,
+                'size' => filesize($file)
             ];
         }
     }

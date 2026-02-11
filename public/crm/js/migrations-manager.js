@@ -106,14 +106,18 @@ function loadPendingMigrations() {
         data.pending.forEach(migration => {
             const card = document.createElement('div');
             card.className = 'col-md-6 col-lg-4 mb-3';
+            const title = migration.title || migration.filename;
+            const purpose = migration.purpose || '';
+            const createdAt = migration.created_at || '';
+            const sizeKb = migration.size ? (migration.size / 1024).toFixed(1) + ' KB' : '';
             card.innerHTML = `
                 <div class="card mw-migration-card border-warning">
                     <div class="card-body">
                         <h6 class="card-title font-monospace small">${escapeHtml(migration.filename)}</h6>
-                        <p class="card-text small mb-2">${escapeHtml(migration.title)}</p>
-                        <p class="text-muted small mb-2">${escapeHtml(migration.purpose)}</p>
+                        ${title !== migration.filename ? '<p class="card-text small mb-2">' + escapeHtml(title) + '</p>' : ''}
+                        ${purpose ? '<p class="text-muted small mb-2">' + escapeHtml(purpose) + '</p>' : ''}
                         <div class="d-flex justify-content-between align-items-center">
-                            <small class="text-muted">${migration.created_at}</small>
+                            <small class="text-muted">${createdAt}${sizeKb ? ' · ' + sizeKb : ''}</small>
                             <button class="btn btn-sm btn-warning" onclick="executeMigration('${escapeHtml(migration.filename)}')">
                                 Execute
                             </button>
