@@ -806,6 +806,29 @@ function getLifecycleStages($entityType = null) {
 function getCompaniesByLifecycleStage() {
     $db = getDB();
 
+    // Check if lifecycle_stage column exists on companies
+    $hasLifecycleCol = false;
+    try {
+        $colCheck = $db->query("SHOW COLUMNS FROM companies LIKE 'lifecycle_stage'");
+        $hasLifecycleCol = ($colCheck->rowCount() > 0);
+    } catch (Exception $e) {
+        // Ignore
+    }
+
+    if (!$hasLifecycleCol) {
+        // Column doesn't exist — return all companies under 'prospect'
+        $stmt = $db->query("SELECT c.* FROM companies c ORDER BY c.company_name ASC");
+        $companies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $grouped = [];
+        foreach ($companies as $company) {
+            if (!isset($grouped['prospect'])) {
+                $grouped['prospect'] = ['label' => 'Prospect', 'color' => '#3B82F6', 'companies' => []];
+            }
+            $grouped['prospect']['companies'][] = $company;
+        }
+        return $grouped;
+    }
+
     try {
         $stmt = $db->query("
             SELECT c.*,
@@ -836,8 +859,8 @@ function getCompaniesByLifecycleStage() {
         $stage = $company['lifecycle_stage'] ?? 'prospect';
         if (!isset($grouped[$stage])) {
             $grouped[$stage] = [
-                'label' => $company['stage_label'],
-                'color' => $company['stage_color'],
+                'label' => $company['stage_label'] ?? ucfirst($stage),
+                'color' => $company['stage_color'] ?? '#6B7280',
                 'companies' => []
             ];
         }
