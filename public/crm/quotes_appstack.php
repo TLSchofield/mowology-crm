@@ -75,9 +75,11 @@ try {
     //   4. properties.site_contact_id → contacts (fallback)
     $quotesResult = $db->query("
         SELECT
-            q.id, q.quote_number, q.status, q.total_amount,
-            q.created_at, q.expiry_date, q.property_id, q.company_id, q.created_by,
-            q.service_types,
+            q.id, q.quote_number, q.status,
+            COALESCE(q.total_amount, q.amount, 0) AS total_amount,
+            q.created_at, COALESCE(q.expiry_date, q.valid_until) AS expiry_date,
+            q.property_id, q.company_id, q.created_by,
+            COALESCE(q.service_types, q.service_type) AS service_types,
             COALESCE(co.company_name, cp_co.company_name) AS company_name,
             p.address AS property_address,
             p.city AS property_city,
