@@ -152,21 +152,43 @@ function sendSms(
 
     $attempts = 0;
     $errors = [];
-    $fromEmail = 'no-reply@mowology.ca';
+
+    // Try PHPMailer SMTP first (same authenticated path as email)
+    $mailer = _createMailer();
 
     foreach (CANADIAN_SMS_GATEWAYS as $carrierName => $smsDomain) {
         $attempts++;
         $smsRecipient = $cleanPhone . '@' . $smsDomain;
 
         try {
-            $headers = "From: {$senderName} <{$fromEmail}>\r\n";
-            $headers .= "X-Mailer: Mowology SMS Gateway\r\n";
-            $subject = "Message from {$senderName}";
+            $result = false;
 
-            $result = mail($smsRecipient, $subject, $message, $headers);
+            if ($mailer) {
+                // Send via PHPMailer SMTP (reliable, authenticated)
+                try {
+                    $mailer->clearAddresses();
+                    $mailer->setFrom('no-reply@mowology.ca', $senderName);
+                    $mailer->addAddress($smsRecipient);
+                    $mailer->Subject = "Message from {$senderName}";
+                    $mailer->isHTML(false);
+                    $mailer->Body = $message;
+
+                    $result = $mailer->send();
+                } catch (\Throwable $smtpErr) {
+                    $errors[] = "{$carrierName}: SMTP error — " . $smtpErr->getMessage();
+                    error_log("SMS SMTP error for {$carrierName}: " . $smtpErr->getMessage());
+                    // Continue to next carrier
+                    continue;
+                }
+            } else {
+                // Fallback to native mail()
+                $headers = "From: {$senderName} <no-reply@mowology.ca>\r\n";
+                $headers .= "X-Mailer: Mowology SMS Gateway\r\n";
+                $result = mail($smsRecipient, "Message from {$senderName}", $message, $headers);
+            }
 
             if ($result) {
-                error_log("SMS: delivered via {$carrierName} to {$smsRecipient}");
+                error_log("SMS: delivered via {$carrierName} to {$smsRecipient}" . ($mailer ? ' (SMTP)' : ' (mail())'));
                 return [
                     'success' => true,
                     'carrier' => $carrierName,
@@ -175,7 +197,7 @@ function sendSms(
                 ];
             }
 
-            $errors[] = "{$carrierName}: mail() returned false";
+            $errors[] = "{$carrierName}: send returned false";
         } catch (\Throwable $e) {
             $errors[] = "{$carrierName}: " . $e->getMessage();
             error_log("SMS error for {$carrierName}: " . $e->getMessage());
