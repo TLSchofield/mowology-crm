@@ -153,48 +153,27 @@ function sendSms(
     $attempts = 0;
     $errors = [];
     $sentCarriers = [];
+    $fromEmail = 'no-reply@mowology.ca';
 
-    // Send to ALL carrier gateways via PHPMailer SMTP.
-    // We can't detect which carrier the recipient uses, so we send to all.
-    // The correct carrier delivers as SMS; wrong carriers silently bounce.
-    // Plain text only, empty subject, minimal headers — carriers reject HTML/links.
-    $mailer = _createMailer();
-
+    // Use native mail() for SMS gateways — NOT PHPMailer.
+    // PHPMailer adds MIME headers (Content-Type, MIME-Version, Message-ID, etc.)
+    // that carrier email-to-SMS gateways reject. Native mail() with minimal
+    // headers is exactly what worked in the diagnostics test yesterday.
+    // Send to ALL carriers since we can't detect which one the recipient uses.
     foreach (CANADIAN_SMS_GATEWAYS as $carrierName => $smsDomain) {
         $attempts++;
         $smsRecipient = $cleanPhone . '@' . $smsDomain;
 
         try {
-            $result = false;
+            $headers = "From: {$senderName} <{$fromEmail}>\r\n"
+                     . "X-Mailer: Mowology SMS Gateway\r\n";
 
-            if ($mailer) {
-                try {
-                    $mailer->clearAddresses();
-                    $mailer->clearAllRecipients();
-                    $mailer->setFrom('no-reply@mowology.ca', $senderName);
-                    $mailer->addAddress($smsRecipient);
-                    $mailer->Subject = '';
-                    $mailer->isHTML(false);
-                    $mailer->Body = $message;
-                    $mailer->AltBody = '';
-                    $mailer->Encoding = '7bit';
-                    $mailer->CharSet = 'us-ascii';
-
-                    $result = $mailer->send();
-                } catch (\Throwable $smtpErr) {
-                    $errors[] = "{$carrierName}: SMTP — " . $smtpErr->getMessage();
-                    continue;
-                }
-            } else {
-                // Fallback: native mail() with minimal headers
-                $headers = "From: {$senderName} <no-reply@mowology.ca>\r\n";
-                $result = mail($smsRecipient, '', $message, $headers);
-            }
+            $result = @mail($smsRecipient, '', $message, $headers);
 
             if ($result) {
                 $sentCarriers[] = $carrierName;
             } else {
-                $errors[] = "{$carrierName}: send returned false";
+                $errors[] = "{$carrierName}: mail() returned false";
             }
         } catch (\Throwable $e) {
             $errors[] = "{$carrierName}: " . $e->getMessage();
@@ -204,7 +183,7 @@ function sendSms(
     $success = !empty($sentCarriers);
 
     if ($success) {
-        error_log("SMS: sent to {$phone} via " . implode(', ', $sentCarriers) . ($mailer ? ' (SMTP)' : ' (mail())'));
+        error_log("SMS: sent to {$phone} via " . implode(', ', $sentCarriers));
     } else {
         error_log("SMS: failed to send to {$phone} — all carriers rejected");
     }
