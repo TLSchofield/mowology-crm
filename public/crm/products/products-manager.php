@@ -909,6 +909,13 @@ $activePage = 'products';
               const formData = new FormData(form);
               const data = Object.fromEntries(formData);
 
+              // Convert checkbox values: FormData sends "on" for checked, omits unchecked
+              data.uses_cost_calculator = form.elements['uses_cost_calculator'] && form.elements['uses_cost_calculator'].checked ? 1 : 0;
+              data.taxable = form.elements['taxable'] && form.elements['taxable'].checked ? 1 : 0;
+              data.track_inventory = form.elements['track_inventory'] && form.elements['track_inventory'].checked ? 1 : 0;
+              data.featured = form.elements['featured'] && form.elements['featured'].checked ? 1 : 0;
+              data.active = form.elements['active'] && form.elements['active'].checked ? 1 : 0;
+
               fetch('api-products.php?action=save-product', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

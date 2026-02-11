@@ -805,13 +805,29 @@ function getLifecycleStages($entityType = null) {
  */
 function getCompaniesByLifecycleStage() {
     $db = getDB();
-    $stmt = $db->query("
-        SELECT c.*, ls.stage_label, ls.stage_color
-        FROM companies c
-        LEFT JOIN lifecycle_stages ls ON c.lifecycle_stage = ls.stage_key
-        WHERE ls.is_active = 1
-        ORDER BY ls.stage_order ASC, c.company_name ASC
-    ");
+
+    try {
+        $stmt = $db->query("
+            SELECT c.*,
+                   COALESCE(ls.stage_label, CONCAT(UPPER(LEFT(c.lifecycle_stage, 1)), SUBSTRING(c.lifecycle_stage, 2))) as stage_label,
+                   COALESCE(ls.stage_color, '#6B7280') as stage_color,
+                   COALESCE(ls.stage_order, 999) as stage_order
+            FROM companies c
+            LEFT JOIN lifecycle_stages ls ON c.lifecycle_stage = ls.stage_key AND ls.is_active = 1
+            ORDER BY stage_order ASC, c.company_name ASC
+        ");
+    } catch (Exception $e) {
+        // lifecycle_stages table may not exist yet — fall back to companies only
+        error_log("getCompaniesByLifecycleStage: " . $e->getMessage());
+        $stmt = $db->query("
+            SELECT c.*,
+                   CONCAT(UPPER(LEFT(c.lifecycle_stage, 1)), SUBSTRING(c.lifecycle_stage, 2)) as stage_label,
+                   '#6B7280' as stage_color,
+                   999 as stage_order
+            FROM companies c
+            ORDER BY c.company_name ASC
+        ");
+    }
 
     $companies = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $grouped = [];

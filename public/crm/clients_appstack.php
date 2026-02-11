@@ -626,8 +626,37 @@ $unconvertedRequests = $db->query("
               <?php
                 $stagesData = getCompaniesByLifecycleStage();
                 $allStages = getLifecycleStages();
+
+                // Build effective columns: start with defined stages, then add any
+                // stages that exist in company data but aren't in the stages table
+                $kanbanColumns = [];
+                $seenKeys = [];
+                foreach ($allStages as $stage) {
+                    $kanbanColumns[] = $stage;
+                    $seenKeys[$stage['stage_key']] = true;
+                }
+                foreach ($stagesData as $stageKey => $data) {
+                    if (!isset($seenKeys[$stageKey])) {
+                        $kanbanColumns[] = [
+                            'stage_key' => $stageKey,
+                            'stage_label' => $data['label'] ?? ucfirst($stageKey),
+                            'stage_color' => $data['color'] ?? '#6B7280',
+                        ];
+                        $seenKeys[$stageKey] = true;
+                    }
+                }
+
+                // If no columns at all, provide default fallback columns
+                if (empty($kanbanColumns)) {
+                    $kanbanColumns = [
+                        ['stage_key' => 'prospect', 'stage_label' => 'Prospect', 'stage_color' => '#3B82F6'],
+                        ['stage_key' => 'qualified', 'stage_label' => 'Qualified', 'stage_color' => '#F59E0B'],
+                        ['stage_key' => 'client', 'stage_label' => 'Client', 'stage_color' => '#2D8659'],
+                        ['stage_key' => 'inactive', 'stage_label' => 'Inactive', 'stage_color' => '#6B7280'],
+                    ];
+                }
               ?>
-              <?php foreach ($allStages as $stage): ?>
+              <?php foreach ($kanbanColumns as $stage): ?>
                 <div class="mw-kanban-column" data-stage="<?php echo h($stage['stage_key']); ?>" style="border-top: 4px solid <?php echo h($stage['stage_color']); ?>;">
                   <div class="mw-kanban-header" style="background: <?php echo h($stage['stage_color']); ?>;">
                     <h5 class="mb-0 text-white">

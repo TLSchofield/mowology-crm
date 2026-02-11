@@ -113,18 +113,35 @@ try {
             throw new Exception('Product name and category are required');
         }
 
+        // Normalize checkbox values: "on" → 1, missing/falsy → 0
+        $boolFields = ['uses_cost_calculator', 'taxable', 'track_inventory', 'active', 'featured'];
+        foreach ($boolFields as $field) {
+            $val = $data[$field] ?? null;
+            $data[$field] = ($val === 'on' || $val === '1' || $val === 1 || $val === true) ? 1 : 0;
+        }
+        // Default taxable to 1 if not explicitly set
+        if (!isset($data['taxable']) || $data['taxable'] === '') {
+            $data['taxable'] = 1;
+        }
+
+        // Check if min_price column exists (migration 119 may not have run)
+        $hasMinPrice = false;
+        try {
+            $colCheck = $db->query("SHOW COLUMNS FROM products LIKE 'min_price'");
+            $hasMinPrice = ($colCheck->rowCount() > 0);
+        } catch (Exception $e) {
+            // Ignore — column doesn't exist
+        }
+
         if (empty($data['id'])) {
             // Create new product
-            $stmt = $db->prepare("
-                INSERT INTO products (
-                    name, category_id, unit_type_id, description, long_description,
-                    base_cost, base_price, min_price, markup_percentage, uses_cost_calculator,
+            $columns = "name, category_id, unit_type_id, description, long_description,
+                    base_cost, base_price, markup_percentage, uses_cost_calculator,
                     taxable, gst_rate, pst_rate, track_inventory, current_stock,
                     reorder_point, supplier_info, image_url, display_order, active,
-                    featured, created_by, sku
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-            $stmt->execute([
+                    featured, created_by, sku";
+            $placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?";
+            $params = [
                 $data['name'],
                 $data['category_id'],
                 $data['unit_type_id'] ?? 1,
@@ -132,23 +149,36 @@ try {
                 $data['long_description'] ?? null,
                 $data['base_cost'] ?? 0,
                 $data['base_price'] ?? 0,
-                !empty($data['min_price']) ? $data['min_price'] : null,
                 $data['markup_percentage'] ?? 35,
-                $data['uses_cost_calculator'] ?? 0,
-                $data['taxable'] ?? 1,
+                $data['uses_cost_calculator'],
+                $data['taxable'],
                 $data['gst_rate'] ?? 5,
                 $data['pst_rate'] ?? 0,
-                $data['track_inventory'] ?? 0,
+                $data['track_inventory'],
                 $data['current_stock'] ?? 0,
                 $data['reorder_point'] ?? 0,
                 $data['supplier_info'] ?? null,
                 $data['image_url'] ?? null,
                 $data['display_order'] ?? 0,
-                $data['active'] ?? 1,
-                $data['featured'] ?? 0,
+                $data['active'],
+                $data['featured'],
                 $user['id'],
                 $data['sku'] ?? null
-            ]);
+            ];
+
+            if ($hasMinPrice) {
+                $columns = "name, category_id, unit_type_id, description, long_description,
+                    base_cost, base_price, min_price, markup_percentage, uses_cost_calculator,
+                    taxable, gst_rate, pst_rate, track_inventory, current_stock,
+                    reorder_point, supplier_info, image_url, display_order, active,
+                    featured, created_by, sku";
+                $placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?";
+                // Insert min_price after base_price (index 6)
+                array_splice($params, 7, 0, [!empty($data['min_price']) ? $data['min_price'] : null]);
+            }
+
+            $stmt = $db->prepare("INSERT INTO products ({$columns}) VALUES ({$placeholders})");
+            $stmt->execute($params);
 
             $productId = $db->lastInsertId();
             echo json_encode([
@@ -158,17 +188,13 @@ try {
             ]);
         } else {
             // Update existing product
-            $stmt = $db->prepare("
-                UPDATE products SET
-                    name = ?, category_id = ?, unit_type_id = ?, description = ?,
-                    long_description = ?, base_cost = ?, base_price = ?, min_price = ?,
+            $setClauses = "name = ?, category_id = ?, unit_type_id = ?, description = ?,
+                    long_description = ?, base_cost = ?, base_price = ?,
                     markup_percentage = ?, taxable = ?, gst_rate = ?, pst_rate = ?,
                     track_inventory = ?, current_stock = ?, reorder_point = ?,
                     supplier_info = ?, image_url = ?, display_order = ?,
-                    active = ?, featured = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([
+                    active = ?, featured = ?";
+            $params = [
                 $data['name'],
                 $data['category_id'],
                 $data['unit_type_id'] ?? 1,
@@ -176,21 +202,34 @@ try {
                 $data['long_description'] ?? null,
                 $data['base_cost'] ?? 0,
                 $data['base_price'] ?? 0,
-                !empty($data['min_price']) ? $data['min_price'] : null,
                 $data['markup_percentage'] ?? 35,
-                $data['taxable'] ?? 1,
+                $data['taxable'],
                 $data['gst_rate'] ?? 5,
                 $data['pst_rate'] ?? 0,
-                $data['track_inventory'] ?? 0,
+                $data['track_inventory'],
                 $data['current_stock'] ?? 0,
                 $data['reorder_point'] ?? 0,
                 $data['supplier_info'] ?? null,
                 $data['image_url'] ?? null,
                 $data['display_order'] ?? 0,
-                $data['active'] ?? 1,
-                $data['featured'] ?? 0,
-                $data['id']
-            ]);
+                $data['active'],
+                $data['featured']
+            ];
+
+            if ($hasMinPrice) {
+                $setClauses = "name = ?, category_id = ?, unit_type_id = ?, description = ?,
+                    long_description = ?, base_cost = ?, base_price = ?, min_price = ?,
+                    markup_percentage = ?, taxable = ?, gst_rate = ?, pst_rate = ?,
+                    track_inventory = ?, current_stock = ?, reorder_point = ?,
+                    supplier_info = ?, image_url = ?, display_order = ?,
+                    active = ?, featured = ?";
+                // Insert min_price after base_price (index 6)
+                array_splice($params, 7, 0, [!empty($data['min_price']) ? $data['min_price'] : null]);
+            }
+
+            $params[] = $data['id'];
+            $stmt = $db->prepare("UPDATE products SET {$setClauses} WHERE id = ?");
+            $stmt->execute($params);
 
             echo json_encode([
                 'success' => true,

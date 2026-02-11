@@ -96,13 +96,57 @@ function loadPendingMigrations() {
 
         document.getElementById('pendingCount').textContent = data.pending_count;
 
-        if (data.pending.length === 0) {
+        const hasAssumed = data.assumed_executed && data.assumed_executed.length > 0;
+        if (data.pending.length === 0 && !hasAssumed) {
             document.getElementById('noPendingMessage').style.display = 'block';
             return;
         }
 
         document.getElementById('noPendingMessage').style.display = 'none';
 
+        // Render assumed-executed migrations (file date older than today) as muted/executed
+        if (data.assumed_executed && data.assumed_executed.length > 0) {
+            const assumedHeader = document.createElement('div');
+            assumedHeader.className = 'col-12 mb-2';
+            assumedHeader.innerHTML = `
+                <div class="alert alert-light border py-2 px-3 mb-2 d-flex justify-content-between align-items-center">
+                    <span class="small"><strong>${data.assumed_executed.length}</strong> older migration(s) assumed already executed <span class="text-muted">(file date before today)</span></span>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleAssumedMigrations()" id="toggleAssumedBtn">Show</button>
+                </div>
+            `;
+            list.appendChild(assumedHeader);
+
+            data.assumed_executed.forEach(migration => {
+                const card = document.createElement('div');
+                card.className = 'col-md-6 col-lg-4 mb-3 assumed-migration-card';
+                card.style.display = 'none';
+                const title = migration.title || migration.filename;
+                const purpose = migration.purpose || '';
+                const createdAt = migration.created_at || '';
+                const sizeKb = migration.size ? (migration.size / 1024).toFixed(1) + ' KB' : '';
+                card.innerHTML = `
+                    <div class="card mw-migration-card border-secondary" style="opacity: 0.7;">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start mb-1">
+                                <h6 class="card-title font-monospace small mb-0">${escapeHtml(migration.filename)}</h6>
+                                <span class="badge badge-secondary">Assumed Executed</span>
+                            </div>
+                            ${title !== migration.filename ? '<p class="card-text small mb-2">' + escapeHtml(title) + '</p>' : ''}
+                            ${purpose ? '<p class="text-muted small mb-2">' + escapeHtml(purpose) + '</p>' : ''}
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted">${createdAt}${sizeKb ? ' · ' + sizeKb : ''}</small>
+                                <button class="btn btn-sm btn-outline-warning" onclick="executeMigration('${escapeHtml(migration.filename)}')">
+                                    Run Anyway
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        }
+
+        // Render truly pending migrations (file date is today or newer)
         data.pending.forEach(migration => {
             const card = document.createElement('div');
             card.className = 'col-md-6 col-lg-4 mb-3';
@@ -133,6 +177,20 @@ function loadPendingMigrations() {
         document.getElementById('pendingMigrationsLoading').innerHTML =
             '<div class="alert alert-danger">Failed to load migrations</div>';
     });
+}
+
+/**
+ * Toggle visibility of assumed-executed migration cards
+ */
+function toggleAssumedMigrations() {
+    const cards = document.querySelectorAll('.assumed-migration-card');
+    const btn = document.getElementById('toggleAssumedBtn');
+    const isHidden = cards.length > 0 && cards[0].style.display === 'none';
+
+    cards.forEach(card => {
+        card.style.display = isHidden ? '' : 'none';
+    });
+    btn.textContent = isHidden ? 'Hide' : 'Show';
 }
 
 /**

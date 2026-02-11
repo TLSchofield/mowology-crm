@@ -105,8 +105,11 @@ function handleListMigrations() {
     $applied = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     $appliedNames = array_column($applied, 'migration_filename');
 
-    // Build pending list with metadata
+    // Build pending and assumed-executed lists with metadata
     $pending = [];
+    $assumedExecuted = [];
+    $today = date('Y-m-d');
+
     foreach ($files as $file) {
         $filename = basename($file);
         if (!in_array($filename, $appliedNames)) {
@@ -130,21 +133,31 @@ function handleListMigrations() {
                 $purpose = trim($m[0], "- \t\n\r");
             }
 
-            $pending[] = [
+            $entry = [
                 'filename' => $filename,
                 'title' => $title,
                 'purpose' => $purpose,
                 'created_at' => $createdAt,
                 'size' => filesize($file)
             ];
+
+            // Migrations with file dates before today are assumed already executed
+            if ($createdAt < $today) {
+                $entry['assumed'] = true;
+                $assumedExecuted[] = $entry;
+            } else {
+                $pending[] = $entry;
+            }
         }
     }
 
     echo json_encode([
         'success' => true,
         'pending' => $pending,
+        'assumed_executed' => $assumedExecuted,
         'applied' => $applied,
         'applied_count' => count($applied),
+        'assumed_executed_count' => count($assumedExecuted),
         'pending_count' => count($pending),
         'total_count' => count($files)
     ]);

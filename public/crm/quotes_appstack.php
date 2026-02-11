@@ -67,13 +67,25 @@ $quotes = [];
 $totalQuotes = 0;
 
 try {
-    // Step 1: Get all quotes with basic info (simple, reliable query)
+    // Get all quotes with company, property, contact, and job info in one query
     $quotesResult = $db->query("
         SELECT
             q.id, q.quote_number, q.status, q.total_amount,
             q.created_at, q.expiry_date, q.property_id, q.company_id, q.created_by,
-            q.service_types
+            q.service_types,
+            co.company_name,
+            p.address AS property_address,
+            p.city AS property_city,
+            pc.first_name AS primary_contact_first,
+            pc.last_name AS primary_contact_last,
+            sc.first_name AS site_contact_first,
+            sc.last_name AS site_contact_last,
+            (SELECT j.id FROM jobs j WHERE j.quote_id = q.id LIMIT 1) AS job_id
         FROM quotes q
+        LEFT JOIN companies co ON q.company_id = co.id
+        LEFT JOIN properties p ON q.property_id = p.id
+        LEFT JOIN contacts pc ON co.primary_contact_id = pc.id
+        LEFT JOIN contacts sc ON p.site_contact_id = sc.id
         ORDER BY q.created_at DESC
         LIMIT 500
     ");
@@ -83,36 +95,6 @@ try {
     }
 
     $allQuotes = $quotesResult->fetchAll(PDO::FETCH_ASSOC);
-
-    if (empty($allQuotes)) {
-        error_log("WARNING: No quotes returned from database");
-    }
-
-    // Step 2: For each quote, fetch related data
-    foreach ($allQuotes as &$quote) {
-        $qid = (int)$quote['id'];
-
-        // Get company name if company_id exists
-        if (!empty($quote['company_id'])) {
-            $companyResult = $db->query("SELECT company_name FROM companies WHERE id = " . (int)$quote['company_id']);
-            $companyRow = $companyResult->fetch(PDO::FETCH_ASSOC);
-            $quote['company_name'] = $companyRow['company_name'] ?? null;
-        }
-
-        // Get property address if property_id exists
-        if (!empty($quote['property_id'])) {
-            $propResult = $db->query("SELECT address, city FROM properties WHERE id = " . (int)$quote['property_id']);
-            $propRow = $propResult->fetch(PDO::FETCH_ASSOC);
-            $quote['property_address'] = $propRow['address'] ?? null;
-            $quote['property_city'] = $propRow['city'] ?? null;
-        }
-
-        // Check if quote has a linked job
-        $jobResult = $db->query("SELECT id FROM jobs WHERE quote_id = " . $qid . " LIMIT 1");
-        $jobRow = $jobResult->fetch(PDO::FETCH_ASSOC);
-        $quote['job_id'] = $jobRow['id'] ?? null;
-    }
-    unset($quote);
 
     // Step 3: Organize quotes by status for kanban view
     foreach ($allQuotes as $quote) {
@@ -274,10 +256,13 @@ $activePage = 'quotes';
                                   $clientName = '';
                                   if (!empty($quote['company_name'])) {
                                       $clientName = $quote['company_name'];
-                                  } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
-                                      $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
-                                  } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
-                                      $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                  }
+                                  if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                      $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
+                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                  } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
+                                      $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
+                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                   }
                                   if (empty($clientName)) $clientName = 'N/A';
                               ?>
@@ -310,10 +295,13 @@ $activePage = 'quotes';
                                   $clientName = '';
                                   if (!empty($quote['company_name'])) {
                                       $clientName = $quote['company_name'];
-                                  } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
-                                      $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
-                                  } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
-                                      $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                  }
+                                  if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                      $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
+                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                  } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
+                                      $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
+                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                   }
                                   if (empty($clientName)) $clientName = 'N/A';
                               ?>
@@ -346,10 +334,13 @@ $activePage = 'quotes';
                                   $clientName = '';
                                   if (!empty($quote['company_name'])) {
                                       $clientName = $quote['company_name'];
-                                  } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
-                                      $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
-                                  } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
-                                      $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                  }
+                                  if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                      $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
+                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                  } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
+                                      $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
+                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                   }
                                   if (empty($clientName)) $clientName = 'N/A';
                               ?>
@@ -382,10 +373,13 @@ $activePage = 'quotes';
                                   $clientName = '';
                                   if (!empty($quote['company_name'])) {
                                       $clientName = $quote['company_name'];
-                                  } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
-                                      $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
-                                  } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
-                                      $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                  }
+                                  if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                      $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
+                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                  } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
+                                      $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
+                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                   }
                                   if (empty($clientName)) $clientName = 'N/A';
                               ?>
@@ -450,10 +444,13 @@ $activePage = 'quotes';
                                       $clientName = '';
                                       if (!empty($quote['company_name'])) {
                                           $clientName = $quote['company_name'];
-                                      } elseif (!empty($quote['contact_first']) || !empty($quote['contact_last'])) {
-                                          $clientName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
-                                      } elseif (!empty($quote['property_contact_first']) || !empty($quote['property_contact_last'])) {
-                                          $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''));
+                                      }
+                                      if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                          $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
+                                          $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                      } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
+                                          $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
+                                          $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                       }
                                       if (empty($clientName)) $clientName = 'N/A';
                                   ?>
