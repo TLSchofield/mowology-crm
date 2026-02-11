@@ -203,6 +203,9 @@ $activePage = 'jobs';
                   <table class="mw-table">
                       <thead>
                           <tr>
+                              <th class="mw-bulk-checkbox-cell">
+                                  <input type="checkbox" class="mw-bulk-checkbox" id="mw-jobs-select-all" title="Select all">
+                              </th>
                               <th>Job #</th>
                               <th>Client / Property</th>
                               <th>Service</th>
@@ -215,6 +218,9 @@ $activePage = 'jobs';
                       <tbody>
                           <?php foreach ($jobs as $job): ?>
                               <tr>
+                                  <td class="mw-bulk-checkbox-cell">
+                                      <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$job['id']; ?>">
+                                  </td>
                                   <td>
                                       <span class="font-weight-bold"><?php echo htmlspecialchars($job['job_number']); ?></span>
                                   </td>
@@ -260,6 +266,17 @@ $activePage = 'jobs';
               <?php endif; ?>
           </div>
 
+          <!-- Bulk Action Bar -->
+          <div class="mw-bulk-action-bar" id="mw-jobs-bulk-bar">
+              <div>
+                  <span class="mw-bulk-count" id="mw-jobs-bulk-count">0</span> jobs selected
+                  <button class="btn btn-sm mw-bulk-clear-btn ml-3" onclick="mwBulkClearJobs()">Clear Selection</button>
+              </div>
+              <button class="btn btn-sm btn-danger" onclick="mwBulkDeleteJobs()">
+                  <i data-feather="trash-2"></i> Delete Selected
+              </button>
+          </div>
+
           <script>
               function filterByAssigned(value) {
                   const url = new URL(window.location);
@@ -279,6 +296,77 @@ $activePage = 'jobs';
                       url.searchParams.delete('date');
                   }
                   window.location = url;
+              }
+
+              // Bulk select/delete
+              var mwJobsBulkSelected = new Set();
+
+              var jobsSelectAll = document.getElementById('mw-jobs-select-all');
+              if (jobsSelectAll) jobsSelectAll.addEventListener('change', function() {
+                  var checked = this.checked;
+                  document.querySelectorAll('.mw-bulk-row-select').forEach(function(cb) {
+                      cb.checked = checked;
+                      var id = parseInt(cb.dataset.id);
+                      if (checked) {
+                          mwJobsBulkSelected.add(id);
+                      } else {
+                          mwJobsBulkSelected.delete(id);
+                      }
+                  });
+                  mwJobsBulkUpdateBar();
+              });
+
+              document.addEventListener('change', function(e) {
+                  if (e.target.classList.contains('mw-bulk-row-select')) {
+                      var id = parseInt(e.target.dataset.id);
+                      if (e.target.checked) {
+                          mwJobsBulkSelected.add(id);
+                      } else {
+                          mwJobsBulkSelected.delete(id);
+                          if (jobsSelectAll) jobsSelectAll.checked = false;
+                      }
+                      mwJobsBulkUpdateBar();
+                  }
+              });
+
+              function mwJobsBulkUpdateBar() {
+                  var bar = document.getElementById('mw-jobs-bulk-bar');
+                  var count = document.getElementById('mw-jobs-bulk-count');
+                  count.textContent = mwJobsBulkSelected.size;
+                  if (mwJobsBulkSelected.size > 0) {
+                      bar.classList.add('mw-bulk-visible');
+                  } else {
+                      bar.classList.remove('mw-bulk-visible');
+                  }
+              }
+
+              function mwBulkClearJobs() {
+                  mwJobsBulkSelected.clear();
+                  document.querySelectorAll('.mw-bulk-row-select').forEach(function(cb) { cb.checked = false; });
+                  if (jobsSelectAll) jobsSelectAll.checked = false;
+                  mwJobsBulkUpdateBar();
+              }
+
+              function mwBulkDeleteJobs() {
+                  var count = mwJobsBulkSelected.size;
+                  if (count === 0) return;
+                  if (!confirm('Permanently delete ' + count + ' job(s)? This will also remove their notes, photos, and proof-of-work records. Linked invoices will be unlinked. This cannot be undone.')) return;
+
+                  fetch('api-jobs.php?action=bulk-delete', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ ids: Array.from(mwJobsBulkSelected) })
+                  })
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      if (data.success) {
+                          alert(data.deleted_count + ' job(s) deleted.');
+                          location.reload();
+                      } else {
+                          alert('Error: ' + (data.error || 'Unknown error'));
+                      }
+                  })
+                  .catch(function(err) { alert('Error: ' + err.message); });
               }
           </script>
 
