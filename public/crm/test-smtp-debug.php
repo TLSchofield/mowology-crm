@@ -1,6 +1,6 @@
 <?php
 /**
- * SMTP Debug — Tests PHPMailer send path with full debug output
+ * SMTP Debug — Tests PHPMailer send path with full debug output (v2)
  * DELETE THIS FILE AFTER DEBUGGING
  */
 require_once dirname(__DIR__) . '/loginAuth/auth.php';
