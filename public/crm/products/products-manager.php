@@ -167,19 +167,23 @@ $activePage = 'products';
                       <div class="form-group">
                         <label>Product Image</label>
                         <input type="hidden" name="image_url" id="productImageUrl" value="">
-                        <div id="imagePreviewArea" style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem;">
+                        <div id="imagePreviewArea" style="display:flex;align-items:center;gap:1rem;margin-bottom:0.5rem;">
                           <div id="imagePreview" style="width:80px;height:80px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;overflow:hidden;border:2px dashed #cbd5e1;flex-shrink:0;">
                             <i data-feather="image" style="width:32px;height:32px;color:#94a3b8;"></i>
                           </div>
                           <div>
                             <button type="button" class="btn btn-sm btn-outline-primary" onclick="openMediaBrowser()">
-                              <i data-feather="grid"></i> Choose from Media Library
+                              <i data-feather="grid"></i> Browse All
                             </button>
                             <button type="button" class="btn btn-sm btn-outline-secondary ml-1" id="clearImageBtn" onclick="clearProductImage()" style="display:none;">
                               <i data-feather="x"></i> Clear
                             </button>
                             <div id="imagePathDisplay" class="small text-muted mt-1" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
                           </div>
+                        </div>
+                        <div id="imageSuggestions" style="display:none;">
+                          <small class="text-muted d-block mb-1"><i data-feather="star" style="width:12px;height:12px;color:#f59e0b;"></i> Suggested images:</small>
+                          <div id="suggestionsRow" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
                         </div>
                       </div>
                     </div>
@@ -560,6 +564,18 @@ $activePage = 'products';
                 document.getElementById('inventoryOptions').style.display = this.checked ? 'block' : 'none';
               });
 
+              // Auto-load image suggestions when product name changes
+              let suggestTimer = null;
+              document.querySelector('[name="name"]').addEventListener('input', function() {
+                clearTimeout(suggestTimer);
+                const name = this.value.trim();
+                if (name.length >= 3) {
+                  suggestTimer = setTimeout(function() { loadInlineSuggestions(name); }, 400);
+                } else {
+                  document.getElementById('imageSuggestions').style.display = 'none';
+                }
+              });
+
               document.getElementById('categoryFilter').addEventListener('change', function(e) {
                 currentFilters.category = e.target.value;
                 filterProducts();
@@ -802,6 +818,7 @@ $activePage = 'products';
               document.getElementById('modalTitle').textContent = 'Add New Product/Service';
               document.getElementById('productForm').reset();
               clearProductImage();
+              document.getElementById('imageSuggestions').style.display = 'none';
               $('#productModal').modal('show');
             }
 
@@ -836,6 +853,11 @@ $activePage = 'products';
                 clearProductImage();
               }
 
+              // Auto-load image suggestions from product name
+              if (product.name) {
+                loadInlineSuggestions(product.name);
+              }
+
               document.getElementById('modalTitle').textContent = 'Edit Product/Service';
               $('#productModal').modal('show');
             }
@@ -867,6 +889,44 @@ $activePage = 'products';
             // ============================================================
             // Media Library Browser
             // ============================================================
+
+            // Load inline suggestions (top 3) below the image field
+            function loadInlineSuggestions(productName) {
+              const container = document.getElementById('imageSuggestions');
+              const row = document.getElementById('suggestionsRow');
+
+              fetch('api-media-browse.php?type=image&limit=50&search=' + encodeURIComponent(productName))
+                .then(r => r.json())
+                .then(data => {
+                  if (!data.success || !data.media) return;
+
+                  // Take top 3 that are actually suggested
+                  const top = data.media.filter(m => m.is_suggested).slice(0, 3);
+
+                  // If no suggestions, also show the 3 most recent as fallback
+                  const items = top.length > 0 ? top : data.media.slice(0, 3);
+                  if (items.length === 0) {
+                    container.style.display = 'none';
+                    return;
+                  }
+
+                  row.innerHTML = items.map(item => {
+                    const alt = escapeHtml(item.alt_text || item.original_filename || '');
+                    return `<div data-file-path="${escapeHtml(item.file_path)}" onclick="selectMediaItem(this.dataset.filePath)"
+                                 title="${alt}"
+                                 style="cursor:pointer;width:70px;flex-shrink:0;">
+                      <img src="${escapeHtml(item.file_path)}" alt="${alt}"
+                           style="width:70px;height:52px;object-fit:cover;border-radius:5px;border:2px solid ${item.is_suggested ? '#f59e0b' : '#e2e8f0'};display:block;"
+                           onmouseover="this.style.borderColor='var(--mw-green,#2D8659)'"
+                           onmouseout="this.style.borderColor='${item.is_suggested ? '#f59e0b' : '#e2e8f0'}'">
+                      <div style="font-size:9px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">${alt}</div>
+                    </div>`;
+                  }).join('');
+
+                  container.style.display = '';
+                })
+                .catch(() => { container.style.display = 'none'; });
+            }
 
             // Set product image (called when selecting from media browser)
             function setProductImage(url) {
