@@ -6,26 +6,48 @@
  */
 
 declare(strict_types=1);
+
+// Extend time limit for API calls (shared hosting default is often 30s)
+@set_time_limit(120);
+
+// Catch fatal errors and still return JSON (prevents empty response)
+if (php_sapi_name() !== 'cli') {
+    register_shutdown_function(function () {
+        $error = error_get_last();
+        if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
+            if (!headers_sent()) {
+                header('Content-Type: application/json');
+                http_response_code(500);
+            }
+            echo json_encode([
+                'success' => false,
+                'error' => 'Server error: ' . $error['message']
+            ]);
+        }
+    });
+}
+
 require_once dirname(__DIR__) . '/../app_config/config.php';
 
 // Allow CLI or authenticated admin
 $user = null;
 if (php_sapi_name() !== 'cli') {
+    // Set JSON content type early so errors are never sent as text/html
+    header('Content-Type: application/json');
+
     require_once dirname(__DIR__) . '/../loginAuth/auth.php';
     requireLogin();
     $user = getCurrentUser();
     if (!$user || ($user['role'] ?? '') !== 'admin') {
         http_response_code(403);
-        header('Content-Type: application/json');
-        die(json_encode(['success' => false, 'message' => 'Admin access required']));
+        die(json_encode(['success' => false, 'error' => 'Admin access required']));
     }
 
     // Verify CSRF token on web requests
     $csrfToken = $_POST['csrf_token'] ?? '';
     if (!function_exists('verifyCSRFToken') || !verifyCSRFToken($csrfToken)) {
         http_response_code(403);
-        header('Content-Type: application/json');
-        die(json_encode(['success' => false, 'message' => 'CSRF token invalid']));
+        die(json_encode(['success' => false, 'error' => 'CSRF token invalid']));
     }
 }
 
@@ -297,7 +319,6 @@ try {
             }
         }
     } else {
-        header('Content-Type: application/json');
         echo json_encode($payload);
     }
     exit(0);
@@ -343,7 +364,8 @@ function fetchGSCData(string $accessToken, string $siteUrl): ?array
     ]);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($requestBody));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
 
     $response = curl_exec($ch);
     $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -383,7 +405,8 @@ function refreshAccessToken(string $refreshToken): ?array
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
 
     $response = curl_exec($ch);
     $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);

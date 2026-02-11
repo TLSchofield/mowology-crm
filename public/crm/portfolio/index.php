@@ -1227,15 +1227,25 @@ function syncGSCData() {
     const formData = new FormData();
     formData.append('csrf_token', CSRF_TOKEN);
 
+    // Timeout after 90s to avoid hanging indefinitely
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+
     fetch('/crm/gsc/sync-cron.php', {
         method: 'POST',
-        body: formData
+        body: formData,
+        signal: controller.signal
     })
     .then(response => {
+        clearTimeout(timeoutId);
         if (!response.ok) {
             throw new Error('Sync failed: ' + response.statusText);
         }
-        return response.json();
+        return response.text().then(text => {
+            if (!text) throw new Error('Server returned empty response');
+            try { return JSON.parse(text); }
+            catch (e) { throw new Error('Invalid response: ' + text.substring(0, 200)); }
+        });
     })
     .then(data => {
         btn.disabled = false;
@@ -1256,9 +1266,13 @@ function syncGSCData() {
         }
     })
     .catch(err => {
+        clearTimeout(timeoutId);
         btn.disabled = false;
         btn.innerHTML = originalHtml;
-        alert('Sync error: ' + err.message);
+        const msg = err.name === 'AbortError'
+            ? 'Sync timed out. The server may still be processing — check back in a minute.'
+            : err.message;
+        alert('Sync error: ' + msg);
         console.error('GSC sync error:', err);
     });
 }
