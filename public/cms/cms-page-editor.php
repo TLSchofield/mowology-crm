@@ -11,7 +11,7 @@
 
 declare(strict_types=1);
 
-require_once dirname(__DIR__) . '/includes/bootstrap.php';
+require_once dirname(__DIR__) . '/loginAuth/auth.php';
 require_once dirname(__DIR__) . '/crm/includes/cms-functions.php';
 require_once dirname(__DIR__) . '/crm/includes/cms-template-functions.php';
 require_once dirname(__DIR__) . '/crm/includes/admin-ui-kit.php';
