@@ -10,7 +10,8 @@ Read the companion `ARCHITECTURE.md` for the full system map. This file is the r
 - **Project:** Mowology — landscaping CRM + public website
 - **Stack:** Vanilla PHP 7.4+, MySQL 5.7+ (PDO), plain CSS, vanilla JS, Bootstrap 4 (via AppStack vendor)
 - **Hosting:** cPanel shared hosting (auto-deploys from GitHub)
-- **Email:** Native PHP mail() with RFC-compliant MIME formatting (office@mowology.ca)
+- **Email:** PHPMailer SMTP (primary) with native mail() fallback, via `/crm/includes/messaging.php`
+- **SMS:** Native PHP mail() to Canadian carrier email-to-SMS gateways (NEVER PHPMailer — see rule 8)
 - **Build tools:** None. No npm, Webpack, Sass compilation, or Composer.
 
 ---
@@ -43,6 +44,23 @@ This is a critical constraint for all SQL queries and schema changes:
 5. **NEVER hardcode color hex values.** Use CSS custom properties (`--mw-*` in CRM, `--mowology-*` on public site).
 6. **NEVER add npm, Webpack, Sass, or Composer.** This is a zero-dependency project using only PHP and native browser APIs.
 7. **NEVER create new CSS files without adding them to the correct import chain** (`master.css` for public site, `appstack_head.php` for CRM).
+8. **NEVER route SMS through PHPMailer.** SMS delivery MUST use native `mail()` with minimal headers. PHPMailer adds MIME headers that carrier email-to-SMS gateways silently reject. See `ARCHITECTURE.md` "Messaging Module" for full details.
+
+---
+
+## 1b. Deployment Workflow — Commit, Push, Verify
+
+**After completing any code changes, ALWAYS follow this workflow:**
+
+1. **Commit and push immediately** — do not wait for the user to ask. Stage only the files you changed, write a clear commit message, and `git push` to `main`.
+2. **Wait for deploy** — cPanel auto-deploys from GitHub. Allow a few seconds after push.
+3. **Verify on production** — open the affected page(s) on `https://mowology.ca` in the browser and confirm:
+   - The page loads without errors (no white screen, no PHP fatal)
+   - The specific fix/feature works as expected (data displays, forms submit, etc.)
+   - No console errors related to the changes
+4. **Report back** — tell the user what you verified and whether it's working or needs further fixes.
+
+**This is mandatory.** Pushing code without verifying it on production is not acceptable. The user should never have to ask "did you push?" or discover a broken page themselves.
 
 ---
 
@@ -302,6 +320,7 @@ jobFlow pages are self-contained (own `<head>`, no shared header/footer) by desi
 | `/crm/includes/appstack_topbar.php` | CRM top navigation bar |
 | `/crm/includes/appstack_footer.php` | CRM footer + closing scripts |
 | `/crm/includes/functions.php` | Shared CRM helper functions |
+| `/crm/includes/messaging.php` | Email + SMS delivery (see rule 8 — SMS must stay on native mail()) |
 | `/crm/*_appstack.php` | Individual CRM page content |
 | `/crm/quotes/*.php` | Quote CRUD pages |
 | `/crm/jobs/*.php` | Job CRUD pages |
