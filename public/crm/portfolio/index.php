@@ -1065,13 +1065,7 @@ $activePage = 'portfolio';
 <script>
 const CSRF_TOKEN = '<?php echo $csrfToken; ?>';
 
-// Debug: Verify functions are loaded
-console.log('Portfolio page script loaded');
-console.log('CSRF_TOKEN:', CSRF_TOKEN ? 'set' : 'NOT SET');
-
-// File upload handling
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOMContentLoaded fired');
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
 
@@ -1092,7 +1086,7 @@ document.addEventListener('DOMContentLoaded', function() {
         fileInput.addEventListener('change', handleFileSelect, false);
     }
 
-    hydrateFeatherIcons();
+    if (typeof feather !== 'undefined') feather.replace();
 });
 
 function preventDefaults(e) {
@@ -1103,7 +1097,6 @@ function preventDefaults(e) {
 function handleDrop(e) {
     const dt = e.dataTransfer;
     const files = dt.files;
-    fileInput.files = files;
     uploadFiles(files);
 }
 
@@ -1225,10 +1218,11 @@ function deleteProject(projectId) {
 
 function syncGSCData() {
     const btn = document.getElementById('syncGscBtn');
+    if (!btn) return;
     const originalHtml = btn.innerHTML;
 
     btn.disabled = true;
-    btn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⟳</span> Syncing...';
+    btn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">&#x27F3;</span> Syncing...';
 
     const formData = new FormData();
     formData.append('csrf_token', CSRF_TOKEN);
@@ -1248,17 +1242,14 @@ function syncGSCData() {
         btn.innerHTML = originalHtml;
 
         if (data.success) {
-            // Build detailed message with errors if present
             let message = data.message || '';
             if (data.errors && data.errors.length > 0) {
                 message += '\n\nFailed properties:\n';
                 data.errors.forEach(err => {
-                    message += `• ${err.property}: ${err.reason}\n`;
+                    message += '- ' + err.property + ': ' + err.reason + '\n';
                 });
-                console.warn('GSC Sync Errors:', data.errors);
             }
-            alert('✓ GSC data synced successfully!\n\n' + message);
-            // Reload page to show updated data
+            alert('GSC data synced successfully!\n\n' + message);
             setTimeout(() => location.reload(), 500);
         } else {
             alert('Error: ' + (data.error || 'Unknown error'));
@@ -1272,356 +1263,18 @@ function syncGSCData() {
     });
 }
 
-// Spinner animation
-const style = document.createElement('style');
-style.textContent = `
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-`;
-document.head.appendChild(style);
-
-// ============================================================
-// SEO Recommendations Functions (Phase 2)
-// ============================================================
-
-/**
- * Filter recommendations table based on dropdown selections
- */
-function filterRecommendations() {
-    const statusFilter = document.getElementById('recStatusFilter')?.value || '';
-    const typeFilter = document.getElementById('recTypeFilter')?.value || '';
-    const targetFilter = document.getElementById('recTargetFilter')?.value || '';
-    const seasonFilter = document.getElementById('recSeasonFilter')?.value || '';
-
-    const table = document.getElementById('recommendationsTable');
-    if (!table) return;
-
-    const rows = table.querySelectorAll('tbody tr');
-    let visibleCount = 0;
-
-    rows.forEach(row => {
-        const rowStatus = row.dataset.status;
-        const rowType = row.dataset.type;
-        const rowTarget = row.dataset.target;
-        const rowSeason = row.dataset.season;
-
-        let show = true;
-        if (statusFilter && rowStatus !== statusFilter) show = false;
-        if (typeFilter && rowType !== typeFilter) show = false;
-        if (targetFilter && rowTarget !== targetFilter) show = false;
-        if (seasonFilter && rowSeason !== seasonFilter) show = false;
-
-        row.style.display = show ? '' : 'none';
-        if (show) visibleCount++;
-    });
-
-    // Show message if no rows match
-    if (visibleCount === 0) {
-        table.parentElement.innerHTML += '<p class="text-muted text-center py-4">No recommendations match filters</p>';
-    }
-}
-
-/**
- * Generate recommendations via API
- */
-function generateRecommendations() {
-    const btn = document.getElementById('generateRecBtn');
-    const originalHtml = btn.innerHTML;
-
-    btn.disabled = true;
-    btn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⟳</span> Generating...';
-
-    const formData = new FormData();
-    formData.append('csrf_token', CSRF_TOKEN);
-
-    fetch('/crm/api/seo/generate.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error('Generation failed: ' + response.statusText);
-        }
-        return response.json();
-    })
-    .then(data => {
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
-        if (data.success) {
-            alert('✓ Recommendations generated!\n\n' + data.message);
-            setTimeout(() => location.reload(), 500);
-        } else {
-            alert('Error: ' + (data.message || 'Unknown error'));
-        }
-    })
-    .catch(err => {
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
-        alert('Error: ' + err.message);
-        console.error('Generation error:', err);
-    });
-}
-
-/**
- * Accept a recommendation (change status from 'new' to 'accepted')
- */
-function acceptRecommendation(recId) {
-    if (!confirm('Accept this recommendation?')) return;
-
-    const formData = new FormData();
-    formData.append('recommendation_id', recId);
-    formData.append('status', 'accepted');
-    formData.append('csrf_token', CSRF_TOKEN);
-
-    fetch('/crm/api/seo/status.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            alert('✓ Recommendation accepted');
-            location.reload();
-        } else {
-            alert('Error: ' + (data.message || 'Unknown'));
-        }
-    })
-    .catch(err => {
-        alert('Error: ' + err.message);
-        console.error(err);
-    });
-}
-
-/**
- * Ignore a recommendation (change status to 'ignored')
- */
-function ignoreRecommendation(recId) {
-    if (!confirm('Ignore this recommendation?')) return;
-
-    const formData = new FormData();
-    formData.append('recommendation_id', recId);
-    formData.append('status', 'ignored');
-    formData.append('csrf_token', CSRF_TOKEN);
-
-    fetch('/crm/api/seo/status.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            alert('✓ Recommendation ignored');
-            location.reload();
-        } else {
-            alert('Error: ' + (data.message || 'Unknown'));
-        }
-    })
-    .catch(err => {
-        alert('Error: ' + err.message);
-        console.error(err);
-    });
-}
-
-/**
- * Apply a recommendation (create draft page)
- */
-function applyRecommendation(recId) {
-    const modalBody = document.getElementById('applyModalBody');
-    modalBody.innerHTML = '<p class="text-center"><span style="display: inline-block; animation: spin 1s linear infinite;">⟳</span> Loading preview...</p>';
-
-    fetch(`/crm/api/seo/apply-preview.php?id=${recId}`)
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            const preview = data.content;
-            modalBody.innerHTML = `
-                <div class="mb-3">
-                    <h6>SEO Title</h6>
-                    <p class="text-monospace small" style="background: #f5f5f5; padding: 8px; border-radius: 3px;">
-                        ${escapeHtml(preview.title)}
-                    </p>
-                </div>
-                <div class="mb-3">
-                    <h6>Meta Description</h6>
-                    <p class="text-monospace small" style="background: #f5f5f5; padding: 8px; border-radius: 3px;">
-                        ${escapeHtml(preview.meta_description)}
-                    </p>
-                </div>
-                <div class="mb-3">
-                    <h6>H1 Heading</h6>
-                    <p class="text-monospace small" style="background: #f5f5f5; padding: 8px; border-radius: 3px;">
-                        ${escapeHtml(preview.h1)}
-                    </p>
-                </div>
-                <div class="mb-3">
-                    <h6>Suggested Slug</h6>
-                    <p class="text-monospace small" style="background: #f5f5f5; padding: 8px; border-radius: 3px;">
-                        /${escapeHtml(preview.slug)}
-                    </p>
-                </div>
-                <div class="alert alert-info mb-0">
-                    <strong>Content:</strong> ${preview.sections_count} sections + ${preview.images_count} images + schema markup
-                </div>
-            `;
-            document.getElementById('applyConfirmBtn').dataset.recId = recId;
-            $('#applyModal').modal('show');
-        } else {
-            modalBody.innerHTML = '<div class="alert alert-danger">Error: ' + (data.message || 'Unknown') + '</div>';
-        }
-    })
-    .catch(err => {
-        modalBody.innerHTML = '<div class="alert alert-danger">Error: ' + err.message + '</div>';
-        console.error(err);
-    });
-}
-
-/**
- * Confirm apply and create draft
- */
-function confirmApplyRecommendation() {
-    const recId = document.getElementById('applyConfirmBtn').dataset.recId;
-    const btn = document.getElementById('applyConfirmBtn');
-    const originalHtml = btn.innerHTML;
-
-    btn.disabled = true;
-    btn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⟳</span> Creating...';
-
-    const formData = new FormData();
-    formData.append('recommendation_id', recId);
-    formData.append('csrf_token', CSRF_TOKEN);
-
-    fetch('/crm/api/seo/apply.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
-        if (data.success) {
-            alert('✓ Draft page created (ID: ' + data.draft_id + ')');
-            $('#applyModal').modal('hide');
-            setTimeout(() => location.reload(), 500);
-        } else {
-            alert('Error: ' + (data.message || 'Unknown'));
-        }
-    })
-    .catch(err => {
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
-        alert('Error: ' + err.message);
-        console.error(err);
-    });
-}
-
-/**
- * Mark recommendation as done
- */
-function markRecommendationDone(recId) {
-    if (!confirm('Mark as done?')) return;
-
-    const formData = new FormData();
-    formData.append('recommendation_id', recId);
-    formData.append('status', 'done');
-    formData.append('csrf_token', CSRF_TOKEN);
-
-    fetch('/crm/api/seo/status.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            alert('✓ Recommendation marked as done');
-            location.reload();
-        } else {
-            alert('Error: ' + (data.message || 'Unknown'));
-        }
-    })
-    .catch(err => {
-        alert('Error: ' + err.message);
-        console.error(err);
-    });
-}
-
-/**
- * Escape HTML for safe display
- */
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
-
-
-
-<!-- PAGE HTML ABOVE -->
-
-<script>
-window.generateRecommendations = function () {
-    console.log('generateRecommendations loaded');
-
-    const status = document.getElementById('rec-status');
-    const container = document.getElementById('rec-container');
-
-    status.textContent = 'Generating recommendations…';
-    container.innerHTML = '';
-
-    fetch('recommendations-data.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ csrf_token: '<?= $_SESSION['csrf_token'] ?>' })
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (!data.success) {
-            status.textContent = 'Failed to load recommendations';
-            return;
-        }
-
-        status.textContent = '';
-        if (!data.recommendations.length) {
-            container.innerHTML = '<em>No recommendations yet</em>';
-            return;
-        }
-
-        data.recommendations.forEach(rec => {
-            const div = document.createElement('div');
-            div.className = 'rec-card rec-priority-' + rec.priority;
-            div.innerHTML = `
-                <strong>${rec.title}</strong><br>
-                <small>
-                    Query: ${rec.query || '—'} |
-                    Impressions: ${rec.impressions} |
-                    CTR: ${rec.ctr}% |
-                    Position: ${rec.position}
-                </small>
-            `;
-            container.appendChild(div);
-        });
-    })
-    .catch(err => {
-        console.error(err);
-        status.textContent = 'Error loading recommendations';
-    });
-};
+// Spinner animation
+(function() {
+    const s = document.createElement('style');
+    s.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+    document.head.appendChild(s);
+})();
 </script>
 
-<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
-
-// ============================================================================
-// VERIFICATION: Check that recommendation functions are loaded
-// ============================================================================
-console.log('=== Portfolio Script Verification ===');
-console.log('generateRecommendations:', typeof generateRecommendations === 'function' ? '✓ loaded' : '✗ NOT FOUND');
-console.log('acceptRecommendation:', typeof acceptRecommendation === 'function' ? '✓ loaded' : '✗ NOT FOUND');
-console.log('ignoreRecommendation:', typeof ignoreRecommendation === 'function' ? '✓ loaded' : '✗ NOT FOUND');
-console.log('applyRecommendation:', typeof applyRecommendation === 'function' ? '✓ loaded' : '✗ NOT FOUND');
-console.log('markRecommendationDone:', typeof markRecommendationDone === 'function' ? '✓ loaded' : '✗ NOT FOUND');
-console.log('escapeHtml:', typeof escapeHtml === 'function' ? '✓ loaded' : '✗ NOT FOUND');
-console.log('=====================================');
-</script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

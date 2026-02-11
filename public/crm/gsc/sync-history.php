@@ -3,10 +3,8 @@
  * /crm/gsc/sync-history.php
  * Returns GSC sync history for display on insights tab
  *
- * Expects $db and $user to be available from parent scope (included by index.php)
+ * Expects $db and $user to be available from parent scope (included by portfolio/index.php)
  */
-
-declare(strict_types=1);
 
 if (empty($user) || ($user['role'] ?? '') !== 'admin') {
     return [
@@ -24,26 +22,26 @@ if (empty($user) || ($user['role'] ?? '') !== 'admin') {
 try {
     $stmt = $db->prepare("
         SELECT
-            ghd.id,
-            ghd.property_id,
+            gsh.id,
+            gsh.property_id,
             gp.site_url,
-            ghd.sync_type,
-            ghd.status,
-            ghd.rows_processed,
-            ghd.rows_inserted,
-            ghd.rows_updated,
-            ghd.error_message,
-            ghd.started_at,
-            ghd.completed_at,
-            ghd.duration_seconds,
-            ghd.initiated_by_user_id,
-            ghd.notes,
+            gsh.sync_type,
+            gsh.status,
+            gsh.rows_processed,
+            gsh.rows_inserted,
+            gsh.rows_updated,
+            gsh.error_message,
+            gsh.started_at,
+            gsh.completed_at,
+            TIMESTAMPDIFF(SECOND, gsh.started_at, COALESCE(gsh.completed_at, NOW())) as duration_seconds,
+            gsh.initiated_by_user_id,
+            gsh.notes,
             u.full_name as initiated_by_name
-        FROM gsc_sync_history_with_duration ghd
-        LEFT JOIN gsc_properties gp ON ghd.property_id = gp.id
-        LEFT JOIN users u ON ghd.initiated_by_user_id = u.id
-        WHERE ghd.started_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-        ORDER BY ghd.started_at DESC
+        FROM gsc_sync_history gsh
+        LEFT JOIN gsc_properties gp ON gsh.property_id = gp.id
+        LEFT JOIN users u ON gsh.initiated_by_user_id = u.id
+        WHERE gsh.started_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        ORDER BY gsh.started_at DESC
         LIMIT 50
     ");
     $stmt->execute();
@@ -69,7 +67,7 @@ try {
             SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
             SUM(CASE WHEN status = 'partial' THEN 1 ELSE 0 END) as partial,
             MAX(started_at) as last_sync
-        FROM gsc_sync_history_with_duration
+        FROM gsc_sync_history
         WHERE started_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
     ");
     $statsStmt->execute();
