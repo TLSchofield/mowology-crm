@@ -165,8 +165,22 @@ $activePage = 'products';
                       </div>
 
                       <div class="form-group">
-                        <label>Product Image URL</label>
-                        <input type="text" class="form-control" name="image_url" placeholder="https://... or upload via media library">
+                        <label>Product Image</label>
+                        <input type="hidden" name="image_url" id="productImageUrl" value="">
+                        <div id="imagePreviewArea" style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem;">
+                          <div id="imagePreview" style="width:80px;height:80px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;overflow:hidden;border:2px dashed #cbd5e1;flex-shrink:0;">
+                            <i data-feather="image" style="width:32px;height:32px;color:#94a3b8;"></i>
+                          </div>
+                          <div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openMediaBrowser()">
+                              <i data-feather="grid"></i> Choose from Media Library
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary ml-1" id="clearImageBtn" onclick="clearProductImage()" style="display:none;">
+                              <i data-feather="x"></i> Clear
+                            </button>
+                            <div id="imagePathDisplay" class="small text-muted mt-1" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -477,6 +491,43 @@ $activePage = 'products';
             </div>
           </div>
 
+          <!-- Media Browser Modal -->
+          <div class="modal fade" id="mediaBrowserModal" tabindex="-1" role="dialog" aria-labelledby="mediaBrowserTitle" aria-hidden="true">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title" id="mediaBrowserTitle">Choose Image from Media Library</h5>
+                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                  </button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <div class="input-group">
+                      <input type="text" class="form-control" id="mediaSearchInput" placeholder="Search by filename or alt text...">
+                      <div class="input-group-append">
+                        <button class="btn btn-outline-secondary" type="button" onclick="searchMediaLibrary()">
+                          <i data-feather="search"></i> Search
+                        </button>
+                        <button class="btn btn-outline-secondary" type="button" onclick="loadAllMedia()">
+                          Show All
+                        </button>
+                      </div>
+                    </div>
+                    <small class="text-muted" id="mediaSuggestionHint"></small>
+                  </div>
+                  <div id="mediaGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;max-height:450px;overflow-y:auto;padding:4px;">
+                    <div class="text-center text-muted py-5">Enter a search term or click "Show All"</div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <small class="text-muted mr-auto"><i data-feather="star" style="width:14px;height:14px;color:#f59e0b;"></i> = Suggested match based on product name</small>
+                  <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <script>
             // State
             let allCategories = [];
@@ -668,7 +719,10 @@ $activePage = 'products';
                 <div class="mw-product-card ${p.is_archived ? 'mw-product-archived' : ''}">
                   ${p.is_archived ? '<div class="mw-product-archived-badge">ARCHIVED</div>' : ''}
                   <div class="mw-product-image">
-                    <i data-feather="package" style="width:48px;height:48px;color:#94a3b8;"></i>
+                    ${p.image_url
+                      ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" style="width:100%;height:100%;object-fit:cover;">`
+                      : `<i data-feather="package" style="width:48px;height:48px;color:#94a3b8;"></i>`
+                    }
                   </div>
                   <div class="mw-product-info">
                     <div class="mw-product-category">${escapeHtml(p.category_name || 'Uncategorized')}</div>
@@ -747,6 +801,7 @@ $activePage = 'products';
             function openAddProductModal() {
               document.getElementById('modalTitle').textContent = 'Add New Product/Service';
               document.getElementById('productForm').reset();
+              clearProductImage();
               $('#productModal').modal('show');
             }
 
@@ -767,13 +822,19 @@ $activePage = 'products';
               form.elements['unit_type_id'].value = product.unit_type_id;
               form.elements['description'].value = product.description || '';
               form.elements['long_description'].value = product.long_description || '';
-              form.elements['image_url'].value = product.image_url || '';
               form.elements['base_cost'].value = product.base_cost;
               form.elements['base_price'].value = product.base_price;
               form.elements['markup_percentage'].value = product.markup_percentage;
               form.elements['taxable'].checked = product.taxable;
               form.elements['gst_rate'].value = product.gst_rate;
               form.elements['pst_rate'].value = product.pst_rate;
+
+              // Set image preview
+              if (product.image_url) {
+                setProductImage(product.image_url);
+              } else {
+                clearProductImage();
+              }
 
               document.getElementById('modalTitle').textContent = 'Edit Product/Service';
               $('#productModal').modal('show');
@@ -802,6 +863,135 @@ $activePage = 'products';
               })
               .catch(err => alert('Error: ' + err.message));
             }
+
+            // ============================================================
+            // Media Library Browser
+            // ============================================================
+
+            // Set product image (called when selecting from media browser)
+            function setProductImage(url) {
+              document.getElementById('productImageUrl').value = url;
+              const preview = document.getElementById('imagePreview');
+              preview.innerHTML = '<img src="' + escapeHtml(url) + '" style="width:100%;height:100%;object-fit:cover;">';
+              preview.style.border = '2px solid var(--mw-green, #2D8659)';
+              document.getElementById('clearImageBtn').style.display = '';
+              document.getElementById('imagePathDisplay').textContent = url;
+            }
+
+            // Clear product image
+            function clearProductImage() {
+              document.getElementById('productImageUrl').value = '';
+              const preview = document.getElementById('imagePreview');
+              preview.innerHTML = '<i data-feather="image" style="width:32px;height:32px;color:#94a3b8;"></i>';
+              preview.style.border = '2px dashed #cbd5e1';
+              document.getElementById('clearImageBtn').style.display = 'none';
+              document.getElementById('imagePathDisplay').textContent = '';
+              hydrateFeatherIcons();
+            }
+
+            // Open media browser modal — auto-fill search with product name
+            function openMediaBrowser() {
+              const productName = document.querySelector('[name="name"]').value.trim();
+              const searchInput = document.getElementById('mediaSearchInput');
+              searchInput.value = productName;
+
+              if (productName) {
+                document.getElementById('mediaSuggestionHint').textContent =
+                  'Showing suggestions for "' + productName + '"';
+                searchMediaLibrary();
+              } else {
+                document.getElementById('mediaSuggestionHint').textContent = '';
+                loadAllMedia();
+              }
+
+              // Show on top of the product modal
+              $('#mediaBrowserModal').modal({backdrop: false});
+            }
+
+            // Search media library
+            function searchMediaLibrary() {
+              const search = document.getElementById('mediaSearchInput').value.trim();
+              fetchMediaAssets(search);
+            }
+
+            // Load all media (no search filter)
+            function loadAllMedia() {
+              document.getElementById('mediaSearchInput').value = '';
+              document.getElementById('mediaSuggestionHint').textContent = '';
+              fetchMediaAssets('');
+            }
+
+            // Fetch media assets from API
+            function fetchMediaAssets(search) {
+              const grid = document.getElementById('mediaGrid');
+              grid.innerHTML = '<div class="text-center text-muted py-5">Loading...</div>';
+
+              let url = 'api-media-browse.php?type=image&limit=50';
+              if (search) url += '&search=' + encodeURIComponent(search);
+
+              fetch(url)
+                .then(r => r.json())
+                .then(data => {
+                  if (!data.success || !data.media || data.media.length === 0) {
+                    grid.innerHTML = '<div class="text-center text-muted py-5">No images found in media library</div>';
+                    return;
+                  }
+                  renderMediaGrid(data.media);
+                })
+                .catch(err => {
+                  grid.innerHTML = '<div class="text-center text-danger py-5">Error loading media: ' + escapeHtml(err.message) + '</div>';
+                });
+            }
+
+            // Render the media thumbnail grid
+            function renderMediaGrid(items) {
+              const grid = document.getElementById('mediaGrid');
+              grid.innerHTML = items.map(item => {
+                const isSuggested = item.is_suggested;
+                const altText = item.alt_text || '';
+                const filename = item.original_filename || '';
+                const dims = (item.image_width && item.image_height)
+                  ? item.image_width + '×' + item.image_height
+                  : '';
+
+                return `
+                  <div data-file-path="${escapeHtml(item.file_path)}" onclick="selectMediaItem(this.dataset.filePath)"
+                       style="cursor:pointer;border:2px solid ${isSuggested ? '#f59e0b' : '#e2e8f0'};border-radius:8px;overflow:hidden;background:#fff;transition:border-color 0.15s, transform 0.1s;"
+                       onmouseover="this.style.borderColor='var(--mw-green, #2D8659)';this.style.transform='translateY(-2px)';"
+                       onmouseout="this.style.borderColor='${isSuggested ? '#f59e0b' : '#e2e8f0'}';this.style.transform='';">
+                    <div style="position:relative;">
+                      <img src="${escapeHtml(item.file_path)}" alt="${escapeHtml(altText)}"
+                           style="width:100%;height:110px;object-fit:cover;display:block;">
+                      ${isSuggested ? '<span style="position:absolute;top:4px;right:4px;background:#f59e0b;color:#fff;font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px;">&#9733; Match</span>' : ''}
+                    </div>
+                    <div style="padding:6px 8px;">
+                      <div style="font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(filename)}">${escapeHtml(filename)}</div>
+                      ${altText ? '<div style="font-size:10px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(altText) + '">' + escapeHtml(altText) + '</div>' : ''}
+                      ${dims ? '<div style="font-size:10px;color:#94a3b8;">' + dims + '</div>' : ''}
+                    </div>
+                  </div>
+                `;
+              }).join('');
+            }
+
+            // Select a media item and close the browser
+            function selectMediaItem(filePath) {
+              setProductImage(filePath);
+              $('#mediaBrowserModal').modal('hide');
+            }
+
+            // Handle Enter key in media search
+            document.addEventListener('DOMContentLoaded', function() {
+              const msInput = document.getElementById('mediaSearchInput');
+              if (msInput) {
+                msInput.addEventListener('keydown', function(e) {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    searchMediaLibrary();
+                  }
+                });
+              }
+            });
 
             // Utility: Escape HTML
             function escapeHtml(text) {
