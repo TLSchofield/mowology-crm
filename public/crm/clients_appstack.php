@@ -406,26 +406,41 @@ $clients = $db->query("
 ")->fetchAll(PDO::FETCH_ASSOC);
 
 // Get standalone contacts (not linked to any company as primary or billing contact)
-$standaloneContacts = $db->query("
-    SELECT
-        ct.id,
-        ct.first_name,
-        ct.last_name,
-        ct.email,
-        ct.phone,
-        ct.is_active,
-        ct.prospect_status,
-        ct.created_at,
-        ct.notes
-    FROM contacts ct
-    WHERE ct.id NOT IN (
-        SELECT COALESCE(primary_contact_id, 0) FROM companies
-        UNION
-        SELECT COALESCE(billing_contact_id, 0) FROM companies
-    )
-    AND ct.is_active = 1
-    ORDER BY ct.last_name, ct.first_name
-")->fetchAll(PDO::FETCH_ASSOC);
+try {
+    // Check if billing_contact_id column exists
+    $cols = $db->query("SHOW COLUMNS FROM companies LIKE 'billing_contact_id'")->fetchAll();
+    $hasBillingContact = count($cols) > 0;
+
+    // Check if prospect_status column exists on contacts
+    $cols2 = $db->query("SHOW COLUMNS FROM contacts LIKE 'prospect_status'")->fetchAll();
+    $hasProspectStatus = count($cols2) > 0;
+
+    $excludeSubquery = "SELECT COALESCE(primary_contact_id, 0) FROM companies";
+    if ($hasBillingContact) {
+        $excludeSubquery .= " UNION SELECT COALESCE(billing_contact_id, 0) FROM companies";
+    }
+
+    $prospectCol = $hasProspectStatus ? "ct.prospect_status" : "'prospect' as prospect_status";
+
+    $standaloneContacts = $db->query("
+        SELECT
+            ct.id,
+            ct.first_name,
+            ct.last_name,
+            ct.email,
+            ct.phone,
+            ct.is_active,
+            {$prospectCol},
+            ct.created_at,
+            ct.notes
+        FROM contacts ct
+        WHERE ct.id NOT IN ({$excludeSubquery})
+        AND ct.is_active = 1
+        ORDER BY ct.last_name, ct.first_name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $standaloneContacts = [];
+}
 
 // Also get quote_requests without companies (not yet converted to prospects)
 $unconvertedRequests = $db->query("
