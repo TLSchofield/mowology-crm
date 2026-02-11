@@ -123,7 +123,7 @@ function admin_table(array $rows, array $columns, array $options = []): string
 
                 // Replace {{id}} with actual ID
                 if (isset($row['id'])) {
-                    $url = str_replace('{{id}}', $row['id'], $url);
+                    $url = str_replace('{{id}}', (string)$row['id'], $url);
                     foreach ($row as $key => $val) {
                         $url = str_replace('{{' . $key . '}}', urlencode((string)$val), $url);
                     }
