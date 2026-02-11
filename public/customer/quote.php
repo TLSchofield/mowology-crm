@@ -8,6 +8,7 @@
 header('X-Content-Type-Options: nosniff');
 
 require_once dirname(__DIR__) . '/app_config/config.php';
+require_once dirname(__DIR__) . '/includes/notifications.php';
 
 $db = getDB();
 $error = '';
@@ -108,20 +109,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($quote) && $quote['status'] !
                     $quote['id']
                 ]);
 
-                // Update property status
-                $stmt = $db->prepare("UPDATE properties SET status = 'won' WHERE id = ?");
-                $stmt->execute([$quote['property_id']]);
-
                 // Log activity
-                $stmt = $db->prepare("
-                    INSERT INTO activity_log (quote_id, action, details, ip_address, created_at)
-                    VALUES (?, 'Quote accepted', ?, ?, NOW())
-                ");
-                $stmt->execute([
-                    $quote['id'],
-                    "Accepted by {$signatureName}",
-                    $_SERVER['REMOTE_ADDR']
-                ]);
+                try {
+                    $stmt = $db->prepare("
+                        INSERT INTO activity_log (quote_id, action, details, ip_address, created_at)
+                        VALUES (?, 'Quote accepted', ?, ?, NOW())
+                    ");
+                    $stmt->execute([
+                        $quote['id'],
+                        "Accepted by {$signatureName}",
+                        $_SERVER['REMOTE_ADDR']
+                    ]);
+                } catch (Exception $e) {
+                    // activity_log insert is non-critical — don't block acceptance
+                    error_log("Quote acceptance activity log error: " . $e->getMessage());
+                }
 
                 $db->commit();
 
@@ -129,15 +131,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($quote) && $quote['status'] !
                 $success = 'Thank you! Your quote has been accepted. We will be in touch shortly to schedule your service.';
 
                 // Send notification email to admin
-                $adminEmail = 'mowology@icloud.com';
-                $subject = "Quote {$quote['quote_number']} Accepted!";
-                $body = "Great news! Quote {$quote['quote_number']} has been accepted.\n\n";
-                $body .= "Customer: {$signatureName}\n";
-                $body .= "Property: {$quote['property_address']}, {$quote['property_city']}\n";
-                $body .= "Amount: $" . number_format($quote['amount'], 2) . "\n\n";
-                $body .= "Log in to the CRM to create a job from this quote.";
+                $emailSubject = "Quote {$quote['quote_number']} Accepted!";
+                $emailBody = "
+                <html><body style='font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;'>
+                    <div style='background: linear-gradient(135deg, #1A5F4A 0%, #0D3B2E 100%); padding: 20px; text-align: center;'>
+                        <h1 style='color: #7FD858; margin: 0;'>Quote Accepted!</h1>
+                    </div>
+                    <div style='padding: 30px; background: #f9f9f9;'>
+                        <div style='background: white; border-radius: 12px; padding: 25px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);'>
+                            <table style='width: 100%; border-collapse: collapse;'>
+                                <tr><td style='padding: 8px 0; font-weight: bold; width: 120px;'>Quote:</td><td>{$quote['quote_number']}</td></tr>
+                                <tr><td style='padding: 8px 0; font-weight: bold;'>Customer:</td><td>" . htmlspecialchars($signatureName) . "</td></tr>
+                                <tr><td style='padding: 8px 0; font-weight: bold;'>Property:</td><td>" . htmlspecialchars($quote['property_address'] . ', ' . $quote['property_city']) . "</td></tr>
+                                <tr><td style='padding: 8px 0; font-weight: bold;'>Amount:</td><td style='font-size: 18px; font-weight: bold; color: #2D8659;'>$" . number_format(floatval($quote['amount']), 2) . "</td></tr>
+                            </table>
+                            <div style='text-align: center; margin-top: 25px;'>
+                                <a href='https://mowology.ca/crm/quotes/view.php?id={$quote['id']}' style='display: inline-block; background: #2D8659; color: white; padding: 12px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;'>View in CRM</a>
+                            </div>
+                        </div>
+                    </div>
+                </body></html>";
 
-                mail($adminEmail, $subject, $body, "From: noreply@mowology.com");
+                sendEmailNotification(NOTIFICATION_EMAIL, $emailSubject, $emailBody);
+
+                // Send SMS notification
+                $smsMsg = "QUOTE ACCEPTED: {$quote['quote_number']} - $" . number_format(floatval($quote['amount']), 2) . " - " . htmlspecialchars($signatureName);
+                sendSMSNotification($smsMsg);
 
             } catch (Exception $e) {
                 $db->rollBack();
