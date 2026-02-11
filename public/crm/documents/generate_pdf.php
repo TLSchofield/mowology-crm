@@ -9,7 +9,6 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
-require_once dirname(__DIR__) . '/includes/email_helper.php';
 
 requireLogin();
 $user = getCurrentUser();

@@ -5,8 +5,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
-require_once dirname(__DIR__) . '/includes/smtp_mailer.php';
-require_once dirname(__DIR__) . '/includes/sms_gateway.php';
+require_once dirname(__DIR__) . '/includes/messaging.php';
 require_once dirname(__DIR__) . '/includes/roi-functions.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
@@ -93,67 +92,28 @@ $quoteNotes = getQuoteNotes($quoteId);
 $message = '';
 $messageType = '';
 
-// CRITICAL DEBUG: Log every request to see if POST is even hitting the server
-error_log("=== QUOTE VIEW PAGE LOADED ===");
-error_log("REQUEST_METHOD: " . $_SERVER['REQUEST_METHOD']);
-error_log("REQUEST_URI: " . $_SERVER['REQUEST_URI']);
-error_log("POST data received: " . json_encode($_POST, JSON_UNESCAPED_SLASHES));
-error_log("Number of POST items: " . count($_POST));
-
-// If this is a POST, log it prominently
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    error_log("⚠️ POST REQUEST RECEIVED - NOT JUST PAGE LOAD");
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    error_log("POST request detected");
-    $tokenValid = verifyCSRFToken($_POST['csrf_token'] ?? '');
-    error_log("CSRF token valid: " . ($tokenValid ? 'YES' : 'NO'));
-
-    if ($tokenValid) {
-        error_log("Proceeding with action");
-    } else {
-        error_log("CSRF token invalid or missing");
-        error_log("Expected token in session: " . ($_SESSION['csrf_token'] ?? 'NOT SET'));
-        error_log("Token from POST: " . ($_POST['csrf_token'] ?? 'NOT PROVIDED'));
-    }
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
-    error_log("Action: {$action}");
 
     if ($action === 'send') {
-        error_log("SEND ACTION TRIGGERED");
-        // Validate we have an email to send to
+        // Resolve customer contact info (quote request contact → company contact → billing)
         $customerEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['billing_email'] ?? null;
         $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['billing_phone'] ?? null;
         $customerConsentsToSms = false;
 
-        error_log("customerEmail: " . ($customerEmail ?: 'EMPTY'));
-        error_log("customerPhone: " . ($customerPhone ?: 'EMPTY'));
-
-        // Check if customer has opted in to SMS
+        // Check SMS consent via contacts table
         if (!empty($quote['qr_contact_id'])) {
-            error_log("Checking SMS consent for contact ID: " . $quote['qr_contact_id']);
-            $smsStmt = $db->prepare("SELECT receive_sms FROM contacts WHERE id = ?");
-            $smsStmt->execute([$quote['qr_contact_id']]);
-            $contactPrefs = $smsStmt->fetch(PDO::FETCH_ASSOC);
-            $customerConsentsToSms = !empty($contactPrefs['receive_sms']);
-            error_log("SMS consent result: " . ($customerConsentsToSms ? 'YES' : 'NO'));
-        } else {
-            error_log("No qr_contact_id to check SMS consent");
+            $customerConsentsToSms = hasSmConsent((int)$quote['qr_contact_id']);
         }
 
         if (!$customerEmail && !$customerPhone) {
-            error_log("NO CONTACT INFORMATION - CANNOT SEND");
             $message = 'Error: No contact information found (no email or phone). Please add contact details first.';
             $messageType = 'error';
         } else {
-            error_log("PROCEEDING WITH SEND - Email: " . ($customerEmail ? 'YES' : 'NO') . ", Phone: " . ($customerPhone ? 'YES' : 'NO'));
             $emailSent = false;
             $smsSent = false;
             $sentVia = [];
+            $attachPath = null;
 
             // Generate access token if not exists
             if (empty($quote['access_token'])) {
@@ -163,13 +123,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $quote['access_token'] = $accessToken;
             }
 
-            // Build email and SMS content
+            // Build customer name and quote URL
             $customerName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? '')) ?: ($quote['company_name'] ?? 'Valued Customer');
             $quoteUrl = "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token'];
 
             // --- SEND EMAIL ---
             if ($customerEmail) {
-                error_log("SENDING EMAIL to: {$customerEmail}");
                 $emailSubject = "Quote {$quote['quote_number']} from Mowology";
                 $emailBody = "
                     <h2>Your Quote is Ready</h2>
@@ -183,76 +142,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     <p>Thank you,<br>The Mowology Team</p>
                 ";
 
-                $attachPath = null;
+                $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody);
 
-                try {
-                    error_log("Starting email send...");
+                if ($emailResult['success']) {
+                    $emailSent = true;
+                    $sentVia[] = 'email';
 
-                    // FIRST: Try sending email WITHOUT PDF to test basic mail functionality
-                    error_log("Calling sendCrmEmail function (no PDF)...");
-                    $emailSent = sendCrmEmail($customerEmail, $emailSubject, $emailBody, null);
-                    error_log("sendCrmEmail returned: " . ($emailSent ? 'TRUE' : 'FALSE'));
+                    // Generate PDF for future resends (non-critical)
+                    try {
+                        require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
+                        require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
 
-                    if ($emailSent) {
-                        error_log("EMAIL SENT SUCCESSFULLY");
-                        $sentVia[] = 'email';
-
-                        // NOW try to attach PDF for future resends
-                        error_log("Attempting to generate and attach PDF for future resends...");
-                        try {
-                            require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
-                            require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
-
-                            $pdfGen = new PdfGenerator();
-                            $existingPath = $pdfGen->getPdfPath('quote', $quoteId);
-                            if ($existingPath) {
-                                $attachPath = $existingPath;
-                                error_log("Using existing PDF: {$attachPath}");
-                            } else {
-                                $pdfResult = $pdfGen->generateQuotePdf($quoteId);
-                                if ($pdfResult['success']) {
-                                    $attachPath = $pdfResult['path'];
-                                    error_log("Generated new PDF: {$attachPath}");
-                                } else {
-                                    error_log("Quote PDF generation skipped for quote {$quoteId}");
-                                }
+                        $pdfGen = new PdfGenerator();
+                        $existingPath = $pdfGen->getPdfPath('quote', $quoteId);
+                        if ($existingPath) {
+                            $attachPath = $existingPath;
+                        } else {
+                            $pdfResult = $pdfGen->generateQuotePdf($quoteId);
+                            if ($pdfResult['success']) {
+                                $attachPath = $pdfResult['path'];
                             }
-                        } catch (Exception $pdfEx) {
-                            error_log("PDF generation error (non-critical): " . $pdfEx->getMessage());
-                            // Continue anyway - email already sent
                         }
-                    } else {
-                        error_log("EMAIL SEND FAILED");
+                    } catch (Exception $pdfEx) {
+                        error_log("PDF generation error (non-critical): " . $pdfEx->getMessage());
                     }
-
-                } catch (Exception $e) {
-                    error_log("Email send error for quote {$quoteId}: " . $e->getMessage());
-                    $emailSent = false;
+                } else {
+                    error_log("Email failed for quote {$quoteId}: " . ($emailResult['error'] ?? 'unknown'));
                 }
-            } else {
-                error_log("SKIPPING EMAIL - NO EMAIL ADDRESS");
             }
 
             // --- SEND SMS (if consented) ---
             if ($customerPhone && $customerConsentsToSms) {
-                error_log("QUOTE SEND DEBUG: Starting SMS send to {$customerPhone}");
-                // SMS message
                 $smsMessage = "Your quote #{$quote['quote_number']} from Mowology is ready. Reply STOP to opt out.";
-
-                // Send via Canadian carrier email-to-SMS gateways
-                $smsResult = sendSmsViaMail($customerPhone, $smsMessage, 'Mowology');
-
-                error_log("QUOTE SEND DEBUG: SMS result=" . json_encode($smsResult));
+                $smsResult = sendSms($customerPhone, $smsMessage);
 
                 if ($smsResult['success']) {
                     $smsSent = true;
-                    $sentVia[] = 'SMS (' . implode(', ', $smsResult['delivered_carriers']) . ')';
-                    error_log("SMS sent via " . implode(', ', $smsResult['delivered_carriers']) . " to {$customerPhone}");
-                } else {
-                    error_log("QUOTE SEND DEBUG: SMS send failed, errors=" . json_encode($smsResult['errors']));
+                    $sentVia[] = 'SMS (' . ($smsResult['carrier'] ?? 'unknown') . ')';
                 }
-            } else {
-                error_log("QUOTE SEND DEBUG: Skipping SMS - Phone=" . ($customerPhone ? 'YES' : 'NO') . ", Consent=" . ($customerConsentsToSms ? 'YES' : 'NO'));
             }
 
             // --- UPDATE QUOTE STATUS ---
@@ -260,18 +187,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $stmt = $db->prepare("UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?");
                 $stmt->execute([implode(',', $sentVia), $quoteId]);
 
-                // Log quote_sent conversion event for ROI tracking
                 logQuoteSentEvent($quoteId);
 
-                // Build comprehensive activity log message
-                $activityDetails = "Quote sent to " . implode(' + ', $sentVia);
+                $activityDetails = "Quote sent via " . implode(' + ', $sentVia);
                 if ($customerEmail) {
                     $activityDetails .= " (email: {$customerEmail})";
                 }
                 if ($customerPhone && $customerConsentsToSms) {
                     $activityDetails .= " (SMS: {$customerPhone})";
                 }
-                if ($attachPath ?? false) {
+                if ($attachPath) {
                     $activityDetails .= " with PDF attached";
                 }
 
@@ -282,7 +207,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $message = "Quote sent successfully via {$sentViaText}";
                 $messageType = 'success';
             } else {
-                $message = 'Error sending quote. Please check that the email address is valid and try again. Check server logs for details.';
+                $message = 'Error sending quote. Please check that the email address is valid and try again.';
                 $messageType = 'error';
                 error_log("Quote send failed for quote {$quoteId}");
             }
