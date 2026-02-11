@@ -7,7 +7,7 @@
  *   $activePage   — string matching a key below to highlight the active nav item
  *
  * Active page keys: 'dashboard', 'clients', 'map', 'quotes', 'products', 'jobs',
- *                   'invoices', 'schedule', 'portfolio', 'cms', 'media', 'marketing', 'settings', 'diagnostics'
+ *                   'invoices', 'schedule', 'timeclock', 'portfolio', 'cms', 'media', 'marketing', 'settings', 'diagnostics'
  */
 if (!isset($activePage)) $activePage = '';
 if (!isset($user))       $user = ['name' => 'Admin'];
@@ -19,6 +19,7 @@ $navItems = [
     ['key' => 'jobs',      'label' => 'Jobs',          'icon' => 'briefcase',   'href' => '/crm/jobs/index.php'],
     ['key' => 'invoices',  'label' => 'Invoices',      'icon' => 'file-text',   'href' => '/crm/invoices/index.php'],
     ['key' => 'schedule',  'label' => 'Schedule',      'icon' => 'calendar',    'href' => '/crm/jobs/schedule.php'],
+    ['key' => 'timeclock', 'label' => 'Time Clock',    'icon' => 'clock',       'href' => '/crm/timeclock/my-schedule.php'],
     ['key' => 'map',       'label' => 'Territory Map', 'icon' => 'map',         'href' => '/crm/map_appstack.php'],
     ['key' => 'products',  'label' => 'Products',      'icon' => 'package',     'href' => '/crm/products/index.php'],
     ['key' => 'portfolio', 'label' => 'Portfolio',     'icon' => 'image',       'href' => '/crm/portfolio/index.php'],

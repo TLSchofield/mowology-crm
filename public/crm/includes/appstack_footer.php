@@ -42,6 +42,7 @@
 
   <script src="/crm/js/feather-helper.js"></script>
   <script src="/crm/js/app.js"></script>
+  <script src="/crm/js/time-clock-widget.js"></script>
 
   <!-- Debug Panel (development tool) -->
   <?php include __DIR__ . '/debug-panel.php'; ?>

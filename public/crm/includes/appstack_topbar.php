@@ -12,6 +12,9 @@ if (!isset($user)) $user = ['name' => 'Admin'];
         <i class="hamburger align-self-center"></i>
     </a>
 
+    <!-- Time Clock Widget (populated by time-clock-widget.js) -->
+    <div class="mw-clock-widget" id="clockWidget"></div>
+
     <div class="navbar-collapse collapse">
         <ul class="navbar-nav navbar-align">
             <li class="nav-item dropdown">

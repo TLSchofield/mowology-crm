@@ -4891,3 +4891,689 @@ textarea.font-monospace {
     padding: 10px 16px;
   }
 }
+
+/* ══════════════════════════════════════════════════════════
+   TIME CLOCK & JOB TIMER SYSTEM
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Topbar Clock Widget ──────────────────────────────── */
+
+.mw-clock-widget {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  margin-right: 12px;
+}
+
+.mw-clock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: none;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.mw-clock-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.mw-clock-in {
+  background: var(--mw-green);
+  color: #fff;
+}
+
+.mw-clock-in:hover {
+  background: var(--mw-dark);
+  transform: scale(1.03);
+}
+
+.mw-clock-out {
+  background: #dc2626;
+  color: #fff;
+  padding: 5px 10px;
+}
+
+.mw-clock-out:hover {
+  background: #b91c1c;
+}
+
+.mw-clock-active {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--mw-light);
+  border: 1px solid var(--mw-green);
+  border-radius: 24px;
+  padding: 3px 6px 3px 12px;
+}
+
+.mw-clock-icon-pulse {
+  width: 16px;
+  height: 16px;
+  color: var(--mw-green);
+  animation: mw-pulse 2s ease-in-out infinite;
+}
+
+@keyframes mw-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.mw-clock-timer {
+  font-family: 'Montserrat', monospace;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  letter-spacing: 0.5px;
+}
+
+.mw-clock-job-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--mw-green);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.mw-clock-job-badge svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* Clock toast notifications */
+.mw-clock-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #fff;
+  z-index: 10000;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.3s, transform 0.3s;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.mw-clock-toast-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.mw-clock-toast-success { background: var(--mw-green); }
+.mw-clock-toast-error { background: #dc2626; }
+.mw-clock-toast-info { background: #2563eb; }
+
+/* Mobile: hide label text */
+@media (max-width: 768px) {
+  .mw-clock-label { display: none; }
+  .mw-clock-job-badge { display: none; }
+  .mw-clock-active { padding: 3px 6px 3px 8px; gap: 6px; }
+}
+
+/* ── My Schedule Page ─────────────────────────────────── */
+
+.mw-schedule-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.mw-schedule-date-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mw-schedule-date-nav button {
+  background: var(--mw-light);
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.mw-schedule-date-nav button:hover {
+  background: var(--mw-green);
+  color: #fff;
+  border-color: var(--mw-green);
+}
+
+.mw-schedule-date-display {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+}
+
+.mw-schedule-today-btn {
+  background: var(--mw-green);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mw-schedule-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.mw-schedule-stat {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 10px 16px;
+  text-align: center;
+  min-width: 100px;
+}
+
+.mw-schedule-stat-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--mw-green);
+}
+
+.mw-schedule-stat-label {
+  font-size: 0.75rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* GPS status indicator */
+.mw-gps-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.mw-gps-active { background: #dcfce7; color: #166534; }
+.mw-gps-inactive { background: #fef3c7; color: #92400e; }
+.mw-gps-error { background: #fecaca; color: #991b1b; }
+
+.mw-gps-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.mw-gps-active .mw-gps-dot { background: #22c55e; animation: mw-pulse 1.5s infinite; }
+.mw-gps-inactive .mw-gps-dot { background: #f59e0b; }
+.mw-gps-error .mw-gps-dot { background: #ef4444; }
+
+/* ── Job Cards (Schedule) ─────────────────────────────── */
+
+.mw-job-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mw-tc-card {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 16px;
+  border-left: 4px solid var(--mw-green);
+  transition: box-shadow 0.2s, border-color 0.2s;
+  position: relative;
+}
+
+.mw-tc-card:hover {
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+
+.mw-tc-card.mw-tc-in-progress {
+  border-left-color: var(--mw-orange);
+  background: #fff9f0;
+}
+
+.mw-tc-card.mw-tc-completed {
+  border-left-color: var(--mw-lime);
+  opacity: 0.8;
+}
+
+.mw-tc-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+.mw-tc-card-time {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  white-space: nowrap;
+}
+
+.mw-tc-card-service {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.mw-tc-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.mw-tc-card-client {
+  font-size: 0.85rem;
+  color: #555;
+  margin-bottom: 2px;
+}
+
+.mw-tc-card-address {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 12px;
+}
+
+.mw-tc-card-address svg {
+  width: 12px;
+  height: 12px;
+  margin-right: 3px;
+}
+
+.mw-tc-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mw-tc-card-duration {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.mw-tc-card-duration svg {
+  width: 12px;
+  height: 12px;
+  margin-right: 3px;
+}
+
+/* Job timer display on active card */
+.mw-tc-active-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--mw-orange);
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: 'Montserrat', monospace;
+  animation: mw-pulse 2s infinite;
+}
+
+.mw-tc-active-timer svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Action buttons */
+.mw-tc-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mw-tc-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mw-tc-btn-start {
+  background: var(--mw-green);
+  color: #fff;
+}
+
+.mw-tc-btn-start:hover {
+  background: var(--mw-dark);
+  transform: translateY(-1px);
+}
+
+.mw-tc-btn-stop {
+  background: #dc2626;
+  color: #fff;
+}
+
+.mw-tc-btn-stop:hover { background: #b91c1c; }
+
+.mw-tc-btn-pause {
+  background: var(--mw-orange);
+  color: #fff;
+}
+
+.mw-tc-btn-pause:hover { background: #d65400; }
+
+.mw-tc-btn-complete {
+  background: var(--mw-lime);
+  color: var(--mw-forest);
+}
+
+/* Completed badge */
+.mw-tc-done-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #dcfce7;
+  color: #166534;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* GPS proximity alert */
+.mw-gps-alert {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--mw-green);
+  color: #fff;
+  padding: 14px 24px;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(45, 134, 89, 0.4);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: mw-slideUp 0.3s ease;
+  max-width: 90vw;
+}
+
+@keyframes mw-slideUp {
+  from { transform: translateX(-50%) translateY(20px); opacity: 0; }
+  to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
+.mw-gps-alert-text {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.mw-gps-alert-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.mw-gps-alert-yes,
+.mw-gps-alert-no {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.mw-gps-alert-yes {
+  background: #fff;
+  color: var(--mw-green);
+}
+
+.mw-gps-alert-no {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+}
+
+/* Empty state for no jobs */
+.mw-schedule-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: #888;
+}
+
+.mw-schedule-empty svg {
+  width: 48px;
+  height: 48px;
+  color: #ccc;
+  margin-bottom: 12px;
+}
+
+.mw-schedule-empty h3 {
+  font-size: 1.2rem;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+/* ── Timesheets ───────────────────────────────────────── */
+
+.mw-ts-filters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.mw-ts-filters select,
+.mw-ts-filters input {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.mw-ts-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.mw-ts-table th {
+  background: var(--mw-forest);
+  color: #fff;
+  padding: 10px 14px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.mw-ts-table th:first-child { border-radius: 8px 0 0 0; }
+.mw-ts-table th:last-child { border-radius: 0 8px 0 0; }
+
+.mw-ts-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #eee;
+  font-size: 0.85rem;
+}
+
+.mw-ts-table tbody tr:hover {
+  background: var(--mw-light);
+  cursor: pointer;
+}
+
+.mw-ts-status {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.mw-ts-status-pending { background: #fef3c7; color: #92400e; }
+.mw-ts-status-submitted { background: #dbeafe; color: #1e40af; }
+.mw-ts-status-approved { background: #dcfce7; color: #166534; }
+.mw-ts-status-rejected { background: #fecaca; color: #991b1b; }
+
+/* Timesheet detail — daily breakdown */
+.mw-ts-day-row {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+
+.mw-ts-day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.mw-ts-day-name {
+  font-weight: 700;
+  color: var(--mw-forest);
+}
+
+.mw-ts-day-hours {
+  font-weight: 600;
+  color: var(--mw-green);
+}
+
+.mw-ts-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid #f0f0f0;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.mw-ts-entry-time {
+  font-weight: 600;
+  color: #333;
+  min-width: 120px;
+}
+
+.mw-ts-entry-job {
+  flex: 1;
+}
+
+.mw-ts-entry-duration {
+  font-weight: 600;
+  color: var(--mw-green);
+}
+
+/* Approve/Reject buttons */
+.mw-ts-action-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 2px solid #eee;
+}
+
+.mw-ts-approve-btn {
+  background: var(--mw-green);
+  color: #fff;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mw-ts-approve-btn:hover { background: var(--mw-dark); }
+
+.mw-ts-reject-btn {
+  background: #fff;
+  color: #dc2626;
+  border: 2px solid #dc2626;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mw-ts-reject-btn:hover { background: #fef2f2; }
+
+/* ── Time Clock Settings Page ─────────────────────────── */
+
+.mw-tcs-section {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.mw-tcs-section h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--mw-light);
+}
+
+.mw-tcs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.mw-tcs-row:last-child { border-bottom: none; }
+
+.mw-tcs-label {
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.mw-tcs-label small {
+  display: block;
+  color: #888;
+  font-size: 0.8rem;
+}
+
+/* Mobile responsive */
+@media (max-width: 576px) {
+  .mw-schedule-header { flex-direction: column; align-items: stretch; }
+  .mw-schedule-stats { justify-content: space-between; }
+  .mw-schedule-stat { min-width: 80px; flex: 1; }
+  .mw-tc-card-footer { flex-direction: column; align-items: stretch; }
+  .mw-tc-btn { justify-content: center; }
+  .mw-ts-filters { flex-direction: column; }
+  .mw-ts-action-bar { flex-direction: column; }
+  .mw-tcs-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
