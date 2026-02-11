@@ -124,6 +124,11 @@ try {
             $data['taxable'] = 1;
         }
 
+        // Normalize SKU: empty string → null (UNIQUE constraint allows multiple NULLs but not multiple empty strings)
+        if (isset($data['sku']) && trim($data['sku']) === '') {
+            $data['sku'] = null;
+        }
+
         // Check if min_price column exists (migration 119 may not have run)
         $hasMinPrice = false;
         try {
