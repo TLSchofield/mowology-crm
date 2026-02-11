@@ -44,8 +44,8 @@ if (!function_exists('getDB')) {
  * HTML escape helper
  */
 if (!function_exists('h')) {
-    function h(string $value): string {
-        return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    function h($value): string {
+        return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 }
 
