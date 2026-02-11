@@ -2,7 +2,7 @@
  * Mowology Brand Override for AppStack
  * ─────────────────────────────────────
  * Loaded AFTER classic.css to override AppStack defaults.
- * Do NOT edit classic.css or any AppStack core files.
+ * Do NOT edit classic.css or any AppStack vendor files.
  *
  * Brand tokens:
  *   --mw-green:  #2D8659   (primary)
