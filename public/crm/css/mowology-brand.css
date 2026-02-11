@@ -5566,6 +5566,156 @@ textarea.font-monospace {
   font-size: 0.8rem;
 }
 
+/* ── Employee / Team Management ──────────────────────── */
+
+.mw-emp-card {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  padding: 18px;
+  position: relative;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.mw-emp-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  border-color: var(--mw-green);
+}
+
+.mw-emp-inactive {
+  opacity: 0.55;
+  border-color: #ddd;
+}
+
+.mw-emp-inactive:hover {
+  opacity: 0.75;
+  border-color: #bbb;
+}
+
+.mw-emp-status-dot {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ccc;
+}
+
+.mw-emp-online {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+  animation: mw-emp-pulse 2s infinite;
+}
+
+@keyframes mw-emp-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25); }
+  50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.1); }
+}
+
+.mw-emp-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.mw-emp-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--mw-green);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.mw-emp-inactive .mw-emp-avatar {
+  background: #999;
+}
+
+.mw-emp-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mw-emp-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+  margin: 0 0 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-emp-details {
+  margin-bottom: 12px;
+}
+
+.mw-emp-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #666;
+  padding: 3px 0;
+}
+
+.mw-emp-detail-row svg {
+  color: #999;
+  flex-shrink: 0;
+}
+
+.mw-emp-detail-row span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-emp-stats-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 10px 0;
+  border-top: 1px solid #f0f0f0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.mw-emp-mini-stat {
+  flex: 1;
+  text-align: center;
+}
+
+.mw-emp-mini-val {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+}
+
+.mw-emp-mini-label {
+  display: block;
+  font-size: 0.7rem;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.mw-emp-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mw-emp-actions .btn {
+  padding: 5px 10px;
+}
+
 /* Mobile responsive */
 @media (max-width: 576px) {
   .mw-schedule-header { flex-direction: column; align-items: stretch; }
@@ -5576,4 +5726,6 @@ textarea.font-monospace {
   .mw-ts-filters { flex-direction: column; }
   .mw-ts-action-bar { flex-direction: column; }
   .mw-tcs-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .mw-emp-stats-row { gap: 4px; }
+  .mw-emp-mini-val { font-size: 0.9rem; }
 }
