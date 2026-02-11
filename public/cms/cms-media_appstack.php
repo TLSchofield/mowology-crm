@@ -38,29 +38,32 @@ $allMedia = cms_getMediaAssets();
 // Apply filters
 $media = $allMedia;
 if ($typeFilter) {
-    $media = array_filter($media, fn($m) => $m['media_type'] === $typeFilter);
+    $media = array_filter($media, fn($m) => $m['file_type'] === $typeFilter);
 }
 if ($searchFilter) {
     $search = strtolower($searchFilter);
     $media = array_filter($media, fn($m) =>
-        stripos($m['filename'] ?? '', $search) !== false ||
+        stripos($m['original_filename'] ?? '', $search) !== false ||
         stripos($m['alt_text'] ?? '', $search) !== false
     );
 }
 
 // Sort by date (newest first)
-usort($media, fn($a, $b) => strtotime($b['uploaded_at'] ?? 0) <=> strtotime($a['uploaded_at'] ?? 0));
+usort($media, fn($a, $b) => strtotime($b['created_at'] ?? '0') <=> strtotime($a['created_at'] ?? '0'));
 
 // Prepare for table rendering
 foreach ($media as &$m) {
-    $m['type_badge'] = match($m['media_type']) {
+    // Map to display-friendly keys used by the table template
+    $m['filename'] = $m['original_filename'] ?? $m['stored_filename'] ?? '';
+    $m['media_type'] = $m['file_type'] ?? 'image';
+    $m['type_badge'] = match($m['file_type'] ?? '') {
         'image' => 'primary',
         'video' => 'info',
         'document' => 'secondary',
         default => 'secondary',
     };
-    $m['type_display'] = ucfirst($m['media_type']);
-    $m['uploaded_date'] = date('M d, Y', strtotime($m['uploaded_at']));
+    $m['type_display'] = ucfirst($m['file_type'] ?? 'unknown');
+    $m['uploaded_date'] = !empty($m['created_at']) ? date('M d, Y', strtotime($m['created_at'])) : '';
     $m['file_size_kb'] = round(($m['file_size'] ?? 0) / 1024, 1);
 }
 
@@ -85,7 +88,7 @@ foreach ($media as &$m) {
             <div class="card border-left border-primary">
                 <div class="card-body">
                     <div style="font-size: 1.5rem; font-weight: bold; color: #007bff;">
-                        <?php echo count(array_filter($allMedia, fn($m) => $m['media_type'] === 'image')); ?>
+                        <?php echo count(array_filter($allMedia, fn($m) => ($m['file_type'] ?? '') === 'image')); ?>
                     </div>
                     <small class="text-muted">Images</small>
                 </div>
@@ -95,7 +98,7 @@ foreach ($media as &$m) {
             <div class="card border-left border-info">
                 <div class="card-body">
                     <div style="font-size: 1.5rem; font-weight: bold; color: #17a2b8;">
-                        <?php echo count(array_filter($allMedia, fn($m) => $m['media_type'] === 'video')); ?>
+                        <?php echo count(array_filter($allMedia, fn($m) => ($m['file_type'] ?? '') === 'video')); ?>
                     </div>
                     <small class="text-muted">Videos</small>
                 </div>
@@ -105,7 +108,7 @@ foreach ($media as &$m) {
             <div class="card border-left border-success">
                 <div class="card-body">
                     <div style="font-size: 1.5rem; font-weight: bold; color: #28a745;">
-                        <?php echo count(array_filter($allMedia, fn($m) => $m['media_type'] === 'document')); ?>
+                        <?php echo count(array_filter($allMedia, fn($m) => ($m['file_type'] ?? '') === 'document')); ?>
                     </div>
                     <small class="text-muted">Documents</small>
                 </div>

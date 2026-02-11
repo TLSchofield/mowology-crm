@@ -73,16 +73,16 @@ if ($file['size'] > $maxSizes[$mediaType]) {
     exit;
 }
 
-// Generate unique filename
+// Generate unique stored filename
 $uploadDir = dirname(__DIR__) . '/../uploads/cms/';
 if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0755, true);
 }
 
-$ext = pathinfo($file['name'], PATHINFO_EXTENSION);
-$uniqueName = uniqid('media-') . '.' . $ext;
-$filePath = $uploadDir . $uniqueName;
-$webPath = '/uploads/cms/' . $uniqueName;
+$ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+$storedName = uniqid('media-') . '.' . $ext;
+$filePath = $uploadDir . $storedName;
+$webPath = '/uploads/cms/' . $storedName;
 
 // Move uploaded file
 if (!move_uploaded_file($file['tmp_name'], $filePath)) {
@@ -90,18 +90,34 @@ if (!move_uploaded_file($file['tmp_name'], $filePath)) {
     exit;
 }
 
+// Get image dimensions if applicable
+$imgWidth = null;
+$imgHeight = null;
+if ($mediaType === 'image' && function_exists('getimagesize')) {
+    $imgInfo = @getimagesize($filePath);
+    if ($imgInfo) {
+        $imgWidth = $imgInfo[0];
+        $imgHeight = $imgInfo[1];
+    }
+}
+
 // Register in database
 try {
     $db = getDB();
     $stmt = $db->prepare('
-        INSERT INTO media_assets (filename, file_path, file_size, media_type, alt_text, uploaded_by, uploaded_at)
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
+        INSERT INTO media_assets
+            (original_filename, stored_filename, file_path, file_type, mime_type, file_size, image_width, image_height, alt_text, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ');
     $stmt->execute([
         $file['name'],
+        $storedName,
         $webPath,
-        $file['size'],
         $mediaType,
+        $mimeType,
+        $file['size'],
+        $imgWidth,
+        $imgHeight,
         $altText,
         $user['id'],
     ]);

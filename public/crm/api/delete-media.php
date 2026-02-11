@@ -51,8 +51,8 @@ try {
         exit;
     }
 
-    // Soft delete
-    $stmt = $db->prepare('UPDATE media_assets SET deleted_at = NOW() WHERE id = ?');
+    // Delete record (file kept on disk for safety)
+    $stmt = $db->prepare('DELETE FROM media_assets WHERE id = ?');
     $stmt->execute([$mediaId]);
 
     echo json_encode([
