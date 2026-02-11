@@ -59,7 +59,6 @@ $userId   = (php_sapi_name() === 'cli') ? null : ($user['id'] ?? null);
 
 // Tracking
 $syncHistoryId = null;
-$syncStartTime = date('Y-m-d H:i:s');
 $startEpoch    = time();
 
 $pulledProps = 0;
@@ -74,8 +73,12 @@ $totalRowsUpdated   = 0; // kept for UI; we do replace-per-snapshot so "updated"
 $historyPropertyId = null;
 
 try {
-    // Load properties
-    $stmt = $db->query("SELECT id, site_url, access_token_encrypted, refresh_token_encrypted, expires_at FROM gsc_properties ORDER BY id ASC");
+    // Load properties — prefer api_site_url (exact GSC identifier) over legacy site_url
+    $stmt = $db->query("
+        SELECT id, site_url, access_token_encrypted, refresh_token_encrypted, expires_at,
+               api_site_url, property_type
+        FROM gsc_properties ORDER BY id ASC
+    ");
     $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($properties)) {
@@ -91,13 +94,13 @@ try {
 
     $historyPropertyId = (int)$properties[0]['id'];
 
-    // Create sync history row (pending)
+    // Create sync history row (pending) — use NOW() for started_at to match completed_at timezone
     try {
         $histStmt = $db->prepare("
             INSERT INTO gsc_sync_history (property_id, sync_type, status, started_at, initiated_by_user_id, rows_processed, rows_inserted, rows_updated)
-            VALUES (?, ?, 'pending', ?, ?, 0, 0, 0)
+            VALUES (?, ?, 'pending', NOW(), ?, 0, 0, 0)
         ");
-        $histStmt->execute([$historyPropertyId, $syncType, $syncStartTime, $userId]);
+        $histStmt->execute([$historyPropertyId, $syncType, $userId]);
         $syncHistoryId = (int)$db->lastInsertId();
     } catch (Throwable $e) {
         // History isn't required for sync to run; log and continue
@@ -107,7 +110,10 @@ try {
 
     foreach ($properties as $property) {
         $propId  = (int)$property['id'];
-        $siteUrl = (string)$property['site_url'];
+        // Use api_site_url (exact GSC identifier) if available, otherwise fall back to site_url
+        $siteUrl = !empty($property['api_site_url']) ? (string)$property['api_site_url'] : (string)$property['site_url'];
+        $propertyType = $property['property_type'] ?? '';
+        error_log("GSC sync: property #{$propId} — siteUrl={$siteUrl}, type={$propertyType}");
 
         // Refresh token if expired or missing expires_at
         $expiresAt = strtotime((string)($property['expires_at'] ?? ''));
@@ -162,6 +168,7 @@ try {
         $rows = $gscData['rows'] ?? [];
         $rowsCount = is_array($rows) ? count($rows) : 0;
         $totalRowsProcessed += $rowsCount;
+        error_log("GSC sync: property #{$propId} ({$siteUrl}) — API returned {$rowsCount} rows, response keys: " . implode(',', array_keys($gscData)));
 
         // Store snapshot (per day)
         $snapshotDate = date('Y-m-d');
@@ -256,7 +263,20 @@ try {
         }
 
         $errorMsg = !empty($errors) ? json_encode($errors, JSON_UNESCAPED_SLASHES) : null;
-        $notes    = !empty($errors) ? 'See error_message JSON for details' : null;
+
+        // Build informative notes
+        if (!empty($errors)) {
+            $notes = 'See error_message JSON for details';
+        } elseif ($totalRowsProcessed === 0) {
+            $notes = "API returned 0 rows (no search data for date range)";
+        } else {
+            $notes = null;
+        }
+        // Append user attribution for manual syncs
+        if ($syncType === 'manual' && $userId) {
+            $userNote = "Manual sync by user #{$userId}";
+            $notes = $notes ? "{$notes} — {$userNote}" : $userNote;
+        }
 
         try {
             // Try update with full columns (recommended)
@@ -305,7 +325,9 @@ try {
         'failed'    => $failedProps,
         'processed' => $totalRowsProcessed,
         'inserted'  => $totalRowsInserted,
-        'message'   => "Pulled {$pulledProps} properties, {$failedProps} failed",
+        'message'   => $totalRowsProcessed > 0
+            ? "Pulled {$pulledProps} properties: {$totalRowsProcessed} rows processed, {$totalRowsInserted} inserted"
+            : "Pulled {$pulledProps} properties but API returned 0 rows (no search data for date range)",
         'errors'    => $errors
     ];
 
@@ -330,16 +352,25 @@ try {
 
 /**
  * Fetch GSC data via API.
- * Uses sc-domain: format (recommended).
+ * Uses the site URL exactly as provided (sc-domain: or URL-prefix format).
+ * Falls back to sc-domain: transformation only for bare domains.
  */
 function fetchGSCData(string $accessToken, string $siteUrl): ?array
 {
     if ($accessToken === '') return null;
 
-    // Force sc-domain format
-    $domain = preg_replace('|^(https?://)?sc-domain:|', '', trim($siteUrl));
-    $domain = rtrim($domain, "/ \t\n\r\0\x0B");
-    $apiSiteUrl = 'sc-domain:' . $domain;
+    $siteUrl = trim($siteUrl);
+
+    // If the URL already has a recognized prefix, use it verbatim
+    if (strpos($siteUrl, 'sc-domain:') === 0 || strpos($siteUrl, 'https://') === 0 || strpos($siteUrl, 'http://') === 0) {
+        $apiSiteUrl = $siteUrl;
+    } else {
+        // Bare domain — wrap in sc-domain: format
+        $domain = rtrim($siteUrl, "/ \t\n\r\0\x0B");
+        $apiSiteUrl = 'sc-domain:' . $domain;
+    }
+
+    error_log("GSC fetchGSCData: apiSiteUrl={$apiSiteUrl}");
 
     // Use a safe window (GSC lag)
     $startDate = date('Y-m-d', strtotime('-28 days'));
@@ -378,11 +409,13 @@ function fetchGSCData(string $accessToken, string $siteUrl): ?array
     }
 
     if ($httpCode !== 200) {
-        error_log("GSC API error ($httpCode): $response");
+        error_log("GSC API error ($httpCode) for {$apiSiteUrl}: $response");
         return null;
     }
 
     $decoded = json_decode((string)$response, true);
+    $rowCount = isset($decoded['rows']) ? count($decoded['rows']) : 0;
+    error_log("GSC API response for {$apiSiteUrl}: HTTP {$httpCode}, rows={$rowCount}, keys=" . implode(',', array_keys($decoded ?? [])));
     return is_array($decoded) ? $decoded : null;
 }
 

@@ -224,17 +224,23 @@ if (($_GET['step'] ?? '') === 'callback') {
         die('Connected, but no Search Console properties were found for this account.');
     }
 
+    // Determine property type from the chosen URL format
+    $chosenPropertyType = (strpos($chosenSiteUrl, 'sc-domain:') === 0) ? 'domain' : 'url_prefix';
+
     // ✅ Upsert a SINGLE row for the chosen property (keeps your schema simple)
     $stmt = $db->prepare("
-        INSERT INTO gsc_properties (site_url, access_token_encrypted, refresh_token_encrypted, expires_at, connected_at)
-        VALUES (?, ?, ?, ?, NOW())
+        INSERT INTO gsc_properties (site_url, api_site_url, property_type, access_token_encrypted, refresh_token_encrypted, expires_at, connected_at, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)
         ON DUPLICATE KEY UPDATE
+            api_site_url = VALUES(api_site_url),
+            property_type = VALUES(property_type),
             access_token_encrypted = VALUES(access_token_encrypted),
             refresh_token_encrypted = VALUES(refresh_token_encrypted),
             expires_at = VALUES(expires_at),
-            connected_at = NOW()
+            connected_at = NOW(),
+            is_active = 1
     ");
-    $stmt->execute([$chosenSiteUrl, $accessTokenEnc, $refreshTokenEnc, $expiresAt]);
+    $stmt->execute([$chosenSiteUrl, $chosenSiteUrl, $chosenPropertyType, $accessTokenEnc, $refreshTokenEnc, $expiresAt]);
 
     logActivity($user['id'], null, 'Google Search Console connected', 'Property: ' . $chosenSiteUrl);
 
