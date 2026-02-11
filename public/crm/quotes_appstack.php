@@ -68,24 +68,35 @@ $totalQuotes = 0;
 
 try {
     // Get all quotes with company, property, contact, and job info in one query
+    // Contact name resolution priority:
+    //   1. quote_requests.contact_id → contacts (most reliable — direct from intake form)
+    //   2. companies.primary_contact_id → contacts (if company_id set on quote)
+    //   3. company_properties → companies → contacts (if company linked via property)
+    //   4. properties.site_contact_id → contacts (fallback)
     $quotesResult = $db->query("
         SELECT
             q.id, q.quote_number, q.status, q.total_amount,
             q.created_at, q.expiry_date, q.property_id, q.company_id, q.created_by,
             q.service_types,
-            co.company_name,
+            COALESCE(co.company_name, cp_co.company_name) AS company_name,
             p.address AS property_address,
             p.city AS property_city,
+            qrc.first_name AS qr_contact_first,
+            qrc.last_name AS qr_contact_last,
             pc.first_name AS primary_contact_first,
             pc.last_name AS primary_contact_last,
             sc.first_name AS site_contact_first,
             sc.last_name AS site_contact_last,
             (SELECT j.id FROM jobs j WHERE j.quote_id = q.id LIMIT 1) AS job_id
         FROM quotes q
-        LEFT JOIN companies co ON q.company_id = co.id
         LEFT JOIN properties p ON q.property_id = p.id
-        LEFT JOIN contacts pc ON co.primary_contact_id = pc.id
+        LEFT JOIN companies co ON q.company_id = co.id
+        LEFT JOIN company_properties cp ON p.id = cp.property_id AND cp.is_primary = 1
+        LEFT JOIN companies cp_co ON cp.company_id = cp_co.id AND q.company_id IS NULL
+        LEFT JOIN contacts pc ON COALESCE(co.primary_contact_id, cp_co.primary_contact_id) = pc.id
         LEFT JOIN contacts sc ON p.site_contact_id = sc.id
+        LEFT JOIN quote_requests qr ON qr.quote_id = q.id
+        LEFT JOIN contacts qrc ON qr.contact_id = qrc.id
         ORDER BY q.created_at DESC
         LIMIT 500
     ");
@@ -254,15 +265,18 @@ $activePage = 'quotes';
                           <?php else: ?>
                               <?php foreach ($quotesByStatus['draft'] as $quote):
                                   $clientName = '';
-                                  if (!empty($quote['company_name'])) {
-                                      $clientName = $quote['company_name'];
-                                  }
-                                  if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                  $contactName = '';
+                                  if (!empty($quote['qr_contact_first']) || !empty($quote['qr_contact_last'])) {
+                                      $contactName = trim(($quote['qr_contact_first'] ?? '') . ' ' . ($quote['qr_contact_last'] ?? ''));
+                                  } elseif (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
                                       $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
-                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                   } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
                                       $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
-                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                  }
+                                  if (!empty($quote['company_name'])) {
+                                      $clientName = $contactName ? $contactName . ' — ' . $quote['company_name'] : $quote['company_name'];
+                                  } else {
+                                      $clientName = $contactName;
                                   }
                                   if (empty($clientName)) $clientName = 'N/A';
                               ?>
@@ -293,15 +307,18 @@ $activePage = 'quotes';
                           <?php else: ?>
                               <?php foreach ($quotesByStatus['sent'] as $quote):
                                   $clientName = '';
-                                  if (!empty($quote['company_name'])) {
-                                      $clientName = $quote['company_name'];
-                                  }
-                                  if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                  $contactName = '';
+                                  if (!empty($quote['qr_contact_first']) || !empty($quote['qr_contact_last'])) {
+                                      $contactName = trim(($quote['qr_contact_first'] ?? '') . ' ' . ($quote['qr_contact_last'] ?? ''));
+                                  } elseif (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
                                       $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
-                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                   } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
                                       $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
-                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                  }
+                                  if (!empty($quote['company_name'])) {
+                                      $clientName = $contactName ? $contactName . ' — ' . $quote['company_name'] : $quote['company_name'];
+                                  } else {
+                                      $clientName = $contactName;
                                   }
                                   if (empty($clientName)) $clientName = 'N/A';
                               ?>
@@ -332,15 +349,18 @@ $activePage = 'quotes';
                           <?php else: ?>
                               <?php foreach ($quotesByStatus['accepted'] as $quote):
                                   $clientName = '';
-                                  if (!empty($quote['company_name'])) {
-                                      $clientName = $quote['company_name'];
-                                  }
-                                  if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                  $contactName = '';
+                                  if (!empty($quote['qr_contact_first']) || !empty($quote['qr_contact_last'])) {
+                                      $contactName = trim(($quote['qr_contact_first'] ?? '') . ' ' . ($quote['qr_contact_last'] ?? ''));
+                                  } elseif (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
                                       $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
-                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                   } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
                                       $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
-                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                  }
+                                  if (!empty($quote['company_name'])) {
+                                      $clientName = $contactName ? $contactName . ' — ' . $quote['company_name'] : $quote['company_name'];
+                                  } else {
+                                      $clientName = $contactName;
                                   }
                                   if (empty($clientName)) $clientName = 'N/A';
                               ?>
@@ -371,15 +391,18 @@ $activePage = 'quotes';
                           <?php else: ?>
                               <?php foreach ($quotesByStatus['scheduled'] as $quote):
                                   $clientName = '';
-                                  if (!empty($quote['company_name'])) {
-                                      $clientName = $quote['company_name'];
-                                  }
-                                  if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                  $contactName = '';
+                                  if (!empty($quote['qr_contact_first']) || !empty($quote['qr_contact_last'])) {
+                                      $contactName = trim(($quote['qr_contact_first'] ?? '') . ' ' . ($quote['qr_contact_last'] ?? ''));
+                                  } elseif (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
                                       $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
-                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                   } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
                                       $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
-                                      $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                  }
+                                  if (!empty($quote['company_name'])) {
+                                      $clientName = $contactName ? $contactName . ' — ' . $quote['company_name'] : $quote['company_name'];
+                                  } else {
+                                      $clientName = $contactName;
                                   }
                                   if (empty($clientName)) $clientName = 'N/A';
                               ?>
@@ -442,15 +465,18 @@ $activePage = 'quotes';
                               <tbody>
                                   <?php foreach ($quotes as $quote):
                                       $clientName = '';
-                                      if (!empty($quote['company_name'])) {
-                                          $clientName = $quote['company_name'];
-                                      }
-                                      if (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
+                                      $contactName = '';
+                                      if (!empty($quote['qr_contact_first']) || !empty($quote['qr_contact_last'])) {
+                                          $contactName = trim(($quote['qr_contact_first'] ?? '') . ' ' . ($quote['qr_contact_last'] ?? ''));
+                                      } elseif (!empty($quote['primary_contact_first']) || !empty($quote['primary_contact_last'])) {
                                           $contactName = trim(($quote['primary_contact_first'] ?? '') . ' ' . ($quote['primary_contact_last'] ?? ''));
-                                          $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
                                       } elseif (!empty($quote['site_contact_first']) || !empty($quote['site_contact_last'])) {
                                           $contactName = trim(($quote['site_contact_first'] ?? '') . ' ' . ($quote['site_contact_last'] ?? ''));
-                                          $clientName = $clientName ? $clientName . ' — ' . $contactName : $contactName;
+                                      }
+                                      if (!empty($quote['company_name'])) {
+                                          $clientName = $contactName ? $contactName . ' — ' . $quote['company_name'] : $quote['company_name'];
+                                      } else {
+                                          $clientName = $contactName;
                                       }
                                       if (empty($clientName)) $clientName = 'N/A';
                                   ?>
