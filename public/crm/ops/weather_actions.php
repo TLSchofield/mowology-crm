@@ -165,7 +165,7 @@ $activePage = 'weather-ops';
                   (v.worst_hour.temp_c || 0) + '°C)'
                 : '—';
 
-              const crewName = v.crew_first_name ? v.crew_first_name + ' ' + (v.crew_last_name || '') : '—';
+              const crewName = v.crew_name || '—';
 
               return '<tr>' +
                 '<td><strong>' + escapeHtml(v.visit_number) + '</strong><br><small class="text-muted">' + escapeHtml(crewName) + '</small></td>' +

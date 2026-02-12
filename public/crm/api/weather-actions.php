@@ -34,7 +34,7 @@ try {
                    p.service_type, p.title AS plan_title, p.service_package_id,
                    prop.address, prop.city,
                    sp.package_name AS service_name, sp.weather_policy,
-                   u.first_name AS crew_first_name, u.last_name AS crew_last_name
+                   u.full_name AS crew_name
             FROM job_visits v
             JOIN job_plans p ON v.plan_id = p.id
             JOIN properties prop ON p.property_id = prop.id
