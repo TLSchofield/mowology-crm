@@ -27,6 +27,7 @@ $navItems = [
     ['key' => 'cms',       'label' => 'CMS',          'icon' => 'edit-3',       'href' => '/crm/cms-pages_appstack.php'],
     ['key' => 'media',     'label' => 'Media Library', 'icon' => 'image',       'href' => '/cms/cms-media_appstack.php'],
     ['key' => 'marketing', 'label' => 'Marketing',     'icon' => 'zap',         'href' => '/crm/marketing/recommendations.php'],
+    ['key' => 'weather-ops', 'label' => 'Weather Ops',  'icon' => 'cloud-lightning', 'href' => '/crm/ops/weather_actions.php'],
 ];
 ?>
 <nav id="sidebar" class="sidebar">
@@ -67,6 +68,13 @@ $navItems = [
                 <a class="sidebar-link" href="/crm/diagnostics/">
                     <i class="align-middle" data-feather="activity"></i>
                     <span class="align-middle">Diagnostics</span>
+                </a>
+            </li>
+
+            <li class="sidebar-item<?php echo ($activePage === 'ops-weather') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/admin/ops_weather.php">
+                    <i class="align-middle" data-feather="cloud-rain"></i>
+                    <span class="align-middle">Ops Weather</span>
                 </a>
             </li>
         </ul>

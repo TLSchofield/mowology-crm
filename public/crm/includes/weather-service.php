@@ -488,6 +488,165 @@ function formatWeatherDisplay(array $weather): string
     return "{$icon} {$high}°/{$low}° {$condition} | {$precip}% rain | {$wind} km/h";
 }
 
+// ============================================================================
+// HOURLY FORECAST FUNCTIONS (for weather-aware scheduling)
+// ============================================================================
+
+/**
+ * Hourly forecast cache directory (same as weather cache)
+ */
+if (!defined('HOURLY_CACHE_DIR')) {
+    define('HOURLY_CACHE_DIR', dirname(__DIR__) . '/../../storage/weather');
+}
+
+/**
+ * Get hourly forecast for a specific location by lat/lng.
+ * Returns normalized hourly blocks for the next 7 days.
+ * Cached with 2-hour TTL (separate from daily cache).
+ *
+ * @param float $lat Latitude
+ * @param float $lon Longitude
+ * @return array Hourly blocks: [{hour, temp_c, precip_chance_pct, precip_mm, wind_kph, condition, icon}]
+ */
+function getHourlyForecast(float $lat, float $lon): array
+{
+    $cacheKey = "hourly_" . round($lat, 4) . "_" . round($lon, 4);
+
+    $cached = getWeatherCache($cacheKey);
+    if ($cached !== null) {
+        $decoded = json_decode($cached, true);
+        if (is_array($decoded) && !empty($decoded)) {
+            return $decoded;
+        }
+    }
+
+    $forecast = fetchHourlyForecastFromAPI($lat, $lon);
+
+    if (!empty($forecast)) {
+        setWeatherCache($cacheKey, json_encode($forecast), 7200);
+    }
+
+    return $forecast;
+}
+
+/**
+ * Fetch hourly forecast from Open-Meteo API.
+ * Requests: temperature, precipitation probability, precipitation amount,
+ * wind speed, and weather code on an hourly basis.
+ *
+ * @param float $lat
+ * @param float $lon
+ * @return array Normalized hourly blocks
+ */
+function fetchHourlyForecastFromAPI(float $lat, float $lon): array
+{
+    $url = sprintf(
+        'https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f'
+        . '&hourly=temperature_2m,precipitation_probability,precipitation,wind_speed_10m,weather_code'
+        . '&temperature_unit=celsius&wind_speed_unit=kmh&timezone=auto',
+        $lat,
+        $lon
+    );
+
+    try {
+        $response = httpGetRequest($url);
+        if (!$response) {
+            error_log("Hourly Weather API: Failed to fetch from Open-Meteo");
+            return [];
+        }
+
+        $data = json_decode($response, true);
+        if (!isset($data['hourly']) || !isset($data['hourly']['time'])) {
+            error_log("Hourly Weather API: Invalid response structure");
+            return [];
+        }
+
+        $hourly = $data['hourly'];
+        $forecast = [];
+
+        for ($i = 0; $i < count($hourly['time']); $i++) {
+            $forecast[] = [
+                'hour'               => $hourly['time'][$i],
+                'temp_c'             => round((float)($hourly['temperature_2m'][$i] ?? 0), 1),
+                'precip_chance_pct'  => (int)($hourly['precipitation_probability'][$i] ?? 0),
+                'precip_mm'          => round((float)($hourly['precipitation'][$i] ?? 0), 2),
+                'wind_kph'           => round((float)($hourly['wind_speed_10m'][$i] ?? 0), 1),
+                'condition'          => wmoCodeToCondition((int)($hourly['weather_code'][$i] ?? 0)),
+                'icon'               => getWeatherIcon(wmoCodeToCondition((int)($hourly['weather_code'][$i] ?? 0))),
+            ];
+        }
+
+        return $forecast;
+    } catch (Throwable $e) {
+        error_log("Hourly Weather API error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get hourly forecast for a specific visit window (date + time range).
+ * Filters the full hourly forecast to only include hours within the window.
+ *
+ * @param float  $lat       Latitude
+ * @param float  $lon       Longitude
+ * @param string $date      Date in YYYY-MM-DD format
+ * @param string $timeStart Start time in HH:MM format
+ * @param string $timeEnd   End time in HH:MM format
+ * @return array Filtered hourly blocks for the visit window
+ */
+function getHourlyForecastWindow(float $lat, float $lon, string $date, string $timeStart, string $timeEnd): array
+{
+    $allHourly = getHourlyForecast($lat, $lon);
+    if (empty($allHourly)) {
+        return [];
+    }
+
+    $windowStart = $date . 'T' . $timeStart;
+    $windowEnd   = $date . 'T' . $timeEnd;
+
+    $filtered = [];
+    foreach ($allHourly as $block) {
+        $blockHour = $block['hour'];
+        // Open-Meteo returns ISO format: "2026-02-13T08:00"
+        if ($blockHour >= $windowStart && $blockHour <= $windowEnd) {
+            $filtered[] = $block;
+        }
+    }
+
+    // If no exact matches (edge case), include the closest hour before start
+    if (empty($filtered)) {
+        $datePrefix = $date . 'T';
+        foreach ($allHourly as $block) {
+            if (strpos($block['hour'], $datePrefix) === 0) {
+                $filtered[] = $block;
+            }
+        }
+    }
+
+    return $filtered;
+}
+
+/**
+ * Get hourly forecast using city/province (geocodes first, then fetches).
+ * Convenience wrapper for use outside lat/lng context.
+ *
+ * @param string $city
+ * @param string $province
+ * @return array Hourly blocks
+ */
+function getHourlyForecastByCity(string $city = 'Vancouver', string $province = 'BC'): array
+{
+    $coords = geocodeCity($city, $province);
+    if (!$coords) {
+        return [];
+    }
+    return getHourlyForecast($coords['latitude'], $coords['longitude']);
+}
+
+// ============================================================================
+// HTTP HELPERS
+// ============================================================================
+
 /**
  * HTTP GET request helper with cURL fallback
  * Uses cURL if available (preferred), falls back to file_get_contents

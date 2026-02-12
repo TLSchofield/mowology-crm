@@ -6648,3 +6648,77 @@ textarea.font-monospace {
 .mw-drift-modified {
   border-left-color: #ffc107;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Weather Operations
+   ───────────────────────────────────────────────────────────── */
+
+/* Weather Action List — summary cards */
+#summaryCards .card {
+  border: none;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+#summaryCards .card-body h2 {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+/* Weather status badges */
+.badge-weather-ok {
+  background: var(--mw-green);
+  color: #fff;
+}
+.badge-weather-borderline {
+  background: var(--mw-orange);
+  color: #fff;
+}
+.badge-weather-notok {
+  background: #dc3545;
+  color: #fff;
+}
+
+/* Weather action table */
+.mw-weather-actions-table td {
+  vertical-align: middle;
+  font-size: 0.875rem;
+}
+.mw-weather-actions-table .btn-group-vertical .btn {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+/* Weather preview line in service editor modal */
+.mw-weather-preview {
+  border-left: 3px solid var(--mw-green);
+  font-size: 0.875rem;
+}
+
+/* Ops Weather admin — tab content */
+#tab-global .form-group label {
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+#tab-global h6 {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.5px;
+}
+
+/* Service rules table */
+#serviceRulesTable th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  border-bottom: 2px solid var(--mw-light);
+}
+#serviceRulesTable td {
+  vertical-align: middle;
+  font-size: 0.875rem;
+}
+#serviceRulesTable .badge {
+  font-size: 0.75rem;
+  padding: 0.3em 0.6em;
+}
