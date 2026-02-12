@@ -41,7 +41,8 @@ try {
             $stmt = $db->prepare("
                 SELECT id, email, full_name, phone, role, is_active,
                        hourly_rate, hire_date, emergency_contact, notes,
-                       location_tracking_enabled, last_login, created_at
+                       location_tracking_enabled, last_login, created_at,
+                       IFNULL(receive_weather_sms, 1) AS receive_weather_sms
                 FROM users WHERE id = ?
             ");
             $stmt->execute([$id]);
@@ -83,10 +84,12 @@ try {
             $emergencyContact = trim($input['emergency_contact'] ?? '') ?: null;
             $notes = trim($input['notes'] ?? '') ?: null;
 
+            $receiveWeatherSms = isset($input['receive_weather_sms']) ? ($input['receive_weather_sms'] ? 1 : 0) : 1;
+
             $stmt = $db->prepare("
                 INSERT INTO users (email, password_hash, full_name, phone, role,
-                                   hourly_rate, hire_date, emergency_contact, notes, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                                   hourly_rate, hire_date, emergency_contact, notes, is_active, receive_weather_sms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
             ");
             $stmt->execute([
                 $email,
@@ -98,6 +101,7 @@ try {
                 $hireDate,
                 $emergencyContact,
                 $notes,
+                $receiveWeatherSms,
             ]);
 
             $newId = (int)$db->lastInsertId();
@@ -181,6 +185,11 @@ try {
             if (isset($input['location_tracking_enabled'])) {
                 $updates[] = 'location_tracking_enabled = ?';
                 $params[] = $input['location_tracking_enabled'] ? 1 : 0;
+            }
+
+            if (isset($input['receive_weather_sms'])) {
+                $updates[] = 'receive_weather_sms = ?';
+                $params[] = $input['receive_weather_sms'] ? 1 : 0;
             }
 
             // Optional password reset

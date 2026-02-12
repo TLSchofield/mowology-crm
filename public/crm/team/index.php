@@ -273,6 +273,34 @@ $activePage = 'team';
     var form = document.getElementById('employeeForm');
     var modal = document.getElementById('employeeModal');
 
+    // Toggle weather SMS alerts
+    window.toggleWeatherSms = function(empId, enabled) {
+        fetch('/crm/api/employees.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'update',
+                id: empId,
+                receive_weather_sms: enabled ? 1 : 0,
+                csrf_token: document.querySelector('input[name="csrf_token"]').value
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showAlert('Weather SMS alerts ' + (enabled ? 'enabled' : 'disabled'), 'success');
+            } else {
+                showAlert(data.error || 'Failed to update', 'danger');
+                setTimeout(function() { location.reload(); }, 500);
+            }
+        })
+        .catch(function() {
+            showAlert('Network error', 'danger');
+            setTimeout(function() { location.reload(); }, 500);
+        });
+    };
+
     // Toggle location tracking
     window.toggleTracking = function(empId, enabled) {
         fetch('/crm/api/employees.php', {
@@ -292,7 +320,6 @@ $activePage = 'team';
                 showAlert('Location tracking ' + (enabled ? 'enabled' : 'disabled'), 'success');
             } else {
                 showAlert(data.error || 'Failed to update tracking', 'danger');
-                // Revert checkbox
                 setTimeout(function() { location.reload(); }, 500);
             }
         })
@@ -331,6 +358,7 @@ $activePage = 'team';
                 document.getElementById('empEmergency').value = emp.emergency_contact || '';
                 document.getElementById('empNotes').value = emp.notes || '';
                 document.getElementById('empActive').checked = emp.is_active == 1;
+                document.getElementById('empWeatherSms').checked = emp.receive_weather_sms != 0;
 
                 // Hide password for edit, show active toggle
                 document.getElementById('passwordSection').style.display = 'none';
@@ -356,7 +384,8 @@ $activePage = 'team';
         body.action = action;
         if (!id) delete body.id;
 
-        // is_active checkbox handling
+        // Checkbox handling
+        body.receive_weather_sms = document.getElementById('empWeatherSms').checked ? '1' : '0';
         if (id) {
             body.is_active = document.getElementById('empActive').checked ? '1' : '0';
         }

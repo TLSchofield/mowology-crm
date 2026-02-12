@@ -152,12 +152,16 @@ function sendWeatherSmsAlert(int $crewId, string $visitNumber, string $date, str
 {
     try {
         $db = getDB();
-        $stmt = $db->prepare("SELECT phone, full_name FROM users WHERE id = ?");
+        $stmt = $db->prepare("SELECT phone, full_name, IFNULL(receive_weather_sms, 1) AS receive_weather_sms FROM users WHERE id = ?");
         $stmt->execute([$crewId]);
         $crew = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$crew || empty($crew['phone'])) {
             return ['success' => false, 'error' => 'Crew member has no phone number'];
+        }
+
+        if (!$crew['receive_weather_sms']) {
+            return ['success' => false, 'error' => 'Crew member has weather SMS alerts disabled'];
         }
 
         $newSlot = $item['suggested_slot'] ?? null;
