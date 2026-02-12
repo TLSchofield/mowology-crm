@@ -57,9 +57,65 @@ try {
 
             echo json_encode(['success' => true, 'crew' => $crew]);
 
+        } elseif ($action === 'day_routes') {
+            // Admin/manager only — get all location points for a given date, grouped by crew
+            if (!in_array($user['role'], ['admin', 'manager'])) {
+                throw new Exception('Access denied');
+            }
+
+            $date = $_GET['date'] ?? date('Y-m-d');
+            // Validate date format
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+                throw new Exception('Invalid date format. Use YYYY-MM-DD');
+            }
+
+            // Get all location points for tracked users on the given date
+            $stmt = $db->prepare("
+                SELECT
+                    clh.crew_id as user_id,
+                    u.full_name,
+                    clh.latitude as lat,
+                    clh.longitude as lng,
+                    clh.accuracy_meters,
+                    clh.timestamp
+                FROM crew_location_history clh
+                INNER JOIN users u ON u.id = clh.crew_id
+                WHERE u.is_active = 1
+                  AND u.location_tracking_enabled = 1
+                  AND DATE(clh.timestamp) = ?
+                ORDER BY clh.crew_id ASC, clh.timestamp ASC
+            ");
+            $stmt->execute([$date]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Group by user
+            $routes = [];
+            foreach ($rows as $row) {
+                $uid = $row['user_id'];
+                if (!isset($routes[$uid])) {
+                    $routes[$uid] = [
+                        'user_id' => (int)$uid,
+                        'full_name' => $row['full_name'],
+                        'points' => []
+                    ];
+                }
+                $routes[$uid]['points'][] = [
+                    'lat' => (float)$row['lat'],
+                    'lng' => (float)$row['lng'],
+                    'accuracy' => $row['accuracy_meters'] ? (int)$row['accuracy_meters'] : null,
+                    'time' => $row['timestamp']
+                ];
+            }
+
+            echo json_encode([
+                'success' => true,
+                'date' => $date,
+                'routes' => array_values($routes)
+            ]);
+
         } else {
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: live']);
+            echo json_encode(['error' => 'Invalid action. Use: live, day_routes']);
         }
 
     } elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {

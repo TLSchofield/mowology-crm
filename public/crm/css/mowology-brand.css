@@ -5880,6 +5880,151 @@ textarea.font-monospace {
   flex-shrink: 0;
 }
 
+/* Route trail controls */
+.mw-route-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mw-route-controls-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.mw-route-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--mw-forest);
+  white-space: nowrap;
+}
+
+.mw-route-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--mw-green);
+}
+
+.mw-route-date-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mw-route-date-input {
+  width: 140px;
+  font-size: 0.8rem;
+}
+
+.mw-route-date-btn {
+  padding: 2px 8px;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.mw-route-crew-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.mw-route-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border: 1.5px solid #ddd;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.15s;
+  opacity: 0.5;
+}
+
+.mw-route-chip.active {
+  border-color: var(--chip-color, var(--mw-green));
+  background: color-mix(in srgb, var(--chip-color, var(--mw-green)) 8%, white);
+  color: #333;
+  opacity: 1;
+}
+
+.mw-route-chip:hover {
+  opacity: 0.85;
+}
+
+.mw-route-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mw-route-chip-count {
+  color: #999;
+  font-size: 0.72rem;
+}
+
+/* Route stats sidebar */
+.mw-route-stat-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.mw-route-stat-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.mw-route-stat-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mw-route-stat-name {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--mw-forest);
+}
+
+.mw-route-stat-detail {
+  font-size: 0.73rem;
+  color: #777;
+}
+
+/* Legend sections */
+.mw-crew-legend-section + .mw-crew-legend-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e5e5;
+}
+
+.mw-crew-legend-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #888;
+  margin-bottom: 3px;
+}
+
 /* Crew list sidebar */
 .mw-crew-list-item {
   display: flex;
@@ -5941,6 +6086,9 @@ textarea.font-monospace {
   .mw-emp-mini-val { font-size: 0.9rem; }
   .mw-crew-map-container { height: 400px; }
   .mw-crew-map-legend { bottom: 8px; left: 8px; font-size: 0.7rem; padding: 6px 10px; }
+  .mw-route-controls { flex-direction: column; align-items: flex-start; }
+  .mw-route-controls-left { flex-wrap: wrap; }
+  .mw-route-date-input { width: 120px; }
 }
 
 /* ── Calendar Stops ────────────────────────────────────── */

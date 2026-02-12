@@ -1,8 +1,9 @@
 <?php
 /**
- * Live Crew Map — Real-time employee location tracking on Google Maps
+ * Live Crew Map — Real-time employee location tracking + daily route trails
  * Admin/Manager access only.
  * Polls /crm/api/crew-location.php?action=live every 30 seconds.
+ * Fetches day routes via ?action=day_routes&date=YYYY-MM-DD.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
@@ -31,10 +32,33 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             Last updated: <span id="lastUpdate">loading...</span>
         </p>
     </div>
-    <div class="d-flex" style="gap: 8px;">
+    <div class="d-flex align-items-center" style="gap: 8px;">
         <a href="/crm/team/index.php" class="btn btn-sm btn-outline-secondary">
             <i data-feather="users" style="width:14px;height:14px;"></i> Team
         </a>
+    </div>
+</div>
+
+<!-- Route Controls -->
+<div class="card mb-3">
+    <div class="card-body py-2 px-3">
+        <div class="mw-route-controls">
+            <div class="mw-route-controls-left">
+                <label class="mw-route-toggle">
+                    <input type="checkbox" id="routeToggle">
+                    <span class="mw-route-toggle-label">Show Day Routes</span>
+                </label>
+                <div class="mw-route-date-wrap" id="routeDateWrap" style="display:none;">
+                    <button type="button" class="btn btn-sm btn-outline-secondary mw-route-date-btn" id="routePrevDay">&lsaquo;</button>
+                    <input type="date" id="routeDate" class="form-control form-control-sm mw-route-date-input">
+                    <button type="button" class="btn btn-sm btn-outline-secondary mw-route-date-btn" id="routeNextDay">&rsaquo;</button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="routeToday">Today</button>
+                </div>
+            </div>
+            <div class="mw-route-crew-filters" id="routeCrewFilters" style="display:none;">
+                <!-- Crew toggle chips rendered by JS -->
+            </div>
+        </div>
     </div>
 </div>
 
@@ -47,14 +71,23 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
                 <!-- Legend -->
                 <div class="mw-crew-map-legend">
-                    <div class="mw-crew-legend-item">
-                        <span class="mw-crew-legend-dot" style="background:#22c55e;"></span> Active (recent)
+                    <div class="mw-crew-legend-section">
+                        <div class="mw-crew-legend-title">Live Position</div>
+                        <div class="mw-crew-legend-item">
+                            <span class="mw-crew-legend-dot" style="background:#22c55e;"></span> Active (recent)
+                        </div>
+                        <div class="mw-crew-legend-item">
+                            <span class="mw-crew-legend-dot" style="background:#f59e0b;"></span> Stale (&gt;5 min)
+                        </div>
+                        <div class="mw-crew-legend-item">
+                            <span class="mw-crew-legend-dot" style="background:#9ca3af;"></span> Offline
+                        </div>
                     </div>
-                    <div class="mw-crew-legend-item">
-                        <span class="mw-crew-legend-dot" style="background:#f59e0b;"></span> Stale (&gt;5 min)
-                    </div>
-                    <div class="mw-crew-legend-item">
-                        <span class="mw-crew-legend-dot" style="background:#9ca3af;"></span> Offline
+                    <div class="mw-crew-legend-section" id="routeLegend" style="display:none;">
+                        <div class="mw-crew-legend-title">Day Routes</div>
+                        <div id="routeLegendItems">
+                            <!-- Rendered by JS -->
+                        </div>
                     </div>
                 </div>
             </div>
@@ -75,6 +108,17 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 </div>
             </div>
         </div>
+
+        <!-- Route Stats (shown when routes active) -->
+        <div class="card mt-3" id="routeStatsCard" style="display:none;">
+            <div class="card-header" style="background: var(--mw-forest); color:#fff;">
+                <h5 class="card-title mb-0" style="color:#fff;">
+                    <i data-feather="activity" style="width:16px;height:16px;display:inline;"></i> Route Stats
+                </h5>
+            </div>
+            <div class="card-body p-0" id="routeStatsContainer">
+            </div>
+        </div>
     </div>
 </div>
 
@@ -86,6 +130,25 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var crewMarkers = {}; // keyed by user_id
     var REFRESH_MS = 30000;
     var refreshTimer = null;
+
+    // Route trail state
+    var routePolylines = {}; // keyed by user_id
+    var routeStartMarkers = {}; // keyed by user_id
+    var routeData = []; // raw route data from API
+    var routeVisible = {}; // user_id -> boolean (toggle per crew)
+    var routesEnabled = false;
+
+    // Distinct colors for crew route trails
+    var ROUTE_COLORS = [
+        '#2563eb', // blue
+        '#dc2626', // red
+        '#7c3aed', // purple
+        '#ea580c', // orange
+        '#0891b2', // teal
+        '#c026d3', // magenta
+        '#65a30d', // lime-green
+        '#b91c1c'  // dark red
+    ];
 
     // Wait for Google Maps to load
     function waitForMaps(cb) {
@@ -100,6 +163,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         initMap();
         fetchCrew();
         refreshTimer = setInterval(fetchCrew, REFRESH_MS);
+        initRouteControls();
     });
 
     function initMap() {
@@ -114,6 +178,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             ]
         });
     }
+
+    // ── Live Crew Tracking ─────────────────────────────
 
     function fetchCrew() {
         fetch('/crm/api/crew-location.php?action=live', { credentials: 'same-origin' })
@@ -147,16 +213,15 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             var initial = (member.full_name || 'U').charAt(0).toUpperCase();
 
             if (crewMarkers[member.user_id]) {
-                // Update existing marker position with smooth animation
                 animateMarker(crewMarkers[member.user_id].marker, pos);
                 crewMarkers[member.user_id].marker.setIcon(createCrewIcon(color, initial));
             } else {
-                // Create new marker
                 var marker = new google.maps.Marker({
                     position: pos,
                     map: gmap,
                     icon: createCrewIcon(color, initial),
-                    title: member.full_name
+                    title: member.full_name,
+                    zIndex: 1000 // Keep live markers above route trails
                 });
 
                 var infoWindow = new google.maps.InfoWindow();
@@ -168,7 +233,6 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 crewMarkers[member.user_id] = { marker: marker, infoWindow: infoWindow };
             }
 
-            // Update stored data for info windows
             crewMarkers[member.user_id].data = member;
         });
 
@@ -197,7 +261,6 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         var endLat = newPos.lat;
         var endLng = newPos.lng;
 
-        // If distance is very small, just set directly
         if (Math.abs(startLat - endLat) < 0.00001 && Math.abs(startLng - endLng) < 0.00001) {
             marker.setPosition(newPos);
             return;
@@ -217,13 +280,12 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     }
 
     function getMarkerColor(secondsAgo, isClocked) {
-        if (!isClocked) return '#9ca3af'; // gray — offline
-        if (secondsAgo > 300) return '#f59e0b'; // yellow — stale (>5 min)
-        return '#22c55e'; // green — active
+        if (!isClocked) return '#9ca3af';
+        if (secondsAgo > 300) return '#f59e0b';
+        return '#22c55e';
     }
 
     function createCrewIcon(color, initial) {
-        // SVG crew marker with initial
         var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="44" viewBox="0 0 36 44">' +
             '<path d="M18 0C8.06 0 0 8.06 0 18c0 11.25 18 26 18 26s18-14.75 18-26C36 8.06 27.94 0 18 0z" fill="' + color + '" stroke="white" stroke-width="2"/>' +
             '<circle cx="18" cy="16" r="10" fill="white" opacity="0.3"/>' +
@@ -309,6 +371,310 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             entry.infoWindow.open(gmap, entry.marker);
         }
     };
+
+    // ── Route Trail System ─────────────────────────────
+
+    function initRouteControls() {
+        var toggle = document.getElementById('routeToggle');
+        var dateInput = document.getElementById('routeDate');
+        var prevBtn = document.getElementById('routePrevDay');
+        var nextBtn = document.getElementById('routeNextDay');
+        var todayBtn = document.getElementById('routeToday');
+
+        // Set default date to today
+        dateInput.value = todayStr();
+        dateInput.max = todayStr();
+
+        toggle.addEventListener('change', function() {
+            routesEnabled = this.checked;
+            var wrap = document.getElementById('routeDateWrap');
+            var filters = document.getElementById('routeCrewFilters');
+            var legend = document.getElementById('routeLegend');
+            var statsCard = document.getElementById('routeStatsCard');
+
+            if (routesEnabled) {
+                wrap.style.display = 'flex';
+                filters.style.display = 'flex';
+                legend.style.display = '';
+                statsCard.style.display = '';
+                fetchRoutes();
+            } else {
+                wrap.style.display = 'none';
+                filters.style.display = 'none';
+                legend.style.display = 'none';
+                statsCard.style.display = 'none';
+                clearRoutes();
+            }
+        });
+
+        dateInput.addEventListener('change', function() {
+            if (routesEnabled) fetchRoutes();
+        });
+
+        prevBtn.addEventListener('click', function() {
+            shiftDate(-1);
+        });
+
+        nextBtn.addEventListener('click', function() {
+            shiftDate(1);
+        });
+
+        todayBtn.addEventListener('click', function() {
+            dateInput.value = todayStr();
+            if (routesEnabled) fetchRoutes();
+        });
+    }
+
+    function todayStr() {
+        var d = new Date();
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    function shiftDate(days) {
+        var input = document.getElementById('routeDate');
+        var d = new Date(input.value + 'T12:00:00'); // noon to avoid timezone edge
+        d.setDate(d.getDate() + days);
+
+        // Don't go past today
+        var today = new Date();
+        today.setHours(23, 59, 59, 999);
+        if (d > today) return;
+
+        input.value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+        if (routesEnabled) fetchRoutes();
+    }
+
+    function fetchRoutes() {
+        var date = document.getElementById('routeDate').value;
+        if (!date) return;
+
+        fetch('/crm/api/crew-location.php?action=day_routes&date=' + encodeURIComponent(date), {
+            credentials: 'same-origin'
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) return;
+            routeData = data.routes || [];
+
+            // Initialize visibility for all crew (default: visible)
+            routeData.forEach(function(route) {
+                if (typeof routeVisible[route.user_id] === 'undefined') {
+                    routeVisible[route.user_id] = true;
+                }
+            });
+
+            renderCrewFilters();
+            drawRoutes();
+            renderRouteStats();
+            renderRouteLegend();
+        })
+        .catch(function(err) {
+            console.error('Route fetch error:', err);
+        });
+    }
+
+    function clearRoutes() {
+        Object.keys(routePolylines).forEach(function(uid) {
+            routePolylines[uid].setMap(null);
+        });
+        routePolylines = {};
+
+        Object.keys(routeStartMarkers).forEach(function(uid) {
+            routeStartMarkers[uid].setMap(null);
+        });
+        routeStartMarkers = {};
+
+        routeData = [];
+        document.getElementById('routeCrewFilters').innerHTML = '';
+        document.getElementById('routeStatsContainer').innerHTML = '';
+        document.getElementById('routeLegendItems').innerHTML = '';
+    }
+
+    function drawRoutes() {
+        // Clear existing polylines
+        Object.keys(routePolylines).forEach(function(uid) {
+            routePolylines[uid].setMap(null);
+        });
+        routePolylines = {};
+
+        Object.keys(routeStartMarkers).forEach(function(uid) {
+            routeStartMarkers[uid].setMap(null);
+        });
+        routeStartMarkers = {};
+
+        routeData.forEach(function(route, index) {
+            if (!routeVisible[route.user_id]) return;
+            if (route.points.length < 2) return;
+
+            var color = ROUTE_COLORS[index % ROUTE_COLORS.length];
+            var path = route.points.map(function(p) {
+                return { lat: p.lat, lng: p.lng };
+            });
+
+            // Draw polyline
+            var polyline = new google.maps.Polyline({
+                path: path,
+                geodesic: true,
+                strokeColor: color,
+                strokeOpacity: 0.8,
+                strokeWeight: 3,
+                map: gmap,
+                zIndex: 500
+            });
+
+            routePolylines[route.user_id] = polyline;
+
+            // Start marker (small circle)
+            var startMarker = new google.maps.Marker({
+                position: path[0],
+                map: gmap,
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 6,
+                    fillColor: color,
+                    fillOpacity: 1,
+                    strokeColor: '#fff',
+                    strokeWeight: 2
+                },
+                title: route.full_name + ' — Start (' + formatTime(route.points[0].time) + ')',
+                zIndex: 600
+            });
+
+            var startInfo = new google.maps.InfoWindow({
+                content: '<div style="padding:6px;font-size:12px;">' +
+                    '<strong>' + escapeHtml(route.full_name) + '</strong><br>' +
+                    'Started: ' + formatTime(route.points[0].time) + '<br>' +
+                    'Last ping: ' + formatTime(route.points[route.points.length - 1].time) + '<br>' +
+                    'Points: ' + route.points.length +
+                    '</div>'
+            });
+
+            startMarker.addListener('click', function() {
+                startInfo.open(gmap, startMarker);
+            });
+
+            routeStartMarkers[route.user_id] = startMarker;
+        });
+    }
+
+    function renderCrewFilters() {
+        var container = document.getElementById('routeCrewFilters');
+        if (!routeData.length) {
+            container.innerHTML = '<span class="text-muted" style="font-size:0.8rem;">No routes for this date</span>';
+            return;
+        }
+
+        var html = '';
+        routeData.forEach(function(route, index) {
+            var color = ROUTE_COLORS[index % ROUTE_COLORS.length];
+            var isActive = routeVisible[route.user_id] !== false;
+            var cls = isActive ? 'mw-route-chip active' : 'mw-route-chip';
+
+            html += '<button type="button" class="' + cls + '" ' +
+                'data-user-id="' + route.user_id + '" ' +
+                'style="--chip-color:' + color + ';">' +
+                '<span class="mw-route-chip-dot" style="background:' + color + ';"></span>' +
+                escapeHtml(route.full_name) +
+                ' <span class="mw-route-chip-count">(' + route.points.length + ')</span>' +
+                '</button>';
+        });
+
+        container.innerHTML = html;
+
+        // Bind toggle events
+        container.querySelectorAll('.mw-route-chip').forEach(function(chip) {
+            chip.addEventListener('click', function() {
+                var uid = this.getAttribute('data-user-id');
+                routeVisible[uid] = !routeVisible[uid];
+                this.classList.toggle('active', routeVisible[uid]);
+                drawRoutes();
+                renderRouteStats();
+            });
+        });
+    }
+
+    function renderRouteLegend() {
+        var container = document.getElementById('routeLegendItems');
+        if (!routeData.length) {
+            container.innerHTML = '<div class="mw-crew-legend-item" style="color:#999;">No data</div>';
+            return;
+        }
+
+        var html = '';
+        routeData.forEach(function(route, index) {
+            var color = ROUTE_COLORS[index % ROUTE_COLORS.length];
+            html += '<div class="mw-crew-legend-item">' +
+                '<span class="mw-crew-legend-dot" style="background:' + color + ';"></span> ' +
+                escapeHtml(route.full_name) +
+                '</div>';
+        });
+        container.innerHTML = html;
+    }
+
+    function renderRouteStats() {
+        var container = document.getElementById('routeStatsContainer');
+        if (!routeData.length) {
+            container.innerHTML = '<div class="text-center text-muted py-3" style="font-size:0.85rem;">No route data</div>';
+            return;
+        }
+
+        var html = '';
+        routeData.forEach(function(route, index) {
+            if (!routeVisible[route.user_id]) return;
+            if (!route.points.length) return;
+
+            var color = ROUTE_COLORS[index % ROUTE_COLORS.length];
+            var firstTime = route.points[0].time;
+            var lastTime = route.points[route.points.length - 1].time;
+            var distance = calcRouteDistance(route.points);
+
+            html += '<div class="mw-route-stat-item">' +
+                '<div class="mw-route-stat-dot" style="background:' + color + ';"></div>' +
+                '<div class="mw-route-stat-info">' +
+                    '<div class="mw-route-stat-name">' + escapeHtml(route.full_name) + '</div>' +
+                    '<div class="mw-route-stat-detail">' +
+                        formatTime(firstTime) + ' &mdash; ' + formatTime(lastTime) +
+                    '</div>' +
+                    '<div class="mw-route-stat-detail">' +
+                        route.points.length + ' pings &middot; ~' + distance + ' km' +
+                    '</div>' +
+                '</div>' +
+                '</div>';
+        });
+
+        if (!html) {
+            html = '<div class="text-center text-muted py-3" style="font-size:0.85rem;">All routes hidden</div>';
+        }
+
+        container.innerHTML = html;
+    }
+
+    function calcRouteDistance(points) {
+        if (points.length < 2) return '0.0';
+        var total = 0;
+        for (var i = 1; i < points.length; i++) {
+            var p1 = new google.maps.LatLng(points[i - 1].lat, points[i - 1].lng);
+            var p2 = new google.maps.LatLng(points[i].lat, points[i].lng);
+            total += google.maps.geometry.spherical.computeDistanceBetween(p1, p2);
+        }
+        return (total / 1000).toFixed(1);
+    }
+
+    function formatTime(timestamp) {
+        if (!timestamp) return '';
+        // timestamp is like "2026-02-12 14:30:45"
+        var parts = timestamp.split(' ');
+        if (parts.length < 2) return timestamp;
+        var timeParts = parts[1].split(':');
+        var h = parseInt(timeParts[0]);
+        var m = timeParts[1];
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        if (h === 0) h = 12;
+        else if (h > 12) h -= 12;
+        return h + ':' + m + ' ' + ampm;
+    }
+
+    // ── Utilities ──────────────────────────────────────
 
     function escapeHtml(str) {
         if (!str) return '';
