@@ -31,7 +31,8 @@ function isTimeClockEnabledForRole($role) {
 function getActiveClockEntry($userId) {
     $db = getDB();
     $stmt = $db->prepare("
-        SELECT id, user_id, clock_in, clock_in_lat, clock_in_lng, created_at
+        SELECT id, user_id, clock_in, clock_in_lat, clock_in_lng, created_at,
+               TIMESTAMPDIFF(SECOND, clock_in, NOW()) AS elapsed_seconds
         FROM time_clock_entries
         WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
         ORDER BY clock_in DESC
@@ -100,7 +101,8 @@ function getActiveJobTimer($userId) {
     $db = getDB();
     $stmt = $db->prepare("
         SELECT jte.*, j.title as job_title, j.job_number,
-               p.address as property_address, c.company_name
+               p.address as property_address, c.company_name,
+               TIMESTAMPDIFF(SECOND, jte.start_time, NOW()) AS elapsed_seconds
         FROM job_time_entries jte
         JOIN jobs j ON jte.job_id = j.id
         LEFT JOIN properties p ON j.property_id = p.id

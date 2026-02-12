@@ -37,23 +37,19 @@ try {
             $activeJob = getActiveJobTimer($user['id']);
 
             if ($entry) {
-                // Calculate elapsed seconds since clock_in
-                $clockInTime = strtotime($entry['clock_in']);
-                $elapsedSeconds = time() - $clockInTime;
-
                 echo json_encode([
                     'success' => true,
                     'clocked_in' => true,
                     'entry_id' => (int)$entry['id'],
                     'clock_in' => $entry['clock_in'],
-                    'elapsed_seconds' => $elapsedSeconds,
+                    'elapsed_seconds' => max(0, (int)$entry['elapsed_seconds']),
                     'active_job' => $activeJob ? [
                         'id' => (int)$activeJob['id'],
                         'job_id' => (int)$activeJob['job_id'],
                         'job_title' => $activeJob['job_title'],
                         'job_number' => $activeJob['job_number'],
                         'start_time' => $activeJob['start_time'],
-                        'elapsed_seconds' => time() - strtotime($activeJob['start_time']),
+                        'elapsed_seconds' => max(0, (int)$activeJob['elapsed_seconds']),
                     ] : null,
                 ]);
             } else {

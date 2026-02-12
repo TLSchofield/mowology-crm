@@ -173,6 +173,7 @@
     }
 
     function formatSeconds(totalSec) {
+        if (!totalSec || totalSec < 0) totalSec = 0;
         var h = Math.floor(totalSec / 3600);
         var m = Math.floor((totalSec % 3600) / 60);
         var s = totalSec % 60;
