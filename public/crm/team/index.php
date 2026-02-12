@@ -140,6 +140,14 @@ $activePage = 'team';
 
             <div class="mw-emp-actions">
                 <?php if ($user['role'] === 'admin'): ?>
+                <div class="mw-tracking-toggle" title="<?php echo !empty($emp['receive_weather_sms']) ? 'Weather SMS alerts ON' : 'Weather SMS alerts OFF'; ?>">
+                    <label class="mw-toggle-switch">
+                        <input type="checkbox" <?php echo !empty($emp['receive_weather_sms']) ? 'checked' : ''; ?>
+                               onchange="toggleWeatherSms(<?php echo (int)$emp['id']; ?>, this.checked)">
+                        <span class="mw-toggle-slider"></span>
+                    </label>
+                    <i data-feather="cloud-snow" style="width:13px;height:13px;" class="<?php echo !empty($emp['receive_weather_sms']) ? 'text-info' : 'text-muted'; ?>"></i>
+                </div>
                 <div class="mw-tracking-toggle" title="<?php echo $emp['location_tracking_enabled'] ? 'Location tracking ON' : 'Location tracking OFF'; ?>">
                     <label class="mw-toggle-switch">
                         <input type="checkbox" <?php echo $emp['location_tracking_enabled'] ? 'checked' : ''; ?>
@@ -250,6 +258,18 @@ $activePage = 'team';
                             <input type="checkbox" class="custom-control-input" id="empActive" name="is_active" value="1" checked>
                             <label class="custom-control-label" for="empActive">Active Employee</label>
                         </div>
+                    </div>
+
+                    <!-- Notifications -->
+                    <div class="mt-3 pt-3" style="border-top:1px solid #eee;">
+                        <label class="d-block mb-2"><strong>Notifications</strong></label>
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="empWeatherSms" name="receive_weather_sms" value="1" checked>
+                            <label class="custom-control-label" for="empWeatherSms">
+                                Salt/Snow weather SMS alerts
+                            </label>
+                        </div>
+                        <small class="form-text text-muted">When enabled, this person gets a text when weather causes a visit to be rescheduled. Requires a phone number.</small>
                     </div>
                 </div>
                 <div class="modal-footer">

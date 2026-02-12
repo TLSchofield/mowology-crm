@@ -150,6 +150,20 @@ try {
             // Ignore — column doesn't exist
         }
 
+        // Check if weather_policy column exists (migration 204)
+        $hasWeatherPolicy = false;
+        try {
+            $wpCheck = $db->query("SHOW COLUMNS FROM products LIKE 'weather_policy'");
+            $hasWeatherPolicy = ($wpCheck->rowCount() > 0);
+        } catch (Exception $e) {
+            // Ignore
+        }
+
+        // Validate weather_policy value
+        $validPolicies = ['ANY', 'DRY_ONLY', 'LIGHT_RAIN_OK', 'TEMP_LIMITED', 'WIND_LIMITED'];
+        $weatherPolicy = (isset($data['weather_policy']) && in_array($data['weather_policy'], $validPolicies))
+            ? $data['weather_policy'] : 'ANY';
+
         if (empty($data['id'])) {
             // Create new product
             $columns = "name, category_id, unit_type_id, description, long_description,
@@ -192,6 +206,12 @@ try {
                 $placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?";
                 // Insert min_price after base_price (index 6)
                 array_splice($params, 7, 0, [!empty($data['min_price']) ? $data['min_price'] : null]);
+            }
+
+            if ($hasWeatherPolicy) {
+                $columns .= ", weather_policy";
+                $placeholders .= ", ?";
+                $params[] = $weatherPolicy;
             }
 
             $stmt = $db->prepare("INSERT INTO products ({$columns}) VALUES ({$placeholders})");
@@ -242,6 +262,11 @@ try {
                     active = ?, featured = ?";
                 // Insert min_price after base_price (index 6)
                 array_splice($params, 7, 0, [!empty($data['min_price']) ? $data['min_price'] : null]);
+            }
+
+            if ($hasWeatherPolicy) {
+                $setClauses .= ", weather_policy = ?";
+                $params[] = $weatherPolicy;
             }
 
             $params[] = $data['id'];

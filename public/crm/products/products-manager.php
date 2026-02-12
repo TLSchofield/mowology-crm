@@ -492,6 +492,23 @@ $activePage = 'products';
                       </div>
                     </div>
 
+                    <!-- Weather Policy -->
+                    <div class="mw-product-form-section">
+                      <h4>Weather Policy</h4>
+                      <p class="text-muted mb-2" style="font-size: 0.85rem;">How does weather affect this service? Weather Guard uses this to decide if a scheduled visit should go ahead or be rescheduled.</p>
+                      <div class="form-group">
+                        <label>Weather Sensitivity</label>
+                        <select class="form-control" name="weather_policy" id="weatherPolicy">
+                          <option value="ANY">Any Weather — always good to go</option>
+                          <option value="DRY_ONLY">Dry Only — needs no rain (e.g. mowing, painting)</option>
+                          <option value="LIGHT_RAIN_OK">Light Rain OK — fine in drizzle, not heavy rain</option>
+                          <option value="TEMP_LIMITED">Temperature Sensitive — too hot or cold is a problem</option>
+                          <option value="WIND_LIMITED">Wind Sensitive — high wind is a problem (e.g. spraying)</option>
+                        </select>
+                        <small class="form-text text-muted">Fine-tune thresholds in <a href="/crm/admin/ops_weather.php" target="_blank">Ops Weather settings</a>.</small>
+                      </div>
+                    </div>
+
                     <!-- Display Settings -->
                     <div class="mw-product-form-section">
                       <h4>Display Settings</h4>
@@ -898,6 +915,9 @@ $activePage = 'products';
               form.elements['taxable'].checked = product.taxable;
               form.elements['gst_rate'].value = product.gst_rate;
               form.elements['pst_rate'].value = product.pst_rate;
+
+              // Weather policy
+              form.elements['weather_policy'].value = product.weather_policy || 'ANY';
 
               // Refresh calculated displays
               updatePricingCalculations();
