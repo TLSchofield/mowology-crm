@@ -474,9 +474,48 @@ When the CMS is built, swap the `require` of the static data file for a database
 
 ## 11. Deployment Notes
 
-- Hosting: cPanel at mowology.ca
+- Hosting: cPanel shared hosting at mowology.ca (canadianwebhosting.com)
 - Session save path: `/home/mowology/tmp` (cPanel workaround)
 - Database naming: cPanel prefix `mowology_` (e.g., `mowology_landscape_crm`)
 - `.htaccess` blocks direct access to config and auth PHP files
 - `/app_config/` and `secrets.php` are in `.gitignore`
-- No build step needed — edits are live after push
+- No build step needed
+
+### Deployment Process
+
+Deployment is **NOT automatic** on push. Files must be uploaded via FTP.
+
+**Method: `lftp` (preferred — handles large files reliably)**
+
+The server's FTP scanner (ImunifyAV/ModSecurity) rejects files >~15KB uploaded via `curl`/`git-ftp`. Use `lftp` instead, which handles the FTP data connection differently and avoids 451 errors.
+
+```bash
+# Upload a single file
+lftp -u "claude@mowology.ca,PASSWORD" -e "set ssl:verify-certificate no; set ftp:ssl-force true; put -O /crm/ public/crm/somefile.php; quit" ftp://ftp.mowology.ca
+
+# Upload multiple files (one connection per file to avoid disconnects)
+for file in crm/file1.php crm/file2.php; do
+  lftp -u "claude@mowology.ca,PASSWORD" -e "set ssl:verify-certificate no; set ftp:ssl-force true; put -O /$(dirname $file)/ public/$file; quit" ftp://ftp.mowology.ca
+done
+```
+
+**FTP Configuration** (stored in git config):
+- URL: `ftp://ftp.mowology.ca`
+- User: `claude@mowology.ca`
+- Syncroot: `public/` (only this directory gets uploaded; the server root maps to `public_html/`)
+- SSL required (server forces AUTH TLS)
+
+**After deploying**, update the remote `.git-ftp.log` so `git ftp push` knows the last deployed SHA:
+```bash
+echo $(git rev-parse HEAD) > /tmp/git-ftp-log.txt
+lftp -u "claude@mowology.ca,PASSWORD" -e "set ssl:verify-certificate no; set ftp:ssl-force true; put -O / /tmp/git-ftp-log.txt -o .git-ftp.log; quit" ftp://ftp.mowology.ca
+```
+
+**`git ftp push`** can identify which files changed (it reads `.git-ftp.log` for last deployed SHA), but its `curl`-based upload fails on files >~15KB. Use it for `--dry-run` to list changed files, then upload via `lftp`.
+
+**Deployment workflow:**
+1. Commit and push to GitHub
+2. Run `git ftp push --dry-run` to see which files need deploying
+3. Upload each changed file via `lftp` (one file per connection)
+4. Update remote `.git-ftp.log` to current HEAD SHA
+5. Verify on production (check HTTP status codes, no 500 errors)

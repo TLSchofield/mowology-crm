@@ -150,6 +150,11 @@ Companion to `CLAUDE.md` (rules). This file documents what exists and where.
     │   │   ├── appstack_footer.php    ← Footer, closing tags, app.js
     │   │   ├── bootstrap.php          ← Alt bootstrap (loads session + config + auth, sets $user, $db)
     │   │   ├── functions.php          ← Helpers: generateQuoteNumber(), formatCurrency(), etc.
+    │   │   ├── messaging.php          ← Unified email + SMS delivery (PHPMailer SMTP email, native mail() SMS)
+    │   │   ├── email_logger.php       ← Writes email send attempts to /crm/email-logs/ for debugging
+    │   │   ├── smtp_mailer.php        ← DEPRECATED — superseded by messaging.php
+    │   │   ├── sms_gateway.php        ← DEPRECATED — superseded by messaging.php
+    │   │   ├── email_helper.php       ← DEPRECATED — superseded by messaging.php
     │   │   ├── notifications.php      ← Alert display
     │   │   └── sidebar.php            ← CDN sidebar (still used by quotes/, jobs/, invoices/ modules)
     │   │
@@ -425,6 +430,94 @@ Service landing pages use a data-driven template architecture designed for CMS m
 | `/services/hedge-trimming` | `hedge-landing` | `quote_requests.source = 'hedge-landing'` |
 
 **Adding a new service page:** See CLAUDE.md section 9.
+
+---
+
+## Messaging Module (`/crm/includes/messaging.php`)
+
+Single unified module for all CRM email and SMS delivery. Created Feb 2026 by consolidating `smtp_mailer.php`, `sms_gateway.php`, and `email_helper.php`.
+
+### CRITICAL: Email vs SMS Delivery Methods
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  EMAIL  →  PHPMailer SMTP (primary) + native mail() fallback   │
+│  SMS    →  Native mail() ONLY — NEVER use PHPMailer for SMS    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why SMS must use native `mail()`:** PHPMailer adds MIME headers (Content-Type, MIME-Version, Message-ID, multipart boundaries, etc.) that Canadian carrier email-to-SMS gateways reject or silently discard. Native `mail()` with minimal headers (just `From` and `X-Mailer`) is the only method proven to deliver SMS via these gateways. This was verified through production testing on Feb 11, 2026 — diagnostics using `mail()` delivered SMS successfully, while the same message routed through PHPMailer was silently dropped by every carrier.
+
+**Why SMS sends to ALL 10 carriers:** We cannot detect which carrier a phone number belongs to. The server's `mail()` always returns `true` (message accepted for relay) regardless of whether the carrier actually delivers it. Stopping at the first "successful" carrier would mean only that carrier's customers receive the SMS. Non-matching carriers silently discard the message — there is no bounce or error.
+
+### Public API
+
+```php
+require_once __DIR__ . '/messaging.php';
+
+// Email — uses PHPMailer SMTP, falls back to mail()
+$result = sendEmail($to, $subject, $htmlBody, $attachmentPath, $fromName);
+// Returns: ['success' => bool, 'method' => string, 'error' => string|null]
+
+// SMS — uses native mail() to all 10 Canadian carrier gateways
+$result = sendSms($phone, $message, $senderName);
+// Returns: ['success' => bool, 'carrier' => string|null, 'attempts' => int, 'errors' => string[]]
+```
+
+### SMS Implementation Details
+
+- From address: `no-reply@mowology.ca`
+- Headers: Only `From` and `X-Mailer` — nothing else
+- Subject: Empty string (carriers ignore it)
+- Body: Plain text only, max 160 chars (auto-truncated)
+- No HTML, no links/URLs, no MIME encoding
+- Sends to ALL carriers in `CANADIAN_SMS_GATEWAYS` constant (Bell, Rogers, Telus, Koodo, Virgin, Fido, Freedom, PC Mobile, Eastlink, SaskTel)
+
+### Email Implementation Details
+
+- PHPMailer SMTP: `mail.mowology.ca:465` (SSL), authenticated via `SMTP_USER`/`SMTP_PASS` from `secrets.php`
+- From: `no-reply@mowology.ca`, Reply-To: `office@mowology.ca`
+- Supports HTML body + optional PDF attachment
+- Falls back to native `mail()` if PHPMailer unavailable or throws exception
+- Logs all attempts via `email_logger.php` to `/crm/email-logs/`
+
+### Backward Compatibility Aliases
+
+These exist so diagnostics and older code paths don't break:
+
+| Alias | Maps To | Returns |
+|-------|---------|---------|
+| `sendCrmEmail(...)` | `sendEmail()` | `bool` |
+| `sendEmailViaSMTP(...)` | `sendEmail()` | `bool` |
+| `sendSmsViaMail(...)` | `sendSms()` | `array` (original shape) |
+
+All wrapped in `function_exists()` guards.
+
+### Helper Functions
+
+| Function | Purpose |
+|----------|---------|
+| `hasSmConsent(int $contactId): bool` | Check if contact opted into SMS |
+| `companyPrefersAttachment(int $companyId): bool` | Check PDF attachment preference |
+| `sendQuoteNotificationSms(...)` | Convenience wrapper for quote SMS |
+| `testEmailConfig(string $email): array` | Send test email |
+| `testSmsGateway(string $phone, string $carrier): array` | Send test SMS |
+
+### Files Superseded (kept for reference, no longer included)
+
+| File | Replaced By |
+|------|-------------|
+| `/crm/includes/smtp_mailer.php` | `messaging.php` — PHPMailer SMTP logic |
+| `/crm/includes/sms_gateway.php` | `messaging.php` — carrier gateway logic |
+| `/crm/includes/email_helper.php` | `messaging.php` — native mail() email + `companyPrefersAttachment()` |
+
+### Callers
+
+| Page | Uses |
+|------|------|
+| `/crm/quotes/view.php` | `sendEmail()` for quote email, `sendSms()` for quote SMS notification |
+| `/crm/invoices/view.php` | `sendCrmEmail()` alias for invoice email |
+| `/crm/diagnostics/` | Loads own copies of functions with `function_exists()` guards |
 
 ---
 
