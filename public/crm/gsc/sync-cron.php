@@ -59,7 +59,6 @@ $userId   = (php_sapi_name() === 'cli') ? null : ($user['id'] ?? null);
 
 // Tracking
 $syncHistoryId = null;
-$startEpoch    = time();
 
 $pulledProps = 0;
 $failedProps = 0;
@@ -73,20 +72,17 @@ $totalRowsUpdated   = 0; // kept for UI; we do replace-per-snapshot so "updated"
 $historyPropertyId = null;
 
 try {
-    // Load properties — prefer api_site_url (exact GSC identifier) over legacy site_url
+    // Load properties
     $stmt = $db->query("
-        SELECT id, site_url, access_token_encrypted, refresh_token_encrypted, expires_at,
-               api_site_url, property_type
+        SELECT id, site_url, access_token_encrypted, refresh_token_encrypted, expires_at
         FROM gsc_properties ORDER BY id ASC
     ");
     $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($properties)) {
-        // Nothing to do, but return cleanly
         if (php_sapi_name() === 'cli') {
             echo "No GSC properties configured\n";
         } else {
-            header('Content-Type: application/json');
             echo json_encode(['success' => true, 'pulled' => 0, 'failed' => 0, 'message' => 'No GSC properties configured']);
         }
         exit(0);
@@ -110,10 +106,7 @@ try {
 
     foreach ($properties as $property) {
         $propId  = (int)$property['id'];
-        // Use api_site_url (exact GSC identifier) if available, otherwise fall back to site_url
-        $siteUrl = !empty($property['api_site_url']) ? (string)$property['api_site_url'] : (string)$property['site_url'];
-        $propertyType = $property['property_type'] ?? '';
-        error_log("GSC sync: property #{$propId} — siteUrl={$siteUrl}, type={$propertyType}");
+        $siteUrl = (string)$property['site_url'];
 
         // Refresh token if expired or missing expires_at
         $expiresAt = strtotime((string)($property['expires_at'] ?? ''));
@@ -249,8 +242,6 @@ try {
 } finally {
     // Always finalize history row (prevents stuck "Pending")
     if ($syncHistoryId) {
-        $durationSecs = time() - $startEpoch;
-
         // status rules:
         // - success: no failures
         // - failed: pulledProps==0 OR every property failed
@@ -279,7 +270,6 @@ try {
         }
 
         try {
-            // Try update with full columns (recommended)
             $updateHist = $db->prepare("
                 UPDATE gsc_sync_history
                 SET
@@ -287,7 +277,6 @@ try {
                     rows_processed = ?,
                     rows_inserted  = ?,
                     rows_updated   = ?,
-                    duration_seconds = ?,
                     completed_at = NOW(),
                     error_message = ?,
                     notes = ?
@@ -298,23 +287,12 @@ try {
                 $totalRowsProcessed,
                 $totalRowsInserted,
                 $totalRowsUpdated,
-                $durationSecs,
                 $errorMsg,
                 $notes,
                 $syncHistoryId
             ]);
         } catch (Throwable $e) {
-            // Fallback if your table doesn't have those columns
-            try {
-                $fallback = $db->prepare("
-                    UPDATE gsc_sync_history
-                    SET status = ?, completed_at = NOW(), error_message = ?, notes = ?
-                    WHERE id = ?
-                ");
-                $fallback->execute([$completionStatus, $errorMsg, $notes, $syncHistoryId]);
-            } catch (Throwable $e2) {
-                error_log("GSC: Failed to finalize sync history: " . $e2->getMessage());
-            }
+            error_log("GSC: Failed to finalize sync history: " . $e->getMessage());
         }
     }
 
