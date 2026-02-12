@@ -12,60 +12,108 @@
  * Run via cron (daily @ 3 AM after GSC sync):
  *   0 3 * * * php /home/mowology/public_html/crm/cron/seo_recommendations.php
  *
- * Also callable via web with admin auth + CSRF token
+ * Also callable via web with admin auth + CSRF token (POST only)
  */
 
 declare(strict_types=1);
 
 // ============================================================================
-// INITIALIZATION
+// CONTEXT + SAFE JSON RESPONDER (prevents "empty response" in web mode)
 // ============================================================================
 
-require_once dirname(__DIR__) . '/../app_config/config.php';
-require_once dirname(__DIR__) . '/includes/seo-functions.php';
+$isCli = (php_sapi_name() === 'cli');
 
-// Determine context: CLI or web request
-$isCli = php_sapi_name() === 'cli';
+function jsonRespond(bool $success, string $message, array $extra = [], int $httpCode = 200): void
+{
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code($httpCode);
+    }
+    echo json_encode(array_merge([
+        'success' => $success,
+        'message' => $message,
+    ], $extra));
+    exit;
+}
+
+// Catch fatals that normally produce a blank response in web mode
+if (!$isCli) {
+    register_shutdown_function(function () {
+        $err = error_get_last();
+        if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+            // If output already started, we still try to emit JSON
+            $msg = "Fatal error: {$err['message']} in {$err['file']}:{$err['line']}";
+            jsonRespond(false, $msg, ['error' => $err], 500);
+        }
+    });
+}
+
+// Optional: temporary debugging (turn off after fixed)
+// Comment these out once resolved.
+error_reporting(E_ALL);
+ini_set('display_errors', $isCli ? '1' : '0');
+ini_set('log_errors', '1');
+
+// ============================================================================
+// INITIALIZATION (guard includes so failures return JSON, not empties)
+// ============================================================================
+
+try {
+    require_once dirname(__DIR__) . '/../app_config/config.php';
+    require_once dirname(__DIR__) . '/includes/seo-functions.php';
+} catch (Throwable $e) {
+    if ($isCli) {
+        fwrite(STDERR, "[FATAL] Bootstrap include failed: " . $e->getMessage() . PHP_EOL);
+        exit(1);
+    }
+    jsonRespond(false, "Bootstrap include failed: " . $e->getMessage(), [], 500);
+}
+
+// ============================================================================
+// WEB SECURITY (admin + CSRF, POST only)
+// ============================================================================
+
+$user = ['id' => null, 'role' => 'system'];
 
 if (!$isCli) {
-    // Web request: require auth + CSRF
+    // Require POST to avoid accidental GET calls returning HTML/empty
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        jsonRespond(false, 'POST required', [], 405);
+    }
+
     require_once dirname(__DIR__) . '/../loginAuth/auth.php';
     requireLogin();
     $user = getCurrentUser();
 
-    if (!$user || $user['role'] !== 'admin') {
-        http_response_code(403);
-        header('Content-Type: application/json');
-        die(json_encode(['success' => false, 'message' => 'Admin access required']));
+    if (!$user || ($user['role'] ?? '') !== 'admin') {
+        jsonRespond(false, 'Admin access required', [], 403);
     }
 
-    // CSRF protection
     $csrfToken = $_POST['csrf_token'] ?? '';
-    if (!verifyCSRFToken($csrfToken)) {
-        http_response_code(403);
-        header('Content-Type: application/json');
-        die(json_encode(['success' => false, 'message' => 'CSRF token invalid']));
+    if (!function_exists('verifyCSRFToken') || !verifyCSRFToken($csrfToken)) {
+        jsonRespond(false, 'CSRF token invalid', [], 403);
     }
-} else {
-    // CLI: set a fake user context for logging
-    $user = ['id' => null, 'role' => 'system'];
 }
+
+// ============================================================================
+// RUN ENGINE
+// ============================================================================
 
 $db = getDB();
 $startTime = time();
+
 $stats = [
     'queries_analyzed' => 0,
     'recommendations_generated' => 0,
     'recommendations_updated' => 0,
     'errors' => 0,
-    'runtime_seconds' => 0
+    'runtime_seconds' => 0,
 ];
 
 try {
-    // =========================================================================
-    // STEP 1: Get latest GSC snapshot (last 28 days aggregated)
-    // =========================================================================
-
+    // ------------------------------------------------------------------------
+    // STEP 1: Get latest GSC snapshot
+    // ------------------------------------------------------------------------
     $snapshotStmt = $db->prepare("
         SELECT gs.id, gp.site_url
         FROM gsc_snapshots gs
@@ -79,31 +127,28 @@ try {
 
     if (!$snapshot) {
         $msg = "No GSC snapshot found in last 28 days. Run Sync Now first.";
-        if (!$isCli) {
-            header('Content-Type: application/json');
-            die(json_encode(['success' => false, 'message' => $msg]));
-        } else {
+        if ($isCli) {
             echo "[ERROR] $msg\n";
             exit(1);
         }
+        jsonRespond(false, $msg, ['stats' => $stats], 400);
     }
 
     if ($isCli) {
-        echo "[INFO] Using GSC snapshot from " . $snapshot['id'] . " (site: {$snapshot['site_url']})\n";
+        echo "[INFO] Using GSC snapshot {$snapshot['id']} (site: {$snapshot['site_url']})\n";
     }
 
-    // =========================================================================
-    // STEP 2: Get all active targets & current season (for matching)
-    // =========================================================================
-
-    $targetStmt = $db->query("SELECT id, name, target_type, canonical_slug, city, postcode_prefix, neighbourhood, priority_weight FROM seo_targets WHERE is_active = 1");
+    // ------------------------------------------------------------------------
+    // STEP 2: Load targets + season
+    // ------------------------------------------------------------------------
+    $targetStmt = $db->query("
+        SELECT id, name, target_type, canonical_slug, city, postcode_prefix, neighbourhood, priority_weight
+        FROM seo_targets
+        WHERE is_active = 1
+    ");
     $targets = $targetStmt->fetchAll(PDO::FETCH_ASSOC);
-    $targetsById = [];
-    foreach ($targets as $t) {
-        $targetsById[$t['id']] = $t;
-    }
 
-    if ($isCli && count($targets) > 0) {
+    if ($isCli) {
         echo "[INFO] Loaded " . count($targets) . " active targets\n";
     }
 
@@ -114,24 +159,22 @@ try {
         echo "[INFO] Current season: {$currentSeason['season_key']} (ID: $seasonId)\n";
     }
 
-    // =========================================================================
-    // STEP 3: Query GSC stats & generate recommendations
-    // =========================================================================
-
-    // Group by query_text to aggregate multiple pages per query
+    // ------------------------------------------------------------------------
+    // STEP 3: Pull top queries from snapshot
+    // ------------------------------------------------------------------------
     $queryStmt = $db->prepare("
         SELECT
             query,
-            SUM(impressions) as total_impressions,
-            SUM(clicks) as total_clicks,
-            AVG(ctr) as avg_ctr,
-            AVG(position) as avg_position,
-            COUNT(DISTINCT page) as page_count,
-            MAX(page) as sample_page
+            SUM(impressions) AS total_impressions,
+            SUM(clicks) AS total_clicks,
+            AVG(ctr) AS avg_ctr,
+            AVG(position) AS avg_position,
+            COUNT(DISTINCT page) AS page_count,
+            MAX(page) AS sample_page
         FROM gsc_query_page_stats
         WHERE snapshot_id = ?
-        AND query IS NOT NULL
-        AND query != ''
+          AND query IS NOT NULL
+          AND query != ''
         GROUP BY query
         ORDER BY total_impressions DESC
         LIMIT 1000
@@ -143,14 +186,14 @@ try {
         echo "[INFO] Found " . count($queryRows) . " unique queries to analyze\n";
     }
 
-    // =========================================================================
-    // STEP 4: Score & insert/update recommendations
-    // =========================================================================
-
+    // ------------------------------------------------------------------------
+    // STEP 4: Insert/update recommendations
+    // ------------------------------------------------------------------------
     $insertStmt = $db->prepare("
         INSERT INTO seo_recommendations
-        (query_text, search_volume, clicks, ctr, avg_position, suggested_slug, rec_type, priority_score, target_id, season_id, reason, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NOW())
+            (query_text, search_volume, clicks, ctr, avg_position, suggested_slug, rec_type, priority_score, target_id, season_id, reason, status, created_at)
+        VALUES
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', NOW())
         ON DUPLICATE KEY UPDATE
             search_volume = VALUES(search_volume),
             clicks = VALUES(clicks),
@@ -164,15 +207,12 @@ try {
     foreach ($queryRows as $row) {
         $stats['queries_analyzed']++;
 
-        // Skip if below minimum threshold
         if ((int)$row['total_impressions'] < 15) {
             continue;
         }
 
-        // Detect matching target
         $matchedTargetId = detectMatchingTarget($row['query'], $db);
 
-        // Score the query
         $scoreResult = scoreRecommendation([
             'query' => $row['query'],
             'impressions' => (int)$row['total_impressions'],
@@ -184,20 +224,15 @@ try {
             'season_id' => $seasonId
         ], $db);
 
-        $score = $scoreResult['score'];
+        $score = (int)($scoreResult['score'] ?? 0);
 
-        // Skip low scores
         if ($score < 40) {
             continue;
         }
 
-        // Select recommendation type
         $recType = selectRecType($row, $score, !empty($row['sample_page']));
-
-        // Generate slug
         $slug = generateSlug($row['query'], $matchedTargetId, $db);
 
-        // Insert or update
         try {
             $insertStmt->execute([
                 $row['query'],
@@ -210,51 +245,32 @@ try {
                 $score,
                 $matchedTargetId,
                 $seasonId,
-                $scoreResult['reason']
+                (string)($scoreResult['reason'] ?? '')
             ]);
 
-            $affectedRows = $insertStmt->rowCount();
-            if ($affectedRows === 1) {
-                $stats['recommendations_generated']++;
-                if ($isCli) {
-                    echo "[GEN] {$row['query']} → $slug (score: $score, type: $recType)\n";
-                }
-            } elseif ($affectedRows === 2) {
-                // ON DUPLICATE KEY UPDATE counts as 2 rows affected
-                $stats['recommendations_updated']++;
-                if ($isCli) {
-                    echo "[UPD] {$row['query']} → $slug (score: $score)\n";
-                }
-            }
+            $affected = $insertStmt->rowCount();
 
-            // Log action if web request
-            if (!$isCli && $user['id']) {
-                logRecommendationAction(
-                    0, // Will use last_insert_id, but we can't get it here in this context
-                    'generated',
-                    $user['id'],
-                    null,
-                    'new',
-                    "Auto-generated by cron",
-                    $_SERVER['REMOTE_ADDR'] ?? null,
-                    $db
-                );
+            if ($affected === 1) {
+                $stats['recommendations_generated']++;
+                if ($isCli) echo "[GEN] {$row['query']} → $slug (score: $score, type: $recType)\n";
+            } elseif ($affected === 2) {
+                $stats['recommendations_updated']++;
+                if ($isCli) echo "[UPD] {$row['query']} → $slug (score: $score)\n";
             }
 
         } catch (PDOException $e) {
             $stats['errors']++;
-            if ($isCli) {
-                echo "[ERR] Failed to insert recommendation for: {$row['query']}\n";
-                echo "     " . $e->getMessage() . "\n";
-            }
             error_log("SEO Recommendation insertion failed: " . $e->getMessage());
+            if ($isCli) {
+                echo "[ERR] Insert failed for: {$row['query']}\n";
+                echo "      " . $e->getMessage() . "\n";
+            }
         }
     }
 
-    // =========================================================================
-    // STEP 5: Summary & response
-    // =========================================================================
-
+    // ------------------------------------------------------------------------
+    // STEP 5: Summary
+    // ------------------------------------------------------------------------
     $stats['runtime_seconds'] = time() - $startTime;
 
     $message = sprintf(
@@ -269,32 +285,20 @@ try {
     if ($isCli) {
         echo "\n[DONE] $message\n";
         exit(0);
-    } else {
-        header('Content-Type: application/json');
-        http_response_code(200);
-        die(json_encode([
-            'success' => true,
-            'message' => $message,
-            'stats' => $stats
-        ]));
     }
+
+    jsonRespond(true, $message, ['stats' => $stats], 200);
 
 } catch (Throwable $e) {
     $stats['errors']++;
-    $errorMsg = "SEO Recommendations Error: " . $e->getMessage();
+    $msg = "SEO Recommendations Error: " . $e->getMessage();
+    error_log($msg);
 
     if ($isCli) {
-        echo "\n[ERROR] $errorMsg\n";
+        echo "\n[ERROR] $msg\n";
         echo $e->getTraceAsString() . "\n";
         exit(1);
-    } else {
-        error_log($errorMsg);
-        http_response_code(500);
-        header('Content-Type: application/json');
-        die(json_encode([
-            'success' => false,
-            'message' => $errorMsg,
-            'stats' => $stats
-        ]));
     }
+
+    jsonRespond(false, $msg, ['stats' => $stats], 500);
 }
