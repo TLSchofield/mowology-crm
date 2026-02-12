@@ -321,15 +321,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $messageType = 'error';
             } else {
                 try {
-                    $db->beginTransaction();
-
-                    // Ensure mobile column exists (safe migration)
+                    // Ensure missing columns exist (safe migration — must run outside transaction)
                     try {
-                        $colCheck = $db->query("SHOW COLUMNS FROM contacts LIKE 'mobile'")->fetchAll();
-                        if (count($colCheck) === 0) {
+                        $existingCols = $db->query("SHOW COLUMNS FROM contacts")->fetchAll(PDO::FETCH_ASSOC);
+                        $colNames = array_column($existingCols, 'Field');
+                        if (!in_array('mobile', $colNames)) {
                             $db->exec("ALTER TABLE contacts ADD COLUMN mobile VARCHAR(50) AFTER phone");
                         }
+                        if (!in_array('prospect_status', $colNames)) {
+                            $db->exec("ALTER TABLE contacts ADD COLUMN prospect_status ENUM('prospect','client','inactive') DEFAULT 'prospect' AFTER is_active");
+                        }
                     } catch (Exception $ignore) {}
+
+                    $db->beginTransaction();
 
                     // Create contact with all fields
                     $stmt = $db->prepare("
