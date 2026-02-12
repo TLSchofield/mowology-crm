@@ -39,7 +39,7 @@ try {
             if (!$id) throw new Exception('Employee ID required');
 
             $stmt = $db->prepare("
-                SELECT id, username, email, full_name, phone, role, is_active,
+                SELECT id, email, full_name, phone, role, is_active,
                        hourly_rate, hire_date, emergency_contact, notes,
                        last_login, created_at
                 FROM users WHERE id = ?
@@ -76,18 +76,6 @@ try {
             $checkStmt->execute([$email]);
             if ($checkStmt->fetch()) throw new Exception('Email already exists');
 
-            // Generate username from email
-            $username = explode('@', $email)[0];
-            $baseUsername = $username;
-            $suffix = 1;
-            $checkUser = $db->prepare("SELECT id FROM users WHERE username = ?");
-            $checkUser->execute([$username]);
-            while ($checkUser->fetch()) {
-                $username = $baseUsername . $suffix;
-                $suffix++;
-                $checkUser->execute([$username]);
-            }
-
             // Optional fields
             $phone = trim($input['phone'] ?? '') ?: null;
             $hourlyRate = isset($input['hourly_rate']) && $input['hourly_rate'] !== '' ? (float)$input['hourly_rate'] : null;
@@ -96,12 +84,11 @@ try {
             $notes = trim($input['notes'] ?? '') ?: null;
 
             $stmt = $db->prepare("
-                INSERT INTO users (username, email, password_hash, full_name, phone, role,
+                INSERT INTO users (email, password_hash, full_name, phone, role,
                                    hourly_rate, hire_date, emergency_contact, notes, is_active)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
             ");
             $stmt->execute([
-                $username,
                 $email,
                 hashPassword($password),
                 $fullName,
@@ -214,6 +201,10 @@ try {
             echo json_encode(['error' => 'Invalid action. Use: get, create, update']);
     }
 
+} catch (PDOException $e) {
+    error_log('Employees API DB error: ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['error' => 'A database error occurred. Please try again.']);
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode(['error' => $e->getMessage()]);
