@@ -41,7 +41,7 @@ try {
             $stmt = $db->prepare("
                 SELECT id, email, full_name, phone, role, is_active,
                        hourly_rate, hire_date, emergency_contact, notes,
-                       last_login, created_at
+                       location_tracking_enabled, last_login, created_at
                 FROM users WHERE id = ?
             ");
             $stmt->execute([$id]);
@@ -176,6 +176,11 @@ try {
             if (isset($input['is_active'])) {
                 $updates[] = 'is_active = ?';
                 $params[] = $input['is_active'] ? 1 : 0;
+            }
+
+            if (isset($input['location_tracking_enabled'])) {
+                $updates[] = 'location_tracking_enabled = ?';
+                $params[] = $input['location_tracking_enabled'] ? 1 : 0;
             }
 
             // Optional password reset

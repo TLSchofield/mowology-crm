@@ -31,6 +31,14 @@ try {
         $action = $input['action'] ?? '';
     }
 
+    $db = getDB();
+
+    // Get tracking flag from database (not in session)
+    $trackStmt = $db->prepare("SELECT location_tracking_enabled FROM users WHERE id = ?");
+    $trackStmt->execute([$user['id']]);
+    $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
+    $locationTrackingEnabled = $trackRow ? (bool)$trackRow['location_tracking_enabled'] : false;
+
     switch ($action) {
         case 'status':
             $entry = getActiveClockEntry($user['id']);
@@ -43,6 +51,7 @@ try {
                     'entry_id' => (int)$entry['id'],
                     'clock_in' => $entry['clock_in'],
                     'elapsed_seconds' => max(0, (int)$entry['elapsed_seconds']),
+                    'location_tracking_enabled' => $locationTrackingEnabled,
                     'active_job' => $activeJob ? [
                         'id' => (int)$activeJob['id'],
                         'job_id' => (int)$activeJob['job_id'],
@@ -56,6 +65,7 @@ try {
                 echo json_encode([
                     'success' => true,
                     'clocked_in' => false,
+                    'location_tracking_enabled' => $locationTrackingEnabled,
                     'active_job' => null,
                 ]);
             }

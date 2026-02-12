@@ -5719,10 +5719,185 @@ textarea.font-monospace {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  align-items: center;
 }
 
 .mw-emp-actions .btn {
   padding: 5px 10px;
+}
+
+/* ── Tracking Toggle (Team Card) ────────────────────── */
+
+.mw-tracking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.mw-toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+}
+
+.mw-toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.mw-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #ccc;
+  border-radius: 18px;
+  transition: background 0.2s;
+}
+
+.mw-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  bottom: 2px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.mw-toggle-switch input:checked + .mw-toggle-slider {
+  background: var(--mw-green);
+}
+
+.mw-toggle-switch input:checked + .mw-toggle-slider::before {
+  transform: translateX(14px);
+}
+
+/* ── Tracking Indicator (Topbar Widget) ─────────────── */
+
+.mw-tracking-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.5);
+  margin-left: 2px;
+}
+
+.mw-tracking-indicator svg {
+  width: 12px;
+  height: 12px;
+}
+
+.mw-tracking-indicator.mw-tracking-active {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+  animation: mw-tracking-pulse 2s infinite;
+}
+
+.mw-tracking-indicator.mw-tracking-error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+@keyframes mw-tracking-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1); }
+}
+
+/* ── Crew Map Page ──────────────────────────────────── */
+
+.mw-crew-map-container {
+  position: relative;
+  height: 600px;
+  overflow: hidden;
+}
+
+#crewMapContainer {
+  width: 100%;
+  height: 100%;
+  background: #f5f7fa;
+}
+
+.mw-crew-map-legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(255,255,255,0.95);
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  font-size: 0.78rem;
+  z-index: 10;
+}
+
+.mw-crew-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: #555;
+}
+
+.mw-crew-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Crew list sidebar */
+.mw-crew-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.mw-crew-list-item:hover {
+  background: var(--mw-light);
+}
+
+.mw-crew-list-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.mw-crew-list-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mw-crew-list-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--mw-forest);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-crew-list-meta {
+  font-size: 0.75rem;
+  color: #888;
 }
 
 /* Mobile responsive */
@@ -5737,4 +5912,6 @@ textarea.font-monospace {
   .mw-tcs-row { flex-direction: column; align-items: flex-start; gap: 8px; }
   .mw-emp-stats-row { gap: 4px; }
   .mw-emp-mini-val { font-size: 0.9rem; }
+  .mw-crew-map-container { height: 400px; }
+  .mw-crew-map-legend { bottom: 8px; left: 8px; font-size: 0.7rem; padding: 6px 10px; }
 }

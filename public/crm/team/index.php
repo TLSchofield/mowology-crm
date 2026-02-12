@@ -56,6 +56,9 @@ $activePage = 'team';
         <p class="text-muted mb-0"><?php echo count($employees); ?> employee<?php echo count($employees) !== 1 ? 's' : ''; ?></p>
     </div>
     <div class="d-flex" style="gap: 8px;">
+        <a href="/crm/timeclock/crew-map.php" class="btn btn-sm btn-outline-secondary">
+            <i data-feather="map-pin" style="width:14px;height:14px;"></i> Crew Map
+        </a>
         <a href="/crm/timeclock/timesheets.php" class="btn btn-sm btn-outline-secondary">
             <i data-feather="file-text" style="width:14px;height:14px;"></i> Timesheets
         </a>
@@ -137,6 +140,14 @@ $activePage = 'team';
 
             <div class="mw-emp-actions">
                 <?php if ($user['role'] === 'admin'): ?>
+                <div class="mw-tracking-toggle" title="<?php echo $emp['location_tracking_enabled'] ? 'Location tracking ON' : 'Location tracking OFF'; ?>">
+                    <label class="mw-toggle-switch">
+                        <input type="checkbox" <?php echo $emp['location_tracking_enabled'] ? 'checked' : ''; ?>
+                               onchange="toggleTracking(<?php echo (int)$emp['id']; ?>, this.checked)">
+                        <span class="mw-toggle-slider"></span>
+                    </label>
+                    <i data-feather="navigation" style="width:13px;height:13px;" class="<?php echo $emp['location_tracking_enabled'] ? 'text-success' : 'text-muted'; ?>"></i>
+                </div>
                 <button class="btn btn-sm btn-outline-secondary" onclick="openEditModal(<?php echo (int)$emp['id']; ?>)"
                         title="Edit">
                     <i data-feather="edit-2" style="width:13px;height:13px;"></i>
@@ -261,6 +272,35 @@ $activePage = 'team';
 
     var form = document.getElementById('employeeForm');
     var modal = document.getElementById('employeeModal');
+
+    // Toggle location tracking
+    window.toggleTracking = function(empId, enabled) {
+        fetch('/crm/api/employees.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'update',
+                id: empId,
+                location_tracking_enabled: enabled ? 1 : 0,
+                csrf_token: document.querySelector('input[name="csrf_token"]').value
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showAlert('Location tracking ' + (enabled ? 'enabled' : 'disabled'), 'success');
+            } else {
+                showAlert(data.error || 'Failed to update tracking', 'danger');
+                // Revert checkbox
+                setTimeout(function() { location.reload(); }, 500);
+            }
+        })
+        .catch(function() {
+            showAlert('Network error', 'danger');
+            setTimeout(function() { location.reload(); }, 500);
+        });
+    };
 
     // Open Add Modal
     window.openAddModal = function() {

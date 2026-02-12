@@ -2,6 +2,11 @@
  * Time Clock Topbar Widget
  * Manages the persistent clock-in/out widget in the CRM navbar.
  * Loaded on every CRM page via appstack_footer.php.
+ *
+ * Also handles continuous GPS tracking when:
+ * - User is clocked in
+ * - User has location_tracking_enabled = 1
+ * Sends position to /crm/api/crew-location.php every 30 seconds.
  */
 (function() {
     'use strict';
@@ -11,6 +16,13 @@
 
     var timerInterval = null;
     var clockInTime = null;
+
+    // ── Location Tracking State ──
+    var trackingEnabled = false;
+    var gpsWatchId = null;
+    var trackingInterval = null;
+    var latestPosition = null; // { lat, lng, accuracy, speed, heading }
+    var TRACKING_INTERVAL_MS = 30000; // 30 seconds
 
     // ── Initialization ──
     fetchStatus();
@@ -25,9 +37,14 @@
                 renderDisabled();
                 return;
             }
+            trackingEnabled = !!data.location_tracking_enabled;
+
             if (data.clocked_in) {
                 clockInTime = new Date(data.clock_in.replace(' ', 'T'));
                 renderClockedIn(data.elapsed_seconds, data.active_job);
+                if (trackingEnabled) {
+                    startTracking();
+                }
             } else {
                 renderClockedOut();
             }
@@ -41,6 +58,7 @@
 
     function renderClockedOut() {
         stopTimer();
+        stopTracking();
         widget.innerHTML =
             '<button class="mw-clock-btn mw-clock-in" id="btnClockIn" title="Clock In">' +
                 '<i data-feather="play-circle"></i>' +
@@ -59,6 +77,13 @@
         if (activeJob) {
             html += '<span class="mw-clock-job-badge" title="' + escapeHtml(activeJob.job_title || '') + '">' +
                         '<i data-feather="briefcase"></i> ' + escapeHtml(activeJob.job_number || '') +
+                    '</span>';
+        }
+
+        // GPS tracking indicator
+        if (trackingEnabled) {
+            html += '<span class="mw-tracking-indicator" id="trackingIndicator" title="GPS tracking active">' +
+                        '<i data-feather="navigation"></i>' +
                     '</span>';
         }
 
@@ -97,6 +122,88 @@
         }
     }
 
+    // ── Location Tracking ──
+
+    function startTracking() {
+        if (gpsWatchId !== null) return; // Already tracking
+        if (!navigator.geolocation) return;
+
+        // Start high-accuracy continuous GPS watch
+        gpsWatchId = navigator.geolocation.watchPosition(
+            function(pos) {
+                latestPosition = {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    speed: pos.coords.speed,
+                    heading: pos.coords.heading
+                };
+                // Update indicator to show we have a fix
+                var indicator = document.getElementById('trackingIndicator');
+                if (indicator) {
+                    indicator.classList.add('mw-tracking-active');
+                    indicator.title = 'GPS active — accuracy: ' + Math.round(pos.coords.accuracy) + 'm';
+                }
+            },
+            function(err) {
+                var indicator = document.getElementById('trackingIndicator');
+                if (indicator) {
+                    indicator.classList.remove('mw-tracking-active');
+                    indicator.classList.add('mw-tracking-error');
+                    indicator.title = 'GPS error: ' + err.message;
+                }
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 15000,
+                maximumAge: 0
+            }
+        );
+
+        // Send position to server every 30 seconds
+        sendPosition(); // Send immediately on start
+        trackingInterval = setInterval(sendPosition, TRACKING_INTERVAL_MS);
+    }
+
+    function stopTracking() {
+        if (gpsWatchId !== null) {
+            navigator.geolocation.clearWatch(gpsWatchId);
+            gpsWatchId = null;
+        }
+        if (trackingInterval) {
+            clearInterval(trackingInterval);
+            trackingInterval = null;
+        }
+        latestPosition = null;
+    }
+
+    function sendPosition() {
+        if (!latestPosition) return;
+
+        fetch('/crm/api/crew-location.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                lat: latestPosition.lat,
+                lng: latestPosition.lng,
+                accuracy: latestPosition.accuracy,
+                speed: latestPosition.speed,
+                heading: latestPosition.heading
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            // Silent success — no UI feedback needed for tracking pings
+            if (data.error === 'Not clocked in' || data.error === 'Tracking not enabled') {
+                stopTracking();
+            }
+        })
+        .catch(function() {
+            // Silent failure — will retry next interval
+        });
+    }
+
     // ── Actions ──
 
     function doClockIn() {
@@ -114,7 +221,8 @@
             .then(function(data) {
                 if (data.success) {
                     clockInTime = new Date();
-                    renderClockedIn(0, null);
+                    // Re-fetch status to get tracking flag and render properly
+                    fetchStatus();
                     showToast('Clocked in at ' + formatTime(new Date()), 'success');
                 } else {
                     showToast(data.error || 'Clock in failed', 'error');
@@ -133,6 +241,8 @@
 
         var btn = document.getElementById('btnClockOut');
         if (btn) btn.disabled = true;
+
+        stopTracking();
 
         getGPS(function(lat, lng) {
             fetch('/crm/api/time-clock.php', {
@@ -217,7 +327,8 @@
     // Expose for use by my-schedule page
     window.MwTimeClock = {
         fetchStatus: fetchStatus,
-        isActive: function() { return clockInTime !== null; }
+        isActive: function() { return clockInTime !== null; },
+        isTracking: function() { return gpsWatchId !== null; }
     };
 
 })();
