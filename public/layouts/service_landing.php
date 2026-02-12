@@ -2,10 +2,9 @@
 /**
  * Service Landing Page CMS Layout
  *
- * Hero + proof sections in container
+ * Full-width hero + proof sections in container.
+ * Variables available: $page, $blocks (set by cms_renderPage)
  */
-
-require_once dirname(__DIR__) . '/crm/includes/cms-renderer.php';
 ?>
 
 <main role="main" class="cms-page cms-page-service-landing">

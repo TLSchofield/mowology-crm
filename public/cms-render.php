@@ -19,6 +19,7 @@ declare(strict_types=1);
 // Load bootstrap
 require_once __DIR__ . '/includes/bootstrap.php';
 require_once __DIR__ . '/crm/includes/cms-functions.php';
+require_once __DIR__ . '/crm/includes/cms-token-engine.php';
 require_once __DIR__ . '/crm/includes/cms-renderer.php';
 
 // Get requested page slug

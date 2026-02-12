@@ -24,3 +24,11 @@ RewriteRule ^quote/?$ /quote.php [L,QSA]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^services/([a-z0-9\-]+)/?$ /services/$1.php [L,QSA]
+
+# ── CMS Catch-All ──
+# Routes unmatched slugs to CMS front controller.
+# Backwards-compatible: existing files still load directly.
+# cms-render.php falls back to legacy pages if no CMS page found.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([a-z0-9\-\/]+)/?$ /cms-render.php?page=$1 [L,QSA]

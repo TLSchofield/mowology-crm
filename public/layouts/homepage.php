@@ -2,11 +2,9 @@
 /**
  * Homepage CMS Layout
  *
- * Full-width hero followed by container sections
- * Variables available: $page, $blocks
+ * Full-width hero followed by container sections.
+ * Variables available: $page, $blocks (set by cms_renderPage)
  */
-
-require_once dirname(__DIR__) . '/crm/includes/cms-renderer.php';
 ?>
 
 <main role="main" class="cms-page cms-page-homepage">

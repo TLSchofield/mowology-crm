@@ -14,6 +14,9 @@ declare(strict_types=1);
 /**
  * Main page rendering function
  *
+ * Renders CMS pages using the PUBLIC site layout (head.php/header.php/footer.php),
+ * NOT the CRM AppStack layout. CMS pages look like the rest of the public website.
+ *
  * @param array $page Page record from database
  * @return void Outputs complete HTML page
  */
@@ -22,35 +25,58 @@ function cms_renderPage(array $page): void
     // Track page view
     cms_trackPageView($page['id']);
 
-    // Set page variables for legacy include system
-    $pageTitle = $page['meta_title'] ?? $page['title'] . ' | ' . SITE_NAME;
-    $pageDescription = $page['meta_description'] ?? '';
+    // Build token map for this page (if token engine loaded)
+    $tokenMap = function_exists('cms_buildTokenMap')
+        ? cms_buildTokenMap($page['id'])
+        : [];
+
+    // Set page variables for public site include system
+    $rawTitle = $page['meta_title'] ?? $page['title'] . ' | ' . SITE_NAME;
+    $rawDesc = $page['meta_description'] ?? '';
+    $pageTitle = $tokenMap ? cms_resolveTokens($rawTitle, $tokenMap) : $rawTitle;
+    $pageDescription = $tokenMap ? cms_resolveTokens($rawDesc, $tokenMap) : $rawDesc;
     $activeNav = cms_getActiveNav($page);
     $pageImage = $page['og_image_path'] ?? null;
 
-    // Add noindex if draft or archived
+    // Add noindex if draft/archived, plus structured data
     $extraHead = '';
     if ($page['status'] !== 'published') {
         $extraHead .= '<meta name="robots" content="noindex, nofollow">' . "\n";
     }
+    $extraHead .= cms_renderStructuredData($page);
 
-    // Include standard head (assumes bootstrap.php already loaded)
-    require __DIR__ . '/../includes/appstack_head.php';
+    // Resolve path to public includes (works in both local dev and production)
+    // cms-renderer.php is at /public/crm/includes/ → public root is 2 dirs up
+    $publicRoot = dirname(dirname(__DIR__));
+
+    // Include PUBLIC site head (outputs <!DOCTYPE> through </head>)
+    require $publicRoot . '/includes/head.php';
+
+    // Include PUBLIC site header (outputs <body>, <header>, <nav>)
+    require $publicRoot . '/includes/header.php';
 
     // Load layout template
-    $layoutPath = CMS_LAYOUTS_DIR . '/' . $page['layout_template'] . '.php';
+    $layoutPath = CMS_LAYOUTS_DIR . '/' . ($page['layout_template'] ?? 'default') . '.php';
     if (!file_exists($layoutPath)) {
         $layoutPath = CMS_LAYOUTS_DIR . '/default.php';
     }
 
-    // Get page blocks
+    // Get page blocks and apply token replacement to config
     $blocks = cms_getBlocksByPageId($page['id']);
+    if ($tokenMap) {
+        foreach ($blocks as &$block) {
+            if (!empty($block['config']) && is_array($block['config'])) {
+                $block['config'] = cms_processBlockConfig($block['config'], $tokenMap);
+            }
+        }
+        unset($block);
+    }
 
     // Render layout with blocks
     include $layoutPath;
 
-    // Include standard footer
-    require __DIR__ . '/../includes/appstack_footer.php';
+    // Include PUBLIC site footer (outputs <footer>, scripts, </body>, </html>)
+    require $publicRoot . '/includes/footer.php';
 }
 
 /**

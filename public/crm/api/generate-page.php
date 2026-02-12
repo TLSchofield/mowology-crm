@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/cms-functions.php';
+require_once dirname(__DIR__) . '/includes/cms-token-engine.php';
 require_once dirname(__DIR__) . '/includes/page-generator.php';
 
 requireLogin();
@@ -82,6 +84,6 @@ echo json_encode([
     'success' => true,
     'page_id' => $result['page_id'],
     'page_slug' => $result['page_slug'],
-    'edit_url' => '/crm/cms/cms-page-editor.php?id=' . $result['page_id'],
+    'edit_url' => '/crm/cms/cms-page-edit.php?id=' . $result['page_id'],
     'message' => $result['message']
 ]);

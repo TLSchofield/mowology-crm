@@ -2,17 +2,16 @@
 /**
  * Contact Page CMS Layout
  *
- * Two-column: form on left, info on right
+ * Two-column: content on left, info sidebar on right.
+ * Variables available: $page, $blocks (set by cms_renderPage)
  */
-
-require_once dirname(__DIR__) . '/crm/includes/cms-renderer.php';
 ?>
 
 <main role="main" class="cms-page cms-page-contact">
   <div class="container">
     <div class="row">
       <div class="col-md-8">
-        <?php echo cms_renderSections($blocks); ?>
+        <?php echo cms_renderSections($blocks, 0); ?>
       </div>
       <div class="col-md-4 contact-sidebar">
         <div class="card">
@@ -20,11 +19,11 @@ require_once dirname(__DIR__) . '/crm/includes/cms-renderer.php';
             <h5>Contact Info</h5>
             <p>
               <strong>Phone:</strong><br>
-              <a href="tel:<?php echo SITE_PHONE_1 ?? ''; ?>"><?php echo SITE_PHONE_1 ?? ''; ?></a>
+              <a href="tel:<?php echo defined('SITE_PHONE_TEL') ? SITE_PHONE_TEL : ''; ?>"><?php echo defined('SITE_PHONE_DISPLAY') ? SITE_PHONE_DISPLAY : ''; ?></a>
             </p>
             <p>
               <strong>Email:</strong><br>
-              <a href="mailto:<?php echo SITE_EMAIL ?? ''; ?>"><?php echo SITE_EMAIL ?? ''; ?></a>
+              <a href="mailto:<?php echo defined('SITE_EMAIL') ? SITE_EMAIL : ''; ?>"><?php echo defined('SITE_EMAIL') ? SITE_EMAIL : ''; ?></a>
             </p>
           </div>
         </div>
