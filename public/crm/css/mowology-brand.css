@@ -6870,3 +6870,85 @@ textarea.font-monospace {
   font-size: 0.75rem;
   padding: 0.3em 0.6em;
 }
+
+/* ─────────────────────────────────────────────────
+   CMS Snippets Manager — Preview + List styles
+   ───────────────────────────────────────────────── */
+
+/* Active snippet row highlight */
+.mw-snippet-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.mw-snippet-row:hover {
+  background-color: var(--mw-light);
+}
+.mw-snippet-active {
+  background-color: #e8f5e9 !important;
+  border-left: 3px solid var(--mw-green);
+}
+.mw-snippet-inactive {
+  opacity: 0.55;
+}
+.mw-snippet-inactive:hover {
+  opacity: 0.8;
+}
+
+/* Preview card sticky behavior */
+.mw-snippet-preview-card {
+  border-color: var(--mw-green);
+}
+.mw-snippet-preview-card .card-header {
+  background: var(--mw-light);
+  border-bottom: 1px solid #dee2e6;
+}
+
+/* Preview container scales block content */
+#previewContainer {
+  font-size: 0.85rem;
+}
+#previewContainer section {
+  padding-top: 1.5rem !important;
+  padding-bottom: 1.5rem !important;
+}
+#previewContainer .container {
+  max-width: 100%;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+#previewContainer h1 {
+  font-size: 1.5rem;
+}
+#previewContainer h2 {
+  font-size: 1.25rem;
+}
+#previewContainer .lead {
+  font-size: 0.9rem;
+}
+#previewContainer .btn-lg {
+  font-size: 0.8rem;
+  padding: 0.4rem 0.8rem;
+}
+#previewContainer .display-4 {
+  font-size: 1.6rem;
+}
+
+/* Cycle buttons */
+.mw-cycle-btn {
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+/* Snippet group cards */
+.mw-snippet-group .card-header {
+  padding: 0.4rem 0.75rem;
+  background-color: #fafafa;
+}
+.mw-snippet-group .card-header h6 {
+  font-size: 0.85rem;
+}
+
+/* Min-width utility for truncation */
+.min-width-0 {
+  min-width: 0;
+}
