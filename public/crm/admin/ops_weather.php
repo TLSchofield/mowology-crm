@@ -19,7 +19,23 @@ $activePage = 'ops-weather';
           <div class="mw-page-header">
             <div>
               <h1 class="h3 mb-0"><i data-feather="cloud-rain" style="width:28px;height:28px;"></i> Weather Operations Settings</h1>
-              <p class="text-muted mb-0">Global weather thresholds, borderline bands, and reschedule defaults</p>
+              <p class="text-muted mb-0">Control how weather affects your scheduled visits</p>
+            </div>
+          </div>
+
+          <!-- How It Works -->
+          <div class="card mb-3" style="border-left:4px solid var(--mw-green);">
+            <div class="card-body py-3">
+              <h6 class="mb-2" style="color:var(--mw-green);"><i data-feather="info" style="width:16px;height:16px;"></i> How Weather Guard Works</h6>
+              <p class="mb-2" style="font-size:0.9rem;">
+                The weather guard checks the forecast for your upcoming visits and flags anything that might be a problem. Here's the flow:
+              </p>
+              <ol class="mb-0" style="font-size:0.9rem;padding-left:1.2rem;">
+                <li class="mb-1"><strong>Set global defaults</strong> below — these are the fallback thresholds for all services.</li>
+                <li class="mb-1"><strong>Assign weather policies to your services</strong> in the <em>Service Weather Rules</em> tab — e.g. mark "Lawn Mowing" as <strong>Dry Only</strong>, or "Snow Removal" as <strong>Any Weather</strong>.</li>
+                <li class="mb-1">The guard runs daily, checks the hourly forecast for each visit, and flags anything that doesn't meet the rules.</li>
+                <li class="mb-0">Flagged visits appear in <a href="/crm/ops/weather_actions.php"><strong>Weather Ops</strong></a> where you can keep, reschedule, or dismiss them.</li>
+              </ol>
             </div>
           </div>
 
@@ -39,6 +55,7 @@ $activePage = 'ops-weather';
               <div class="card">
                 <div class="card-header">
                   <h5 class="card-title mb-0">Default Weather Thresholds</h5>
+                  <small class="text-muted">These defaults apply to any service that doesn't have its own rules set. You can override them per-service in the Service Weather Rules tab.</small>
                 </div>
                 <div class="card-body">
                   <form id="globalConstraintsForm">
@@ -148,10 +165,23 @@ $activePage = 'ops-weather';
 
             <!-- Tab 2: Service Weather Rules -->
             <div class="tab-pane fade" id="tab-services" role="tabpanel">
+
+              <!-- Explainer -->
+              <div class="card mb-3" style="border-left:4px solid var(--mw-orange);">
+                <div class="card-body py-3">
+                  <h6 class="mb-2" style="color:var(--mw-orange);"><i data-feather="zap" style="width:16px;height:16px;"></i> Per-Service Weather Policies</h6>
+                  <p class="mb-2" style="font-size:0.9rem;">
+                    Each service can have its own weather policy. For example, <strong>Lawn Mowing</strong> needs dry conditions, but <strong>Snow Removal</strong> is fine in any weather. Click the edit button on a service to set its policy.
+                  </p>
+                  <p class="mb-0" style="font-size:0.85rem;color:#666;">
+                    Services set to <strong>Any Weather</strong> will never be flagged. Services with no policy set will use the global defaults from the first tab. Blank threshold fields also inherit global defaults.
+                  </p>
+                </div>
+              </div>
+
               <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="card-header">
                   <h5 class="card-title mb-0">Service Package Weather Rules</h5>
-                  <small class="text-muted">Per-service overrides — NULL fields inherit global defaults</small>
                 </div>
                 <div class="card-body p-0">
                   <div class="table-responsive">
@@ -165,8 +195,8 @@ $activePage = 'ops-weather';
                           <th>Max mm/hr</th>
                           <th>Temp Range</th>
                           <th>Max Wind</th>
-                          <th>Auto</th>
-                          <th>Actions</th>
+                          <th>Auto-Move</th>
+                          <th></th>
                         </tr>
                       </thead>
                       <tbody id="serviceRulesBody">
@@ -191,13 +221,14 @@ $activePage = 'ops-weather';
                         <div class="form-group">
                           <label>Weather Policy</label>
                           <select class="form-control" id="sw_policy" onchange="togglePolicyFields()">
-                            <option value="ANY">ANY — All conditions OK</option>
-                            <option value="DRY_ONLY">DRY_ONLY — No rain allowed</option>
-                            <option value="LIGHT_RAIN_OK">LIGHT_RAIN_OK — Light rain is fine</option>
-                            <option value="TEMP_LIMITED">TEMP_LIMITED — Temperature sensitive</option>
-                            <option value="WIND_LIMITED">WIND_LIMITED — Wind sensitive</option>
-                            <option value="CUSTOM">CUSTOM — Custom thresholds</option>
+                            <option value="ANY">Any Weather — always good to go</option>
+                            <option value="DRY_ONLY">Dry Only — needs no rain</option>
+                            <option value="LIGHT_RAIN_OK">Light Rain OK — fine in drizzle, not heavy rain</option>
+                            <option value="TEMP_LIMITED">Temperature Sensitive — too hot or cold is a problem</option>
+                            <option value="WIND_LIMITED">Wind Sensitive — high wind is a problem</option>
+                            <option value="CUSTOM">Custom — set your own thresholds</option>
                           </select>
+                          <small class="form-text text-muted" id="sw_policy_hint"></small>
                         </div>
 
                         <div id="sw_thresholds">
@@ -236,36 +267,40 @@ $activePage = 'ops-weather';
                         </div>
 
                         <hr>
-                        <h6>Reschedule Controls</h6>
+                        <h6>If Weather Is Bad</h6>
+                        <small class="text-muted d-block mb-3">What should happen when this service gets flagged? Leave blank to use global defaults.</small>
                         <div class="row">
                           <div class="col-md-4">
                             <div class="form-group">
                               <label>Move Window (hrs)</label>
                               <input type="number" class="form-control" id="sw_move_window" min="1" max="168" placeholder="Use global">
+                              <small class="form-text text-muted">How far ahead to look for a clear slot</small>
                             </div>
                           </div>
                           <div class="col-md-4">
                             <div class="form-group">
-                              <label>Timeband Start</label>
+                              <label>Earliest Start</label>
                               <input type="time" class="form-control" id="sw_timeband_start">
                             </div>
                           </div>
                           <div class="col-md-4">
                             <div class="form-group">
-                              <label>Timeband End</label>
+                              <label>Latest End</label>
                               <input type="time" class="form-control" id="sw_timeband_end">
                             </div>
                           </div>
                         </div>
                         <div class="form-group">
                           <label class="d-flex align-items-center" style="gap:0.5rem;">
-                            <input type="checkbox" id="sw_auto_reschedule"> Auto-Reschedule
+                            <input type="checkbox" id="sw_auto_reschedule"> Auto-move to a clear slot when flagged
                           </label>
+                          <small class="form-text text-muted ml-4">If off, flagged visits go to the Weather Ops action list for you to decide</small>
                         </div>
                         <div class="form-group">
                           <label class="d-flex align-items-center" style="gap:0.5rem;">
-                            <input type="checkbox" id="sw_manual_uncertain" checked> Require Manual Approval on Borderline
+                            <input type="checkbox" id="sw_manual_uncertain" checked> Require my approval on borderline weather
                           </label>
+                          <small class="form-text text-muted ml-4">Borderline = conditions are close to the threshold but not clearly bad</small>
                         </div>
 
                         <div class="mw-weather-preview p-3 mt-3" style="background:var(--mw-light);border-radius:6px;" id="sw_preview">
@@ -385,7 +420,9 @@ $activePage = 'ops-weather';
           function renderServiceTable() {
             const tbody = document.getElementById('serviceRulesBody');
             if (allServicePackages.length === 0) {
-              tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No service packages found</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">' +
+                'No service packages found.<br><small>Create service packages in <a href="/crm/products/products-manager.php">Products</a> first, then come back here to set their weather rules.</small>' +
+                '</td></tr>';
               return;
             }
 
@@ -394,22 +431,26 @@ $activePage = 'ops-weather';
               const policyClass = policy === 'ANY' ? 'badge-secondary' :
                                   policy === 'DRY_ONLY' ? 'badge-warning' :
                                   policy === 'CUSTOM' ? 'badge-info' : 'badge-primary';
+              const label = policyLabels[policy] || policy;
               const tempRange = (sp.min_temp_c !== null || sp.max_temp_c !== null)
                 ? (sp.min_temp_c ?? '?') + '° to ' + (sp.max_temp_c ?? '?') + '°'
-                : '—';
+                : '<span class="text-muted">global</span>';
+              const precipDisplay = sp.max_precip_chance_pct !== null ? sp.max_precip_chance_pct + '%' : '<span class="text-muted">global</span>';
+              const mmDisplay = sp.max_precip_mm_per_hr !== null ? sp.max_precip_mm_per_hr : '<span class="text-muted">global</span>';
+              const windDisplay = sp.max_wind_kph !== null ? sp.max_wind_kph + ' km/h' : '<span class="text-muted">global</span>';
 
               return '<tr>' +
                 '<td><strong>' + escapeHtml(sp.package_name) + '</strong>' +
                   (!sp.is_active ? ' <span class="badge badge-secondary">Inactive</span>' : '') +
                 '</td>' +
                 '<td>' + escapeHtml(sp.category || '—') + '</td>' +
-                '<td><span class="badge ' + policyClass + '">' + policy + '</span></td>' +
-                '<td>' + (sp.max_precip_chance_pct !== null ? sp.max_precip_chance_pct + '%' : '—') + '</td>' +
-                '<td>' + (sp.max_precip_mm_per_hr !== null ? sp.max_precip_mm_per_hr : '—') + '</td>' +
-                '<td>' + tempRange + '</td>' +
-                '<td>' + (sp.max_wind_kph !== null ? sp.max_wind_kph + ' km/h' : '—') + '</td>' +
+                '<td><span class="badge ' + policyClass + '">' + label + '</span></td>' +
+                '<td>' + (policy === 'ANY' ? '<span class="text-muted">n/a</span>' : precipDisplay) + '</td>' +
+                '<td>' + (policy === 'ANY' ? '<span class="text-muted">n/a</span>' : mmDisplay) + '</td>' +
+                '<td>' + (policy === 'ANY' ? '<span class="text-muted">n/a</span>' : tempRange) + '</td>' +
+                '<td>' + (policy === 'ANY' ? '<span class="text-muted">n/a</span>' : windDisplay) + '</td>' +
                 '<td>' + (sp.auto_reschedule ? '<span class="text-success">Yes</span>' : '<span class="text-muted">No</span>') + '</td>' +
-                '<td><button class="btn btn-sm btn-outline-primary" onclick="editServiceWeather(' + sp.id + ')"><i data-feather="edit-2"></i></button></td>' +
+                '<td><button class="btn btn-sm btn-outline-primary" onclick="editServiceWeather(' + sp.id + ')" title="Edit weather rules"><i data-feather="edit-2"></i></button></td>' +
               '</tr>';
             }).join('');
 
@@ -439,17 +480,37 @@ $activePage = 'ops-weather';
             $('#editServiceWeatherModal').modal('show');
           }
 
+          const policyHints = {
+            'ANY': 'This service won\'t be checked by the weather guard at all.',
+            'DRY_ONLY': 'Flagged if there\'s any rain in the forecast during the visit window.',
+            'LIGHT_RAIN_OK': 'Flagged only for heavy rain — light drizzle is fine.',
+            'TEMP_LIMITED': 'Flagged if temperature is outside the allowed range.',
+            'WIND_LIMITED': 'Flagged if wind speed exceeds the threshold.',
+            'CUSTOM': 'Set your own combination of precipitation, temperature, and wind thresholds.',
+          };
+
+          const policyLabels = {
+            'ANY': 'Any Weather',
+            'DRY_ONLY': 'Dry Only',
+            'LIGHT_RAIN_OK': 'Light Rain OK',
+            'TEMP_LIMITED': 'Temp Sensitive',
+            'WIND_LIMITED': 'Wind Sensitive',
+            'CUSTOM': 'Custom',
+          };
+
           function togglePolicyFields() {
             const policy = document.getElementById('sw_policy').value;
             const show = policy !== 'ANY';
             document.getElementById('sw_thresholds').style.display = show ? 'block' : 'none';
+            document.getElementById('sw_policy_hint').textContent = policyHints[policy] || '';
             updatePreview();
           }
 
           function updatePreview() {
             const policy = document.getElementById('sw_policy').value;
             const preview = document.getElementById('sw_preview');
-            let parts = [policy.replace(/_/g, ' ')];
+            let label = policyLabels[policy] || policy;
+            let parts = [];
 
             if (policy !== 'ANY') {
               const pc = document.getElementById('sw_precip_chance').value;
@@ -457,14 +518,15 @@ $activePage = 'ops-weather';
               const mt = document.getElementById('sw_min_temp').value;
               const xt = document.getElementById('sw_max_temp').value;
               const w = document.getElementById('sw_max_wind').value;
-              if (pc) parts.push('max ' + pc + '% precip');
-              if (mm) parts.push('max ' + mm + 'mm/hr');
-              if (mt) parts.push('min ' + mt + '°C');
-              if (xt) parts.push('max ' + xt + '°C');
-              if (w) parts.push('max ' + w + ' km/h wind');
+              if (pc) parts.push('flag above ' + pc + '% rain chance');
+              if (mm) parts.push('flag above ' + mm + 'mm/hr');
+              if (mt) parts.push('too cold below ' + mt + '°C');
+              if (xt) parts.push('too hot above ' + xt + '°C');
+              if (w) parts.push('too windy above ' + w + ' km/h');
             }
 
-            preview.innerHTML = '<small class="text-muted">Preview:</small> <strong>' + parts.join(', ') + '</strong>';
+            const detail = parts.length ? ' — ' + parts.join(', ') : '';
+            preview.innerHTML = '<small class="text-muted">Summary:</small> <strong>' + label + '</strong>' + detail;
           }
 
           // Bind preview updates
