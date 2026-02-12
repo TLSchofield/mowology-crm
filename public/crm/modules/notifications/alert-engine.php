@@ -152,12 +152,6 @@ function sendWeatherSmsAlert(int $crewId, string $visitNumber, string $date, str
 {
     try {
         $db = getDB();
-        // Check if users table has a phone column (not yet added)
-        $colCheck = $db->query("SHOW COLUMNS FROM users LIKE 'phone'")->fetch();
-        if (!$colCheck) {
-            return ['success' => false, 'error' => 'Users table does not have a phone column yet'];
-        }
-
         $stmt = $db->prepare("SELECT phone, full_name FROM users WHERE id = ?");
         $stmt->execute([$crewId]);
         $crew = $stmt->fetch(PDO::FETCH_ASSOC);
