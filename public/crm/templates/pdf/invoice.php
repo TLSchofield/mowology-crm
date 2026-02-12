@@ -223,8 +223,8 @@ $isOverdue = ($invoice['status'] === 'overdue');
             <div class="section-title">Service Location</div>
             <div class="client-info">
                 <?php echo $propertyLine; ?>
-                <?php if (!empty($invoice['job_number'])): ?>
-                    <br>Job: <?php echo $esc($invoice['job_number']); ?>
+                <?php if (!empty($invoice['plan_number'])): ?>
+                    <br>Job: <?php echo $esc($invoice['plan_number']); ?>
                     <?php if (!empty($invoice['job_title'])): ?>
                         - <?php echo $esc($invoice['job_title']); ?>
                     <?php endif; ?>

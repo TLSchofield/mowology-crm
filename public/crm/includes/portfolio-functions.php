@@ -178,7 +178,7 @@ function extractExifData(string $filePath): array
  */
 function createMediaFile(
     int $userId,
-    ?int $jobId,
+    ?int $visitId,
     ?int $propertyId,
     string $originalPath,
     ?string $webPath = null,
@@ -195,7 +195,7 @@ function createMediaFile(
 
         $stmt = $db->prepare("
             INSERT INTO media_files (
-                owner_user_id, job_id, property_id,
+                owner_user_id, visit_id, property_id,
                 original_path, web_path, thumb_path,
                 mime, size, width, height,
                 taken_at, status, checksum
@@ -204,7 +204,7 @@ function createMediaFile(
 
         $stmt->execute([
             $userId,
-            $jobId,
+            $visitId,
             $propertyId,
             $originalPath,
             $webPath,
@@ -377,7 +377,7 @@ function getRecentUploads(int $limit = 20): array
         $db = getDB();
         $stmt = $db->prepare("
             SELECT
-                mf.id, mf.owner_user_id, mf.job_id,
+                mf.id, mf.owner_user_id, mf.visit_id,
                 mf.thumb_path, mf.status, mf.is_favorite, mf.uploaded_at,
                 u.full_name as uploader_name,
                 mm.title, mm.service_type
@@ -546,12 +546,12 @@ function getPortfolioStats(): array
 /**
  * Create or update visit photo set
  */
-function setVisitPhotoSet(int $jobId, array $beforeIds = [], array $afterIds = [], array $proofIds = []): bool
+function setVisitPhotoSet(int $visitId, array $beforeIds = [], array $afterIds = [], array $proofIds = []): bool
 {
     try {
         $db = getDB();
         $stmt = $db->prepare("
-            INSERT INTO visit_photo_sets (job_id, before_media_ids, after_media_ids, proof_media_ids)
+            INSERT INTO visit_photo_sets (visit_id, before_media_ids, after_media_ids, proof_media_ids)
             VALUES (?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 before_media_ids = VALUES(before_media_ids),
@@ -561,7 +561,7 @@ function setVisitPhotoSet(int $jobId, array $beforeIds = [], array $afterIds = [
         ");
 
         $stmt->execute([
-            $jobId,
+            $visitId,
             json_encode($beforeIds, JSON_UNESCAPED_SLASHES),
             json_encode($afterIds, JSON_UNESCAPED_SLASHES),
             json_encode($proofIds, JSON_UNESCAPED_SLASHES)
@@ -577,12 +577,12 @@ function setVisitPhotoSet(int $jobId, array $beforeIds = [], array $afterIds = [
 /**
  * Get visit photo set
  */
-function getVisitPhotoSet(int $jobId): ?array
+function getVisitPhotoSet(int $visitId): ?array
 {
     try {
         $db = getDB();
-        $stmt = $db->prepare("SELECT * FROM visit_photo_sets WHERE job_id = ?");
-        $stmt->execute([$jobId]);
+        $stmt = $db->prepare("SELECT * FROM visit_photo_sets WHERE visit_id = ?");
+        $stmt->execute([$visitId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($row) {

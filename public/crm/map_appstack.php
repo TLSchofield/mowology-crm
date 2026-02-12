@@ -20,12 +20,13 @@ try {
     $properties = $db->query("
     SELECT DISTINCT
         p.id, p.address, p.city, p.province, p.latitude, p.longitude,
-        COUNT(DISTINCT j.id) as active_jobs,
+        COUNT(DISTINCT jv.id) as active_jobs,
         COUNT(DISTINCT q.id) as active_quotes
     FROM properties p
-    LEFT JOIN jobs j ON p.id = j.property_id AND j.status IN ('scheduled', 'in_progress')
+    LEFT JOIN job_plans jp ON p.id = jp.property_id AND jp.status = 'active'
+    LEFT JOIN job_visits jv ON jp.id = jv.plan_id AND jv.status IN ('scheduled', 'in_progress')
     LEFT JOIN quotes q ON p.id = q.property_id AND q.status IN ('sent', 'accepted')
-    WHERE (j.id IS NOT NULL OR q.id IS NOT NULL) AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+    WHERE (jv.id IS NOT NULL OR q.id IS NOT NULL) AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
     GROUP BY p.id
     ORDER BY COALESCE(active_jobs, 0) + COALESCE(active_quotes, 0) DESC
     LIMIT 50

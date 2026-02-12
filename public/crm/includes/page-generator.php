@@ -353,17 +353,19 @@ function pg_getNeighbourhoods(): array
     try {
         $db = getDB();
 
-        // Query completed jobs for real neighbourhoods
+        // Query neighbourhoods from properties with completed visits
         $stmt = $db->query("
-            SELECT DISTINCT neighbourhood
-            FROM jobs
-            WHERE status = 'completed' AND neighbourhood IS NOT NULL AND neighbourhood != ''
-            ORDER BY neighbourhood ASC
+            SELECT DISTINCT p.neighbourhood
+            FROM properties p
+            JOIN job_plans jp ON p.id = jp.property_id
+            JOIN job_visits jv ON jp.id = jv.plan_id AND jv.status = 'completed'
+            WHERE p.neighbourhood IS NOT NULL AND p.neighbourhood != ''
+            ORDER BY p.neighbourhood ASC
         ");
 
         $neighbourhoods = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $key = strtolower(str_replace(' ', '-', $row['neighbourhood']));
+            $key = strtolower(str_replace(' ', '-', $row['neighbourhood'] ?? ''));
             $neighbourhoods[$key] = $row['neighbourhood'];
         }
 

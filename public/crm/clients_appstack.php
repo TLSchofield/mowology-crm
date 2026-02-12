@@ -162,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             $relatedJobs = 0;
             $relatedInvoices = 0;
             try {
-                $stmt = $db->prepare("SELECT COUNT(*) FROM jobs WHERE company_id IN ({$placeholders})");
+                $stmt = $db->prepare("SELECT COUNT(*) FROM job_plans WHERE company_id IN ({$placeholders})");
                 $stmt->execute($ids);
                 $relatedJobs = (int)$stmt->fetchColumn();
             } catch (Exception $e) {}

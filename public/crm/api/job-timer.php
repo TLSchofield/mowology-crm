@@ -1,9 +1,9 @@
 <?php
 /**
- * Job Timer API — Start / Stop / Pause / Active status
- * POST: {action: 'start', job_id, lat?, lng?, auto_started?}
- * POST: {action: 'stop', job_id, lat?, lng?, notes?, complete_job?}
- * POST: {action: 'pause', job_id, lat?, lng?}
+ * Visit Timer API — Start / Stop / Pause / Active status
+ * POST: {action: 'start', visit_id, lat?, lng?, auto_started?}
+ * POST: {action: 'stop', visit_id, lat?, lng?, notes?, complete_visit?}
+ * POST: {action: 'pause', visit_id, lat?, lng?}
  * GET:  ?action=active
  */
 declare(strict_types=1);
@@ -32,12 +32,12 @@ try {
 
     switch ($action) {
         case 'active':
-            $activeTimer = getActiveJobTimer($user['id']);
+            $activeTimer = getActiveVisitTimer($user['id']);
             echo json_encode([
                 'success' => true,
                 'active_timer' => $activeTimer ? [
                     'id' => (int)$activeTimer['id'],
-                    'job_id' => (int)$activeTimer['job_id'],
+                    'visit_id' => (int)$activeTimer['visit_id'],
                     'job_title' => $activeTimer['job_title'],
                     'job_number' => $activeTimer['job_number'],
                     'property_address' => $activeTimer['property_address'],
@@ -49,65 +49,65 @@ try {
             break;
 
         case 'start':
-            $jobId = (int)($input['job_id'] ?? 0);
-            if (!$jobId) {
-                throw new Exception('job_id is required');
+            $visitId = (int)($input['visit_id'] ?? 0);
+            if (!$visitId) {
+                throw new Exception('visit_id is required');
             }
 
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $autoStarted = !empty($input['auto_started']);
 
-            $entryId = startJobTimer($jobId, $user['id'], $lat, $lng, $autoStarted);
+            $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted);
 
             echo json_encode([
                 'success' => true,
-                'message' => 'Job timer started',
+                'message' => 'Visit timer started',
                 'entry_id' => $entryId,
-                'job_id' => $jobId,
+                'visit_id' => $visitId,
                 'start_time' => date('Y-m-d H:i:s'),
                 'auto_started' => $autoStarted,
             ]);
             break;
 
         case 'stop':
-            $jobId = (int)($input['job_id'] ?? 0);
-            if (!$jobId) {
-                throw new Exception('job_id is required');
+            $visitId = (int)($input['visit_id'] ?? 0);
+            if (!$visitId) {
+                throw new Exception('visit_id is required');
             }
 
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $notes = $input['notes'] ?? null;
-            $completeJob = $input['complete_job'] ?? true;
+            $completeVisit = $input['complete_visit'] ?? true;
 
-            $duration = stopJobTimer($jobId, $user['id'], $lat, $lng, $notes, (bool)$completeJob);
+            $duration = stopVisitTimer($visitId, $user['id'], $lat, $lng, $notes, (bool)$completeVisit);
 
             echo json_encode([
                 'success' => true,
-                'message' => 'Job timer stopped',
-                'job_id' => $jobId,
+                'message' => 'Visit timer stopped',
+                'visit_id' => $visitId,
                 'duration_minutes' => $duration,
                 'duration_formatted' => formatMinutesAsHours($duration),
-                'job_completed' => (bool)$completeJob,
+                'visit_completed' => (bool)$completeVisit,
             ]);
             break;
 
         case 'pause':
-            $jobId = (int)($input['job_id'] ?? 0);
-            if (!$jobId) {
-                throw new Exception('job_id is required');
+            $visitId = (int)($input['visit_id'] ?? 0);
+            if (!$visitId) {
+                throw new Exception('visit_id is required');
             }
 
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
 
-            $duration = pauseJobTimer($jobId, $user['id'], $lat, $lng);
+            $duration = pauseVisitTimer($visitId, $user['id'], $lat, $lng);
 
             echo json_encode([
                 'success' => true,
-                'message' => 'Job timer paused',
-                'job_id' => $jobId,
+                'message' => 'Visit timer paused',
+                'visit_id' => $visitId,
                 'duration_minutes' => $duration,
             ]);
             break;

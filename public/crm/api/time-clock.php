@@ -42,7 +42,7 @@ try {
     switch ($action) {
         case 'status':
             $entry = getActiveClockEntry($user['id']);
-            $activeJob = getActiveJobTimer($user['id']);
+            $activeJob = getActiveVisitTimer($user['id']);
 
             if ($entry) {
                 echo json_encode([
@@ -54,7 +54,7 @@ try {
                     'location_tracking_enabled' => $locationTrackingEnabled,
                     'active_job' => $activeJob ? [
                         'id' => (int)$activeJob['id'],
-                        'job_id' => (int)$activeJob['job_id'],
+                        'visit_id' => (int)$activeJob['visit_id'],
                         'job_title' => $activeJob['job_title'],
                         'job_number' => $activeJob['job_number'],
                         'start_time' => $activeJob['start_time'],
@@ -90,10 +90,10 @@ try {
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $notes = $input['notes'] ?? null;
 
-            // Stop any active job timers first
-            $activeJob = getActiveJobTimer($user['id']);
+            // Stop any active visit timers first
+            $activeJob = getActiveVisitTimer($user['id']);
             if ($activeJob) {
-                stopJobTimer((int)$activeJob['job_id'], $user['id'], $lat, $lng, 'Auto-stopped on clock out');
+                stopVisitTimer((int)$activeJob['visit_id'], $user['id'], $lat, $lng, 'Auto-stopped on clock out');
             }
 
             $totalMinutes = clockOut($user['id'], $lat, $lng, $notes);

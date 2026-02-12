@@ -35,11 +35,12 @@ $stmt = $db->prepare("
     SELECT
         i.*,
         c.company_name,
-        j.job_number,
-        j.title as job_title
+        jp.plan_number,
+        jp.title as plan_title
     FROM invoices i
     LEFT JOIN companies c ON i.company_id = c.id
-    LEFT JOIN jobs j ON i.job_id = j.id
+    LEFT JOIN job_plans jp ON i.plan_id = jp.id
+    LEFT JOIN job_visits jv ON i.visit_id = jv.id
     WHERE {$whereClause}
     ORDER BY i.created_at DESC
     LIMIT 100
@@ -135,7 +136,7 @@ $activePage = 'invoices';
                             <tr>
                                 <th>Invoice #</th>
                                 <th>Client</th>
-                                <th>Job</th>
+                                <th>Plan</th>
                                 <th>Amount</th>
                                 <th>Balance</th>
                                 <th>Due Date</th>
@@ -149,8 +150,8 @@ $activePage = 'invoices';
                                     <td><span class="invoice-number"><?php echo htmlspecialchars($invoice['invoice_number']); ?></span></td>
                                     <td><?php echo htmlspecialchars($invoice['company_name'] ?? 'N/A'); ?></td>
                                     <td>
-                                        <?php if ($invoice['job_number']): ?>
-                                            <a href="../jobs/view.php?id=<?php echo $invoice['job_id']; ?>"><?php echo htmlspecialchars($invoice['job_number']); ?></a>
+                                        <?php if (!empty($invoice['plan_number'])): ?>
+                                            <a href="../jobs/view.php?id=<?php echo $invoice['plan_id']; ?>"><?php echo htmlspecialchars($invoice['plan_number']); ?></a>
                                         <?php else: ?>
                                             -
                                         <?php endif; ?>

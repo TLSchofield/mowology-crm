@@ -65,13 +65,13 @@ try {
         echo "❌ Error with companies join: " . $e->getMessage() . "<br>";
     }
 
-    // Test 5: Query with jobs JOIN
-    echo "<h3>Test 5: Query with Jobs LEFT JOIN</h3>";
+    // Test 5: Query with job_plans JOIN
+    echo "<h3>Test 5: Query with Job Plans LEFT JOIN</h3>";
     try {
         $result = $db->query("
-            SELECT q.id, q.quote_number, q.status, j.id as job_id
+            SELECT q.id, q.quote_number, q.status, jp.id as plan_id
             FROM quotes q
-            LEFT JOIN jobs j ON q.id = j.quote_id
+            LEFT JOIN job_plans jp ON q.id = jp.quote_id
             LIMIT 10
         ");
         $rows = $result->fetchAll(PDO::FETCH_ASSOC);
@@ -101,14 +101,14 @@ try {
                 pct.last_name as property_contact_last,
                 pct.email as property_contact_email,
                 u.full_name as created_by_name,
-                COALESCE(j.id, 0) as job_id
+                COALESCE(jp.id, 0) as plan_id
             FROM quotes q
             LEFT JOIN properties p ON q.property_id = p.id
             LEFT JOIN companies c ON q.company_id = c.id
             LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
             LEFT JOIN contacts pct ON p.contact_id = pct.id
             LEFT JOIN users u ON q.created_by = u.id
-            LEFT JOIN jobs j ON q.id = j.quote_id AND j.id IS NOT NULL
+            LEFT JOIN job_plans jp ON q.id = jp.quote_id AND jp.id IS NOT NULL
             ORDER BY q.created_at DESC
             LIMIT 10
         ";

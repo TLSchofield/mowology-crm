@@ -147,13 +147,14 @@ class PdfGenerator
                     p.city as property_city,
                     p.postal_code as property_postal,
                     u.full_name as created_by_name,
-                    j.job_number, j.title as job_title
+                    jp.plan_number, jp.title as job_title
                 FROM invoices i
                 LEFT JOIN companies c ON i.company_id = c.id
                 LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
                 LEFT JOIN properties p ON i.property_id = p.id
                 LEFT JOIN users u ON i.created_by = u.id
-                LEFT JOIN jobs j ON i.job_id = j.id
+                LEFT JOIN job_plans jp ON i.plan_id = jp.id
+                LEFT JOIN job_visits jv ON i.visit_id = jv.id
                 WHERE i.id = ?
             ");
             $stmt->execute([$invoiceId]);

@@ -106,7 +106,7 @@ try {
 
         // Insert location
         $stmt = $db->prepare("
-            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, job_id, timestamp)
+            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
             VALUES (?, ?, ?, ?, NULL, NOW())
         ");
         $stmt->execute([$user['id'], $lat, $lng, $accuracy]);

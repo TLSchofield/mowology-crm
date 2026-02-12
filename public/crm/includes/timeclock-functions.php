@@ -244,6 +244,28 @@ function pauseJobTimer($jobId, $userId, $lat = null, $lng = null) {
     return stopJobTimer($jobId, $userId, $lat, $lng, 'Paused', false);
 }
 
+// --- Visit-based aliases (job_plans/job_visits migration) ---
+
+/** @see getActiveJobTimer() — alias using visit terminology */
+function getActiveVisitTimer($userId) {
+    return getActiveJobTimer($userId);
+}
+
+/** @see startJobTimer() — alias using visit terminology */
+function startVisitTimer($visitId, $userId, $lat = null, $lng = null, $autoStarted = false) {
+    return startJobTimer($visitId, $userId, $lat, $lng, $autoStarted);
+}
+
+/** @see stopJobTimer() — alias using visit terminology */
+function stopVisitTimer($visitId, $userId, $lat = null, $lng = null, $notes = null, $completeVisit = true) {
+    return stopJobTimer($visitId, $userId, $lat, $lng, $notes, $completeVisit);
+}
+
+/** @see pauseJobTimer() — alias using visit terminology */
+function pauseVisitTimer($visitId, $userId, $lat = null, $lng = null) {
+    return pauseJobTimer($visitId, $userId, $lat, $lng);
+}
+
 /**
  * Ensure a timesheet record exists for the given user and date's week
  */

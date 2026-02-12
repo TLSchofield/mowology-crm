@@ -136,14 +136,14 @@ if ($_GET['action'] === 'get_property_summary' && $_SERVER['REQUEST_METHOD'] ===
         exit;
     }
 
-    // Get recent jobs on this property
+    // Get recent job plans on this property
     $recentJobs = $db->prepare("
-        SELECT j.id, j.title, sp.package_name, sp.base_price, sp.default_duration_minutes, sp.id as package_id
-        FROM jobs j
-        LEFT JOIN service_packages sp ON j.service_package_id = sp.id
-        WHERE j.property_id = ?
-        AND j.status IN ('completed', 'scheduled')
-        ORDER BY j.scheduled_date DESC
+        SELECT jp.id, jp.title, sp.package_name, sp.base_price, sp.default_duration_minutes, sp.id as package_id
+        FROM job_plans jp
+        LEFT JOIN service_packages sp ON jp.service_package_id = sp.id
+        WHERE jp.property_id = ?
+        AND jp.status IN ('active', 'completed')
+        ORDER BY jp.created_at DESC
         LIMIT 5
     ")->execute([$propertyId])->fetchAll(PDO::FETCH_ASSOC);
 
@@ -196,14 +196,13 @@ if ($_GET['action'] === 'log_crew_location' && $_SERVER['REQUEST_METHOD'] === 'P
     $latitude = floatval($jsonData['latitude'] ?? 0);
     $longitude = floatval($jsonData['longitude'] ?? 0);
     $accuracy = intval($jsonData['accuracy_meters'] ?? 0);
-    $jobId = intval($jsonData['job_id'] ?? 0);
 
     try {
         $stmt = $db->prepare("
-            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, job_id)
+            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id)
             VALUES (?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$user['id'], $latitude, $longitude, $accuracy, $jobId ?: null]);
+        $stmt->execute([$user['id'], $latitude, $longitude, $accuracy, null]);
 
         http_response_code(200);
         echo json_encode(['success' => true]);

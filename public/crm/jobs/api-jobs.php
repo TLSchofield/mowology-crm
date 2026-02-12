@@ -22,26 +22,29 @@ try {
         });
 
         if (empty($ids)) {
-            throw new Exception('No valid job IDs provided');
+            throw new Exception('No valid plan IDs provided');
         }
 
         if (count($ids) > 100) {
-            throw new Exception('Maximum 100 jobs can be deleted at once');
+            throw new Exception('Maximum 100 plans can be deleted at once');
         }
 
         $db->beginTransaction();
         try {
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
 
+            // Delete visits first (child rows)
+            $db->prepare("DELETE FROM job_visits WHERE plan_id IN ({$placeholders})")->execute($ids);
+
             // Clean up activity_log references (no FK constraint)
             try {
-                $db->prepare("UPDATE activity_log SET job_id = NULL WHERE job_id IN ({$placeholders})")->execute($ids);
+                $db->prepare("UPDATE activity_log SET plan_id = NULL WHERE plan_id IN ({$placeholders})")->execute($ids);
             } catch (Exception $e) {
-                // activity_log may not have job_id column — ignore
+                // activity_log may not have plan_id column — ignore
             }
 
-            // Delete jobs (cascades: job_notes, job_photos, job_proof_of_work; SET NULL: invoices.job_id, invoice_line_items.job_id, jobs.parent_job_id)
-            $stmt = $db->prepare("DELETE FROM jobs WHERE id IN ({$placeholders})");
+            // Delete plans
+            $stmt = $db->prepare("DELETE FROM job_plans WHERE id IN ({$placeholders})");
             $stmt->execute($ids);
             $deleted = $stmt->rowCount();
 
@@ -50,7 +53,7 @@ try {
             echo json_encode([
                 'success' => true,
                 'deleted_count' => $deleted,
-                'message' => $deleted . ' job(s) deleted'
+                'message' => $deleted . ' plan(s) deleted'
             ]);
         } catch (Exception $e) {
             $db->rollBack();

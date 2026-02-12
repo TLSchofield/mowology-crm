@@ -20,22 +20,6 @@ function generateQuoteNumber() {
     return sprintf("QUO-%s-%04d", $year, $nextNum);
 }
 
-/**
- * Generate a unique job number
- * Format: JOB-YYYY-NNNN
- */
-function generateJobNumber() {
-    $db = getDB();
-    $year = date('Y');
-    $stmt = $db->query("
-        SELECT MAX(CAST(SUBSTRING(job_number, 10) AS UNSIGNED)) as max_num
-        FROM jobs
-        WHERE job_number LIKE 'JOB-{$year}-%'
-    ");
-    $result = $stmt->fetch();
-    $nextNum = ($result['max_num'] ?? 0) + 1;
-    return sprintf("JOB-%s-%04d", $year, $nextNum);
-}
 
 /**
  * Generate a unique invoice number
@@ -155,15 +139,15 @@ function getStatusBadge($status, $type = 'quote') {
 function logActivityExtended($userId, $action, $details = null, $companyId = null, $jobId = null, $quoteId = null, $invoiceId = null, $planId = null, $visitId = null) {
     $db = getDB();
 
+    // $jobId parameter kept for backward compat but no longer inserted (jobs table dropped)
     try {
         $stmt = $db->prepare("
-            INSERT INTO activity_log (user_id, company_id, job_id, quote_id, invoice_id, plan_id, visit_id, action, details, ip_address)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO activity_log (user_id, company_id, quote_id, invoice_id, plan_id, visit_id, action, details, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
             $userId,
             $companyId,
-            $jobId,
             $quoteId,
             $invoiceId,
             $planId,
@@ -229,140 +213,7 @@ function getServiceTemplates() {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-/**
- * @deprecated Use createPlanFromQuote() in plan-functions.php instead.
- * This function inserts into the legacy `jobs` table which will be dropped.
- * Kept only for backward compatibility during migration.
- */
-function createJobFromQuote($quoteId, $userId) {
-    $db = getDB();
 
-    // Get quote details with lead_event_id for ROI attribution
-    $stmt = $db->prepare("
-        SELECT q.*, q.company_id, q.lead_event_id, p.address
-        FROM quotes q
-        JOIN properties p ON q.property_id = p.id
-        WHERE q.id = ?
-    ");
-    $stmt->execute([$quoteId]);
-    $quote = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$quote) {
-        return ['success' => false, 'error' => 'Quote not found'];
-    }
-
-    $db->beginTransaction();
-
-    try {
-        $jobNumber = generateJobNumber();
-
-        // Create job
-        $stmt = $db->prepare("
-            INSERT INTO jobs (
-                job_number, quote_id, property_id, company_id, title, description,
-                service_type, estimated_amount, status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)
-        ");
-        $stmt->execute([
-            $jobNumber,
-            $quoteId,
-            $quote['property_id'],
-            $quote['company_id'],
-            $quote['title'] ?: 'Job from ' . $quote['quote_number'],
-            $quote['description'],
-            $quote['service_type'],
-            $quote['amount'],
-            $userId
-        ]);
-
-        $jobId = $db->lastInsertId();
-
-        // Create ROI attribution (link job to lead event)
-        if (!empty($quote['lead_event_id'])) {
-            require_once __DIR__ . '/roi-functions.php';
-            createROIAttribution(
-                $jobId,
-                (int)$quote['lead_event_id'],
-                null,
-                (float)($quote['amount'] ?? 0)
-            );
-            logConversionEvent((int)$quote['lead_event_id'], 'job_created', $jobId);
-        }
-
-        // Update contact to client status
-        $contactStmt = $db->prepare("
-            SELECT contact_id FROM quote_requests WHERE quote_id = ? LIMIT 1
-        ");
-        $contactStmt->execute([$quoteId]);
-        $contactRow = $contactStmt->fetch(PDO::FETCH_ASSOC);
-        if (!empty($contactRow['contact_id'])) {
-            require_once __DIR__ . '/roi-functions.php';
-            updateContactToClient((int)$contactRow['contact_id']);
-        }
-
-        // Log activity
-        logActivityExtended(
-            $userId,
-            'Job created from quote',
-            "Job {$jobNumber} created from quote {$quote['quote_number']}",
-            $quote['company_id'],
-            $jobId,
-            $quoteId
-        );
-
-        $db->commit();
-
-        return [
-            'success' => true,
-            'job_id' => $jobId,
-            'job_number' => $jobNumber
-        ];
-
-    } catch (Exception $e) {
-        $db->rollBack();
-        error_log("Error creating job from quote: " . $e->getMessage());
-        return ['success' => false, 'error' => $e->getMessage()];
-    }
-}
-
-/**
- * Update job status with proper logging
- */
-function updateJobStatus($jobId, $newStatus, $userId, $notes = null) {
-    $db = getDB();
-
-    $timestampField = '';
-    if ($newStatus === 'in_progress') {
-        $timestampField = ', started_at = NOW()';
-    } elseif ($newStatus === 'completed') {
-        $timestampField = ', completed_at = NOW()';
-    }
-
-    $completionNotes = '';
-    if ($notes && $newStatus === 'completed') {
-        $completionNotes = ', completion_notes = ?';
-    }
-
-    try {
-        $sql = "UPDATE jobs SET status = ?, status_changed_at = NOW(){$timestampField}{$completionNotes} WHERE id = ?";
-        $params = [$newStatus];
-        if ($notes && $newStatus === 'completed') {
-            $params[] = $notes;
-        }
-        $params[] = $jobId;
-
-        $stmt = $db->prepare($sql);
-        $stmt->execute($params);
-
-        // Log activity
-        logActivityExtended($userId, "Job status changed to {$newStatus}", $notes, null, $jobId);
-
-        return true;
-    } catch (Exception $e) {
-        error_log("Error updating job status: " . $e->getMessage());
-        return false;
-    }
-}
 
 /**
  * Get dashboard statistics
@@ -1106,12 +957,6 @@ function updateContactLifecycleStage($contactId, $newStage, $userId) {
 }
 
 /**
- * ═══════════════════════════════════════════════════════════════
- * NEXT-GENERATION JOB CREATION FUNCTIONS (Phase 2)
- * ═══════════════════════════════════════════════════════════════
- */
-
-/**
  * Get all service packages, optionally filtered
  * @param string $category (optional) mowing, trimming, cleanup, seasonal
  * @param bool $activeOnly (default: true)
@@ -1179,37 +1024,26 @@ function getServicePackageDetails($packageId) {
 }
 
 /**
- * Get recent plans on a property for "last used" suggestions
- * Updated to use job_plans table
+ * Get recent visits on a property
  * @param int $propertyId
  * @param int $limit
- * @return array recent plans with service info
+ * @return array recent visits with plan info
  */
-function getRecentJobsOnProperty($propertyId, $limit = 3) {
+function getRecentJobsOnProperty($propertyId, $limit = 5) {
     $db = getDB();
-
     try {
         $stmt = $db->prepare("
-            SELECT
-                jp.id,
-                jp.plan_number AS job_number,
-                jp.service_type,
-                jp.service_package_id,
-                sp.package_name,
-                sp.base_price,
-                jp.created_at,
-                jp.estimated_duration_minutes
-            FROM job_plans jp
-            LEFT JOIN service_packages sp ON jp.service_package_id = sp.id
+            SELECT jv.id as visit_id, jp.id as plan_id, jp.plan_number, jp.title, jp.service_type,
+                   jv.scheduled_date, jv.status, jv.completed_at
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
             WHERE jp.property_id = ?
-            AND jp.status IN ('active', 'completed', 'paused')
-            ORDER BY jp.created_at DESC
+            ORDER BY jv.scheduled_date DESC
             LIMIT ?
         ");
         $stmt->execute([$propertyId, $limit]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
-        error_log("Error getting recent plans: " . $e->getMessage());
         return [];
     }
 }
@@ -1566,227 +1400,8 @@ function validateJobCreationGuardrails($jobData, $userId) {
     ];
 }
 
-/**
- * Create job with smart defaults applied
- * @param array $jobData
- * @param int $userId
- * @return array [job_id: int, success: bool, errors: []]
- */
-function createJobWithDefaults($jobData, $userId) {
-    $db = getDB();
-    $errors = [];
 
-    try {
-        // Validate first
-        $validation = validateJobCreationGuardrails($jobData, $userId);
-        if (!$validation['is_valid']) {
-            return [
-                'job_id' => null,
-                'success' => false,
-                'errors' => $validation['errors']
-            ];
-        }
 
-        // Get service package details for defaults
-        $package = getServicePackageDetails($jobData['service_package_id']);
-        if (!$package) {
-            return [
-                'job_id' => null,
-                'success' => false,
-                'errors' => ['Service package not found']
-            ];
-        }
-
-        // Apply defaults
-        $jobData['estimated_duration_minutes'] = $jobData['estimated_duration_minutes'] ?? $package['default_duration_minutes'];
-        $jobData['crew_size_required'] = $jobData['crew_size_required'] ?? $package['default_crew_size'];
-        $jobData['estimated_amount'] = $jobData['estimated_amount'] ?? $package['base_price'];
-        $jobData['billing_template_id'] = $jobData['billing_template_id'] ?? $package['billing_template_id'];
-        $jobData['service_type'] = $jobData['service_type'] ?? $package['service_type'];
-
-        // Generate job number
-        $jobNumber = generateJobNumber();
-
-        // Insert job
-        $stmt = $db->prepare("
-            INSERT INTO jobs (
-                job_number, quote_id, property_id, company_id,
-                title, description, service_type, service_package_id,
-                job_type, scheduled_date, scheduled_time_start, scheduled_time_end,
-                estimated_duration_minutes, recurrence_pattern,
-                recurrence_day_of_week, recurrence_end_date,
-                status, assigned_to, estimated_amount,
-                crew_size_required, billing_template_id,
-                created_by, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-        ");
-
-        $result = $stmt->execute([
-            $jobNumber,
-            $jobData['quote_id'] ?? null,
-            $jobData['property_id'],
-            $jobData['client_id'],
-            $jobData['title'] ?? 'Job from ' . $package['package_name'],
-            $jobData['description'] ?? $package['description'],
-            $jobData['service_type'],
-            $jobData['service_package_id'],
-            $jobData['job_type'] ?? 'one_time',
-            $jobData['scheduled_date'] ?? date('Y-m-d'),
-            $jobData['scheduled_time_start'] ?? '09:00:00',
-            $jobData['scheduled_time_end'] ?? null,
-            $jobData['estimated_duration_minutes'],
-            $jobData['recurrence_pattern'] ?? null,
-            $jobData['recurrence_day_of_week'] ?? null,
-            $jobData['recurrence_end_date'] ?? null,
-            'scheduled',
-            $jobData['assigned_to'] ?? null,
-            $jobData['estimated_amount'],
-            $jobData['crew_size_required'],
-            $jobData['billing_template_id'],
-            $userId
-        ]);
-
-        if (!$result) {
-            return [
-                'job_id' => null,
-                'success' => false,
-                'errors' => ['Failed to create job']
-            ];
-        }
-
-        $jobId = $db->lastInsertId();
-
-        // Create proof of work requirements
-        createJobProofOfWork($jobId, $jobData['service_package_id']);
-
-        // Log activity
-        logActivityExtended($userId, 'Job created', $jobNumber . ' - ' . $package['package_name'], null, $jobId, null, null);
-
-        return [
-            'job_id' => $jobId,
-            'job_number' => $jobNumber,
-            'success' => true,
-            'errors' => []
-        ];
-    } catch (Exception $e) {
-        error_log("Error creating job with defaults: " . $e->getMessage());
-        return [
-            'job_id' => null,
-            'success' => false,
-            'errors' => ['Database error: ' . $e->getMessage()]
-        ];
-    }
-}
-
-/**
- * Create proof of work requirements for job
- * @param int $jobId
- * @param int $servicePackageId
- * @return bool success
- */
-function createJobProofOfWork($jobId, $servicePackageId) {
-    $db = getDB();
-
-    try {
-        $package = getServicePackageDetails($servicePackageId);
-        if (!$package) {
-            return false;
-        }
-
-        $stmt = $db->prepare("
-            INSERT INTO job_proof_of_work (
-                job_id,
-                required_checklist_items,
-                required_photo_types,
-                gps_enforcement,
-                checklist_blocks_completion,
-                photos_block_completion,
-                created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE
-                required_checklist_items = VALUES(required_checklist_items),
-                required_photo_types = VALUES(required_photo_types),
-                gps_enforcement = VALUES(gps_enforcement),
-                checklist_blocks_completion = VALUES(checklist_blocks_completion),
-                photos_block_completion = VALUES(photos_block_completion)
-        ");
-
-        return $stmt->execute([
-            $jobId,
-            $package['checklist_items'] ?? '[]',
-            $package['photo_types_required'] ?? '[]',
-            $package['gps_enforcement'] ?? 'optional',
-            $package['checklist_blocks_completion'] ? 1 : 0,
-            $package['photos_block_completion'] ? 1 : 0
-        ]);
-    } catch (Exception $e) {
-        error_log("Error creating job proof of work: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Check if job is eligible for invoicing (proof complete)
- * @param int $jobId
- * @return array [can_invoice: bool, missing_requirements: [], photos_count: int]
- */
-function canInvoiceJob($jobId) {
-    $db = getDB();
-
-    try {
-        // Get proof requirements
-        $stmt = $db->prepare("SELECT * FROM job_proof_of_work WHERE job_id = ? LIMIT 1");
-        $stmt->execute([$jobId]);
-        $proof = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$proof) {
-            return [
-                'can_invoice' => true,
-                'missing_requirements' => [],
-                'photos_count' => 0
-            ];
-        }
-
-        $missing = [];
-
-        // Check checklist if it blocks completion
-        if ($proof['checklist_blocks_completion']) {
-            $checklist = json_decode($proof['checklist_items_completed'], true) ?? [];
-            foreach (json_decode($proof['required_checklist_items'], true) ?? [] as $item) {
-                if (!($checklist[$item] ?? false)) {
-                    $missing[] = 'Checklist: ' . $item;
-                }
-            }
-        }
-
-        // Check photos if they block completion
-        $photosCount = 0;
-        if ($proof['photos_block_completion']) {
-            $photos = json_decode($proof['photos_uploaded'], true) ?? [];
-            foreach (json_decode($proof['required_photo_types'], true) ?? [] as $type) {
-                if (empty($photos[$type])) {
-                    $missing[] = 'Missing photo: ' . $type;
-                }
-            }
-            foreach ($photos as $photoList) {
-                $photosCount += is_array($photoList) ? count($photoList) : 0;
-            }
-        }
-
-        return [
-            'can_invoice' => empty($missing),
-            'missing_requirements' => $missing,
-            'photos_count' => $photosCount
-        ];
-    } catch (Exception $e) {
-        error_log("Error checking job invoice eligibility: " . $e->getMessage());
-        return [
-            'can_invoice' => false,
-            'missing_requirements' => ['Error checking requirements'],
-            'photos_count' => 0
-        ];
-    }
-}
 
 /**
  * Suggest modifiers based on property characteristics
@@ -1840,239 +1455,5 @@ function suggestModifiers($propertyId, $servicePackageId) {
     }
 }
 
-/**
- * Create recurring job series with instances
- * @param array $jobData + recurrence_pattern, recurrence_day_of_week, recurrence_end_date
- * @param int $userId
- * @return array [parent_job_id: int, instances_created: int, success: bool, errors: []]
- */
-function createRecurringJobSeries($jobData, $userId) {
-    $db = getDB();
 
-    try {
-        // Set job type to recurring
-        $jobData['job_type'] = 'recurring';
 
-        // Create parent job
-        $parentResult = createJobWithDefaults($jobData, $userId);
-        if (!$parentResult['success']) {
-            return [
-                'parent_job_id' => null,
-                'instances_created' => 0,
-                'success' => false,
-                'errors' => $parentResult['errors']
-            ];
-        }
-
-        $parentJobId = $parentResult['job_id'];
-
-        // Generate recurring instances
-        $startDate = new DateTime($jobData['scheduled_date'] ?? date('Y-m-d'));
-        $endDate = new DateTime($jobData['recurrence_end_date'] ?? date('Y-m-d', strtotime('+1 year')));
-
-        $instancesCreated = generateRecurringJobInstances($parentJobId, $startDate, $endDate);
-
-        return [
-            'parent_job_id' => $parentJobId,
-            'instances_created' => $instancesCreated,
-            'success' => true,
-            'errors' => []
-        ];
-    } catch (Exception $e) {
-        error_log("Error creating recurring job series: " . $e->getMessage());
-        return [
-            'parent_job_id' => null,
-            'instances_created' => 0,
-            'success' => false,
-            'errors' => ['Error creating recurring series']
-        ];
-    }
-}
-
-/**
- * Generate individual job instances for recurring parent
- * @param int $parentJobId
- * @param DateTime $startDate
- * @param DateTime $endDate
- * @return int count of jobs created
- */
-function generateRecurringJobInstances($parentJobId, $startDate, $endDate) {
-    $db = getDB();
-    $instanceCount = 0;
-
-    try {
-        // Get parent job details
-        $stmt = $db->prepare("
-            SELECT * FROM jobs WHERE id = ? LIMIT 1
-        ");
-        $stmt->execute([$parentJobId]);
-        $parent = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$parent) {
-            return 0;
-        }
-
-        $pattern = $parent['recurrence_pattern'] ?? 'weekly';
-        $dayOfWeek = $parent['recurrence_day_of_week'] ?? 'Wednesday';
-        $current = clone $startDate;
-
-        $dayMap = [
-            'Monday' => 'Mon', 'Tuesday' => 'Tue', 'Wednesday' => 'Wed',
-            'Thursday' => 'Thu', 'Friday' => 'Fri', 'Saturday' => 'Sat', 'Sunday' => 'Sun'
-        ];
-
-        $targetDay = $dayMap[$dayOfWeek] ?? 'Wed';
-
-        while ($current <= $endDate && $instanceCount < 52) { // Limit to 52 instances (1 year weekly)
-            // Find next occurrence of target day
-            if ($current->format('D') !== $targetDay) {
-                $daysUntilTarget = (7 - (array_search($current->format('D'), array_values($dayMap)) - array_search($targetDay, array_values($dayMap)) + 7)) % 7;
-                if ($daysUntilTarget === 0) $daysUntilTarget = 7;
-                $current->add(new DateInterval('P' . $daysUntilTarget . 'D'));
-            }
-
-            if ($current > $endDate) break;
-
-            // Create instance job (don't duplicate, just update parent)
-            // In production, this might create separate child job records
-            // For MVP, we use parent job with recurrence rules
-
-            $instanceCount++;
-            $current->add(new DateInterval('P' . (($pattern === 'biweekly') ? '14D' : ($pattern === 'monthly' ? '1M' : '7D'))));
-        }
-
-        return $instanceCount;
-    } catch (Exception $e) {
-        error_log("Error generating recurring job instances: " . $e->getMessage());
-        return 0;
-    }
-}
-
-/**
- * Generate individual child job instances for a recurring parent job
- * Creates separate job records for each occurrence on the calendar
- *
- * @param int $parentJobId Parent job ID
- * @param int $companyId Company ID
- * @param int $propertyId Property ID
- * @param string $startDate Start date (Y-m-d)
- * @param string $endDate End date (Y-m-d)
- * @param string $pattern weekly|biweekly|monthly|custom
- * @param int $interval Interval number (e.g., 2 for "every 2 weeks")
- * @param string $intervalUnit days|weeks|months (for custom patterns)
- * @param int $dayOfWeek 0-6 (0=Sunday, 6=Saturday) - only used for weekly patterns
- * @param string $timeStart Start time (HH:MM)
- * @param string $timeEnd End time (HH:MM)
- * @param int $durationMinutes Duration in minutes
- * @param int $userId User creating the instances
- * @return int Number of instances created
- */
-function generateRecurringJobInstancesForParent($parentJobId, $companyId, $propertyId, $startDate, $endDate, $pattern, $interval, $intervalUnit, $dayOfWeek, $timeStart, $timeEnd, $durationMinutes, $userId) {
-    $db = getDB();
-    $instanceCount = 0;
-
-    try {
-        // Get parent job data
-        $stmt = $db->prepare("SELECT * FROM jobs WHERE id = ? LIMIT 1");
-        $stmt->execute([$parentJobId]);
-        $parent = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$parent) {
-            return 0;
-        }
-
-        // Delete existing child instances first
-        $stmt = $db->prepare("DELETE FROM jobs WHERE parent_job_id = ?");
-        $stmt->execute([$parentJobId]);
-
-        $current = new DateTime($startDate);
-        $end = new DateTime($endDate);
-        $maxInstances = 156; // Limit to 3 years of instances
-
-        // Day name mapping
-        $dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-        while ($current <= $end && $instanceCount < $maxInstances) {
-            $shouldCreate = false;
-            $currentDayOfWeek = intval($current->format('w'));
-
-            // Determine if this date should have an instance
-            if ($pattern === 'weekly') {
-                // Create instance if it's the target day of week
-                $shouldCreate = ($currentDayOfWeek === $dayOfWeek);
-            } elseif ($pattern === 'biweekly') {
-                // Create on target day, but only every 2 weeks
-                if ($currentDayOfWeek === $dayOfWeek) {
-                    $diffWeeks = intval($current->diff(new DateTime($startDate))->days / 7);
-                    $shouldCreate = ($diffWeeks % 2 === 0);
-                }
-            } elseif ($pattern === 'monthly') {
-                // Create on same day of month
-                $startDay = intval(date('d', strtotime($startDate)));
-                $currentDay = intval($current->format('d'));
-                $shouldCreate = ($currentDay === $startDay);
-            } elseif ($pattern === 'custom') {
-                // Custom interval
-                $diff = $current->diff(new DateTime($startDate));
-                $unitValue = 0;
-
-                if ($intervalUnit === 'days') {
-                    $unitValue = $diff->days;
-                } elseif ($intervalUnit === 'weeks') {
-                    $unitValue = intval($diff->days / 7);
-                } elseif ($intervalUnit === 'months') {
-                    $unitValue = $diff->m + ($diff->y * 12);
-                }
-
-                $shouldCreate = ($unitValue > 0 && $unitValue % $interval === 0);
-            }
-
-            if ($shouldCreate) {
-                // Generate unique job number for instance
-                $instanceNumber = $instanceCount + 1;
-                $instanceJobNumber = $parent['job_number'] . '-' . $instanceNumber;
-
-                // Create child job instance
-                $stmt = $db->prepare("
-                    INSERT INTO jobs (
-                        job_number, parent_job_id, quote_id, property_id, company_id,
-                        title, description, service_type, job_type,
-                        scheduled_date, scheduled_time_start, scheduled_time_end,
-                        estimated_duration_minutes,
-                        status, assigned_to, estimated_amount, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ");
-
-                $stmt->execute([
-                    $instanceJobNumber,
-                    $parentJobId,
-                    $parent['quote_id'],
-                    $propertyId,
-                    $companyId,
-                    $parent['title'],
-                    $parent['description'],
-                    $parent['service_type'],
-                    'one_time', // Child instances are not recurring themselves
-                    $current->format('Y-m-d'),
-                    $timeStart ?: $parent['scheduled_time_start'],
-                    $timeEnd ?: $parent['scheduled_time_end'],
-                    $durationMinutes ?: $parent['estimated_duration_minutes'],
-                    'scheduled',
-                    $parent['assigned_to'],
-                    $parent['estimated_amount'],
-                    $userId
-                ]);
-
-                $instanceCount++;
-            }
-
-            // Move to next day for iteration
-            $current->modify('+1 day');
-        }
-
-        return $instanceCount;
-    } catch (Exception $e) {
-        error_log("Error generating recurring job instances for parent: " . $e->getMessage());
-        return 0;
-    }
-}

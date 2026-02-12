@@ -30,7 +30,7 @@ $stmt = $db->query("
               AND DATE(clock_in) BETWEEN DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY) AND CURDATE()
               AND status IN ('completed', 'edited')
            ) as week_minutes,
-           (SELECT COUNT(*) FROM jobs WHERE assigned_to = u.id AND status IN ('scheduled', 'in_progress')) as active_jobs
+           (SELECT COUNT(*) FROM job_visits WHERE assigned_crew_id = u.id AND status IN ('scheduled', 'in_progress')) as active_jobs
     FROM users u
     {$whereClause}
     ORDER BY u.is_active DESC, u.full_name ASC

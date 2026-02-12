@@ -10,6 +10,7 @@
 
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/plan-functions.php';
 
 // Require admin
 requireLogin();
@@ -178,15 +179,21 @@ try {
                 exit;
             }
 
-            $jobData = $_POST;
-            unset($jobData['action']);
-            unset($jobData['csrf_token']);
+            $planData = $_POST;
+            unset($planData['action']);
+            unset($planData['csrf_token']);
 
-            // Determine if recurring
-            if ($jobData['job_type'] === 'recurring') {
-                $result = createRecurringJobSeries($jobData, $user['id']);
-            } else {
-                $result = createJobWithDefaults($jobData, $user['id']);
+            // Map legacy field names to plan fields
+            if (isset($planData['job_type']) && $planData['job_type'] === 'recurring') {
+                $planData['is_recurring'] = 1;
+            }
+            unset($planData['job_type']);
+
+            $result = createJobPlan($planData, (int)$user['id']);
+
+            // For recurring plans, generate initial visits
+            if ($result['success'] && !empty($planData['is_recurring'])) {
+                generateVisits($result['plan_id']);
             }
 
             if ($result['success']) {
@@ -246,15 +253,15 @@ try {
          * Required: job_id
          */
         case 'can_invoice_job':
-            $jobId = intval($_POST['job_id'] ?? 0);
+            $planId = intval($_POST['plan_id'] ?? $_POST['job_id'] ?? 0);
 
-            if (!$jobId) {
+            if (!$planId) {
                 http_response_code(400);
-                echo json_encode(['error' => 'job_id required', 'success' => false]);
+                echo json_encode(['error' => 'plan_id required', 'success' => false]);
                 exit;
             }
 
-            $result = canInvoiceJob($jobId);
+            $result = canInvoiceJob($planId);
 
             echo json_encode([
                 'success' => true,

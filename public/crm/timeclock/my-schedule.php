@@ -361,7 +361,7 @@ $activePage = 'timeclock';
     // ── API Calls ──
 
     window.startJob = function(jobId, autoStarted) {
-        var body = { action: 'start', job_id: jobId, auto_started: !!autoStarted };
+        var body = { action: 'start', visit_id: jobId, auto_started: !!autoStarted };
         if (currentLat !== null) { body.lat = currentLat; body.lng = currentLng; }
 
         fetch('/crm/api/job-timer.php', {
@@ -386,7 +386,7 @@ $activePage = 'timeclock';
     window.stopJob = function(jobId) {
         if (!confirm('Complete this job?')) return;
 
-        var body = { action: 'stop', job_id: jobId, complete_job: true };
+        var body = { action: 'stop', visit_id: jobId, complete_visit: true };
         if (currentLat !== null) { body.lat = currentLat; body.lng = currentLng; }
 
         fetch('/crm/api/job-timer.php', {
@@ -409,7 +409,7 @@ $activePage = 'timeclock';
     };
 
     window.pauseJob = function(jobId) {
-        var body = { action: 'pause', job_id: jobId };
+        var body = { action: 'pause', visit_id: jobId };
         if (currentLat !== null) { body.lat = currentLat; body.lng = currentLng; }
 
         fetch('/crm/api/job-timer.php', {

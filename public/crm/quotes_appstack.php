@@ -89,7 +89,7 @@ try {
             pc.last_name AS primary_contact_last,
             sc.first_name AS site_contact_first,
             sc.last_name AS site_contact_last,
-            (SELECT j.id FROM jobs j WHERE j.quote_id = q.id LIMIT 1) AS job_id
+            (SELECT jp.id FROM job_plans jp WHERE jp.quote_id = q.id LIMIT 1) AS plan_id
         FROM quotes q
         LEFT JOIN properties p ON q.property_id = p.id
         LEFT JOIN companies co ON q.company_id = co.id
@@ -112,7 +112,7 @@ try {
     // Step 3: Organize quotes by status for kanban view
     foreach ($allQuotes as $quote) {
         $status = $quote['status'] ?? '';
-        $hasJob = !empty($quote['job_id']);
+        $hasJob = !empty($quote['plan_id']);
 
         if ($status === 'accepted' && $hasJob) {
             // Accepted quote with linked job goes to "scheduled" column
@@ -503,7 +503,7 @@ $activePage = 'quotes';
                                           <td><?php echo $quote['expiry_date'] ? formatDate($quote['expiry_date']) : '-'; ?></td>
                                           <td class="actions">
                                               <a href="quotes/view.php?id=<?php echo $quote['id']; ?>" class="mw-action-btn mw-action-btn-view">View</a>
-                                              <?php if ($quote['status'] === 'accepted' && empty($quote['job_id'])): ?>
+                                              <?php if ($quote['status'] === 'accepted' && empty($quote['plan_id'])): ?>
                                                   <a href="jobs/create.php?quote_id=<?php echo $quote['id']; ?>" class="mw-action-btn mw-action-btn-convert">Create Job</a>
                                               <?php endif; ?>
                                           </td>

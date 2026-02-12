@@ -39,7 +39,7 @@ if (empty($_FILES['photo'])) {
 }
 
 $file = $_FILES['photo'];
-$jobId = !empty($_POST['job_id']) ? (int)$_POST['job_id'] : null;
+$visitId = !empty($_POST['visit_id']) ? (int)$_POST['visit_id'] : null;
 $propertyId = !empty($_POST['property_id']) ? (int)$_POST['property_id'] : null;
 $serviceType = trim($_POST['service_type'] ?? '');
 $area = trim($_POST['area'] ?? '');
@@ -124,7 +124,7 @@ try {
     $relativePath = '/uploads/media/original/' . $filename;
     $mediaId = createMediaFile(
         $user['id'],
-        $jobId,
+        $visitId,
         $propertyId,
         $relativePath,
         null,  // web_path (set after processing)
