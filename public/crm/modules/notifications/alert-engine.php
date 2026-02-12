@@ -45,7 +45,7 @@ function sendWeatherAlerts(array $actionItems): array
         // Build notification message
         $visitNumber = $visitData['visit_number'] ?? "Visit #{$visitId}";
         $date        = $visitData['scheduled_date'] ?? 'Unknown date';
-        $property    = $visitData['address_line1'] ?? 'Unknown property';
+        $property    = $visitData['address'] ?? 'Unknown property';
         $crewId      = $visitData['assigned_crew_id'] ?? null;
 
         // Email to admin

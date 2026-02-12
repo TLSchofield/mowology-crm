@@ -79,7 +79,7 @@ try {
                v.scheduled_time_start, v.scheduled_time_end,
                v.assigned_crew_id, v.status, v.weather_status,
                p.service_package_id, p.service_type, p.property_id, p.title AS plan_title,
-               prop.latitude, prop.longitude, prop.address_line1
+               prop.latitude, prop.longitude, prop.address
         FROM job_visits v
         JOIN job_plans p ON v.plan_id = p.id
         JOIN properties prop ON p.property_id = prop.id

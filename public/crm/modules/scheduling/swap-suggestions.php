@@ -40,7 +40,7 @@ function findSwapCandidates(int $blockedVisitId, array $blockedVisitData): array
             SELECT v.id AS visit_id, v.visit_number, v.scheduled_date,
                    v.scheduled_time_start, v.scheduled_time_end,
                    p.service_type, p.title AS plan_title, p.service_package_id,
-                   prop.address_line1 AS property_address,
+                   prop.address AS property_address,
                    sp.weather_policy, sp.package_name AS service_name
             FROM job_visits v
             JOIN job_plans p ON v.plan_id = p.id

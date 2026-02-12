@@ -32,7 +32,7 @@ try {
                    v.weather_ok, v.weather_status, v.weather_reason,
                    v.weather_decision_at, v.weather_snapshot_raw, v.weather_card_path,
                    p.service_type, p.title AS plan_title, p.service_package_id,
-                   prop.address_line1, prop.city,
+                   prop.address, prop.city,
                    sp.package_name AS service_name, sp.weather_policy,
                    u.first_name AS crew_first_name, u.last_name AS crew_last_name
             FROM job_visits v

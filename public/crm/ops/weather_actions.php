@@ -170,7 +170,7 @@ $activePage = 'weather-ops';
               return '<tr>' +
                 '<td><strong>' + escapeHtml(v.visit_number) + '</strong><br><small class="text-muted">' + escapeHtml(crewName) + '</small></td>' +
                 '<td>' + v.scheduled_date + '<br><small>' + (v.scheduled_time_start || '') + '</small></td>' +
-                '<td>' + escapeHtml(v.address_line1 || '') + '<br><small class="text-muted">' + escapeHtml(v.city || '') + '</small></td>' +
+                '<td>' + escapeHtml(v.address || '') + '<br><small class="text-muted">' + escapeHtml(v.city || '') + '</small></td>' +
                 '<td>' + escapeHtml(v.service_name || v.service_type || '—') + '<br><small class="text-muted">' + (v.weather_policy || 'ANY') + '</small></td>' +
                 '<td>' + statusBadge + '</td>' +
                 '<td>' + escapeHtml(v.weather_reason || '—') + '<br><small class="text-muted">' + escapeHtml(v.snapshot_summary || '') + '</small></td>' +
