@@ -1,101 +1,91 @@
 <?php
 /**
- * Gallery Block Renderer
+ * Gallery Block Renderer — Public Site Design System
  *
- * Config: {title, description, layout (grid/carousel), columns (2/3/4), images: [{media_id, caption}...]}
+ * Uses CSS Grid for responsive gallery layout.
+ * No Bootstrap classes — uses public site design tokens.
+ *
+ * Config: {title, description, columns (2/3/4), images: [{media_id, caption}...]}
  */
 
 $title = $config['title'] ?? '';
 $description = $config['description'] ?? '';
-$layout = $config['layout'] ?? 'grid';
 $columns = (int)($config['columns'] ?? 3);
 $images = $config['images'] ?? [];
-$uniqueId = uniqid('gallery-');
-
-$colClass = match($columns) {
-    2 => 'col-md-6',
-    4 => 'col-md-3',
-    default => 'col-md-4',
-};
+$galleryId = 'gallery-' . uniqid();
 ?>
 
-<section class="gallery-block py-5" style="background-color: #f8f9fa;">
+<section class="slp-section slp-alt">
   <div class="container">
     <?php if ($title): ?>
-      <div class="row mb-5">
-        <div class="col-lg-8 mx-auto text-center">
-          <h2 class="mb-3"><?php echo h($title); ?></h2>
-          <?php if ($description): ?>
-            <p class="lead text-muted"><?php echo h($description); ?></p>
-          <?php endif; ?>
-        </div>
-      </div>
+      <h2 class="slp-heading"><?php echo h($title); ?></h2>
+    <?php endif; ?>
+    <?php if ($description): ?>
+      <p class="slp-intro"><?php echo h($description); ?></p>
     <?php endif; ?>
 
-    <?php if ($layout === 'carousel'): ?>
-      <!-- Carousel Layout -->
-      <div id="<?php echo $uniqueId; ?>" class="carousel slide" data-ride="carousel">
-        <div class="carousel-inner">
-          <?php foreach ($images as $index => $image): ?>
-            <?php if (!empty($image['media_id'])): ?>
-              <?php $media = cms_getMediaAssetById($image['media_id']); ?>
-              <?php if ($media): ?>
-              <div class="carousel-item <?php echo $index === 0 ? 'active' : ''; ?>">
-                <img
-                  src="<?php echo h($media['file_path']); ?>"
-                  alt="<?php echo h($image['caption'] ?: $media['alt_text'] ?? ''); ?>"
-                  class="d-block w-100"
-                  style="max-height: 500px; object-fit: cover;"
-                  loading="lazy"
-                >
-                <?php if (!empty($image['caption'])): ?>
-                <div class="carousel-caption d-none d-md-block">
-                  <p><?php echo h($image['caption']); ?></p>
-                </div>
-                <?php endif; ?>
-              </div>
-              <?php endif; ?>
+    <div class="cms-gallery" id="<?php echo $galleryId; ?>" style="--gallery-cols: <?php echo $columns; ?>;">
+      <?php foreach ($images as $image): ?>
+        <?php if (!empty($image['media_id']) && function_exists('cms_getMediaAssetById')): ?>
+          <?php $media = cms_getMediaAssetById($image['media_id']); ?>
+          <?php if ($media): ?>
+          <div class="cms-gallery-item">
+            <img
+              src="<?php echo h($media['file_path']); ?>"
+              alt="<?php echo h($image['caption'] ?: ($media['alt_text'] ?? '')); ?>"
+              loading="lazy"
+            >
+            <?php if (!empty($image['caption'])): ?>
+              <div class="cms-gallery-caption"><?php echo h($image['caption']); ?></div>
             <?php endif; ?>
-          <?php endforeach; ?>
-        </div>
-        <?php if (count($images) > 1): ?>
-        <a class="carousel-control-prev" href="#<?php echo $uniqueId; ?>" role="button" data-slide="prev">
-          <span class="carousel-control-prev-icon" aria-hidden="true"></span>
-          <span class="sr-only">Previous</span>
-        </a>
-        <a class="carousel-control-next" href="#<?php echo $uniqueId; ?>" role="button" data-slide="next">
-          <span class="carousel-control-next-icon" aria-hidden="true"></span>
-          <span class="sr-only">Next</span>
-        </a>
-        <?php endif; ?>
-      </div>
-    <?php else: ?>
-      <!-- Grid Layout -->
-      <div class="row">
-        <?php foreach ($images as $image): ?>
-          <?php if (!empty($image['media_id'])): ?>
-            <?php $media = cms_getMediaAssetById($image['media_id']); ?>
-            <?php if ($media): ?>
-            <div class="<?php echo $colClass; ?> mb-4">
-              <div class="gallery-item" style="position: relative; overflow: hidden; border-radius: 8px;">
-                <img
-                  src="<?php echo h($media['file_path']); ?>"
-                  alt="<?php echo h($image['caption'] ?: $media['alt_text'] ?? ''); ?>"
-                  class="img-fluid"
-                  style="width: 100%; height: 250px; object-fit: cover; display: block;"
-                  loading="lazy"
-                >
-                <?php if (!empty($image['caption'])): ?>
-                <div style="position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.6); color: white; padding: 12px; font-size: 0.9rem;">
-                  <?php echo h($image['caption']); ?>
-                </div>
-                <?php endif; ?>
-              </div>
-            </div>
-            <?php endif; ?>
+          </div>
           <?php endif; ?>
-        <?php endforeach; ?>
-      </div>
-    <?php endif; ?>
+        <?php endif; ?>
+      <?php endforeach; ?>
+    </div>
   </div>
 </section>
+
+<style>
+.cms-gallery {
+  display: grid;
+  grid-template-columns: repeat(var(--gallery-cols, 3), 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .cms-gallery { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .cms-gallery { grid-template-columns: 1fr; }
+}
+
+.cms-gallery-item {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.cms-gallery-item img {
+  width: 100%;
+  height: 250px;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s ease;
+}
+
+.cms-gallery-item:hover img {
+  transform: scale(1.05);
+}
+
+.cms-gallery-caption {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+}
+</style>

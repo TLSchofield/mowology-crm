@@ -1,6 +1,9 @@
 <?php
 /**
- * Portfolio Showcase Block Renderer
+ * Portfolio Showcase Block Renderer — Public Site Design System
+ *
+ * Uses CSS Grid for responsive portfolio layout.
+ * No Bootstrap classes — uses public site design tokens.
  *
  * Config: {title, description, limit (3/4/6), filters (true/false), portfolio_ids: [id...]}
  */
@@ -11,15 +14,8 @@ $limit = (int)($config['limit'] ?? 6);
 $showFilters = (bool)($config['filters'] ?? false);
 $portfolioIds = $config['portfolio_ids'] ?? [];
 
-// Load portfolio items
+// Load portfolio items (placeholder — future: query portfolio table)
 $items = [];
-if (!empty($portfolioIds)) {
-    // In a real scenario, this would query the portfolio table
-    // For now, we'll use a placeholder
-    foreach ($portfolioIds as $id) {
-        // $items[] = portfolio_getById($id);
-    }
-}
 
 // Get unique categories from items
 $categories = [];
@@ -32,83 +28,57 @@ if ($showFilters && !empty($items)) {
 }
 ?>
 
-<section class="portfolio-showcase-block py-5" style="background-color: #f8f9fa;">
+<section class="slp-section slp-alt">
   <div class="container">
     <?php if ($title): ?>
-      <div class="row mb-5">
-        <div class="col-lg-8 mx-auto text-center">
-          <h2 class="mb-3"><?php echo h($title); ?></h2>
-          <?php if ($description): ?>
-            <p class="lead text-muted"><?php echo h($description); ?></p>
-          <?php endif; ?>
-        </div>
-      </div>
+      <h2 class="slp-heading"><?php echo h($title); ?></h2>
+    <?php endif; ?>
+    <?php if ($description): ?>
+      <p class="slp-intro"><?php echo h($description); ?></p>
     <?php endif; ?>
 
     <?php if ($showFilters && !empty($categories)): ?>
-      <div class="row mb-4">
-        <div class="col-lg-8 mx-auto text-center">
-          <div class="btn-group btn-group-toggle" role="group">
-            <label class="btn btn-outline-primary active">
-              <input type="radio" name="portfolio-filter" value="" checked> All
-            </label>
-            <?php foreach ($categories as $category): ?>
-            <label class="btn btn-outline-primary">
-              <input type="radio" name="portfolio-filter" value="<?php echo h($category); ?>"> <?php echo h($category); ?>
-            </label>
-            <?php endforeach; ?>
-          </div>
-        </div>
+      <div class="portfolio-filters" style="text-align: center; margin-bottom: 30px;">
+        <button class="btn portfolio-filter-btn active" data-filter="">All</button>
+        <?php foreach ($categories as $category): ?>
+          <button class="btn portfolio-filter-btn" data-filter="<?php echo h($category); ?>"><?php echo h($category); ?></button>
+        <?php endforeach; ?>
       </div>
     <?php endif; ?>
 
-    <div class="row" id="portfolioGrid">
-      <?php foreach (array_slice($items, 0, $limit) as $item): ?>
-      <div class="col-md-4 mb-4 portfolio-item" data-category="<?php echo h($item['category'] ?? ''); ?>">
-        <div class="card border-0 shadow-sm overflow-hidden" style="cursor: pointer; transition: transform 0.3s ease;">
-          <img
-            src="<?php echo h($item['image'] ?? ''); ?>"
-            alt="<?php echo h($item['title'] ?? ''); ?>"
-            class="card-img-top"
-            style="height: 250px; object-fit: cover;"
-            loading="lazy"
-          >
-          <div class="card-body">
-            <h5 class="card-title"><?php echo h($item['title'] ?? ''); ?></h5>
-            <p class="card-text text-muted small"><?php echo h($item['description'] ?? ''); ?></p>
+    <?php if (!empty($items)): ?>
+      <div class="services-grid" id="portfolioGrid">
+        <?php foreach (array_slice($items, 0, $limit) as $item): ?>
+          <div class="service-card portfolio-item" data-category="<?php echo h($item['category'] ?? ''); ?>">
+            <?php if (!empty($item['image'])): ?>
+              <img src="<?php echo h($item['image']); ?>" alt="<?php echo h($item['title'] ?? ''); ?>" loading="lazy" style="width: 100%; height: 200px; object-fit: cover; border-radius: 8px 8px 0 0;">
+            <?php endif; ?>
+            <h3><?php echo h($item['title'] ?? ''); ?></h3>
+            <p><?php echo h($item['description'] ?? ''); ?></p>
             <?php if (!empty($item['url'])): ?>
-              <a href="<?php echo h($item['url']); ?>" class="btn btn-sm btn-outline-primary">View Project</a>
+              <a href="<?php echo h($item['url']); ?>" class="btn">View Project →</a>
             <?php endif; ?>
           </div>
-        </div>
+        <?php endforeach; ?>
       </div>
-      <?php endforeach; ?>
-    </div>
-
-    <?php if (empty($items)): ?>
-      <div class="row">
-        <div class="col text-center py-5">
-          <p class="text-muted">No portfolio items to display.</p>
-        </div>
-      </div>
+    <?php else: ?>
+      <p style="text-align: center; color: var(--text-light, #6a6a6a); padding: 40px 0;">No portfolio items to display.</p>
     <?php endif; ?>
   </div>
 </section>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  const filterBtns = document.querySelectorAll('[name="portfolio-filter"]');
+  const filterBtns = document.querySelectorAll('.portfolio-filter-btn');
   const portfolioItems = document.querySelectorAll('.portfolio-item');
 
-  filterBtns.forEach(btn => {
-    btn.addEventListener('change', function() {
-      const category = this.value;
-      portfolioItems.forEach(item => {
-        if (category === '' || item.dataset.category === category) {
-          item.style.display = '';
-        } else {
-          item.style.display = 'none';
-        }
+  filterBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      filterBtns.forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var category = btn.dataset.filter;
+      portfolioItems.forEach(function(item) {
+        item.style.display = (category === '' || item.dataset.category === category) ? '' : 'none';
       });
     });
   });

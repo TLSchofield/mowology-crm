@@ -1,8 +1,11 @@
 <?php
 /**
- * Hero Block Renderer
+ * Hero Block Renderer — Public Site Design System
  *
- * Config: {headline, subheadline, cta_text, cta_url, media_id, media_alt}
+ * Uses .service-landing-hero / .slh-* classes from service-landing.css
+ * OR .page-hero from page-hero.css for text-only heroes.
+ *
+ * Config: {headline, subheadline, cta_text, cta_url, media_id, media_alt, image}
  */
 
 $headline = $config['headline'] ?? 'Welcome';
@@ -10,39 +13,65 @@ $subheadline = $config['subheadline'] ?? '';
 $ctaText = $config['cta_text'] ?? 'Learn More';
 $ctaUrl = $config['cta_url'] ?? '#';
 $mediaId = $config['media_id'] ?? null;
-$mediaAlt = $config['media_alt'] ?? 'Hero image';
-?>
+$mediaAlt = $config['media_alt'] ?? '';
+$imagePath = $config['image'] ?? ''; // direct path fallback
+$trustLine = $config['trust_line'] ?? '';
 
-<section class="hero-block py-5" role="region" aria-label="Hero section" style="background: linear-gradient(135deg, #2D8659 0%, #1A5F4A 100%); color: white;">
-  <div class="container">
-    <div class="row align-items-center">
-      <div class="col-md-6 mb-4 mb-md-0">
-        <h1 class="display-4 font-weight-bold mb-3"><?php echo h($headline); ?></h1>
-        <?php if ($subheadline): ?>
-          <p class="lead mb-4"><?php echo h($subheadline); ?></p>
-        <?php endif; ?>
+// Resolve media asset if media_id provided
+$resolvedImage = '';
+$resolvedAlt = $mediaAlt;
+if ($mediaId && function_exists('cms_getMediaAssetById')) {
+    $media = cms_getMediaAssetById($mediaId);
+    if ($media) {
+        $resolvedImage = $media['file_path'] ?? '';
+        if (!$resolvedAlt) {
+            $resolvedAlt = $media['alt_text'] ?? '';
+        }
+    }
+}
+if (!$resolvedImage && $imagePath) {
+    $resolvedImage = $imagePath;
+}
 
-        <?php if ($ctaUrl): ?>
-          <a href="<?php echo h($ctaUrl); ?>" class="btn btn-light btn-lg">
-            <?php echo h($ctaText); ?>
-          </a>
-        <?php endif; ?>
+// Choose layout: image hero (service-landing-hero) or text-only (page-hero)
+if ($resolvedImage): ?>
+
+  <!-- Service Landing Hero — with image -->
+  <section class="service-landing-hero">
+    <div class="container">
+      <div class="slh-grid">
+        <div class="slh-content">
+          <h1><?php echo h($headline); ?></h1>
+          <?php if ($subheadline): ?>
+            <p class="slh-sub"><?php echo h($subheadline); ?></p>
+          <?php endif; ?>
+          <?php if ($ctaText && $ctaUrl): ?>
+            <a href="<?php echo h($ctaUrl); ?>" class="btn btn-primary-large"><?php echo h($ctaText); ?></a>
+          <?php endif; ?>
+          <?php if ($trustLine): ?>
+            <p class="slh-trust"><?php echo h($trustLine); ?></p>
+          <?php endif; ?>
+        </div>
+        <div class="slh-image">
+          <img src="<?php echo h($resolvedImage); ?>" alt="<?php echo h($resolvedAlt ?: $headline); ?>" loading="eager">
+        </div>
       </div>
+    </div>
+  </section>
 
-      <?php if ($mediaId): ?>
-        <?php $media = cms_getMediaAssetById($mediaId); ?>
-        <?php if ($media): ?>
-          <div class="col-md-6">
-            <img
-              src="<?php echo h($media['file_path']); ?>"
-              alt="<?php echo h($mediaAlt ?: $media['alt_text'] ?? ''); ?>"
-              class="img-fluid rounded"
-              loading="lazy"
-              style="max-width: 100%; height: auto;"
-            >
-          </div>
-        <?php endif; ?>
+<?php else: ?>
+
+  <!-- Page Hero — text only (gradient background) -->
+  <section class="page-hero">
+    <div class="container">
+      <h1><?php echo h($headline); ?></h1>
+      <?php if ($subheadline): ?>
+        <p><?php echo h($subheadline); ?></p>
+      <?php endif; ?>
+      <?php if ($ctaText && $ctaUrl): ?>
+        <a href="<?php echo h($ctaUrl); ?>" class="btn btn-primary-large"><?php echo h($ctaText); ?></a>
       <?php endif; ?>
     </div>
-  </div>
-</section>
+  </section>
+
+<?php endif; ?>
