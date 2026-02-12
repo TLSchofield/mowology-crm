@@ -145,7 +145,7 @@ $activePage = 'quotes';
                                       <td class="actions">
                                           <a href="view.php?id=<?php echo $quote['id']; ?>" class="mw-action-btn mw-action-btn-view">View</a>
                                           <?php if ($quote['status'] === 'accepted'): ?>
-                                              <a href="../jobs/create.php?quote_id=<?php echo $quote['id']; ?>" class="mw-action-btn mw-action-btn-convert">Create Job</a>
+                                              <a href="../jobs/create.php?quote_id=<?php echo $quote['id']; ?>" class="mw-action-btn mw-action-btn-convert">Create Plan</a>
                                           <?php endif; ?>
                                       </td>
                                   </tr>

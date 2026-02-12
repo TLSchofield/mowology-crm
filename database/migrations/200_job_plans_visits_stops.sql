@@ -265,10 +265,10 @@ CREATE TABLE IF NOT EXISTS plan_notes (
 -- 7. ALTER dependent tables — Add plan_id / visit_id columns
 -- ============================================================================
 
--- activity_log: soft reference (no FK)
+-- activity_log: soft reference (no FK) — no job_id column in this table
 ALTER TABLE activity_log
-    ADD COLUMN plan_id INT NULL AFTER job_id,
-    ADD COLUMN visit_id INT NULL AFTER plan_id,
+    ADD COLUMN plan_id INT NULL,
+    ADD COLUMN visit_id INT NULL,
     ADD INDEX idx_plan (plan_id),
     ADD INDEX idx_visit (visit_id);
 

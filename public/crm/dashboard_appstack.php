@@ -51,13 +51,13 @@ try {
     $jobsAccepted = $stats['accepted'] ?? 0;
     $jobsActive = ($stats['scheduled'] ?? 0) + ($stats['in_progress'] ?? 0);
 
-    // Recent activity
+    // Recent activity (COLLATE needed: quotes may use utf8mb4_unicode_ci, job_plans uses utf8mb4_general_ci)
     $recentActivity = $db->query("
-        SELECT 'quote' as type, q.id, q.quote_number as name, q.created_at, u.full_name
+        SELECT 'quote' as type, q.id, q.quote_number COLLATE utf8mb4_general_ci as name, q.created_at, u.full_name COLLATE utf8mb4_general_ci as full_name
         FROM quotes q
         LEFT JOIN users u ON q.created_by = u.id
         UNION ALL
-        SELECT 'plan' as type, jp.id, jp.plan_number as name, jp.created_at, u.full_name
+        SELECT 'plan' as type, jp.id, jp.plan_number as name, jp.created_at, u.full_name COLLATE utf8mb4_general_ci as full_name
         FROM job_plans jp
         LEFT JOIN users u ON jp.created_by = u.id
         ORDER BY created_at DESC
