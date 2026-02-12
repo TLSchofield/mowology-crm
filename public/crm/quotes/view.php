@@ -32,6 +32,7 @@ $stmt = $db->prepare("
         c.company_name,
         c.billing_email,
         c.billing_phone,
+        ct.id as contact_id,
         ct.first_name as contact_first,
         ct.last_name as contact_last,
         ct.email as contact_email,
@@ -101,9 +102,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['billing_phone'] ?? null;
         $customerConsentsToSms = false;
 
-        // Check SMS consent via contacts table
+        // Check SMS consent via contacts table (quote request contact → company primary contact)
         if (!empty($quote['qr_contact_id'])) {
             $customerConsentsToSms = hasSmConsent((int)$quote['qr_contact_id']);
+        } elseif (!empty($quote['contact_id'])) {
+            $customerConsentsToSms = hasSmConsent((int)$quote['contact_id']);
         }
 
         if (!$customerEmail && !$customerPhone) {
@@ -354,22 +357,27 @@ $activePage = 'quotes';
                   </h5>
               </div>
               <div id="sms-debug" class="card-body" style="display: none; font-size: 13px;">
+                  <?php
+                      // Determine which contact ID is used for SMS consent (same fallback as send logic)
+                      $smsContactId = !empty($quote['qr_contact_id']) ? $quote['qr_contact_id'] : ($quote['contact_id'] ?? null);
+                      $smsContactSource = !empty($quote['qr_contact_id']) ? 'quote request' : (!empty($quote['contact_id']) ? 'primary contact' : 'none');
+                  ?>
                   <table style="width: 100%;">
                       <tr>
                           <td><strong>Contact ID:</strong></td>
-                          <td><?php echo $hasContactId ? htmlspecialchars($quote['qr_contact_id']) : '❌ NOT SET'; ?></td>
+                          <td><?php echo $smsContactId ? htmlspecialchars($smsContactId) . ' (' . $smsContactSource . ')' : '❌ NOT SET'; ?></td>
                       </tr>
                       <tr style="background: #f9f9f9;">
                           <td><strong>SMS Consent:</strong></td>
                           <td>
-                              <?php if ($hasContactId):
-                                  $smsStmt = $db->prepare("SELECT receive_sms FROM contacts WHERE id = ?");
-                                  $smsStmt->execute([$quote['qr_contact_id']]);
+                              <?php if ($smsContactId):
+                                  $smsStmt = $db->prepare("SELECT receive_sms, consent_sms FROM contacts WHERE id = ?");
+                                  $smsStmt->execute([$smsContactId]);
                                   $smsPrefs = $smsStmt->fetch(PDO::FETCH_ASSOC);
-                                  $hasSmsConsent = !empty($smsPrefs['receive_sms']);
-                                  echo $hasSmsConsent ? '✅ OPTED IN' : '❌ NOT CONSENTED';
+                                  $hasSmsConsent = !empty($smsPrefs['receive_sms']) || !empty($smsPrefs['consent_sms']);
+                                  echo $hasSmsConsent ? '✅ OPTED IN' : '❌ NOT CONSENTED (receive_sms=' . ($smsPrefs['receive_sms'] ?? '0') . ', consent_sms=' . ($smsPrefs['consent_sms'] ?? '0') . ')';
                               else:
-                                  echo '⚠️ Cannot check - no contact_id';
+                                  echo '⚠️ Cannot check - no contact_id linked';
                               endif;
                               ?>
                           </td>
