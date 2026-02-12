@@ -15,7 +15,7 @@ $user = getCurrentUser();
 
 $db = getDB();
 
-// ─── AJAX: Search contacts & companies ───
+// ─── AJAX: Search contacts & properties ───
 if (isset($_GET['action']) && $_GET['action'] === 'search_contacts' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     header('Content-Type: application/json');
     $query = trim($_GET['q'] ?? '');
@@ -28,29 +28,60 @@ if (isset($_GET['action']) && $_GET['action'] === 'search_contacts' && $_SERVER[
     $searchTerm = '%' . $query . '%';
     $results = [];
 
-    // Search companies
+    // Search contacts by name, email, or phone
     $stmt = $db->prepare("
-        SELECT c.id, c.company_name, c.company_type,
-               ct.first_name, ct.last_name, ct.email, ct.phone
-        FROM companies c
-        LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
-        WHERE c.account_status != 'suspended'
-          AND (c.company_name LIKE ? OR ct.first_name LIKE ? OR ct.last_name LIKE ?
-               OR ct.email LIKE ? OR ct.phone LIKE ?)
-        ORDER BY c.company_name ASC
-        LIMIT 15
+        SELECT ct.id, ct.first_name, ct.last_name, ct.email, ct.phone,
+               c.id as company_id, c.company_name
+        FROM contacts ct
+        LEFT JOIN companies c ON c.primary_contact_id = ct.id
+        WHERE ct.is_active = 1
+          AND (ct.first_name LIKE ? OR ct.last_name LIKE ?
+               OR ct.email LIKE ? OR ct.phone LIKE ?
+               OR CONCAT(ct.first_name, ' ', ct.last_name) LIKE ?)
+        ORDER BY ct.last_name, ct.first_name ASC
+        LIMIT 10
     ");
     $stmt->execute([$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm]);
-    $companies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $contacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($contacts as $ct) {
+        $name = trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? ''));
+        $subtitle = $ct['email'] ?: ($ct['phone'] ?: '');
+        if ($ct['company_name']) {
+            $subtitle = $ct['company_name'] . ($subtitle ? ' · ' . $subtitle : '');
+        }
+        $results[] = [
+            'contact_id' => (int)$ct['id'],
+            'company_id' => $ct['company_id'] ? (int)$ct['company_id'] : null,
+            'label'      => $name ?: ($ct['email'] ?: 'Contact #' . $ct['id']),
+            'subtitle'   => $subtitle,
+            'type'       => 'contact',
+        ];
+    }
+
+    // Also search companies by name (if any exist)
+    $stmt2 = $db->prepare("
+        SELECT c.id, c.company_name, c.company_type,
+               ct.first_name, ct.last_name
+        FROM companies c
+        LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
+        WHERE (c.account_status IS NULL OR c.account_status != 'suspended')
+          AND c.company_name LIKE ?
+        ORDER BY c.company_name ASC
+        LIMIT 5
+    ");
+    $stmt2->execute([$searchTerm]);
+    $companies = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($companies as $co) {
+        // Avoid duplicating if we already have this company's contact
         $contactName = trim(($co['first_name'] ?? '') . ' ' . ($co['last_name'] ?? ''));
-        $subtitle = $contactName ?: ($co['email'] ?? '');
         $results[] = [
-            'company_id'   => (int)$co['id'],
-            'label'        => $co['company_name'],
-            'subtitle'     => $subtitle,
-            'type'         => $co['company_type'] ?? 'business',
+            'contact_id' => null,
+            'company_id' => (int)$co['id'],
+            'label'      => $co['company_name'],
+            'subtitle'   => $contactName ?: ($co['company_type'] ?? ''),
+            'type'       => 'company',
         ];
     }
 
@@ -58,27 +89,58 @@ if (isset($_GET['action']) && $_GET['action'] === 'search_contacts' && $_SERVER[
     exit;
 }
 
-// ─── AJAX: Get properties for a company ───
+// ─── AJAX: Get properties for a contact or company ───
 if (isset($_GET['action']) && $_GET['action'] === 'get_properties' && $_SERVER['REQUEST_METHOD'] === 'GET') {
     header('Content-Type: application/json');
+    $contactId = intval($_GET['contact_id'] ?? 0);
     $companyId = intval($_GET['company_id'] ?? 0);
 
-    if (!$companyId) {
+    if (!$contactId && !$companyId) {
         echo json_encode(['properties' => []]);
         exit;
     }
 
-    // Get properties via company_properties junction table OR direct owner/manager FK
-    $stmt = $db->prepare("
-        SELECT DISTINCT p.id, p.address, p.city, p.property_type, p.postal_code
-        FROM properties p
-        LEFT JOIN company_properties cp ON p.id = cp.property_id
-        WHERE (cp.company_id = ? OR p.owner_company_id = ? OR p.property_manager_id = ?)
-          AND p.status = 'active'
-        ORDER BY p.address ASC
-    ");
-    $stmt->execute([$companyId, $companyId, $companyId]);
-    $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $properties = [];
+
+    // Get properties linked to this contact via site_contact_id
+    if ($contactId) {
+        $stmt = $db->prepare("
+            SELECT p.id, p.address, p.city, p.property_type, p.postal_code
+            FROM properties p
+            WHERE p.site_contact_id = ?
+              AND (p.status IS NULL OR p.status = 'active')
+            ORDER BY p.address ASC
+        ");
+        $stmt->execute([$contactId]);
+        $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // If also have company, add properties via company_properties junction
+    if ($companyId && empty($properties)) {
+        $stmt = $db->prepare("
+            SELECT DISTINCT p.id, p.address, p.city, p.property_type, p.postal_code
+            FROM properties p
+            JOIN company_properties cp ON p.id = cp.property_id
+            WHERE cp.company_id = ?
+              AND (p.status IS NULL OR p.status = 'active')
+            ORDER BY p.address ASC
+        ");
+        $stmt->execute([$companyId]);
+        $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // If still no properties and we have a contact, check if there are ANY properties
+    // (for small DBs where contact might not be linked yet but user wants to pick)
+    if (empty($properties)) {
+        $stmt = $db->query("
+            SELECT p.id, p.address, p.city, p.property_type, p.postal_code
+            FROM properties p
+            WHERE (p.status IS NULL OR p.status = 'active')
+            ORDER BY p.address ASC
+            LIMIT 20
+        ");
+        $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 
     echo json_encode(['properties' => $properties]);
     exit;
@@ -260,6 +322,7 @@ $activePage = 'jobs';
                                   <i data-feather="user-plus"></i> New Contact
                               </a>
                           </div>
+                          <input type="hidden" id="selectedContactId" value="<?php echo $prefill['contact_id'] ?? ''; ?>">
                           <input type="hidden" id="selectedCompanyId" value="<?php echo $prefill['company_id'] ?? ''; ?>">
                       </div>
 
@@ -456,6 +519,7 @@ $activePage = 'jobs';
           (function() {
               var searchInput = document.getElementById('clientSearch');
               var resultsDiv = document.getElementById('clientSearchResults');
+              var contactIdInput = document.getElementById('selectedContactId');
               var companyIdInput = document.getElementById('selectedCompanyId');
               var propertyIdInput = document.getElementById('propertyIdInput');
               var propertySection = document.getElementById('propertySection');
@@ -486,14 +550,14 @@ $activePage = 'jobs';
 
                               var html = '';
                               data.results.forEach(function(item) {
-                                  var typeLabel = item.type || 'business';
-                                  typeLabel = typeLabel.replace('_', ' ');
-                                  html += '<div class="mw-search-item" data-company-id="' + item.company_id + '" data-label="' + escapeAttr(item.label) + '">';
+                                  html += '<div class="mw-search-item"'
+                                      + ' data-contact-id="' + (item.contact_id || '') + '"'
+                                      + ' data-company-id="' + (item.company_id || '') + '"'
+                                      + ' data-label="' + escapeAttr(item.label) + '"'
+                                      + ' data-type="' + (item.type || '') + '">';
                                   html += '<div class="mw-search-item-name">' + escapeHtml(item.label) + '</div>';
                                   if (item.subtitle) {
-                                      html += '<div class="mw-search-item-sub">' + escapeHtml(item.subtitle) + ' &middot; ' + escapeHtml(typeLabel) + '</div>';
-                                  } else {
-                                      html += '<div class="mw-search-item-sub">' + escapeHtml(typeLabel) + '</div>';
+                                      html += '<div class="mw-search-item-sub">' + escapeHtml(item.subtitle) + '</div>';
                                   }
                                   html += '</div>';
                               });
@@ -504,7 +568,11 @@ $activePage = 'jobs';
                               var items = resultsDiv.querySelectorAll('.mw-search-item');
                               items.forEach(function(el) {
                                   el.addEventListener('click', function() {
-                                      selectClient(this.dataset.companyId, this.dataset.label);
+                                      selectClient(
+                                          this.dataset.contactId,
+                                          this.dataset.companyId,
+                                          this.dataset.label
+                                      );
                                   });
                               });
                           })
@@ -522,9 +590,10 @@ $activePage = 'jobs';
                   }
               });
 
-              // ── Select a client ──
-              function selectClient(companyId, label) {
-                  companyIdInput.value = companyId;
+              // ── Select a client (contact or company) ──
+              function selectClient(contactId, companyId, label) {
+                  contactIdInput.value = contactId || '';
+                  companyIdInput.value = companyId || '';
                   searchInput.value = label;
                   searchInput.readOnly = true;
                   resultsDiv.style.display = 'none';
@@ -532,13 +601,14 @@ $activePage = 'jobs';
                   // Show "Change client" link
                   showClearLink();
 
-                  // Load properties
-                  loadProperties(companyId);
+                  // Load properties for this contact/company
+                  loadProperties(contactId, companyId);
               }
 
               // ── Clear client selection ──
               function clearClient(e) {
                   if (e) e.preventDefault();
+                  contactIdInput.value = '';
                   companyIdInput.value = '';
                   propertyIdInput.value = '';
                   searchInput.value = '';
@@ -574,13 +644,17 @@ $activePage = 'jobs';
                   existingClear.addEventListener('click', clearClient);
               }
 
-              // ── Load properties for company ──
-              function loadProperties(companyId) {
+              // ── Load properties for contact/company ──
+              function loadProperties(contactId, companyId) {
                   propertySection.style.display = '';
                   propertyList.innerHTML = '<div class="mw-property-loading">Loading properties...</div>';
                   noProperties.style.display = 'none';
 
-                  fetch('create.php?action=get_properties&company_id=' + companyId)
+                  var params = [];
+                  if (contactId) params.push('contact_id=' + contactId);
+                  if (companyId) params.push('company_id=' + companyId);
+
+                  fetch('create.php?action=get_properties&' + params.join('&'))
                       .then(function(r) { return r.json(); })
                       .then(function(data) {
                           propertyList.innerHTML = '';
@@ -637,9 +711,10 @@ $activePage = 'jobs';
               }
 
               // ── If prefilled, load properties on page load ──
+              var prefillContactId = contactIdInput.value;
               var prefillCompanyId = companyIdInput.value;
-              if (prefillCompanyId && !propertyList.querySelector('.mw-property-card')) {
-                  loadProperties(prefillCompanyId);
+              if ((prefillContactId || prefillCompanyId) && !propertyList.querySelector('.mw-property-card')) {
+                  loadProperties(prefillContactId, prefillCompanyId);
               }
 
               // ── Helpers ──
