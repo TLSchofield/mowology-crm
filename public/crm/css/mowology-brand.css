@@ -3612,28 +3612,22 @@ textarea.font-monospace {
   }
 }
 
-/* Hourly Calendar Grid */
+/* Calendar Stop Grid */
 .mw-calendar-header {
   display: grid;
-  grid-template-columns: 60px repeat(7, 1fr);
+  grid-template-columns: 0px repeat(7, 1fr);
   background: var(--mw-forest);
   color: #fff;
   border-bottom: 2px solid var(--mw-dark);
 }
 
 .mw-calendar-time-label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  font-size: 12px;
-  padding: 12px;
-  text-transform: uppercase;
+  display: none;
 }
 
 .mw-calendar-dates-header {
   display: grid;
-  grid-template-columns: 60px repeat(7, 1fr);
+  grid-template-columns: 0px repeat(7, 1fr);
   background: #f8f9fa;
   border-bottom: 1px solid #dee2e6;
   gap: 1px;
@@ -3714,171 +3708,192 @@ textarea.font-monospace {
   color: #d84315;
 }
 
-.mw-calendar-grid-hourly {
-  display: flex;
-  flex-direction: column;
+/* ── Stop Grid (replaces hourly time grid) ──────────── */
+.mw-stop-grid {
+  display: grid;
+  grid-template-columns: 0px repeat(7, 1fr);
   background: #fff;
   border: 1px solid #dee2e6;
+  border-top: none;
+  min-height: 300px;
 }
 
-.mw-time-row {
-  display: grid;
-  grid-template-columns: 60px repeat(7, 1fr);
-  border-bottom: 1px solid #f1f3f5;
-  min-height: 80px;
-  gap: 1px;
-  background: #fff;
+.mw-stop-grid-label {
+  display: none;
 }
 
-.mw-time-row:last-child {
-  border-bottom: none;
-}
-
-.mw-time-label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  color: #6c757d;
-  background: #f8f9fa;
-  border-right: 1px solid #dee2e6;
-  padding: 8px;
-}
-
-.mw-time-slot {
+.mw-day-column {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 4px;
-  background: #fff;
+  gap: 6px;
+  padding: 8px 6px;
   border-right: 1px solid #f1f3f5;
-  position: relative;
-  min-height: 80px;
+  min-height: 200px;
   overflow-y: auto;
-  max-height: 80px;
+  max-height: 600px;
+  transition: background 0.15s ease;
 }
 
-.mw-time-slot:last-child {
+.mw-day-column:last-child {
   border-right: none;
 }
 
-.mw-time-slot:hover {
-  background: rgba(45, 134, 89, 0.02);
+.mw-day-column.today {
+  background: rgba(127, 216, 88, 0.04);
 }
 
-.mw-time-slot.drag-over {
-  background: rgba(45, 134, 89, 0.12);
-  border: 2px dashed var(--mw-green);
+.mw-day-column.drag-over {
+  background: rgba(45, 134, 89, 0.10);
+  outline: 2px dashed var(--mw-green);
+  outline-offset: -2px;
   border-radius: 4px;
 }
 
-/* Draggable Job Cards in Time Grid */
-.mw-time-slot .mw-job-card-sched {
-  width: 100%;
-  padding: 6px 8px;
-  margin: 0;
-  font-size: 11px;
-  border-radius: 3px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+.mw-day-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 12px;
+  color: #adb5bd;
+  font-style: italic;
+}
+
+/* ── Stop Cards ─────────────────────────────────────── */
+.mw-stop-card {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-left: 3px solid var(--mw-green);
+  border-radius: 4px;
+  padding: 8px 10px;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
-  flex-shrink: 0;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  position: relative;
 }
 
-.mw-time-slot .mw-job-card-sched:hover {
-  transform: translateX(2px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+.mw-stop-card:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.10);
+  transform: translateY(-1px);
 }
 
-.mw-time-slot .mw-job-card-sched.dragging {
-  opacity: 0.6;
+.mw-stop-card.dragging {
+  opacity: 0.5;
   transform: scale(0.95);
   cursor: grabbing;
 }
 
-.mw-time-slot .mw-job-time {
+/* Stop status variants */
+.mw-stop-status-progress {
+  border-left-color: #F59E0B;
+  background: rgba(245, 158, 11, 0.04);
+}
+
+.mw-stop-status-done {
+  border-left-color: #10B981;
+  background: rgba(16, 185, 129, 0.04);
+  opacity: 0.7;
+}
+
+.mw-stop-status-skipped {
+  border-left-color: #6B7280;
+  background: rgba(107, 114, 128, 0.04);
+  opacity: 0.6;
+}
+
+/* Stop card inner elements */
+.mw-stop-time {
   font-size: 10px;
   font-weight: 700;
+  color: var(--mw-green);
+  margin-bottom: 2px;
   line-height: 1.2;
 }
 
-.mw-time-slot .mw-job-title-sched {
-  font-size: 11px;
+.mw-stop-property {
+  font-size: 12px;
   font-weight: 600;
+  color: #212529;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.2;
 }
 
-.mw-time-slot .mw-job-client-sched {
+.mw-stop-client {
   font-size: 10px;
   color: #6c757d;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.2;
+  margin-bottom: 4px;
 }
 
-.mw-time-slot .mw-job-assigned-sched {
+.mw-stop-visits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.mw-visit-pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-left: 3px solid #6B7280;
+  border-radius: 3px;
+  color: #495057;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.mw-stop-crew {
   font-size: 9px;
   color: #6c757d;
-  opacity: 0.6;
+  line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mw-time-slot .mw-job-card-view-link {
-  display: none;
-}
-
-.mw-time-slot .mw-job-card-sched:hover .mw-job-card-view-link {
-  display: inline-block;
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  background: rgba(45, 134, 89, 0.2);
-  color: var(--mw-green);
-  padding: 1px 4px;
-  border-radius: 2px;
-  font-size: 8px;
-  text-decoration: none;
-  z-index: 10;
-}
-
-/* Responsive - Stack on mobile */
+/* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 1200px) {
   .mw-calendar-header,
-  .mw-calendar-dates-header,
-  .mw-time-row {
-    grid-template-columns: 50px repeat(7, 1fr);
+  .mw-calendar-dates-header {
+    grid-template-columns: 0px repeat(7, 1fr);
   }
 
-  .mw-time-label,
   .mw-calendar-time-label {
-    font-size: 10px;
-    padding: 6px;
+    display: none;
   }
 
-  .mw-time-slot {
-    min-height: 70px;
-    max-height: 70px;
+  .mw-stop-card {
+    padding: 6px 8px;
   }
 
-  .mw-time-slot .mw-job-card-sched {
-    padding: 4px 6px;
-    font-size: 10px;
+  .mw-stop-property {
+    font-size: 11px;
+  }
+
+  .mw-visit-pill {
+    font-size: 9px;
+    padding: 1px 4px;
   }
 }
 
 @media (max-width: 768px) {
   .mw-calendar-header,
-  .mw-calendar-dates-header,
-  .mw-time-row {
-    grid-template-columns: 40px repeat(7, 1fr);
+  .mw-calendar-dates-header {
+    grid-template-columns: 0px repeat(7, 1fr);
+  }
+
+  .mw-stop-grid {
+    grid-template-columns: 0px repeat(7, 1fr);
   }
 
   .mw-date-number {
@@ -3893,22 +3908,34 @@ textarea.font-monospace {
     font-size: 9px;
   }
 
-  .mw-time-slot {
-    min-height: 60px;
-    max-height: 60px;
+  .mw-day-column {
+    padding: 4px 3px;
+    gap: 4px;
   }
 
-  .mw-time-slot .mw-job-card-sched {
-    padding: 3px 4px;
+  .mw-stop-card {
+    padding: 4px 6px;
+  }
+
+  .mw-stop-time {
     font-size: 9px;
   }
 
-  .mw-time-slot .mw-job-time {
+  .mw-stop-property {
+    font-size: 10px;
+  }
+
+  .mw-stop-client {
     font-size: 9px;
   }
 
-  .mw-time-slot .mw-job-title-sched {
-    font-size: 9px;
+  .mw-visit-pill {
+    font-size: 8px;
+    padding: 0px 3px;
+  }
+
+  .mw-stop-crew {
+    font-size: 8px;
   }
 }
 
@@ -5914,4 +5941,405 @@ textarea.font-monospace {
   .mw-emp-mini-val { font-size: 0.9rem; }
   .mw-crew-map-container { height: 400px; }
   .mw-crew-map-legend { bottom: 8px; left: 8px; font-size: 0.7rem; padding: 6px 10px; }
+}
+
+/* ── Calendar Stops ────────────────────────────────────── */
+/* Stop cards on the schedule calendar (one per property per day) */
+
+.mw-calendar-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  background: #e0e0e0;
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 500px;
+}
+
+.mw-day-column {
+  background: #fff;
+  min-height: 120px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: background 0.15s ease;
+}
+
+.mw-day-column.drag-over {
+  background: var(--mw-light);
+}
+
+.mw-day-column.mw-today {
+  background: #f0fdf4;
+}
+
+.mw-day-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #555;
+  text-align: center;
+  padding: 8px 4px 4px;
+  border-bottom: 1px solid #eee;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mw-day-header .mw-day-date {
+  display: block;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #222;
+  margin-top: 2px;
+}
+
+.mw-day-header.mw-today .mw-day-date {
+  color: var(--mw-green);
+}
+
+.mw-day-stops {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+/* Stop card — the grouped property card */
+.mw-stop-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: grab;
+  transition: box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+  position: relative;
+}
+
+.mw-stop-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  transform: translateY(-1px);
+}
+
+.mw-stop-card.dragging {
+  opacity: 0.5;
+  transform: rotate(2deg);
+}
+
+.mw-stop-card:active {
+  cursor: grabbing;
+}
+
+.mw-stop-time {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--mw-green);
+  margin-bottom: 2px;
+}
+
+.mw-stop-property {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #222;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-stop-client {
+  font-size: 0.7rem;
+  color: #888;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-stop-visits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.mw-visit-pill {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #f3f4f6;
+  color: #333;
+  border-left: 3px solid #ccc;
+  white-space: nowrap;
+}
+
+.mw-visit-pill.lawn_care { border-left-color: #7FD858; }
+.mw-visit-pill.landscaping { border-left-color: #2D8659; }
+.mw-visit-pill.snow_removal { border-left-color: #3B82F6; }
+.mw-visit-pill.hedge_trimming { border-left-color: #8B5CF6; }
+.mw-visit-pill.garden_maintenance { border-left-color: #F59E0B; }
+.mw-visit-pill.seasonal_cleanup { border-left-color: #EC4899; }
+
+.mw-stop-crew {
+  font-size: 0.65rem;
+  color: #666;
+}
+
+.mw-stop-crew i {
+  margin-right: 2px;
+}
+
+/* Stop status indicators */
+.mw-stop-card.mw-stop-in-progress {
+  border-left: 3px solid var(--mw-orange);
+}
+
+.mw-stop-card.mw-stop-completed {
+  border-left: 3px solid var(--mw-green);
+  opacity: 0.7;
+}
+
+.mw-stop-card.mw-stop-skipped {
+  border-left: 3px solid #9CA3AF;
+  opacity: 0.5;
+}
+
+/* Calendar navigation */
+.mw-cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mw-cal-nav-btns {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.mw-cal-nav-btns .btn {
+  padding: 4px 12px;
+  font-size: 0.8rem;
+}
+
+.mw-cal-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #222;
+}
+
+/* Weather row on calendar */
+.mw-cal-weather-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  margin-bottom: 1px;
+}
+
+.mw-cal-weather-cell {
+  background: #f9fafb;
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 0.7rem;
+  color: #555;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.mw-cal-weather-icon {
+  font-size: 1.2rem;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.mw-cal-weather-temp {
+  font-weight: 600;
+  color: #333;
+}
+
+/* Calendar legend */
+.mw-cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 0;
+  margin-top: 12px;
+  border-top: 1px solid #eee;
+}
+
+.mw-cal-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: #555;
+}
+
+.mw-cal-legend-color {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+/* Plan status badges */
+.mw-plan-status-active {
+  background: var(--mw-green);
+  color: #fff;
+}
+
+.mw-plan-status-paused {
+  background: #F59E0B;
+  color: #000;
+}
+
+.mw-plan-status-cancelled {
+  background: #6B7280;
+  color: #fff;
+}
+
+.mw-plan-status-completed {
+  background: var(--mw-green);
+  color: #fff;
+}
+
+/* Plan view — visit list */
+.mw-visit-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.1s ease;
+}
+
+.mw-visit-row:hover {
+  background: #f9fafb;
+}
+
+.mw-visit-row:last-child {
+  border-bottom: none;
+}
+
+.mw-visit-date {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #333;
+  min-width: 100px;
+}
+
+.mw-visit-time {
+  font-size: 0.8rem;
+  color: #666;
+  min-width: 80px;
+}
+
+.mw-visit-crew {
+  font-size: 0.8rem;
+  color: #555;
+  min-width: 100px;
+}
+
+.mw-visit-status {
+  min-width: 90px;
+}
+
+.mw-visit-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.mw-visit-actions .btn {
+  padding: 2px 8px;
+  font-size: 0.75rem;
+}
+
+/* Plan detail grid */
+.mw-plan-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+@media (max-width: 768px) {
+  .mw-plan-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .mw-calendar-week {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mw-plan-detail-col {
+  padding: 0 16px;
+}
+
+.mw-plan-detail-col:first-child {
+  border-right: 1px solid #eee;
+}
+
+.mw-plan-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f5f5f5;
+  font-size: 0.85rem;
+}
+
+.mw-plan-detail-row:last-child {
+  border-bottom: none;
+}
+
+.mw-plan-detail-label {
+  color: #888;
+  font-weight: 500;
+}
+
+.mw-plan-detail-value {
+  color: #222;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* Plan stats row */
+.mw-plan-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.mw-plan-stat-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.mw-plan-stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--mw-green);
+}
+
+.mw-plan-stat-label {
+  font-size: 0.75rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+@media (max-width: 576px) {
+  .mw-plan-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .mw-stop-card { padding: 6px 8px; }
+  .mw-visit-row { flex-wrap: wrap; }
 }
