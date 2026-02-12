@@ -19,6 +19,7 @@ $GLOBALS['crm_error_handler'] = $errorHandler;
 
 // Handle form submissions
 $action = $_GET['action'] ?? null;
+if ($action === 'create') $action = 'new'; // alias from job create page
 $clientId = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $message = '';
 $messageType = '';
@@ -279,85 +280,111 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $action = $_POST['action'] ?? null;
 
         if ($action === 'save_client') {
-            // Save new or existing client with contact
+            // ── Contact fields ──
             $firstName = trim($_POST['first_name'] ?? '');
             $lastName = trim($_POST['last_name'] ?? '');
-            $companyMode = $_POST['company_mode'] ?? 'existing';  // 'existing' or 'new'
+            $email = trim($_POST['email'] ?? '');
+            $phone = trim($_POST['phone'] ?? '');
+            $mobile = trim($_POST['mobile'] ?? '');
+            $preferredContact = $_POST['preferred_contact_method'] ?? 'phone';
+            $receiveSms = isset($_POST['receive_sms']) ? 1 : 0;
+            $receiveMarketing = isset($_POST['receive_marketing']) ? 1 : 0;
+            $consentQuoteFollowup = isset($_POST['consent_quote_followup']) ? 1 : 0;
+            $notes = trim($_POST['notes'] ?? '');
+
+            // ── Optional company fields ──
+            $linkCompany = isset($_POST['link_company']) ? true : false;
+            $companyMode = $_POST['company_mode'] ?? 'new';
             $companyId = isset($_POST['company_id']) ? intval($_POST['company_id']) : 0;
             $companyName = trim($_POST['company_name'] ?? '');
             $companyType = $_POST['company_type'] ?? 'individual';
-            $billingEmail = trim($_POST['billing_email'] ?? '');
-            $billingPhone = trim($_POST['billing_phone'] ?? '');
             $billingAddress = trim($_POST['billing_address'] ?? '');
             $billingCity = trim($_POST['billing_city'] ?? 'Vancouver');
             $billingProvince = trim($_POST['billing_province'] ?? 'BC');
             $billingPostalCode = trim($_POST['billing_postal_code'] ?? '');
             $accountStatus = $_POST['account_status'] ?? 'active';
             $paymentTerms = $_POST['payment_terms'] ?? 'Net 30';
-            $notes = trim($_POST['notes'] ?? '');
             $prefAttachPdf = isset($_POST['pref_attach_pdf']) ? 1 : 0;
 
-            // Validate contact fields
+            // Validate
             if (empty($firstName)) {
                 $message = 'Please enter a first name.';
                 $messageType = 'error';
             } elseif (empty($lastName)) {
                 $message = 'Please enter a last name.';
                 $messageType = 'error';
-            } elseif ($companyMode === 'new' && empty($companyName)) {
-                $message = 'Please enter a company/client name.';
+            } elseif ($linkCompany && $companyMode === 'new' && empty($companyName)) {
+                $message = 'Please enter a company name.';
                 $messageType = 'error';
-            } elseif ($companyMode === 'existing' && !$companyId) {
-                $message = 'Please select a company or create a new one.';
+            } elseif ($linkCompany && $companyMode === 'existing' && !$companyId) {
+                $message = 'Please select a company.';
                 $messageType = 'error';
             } else {
                 try {
                     $db->beginTransaction();
 
-                    // Create or update contact
+                    // Ensure mobile column exists (safe migration)
+                    try {
+                        $colCheck = $db->query("SHOW COLUMNS FROM contacts LIKE 'mobile'")->fetchAll();
+                        if (count($colCheck) === 0) {
+                            $db->exec("ALTER TABLE contacts ADD COLUMN mobile VARCHAR(50) AFTER phone");
+                        }
+                    } catch (Exception $ignore) {}
+
+                    // Create contact with all fields
                     $stmt = $db->prepare("
-                        INSERT INTO contacts (first_name, last_name, email, phone, is_active)
-                        VALUES (?, ?, ?, ?, 1)
+                        INSERT INTO contacts (
+                            first_name, last_name, email, phone, mobile,
+                            preferred_contact_method, receive_sms, receive_marketing,
+                            consent_quote_followup, consent_marketing_email, consent_sms,
+                            consent_source, prospect_status, notes, is_active
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'crm_manual', 'prospect', ?, 1)
                     ");
-                    $stmt->execute([$firstName, $lastName, $billingEmail, $billingPhone]);
+                    $stmt->execute([
+                        $firstName, $lastName, $email, $phone, $mobile,
+                        $preferredContact, $receiveSms, $receiveMarketing,
+                        $consentQuoteFollowup, $receiveMarketing, $receiveSms,
+                        $notes
+                    ]);
                     $contactId = $db->lastInsertId();
 
-                    if ($companyMode === 'new') {
-                        // Create new company linked to contact
-                        $stmt = $db->prepare("
-                            INSERT INTO companies (
-                                company_name, company_type, primary_contact_id, billing_contact_id,
-                                billing_email, billing_phone, billing_address, billing_city,
-                                billing_province, billing_postal_code, account_status, payment_terms,
-                                notes, pref_attach_pdf
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ");
-                        $stmt->execute([
-                            $companyName, $companyType, $contactId, $contactId,
-                            $billingEmail, $billingPhone, $billingAddress, $billingCity,
-                            $billingProvince, $billingPostalCode, $accountStatus, $paymentTerms,
-                            $notes, $prefAttachPdf
-                        ]);
-                        $clientId = $db->lastInsertId();
-                        $message = 'Client and contact created successfully!';
+                    if ($linkCompany) {
+                        if ($companyMode === 'new') {
+                            $stmt = $db->prepare("
+                                INSERT INTO companies (
+                                    company_name, company_type, primary_contact_id, billing_contact_id,
+                                    billing_email, billing_phone, billing_address, billing_city,
+                                    billing_province, billing_postal_code, account_status, payment_terms,
+                                    pref_attach_pdf
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ");
+                            $stmt->execute([
+                                $companyName, $companyType, $contactId, $contactId,
+                                $email, $phone, $billingAddress, $billingCity,
+                                $billingProvince, $billingPostalCode, $accountStatus, $paymentTerms,
+                                $prefAttachPdf
+                            ]);
+                            $message = 'Contact and company created successfully!';
+                        } else {
+                            $stmt = $db->prepare("
+                                UPDATE companies SET primary_contact_id = ?, billing_contact_id = ?
+                                WHERE id = ?
+                            ");
+                            $stmt->execute([$contactId, $contactId, $companyId]);
+                            $message = 'Contact created and linked to company!';
+                        }
                         $messageType = 'success';
                     } else {
-                        // Add contact to existing company as primary contact
-                        $stmt = $db->prepare("
-                            UPDATE companies SET primary_contact_id = ?, billing_contact_id = ?
-                            WHERE id = ?
-                        ");
-                        $stmt->execute([$contactId, $contactId, $companyId]);
-                        $clientId = $companyId;
-                        $message = 'Contact added to company successfully!';
+                        $message = 'Contact created successfully!';
                         $messageType = 'success';
                     }
 
                     $db->commit();
+                    $action = null; // Return to list view
                 } catch (PDOException $e) {
                     $db->rollBack();
-                    $errorHandler->logDatabaseError($e, '', [], 'Failed to save client. Please try again.');
-                    $message = 'Failed to save client. Please try again.';
+                    $errorHandler->logDatabaseError($e, '', [], 'Failed to save contact. Please try again.');
+                    $message = 'Failed to save contact. Please try again.';
                     $messageType = 'error';
                 }
             }
@@ -502,49 +529,138 @@ $unconvertedRequests = $db->query("
           <?php endif; ?>
 
           <?php if ($action === 'edit' || $action === 'new'): ?>
-            <!-- Client Form -->
-            <div class="card mb-4">
-              <div class="card-header">
-                <h5 class="card-title mb-0">
-                  <?php echo $clientId ? 'Add Contact to Client' : 'New Client & Contact'; ?>
-                </h5>
-              </div>
-              <div class="card-body">
-                <form method="POST">
-                  <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
-                  <input type="hidden" name="action" value="save_client">
+            <!-- New Contact Form -->
+            <form method="POST" id="contactForm">
+              <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
+              <input type="hidden" name="action" value="save_client">
 
-                  <!-- Contact Information (Required) -->
-                  <h6 class="mb-3"><strong>Contact Person Information</strong></h6>
+              <!-- Card 1: Contact Information -->
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="user"></i> Contact Information</h5>
+                </div>
+                <div class="card-body">
                   <div class="row">
                     <div class="col-md-6">
                       <div class="form-group">
-                        <label>First Name *</label>
+                        <label>First Name <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="first_name" required
-                          value="<?php echo h($_POST['first_name'] ?? ''); ?>">
+                          value="<?php echo h($_POST['first_name'] ?? ''); ?>"
+                          placeholder="e.g. John">
                       </div>
                     </div>
                     <div class="col-md-6">
                       <div class="form-group">
-                        <label>Last Name *</label>
+                        <label>Last Name <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="last_name" required
-                          value="<?php echo h($_POST['last_name'] ?? ''); ?>">
+                          value="<?php echo h($_POST['last_name'] ?? ''); ?>"
+                          placeholder="e.g. Smith">
                       </div>
                     </div>
                   </div>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" class="form-control" name="email"
+                          value="<?php echo h($_POST['email'] ?? ''); ?>"
+                          placeholder="john@example.com">
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Phone</label>
+                        <input type="tel" class="form-control" name="phone"
+                          value="<?php echo h($_POST['phone'] ?? ''); ?>"
+                          placeholder="604-555-1234">
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Cell / Mobile</label>
+                        <input type="tel" class="form-control" name="mobile"
+                          value="<?php echo h($_POST['mobile'] ?? ''); ?>"
+                          placeholder="604-555-5678">
+                        <small class="form-text text-muted">Used for SMS notifications</small>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="form-group mb-0">
+                    <label>Notes</label>
+                    <textarea class="form-control" name="notes" rows="2" placeholder="Any additional info..."><?php echo h($_POST['notes'] ?? ''); ?></textarea>
+                  </div>
+                </div>
+              </div>
 
-                  <hr class="my-4">
+              <!-- Card 2: Communication Preferences -->
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="message-circle"></i> Communication Preferences</h5>
+                </div>
+                <div class="card-body">
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Preferred Contact Method</label>
+                        <select class="form-control" name="preferred_contact_method">
+                          <option value="phone" <?php echo ($_POST['preferred_contact_method'] ?? 'phone') === 'phone' ? 'selected' : ''; ?>>Phone</option>
+                          <option value="email" <?php echo ($_POST['preferred_contact_method'] ?? '') === 'email' ? 'selected' : ''; ?>>Email</option>
+                          <option value="text" <?php echo ($_POST['preferred_contact_method'] ?? '') === 'text' ? 'selected' : ''; ?>>Text / SMS</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mw-comm-prefs">
+                    <div class="custom-control custom-checkbox">
+                      <input type="checkbox" class="custom-control-input" id="receiveSms" name="receive_sms"
+                        <?php echo isset($_POST['receive_sms']) ? 'checked' : ''; ?>>
+                      <label class="custom-control-label" for="receiveSms">
+                        OK to send SMS notifications
+                        <small class="d-block text-muted">Job reminders, schedule changes, etc.</small>
+                      </label>
+                    </div>
+                    <div class="custom-control custom-checkbox">
+                      <input type="checkbox" class="custom-control-input" id="receiveMarketing" name="receive_marketing"
+                        <?php echo isset($_POST['receive_marketing']) ? 'checked' : ''; ?>>
+                      <label class="custom-control-label" for="receiveMarketing">
+                        OK to send marketing emails
+                        <small class="d-block text-muted">Seasonal offers, newsletters</small>
+                      </label>
+                    </div>
+                    <div class="custom-control custom-checkbox">
+                      <input type="checkbox" class="custom-control-input" id="consentQuoteFollowup" name="consent_quote_followup"
+                        <?php echo isset($_POST['consent_quote_followup']) ? 'checked' : ''; ?>>
+                      <label class="custom-control-label" for="consentQuoteFollowup">
+                        Consent to quote follow-up
+                        <small class="d-block text-muted">Allow follow-up after sending a quote</small>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                  <!-- Company Selection or Creation -->
-                  <h6 class="mb-3"><strong>Company/Client</strong></h6>
+              <!-- Card 3: Company (Optional) -->
+              <div class="card mb-3">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                  <h5 class="card-title mb-0"><i data-feather="briefcase"></i> Company</h5>
+                  <div class="custom-control custom-switch">
+                    <input type="checkbox" class="custom-control-input" id="linkCompanyToggle" name="link_company"
+                      <?php echo isset($_POST['link_company']) ? 'checked' : ''; ?>>
+                    <label class="custom-control-label" for="linkCompanyToggle">Link to a company</label>
+                  </div>
+                </div>
+                <div class="card-body mw-company-section" id="companySection" style="display: none;">
+                  <!-- Company mode: existing or new -->
                   <div class="row mb-3">
                     <div class="col-md-12">
                       <div class="btn-group btn-block" role="group">
-                        <input type="radio" class="btn-check" name="company_mode" id="company_mode_existing" value="existing" checked>
+                        <input type="radio" class="btn-check" name="company_mode" id="company_mode_existing" value="existing">
                         <label class="btn btn-outline-secondary" for="company_mode_existing">
                           Link to Existing Company
                         </label>
-                        <input type="radio" class="btn-check" name="company_mode" id="company_mode_new" value="new">
+                        <input type="radio" class="btn-check" name="company_mode" id="company_mode_new" value="new" checked>
                         <label class="btn btn-outline-secondary" for="company_mode_new">
                           Create New Company
                         </label>
@@ -553,77 +669,57 @@ $unconvertedRequests = $db->query("
                   </div>
 
                   <!-- Existing Company Selection -->
-                  <div id="existing-company-section">
-                    <div class="row">
-                      <div class="col-md-12">
-                        <div class="form-group">
-                          <label>Select Company *</label>
-                          <select class="form-control" name="company_id" id="company_id">
-                            <option value="">-- Select a company --</option>
-                            <?php
-                              $companies = $db->query("SELECT id, company_name, company_type FROM companies ORDER BY company_name")->fetchAll();
-                              foreach ($companies as $comp): ?>
-                              <option value="<?php echo (int)$comp['id']; ?>">
-                                <?php echo h($comp['company_name']); ?> (<?php echo ucwords(str_replace('_', ' ', $comp['company_type'])); ?>)
-                              </option>
-                            <?php endforeach; ?>
-                          </select>
-                        </div>
-                      </div>
+                  <div id="existing-company-section" style="display: none;">
+                    <div class="form-group">
+                      <label>Select Company</label>
+                      <select class="form-control" name="company_id" id="company_id">
+                        <option value="">-- Select a company --</option>
+                        <?php
+                          $existingCompanies = $db->query("SELECT id, company_name, company_type FROM companies ORDER BY company_name")->fetchAll();
+                          foreach ($existingCompanies as $comp): ?>
+                          <option value="<?php echo (int)$comp['id']; ?>"
+                            <?php echo (intval($_POST['company_id'] ?? 0) === (int)$comp['id']) ? 'selected' : ''; ?>>
+                            <?php echo h($comp['company_name']); ?> (<?php echo ucwords(str_replace('_', ' ', $comp['company_type'])); ?>)
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
                     </div>
                   </div>
 
                   <!-- New Company Information -->
-                  <div id="new-company-section" style="display: none;">
+                  <div id="new-company-section">
                     <div class="row">
                       <div class="col-md-6">
                         <div class="form-group">
-                          <label>Company/Client Name *</label>
+                          <label>Company Name</label>
                           <input type="text" class="form-control" name="company_name"
-                            value="<?php echo h($_POST['company_name'] ?? ''); ?>">
+                            value="<?php echo h($_POST['company_name'] ?? ''); ?>"
+                            placeholder="e.g. Smith Landscaping Ltd.">
                         </div>
                       </div>
                       <div class="col-md-6">
                         <div class="form-group">
                           <label>Type</label>
                           <select class="form-control" name="company_type">
-                            <option value="individual">Individual</option>
-                            <option value="business">Business</option>
-                            <option value="strata">Strata</option>
-                            <option value="property_manager">Property Manager</option>
+                            <option value="individual" <?php echo ($_POST['company_type'] ?? 'individual') === 'individual' ? 'selected' : ''; ?>>Individual</option>
+                            <option value="business" <?php echo ($_POST['company_type'] ?? '') === 'business' ? 'selected' : ''; ?>>Business</option>
+                            <option value="strata" <?php echo ($_POST['company_type'] ?? '') === 'strata' ? 'selected' : ''; ?>>Strata</option>
+                            <option value="property_manager" <?php echo ($_POST['company_type'] ?? '') === 'property_manager' ? 'selected' : ''; ?>>Property Manager</option>
                           </select>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <hr class="my-4">
+                  <hr>
 
-                  <!-- Billing Information -->
-                  <h6 class="mb-3"><strong>Billing Information</strong></h6>
-                  <div class="row">
-                    <div class="col-md-6">
-                      <div class="form-group">
-                        <label>Billing Email</label>
-                        <input type="email" class="form-control" name="billing_email"
-                          value="<?php echo h($_POST['billing_email'] ?? ''); ?>">
-                      </div>
-                    </div>
-                    <div class="col-md-6">
-                      <div class="form-group">
-                        <label>Billing Phone</label>
-                        <input type="tel" class="form-control" name="billing_phone"
-                          value="<?php echo h($_POST['billing_phone'] ?? ''); ?>">
-                      </div>
-                    </div>
-                  </div>
-
+                  <!-- Billing / Account info (only when company is linked) -->
+                  <h6 class="mb-3"><strong>Billing &amp; Account</strong></h6>
                   <div class="form-group">
                     <label>Billing Address</label>
                     <input type="text" class="form-control" name="billing_address"
                       value="<?php echo h($_POST['billing_address'] ?? ''); ?>">
                   </div>
-
                   <div class="row">
                     <div class="col-md-4">
                       <div class="form-group">
@@ -647,9 +743,8 @@ $unconvertedRequests = $db->query("
                       </div>
                     </div>
                   </div>
-
                   <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                       <div class="form-group">
                         <label>Account Status</label>
                         <select class="form-control" name="account_status">
@@ -659,50 +754,36 @@ $unconvertedRequests = $db->query("
                         </select>
                       </div>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                       <div class="form-group">
                         <label>Payment Terms</label>
                         <input type="text" class="form-control" name="payment_terms"
                           value="<?php echo h($_POST['payment_terms'] ?? 'Net 30'); ?>">
                       </div>
                     </div>
-                  </div>
-
-                  <div class="form-group">
-                    <label>Notes</label>
-                    <textarea class="form-control" name="notes" rows="3"><?php echo h($_POST['notes'] ?? ''); ?></textarea>
-                  </div>
-
-                  <hr>
-
-                  <div class="form-group">
-                    <h5>Email Preferences</h5>
-                    <div class="custom-control custom-checkbox">
-                      <input type="checkbox" class="custom-control-input" id="prefAttachPdf" name="pref_attach_pdf"
-                        <?php echo ($client['pref_attach_pdf'] ?? 1) ? 'checked' : ''; ?>>
-                      <label class="custom-control-label" for="prefAttachPdf">
-                        Attach PDF to quote emails
-                        <small class="d-block text-muted mt-1">When enabled, quote PDFs are automatically attached to email sent to this client</small>
-                      </label>
+                    <div class="col-md-4">
+                      <div class="form-group">
+                        <label>&nbsp;</label>
+                        <div class="custom-control custom-checkbox mt-2">
+                          <input type="checkbox" class="custom-control-input" id="prefAttachPdf" name="pref_attach_pdf" checked>
+                          <label class="custom-control-label" for="prefAttachPdf">Attach PDF to quote emails</label>
+                        </div>
+                      </div>
                     </div>
                   </div>
-
-                  <div class="form-group mt-4">
-                    <button type="submit" class="btn btn-primary">
-                      <i data-feather="save"></i> Save Client
-                    </button>
-                    <a href="clients_appstack.php" class="btn btn-secondary">
-                      <i data-feather="x"></i> Cancel
-                    </a>
-                    <?php if ($clientId): ?>
-                      <button type="button" class="btn btn-danger float-right" onclick="if(confirm('Delete this client?')) { location.href='?action=delete_client&id=<?php echo $clientId; ?>'; }">
-                        <i data-feather="trash-2"></i> Delete
-                      </button>
-                    <?php endif; ?>
-                  </div>
-                </form>
+                </div>
               </div>
-            </div>
+
+              <!-- Submit -->
+              <div class="form-group mt-3">
+                <button type="submit" class="btn btn-primary btn-lg">
+                  <i data-feather="save"></i> Save Contact
+                </button>
+                <a href="clients_appstack.php" class="btn btn-secondary btn-lg ml-2">
+                  <i data-feather="x"></i> Cancel
+                </a>
+              </div>
+            </form>
 
           <?php else: ?>
             <!-- View Toggle -->
@@ -1377,33 +1458,41 @@ $unconvertedRequests = $db->query("
               alert('Company: ' + companyName + '\nID: ' + companyId);
             }
 
-            // Toggle between existing and new company modes
+            // Company toggle and mode switching
             document.addEventListener('DOMContentLoaded', function() {
               setupKanbanDragDrop();
               setupViewToggle();
+
+              // Company link toggle
+              const linkToggle = document.getElementById('linkCompanyToggle');
+              const companySection = document.getElementById('companySection');
               const existingRadio = document.getElementById('company_mode_existing');
               const newRadio = document.getElementById('company_mode_new');
               const existingSection = document.getElementById('existing-company-section');
               const newSection = document.getElementById('new-company-section');
-              const companyIdSelect = document.getElementById('company_id');
-              const companyNameInput = document.querySelector('input[name="company_name"]');
 
-              function updateCompanyMode() {
-                if (newRadio.checked) {
-                  existingSection.style.display = 'none';
-                  newSection.style.display = 'block';
-                  companyIdSelect.removeAttribute('required');
-                  companyNameInput.setAttribute('required', 'required');
-                } else {
-                  existingSection.style.display = 'block';
-                  newSection.style.display = 'none';
-                  companyIdSelect.setAttribute('required', 'required');
-                  companyNameInput.removeAttribute('required');
+              if (linkToggle) {
+                function toggleCompanySection() {
+                  companySection.style.display = linkToggle.checked ? 'block' : 'none';
                 }
+                linkToggle.addEventListener('change', toggleCompanySection);
+                toggleCompanySection(); // apply initial state
               }
 
-              existingRadio.addEventListener('change', updateCompanyMode);
-              newRadio.addEventListener('change', updateCompanyMode);
+              if (existingRadio && newRadio) {
+                function updateCompanyMode() {
+                  if (existingRadio.checked) {
+                    existingSection.style.display = 'block';
+                    newSection.style.display = 'none';
+                  } else {
+                    existingSection.style.display = 'none';
+                    newSection.style.display = 'block';
+                  }
+                }
+                existingRadio.addEventListener('change', updateCompanyMode);
+                newRadio.addEventListener('change', updateCompanyMode);
+                updateCompanyMode(); // apply initial state
+              }
             });
 
             function convertToProspect(requestId, contactName) {

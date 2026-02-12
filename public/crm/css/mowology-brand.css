@@ -6517,3 +6517,40 @@ textarea.font-monospace {
   font-weight: 600;
   color: var(--mw-dark);
 }
+
+/* ── New Contact Form ───────────────────────────────── */
+
+.mw-comm-prefs {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.mw-comm-prefs .custom-control {
+  padding: 10px 10px 10px 36px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 0.25rem;
+}
+.mw-comm-prefs .custom-control:hover {
+  background: var(--mw-light);
+  border-color: var(--mw-green);
+}
+.mw-comm-prefs .custom-control-label small {
+  font-size: 0.8rem;
+}
+
+.mw-company-section {
+  border-top: 2px solid var(--mw-light);
+}
+
+/* Company toggle switch in card header */
+#linkCompanyToggle:checked + .custom-control-label::before {
+  background-color: var(--mw-green);
+  border-color: var(--mw-green);
+}
+
+@media (min-width: 576px) {
+  .mw-comm-prefs {
+    grid-template-columns: 1fr 1fr;
+  }
+}
