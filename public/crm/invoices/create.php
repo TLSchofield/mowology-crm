@@ -12,30 +12,70 @@ $db = getDB();
 $error = '';
 $prefill = [];
 
-// Check if creating from job
+// Check if creating from visit or legacy job
+$visitId = isset($_GET['visit_id']) ? intval($_GET['visit_id']) : 0;
 $jobId = isset($_GET['job_id']) ? intval($_GET['job_id']) : 0;
 
-if ($jobId) {
+if ($visitId) {
+    // New path: create invoice from a completed visit
     $stmt = $db->prepare("
-        SELECT j.*, c.company_name, p.address, p.city
-        FROM jobs j
-        JOIN companies c ON j.company_id = c.id
-        JOIN properties p ON j.property_id = p.id
-        WHERE j.id = ? AND j.status = 'completed'
+        SELECT jv.id as visit_id, jv.visit_number, jv.actual_amount,
+               jv.plan_id, jv.scheduled_date,
+               jp.plan_number, jp.title, jp.price_per_visit, jp.estimated_amount,
+               jp.property_id, jp.company_id,
+               c.company_name,
+               p.address, p.city
+        FROM job_visits jv
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        JOIN companies c ON jp.company_id = c.id
+        JOIN properties p ON jp.property_id = p.id
+        WHERE jv.id = ? AND jv.status = 'completed'
     ");
-    $stmt->execute([$jobId]);
-    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt->execute([$visitId]);
+    $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($job) {
+    if ($visit) {
+        $visitAmount = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
         $prefill = [
-            'company_id' => $job['company_id'],
-            'property_id' => $job['property_id'],
-            'job_id' => $jobId,
-            'description' => $job['title'],
-            'amount' => $job['actual_amount'] ?: $job['estimated_amount'],
-            'company_name' => $job['company_name'],
-            'property_address' => $job['address'] . ', ' . $job['city']
+            'company_id' => $visit['company_id'],
+            'property_id' => $visit['property_id'],
+            'visit_id' => $visitId,
+            'plan_id' => $visit['plan_id'],
+            'description' => $visit['title'] . ' — Visit ' . $visit['visit_number'],
+            'amount' => $visitAmount,
+            'company_name' => $visit['company_name'],
+            'property_address' => $visit['address'] . ', ' . $visit['city'],
+            'visit_number' => $visit['visit_number'],
+            'plan_number' => $visit['plan_number']
         ];
+    }
+} elseif ($jobId) {
+    // Legacy path: create invoice from old jobs table
+    try {
+        $stmt = $db->prepare("
+            SELECT j.*, c.company_name, p.address, p.city
+            FROM jobs j
+            JOIN companies c ON j.company_id = c.id
+            JOIN properties p ON j.property_id = p.id
+            WHERE j.id = ? AND j.status = 'completed'
+        ");
+        $stmt->execute([$jobId]);
+        $job = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($job) {
+            $prefill = [
+                'company_id' => $job['company_id'],
+                'property_id' => $job['property_id'],
+                'job_id' => $jobId,
+                'description' => $job['title'],
+                'amount' => $job['actual_amount'] ?: $job['estimated_amount'],
+                'company_name' => $job['company_name'],
+                'property_address' => $job['address'] . ', ' . $job['city']
+            ];
+        }
+    } catch (PDOException $e) {
+        // jobs table may not exist in future — silently skip
+        error_log("Legacy jobs table query failed: " . $e->getMessage());
     }
 }
 
@@ -53,6 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $companyId = intval($_POST['company_id'] ?? 0);
         $linkedJobId = intval($_POST['job_id'] ?? 0);
+        $linkedVisitId = intval($_POST['visit_id'] ?? 0);
+        $linkedPlanId = intval($_POST['plan_id'] ?? 0);
         $propertyId = intval($_POST['property_id'] ?? 0);
         $issueDate = $_POST['issue_date'] ?? date('Y-m-d');
         $dueDate = $_POST['due_date'] ?? date('Y-m-d', strtotime('+30 days'));
@@ -106,19 +148,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $db->prepare("
                     INSERT INTO invoices (
                         invoice_number, company_id, property_id, job_id,
+                        plan_id, visit_id,
                         issue_date, due_date, subtotal, tax_rate, tax_amount,
                         total, balance_due, notes, access_token, token_expires_at,
                         service_address, service_city, service_province, service_postal_code,
                         billing_address, billing_city, billing_province, billing_postal_code,
                         address_differs,
                         status, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
                 ");
                 $stmt->execute([
                     $invoiceNumber,
                     $companyId,
                     $propertyId ?: null,
                     $linkedJobId ?: null,
+                    $linkedPlanId ?: null,
+                    $linkedVisitId ?: null,
                     $issueDate,
                     $dueDate,
                     $subtotal,
@@ -144,15 +189,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Add line item
                 $stmt = $db->prepare("
-                    INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, job_id)
-                    VALUES (?, ?, 1, ?, ?, ?)
+                    INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, job_id, visit_id)
+                    VALUES (?, ?, 1, ?, ?, ?, ?)
                 ");
                 $stmt->execute([
                     $invoiceId,
                     $description ?: 'Services rendered',
                     $subtotal,
                     $subtotal,
-                    $linkedJobId ?: null
+                    $linkedJobId ?: null,
+                    $linkedVisitId ?: null
                 ]);
 
                 // Phase 2-3: Insert selected recipients into invoice_contacts table
@@ -202,7 +248,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $details .= " (SMS to: " . count($smsRecipients) . " recipients)";
                 }
 
-                logActivityExtended($user['id'], 'Invoice created', $details, $companyId, $linkedJobId, null, $invoiceId);
+                logActivityExtended($user['id'], 'Invoice created', $details, $companyId, $linkedJobId, null, $invoiceId, $linkedPlanId ?: null, $linkedVisitId ?: null);
 
                 $db->commit();
 
@@ -228,13 +274,27 @@ $activePage = 'invoices';
             <a href="index.php" class="mw-back-link">&larr; Back to Invoices</a>
 
             <h1 class="h3 mb-3">Create Invoice</h1>
-            <p class="text-muted mb-4"><?php echo $jobId ? 'Creating invoice from completed job' : 'Create a new invoice'; ?></p>
+            <p class="text-muted mb-4"><?php
+                if ($visitId && isset($visit)) {
+                    echo 'Creating invoice from completed visit';
+                } elseif ($jobId && isset($job)) {
+                    echo 'Creating invoice from completed job';
+                } else {
+                    echo 'Create a new invoice';
+                }
+            ?></p>
 
             <?php if ($error): ?>
                 <div class="mw-error-message"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
 
-            <?php if ($jobId && isset($job)): ?>
+            <?php if ($visitId && isset($visit)): ?>
+                <div class="mw-info-banner">
+                    <strong>Creating from Visit <?php echo htmlspecialchars($visit['visit_number']); ?></strong><br>
+                    Plan: <?php echo htmlspecialchars($visit['plan_number'] . ' — ' . $visit['title']); ?><br>
+                    <?php echo htmlspecialchars($visit['company_name']); ?> - <?php echo htmlspecialchars($visit['address']); ?>
+                </div>
+            <?php elseif ($jobId && isset($job)): ?>
                 <div class="mw-info-banner">
                     <strong>Creating from Job <?php echo htmlspecialchars($job['job_number']); ?></strong><br>
                     <?php echo htmlspecialchars($job['company_name']); ?> - <?php echo htmlspecialchars($job['address']); ?>
@@ -244,6 +304,8 @@ $activePage = 'invoices';
             <form method="POST" id="invoiceForm">
                 <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                 <input type="hidden" name="job_id" value="<?php echo $prefill['job_id'] ?? ''; ?>">
+                <input type="hidden" name="visit_id" value="<?php echo $prefill['visit_id'] ?? ''; ?>">
+                <input type="hidden" name="plan_id" value="<?php echo $prefill['plan_id'] ?? ''; ?>">
                 <input type="hidden" name="property_id" id="propertyIdInput" value="<?php echo $prefill['property_id'] ?? ''; ?>">
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
 
@@ -253,7 +315,7 @@ $activePage = 'invoices';
 
                         <div class="mw-form-group">
                             <label class="form-label">Customer *</label>
-                            <?php if ($jobId && isset($prefill['company_id'])): ?>
+                            <?php if (($jobId || $visitId) && isset($prefill['company_id'])): ?>
                                 <input type="hidden" name="company_id" value="<?php echo $prefill['company_id']; ?>">
                                 <input type="text" class="form-control" value="<?php echo htmlspecialchars($prefill['company_name']); ?>" readonly>
                             <?php else: ?>

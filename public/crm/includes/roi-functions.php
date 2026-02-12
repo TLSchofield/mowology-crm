@@ -70,10 +70,10 @@ function logConversionEvent(
 }
 
 /**
- * Create ROI attribution record for a job
+ * Create ROI attribution record for a job plan
  */
 function createROIAttribution(
-    int $jobId,
+    int $planId,
     ?int $leadEventId = null,
     ?string $sourceCampaign = null,
     ?float $estimatedValue = null
@@ -83,7 +83,7 @@ function createROIAttribution(
 
         $stmt = $db->prepare("
             INSERT INTO roi_attribution (
-                job_id, lead_event_id, source_campaign, estimated_value,
+                plan_id, lead_event_id, source_campaign, estimated_value,
                 created_at
             ) VALUES (?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE
@@ -92,7 +92,7 @@ function createROIAttribution(
                 estimated_value = COALESCE(VALUES(estimated_value), estimated_value)
         ");
 
-        $stmt->execute([$jobId, $leadEventId, $sourceCampaign, $estimatedValue]);
+        $stmt->execute([$planId, $leadEventId, $sourceCampaign, $estimatedValue]);
         return true;
     } catch (Throwable $e) {
         error_log("createROIAttribution error: " . $e->getMessage());
@@ -146,13 +146,13 @@ function getROIFunnelStats(
         $stmt->execute($params);
         $quoteRequests = (int)$stmt->fetch()['count'];
 
-        // Jobs created
+        // Jobs created (job plans)
         $stmt = $db->prepare("
-            SELECT COUNT(DISTINCT j.id) as count
-            FROM jobs j
-            JOIN roi_attribution ra ON j.id = ra.job_id
+            SELECT COUNT(DISTINCT jp.id) as count
+            FROM job_plans jp
+            JOIN roi_attribution ra ON jp.id = ra.plan_id
             JOIN lead_events le ON ra.lead_event_id = le.id
-            WHERE j.status IN ('completed', 'in_progress') AND $whereClause
+            WHERE jp.status IN ('active', 'completed') AND $whereClause
         ");
         $stmt->execute($params);
         $jobsCompleted = (int)$stmt->fetch()['count'];
@@ -161,8 +161,8 @@ function getROIFunnelStats(
         $stmt = $db->prepare("
             SELECT SUM(i.amount_paid) as total_revenue
             FROM invoices i
-            JOIN jobs j ON i.job_id = j.id
-            JOIN roi_attribution ra ON j.id = ra.job_id
+            JOIN job_plans jp ON i.plan_id = jp.id
+            JOIN roi_attribution ra ON jp.id = ra.plan_id
             JOIN lead_events le ON ra.lead_event_id = le.id
             WHERE i.status IN ('paid', 'partial') AND $whereClause
         ");
@@ -216,13 +216,13 @@ function getRevenueBySource(
                 le.utm_campaign as campaign,
                 COUNT(DISTINCT le.id) as leads,
                 COUNT(DISTINCT CASE WHEN ce.event_type = 'quote_request' THEN ce.id END) as quote_requests,
-                COUNT(DISTINCT j.id) as jobs,
+                COUNT(DISTINCT jp.id) as jobs,
                 SUM(i.amount_paid) as revenue
             FROM lead_events le
             LEFT JOIN conversion_events ce ON le.id = ce.lead_event_id
             LEFT JOIN roi_attribution ra ON le.id = ra.lead_event_id
-            LEFT JOIN jobs j ON ra.job_id = j.id
-            LEFT JOIN invoices i ON j.id = i.job_id AND i.status IN ('paid', 'partial')
+            LEFT JOIN job_plans jp ON ra.plan_id = jp.id
+            LEFT JOIN invoices i ON jp.id = i.plan_id AND i.status IN ('paid', 'partial')
             WHERE le.created_at >= ? AND le.created_at <= ?
             GROUP BY le.utm_source, le.utm_campaign
             ORDER BY revenue DESC
@@ -264,13 +264,13 @@ function getConversionFunnelDetails(
                 GROUP_CONCAT(DISTINCT ce.event_type ORDER BY ce.event_type) as events,
                 MAX(CASE WHEN ce.event_type = 'quote_request' THEN ce.created_at END) as quote_request_date,
                 MAX(CASE WHEN ce.event_type = 'job_created' THEN ce.created_at END) as job_created_date,
-                j.job_number,
+                jp.plan_number,
                 SUM(i.amount_paid) as total_paid
             FROM lead_events le
             LEFT JOIN conversion_events ce ON le.id = ce.lead_event_id
             LEFT JOIN roi_attribution ra ON le.id = ra.lead_event_id
-            LEFT JOIN jobs j ON ra.job_id = j.id
-            LEFT JOIN invoices i ON j.id = i.job_id
+            LEFT JOIN job_plans jp ON ra.plan_id = jp.id
+            LEFT JOIN invoices i ON jp.id = i.plan_id
             WHERE le.created_at >= ? AND le.created_at <= ?
             GROUP BY le.id
             ORDER BY le.created_at DESC
@@ -420,9 +420,9 @@ function updateContactLifetimeValue(int $contactId): bool {
                 total_lifetime_value = (
                     SELECT COALESCE(SUM(i.amount_paid), 0)
                     FROM invoices i
-                    JOIN jobs j ON i.job_id = j.id
-                    JOIN quote_requests qr ON j.id = qr.id
-                    WHERE qr.contact_id = c.id AND i.status IN ('paid', 'partial')
+                    WHERE i.company_id IN (
+                        SELECT company_id FROM contacts WHERE id = c.id
+                    ) AND i.status IN ('paid', 'partial')
                 )
             WHERE c.id = ?
         ");

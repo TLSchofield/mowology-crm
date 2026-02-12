@@ -5,6 +5,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/plan-functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
 require_once dirname(__DIR__) . '/includes/roi-functions.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
@@ -218,12 +219,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     }
 
     if ($action === 'convert_to_job') {
-        $result = createJobFromQuote($quoteId, $user['id']);
+        $result = createPlanFromQuote($quoteId, (int)$user['id']);
         if ($result['success']) {
-            header("Location: ../jobs/view.php?id={$result['job_id']}&created=1");
+            header("Location: ../jobs/view.php?id={$result['plan_id']}&created=1");
             exit;
         } else {
-            $message = "Error creating job: " . $result['error'];
+            $message = "Error creating plan: " . implode(' ', $result['errors']);
             $messageType = 'error';
         }
     }
@@ -480,7 +481,7 @@ $activePage = 'quotes';
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                           <button type="submit" name="action" value="convert_to_job" class="btn btn-primary">
-                              <i data-feather="tool" class="mr-1"></i> Convert to Job
+                              <i data-feather="tool" class="mr-1"></i> Convert to Plan
                           </button>
                       </form>
                   <?php endif; ?>

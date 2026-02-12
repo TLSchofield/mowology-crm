@@ -22,8 +22,8 @@ function findNearbyProperties($crewLat, $crewLng, $radiusKm = 1) {
                     sin(radians(?)) * sin(radians(latitude))
                 )
             ) AS distance_km,
-            (SELECT COUNT(*) FROM jobs WHERE property_id = p.id AND status = 'completed') as job_count,
-            (SELECT scheduled_date FROM jobs WHERE property_id = p.id ORDER BY scheduled_date DESC LIMIT 1) as last_job_date
+            (SELECT COUNT(*) FROM job_visits jv JOIN job_plans jp ON jv.plan_id = jp.id WHERE jp.property_id = p.id AND jv.status = 'completed') as job_count,
+            (SELECT jv.scheduled_date FROM job_visits jv JOIN job_plans jp ON jv.plan_id = jp.id WHERE jp.property_id = p.id ORDER BY jv.scheduled_date DESC LIMIT 1) as last_job_date
         FROM properties p
         JOIN company_properties cp ON p.id = cp.property_id AND cp.is_primary = 1
         JOIN companies c ON cp.company_id = c.id
@@ -201,7 +201,7 @@ function createPropertyFromLocation($address, $lat, $lng, $clientId, $propertyTy
 /**
  * Log crew location for audit trail
  */
-function logCrewLocation($lat, $lng, $jobId = null) {
+function logCrewLocation($lat, $lng, $visitId = null) {
     $db = getDB();
     $userId = isset($GLOBALS['user']) ? $GLOBALS['user']['id'] : null;
 
@@ -211,10 +211,10 @@ function logCrewLocation($lat, $lng, $jobId = null) {
 
     try {
         $stmt = $db->prepare("
-            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, job_id)
+            INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id)
             VALUES (?, ?, ?, 50, ?)
         ");
-        return $stmt->execute([$userId, $lat, $lng, $jobId ?: null]);
+        return $stmt->execute([$userId, $lat, $lng, $visitId ?: null]);
     } catch (Exception $e) {
         error_log("Error logging crew location: " . $e->getMessage());
         return false;
@@ -250,12 +250,13 @@ function getRecentJobsForProperty($propertyId, $limit = 5) {
     $db = getDB();
 
     $stmt = $db->prepare("
-        SELECT j.id, j.title, sp.package_name, sp.base_price, sp.default_duration_minutes, sp.id as package_id
-        FROM jobs j
-        LEFT JOIN service_packages sp ON j.service_package_id = sp.id
-        WHERE j.property_id = ?
-        AND j.status IN ('completed', 'scheduled')
-        ORDER BY j.scheduled_date DESC
+        SELECT jv.id, jp.title, sp.package_name, sp.base_price, sp.default_duration_minutes, sp.id as package_id
+        FROM job_visits jv
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        LEFT JOIN service_packages sp ON jp.service_package_id = sp.id
+        WHERE jp.property_id = ?
+        AND jv.status IN ('completed', 'scheduled')
+        ORDER BY jv.scheduled_date DESC
         LIMIT ?
     ");
 
@@ -264,72 +265,54 @@ function getRecentJobsForProperty($propertyId, $limit = 5) {
 }
 
 /**
- * Create job from location-based data
+ * Create a job plan from location-based data
  */
-function createJobFromLocationData($propertyId, $clientId, $packageId, $scheduledDate, $userId) {
+function createPlanFromLocationData($propertyId, $clientId, $packageId, $scheduledDate, $userId) {
     $db = getDB();
 
     try {
         // Get package defaults
-        $pkg = $db->prepare("SELECT * FROM service_packages WHERE id = ?")
-            ->execute([$packageId])
-            ->fetch(PDO::FETCH_ASSOC);
+        $stmt = $db->prepare("SELECT * FROM service_packages WHERE id = ?");
+        $stmt->execute([$packageId]);
+        $pkg = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$pkg) {
             throw new Exception('Service package not found');
         }
 
-        $jobNumber = generateJobNumber();
+        $planData = [
+            'property_id'               => $propertyId,
+            'title'                     => $pkg['package_name'],
+            'description'               => $pkg['description'] ?? '',
+            'service_type'              => $pkg['service_type'] ?? 'landscaping',
+            'service_package_id'        => $packageId,
+            'pricing_model'             => 'per_visit',
+            'price_per_visit'           => $pkg['base_price'],
+            'estimated_amount'          => $pkg['base_price'],
+            'estimated_duration_minutes' => $pkg['default_duration_minutes'] ?? 60,
+            'plan_start_date'           => $scheduledDate,
+            'is_recurring'              => 0,
+        ];
 
-        $stmt = $db->prepare("
-            INSERT INTO jobs (
-                job_number, company_id, property_id, service_package_id,
-                billing_template_id, title, description, estimated_amount,
-                estimated_duration_minutes, crew_size_required,
-                scheduled_date, status, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)
-        ");
+        // createJobPlan() is in plan-functions.php
+        $result = createJobPlan($planData, $userId);
 
-        $stmt->execute([
-            $jobNumber,
-            $clientId,
-            $propertyId,
-            $packageId,
-            $pkg['default_billing_template_id'] ?? 1,
-            $pkg['package_name'],
-            $pkg['description'],
-            $pkg['base_price'],
-            $pkg['default_duration_minutes'],
-            $pkg['default_crew_size'],
-            $scheduledDate,
-            $userId
-        ]);
-
-        $jobId = $db->lastInsertId();
-
-        // Create proof of work config
-        $proofStmt = $db->prepare("
-            INSERT INTO job_proof_of_work (
-                job_id, required_checklist_items, required_photo_types,
-                gps_required, checklist_items_that_block_completion, photo_types_that_block_completion
-            ) VALUES (?, ?, ?, ?, ?, ?)
-        ");
-
-        $proofStmt->execute([
-            $jobId,
-            $pkg['required_checklist_items'] ?? '[]',
-            $pkg['required_photo_types'] ?? '[]',
-            $pkg['gps_enforcement'] === 'required' ? 1 : 0,
-            $pkg['required_checklist_items'] ?? '[]',
-            json_encode(['before', 'after'])
-        ]);
-
-        logActivityExtended($userId, 'Job created from location', "Job #{$jobNumber}", $clientId, $jobId);
-
-        return $jobId;
+        if ($result['success']) {
+            logActivityExtended($userId, 'Plan created from location', "Plan #{$result['plan_number']}", $clientId, null, null, null, $result['plan_id']);
+            return $result['plan_id'];
+        } else {
+            throw new Exception(implode(' ', $result['errors']));
+        }
 
     } catch (Exception $e) {
-        error_log("Error creating job from location: " . $e->getMessage());
+        error_log("Error creating plan from location: " . $e->getMessage());
         throw $e;
     }
+}
+
+/**
+ * Backward compatibility alias
+ */
+function createJobFromLocationData($propertyId, $clientId, $packageId, $scheduledDate, $userId) {
+    return createPlanFromLocationData($propertyId, $clientId, $packageId, $scheduledDate, $userId);
 }

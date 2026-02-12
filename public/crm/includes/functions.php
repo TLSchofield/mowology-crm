@@ -117,12 +117,18 @@ function getStatusBadge($status, $type = 'quote') {
         'declined' => ['bg' => '#DC2626', 'text' => '#FFFFFF'],
         'expired' => ['bg' => '#F59E0B', 'text' => '#000000'],
 
-        // Job statuses
+        // Job / Visit statuses
         'scheduled' => ['bg' => '#3B82F6', 'text' => '#FFFFFF'],
         'in_progress' => ['bg' => '#F59E0B', 'text' => '#000000'],
         'completed' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
         'cancelled' => ['bg' => '#6B7280', 'text' => '#FFFFFF'],
         'on_hold' => ['bg' => '#8B5CF6', 'text' => '#FFFFFF'],
+        'skipped' => ['bg' => '#9CA3AF', 'text' => '#FFFFFF'],
+        'weather' => ['bg' => '#60A5FA', 'text' => '#FFFFFF'],
+
+        // Plan statuses
+        'active' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
+        'paused' => ['bg' => '#F59E0B', 'text' => '#000000'],
 
         // Invoice statuses
         'paid' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
@@ -144,14 +150,15 @@ function getStatusBadge($status, $type = 'quote') {
 
 /**
  * Log activity with extended fields
+ * Supports both legacy job_id and new plan_id/visit_id
  */
-function logActivityExtended($userId, $action, $details = null, $companyId = null, $jobId = null, $quoteId = null, $invoiceId = null) {
+function logActivityExtended($userId, $action, $details = null, $companyId = null, $jobId = null, $quoteId = null, $invoiceId = null, $planId = null, $visitId = null) {
     $db = getDB();
 
     try {
         $stmt = $db->prepare("
-            INSERT INTO activity_log (user_id, company_id, job_id, quote_id, invoice_id, action, details, ip_address)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO activity_log (user_id, company_id, job_id, quote_id, invoice_id, plan_id, visit_id, action, details, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
             $userId,
@@ -159,6 +166,8 @@ function logActivityExtended($userId, $action, $details = null, $companyId = nul
             $jobId,
             $quoteId,
             $invoiceId,
+            $planId,
+            $visitId,
             $action,
             $details,
             $_SERVER['REMOTE_ADDR'] ?? null
@@ -221,7 +230,9 @@ function getServiceTemplates() {
 }
 
 /**
- * Create a job from an accepted quote
+ * @deprecated Use createPlanFromQuote() in plan-functions.php instead.
+ * This function inserts into the legacy `jobs` table which will be dropped.
+ * Kept only for backward compatibility during migration.
  */
 function createJobFromQuote($quoteId, $userId) {
     $db = getDB();
@@ -355,6 +366,7 @@ function updateJobStatus($jobId, $newStatus, $userId, $notes = null) {
 
 /**
  * Get dashboard statistics
+ * Updated to use job_plans + job_visits tables
  */
 function getDashboardStats() {
     $db = getDB();
@@ -367,16 +379,43 @@ function getDashboardStats() {
         $stats['quotes'][$row['status']] = $row['count'];
     }
 
-    // Job stats
-    $stmt = $db->query("SELECT status, COUNT(*) as count FROM jobs GROUP BY status");
-    $stats['jobs'] = [];
-    while ($row = $stmt->fetch()) {
-        $stats['jobs'][$row['status']] = $row['count'];
+    // Plan stats (replaces job stats)
+    $stats['plans'] = [];
+    try {
+        $stmt = $db->query("SELECT status, COUNT(*) as count FROM job_plans GROUP BY status");
+        while ($row = $stmt->fetch()) {
+            $stats['plans'][$row['status']] = $row['count'];
+        }
+    } catch (Exception $e) {
+        // Table may not exist yet during migration
     }
 
-    // Jobs today
-    $stmt = $db->query("SELECT COUNT(*) as count FROM jobs WHERE scheduled_date = CURDATE()");
-    $stats['jobs_today'] = $stmt->fetch()['count'];
+    // Visit stats
+    $stats['visits'] = [];
+    try {
+        $stmt = $db->query("SELECT status, COUNT(*) as count FROM job_visits WHERE scheduled_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) GROUP BY status");
+        while ($row = $stmt->fetch()) {
+            $stats['visits'][$row['status']] = $row['count'];
+        }
+    } catch (Exception $e) {
+        // Table may not exist yet during migration
+    }
+
+    // Visits today
+    $stats['visits_today'] = 0;
+    try {
+        $stmt = $db->query("SELECT COUNT(*) as count FROM job_visits WHERE scheduled_date = CURDATE() AND status IN ('scheduled', 'in_progress')");
+        $stats['visits_today'] = $stmt->fetch()['count'];
+    } catch (Exception $e) {
+        // Table may not exist yet
+    }
+
+    // Backward compat: map plan stats to 'jobs' key for dashboard
+    $stats['jobs'] = [];
+    $stats['jobs']['scheduled'] = $stats['visits']['scheduled'] ?? 0;
+    $stats['jobs']['in_progress'] = $stats['visits']['in_progress'] ?? 0;
+    $stats['jobs']['completed'] = $stats['visits']['completed'] ?? 0;
+    $stats['jobs_today'] = $stats['visits_today'];
 
     // Invoice stats
     $stmt = $db->query("SELECT status, COUNT(*) as count, SUM(balance_due) as total_due FROM invoices GROUP BY status");
@@ -1140,10 +1179,11 @@ function getServicePackageDetails($packageId) {
 }
 
 /**
- * Get recent jobs on a property for "last used" suggestions
+ * Get recent plans on a property for "last used" suggestions
+ * Updated to use job_plans table
  * @param int $propertyId
  * @param int $limit
- * @return array recent jobs with service info
+ * @return array recent plans with service info
  */
 function getRecentJobsOnProperty($propertyId, $limit = 3) {
     $db = getDB();
@@ -1151,25 +1191,25 @@ function getRecentJobsOnProperty($propertyId, $limit = 3) {
     try {
         $stmt = $db->prepare("
             SELECT
-                j.id,
-                j.job_number,
-                j.service_type,
-                j.service_package_id,
+                jp.id,
+                jp.plan_number AS job_number,
+                jp.service_type,
+                jp.service_package_id,
                 sp.package_name,
                 sp.base_price,
-                j.created_at,
-                j.estimated_duration_minutes
-            FROM jobs j
-            LEFT JOIN service_packages sp ON j.service_package_id = sp.id
-            WHERE j.property_id = ?
-            AND j.status IN ('completed', 'in_progress', 'scheduled')
-            ORDER BY j.created_at DESC
+                jp.created_at,
+                jp.estimated_duration_minutes
+            FROM job_plans jp
+            LEFT JOIN service_packages sp ON jp.service_package_id = sp.id
+            WHERE jp.property_id = ?
+            AND jp.status IN ('active', 'completed', 'paused')
+            ORDER BY jp.created_at DESC
             LIMIT ?
         ");
         $stmt->execute([$propertyId, $limit]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
-        error_log("Error getting recent jobs: " . $e->getMessage());
+        error_log("Error getting recent plans: " . $e->getMessage());
         return [];
     }
 }
@@ -1287,19 +1327,19 @@ function checkCrewAvailability($crewId, $startTime, $durationMinutes) {
     try {
         // Parse start time
         $start = new DateTime($startTime);
-        $end = $start->add(new DateInterval('PT' . $durationMinutes . 'M'));
+        $end = (clone $start)->add(new DateInterval('PT' . $durationMinutes . 'M'));
 
-        // Check for overlapping jobs
+        // Check for overlapping visits
         $stmt = $db->prepare("
             SELECT COUNT(*) as conflict_count
-            FROM jobs
-            WHERE assigned_to = ?
-            AND DATE(scheduled_date) = ?
+            FROM job_visits
+            WHERE assigned_crew_id = ?
+            AND scheduled_date = ?
             AND (
                 (scheduled_time_start < ? AND scheduled_time_end > ?)
                 OR (scheduled_time_start >= ? AND scheduled_time_start < ?)
             )
-            AND status NOT IN ('cancelled')
+            AND status NOT IN ('cancelled', 'skipped', 'weather')
         ");
 
         $stmt->execute([
@@ -1332,23 +1372,24 @@ function detectSchedulingConflicts($crewId, $startTime, $durationMinutes) {
 
     try {
         $start = new DateTime($startTime);
-        $end = $start->add(new DateInterval('PT' . $durationMinutes . 'M'));
+        $end = (clone $start)->add(new DateInterval('PT' . $durationMinutes . 'M'));
 
         $stmt = $db->prepare("
             SELECT
-                j.id,
-                j.job_number,
-                j.title,
-                j.scheduled_time_start,
-                j.scheduled_time_end,
-                j.estimated_duration_minutes
-            FROM jobs j
-            WHERE j.assigned_to = ?
-            AND DATE(j.scheduled_date) = ?
-            AND j.status NOT IN ('cancelled', 'completed')
+                jv.id,
+                jv.visit_number,
+                jp.title,
+                jv.scheduled_time_start,
+                jv.scheduled_time_end,
+                jp.estimated_duration_minutes
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE jv.assigned_crew_id = ?
+            AND jv.scheduled_date = ?
+            AND jv.status NOT IN ('cancelled', 'completed', 'skipped', 'weather')
             AND (
-                (j.scheduled_time_start < ? AND j.scheduled_time_end > ?)
-                OR (j.scheduled_time_start >= ? AND j.scheduled_time_start < ?)
+                (jv.scheduled_time_start < ? AND jv.scheduled_time_end > ?)
+                OR (jv.scheduled_time_start >= ? AND jv.scheduled_time_start < ?)
             )
         ");
 
@@ -1386,13 +1427,14 @@ function calculateOptimalTimeWindow($propertyId, $crewId, $durationMinutes) {
         $optimalTime = '09:00'; // Most jobs start at 9 AM
         $reason = 'Standard work hours';
 
-        // Check crew's first job today
+        // Check crew's first visit today
         $today = date('Y-m-d');
         $stmt = $db->prepare("
-            SELECT scheduled_time_start, estimated_duration_minutes
-            FROM jobs
-            WHERE assigned_to = ? AND DATE(scheduled_date) = ? AND status NOT IN ('cancelled')
-            ORDER BY scheduled_time_start ASC
+            SELECT jv.scheduled_time_start, jp.estimated_duration_minutes
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE jv.assigned_crew_id = ? AND jv.scheduled_date = ? AND jv.status NOT IN ('cancelled', 'skipped', 'weather')
+            ORDER BY jv.scheduled_time_start ASC
             LIMIT 1
         ");
         $stmt->execute([$crewId, $today]);

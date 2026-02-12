@@ -40,12 +40,17 @@ $stmt = $db->prepare("
         p.postal_code as property_postal,
         j.job_number,
         j.title as job_title,
+        jv.visit_number,
+        jp.plan_number,
+        jp.title as plan_title,
         u.full_name as created_by_name
     FROM invoices i
     LEFT JOIN companies c ON i.company_id = c.id
     LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
     LEFT JOIN properties p ON i.property_id = p.id
     LEFT JOIN jobs j ON i.job_id = j.id
+    LEFT JOIN job_visits jv ON i.visit_id = jv.id
+    LEFT JOIN job_plans jp ON i.plan_id = jp.id
     LEFT JOIN users u ON i.created_by = u.id
     WHERE i.id = ?
 ");
@@ -271,7 +276,15 @@ $activePage = 'invoices';
                   <h1 class="h3 mb-1"><?php echo htmlspecialchars($invoice['invoice_number']); ?></h1>
                   <div>
                       <?php echo getStatusBadge($invoice['status'], 'invoice'); ?>
-                      <?php if (!empty($invoice['job_number'])): ?>
+                      <?php if (!empty($invoice['visit_number'])): ?>
+                          <span class="ml-2 text-muted">
+                              Visit: <a href="../jobs/view.php?id=<?php echo $invoice['plan_id']; ?>"><?php echo htmlspecialchars($invoice['visit_number']); ?></a>
+                          </span>
+                      <?php elseif (!empty($invoice['plan_number'])): ?>
+                          <span class="ml-2 text-muted">
+                              Plan: <a href="../jobs/view.php?id=<?php echo $invoice['plan_id']; ?>"><?php echo htmlspecialchars($invoice['plan_number']); ?></a>
+                          </span>
+                      <?php elseif (!empty($invoice['job_number'])): ?>
                           <span class="ml-2 text-muted">
                               Job: <a href="../jobs/view.php?id=<?php echo $invoice['job_id']; ?>"><?php echo htmlspecialchars($invoice['job_number']); ?></a>
                           </span>
@@ -552,7 +565,30 @@ $activePage = 'invoices';
                                   </span>
                               </div>
                           <?php endif; ?>
-                          <?php if (!empty($invoice['job_id'])): ?>
+                          <?php if (!empty($invoice['plan_id'])): ?>
+                              <div class="mw-detail-row">
+                                  <span class="mw-detail-label">Linked Plan</span>
+                                  <span class="mw-detail-value">
+                                      <a href="../jobs/view.php?id=<?php echo $invoice['plan_id']; ?>">
+                                          <?php echo htmlspecialchars($invoice['plan_number']); ?>
+                                          <?php if (!empty($invoice['plan_title'])): ?>
+                                              - <?php echo htmlspecialchars($invoice['plan_title']); ?>
+                                          <?php endif; ?>
+                                      </a>
+                                  </span>
+                              </div>
+                          <?php endif; ?>
+                          <?php if (!empty($invoice['visit_id'])): ?>
+                              <div class="mw-detail-row">
+                                  <span class="mw-detail-label">Linked Visit</span>
+                                  <span class="mw-detail-value">
+                                      <a href="../jobs/view.php?id=<?php echo $invoice['plan_id']; ?>">
+                                          <?php echo htmlspecialchars($invoice['visit_number']); ?>
+                                      </a>
+                                  </span>
+                              </div>
+                          <?php endif; ?>
+                          <?php if (!empty($invoice['job_id']) && empty($invoice['plan_id'])): ?>
                               <div class="mw-detail-row">
                                   <span class="mw-detail-label">Linked Job</span>
                                   <span class="mw-detail-value">

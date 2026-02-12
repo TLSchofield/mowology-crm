@@ -100,13 +100,15 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
 function getActiveJobTimer($userId) {
     $db = getDB();
     $stmt = $db->prepare("
-        SELECT jte.*, j.title as job_title, j.job_number,
+        SELECT jte.*, jp.title as job_title, jv.visit_number as job_number,
                p.address as property_address, c.company_name,
                TIMESTAMPDIFF(SECOND, jte.start_time, NOW()) AS elapsed_seconds
         FROM job_time_entries jte
-        JOIN jobs j ON jte.job_id = j.id
-        LEFT JOIN properties p ON j.property_id = p.id
-        LEFT JOIN companies c ON j.company_id = c.id
+        JOIN job_visits jv ON jte.visit_id = jv.id
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN company_properties cprop ON jp.property_id = cprop.property_id AND cprop.is_primary = 1
+        LEFT JOIN companies c ON cprop.company_id = c.id
         WHERE jte.user_id = ? AND jte.status = 'active' AND jte.end_time IS NULL
         ORDER BY jte.start_time DESC
         LIMIT 1
@@ -121,18 +123,18 @@ function getActiveJobTimer($userId) {
 function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted = false) {
     $db = getDB();
 
-    // Check job exists and is assigned to this user (or user is admin/manager)
-    $stmt = $db->prepare("SELECT id, assigned_to, status FROM jobs WHERE id = ?");
+    // Check visit exists and is assigned to this user (or user is admin/manager)
+    $stmt = $db->prepare("SELECT jv.id, jv.assigned_crew_id, jv.status FROM job_visits jv WHERE jv.id = ?");
     $stmt->execute([$jobId]);
     $job = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$job) {
         throw new Exception('Job not found');
     }
 
-    // Check no active timer already running for this job by this user
+    // Check no active timer already running for this visit by this user
     $existingStmt = $db->prepare("
         SELECT id FROM job_time_entries
-        WHERE job_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL
+        WHERE visit_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL
     ");
     $existingStmt->execute([$jobId, $userId]);
     if ($existingStmt->fetch()) {
@@ -145,15 +147,17 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
 
     // Create time entry
     $stmt = $db->prepare("
-        INSERT INTO job_time_entries (job_id, user_id, clock_entry_id, start_time, start_lat, start_lng, auto_started)
+        INSERT INTO job_time_entries (visit_id, user_id, clock_entry_id, start_time, start_lat, start_lng, auto_started)
         VALUES (?, ?, ?, NOW(), ?, ?, ?)
     ");
     $stmt->execute([$jobId, $userId, $clockEntryId, $lat, $lng, $autoStarted ? 1 : 0]);
     $entryId = (int)$db->lastInsertId();
 
-    // Update job status to in_progress if currently scheduled
+    // Update visit status to in_progress if currently scheduled
     if ($job['status'] === 'scheduled') {
-        updateJobStatus($jobId, 'in_progress', $userId, $autoStarted ? 'Auto-started via GPS proximity' : 'Timer started manually');
+        if (function_exists('updateVisitStatus')) {
+            updateVisitStatus($jobId, 'in_progress', $userId, $autoStarted ? 'Auto-started via GPS proximity' : 'Timer started manually');
+        }
     }
 
     // Log crew location if GPS available
@@ -176,7 +180,7 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
     // Find active timer
     $stmt = $db->prepare("
         SELECT id FROM job_time_entries
-        WHERE job_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL
+        WHERE visit_id = ? AND user_id = ? AND status = 'active' AND end_time IS NULL
         ORDER BY start_time DESC LIMIT 1
     ");
     $stmt->execute([$jobId, $userId]);
@@ -204,13 +208,15 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
     $row = $result->fetch(PDO::FETCH_ASSOC);
     $duration = (int)$row['duration_minutes'];
 
-    // Complete the job if requested
+    // Complete the visit if requested
     if ($completeJob) {
-        updateJobStatus($jobId, 'completed', $userId, $notes);
+        if (function_exists('updateVisitStatus')) {
+            updateVisitStatus($jobId, 'completed', $userId, $notes);
+        }
     }
 
     // Update property visit pattern
-    $jobStmt = $db->prepare("SELECT property_id FROM jobs WHERE id = ?");
+    $jobStmt = $db->prepare("SELECT jp.property_id FROM job_visits jv JOIN job_plans jp ON jv.plan_id = jp.id WHERE jv.id = ?");
     $jobStmt->execute([$jobId]);
     $jobRow = $jobStmt->fetch(PDO::FETCH_ASSOC);
     if ($jobRow && $jobRow['property_id'] && function_exists('updatePropertyVisitPattern')) {
@@ -316,19 +322,24 @@ function recalculateTimesheetTotals($userId, $weekStart) {
 function getUserJobsForDate($userId, $date) {
     $db = getDB();
     $stmt = $db->prepare("
-        SELECT j.*, p.address as property_address, p.city as property_city,
+        SELECT jv.id, jv.visit_number as job_number, jv.status, jv.scheduled_date,
+               jv.scheduled_time_start, jv.scheduled_time_end,
+               jp.title, jp.service_type, jp.estimated_duration_minutes,
+               p.address as property_address, p.city as property_city,
                p.latitude as property_lat, p.longitude as property_lng,
                c.company_name,
                jte.id as active_timer_id, jte.start_time as timer_start_time
-        FROM jobs j
-        LEFT JOIN properties p ON j.property_id = p.id
-        LEFT JOIN companies c ON j.company_id = c.id
-        LEFT JOIN job_time_entries jte ON jte.job_id = j.id
+        FROM job_visits jv
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN company_properties cprop ON jp.property_id = cprop.property_id AND cprop.is_primary = 1
+        LEFT JOIN companies c ON cprop.company_id = c.id
+        LEFT JOIN job_time_entries jte ON jte.visit_id = jv.id
             AND jte.user_id = ? AND jte.status = 'active' AND jte.end_time IS NULL
-        WHERE j.assigned_to = ?
-          AND j.scheduled_date = ?
-          AND j.status IN ('scheduled', 'in_progress', 'completed')
-        ORDER BY j.scheduled_time_start ASC
+        WHERE jv.assigned_crew_id = ?
+          AND jv.scheduled_date = ?
+          AND jv.status IN ('scheduled', 'in_progress', 'completed')
+        ORDER BY jv.scheduled_time_start ASC
     ");
     $stmt->execute([$userId, $userId, $date]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -357,12 +368,14 @@ function getClockEntriesForRange($userId, $startDate, $endDate) {
 function getJobTimeEntriesForRange($userId, $startDate, $endDate) {
     $db = getDB();
     $stmt = $db->prepare("
-        SELECT jte.*, j.title as job_title, j.job_number,
+        SELECT jte.*, jp.title as job_title, jv.visit_number as job_number,
                p.address as property_address, c.company_name
         FROM job_time_entries jte
-        JOIN jobs j ON jte.job_id = j.id
-        LEFT JOIN properties p ON j.property_id = p.id
-        LEFT JOIN companies c ON j.company_id = c.id
+        JOIN job_visits jv ON jte.visit_id = jv.id
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN company_properties cprop ON jp.property_id = cprop.property_id AND cprop.is_primary = 1
+        LEFT JOIN companies c ON cprop.company_id = c.id
         WHERE jte.user_id = ?
           AND DATE(jte.start_time) BETWEEN ? AND ?
           AND jte.status IN ('completed', 'edited')

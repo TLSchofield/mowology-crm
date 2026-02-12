@@ -29,15 +29,21 @@ try {
         $stats[$row['status']] = $row['count'];
     }
 
-    // Count jobs by status
-    $jobStats = $db->query("
-        SELECT status, COUNT(*) as count
-        FROM jobs
-        GROUP BY status
-    ");
-    while ($row = $jobStats->fetch()) {
-        $stats[$row['status']] = ($stats[$row['status']] ?? 0) + $row['count'];
-    }
+    // Count plans by status (replaces jobs)
+    try {
+        $planStats = $db->query("SELECT status, COUNT(*) as count FROM job_plans GROUP BY status");
+        while ($row = $planStats->fetch()) {
+            $stats[$row['status']] = ($stats[$row['status']] ?? 0) + $row['count'];
+        }
+    } catch (Exception $e) { /* table may not exist yet */ }
+
+    // Count today's visits
+    try {
+        $visitStats = $db->query("SELECT status, COUNT(*) as count FROM job_visits WHERE scheduled_date = CURDATE() GROUP BY status");
+        while ($row = $visitStats->fetch()) {
+            $stats[$row['status']] = ($stats[$row['status']] ?? 0) + $row['count'];
+        }
+    } catch (Exception $e) { /* table may not exist yet */ }
 
     // Calculate useful stats
     $newInquiries = $db->query("SELECT COUNT(*) as count FROM quote_requests WHERE status IN ('new', 'reviewing')")->fetch()['count'];
@@ -51,9 +57,9 @@ try {
         FROM quotes q
         LEFT JOIN users u ON q.created_by = u.id
         UNION ALL
-        SELECT 'job' as type, j.id, j.job_number as name, j.created_at, u.full_name
-        FROM jobs j
-        LEFT JOIN users u ON j.created_by = u.id
+        SELECT 'plan' as type, jp.id, jp.plan_number as name, jp.created_at, u.full_name
+        FROM job_plans jp
+        LEFT JOIN users u ON jp.created_by = u.id
         ORDER BY created_at DESC
         LIMIT 5
     ")->fetchAll();

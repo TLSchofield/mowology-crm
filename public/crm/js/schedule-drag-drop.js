@@ -1,357 +1,499 @@
 /**
  * Schedule Drag-and-Drop Module
  *
- * Enables drag-and-drop functionality for job cards on the calendar
- * - Drag jobs between days
- * - Drag jobs to different time slots
- * - Updates database via API
- * - Shows visual feedback
+ * Enables drag-and-drop functionality for stop cards on the weekly calendar.
+ * - Drag stops between day columns to reschedule
+ * - Calculates route_order based on drop position within the column
+ * - Updates database via /crm/api/reschedule-stop.php
+ * - Shows visual feedback (toast messages)
+ * - Includes basic touch support for mobile devices
  */
 
 (function () {
   'use strict';
 
-  let draggedJob = null;
+  // ── State ──────────────────────────────────────────────────────────────
+  let draggedCard = null;
   let originalDate = null;
-  let originalTime = null;
+  let originalRouteOrder = null;
 
+  // Touch-drag state
+  let touchClone = null;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchActive = false;
+
+  // ── Feedback element references ────────────────────────────────────────
   const feedbackEl = document.getElementById('dragFeedback');
   const feedbackMsg = document.getElementById('dragMessage');
 
+  // ── Initialization ─────────────────────────────────────────────────────
+
   /**
-   * Initialize drag-and-drop event listeners
+   * Initialize (or re-initialize) all drag-and-drop event listeners.
+   * Safe to call multiple times — attaches fresh listeners to current DOM.
    */
   function initDragAndDrop() {
-    // Get all draggable job cards
-    const jobCards = document.querySelectorAll('.mw-job-card-sched');
+    // ── Draggable stop cards ───────────────────────────────────────────
+    var stopCards = document.querySelectorAll('.mw-stop-card');
 
-    jobCards.forEach((card) => {
+    stopCards.forEach(function (card) {
+      // Make sure the card is draggable
+      card.setAttribute('draggable', 'true');
+
+      // Native drag events
       card.addEventListener('dragstart', handleDragStart);
       card.addEventListener('dragend', handleDragEnd);
-      // Also listen for drag events on the card itself (so they bubble to parent slot)
-      card.addEventListener('dragover', handleDragOver);
-      card.addEventListener('dragleave', handleDragLeave);
-      card.addEventListener('drop', handleDrop);
+
+      // Touch events for mobile
+      card.addEventListener('touchstart', handleTouchStart, { passive: false });
+      card.addEventListener('touchmove', handleTouchMove, { passive: false });
+      card.addEventListener('touchend', handleTouchEnd);
     });
 
-    // Get all drop zones (time slots in hourly grid)
-    const timeSlots = document.querySelectorAll('.mw-time-slot');
+    // ── Drop targets: day columns ──────────────────────────────────────
+    var dayColumns = document.querySelectorAll('.mw-day-column');
 
-    timeSlots.forEach((slot) => {
-      slot.addEventListener('dragover', handleDragOver);
-      slot.addEventListener('dragleave', handleDragLeave);
-      slot.addEventListener('drop', handleDrop);
-    });
-
-    // Also allow dropping on day containers (for other calendar views)
-    const dayContainers = document.querySelectorAll('.mw-day-jobs-container');
-
-    dayContainers.forEach((container) => {
-      container.addEventListener('dragover', handleDragOver);
-      container.addEventListener('dragleave', handleDragLeave);
-      container.addEventListener('drop', handleDrop);
-    });
-
-    // And on calendar days
-    const calendarDays = document.querySelectorAll('.mw-calendar-day');
-
-    calendarDays.forEach((day) => {
-      day.addEventListener('dragover', handleDragOver);
-      day.addEventListener('dragleave', handleDragLeave);
+    dayColumns.forEach(function (col) {
+      col.addEventListener('dragover', handleDragOver);
+      col.addEventListener('dragenter', handleDragEnter);
+      col.addEventListener('dragleave', handleDragLeave);
+      col.addEventListener('drop', handleDrop);
     });
   }
 
+  // ── Native Drag Handlers ───────────────────────────────────────────────
+
   /**
-   * Handle drag start
+   * Drag start — store stop metadata, apply visual class, set drag image.
    */
   function handleDragStart(e) {
-    draggedJob = this;
-    originalDate = this.dataset.scheduledDate;
-    originalTime = this.dataset.scheduledTime;
+    draggedCard = this;
+    originalDate = this.dataset.stopDate || '';
+    originalRouteOrder = parseInt(this.dataset.routeOrder, 10) || 0;
 
     this.classList.add('dragging');
+
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', this.dataset.stopId || '');
 
-    // Set custom drag image
-    const dragImage = new Image();
+    // Custom green circle drag image
+    var dragImage = new Image();
     dragImage.src =
-      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="50" height="50"%3E%3Ccircle cx="25" cy="25" r="25" fill="%232D8659" opacity="0.8"/%3E%3C/svg%3E';
-    e.dataTransfer.setDragImage(dragImage, 25, 25);
+      'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="40" height="40"%3E' +
+      '%3Ccircle cx="20" cy="20" r="18" fill="%232D8659" opacity="0.85"/%3E%3C/svg%3E';
+    e.dataTransfer.setDragImage(dragImage, 20, 20);
   }
 
   /**
-   * Handle drag end
+   * Drag end — clean up classes regardless of whether a drop occurred.
    */
-  function handleDragEnd(e) {
-    this.classList.remove('dragging');
+  function handleDragEnd() {
+    if (draggedCard) {
+      draggedCard.classList.remove('dragging');
+    }
 
-    // Clear all drag-over states
-    document
-      .querySelectorAll('.drag-over')
-      .forEach((el) => el.classList.remove('drag-over'));
+    // Remove highlight from every column
+    document.querySelectorAll('.mw-day-column.drag-over').forEach(function (col) {
+      col.classList.remove('drag-over');
+    });
   }
 
   /**
-   * Handle drag over
+   * Drag over — allow drop and keep the column highlighted.
    */
   function handleDragOver(e) {
     e.preventDefault();
-    e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
+  }
 
-    // Add visual feedback - handle both the slot and items inside it
-    let target = this;
+  /**
+   * Drag enter — add highlight class to the day column.
+   */
+  function handleDragEnter(e) {
+    e.preventDefault();
 
-    // If this is a job card inside a time slot, bubble up to the slot
-    if (!target.classList.contains('mw-time-slot') &&
-        !target.classList.contains('mw-day-jobs-container') &&
-        !target.classList.contains('mw-calendar-day')) {
-      target = target.closest('.mw-time-slot') ||
-               target.closest('.mw-day-jobs-container') ||
-               target.closest('.mw-calendar-day');
-    }
-
-    if (target) {
-      target.classList.add('drag-over');
+    // Resolve to the nearest .mw-day-column (in case event fires on a child)
+    var column = resolveColumn(e.target);
+    if (column) {
+      column.classList.add('drag-over');
     }
   }
 
   /**
-   * Handle drag leave
+   * Drag leave — remove highlight only when the cursor truly exits the column.
    */
   function handleDragLeave(e) {
-    // Determine the actual drop zone (in case this is a child element)
-    let target = this;
-    if (!target.classList.contains('mw-time-slot') &&
-        !target.classList.contains('mw-day-jobs-container') &&
-        !target.classList.contains('mw-calendar-day')) {
-      target = target.closest('.mw-time-slot') ||
-               target.closest('.mw-day-jobs-container') ||
-               target.closest('.mw-calendar-day');
-    }
+    var column = resolveColumn(e.target);
+    if (!column) return;
 
-    if (!target) return;
-
-    // Check if we're leaving this element (not just leaving a child)
-    // For time slots, check if the relatedTarget is outside
-    const rect = target.getBoundingClientRect();
-    const x = e.clientX;
-    const y = e.clientY;
-
-    const isOutside = (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom);
-
-    if (isOutside) {
-      target.classList.remove('drag-over');
+    // Only remove if the relatedTarget is outside this column
+    if (!column.contains(e.relatedTarget)) {
+      column.classList.remove('drag-over');
     }
   }
 
   /**
-   * Handle drop
+   * Drop — determine new date and route_order, then call the API.
    */
   function handleDrop(e) {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!draggedJob) return;
+    if (!draggedCard) return;
 
-    let newDate = null;
-    let newTime = null;
-    let dropZone = this;
+    var column = resolveColumn(e.target);
+    if (!column) return;
 
-    // Find the actual drop zone (time slot, day container, or calendar day)
-    if (!dropZone.classList.contains('mw-time-slot') &&
-        !dropZone.classList.contains('mw-day-jobs-container') &&
-        !dropZone.classList.contains('mw-calendar-day')) {
-      // We might have dropped on a child element, bubble up
-      dropZone = dropZone.closest('.mw-time-slot') ||
-                 dropZone.closest('.mw-day-jobs-container') ||
-                 dropZone.closest('.mw-calendar-day');
-    }
+    column.classList.remove('drag-over');
 
-    if (!dropZone) return;
-
-    // If dropped on a time slot (hourly grid view)
-    if (dropZone.classList.contains('mw-time-slot')) {
-      newDate = dropZone.dataset.date;
-      const hour = parseInt(dropZone.dataset.hour, 10);
-      console.log('Dropped on time slot:', {
-        'data-date': dropZone.dataset.date,
-        'data-hour': dropZone.dataset.hour,
-        'parsed hour': hour,
-        newDate,
-        newTime: hour >= 0 ? `${String(hour).padStart(2, '0')}:00:00` : 'undefined'
-      });
-      if (hour >= 0) {
-        newTime = `${String(hour).padStart(2, '0')}:00:00`;
-      }
-      dropZone.classList.remove('drag-over');
-    }
-    // If dropped on container (day view), get parent day
-    else if (dropZone.classList.contains('mw-day-jobs-container')) {
-      const targetDay = dropZone.closest('.mw-calendar-day');
-      if (!targetDay) return;
-      newDate = targetDay.dataset.date;
-      dropZone.classList.remove('drag-over');
-    }
-    // If dropped on calendar day directly
-    else if (dropZone.classList.contains('mw-calendar-day')) {
-      newDate = dropZone.dataset.date;
-      dropZone.classList.remove('drag-over');
-    }
-
+    var newDate = column.dataset.date;
     if (!newDate) return;
 
-    // If dropped on same date and time, don't reschedule
-    if (newDate === originalDate && (!newTime || newTime === originalTime)) {
-      showFeedback('Job not moved (same slot)', 'warning');
+    // Calculate route order from drop Y-position within the column
+    var newRouteOrder = calcRouteOrder(column, e.clientY);
+
+    // If same date and same order, nothing to do
+    if (newDate === originalDate && newRouteOrder === originalRouteOrder) {
+      showFeedback('Stop not moved (same position)', 'warning');
       return;
     }
 
-    // Reschedule the job
-    rescheduleJob(draggedJob, newDate, newTime);
+    // Fire the API call
+    rescheduleStop(draggedCard, newDate, newRouteOrder);
+  }
+
+  // ── Touch Handlers (mobile support) ────────────────────────────────────
+
+  /**
+   * Touch start — record origin and prepare for possible drag.
+   * We wait for touchmove to confirm intent (avoids blocking taps/scrolls).
+   */
+  function handleTouchStart(e) {
+    if (e.touches.length !== 1) return;
+
+    var touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+
+    draggedCard = this;
+    originalDate = this.dataset.stopDate || '';
+    originalRouteOrder = parseInt(this.dataset.routeOrder, 10) || 0;
+    touchActive = false;
   }
 
   /**
-   * Reschedule job via API
+   * Touch move — once the finger moves far enough, start the visual drag.
    */
-  function rescheduleJob(jobCard, newDate, newTime) {
-    const jobId = parseInt(jobCard.dataset.jobId);
-    const jobNumber = jobCard.dataset.jobNumber;
+  function handleTouchMove(e) {
+    if (!draggedCard || e.touches.length !== 1) return;
 
-    // Prepare payload
-    const payload = {
-      job_id: jobId,
-      scheduled_date: newDate,
-    };
+    var touch = e.touches[0];
+    var dx = touch.clientX - touchStartX;
+    var dy = touch.clientY - touchStartY;
 
-    if (newTime) {
-      payload.scheduled_time_start = newTime;
+    // Require at least 10px movement to start dragging (prevents accidental drags)
+    if (!touchActive && (Math.abs(dx) > 10 || Math.abs(dy) > 10)) {
+      touchActive = true;
+      draggedCard.classList.add('dragging');
+
+      // Create a semi-transparent clone that follows the finger
+      touchClone = draggedCard.cloneNode(true);
+      touchClone.classList.add('mw-touch-drag-clone');
+      touchClone.style.position = 'fixed';
+      touchClone.style.pointerEvents = 'none';
+      touchClone.style.opacity = '0.75';
+      touchClone.style.zIndex = '9999';
+      touchClone.style.width = draggedCard.offsetWidth + 'px';
+      touchClone.style.transform = 'rotate(2deg)';
+      document.body.appendChild(touchClone);
     }
 
-    // Validate payload before sending
-    if (!newDate || !newDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      showFeedback('Invalid date format: "' + newDate + '"', 'validation');
-      console.error('Date validation failed:', { newDate, jobId, jobNumber });
+    if (!touchActive) return;
+
+    e.preventDefault(); // Prevent scrolling while dragging
+
+    // Position clone under the finger
+    if (touchClone) {
+      touchClone.style.left = (touch.clientX - draggedCard.offsetWidth / 2) + 'px';
+      touchClone.style.top = (touch.clientY - 20) + 'px';
+    }
+
+    // Highlight the column under the finger
+    highlightColumnAtPoint(touch.clientX, touch.clientY);
+  }
+
+  /**
+   * Touch end — if we were dragging, determine the drop target and reschedule.
+   */
+  function handleTouchEnd(e) {
+    // Clean up clone
+    if (touchClone && touchClone.parentNode) {
+      touchClone.parentNode.removeChild(touchClone);
+      touchClone = null;
+    }
+
+    if (!touchActive || !draggedCard) {
+      draggedCard = null;
+      touchActive = false;
       return;
     }
 
-    if (newTime && !newTime.match(/^\d{2}:\d{2}:\d{2}$/)) {
-      showFeedback('Invalid time format: "' + newTime + '"', 'validation');
-      console.error('Time validation failed:', { newTime, jobId, jobNumber });
+    draggedCard.classList.remove('dragging');
+
+    // Find what column is under the last touch point
+    var touch = e.changedTouches[0];
+    var targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+    var column = targetEl ? targetEl.closest('.mw-day-column') : null;
+
+    // Clear all highlights
+    document.querySelectorAll('.mw-day-column.drag-over').forEach(function (col) {
+      col.classList.remove('drag-over');
+    });
+
+    if (!column) {
+      draggedCard = null;
+      touchActive = false;
       return;
     }
 
-    // Show loading state
-    jobCard.style.opacity = '0.6';
+    var newDate = column.dataset.date;
+    if (!newDate) {
+      draggedCard = null;
+      touchActive = false;
+      return;
+    }
+
+    var newRouteOrder = calcRouteOrder(column, touch.clientY);
+
+    if (newDate === originalDate && newRouteOrder === originalRouteOrder) {
+      showFeedback('Stop not moved (same position)', 'warning');
+      draggedCard = null;
+      touchActive = false;
+      return;
+    }
+
+    rescheduleStop(draggedCard, newDate, newRouteOrder);
+    touchActive = false;
+  }
+
+  // ── API Call ───────────────────────────────────────────────────────────
+
+  /**
+   * POST to reschedule-stop.php to move a stop to a new date / route order.
+   *
+   * @param {HTMLElement} card        The .mw-stop-card element being moved
+   * @param {string}      newDate     Target date (YYYY-MM-DD)
+   * @param {number}      newRouteOrder  Position within the day
+   */
+  function rescheduleStop(card, newDate, newRouteOrder) {
+    var stopId = parseInt(card.dataset.stopId, 10);
+
+    // Validate date format
+    if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+      showFeedback('Invalid date format: "' + newDate + '"', 'error');
+      return;
+    }
+
+    // Visual loading state
+    card.style.opacity = '0.5';
     showFeedback('Updating schedule...', 'loading');
 
-    // Log the payload being sent for debugging
-    console.log('Sending reschedule request:', { payload, jobId, jobNumber, newDate, newTime });
+    var payload = {
+      stop_id: stopId,
+      new_date: newDate,
+      new_route_order: newRouteOrder
+    };
 
-    // Send API request (using simplified version for debugging)
-    fetch('/crm/api/reschedule-job-simple.php', {
+    fetch('/crm/api/reschedule-stop.php', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     })
-      .then((response) => {
+      .then(function (response) {
         if (!response.ok) {
-          return response.json().then((data) => {
-            const errorMsg = data.error || 'Failed to reschedule job';
-            console.error('API error response:', { status: response.status, data });
-            throw new Error(errorMsg);
-          }).catch((parseError) => {
-            console.error('Failed to parse error response:', parseError);
-            throw new Error('Server error: ' + response.status);
-          });
+          return response.json()
+            .then(function (data) {
+              throw new Error(data.error || 'Server error (' + response.status + ')');
+            })
+            .catch(function (parseErr) {
+              // If the response body isn't valid JSON, use a generic message
+              if (parseErr.message && parseErr.message.indexOf('Server error') === 0) {
+                throw parseErr;
+              }
+              throw new Error('Server error (' + response.status + ')');
+            });
         }
         return response.json();
       })
-      .then((data) => {
-        console.log('Reschedule successful:', data);
+      .then(function (data) {
+        // Update the card's data attributes to reflect the new state
+        card.dataset.stopDate = newDate;
+        card.dataset.routeOrder = newRouteOrder;
+        card.style.opacity = '1';
 
-        // Update data attributes
-        jobCard.dataset.scheduledDate = newDate;
-        if (newTime) {
-          jobCard.dataset.scheduledTime = newTime;
-        }
-        jobCard.style.opacity = '1';
-
-        // Show success message
-        const dateObj = new Date(newDate);
-        const dateStr = dateObj.toLocaleDateString('en-US', {
+        // Format a friendly date for the toast
+        var dateObj = new Date(newDate + 'T12:00:00'); // noon to avoid timezone shifting
+        var dateStr = dateObj.toLocaleDateString('en-US', {
           weekday: 'short',
           month: 'short',
-          day: 'numeric',
+          day: 'numeric'
         });
-        const timeStr = newTime ? ` at ${newTime.substring(0, 5)}` : '';
-        showFeedback(
-          `${jobNumber} rescheduled to ${dateStr}${timeStr}`,
-          'success'
-        );
 
-        // Refresh the page after 2 seconds to show the job in its new location
-        setTimeout(() => {
+        showFeedback('Stop moved to ' + dateStr + ' (position ' + newRouteOrder + ')', 'success');
+
+        // Reload the page so the calendar re-renders with correct order
+        setTimeout(function () {
           location.reload();
-        }, 2000);
+        }, 1500);
 
-        draggedJob = null;
+        draggedCard = null;
       })
-      .catch((error) => {
-        // Restore original state
-        jobCard.style.opacity = '1';
-        const errorMsg = error.message || 'Failed to reschedule job';
-        showFeedback(`API Error: ${errorMsg}`, 'error');
-        console.error('Reschedule error:', error);
-        console.error('Full error:', error);
+      .catch(function (error) {
+        // Restore card appearance
+        card.style.opacity = '1';
 
-        draggedJob = null;
+        var msg = error.message || 'Failed to reschedule stop';
+
+        // Distinguish network errors from API errors
+        if (error instanceof TypeError && error.message === 'Failed to fetch') {
+          msg = 'Connection error — check your internet and try again';
+        }
+
+        showFeedback(msg, 'error');
+        console.error('Reschedule stop error:', error);
+
+        draggedCard = null;
       });
   }
 
-  /**
-   * Show feedback message
-   */
-  function showFeedback(message, type = 'info') {
-    feedbackMsg.textContent = message;
-    feedbackEl.className = 'mw-drag-feedback';
+  // ── Helpers ────────────────────────────────────────────────────────────
 
+  /**
+   * Walk up from an element to find the nearest .mw-day-column.
+   *
+   * @param  {HTMLElement} el  Any element inside (or being) a day column
+   * @return {HTMLElement|null}
+   */
+  function resolveColumn(el) {
+    if (!el) return null;
+    if (el.classList && el.classList.contains('mw-day-column')) return el;
+    return el.closest ? el.closest('.mw-day-column') : null;
+  }
+
+  /**
+   * Calculate route_order based on where the card was dropped vertically
+   * within a day column. Looks at existing stop cards in the column and
+   * returns the position the new card should occupy (1-based).
+   *
+   * @param  {HTMLElement} column   The .mw-day-column that received the drop
+   * @param  {number}      clientY  The Y coordinate of the drop point
+   * @return {number}               1-based route order
+   */
+  function calcRouteOrder(column, clientY) {
+    // Get all stop cards currently in this column (excluding the one being dragged)
+    var cards = Array.prototype.slice.call(
+      column.querySelectorAll('.mw-stop-card:not(.dragging)')
+    );
+
+    if (cards.length === 0) {
+      return 1; // First card in an empty column
+    }
+
+    // Walk through the cards and find where the drop Y falls
+    for (var i = 0; i < cards.length; i++) {
+      var rect = cards[i].getBoundingClientRect();
+      var midY = rect.top + rect.height / 2;
+
+      if (clientY < midY) {
+        return i + 1; // Insert before this card
+      }
+    }
+
+    // Dropped below all existing cards
+    return cards.length + 1;
+  }
+
+  /**
+   * During a touch drag, highlight the day column under the given point
+   * and remove highlights from all others.
+   *
+   * @param {number} x  clientX
+   * @param {number} y  clientY
+   */
+  function highlightColumnAtPoint(x, y) {
+    var columns = document.querySelectorAll('.mw-day-column');
+
+    columns.forEach(function (col) {
+      var rect = col.getBoundingClientRect();
+      var inside = (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
+
+      if (inside) {
+        col.classList.add('drag-over');
+      } else {
+        col.classList.remove('drag-over');
+      }
+    });
+  }
+
+  // ── Feedback Toast ─────────────────────────────────────────────────────
+
+  /**
+   * Show a toast-style feedback message.
+   *
+   * @param {string} message  Text to display
+   * @param {string} type     One of: success | error | warning | loading | info
+   */
+  function showFeedback(message, type) {
+    if (!feedbackEl || !feedbackMsg) return;
+
+    type = type || 'info';
+    feedbackMsg.textContent = message;
+
+    // Reset classes then apply type-specific class
+    feedbackEl.className = 'mw-drag-feedback';
     if (type === 'error') {
       feedbackEl.classList.add('error');
     } else if (type === 'success') {
-      feedbackEl.classList.remove('error');
+      feedbackEl.classList.add('success');
+    } else if (type === 'warning') {
+      feedbackEl.classList.add('warning');
     }
 
     feedbackEl.style.display = 'block';
 
-    // Auto-hide timing: errors and validation messages stay longer for analysis
-    let timeout;
-    if (type === 'error' || type === 'validation') {
-      timeout = 30000; // 30 seconds for errors and validation issues
-    } else if (type === 'loading') {
-      timeout = 10000; // 10 seconds for loading
-    } else if (type === 'success') {
-      timeout = 5000; // 5 seconds for success
-    } else {
-      timeout = 3000; // 3 seconds default
+    // Auto-hide timings
+    var timeout;
+    switch (type) {
+      case 'error':
+        timeout = 10000; // 10s — long enough to read the message
+        break;
+      case 'loading':
+        timeout = 10000;
+        break;
+      case 'success':
+        timeout = 3000;
+        break;
+      case 'warning':
+        timeout = 4000;
+        break;
+      default:
+        timeout = 3000;
     }
 
-    setTimeout(() => {
+    setTimeout(function () {
       feedbackEl.style.display = 'none';
     }, timeout);
   }
 
-  /**
-   * Initialize when DOM is ready
-   */
+  // ── Bootstrap ──────────────────────────────────────────────────────────
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initDragAndDrop);
   } else {
     initDragAndDrop();
   }
 
-  // Re-initialize if new jobs are added dynamically
+  // Expose re-init for pages that add stops dynamically (e.g., after AJAX)
   window.reinitScheduleDragDrop = initDragAndDrop;
 })();

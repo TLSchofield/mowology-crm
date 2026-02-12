@@ -237,6 +237,8 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
     if ($result['success']) {
         // ROI attribution
         if (function_exists('createROIAttribution')) {
+            $leadEventId = !empty($quote['lead_event_id']) ? (int)$quote['lead_event_id'] : null;
+
             $quoteStmt = $db->prepare("
                 SELECT source FROM quote_requests
                 WHERE id IN (SELECT quote_request_id FROM quotes WHERE id = ?)
@@ -245,12 +247,13 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
             $quoteStmt->execute([$quoteId]);
             $quoteSource = $quoteStmt->fetchColumn();
 
-            createROIAttribution($result['plan_id'], null, $quoteSource ?: 'website', $planData['estimated_amount']);
+            createROIAttribution($result['plan_id'], $leadEventId, $quoteSource ?: 'website', $planData['estimated_amount']);
         }
 
         // Log conversion
         if (function_exists('logConversionEvent')) {
-            logConversionEvent(0, 'job_created', $result['plan_id']);
+            $conversionLeadId = !empty($quote['lead_event_id']) ? (int)$quote['lead_event_id'] : 0;
+            logConversionEvent($conversionLeadId, 'job_created', $result['plan_id']);
         }
 
         // Activity log
