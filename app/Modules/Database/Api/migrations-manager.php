@@ -302,7 +302,7 @@ function handleMigrationHistory($input) {
 /**
  * Split a SQL string into individual statements, respecting quoted strings.
  * Handles single-quoted strings with escaped quotes ('it''s ok').
- * Strips SQL comments (-- line comments and /* block comments */).
+ * Strips SQL comments (-- line comments and block comments).
  * Returns only non-empty statements.
  */
 function splitSqlStatements(string $sql): array {

@@ -20,9 +20,11 @@ RewriteEngine On
 # /quote → /quote.php (pass query string through)
 RewriteRule ^quote/?$ /quote.php [L,QSA]
 
-# /services/slug → /services/slug.php (clean URLs for service landing pages)
+# /services/slug → /services/slug.php (clean URLs for static service landing pages)
+# Only applies when the .php file exists; otherwise falls through to CMS catch-all
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{DOCUMENT_ROOT}/services/$1.php -f
 RewriteRule ^services/([a-z0-9\-]+)/?$ /services/$1.php [L,QSA]
 
 # /api/module/action → handled by /api/.htaccess (do not rewrite here)
