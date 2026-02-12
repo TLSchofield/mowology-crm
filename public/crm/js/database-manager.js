@@ -1,0 +1,727 @@
+/**
+ * Database Manager UI
+ *
+ * Handles:
+ * - Overview: DB health, snapshot stats
+ * - Schema Browser: table list with expandable column details
+ * - Migrations: pending/execute/history (reuses migrations-manager API)
+ * - Drift Detection: compare current vs historical snapshots
+ */
+
+// Cache for snapshot data (avoid re-fetching on tab switch)
+let cachedSnapshot = null;
+let tabsInitialized = { overview: false, schema: false, migrations: false, drift: false };
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Load overview tab immediately
+    loadOverview();
+
+    // Lazy-load other tabs when clicked
+    document.getElementById('schema-tab').addEventListener('click', function() {
+        if (!tabsInitialized.schema) loadSchemaBrowser();
+    });
+    document.getElementById('migrations-tab').addEventListener('click', function() {
+        if (!tabsInitialized.migrations) {
+            loadPendingMigrations();
+            loadMigrationHistory('all');
+        }
+    });
+    document.getElementById('drift-tab').addEventListener('click', function() {
+        if (!tabsInitialized.drift) loadSnapshotHistory();
+    });
+});
+
+// ============================================================================
+// UTILITIES
+// ============================================================================
+
+function getCsrfToken() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : '';
+}
+
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+    return String(text).replace(/[&<>"']/g, function(m) { return map[m]; });
+}
+
+function formatDateTime(dateString) {
+    if (!dateString) return '-';
+    var date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString;
+    return date.toLocaleString();
+}
+
+function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB'];
+    var i = 0;
+    while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+    return bytes.toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+}
+
+function showAlert(type, message) {
+    var container = document.getElementById('dbAlertContainer');
+    var alert = document.createElement('div');
+    alert.className = 'alert alert-' + type + ' alert-dismissible fade show';
+    alert.innerHTML = escapeHtml(message) +
+        ' <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>';
+    container.insertBefore(alert, container.firstChild);
+    if (type === 'success') {
+        setTimeout(function() { alert.remove(); }, 5000);
+    }
+}
+
+function apiPost(url, body) {
+    body.csrf_token = getCsrfToken();
+    return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    }).then(function(r) { return r.json(); });
+}
+
+// ============================================================================
+// OVERVIEW TAB
+// ============================================================================
+
+function loadOverview() {
+    // Load DB health
+    apiPost('/crm/api/migrations-manager.php?action=verify', {})
+        .then(function(data) {
+            if (data.success) {
+                document.getElementById('ovDbName').textContent = data.database || 'unknown';
+                document.getElementById('ovMysqlVersion').textContent = data.mysql_version || 'unknown';
+            }
+        })
+        .catch(function(err) {
+            document.getElementById('ovDbName').textContent = 'Error';
+            document.getElementById('ovMysqlVersion').textContent = 'Error';
+        });
+
+    // Load snapshot summary
+    apiPost('/crm/api/schema-snapshot.php?action=current', {})
+        .then(function(data) {
+            if (data.success && data.has_snapshot) {
+                cachedSnapshot = data.snapshot;
+                renderOverviewStats(data.snapshot);
+            } else {
+                renderNoSnapshot();
+            }
+            tabsInitialized.overview = true;
+        })
+        .catch(function(err) {
+            document.getElementById('ovSchemaSummary').innerHTML =
+                '<div class="alert alert-danger">Failed to load snapshot</div>';
+        });
+}
+
+function renderOverviewStats(snapshot) {
+    var s = snapshot.summary;
+
+    document.getElementById('ovTableCount').textContent = s.table_count;
+    document.getElementById('ovTotalSize').textContent = s.total_size_mb + ' MB';
+
+    // Schema Summary card
+    document.getElementById('ovSchemaSummary').innerHTML =
+        '<dl class="row mb-0">' +
+        '<dt class="col-sm-6">Tables</dt><dd class="col-sm-6">' + s.table_count + '</dd>' +
+        '<dt class="col-sm-6">Columns</dt><dd class="col-sm-6">' + s.total_columns + '</dd>' +
+        '<dt class="col-sm-6">Indexes</dt><dd class="col-sm-6">' + s.total_indexes + '</dd>' +
+        '<dt class="col-sm-6">Foreign Keys</dt><dd class="col-sm-6">' + s.total_foreign_keys + '</dd>' +
+        '<dt class="col-sm-6">Total Rows</dt><dd class="col-sm-6">' + s.total_rows.toLocaleString() + '</dd>' +
+        '<dt class="col-sm-6">Total Size</dt><dd class="col-sm-6">' + s.total_size_mb + ' MB</dd>' +
+        '</dl>';
+
+    // Snapshot Info card
+    document.getElementById('ovSnapshotInfo').innerHTML =
+        '<dl class="row mb-0">' +
+        '<dt class="col-sm-6">Generated At</dt><dd class="col-sm-6">' + formatDateTime(snapshot.generated_at) + '</dd>' +
+        '<dt class="col-sm-6">Database</dt><dd class="col-sm-6"><code>' + escapeHtml(snapshot.database) + '</code></dd>' +
+        '<dt class="col-sm-6">MySQL Version</dt><dd class="col-sm-6"><code>' + escapeHtml(snapshot.mysql_version) + '</code></dd>' +
+        '<dt class="col-sm-6">Generator</dt><dd class="col-sm-6"><code>' + escapeHtml(snapshot.generator) + '</code></dd>' +
+        '</dl>';
+}
+
+function renderNoSnapshot() {
+    document.getElementById('ovTableCount').textContent = '-';
+    document.getElementById('ovTotalSize').textContent = '-';
+    document.getElementById('ovSchemaSummary').innerHTML =
+        '<div class="alert alert-warning mb-0">No snapshot found. Click "Generate Snapshot" to create one.</div>';
+    document.getElementById('ovSnapshotInfo').innerHTML =
+        '<div class="text-muted text-center py-2">No snapshot available</div>';
+}
+
+// ============================================================================
+// GENERATE SNAPSHOT
+// ============================================================================
+
+function generateSnapshot() {
+    var btn = document.getElementById('btnGenerateSnapshot');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating...';
+
+    apiPost('/crm/api/schema-snapshot.php?action=generate', {})
+        .then(function(data) {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="refresh-cw" style="width:16px;height:16px;"></i> Generate Snapshot';
+            if (typeof feather !== 'undefined') feather.replace();
+
+            if (data.success) {
+                showAlert('success', data.message);
+                // Reset cached data and reload tabs
+                cachedSnapshot = null;
+                tabsInitialized = { overview: false, schema: false, migrations: false, drift: false };
+                loadOverview();
+            } else {
+                showAlert('danger', 'Snapshot failed: ' + (data.error || data.message));
+            }
+        })
+        .catch(function(err) {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="refresh-cw" style="width:16px;height:16px;"></i> Generate Snapshot';
+            if (typeof feather !== 'undefined') feather.replace();
+            showAlert('danger', 'Error generating snapshot. Check console.');
+            console.error('Snapshot error:', err);
+        });
+}
+
+// ============================================================================
+// SCHEMA BROWSER TAB
+// ============================================================================
+
+function loadSchemaBrowser() {
+    var loadSnapshot = cachedSnapshot
+        ? Promise.resolve({ success: true, has_snapshot: true, snapshot: cachedSnapshot })
+        : apiPost('/crm/api/schema-snapshot.php?action=current', {});
+
+    loadSnapshot.then(function(data) {
+        document.getElementById('schemaLoading').style.display = 'none';
+
+        if (!data.success || !data.has_snapshot) {
+            document.getElementById('schemaNoSnapshot').style.display = 'block';
+            return;
+        }
+
+        cachedSnapshot = data.snapshot;
+        document.getElementById('schemaContent').style.display = 'block';
+        renderTableList(data.snapshot.tables);
+        tabsInitialized.schema = true;
+    }).catch(function(err) {
+        document.getElementById('schemaLoading').innerHTML =
+            '<div class="alert alert-danger">Failed to load schema</div>';
+    });
+}
+
+function renderTableList(tables) {
+    var container = document.getElementById('schemaTableList');
+    container.innerHTML = '';
+
+    var tableNames = Object.keys(tables).sort();
+
+    tableNames.forEach(function(tableName) {
+        var table = tables[tableName];
+        var colCount = Object.keys(table.columns || {}).length;
+        var idxCount = Object.keys(table.indexes || {}).length;
+        var fkCount = Object.keys(table.foreign_keys || {}).length;
+
+        var card = document.createElement('div');
+        card.className = 'card mw-schema-table-item mb-2';
+        card.setAttribute('data-table-name', tableName.toLowerCase());
+
+        card.innerHTML =
+            '<div class="card-header py-2 px-3 d-flex justify-content-between align-items-center" ' +
+                 'style="cursor:pointer;" onclick="toggleTableDetail(\'' + escapeHtml(tableName) + '\', this)">' +
+                '<div>' +
+                    '<strong class="font-monospace">' + escapeHtml(tableName) + '</strong>' +
+                    ' <span class="badge badge-light ml-2">' + colCount + ' cols</span>' +
+                    (idxCount > 0 ? ' <span class="badge badge-light">' + idxCount + ' idx</span>' : '') +
+                    (fkCount > 0 ? ' <span class="badge badge-light">' + fkCount + ' FK</span>' : '') +
+                '</div>' +
+                '<div class="d-flex align-items-center">' +
+                    '<span class="text-muted small mr-3">' + escapeHtml(table.engine || '') +
+                    ' &middot; ' + (table.row_count || 0).toLocaleString() + ' rows</span>' +
+                    '<i data-feather="chevron-down" style="width:16px;height:16px;" class="mw-schema-chevron"></i>' +
+                '</div>' +
+            '</div>' +
+            '<div class="card-body mw-schema-detail py-0 px-3" style="display:none;" id="detail-' + escapeHtml(tableName) + '">' +
+            '</div>';
+
+        container.appendChild(card);
+    });
+
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function toggleTableDetail(tableName, headerEl) {
+    var detailEl = document.getElementById('detail-' + tableName);
+    if (!detailEl) return;
+
+    var isVisible = detailEl.style.display !== 'none';
+    var chevron = headerEl.querySelector('.mw-schema-chevron');
+
+    if (isVisible) {
+        detailEl.style.display = 'none';
+        if (chevron) chevron.style.transform = '';
+    } else {
+        detailEl.style.display = 'block';
+        if (chevron) chevron.style.transform = 'rotate(180deg)';
+
+        // Render content if not already rendered
+        if (!detailEl.hasAttribute('data-rendered')) {
+            renderTableDetail(tableName, detailEl);
+            detailEl.setAttribute('data-rendered', 'true');
+        }
+    }
+}
+
+function renderTableDetail(tableName, container) {
+    if (!cachedSnapshot || !cachedSnapshot.tables[tableName]) return;
+
+    var table = cachedSnapshot.tables[tableName];
+    var html = '';
+
+    // Columns table
+    html += '<div class="py-3">';
+    html += '<h6 class="mb-2">Columns</h6>';
+    html += '<div class="table-responsive">';
+    html += '<table class="table table-sm table-bordered mb-3" style="font-size:0.85rem;">';
+    html += '<thead><tr><th>#</th><th>Column</th><th>Type</th><th>Null</th><th>Key</th><th>Default</th><th>Extra</th></tr></thead>';
+    html += '<tbody>';
+
+    var columns = table.columns || {};
+    Object.keys(columns).forEach(function(colName) {
+        var col = columns[colName];
+        var keyBadge = '';
+        if (col.key === 'PRI') keyBadge = '<span class="badge mw-schema-badge-pk">PK</span>';
+        else if (col.key === 'MUL') keyBadge = '<span class="badge mw-schema-badge-fk">FK</span>';
+        else if (col.key === 'UNI') keyBadge = '<span class="badge mw-schema-badge-idx">UNI</span>';
+
+        html += '<tr>';
+        html += '<td class="text-muted">' + col.ordinal + '</td>';
+        html += '<td><code>' + escapeHtml(colName) + '</code></td>';
+        html += '<td><code class="text-muted">' + escapeHtml(col.type) + '</code></td>';
+        html += '<td>' + (col.nullable ? '<span class="text-warning">YES</span>' : '<span class="text-muted">NO</span>') + '</td>';
+        html += '<td>' + keyBadge + '</td>';
+        html += '<td class="text-muted small">' + (col.default !== null ? escapeHtml(String(col.default)) : '<em>NULL</em>') + '</td>';
+        html += '<td class="text-muted small">' + escapeHtml(col.extra || '') + '</td>';
+        html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+
+    // Indexes
+    var indexes = table.indexes || {};
+    var indexNames = Object.keys(indexes);
+    if (indexNames.length > 0) {
+        html += '<h6 class="mb-2">Indexes</h6>';
+        html += '<div class="table-responsive">';
+        html += '<table class="table table-sm table-bordered mb-3" style="font-size:0.85rem;">';
+        html += '<thead><tr><th>Name</th><th>Columns</th><th>Unique</th></tr></thead>';
+        html += '<tbody>';
+        indexNames.forEach(function(idxName) {
+            var idx = indexes[idxName];
+            html += '<tr>';
+            html += '<td><code>' + escapeHtml(idxName) + '</code></td>';
+            html += '<td><code>' + idx.columns.map(escapeHtml).join(', ') + '</code></td>';
+            html += '<td>' + (idx.unique ? '<span class="badge badge-success">Yes</span>' : '<span class="text-muted">No</span>') + '</td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+    }
+
+    // Foreign Keys
+    var fks = table.foreign_keys || {};
+    var fkNames = Object.keys(fks);
+    if (fkNames.length > 0) {
+        html += '<h6 class="mb-2">Foreign Keys</h6>';
+        html += '<div class="table-responsive">';
+        html += '<table class="table table-sm table-bordered mb-3" style="font-size:0.85rem;">';
+        html += '<thead><tr><th>Constraint</th><th>Column</th><th>References</th></tr></thead>';
+        html += '<tbody>';
+        fkNames.forEach(function(fkName) {
+            var fk = fks[fkName];
+            html += '<tr>';
+            html += '<td><code class="small">' + escapeHtml(fkName) + '</code></td>';
+            html += '<td><code>' + escapeHtml(fk.column) + '</code></td>';
+            html += '<td><code>' + escapeHtml(fk.references_table) + '.' + escapeHtml(fk.references_column) + '</code></td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+    }
+
+    // Table metadata
+    html += '<div class="row mb-3">';
+    html += '<div class="col-md-3"><small class="text-muted">Engine:</small> <code>' + escapeHtml(table.engine || '') + '</code></div>';
+    html += '<div class="col-md-3"><small class="text-muted">Rows:</small> ' + (table.row_count || 0).toLocaleString() + '</div>';
+    html += '<div class="col-md-3"><small class="text-muted">Data:</small> ' + formatBytes(table.data_length) + '</div>';
+    html += '<div class="col-md-3"><small class="text-muted">Index:</small> ' + formatBytes(table.index_length) + '</div>';
+    html += '</div>';
+
+    html += '</div>';
+
+    container.innerHTML = html;
+}
+
+function filterTables(query) {
+    var items = document.querySelectorAll('.mw-schema-table-item');
+    query = query.toLowerCase();
+    items.forEach(function(item) {
+        var name = item.getAttribute('data-table-name') || '';
+        item.style.display = (!query || name.indexOf(query) !== -1) ? '' : 'none';
+    });
+}
+
+// ============================================================================
+// MIGRATIONS TAB
+// ============================================================================
+
+function loadPendingMigrations() {
+    apiPost('/crm/api/migrations-manager.php?action=list', {})
+        .then(function(data) {
+            document.getElementById('migPendingLoading').style.display = 'none';
+            document.getElementById('migPendingContainer').style.display = 'block';
+
+            var list = document.getElementById('migPendingList');
+            list.innerHTML = '';
+
+            document.getElementById('migPendingCount').textContent = data.pending_count || 0;
+
+            var hasAssumed = data.assumed_executed && data.assumed_executed.length > 0;
+            if ((!data.pending || data.pending.length === 0) && !hasAssumed) {
+                document.getElementById('migNoPending').style.display = 'block';
+                tabsInitialized.migrations = true;
+                return;
+            }
+
+            document.getElementById('migNoPending').style.display = 'none';
+
+            // Assumed-executed migrations
+            if (hasAssumed) {
+                var header = document.createElement('div');
+                header.className = 'col-12 mb-2';
+                header.innerHTML =
+                    '<div class="alert alert-light border py-2 px-3 mb-2 d-flex justify-content-between align-items-center">' +
+                    '<span class="small"><strong>' + data.assumed_executed.length + '</strong> older migration(s) assumed already executed</span>' +
+                    '<button class="btn btn-sm btn-outline-secondary" onclick="toggleAssumedMigrations()" id="toggleAssumedBtn">Show</button>' +
+                    '</div>';
+                list.appendChild(header);
+
+                data.assumed_executed.forEach(function(migration) {
+                    list.appendChild(createMigrationCard(migration, true));
+                });
+            }
+
+            // Pending migrations
+            if (data.pending) {
+                data.pending.forEach(function(migration) {
+                    list.appendChild(createMigrationCard(migration, false));
+                });
+            }
+
+            tabsInitialized.migrations = true;
+        })
+        .catch(function(err) {
+            document.getElementById('migPendingLoading').innerHTML =
+                '<div class="alert alert-danger">Failed to load migrations</div>';
+        });
+}
+
+function createMigrationCard(migration, isAssumed) {
+    var card = document.createElement('div');
+    card.className = 'col-md-6 col-lg-4 mb-3' + (isAssumed ? ' assumed-migration-card' : '');
+    if (isAssumed) card.style.display = 'none';
+
+    var title = migration.title || migration.filename;
+    var purpose = migration.purpose || '';
+    var createdAt = migration.created_at || '';
+    var sizeKb = migration.size ? (migration.size / 1024).toFixed(1) + ' KB' : '';
+
+    var borderClass = isAssumed ? 'border-secondary' : 'border-warning';
+    var opacity = isAssumed ? ' style="opacity:0.7;"' : '';
+    var badgeHtml = isAssumed
+        ? '<span class="badge badge-secondary">Assumed</span>'
+        : '<span class="badge badge-warning">Pending</span>';
+    var btnClass = isAssumed ? 'btn-outline-warning' : 'btn-warning';
+    var btnText = isAssumed ? 'Run Anyway' : 'Execute';
+
+    card.innerHTML =
+        '<div class="card mw-migration-card ' + borderClass + '"' + opacity + '>' +
+        '<div class="card-body">' +
+        '<div class="d-flex justify-content-between align-items-start mb-1">' +
+        '<h6 class="card-title font-monospace small mb-0">' + escapeHtml(migration.filename) + '</h6>' +
+        badgeHtml +
+        '</div>' +
+        (title !== migration.filename ? '<p class="card-text small mb-2">' + escapeHtml(title) + '</p>' : '') +
+        (purpose ? '<p class="text-muted small mb-2">' + escapeHtml(purpose) + '</p>' : '') +
+        '<div class="d-flex justify-content-between align-items-center">' +
+        '<small class="text-muted">' + escapeHtml(createdAt) + (sizeKb ? ' &middot; ' + sizeKb : '') + '</small>' +
+        '<button class="btn btn-sm ' + btnClass + '" onclick="executeMigration(\'' + escapeHtml(migration.filename) + '\', this)">' +
+        btnText + '</button>' +
+        '</div></div></div>';
+
+    return card;
+}
+
+function toggleAssumedMigrations() {
+    var cards = document.querySelectorAll('.assumed-migration-card');
+    var btn = document.getElementById('toggleAssumedBtn');
+    var isHidden = cards.length > 0 && cards[0].style.display === 'none';
+    cards.forEach(function(c) { c.style.display = isHidden ? '' : 'none'; });
+    if (btn) btn.textContent = isHidden ? 'Hide' : 'Show';
+}
+
+function executeMigration(filename, btn) {
+    if (!confirm('Execute migration: ' + filename + '?\n\nThis will modify your database. Make sure you have a backup.')) {
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Running...';
+
+    apiPost('/crm/api/migrations-manager.php?action=execute', { filename: filename })
+        .then(function(data) {
+            if (data.success) {
+                showAlert('success', 'Migration executed: ' + filename);
+                setTimeout(function() {
+                    loadPendingMigrations();
+                    loadMigrationHistory('all');
+                }, 500);
+            } else {
+                showAlert('danger', 'Migration failed: ' + (data.error || 'Unknown error'));
+                btn.disabled = false;
+                btn.textContent = 'Execute';
+            }
+        })
+        .catch(function(err) {
+            showAlert('danger', 'Error executing migration');
+            btn.disabled = false;
+            btn.textContent = 'Execute';
+        });
+}
+
+function loadMigrationHistory(status) {
+    apiPost('/crm/api/migrations-manager.php?action=history', { status: status || 'all' })
+        .then(function(data) {
+            document.getElementById('migHistoryLoading').style.display = 'none';
+            document.getElementById('migHistoryContainer').style.display = 'block';
+
+            var tbody = document.getElementById('migHistoryList');
+            tbody.innerHTML = '';
+
+            if (!data.history || data.history.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No migrations found</td></tr>';
+                return;
+            }
+
+            data.history.forEach(function(migration) {
+                var row = document.createElement('tr');
+                var statusBadge = migration.status === 'success'
+                    ? '<span class="badge badge-success">Success</span>'
+                    : '<span class="badge badge-danger">Failed</span>';
+
+                row.innerHTML =
+                    '<td><code class="small">' + escapeHtml(migration.migration_filename) + '</code></td>' +
+                    '<td>' + statusBadge + '</td>' +
+                    '<td class="small">' + escapeHtml(migration.executed_by_name || '') + '</td>' +
+                    '<td class="small text-muted">' + formatDateTime(migration.executed_at) + '</td>';
+
+                tbody.appendChild(row);
+
+                if (migration.status === 'failed' && migration.error_message) {
+                    var errRow = document.createElement('tr');
+                    errRow.innerHTML = '<td colspan="4"><small class="text-danger font-monospace">' +
+                        escapeHtml(migration.error_message) + '</small></td>';
+                    tbody.appendChild(errRow);
+                }
+            });
+        })
+        .catch(function(err) {
+            document.getElementById('migHistoryLoading').innerHTML =
+                '<div class="alert alert-danger">Failed to load history</div>';
+        });
+}
+
+// ============================================================================
+// DRIFT DETECTION TAB
+// ============================================================================
+
+function loadSnapshotHistory() {
+    apiPost('/crm/api/schema-snapshot.php?action=history', {})
+        .then(function(data) {
+            if (!data.success || !data.history || data.history.length === 0) {
+                document.getElementById('driftNoHistory').style.display = 'block';
+                tabsInitialized.drift = true;
+                return;
+            }
+
+            var select = document.getElementById('driftHistorySelect');
+            // Keep the default option
+            select.innerHTML = '<option value="">-- Select a snapshot --</option>';
+
+            data.history.forEach(function(snap) {
+                var option = document.createElement('option');
+                option.value = snap.filename;
+                option.textContent = snap.date + ' (' + snap.size_kb + ' KB)';
+                select.appendChild(option);
+            });
+
+            tabsInitialized.drift = true;
+        })
+        .catch(function(err) {
+            document.getElementById('driftNoHistory').innerHTML =
+                '<div class="alert alert-danger">Failed to load snapshot history</div>';
+        });
+}
+
+function runDriftComparison() {
+    var select = document.getElementById('driftHistorySelect');
+    var historyFile = select.value;
+
+    if (!historyFile) {
+        showAlert('warning', 'Select a historical snapshot to compare against');
+        return;
+    }
+
+    document.getElementById('driftLoading').style.display = 'block';
+    document.getElementById('driftResults').style.display = 'none';
+
+    apiPost('/crm/api/schema-snapshot.php?action=compare', { history_file: historyFile })
+        .then(function(data) {
+            document.getElementById('driftLoading').style.display = 'none';
+
+            if (!data.success) {
+                showAlert('danger', 'Comparison failed: ' + (data.error || 'Unknown error'));
+                return;
+            }
+
+            renderDriftResults(data.diff);
+        })
+        .catch(function(err) {
+            document.getElementById('driftLoading').style.display = 'none';
+            showAlert('danger', 'Error running comparison');
+        });
+}
+
+function renderDriftResults(diff) {
+    var container = document.getElementById('driftResults');
+    container.style.display = 'block';
+    var html = '';
+
+    // Summary
+    if (!diff.has_drift) {
+        html += '<div class="alert alert-success"><strong>No drift detected.</strong> The current schema matches the selected snapshot.</div>';
+        container.innerHTML = html;
+        return;
+    }
+
+    html += '<div class="card mb-3"><div class="card-header"><h5 class="card-title mb-0">Drift Summary</h5></div>';
+    html += '<div class="card-body">';
+    html += '<div class="row">';
+    html += '<div class="col-md-4 text-center"><h4 class="text-success">' + diff.tables_added.length + '</h4><small class="text-muted">Tables Added</small></div>';
+    html += '<div class="col-md-4 text-center"><h4 class="text-danger">' + diff.tables_removed.length + '</h4><small class="text-muted">Tables Removed</small></div>';
+    html += '<div class="col-md-4 text-center"><h4 class="text-warning">' + diff.tables_modified_count + '</h4><small class="text-muted">Tables Modified</small></div>';
+    html += '</div>';
+    html += '<p class="text-muted small mt-2 mb-0">Current: ' + escapeHtml(diff.current_generated_at) + ' vs Previous: ' + escapeHtml(diff.previous_generated_at) + '</p>';
+    html += '</div></div>';
+
+    // Tables added
+    if (diff.tables_added.length > 0) {
+        html += '<div class="card mw-drift-card mw-drift-added mb-3">';
+        html += '<div class="card-header"><h6 class="mb-0 text-success">Tables Added (' + diff.tables_added.length + ')</h6></div>';
+        html += '<div class="card-body">';
+        diff.tables_added.forEach(function(t) {
+            html += '<span class="badge badge-success mr-2 mb-1">' + escapeHtml(t) + '</span>';
+        });
+        html += '</div></div>';
+    }
+
+    // Tables removed
+    if (diff.tables_removed.length > 0) {
+        html += '<div class="card mw-drift-card mw-drift-removed mb-3">';
+        html += '<div class="card-header"><h6 class="mb-0 text-danger">Tables Removed (' + diff.tables_removed.length + ')</h6></div>';
+        html += '<div class="card-body">';
+        diff.tables_removed.forEach(function(t) {
+            html += '<span class="badge badge-danger mr-2 mb-1">' + escapeHtml(t) + '</span>';
+        });
+        html += '</div></div>';
+    }
+
+    // Table-level changes
+    var changeTableNames = Object.keys(diff.changes || {});
+    if (changeTableNames.length > 0) {
+        changeTableNames.forEach(function(tableName) {
+            var ch = diff.changes[tableName];
+            html += '<div class="card mw-drift-card mw-drift-modified mb-3">';
+            html += '<div class="card-header"><h6 class="mb-0"><code>' + escapeHtml(tableName) + '</code></h6></div>';
+            html += '<div class="card-body">';
+
+            // Columns added
+            if (ch.columns_added && ch.columns_added.length > 0) {
+                html += '<p class="mb-1 small"><strong class="text-success">Columns added:</strong></p>';
+                ch.columns_added.forEach(function(c) {
+                    html += '<span class="badge badge-success mr-1 mb-1">+ ' + escapeHtml(c) + '</span>';
+                });
+                html += '<br>';
+            }
+
+            // Columns removed
+            if (ch.columns_removed && ch.columns_removed.length > 0) {
+                html += '<p class="mb-1 small mt-2"><strong class="text-danger">Columns removed:</strong></p>';
+                ch.columns_removed.forEach(function(c) {
+                    html += '<span class="badge badge-danger mr-1 mb-1">- ' + escapeHtml(c) + '</span>';
+                });
+                html += '<br>';
+            }
+
+            // Columns modified
+            var modCols = Object.keys(ch.columns_modified || {});
+            if (modCols.length > 0) {
+                html += '<p class="mb-1 small mt-2"><strong class="text-warning">Columns modified:</strong></p>';
+                html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-2" style="font-size:0.8rem;">';
+                html += '<thead><tr><th>Column</th><th>Property</th><th>Before</th><th>After</th></tr></thead><tbody>';
+                modCols.forEach(function(colName) {
+                    var props = ch.columns_modified[colName];
+                    Object.keys(props).forEach(function(prop) {
+                        html += '<tr>';
+                        html += '<td><code>' + escapeHtml(colName) + '</code></td>';
+                        html += '<td>' + escapeHtml(prop) + '</td>';
+                        html += '<td class="text-danger">' + escapeHtml(String(props[prop].from)) + '</td>';
+                        html += '<td class="text-success">' + escapeHtml(String(props[prop].to)) + '</td>';
+                        html += '</tr>';
+                    });
+                });
+                html += '</tbody></table></div>';
+            }
+
+            // Indexes
+            if (ch.indexes_added && ch.indexes_added.length > 0) {
+                html += '<p class="mb-1 small mt-2"><strong class="text-success">Indexes added:</strong> ' +
+                    ch.indexes_added.map(escapeHtml).join(', ') + '</p>';
+            }
+            if (ch.indexes_removed && ch.indexes_removed.length > 0) {
+                html += '<p class="mb-1 small"><strong class="text-danger">Indexes removed:</strong> ' +
+                    ch.indexes_removed.map(escapeHtml).join(', ') + '</p>';
+            }
+
+            // Foreign keys
+            if (ch.fk_added && ch.fk_added.length > 0) {
+                html += '<p class="mb-1 small mt-2"><strong class="text-success">FKs added:</strong> ' +
+                    ch.fk_added.map(escapeHtml).join(', ') + '</p>';
+            }
+            if (ch.fk_removed && ch.fk_removed.length > 0) {
+                html += '<p class="mb-1 small"><strong class="text-danger">FKs removed:</strong> ' +
+                    ch.fk_removed.map(escapeHtml).join(', ') + '</p>';
+            }
+
+            html += '</div></div>';
+        });
+    }
+
+    container.innerHTML = html;
+}

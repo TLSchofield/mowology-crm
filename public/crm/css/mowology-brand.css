@@ -6554,3 +6554,97 @@ textarea.font-monospace {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Database Manager
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* -- Stat Cards -- */
+.mw-db-stat-card {
+  border: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  transition: box-shadow 0.2s;
+}
+.mw-db-stat-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
+/* -- Search -- */
+.mw-db-search {
+  max-width: 400px;
+  border-color: var(--mw-light);
+}
+.mw-db-search:focus {
+  border-color: var(--mw-green);
+  box-shadow: 0 0 0 0.2rem rgba(45,134,89,0.15);
+}
+
+/* -- Schema Browser -- */
+.mw-schema-table-item {
+  border: 1px solid #e9ecef;
+  border-radius: 0.25rem;
+}
+.mw-schema-table-item > .card-header {
+  background: #fafbfc;
+  border-bottom: 1px solid #e9ecef;
+  transition: background 0.15s;
+}
+.mw-schema-table-item > .card-header:hover {
+  background: var(--mw-light);
+}
+.mw-schema-chevron {
+  transition: transform 0.2s;
+}
+.mw-schema-detail {
+  border-top: 1px solid #e9ecef;
+}
+.mw-schema-detail table th {
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6c757d;
+}
+
+/* -- Schema Badges -- */
+.mw-schema-badge-pk {
+  background: var(--mw-green);
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 0.15em 0.45em;
+}
+.mw-schema-badge-fk {
+  background: var(--mw-orange);
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 0.15em 0.45em;
+}
+.mw-schema-badge-idx {
+  background: #6f42c1;
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 0.15em 0.45em;
+}
+
+/* -- Migration Cards -- */
+.mw-migration-card {
+  border-width: 2px;
+  transition: box-shadow 0.15s;
+}
+.mw-migration-card:hover {
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+/* -- Drift Detection -- */
+.mw-drift-card {
+  border-left: 4px solid transparent;
+}
+.mw-drift-added {
+  border-left-color: var(--mw-green);
+}
+.mw-drift-removed {
+  border-left-color: #dc3545;
+}
+.mw-drift-modified {
+  border-left-color: #ffc107;
+}

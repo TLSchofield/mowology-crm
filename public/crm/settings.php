@@ -253,77 +253,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <!-- Database / Migrations Tab -->
         <div class="tab-pane fade" id="database" role="tabpanel">
             <div class="card">
-                <div class="card-header"><h5 class="card-title">Database Health</h5></div>
+                <div class="card-header"><h5 class="card-title mb-0">Database</h5></div>
                 <div class="card-body">
-                    <div id="dbHealthLoading" class="text-center py-3">
-                        <div class="spinner-border spinner-border-sm" role="status"></div>
-                        <p class="mt-2 small text-muted">Checking database...</p>
-                    </div>
-                    <div id="dbHealthInfo" style="display: none;">
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <label class="text-muted small">Database</label>
-                                <p id="dbName" class="font-monospace">-</p>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="text-muted small">MySQL Version</label>
-                                <p id="dbVersion" class="font-monospace">-</p>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="text-muted small">Status</label>
-                            <div id="dbStatus" class="badge badge-secondary">Checking...</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card mt-3">
-                <div class="card-header"><h5 class="card-title">Pending Migrations (<span id="pendingCount">0</span>)</h5></div>
-                <div class="card-body">
-                    <div id="pendingMigrationsLoading" class="text-center py-3">
-                        <div class="spinner-border spinner-border-sm" role="status"></div>
-                        <p class="mt-2 small text-muted">Loading migrations...</p>
-                    </div>
-                    <div id="pendingMigrationsContainer" style="display: none;">
-                        <div id="pendingMigrationsList" class="row"></div>
-                        <div id="noPendingMessage" class="alert alert-info" style="display: none;">
-                            <strong>Great!</strong> All migrations have been applied. Your database is up to date.
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card mt-3">
-                <div class="card-header"><h5 class="card-title">Migration History</h5></div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label small">Filter by Status</label>
-                        <select id="historyStatusFilter" class="form-select form-select-sm" style="max-width: 200px;">
-                            <option value="all">All Migrations</option>
-                            <option value="success">Applied (Success)</option>
-                            <option value="failed">Failed</option>
-                        </select>
-                    </div>
-                    <div id="migrationHistoryLoading" class="text-center py-3">
-                        <div class="spinner-border spinner-border-sm" role="status"></div>
-                        <p class="mt-2 small text-muted">Loading history...</p>
-                    </div>
-                    <div id="migrationHistoryContainer" style="display: none;">
-                        <div class="table-responsive">
-                            <table class="table table-sm table-hover">
-                                <thead>
-                                    <tr>
-                                        <th>Migration</th>
-                                        <th>Status</th>
-                                        <th>Executed By</th>
-                                        <th>Executed At</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="migrationHistoryList"></tbody>
-                            </table>
-                        </div>
-                    </div>
+                    <p class="text-muted mb-3">
+                        Schema browsing, migrations, and drift detection have moved to the dedicated Database Manager.
+                    </p>
+                    <a href="/crm/database_appstack.php" class="btn btn-primary">
+                        <i data-feather="database" style="width:16px;height:16px;"></i> Open Database Manager
+                    </a>
                 </div>
             </div>
         </div>
@@ -337,5 +274,4 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 </form>
 
 <script src="js/business-settings.js"></script>
-<script src="js/migrations-manager.js"></script>
 <?php include 'includes/appstack_footer.php'; ?>

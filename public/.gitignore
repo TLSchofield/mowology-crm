@@ -19,3 +19,7 @@ Thumbs.db
 crm/logs/
 tmp/
 cache/
+
+# Schema snapshots (generated data)
+storage/schema_snapshot.json
+storage/schema_history/*.json
