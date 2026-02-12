@@ -14,6 +14,76 @@ requireLogin();
 $user = getCurrentUser();
 
 $db = getDB();
+
+// ─── AJAX: Search contacts & companies ───
+if (isset($_GET['action']) && $_GET['action'] === 'search_contacts' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    header('Content-Type: application/json');
+    $query = trim($_GET['q'] ?? '');
+
+    if (strlen($query) < 2) {
+        echo json_encode(['results' => []]);
+        exit;
+    }
+
+    $searchTerm = '%' . $query . '%';
+    $results = [];
+
+    // Search companies
+    $stmt = $db->prepare("
+        SELECT c.id, c.company_name, c.company_type,
+               ct.first_name, ct.last_name, ct.email, ct.phone
+        FROM companies c
+        LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
+        WHERE c.account_status != 'suspended'
+          AND (c.company_name LIKE ? OR ct.first_name LIKE ? OR ct.last_name LIKE ?
+               OR ct.email LIKE ? OR ct.phone LIKE ?)
+        ORDER BY c.company_name ASC
+        LIMIT 15
+    ");
+    $stmt->execute([$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm]);
+    $companies = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($companies as $co) {
+        $contactName = trim(($co['first_name'] ?? '') . ' ' . ($co['last_name'] ?? ''));
+        $subtitle = $contactName ?: ($co['email'] ?? '');
+        $results[] = [
+            'company_id'   => (int)$co['id'],
+            'label'        => $co['company_name'],
+            'subtitle'     => $subtitle,
+            'type'         => $co['company_type'] ?? 'business',
+        ];
+    }
+
+    echo json_encode(['results' => $results]);
+    exit;
+}
+
+// ─── AJAX: Get properties for a company ───
+if (isset($_GET['action']) && $_GET['action'] === 'get_properties' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    header('Content-Type: application/json');
+    $companyId = intval($_GET['company_id'] ?? 0);
+
+    if (!$companyId) {
+        echo json_encode(['properties' => []]);
+        exit;
+    }
+
+    // Get properties via company_properties junction table OR direct owner/manager FK
+    $stmt = $db->prepare("
+        SELECT DISTINCT p.id, p.address, p.city, p.property_type, p.postal_code
+        FROM properties p
+        LEFT JOIN company_properties cp ON p.id = cp.property_id
+        WHERE (cp.company_id = ? OR p.owner_company_id = ? OR p.property_manager_id = ?)
+          AND p.status = 'active'
+        ORDER BY p.address ASC
+    ");
+    $stmt->execute([$companyId, $companyId, $companyId]);
+    $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode(['properties' => $properties]);
+    exit;
+}
+
 $error = '';
 $prefill = [];
 
@@ -49,6 +119,8 @@ if ($quoteId) {
         $prefill = [
             'property_id'      => $quote['property_id'],
             'company_id'       => $quote['company_id'],
+            'company_name'     => $quote['company_name'],
+            'property_address' => $quote['address'] . ', ' . $quote['city'],
             'title'            => $quote['title'] ?: 'Plan from ' . $quote['quote_number'],
             'description'      => $quote['description'],
             'service_type'     => $quote['service_type'],
@@ -58,15 +130,6 @@ if ($quoteId) {
         ];
     }
 }
-
-// Get properties for dropdown
-$properties = $db->query("
-    SELECT DISTINCT p.id, p.address, p.city, p.property_type, c.company_name, c.id as company_id
-    FROM properties p
-    LEFT JOIN company_properties cp ON p.id = cp.property_id
-    LEFT JOIN companies c ON cp.company_id = c.id
-    ORDER BY c.company_name, p.address
-")->fetchAll(PDO::FETCH_ASSOC);
 
 // Get staff for crew assignment
 $staff = getStaffMembers();
@@ -166,9 +229,58 @@ $activePage = 'jobs';
               </div>
           <?php endif; ?>
 
-          <form method="POST">
+          <form method="POST" id="createPlanForm">
               <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
               <input type="hidden" name="quote_id" value="<?php echo $prefill['quote_id'] ?? ''; ?>">
+              <input type="hidden" name="property_id" id="propertyIdInput" value="<?php echo $prefill['property_id'] ?? ''; ?>">
+
+              <!-- Client / Property Selection Card -->
+              <div class="card">
+                  <div class="card-header">
+                      <h5 class="card-title mb-0">Client &amp; Property</h5>
+                  </div>
+                  <div class="card-body">
+
+                      <!-- Step 1: Contact / Company Search -->
+                      <div class="mw-form-group">
+                          <label class="form-label">Contact or Company *</label>
+                          <div class="mw-search-wrapper">
+                              <input type="text" id="clientSearch" class="form-control"
+                                     placeholder="Start typing a name, company, email, or phone..."
+                                     autocomplete="off"
+                                     value="<?php echo htmlspecialchars($prefill['company_name'] ?? ''); ?>"
+                                     <?php echo !empty($prefill['company_id']) ? 'readonly' : ''; ?>>
+                              <div id="clientSearchResults" class="mw-search-results"></div>
+                          </div>
+                          <div class="mw-search-actions">
+                              <?php if (!empty($prefill['company_id'])): ?>
+                                  <a href="#" id="clearClient" class="mw-search-clear">Change client</a>
+                              <?php endif; ?>
+                              <a href="/crm/clients_appstack.php?action=create" target="_blank" class="mw-new-contact-btn">
+                                  <i data-feather="user-plus"></i> New Contact
+                              </a>
+                          </div>
+                          <input type="hidden" id="selectedCompanyId" value="<?php echo $prefill['company_id'] ?? ''; ?>">
+                      </div>
+
+                      <!-- Step 2: Property Selection (shown after client selected) -->
+                      <div class="mw-form-group" id="propertySection" style="<?php echo !empty($prefill['property_id']) ? '' : 'display:none;'; ?>">
+                          <label class="form-label">Property *</label>
+                          <div id="propertyList" class="mw-property-list">
+                              <?php if (!empty($prefill['property_id'])): ?>
+                                  <div class="mw-property-card selected" data-property-id="<?php echo $prefill['property_id']; ?>">
+                                      <i data-feather="map-pin"></i>
+                                      <span><?php echo htmlspecialchars($prefill['property_address'] ?? ''); ?></span>
+                                  </div>
+                              <?php endif; ?>
+                          </div>
+                          <div id="noProperties" class="mw-no-properties" style="display:none;">
+                              No properties found for this client.
+                          </div>
+                      </div>
+
+                  </div>
+              </div>
 
               <!-- Plan Details Card -->
               <div class="card">
@@ -176,19 +288,6 @@ $activePage = 'jobs';
                       <h5 class="card-title mb-0">Plan Details</h5>
                   </div>
                   <div class="card-body">
-
-                      <div class="mw-form-group">
-                          <label class="form-label">Property *</label>
-                          <select name="property_id" class="form-control" required>
-                              <option value="">Select property...</option>
-                              <?php foreach ($properties as $prop): ?>
-                                  <option value="<?php echo $prop['id']; ?>"
-                                      <?php echo ($prefill['property_id'] ?? '') == $prop['id'] ? 'selected' : ''; ?>>
-                                      <?php echo htmlspecialchars($prop['company_name'] . ' - ' . $prop['address'] . ', ' . $prop['city']); ?>
-                                  </option>
-                              <?php endforeach; ?>
-                          </select>
-                      </div>
 
                       <div class="mw-form-group">
                           <label class="form-label">Plan Title *</label>
@@ -354,7 +453,207 @@ $activePage = 'jobs';
           </form>
 
           <script>
-              function toggleRecurring() {
+          (function() {
+              var searchInput = document.getElementById('clientSearch');
+              var resultsDiv = document.getElementById('clientSearchResults');
+              var companyIdInput = document.getElementById('selectedCompanyId');
+              var propertyIdInput = document.getElementById('propertyIdInput');
+              var propertySection = document.getElementById('propertySection');
+              var propertyList = document.getElementById('propertyList');
+              var noProperties = document.getElementById('noProperties');
+              var debounceTimer = null;
+
+              // ── Typeahead search ──
+              searchInput.addEventListener('input', function() {
+                  var query = this.value.trim();
+                  clearTimeout(debounceTimer);
+
+                  if (query.length < 2) {
+                      resultsDiv.style.display = 'none';
+                      resultsDiv.innerHTML = '';
+                      return;
+                  }
+
+                  debounceTimer = setTimeout(function() {
+                      fetch('create.php?action=search_contacts&q=' + encodeURIComponent(query))
+                          .then(function(r) { return r.json(); })
+                          .then(function(data) {
+                              if (!data.results || data.results.length === 0) {
+                                  resultsDiv.innerHTML = '<div class="mw-search-empty">No results found</div>';
+                                  resultsDiv.style.display = 'block';
+                                  return;
+                              }
+
+                              var html = '';
+                              data.results.forEach(function(item) {
+                                  var typeLabel = item.type || 'business';
+                                  typeLabel = typeLabel.replace('_', ' ');
+                                  html += '<div class="mw-search-item" data-company-id="' + item.company_id + '" data-label="' + escapeAttr(item.label) + '">';
+                                  html += '<div class="mw-search-item-name">' + escapeHtml(item.label) + '</div>';
+                                  if (item.subtitle) {
+                                      html += '<div class="mw-search-item-sub">' + escapeHtml(item.subtitle) + ' &middot; ' + escapeHtml(typeLabel) + '</div>';
+                                  } else {
+                                      html += '<div class="mw-search-item-sub">' + escapeHtml(typeLabel) + '</div>';
+                                  }
+                                  html += '</div>';
+                              });
+                              resultsDiv.innerHTML = html;
+                              resultsDiv.style.display = 'block';
+
+                              // Attach click handlers
+                              var items = resultsDiv.querySelectorAll('.mw-search-item');
+                              items.forEach(function(el) {
+                                  el.addEventListener('click', function() {
+                                      selectClient(this.dataset.companyId, this.dataset.label);
+                                  });
+                              });
+                          })
+                          .catch(function() {
+                              resultsDiv.innerHTML = '<div class="mw-search-empty">Search error</div>';
+                              resultsDiv.style.display = 'block';
+                          });
+                  }, 250);
+              });
+
+              // Close results on outside click
+              document.addEventListener('click', function(e) {
+                  if (!e.target.closest('.mw-search-wrapper')) {
+                      resultsDiv.style.display = 'none';
+                  }
+              });
+
+              // ── Select a client ──
+              function selectClient(companyId, label) {
+                  companyIdInput.value = companyId;
+                  searchInput.value = label;
+                  searchInput.readOnly = true;
+                  resultsDiv.style.display = 'none';
+
+                  // Show "Change client" link
+                  showClearLink();
+
+                  // Load properties
+                  loadProperties(companyId);
+              }
+
+              // ── Clear client selection ──
+              function clearClient(e) {
+                  if (e) e.preventDefault();
+                  companyIdInput.value = '';
+                  propertyIdInput.value = '';
+                  searchInput.value = '';
+                  searchInput.readOnly = false;
+                  searchInput.focus();
+                  propertySection.style.display = 'none';
+                  propertyList.innerHTML = '';
+                  noProperties.style.display = 'none';
+                  removeClearLink();
+              }
+
+              function showClearLink() {
+                  var actions = document.querySelector('.mw-search-actions');
+                  if (!actions.querySelector('#clearClient')) {
+                      var link = document.createElement('a');
+                      link.href = '#';
+                      link.id = 'clearClient';
+                      link.className = 'mw-search-clear';
+                      link.textContent = 'Change client';
+                      link.addEventListener('click', clearClient);
+                      actions.insertBefore(link, actions.firstChild);
+                  }
+              }
+
+              function removeClearLink() {
+                  var link = document.getElementById('clearClient');
+                  if (link) link.remove();
+              }
+
+              // Wire up existing clear link (for prefill)
+              var existingClear = document.getElementById('clearClient');
+              if (existingClear) {
+                  existingClear.addEventListener('click', clearClient);
+              }
+
+              // ── Load properties for company ──
+              function loadProperties(companyId) {
+                  propertySection.style.display = '';
+                  propertyList.innerHTML = '<div class="mw-property-loading">Loading properties...</div>';
+                  noProperties.style.display = 'none';
+
+                  fetch('create.php?action=get_properties&company_id=' + companyId)
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          propertyList.innerHTML = '';
+
+                          if (!data.properties || data.properties.length === 0) {
+                              noProperties.style.display = '';
+                              return;
+                          }
+
+                          data.properties.forEach(function(prop) {
+                              var card = document.createElement('div');
+                              card.className = 'mw-property-card';
+                              card.dataset.propertyId = prop.id;
+
+                              var typeLabel = (prop.property_type || 'property').replace('_', ' ');
+                              var addrParts = [prop.address];
+                              if (prop.city) addrParts.push(prop.city);
+
+                              card.innerHTML = '<i data-feather="map-pin"></i>'
+                                  + '<div class="mw-property-card-info">'
+                                  + '<span class="mw-property-card-addr">' + escapeHtml(addrParts.join(', ')) + '</span>'
+                                  + '<span class="mw-property-card-type">' + escapeHtml(typeLabel) + '</span>'
+                                  + '</div>';
+
+                              card.addEventListener('click', function() {
+                                  selectProperty(this);
+                              });
+
+                              propertyList.appendChild(card);
+                          });
+
+                          // Render feather icons in new cards
+                          if (typeof feather !== 'undefined') feather.replace();
+
+                          // Auto-select if only one property
+                          if (data.properties.length === 1) {
+                              selectProperty(propertyList.querySelector('.mw-property-card'));
+                          }
+                      })
+                      .catch(function() {
+                          propertyList.innerHTML = '<div class="mw-property-loading">Error loading properties</div>';
+                      });
+              }
+
+              // ── Select a property ──
+              function selectProperty(card) {
+                  // Deselect all
+                  var cards = propertyList.querySelectorAll('.mw-property-card');
+                  cards.forEach(function(c) { c.classList.remove('selected'); });
+
+                  // Select this one
+                  card.classList.add('selected');
+                  propertyIdInput.value = card.dataset.propertyId;
+              }
+
+              // ── If prefilled, load properties on page load ──
+              var prefillCompanyId = companyIdInput.value;
+              if (prefillCompanyId && !propertyList.querySelector('.mw-property-card')) {
+                  loadProperties(prefillCompanyId);
+              }
+
+              // ── Helpers ──
+              function escapeHtml(str) {
+                  var div = document.createElement('div');
+                  div.textContent = str;
+                  return div.innerHTML;
+              }
+              function escapeAttr(str) {
+                  return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              }
+
+              // ── Recurring toggle ──
+              window.toggleRecurring = function() {
                   var planType = document.getElementById('planType').value;
                   var recurringOptions = document.getElementById('recurringOptions');
                   if (planType === 'recurring') {
@@ -362,7 +661,16 @@ $activePage = 'jobs';
                   } else {
                       recurringOptions.classList.remove('show');
                   }
-              }
+              };
+
+              // ── Form validation ──
+              document.getElementById('createPlanForm').addEventListener('submit', function(e) {
+                  if (!propertyIdInput.value) {
+                      e.preventDefault();
+                      alert('Please select a client and property before creating a plan.');
+                  }
+              });
+          })();
           </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
