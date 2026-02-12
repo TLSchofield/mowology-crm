@@ -1,853 +1,799 @@
 <?php
 /**
- * Job View & Management
+ * Job Plan View & Management
+ * Shows plan details, stats, visits list, and notes.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/plan-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
 
-$jobId = isset($_GET['id']) ? intval($_GET['id']) : 0;
+$planId = isset($_GET['id']) ? intval($_GET['id']) : 0;
 
-if (!$jobId) {
+if (!$planId) {
     header('Location: index.php');
     exit;
 }
 
 $db = getDB();
 
-// Get job with related data
-$stmt = $db->prepare("
-    SELECT
-        j.*,
-        p.address as property_address,
-        p.city as property_city,
-        p.postal_code as property_postal,
-        p.latitude,
-        p.longitude,
-        c.company_name,
-        c.billing_email,
-        c.billing_phone,
-        ct.first_name as contact_first,
-        ct.last_name as contact_last,
-        ct.email as contact_email,
-        ct.phone as contact_phone,
-        u.full_name as assigned_to_name,
-        creator.full_name as created_by_name,
-        q.quote_number
-    FROM jobs j
-    LEFT JOIN properties p ON j.property_id = p.id
-    LEFT JOIN companies c ON j.company_id = c.id
-    LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
-    LEFT JOIN users u ON j.assigned_to = u.id
-    LEFT JOIN users creator ON j.created_by = creator.id
-    LEFT JOIN quotes q ON j.quote_id = q.id
-    WHERE j.id = ?
-");
-$stmt->execute([$jobId]);
-$job = $stmt->fetch(PDO::FETCH_ASSOC);
+// ── POST Handlers ────────────────────────────────────────────────────
 
-if (!$job) {
-    header('Location: index.php');
-    exit;
-}
-
-// Get job notes
-$stmt = $db->prepare("
-    SELECT n.*, u.full_name
-    FROM job_notes n
-    LEFT JOIN users u ON n.created_by = u.id
-    WHERE n.job_id = ?
-    ORDER BY n.created_at DESC
-");
-$stmt->execute([$jobId]);
-$notes = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Get job photos
-$stmt = $db->prepare("SELECT * FROM job_photos WHERE job_id = ? ORDER BY uploaded_at DESC");
-$stmt->execute([$jobId]);
-$photos = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Get staff for assignment
-$staff = getStaffMembers();
-
-// Handle actions
 $message = '';
 $messageType = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'start') {
-        updateJobStatus($jobId, 'in_progress', $user['id']);
-        $job['status'] = 'in_progress';
-        $message = 'Job started!';
-        $messageType = 'success';
+    // Pause plan
+    if ($action === 'pause_plan') {
+        $reason = trim($_POST['pause_reason'] ?? '');
+        if (pausePlan($planId, $user['id'], $reason)) {
+            $message = 'Plan paused. Future scheduled visits have been cancelled.';
+            $messageType = 'success';
+        } else {
+            $message = 'Could not pause this plan. It may already be paused.';
+            $messageType = 'error';
+        }
     }
 
-    if ($action === 'complete') {
-        $completionNotes = trim($_POST['completion_notes'] ?? '');
-        $actualAmount = floatval($_POST['actual_amount'] ?? $job['estimated_amount']);
-
-        $stmt = $db->prepare("UPDATE jobs SET actual_amount = ? WHERE id = ?");
-        $stmt->execute([$actualAmount, $jobId]);
-
-        updateJobStatus($jobId, 'completed', $user['id'], $completionNotes);
-        $job['status'] = 'completed';
-        $message = 'Job completed!';
-        $messageType = 'success';
+    // Resume plan
+    if ($action === 'resume_plan') {
+        if (resumePlan($planId, $user['id'])) {
+            $message = 'Plan resumed. Visits have been regenerated.';
+            $messageType = 'success';
+        } else {
+            $message = 'Could not resume this plan. It may already be active.';
+            $messageType = 'error';
+        }
     }
 
-    if ($action === 'assign') {
-        $assignTo = intval($_POST['assign_to'] ?? 0);
-        $stmt = $db->prepare("UPDATE jobs SET assigned_to = ?, assigned_at = NOW() WHERE id = ?");
-        $stmt->execute([$assignTo ?: null, $jobId]);
-        logActivityExtended($user['id'], 'Job assigned', null, $job['company_id'], $jobId);
-        header("Location: view.php?id={$jobId}&assigned=1");
-        exit;
+    // Start visit
+    if ($action === 'start_visit') {
+        $visitId = intval($_POST['visit_id'] ?? 0);
+        if ($visitId && updateVisitStatus($visitId, 'in_progress', $user['id'])) {
+            header("Location: view.php?id={$planId}&visit_started=1");
+            exit;
+        }
+        $message = 'Could not start visit.';
+        $messageType = 'error';
     }
 
-    if ($action === 'reschedule') {
-        $newDate = $_POST['scheduled_date'] ?? '';
-        $newTimeStart = $_POST['scheduled_time_start'] ?? '';
-        $newTimeEnd = $_POST['scheduled_time_end'] ?? '';
+    // Complete visit
+    if ($action === 'complete_visit') {
+        $visitId = intval($_POST['visit_id'] ?? 0);
+        $notes = trim($_POST['completion_notes'] ?? '');
+        $actualAmount = isset($_POST['actual_amount']) && $_POST['actual_amount'] !== ''
+            ? floatval($_POST['actual_amount'])
+            : null;
 
-        $stmt = $db->prepare("
-            UPDATE jobs SET scheduled_date = ?, scheduled_time_start = ?, scheduled_time_end = ?
-            WHERE id = ?
-        ");
-        $stmt->execute([$newDate ?: null, $newTimeStart ?: null, $newTimeEnd ?: null, $jobId]);
-        logActivityExtended($user['id'], 'Job rescheduled', "Rescheduled to {$newDate}", $job['company_id'], $jobId);
-        header("Location: view.php?id={$jobId}&rescheduled=1");
-        exit;
+        if ($visitId && updateVisitStatus($visitId, 'completed', $user['id'], $notes ?: null)) {
+            // Update actual_amount if provided
+            if ($actualAmount !== null) {
+                $stmt = $db->prepare("UPDATE job_visits SET actual_amount = ? WHERE id = ?");
+                $stmt->execute([$actualAmount, $visitId]);
+            }
+            header("Location: view.php?id={$planId}&visit_completed=1");
+            exit;
+        }
+        $message = 'Could not complete visit.';
+        $messageType = 'error';
     }
 
+    // Skip visit
+    if ($action === 'skip_visit') {
+        $visitId = intval($_POST['visit_id'] ?? 0);
+        $reason = trim($_POST['skip_reason'] ?? '');
+        if ($visitId && updateVisitStatus($visitId, 'skipped', $user['id'], $reason ?: null)) {
+            header("Location: view.php?id={$planId}&visit_skipped=1");
+            exit;
+        }
+        $message = 'Could not skip visit.';
+        $messageType = 'error';
+    }
+
+    // Weather visit
+    if ($action === 'weather_visit') {
+        $visitId = intval($_POST['visit_id'] ?? 0);
+        $reason = trim($_POST['weather_reason'] ?? '');
+        if ($visitId && updateVisitStatus($visitId, 'weather', $user['id'], $reason ?: null)) {
+            header("Location: view.php?id={$planId}&visit_weather=1");
+            exit;
+        }
+        $message = 'Could not mark visit as weather delay.';
+        $messageType = 'error';
+    }
+
+    // Add plan note
     if ($action === 'add_note') {
         $noteContent = trim($_POST['note_content'] ?? '');
         $noteType = $_POST['note_type'] ?? 'general';
 
         if ($noteContent) {
-            $stmt = $db->prepare("INSERT INTO job_notes (job_id, note_type, content, created_by) VALUES (?, ?, ?, ?)");
-            $stmt->execute([$jobId, $noteType, $noteContent, $user['id']]);
-            header("Location: view.php?id={$jobId}&note_added=1");
+            $stmt = $db->prepare("
+                INSERT INTO plan_notes (plan_id, note_type, content, created_by)
+                VALUES (?, ?, ?, ?)
+            ");
+            $stmt->execute([$planId, $noteType, $noteContent, $user['id']]);
+            header("Location: view.php?id={$planId}&note_added=1");
             exit;
         }
-    }
-
-    if ($action === 'upload_photo') {
-        $photoType = $_POST['photo_type'] ?? 'after';
-        $caption = trim($_POST['photo_caption'] ?? '');
-
-        if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
-            $file = $_FILES['photo'];
-            $allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-            $maxSize = 10 * 1024 * 1024; // 10MB
-
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $mimeType = $finfo->file($file['tmp_name']);
-
-            if (!in_array($mimeType, $allowedTypes)) {
-                $message = 'Invalid file type. Only JPG, PNG, and WebP allowed.';
-                $messageType = 'error';
-            } elseif ($file['size'] > $maxSize) {
-                $message = 'File too large. Maximum 10MB.';
-                $messageType = 'error';
-            } else {
-                $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
-                $newFilename = 'job_' . $jobId . '_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
-                $uploadPath = '../uploads/photos/' . $newFilename;
-
-                if (move_uploaded_file($file['tmp_name'], $uploadPath)) {
-                    $stmt = $db->prepare("
-                        INSERT INTO job_photos (job_id, photo_type, filename, original_filename, file_size, mime_type, caption, uploaded_by)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ");
-                    $stmt->execute([$jobId, $photoType, $newFilename, $file['name'], $file['size'], $mimeType, $caption, $user['id']]);
-                    header("Location: view.php?id={$jobId}&photo_added=1");
-                    exit;
-                } else {
-                    $message = 'Error uploading file.';
-                    $messageType = 'error';
-                }
-            }
-        }
-    }
-
-    if ($action === 'edit_job') {
-        // Update job details
-        $title = trim($_POST['title'] ?? '');
-        $description = trim($_POST['description'] ?? '');
-        $serviceType = trim($_POST['service_type'] ?? '');
-        $estimatedAmount = floatval($_POST['estimated_amount'] ?? 0);
-
-        // Update scheduling
-        $jobType = $_POST['job_type'] ?? 'one_time';
-        $scheduledDate = $_POST['scheduled_date'] ?? '';
-        $scheduledTimeStart = $_POST['scheduled_time_start'] ?? '';
-        $scheduledTimeEnd = $_POST['scheduled_time_end'] ?? '';
-        $estimatedDurationMinutes = intval($_POST['estimated_duration_minutes'] ?? 60);
-
-        // Validate required fields
-        if (!$title) {
-            $message = 'Job title is required.';
-            $messageType = 'error';
-        } else {
-            // Update main job fields
-            $stmt = $db->prepare("
-                UPDATE jobs SET
-                    title = ?,
-                    description = ?,
-                    service_type = ?,
-                    estimated_amount = ?,
-                    job_type = ?,
-                    scheduled_date = ?,
-                    scheduled_time_start = ?,
-                    scheduled_time_end = ?,
-                    estimated_duration_minutes = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $title,
-                $description ?: null,
-                $serviceType,
-                $estimatedAmount,
-                $jobType,
-                $scheduledDate ?: null,
-                $scheduledTimeStart ?: null,
-                $scheduledTimeEnd ?: null,
-                $estimatedDurationMinutes,
-                $jobId
-            ]);
-
-            // If recurring, update recurrence fields and generate instances
-            if ($jobType === 'recurring') {
-                $recurrencePattern = $_POST['recurrence_pattern'] ?? 'weekly';
-                $recurrenceEndDate = $_POST['recurrence_end_date'] ?? '';
-                $recurrenceInterval = intval($_POST['recurrence_interval'] ?? 1);
-                $recurrenceIntervalUnit = $_POST['recurrence_interval_unit'] ?? 'weeks';
-
-                // Calculate recurrence_day_of_week from scheduled_date
-                $recurrenceDayOfWeek = null;
-                if ($scheduledDate) {
-                    $dayNum = intval(date('w', strtotime($scheduledDate))); // 0=Sunday, 6=Saturday
-                    $dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-                    $recurrenceDayOfWeek = $dayNames[$dayNum];
-                }
-
-                $stmt = $db->prepare("
-                    UPDATE jobs SET
-                        recurrence_pattern = ?,
-                        recurrence_end_date = ?,
-                        recurrence_interval = ?,
-                        recurrence_interval_unit = ?,
-                        recurrence_day_of_week = ?
-                    WHERE id = ?
-                ");
-                $stmt->execute([
-                    $recurrencePattern,
-                    $recurrenceEndDate ?: null,
-                    $recurrenceInterval,
-                    $recurrenceIntervalUnit,
-                    $recurrenceDayOfWeek,
-                    $jobId
-                ]);
-
-                // Generate recurring job instances for calendar
-                generateRecurringJobInstancesForParent(
-                    $jobId,
-                    $job['company_id'],
-                    $job['property_id'],
-                    $scheduledDate,
-                    $recurrenceEndDate ?: date('Y-m-d', strtotime('+1 year')),
-                    $recurrencePattern,
-                    $recurrenceInterval,
-                    $recurrenceIntervalUnit,
-                    $scheduledDate ? intval(date('w', strtotime($scheduledDate))) : 3, // 3 = Wednesday
-                    $scheduledTimeStart,
-                    $scheduledTimeEnd,
-                    $estimatedDurationMinutes,
-                    $user['id']
-                );
-            } else {
-                // Clear recurrence fields for one-time jobs
-                $stmt = $db->prepare("
-                    UPDATE jobs SET
-                        recurrence_pattern = NULL,
-                        recurrence_end_date = NULL,
-                        recurrence_interval = NULL,
-                        recurrence_interval_unit = NULL,
-                        recurrence_day_of_week = NULL
-                    WHERE id = ?
-                ");
-                $stmt->execute([$jobId]);
-
-                // Delete any child instances if job was converted from recurring to one-time
-                $stmt = $db->prepare("DELETE FROM jobs WHERE parent_job_id = ?");
-                $stmt->execute([$jobId]);
-            }
-
-            // Log the activity
-            $changeDetails = "Updated job details";
-            logActivityExtended($user['id'], 'Job updated', $changeDetails, $job['company_id'], $jobId);
-
-            // Refresh job data
-            $stmt = $db->prepare("
-                SELECT
-                    j.*,
-                    p.address as property_address,
-                    p.city as property_city,
-                    p.postal_code as property_postal,
-                    p.latitude,
-                    p.longitude,
-                    c.company_name,
-                    c.billing_email,
-                    c.billing_phone,
-                    ct.first_name as contact_first,
-                    ct.last_name as contact_last,
-                    ct.email as contact_email,
-                    ct.phone as contact_phone,
-                    u.full_name as assigned_to_name,
-                    creator.full_name as created_by_name,
-                    q.quote_number
-                FROM jobs j
-                LEFT JOIN properties p ON j.property_id = p.id
-                LEFT JOIN companies c ON j.company_id = c.id
-                LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
-                LEFT JOIN users u ON j.assigned_to = u.id
-                LEFT JOIN users creator ON j.created_by = creator.id
-                LEFT JOIN quotes q ON j.quote_id = q.id
-                WHERE j.id = ?
-            ");
-            $stmt->execute([$jobId]);
-            $job = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            $message = 'Job updated successfully!';
-            $messageType = 'success';
-        }
+        $message = 'Note content is required.';
+        $messageType = 'error';
     }
 }
 
-// Handle URL action parameter
-if (isset($_GET['action']) && $_GET['action'] === 'start' && $job['status'] === 'scheduled') {
-    // Show start confirmation
+// ── Load Plan Data ───────────────────────────────────────────────────
+
+$plan = getPlanDetails($planId);
+
+if (!$plan) {
+    header('Location: index.php');
+    exit;
 }
+
+// Get visits
+$visits = getPlanVisits($planId, null, 200, 0);
+
+// Get plan notes
+$stmt = $db->prepare("
+    SELECT pn.*, u.full_name
+    FROM plan_notes pn
+    LEFT JOIN users u ON pn.created_by = u.id
+    WHERE pn.plan_id = ?
+    ORDER BY pn.created_at DESC
+");
+$stmt->execute([$planId]);
+$notes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get staff for crew dropdown
+$staff = getStaffMembers();
+
+// ── Flash messages from redirects ────────────────────────────────────
 
 $csrfToken = generateCSRFToken();
 
-// Check for messages
-if (isset($_GET['created'])) { $message = 'Job created successfully!'; $messageType = 'success'; }
-if (isset($_GET['assigned'])) { $message = 'Job assigned successfully!'; $messageType = 'success'; }
-if (isset($_GET['rescheduled'])) { $message = 'Job rescheduled!'; $messageType = 'success'; }
+if (isset($_GET['created'])) { $message = 'Plan created successfully!'; $messageType = 'success'; }
+if (isset($_GET['visit_started'])) { $message = 'Visit started!'; $messageType = 'success'; }
+if (isset($_GET['visit_completed'])) { $message = 'Visit completed!'; $messageType = 'success'; }
+if (isset($_GET['visit_skipped'])) { $message = 'Visit skipped.'; $messageType = 'success'; }
+if (isset($_GET['visit_weather'])) { $message = 'Visit marked as weather delay.'; $messageType = 'success'; }
 if (isset($_GET['note_added'])) { $message = 'Note added!'; $messageType = 'success'; }
-if (isset($_GET['photo_added'])) { $message = 'Photo uploaded!'; $messageType = 'success'; }
 
-$pageTitle = 'Job ' . htmlspecialchars($job['job_number'] ?? 'Unknown');
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Build a human-readable recurrence description.
+ */
+function describeRecurrence(array $plan): string {
+    if (!$plan['is_recurring']) return 'One-time';
+
+    $pattern = $plan['recurrence_pattern'] ?? 'weekly';
+    $interval = (int)($plan['recurrence_interval'] ?? 1);
+    $unit = $plan['recurrence_interval_unit'] ?? 'weeks';
+
+    switch ($pattern) {
+        case 'weekly':  return 'Weekly';
+        case 'biweekly': return 'Every 2 weeks';
+        case 'monthly': return 'Monthly';
+        case 'custom':
+            $unitLabel = rtrim($unit, 's');
+            if ($interval === 1) return 'Every ' . $unitLabel;
+            return "Every {$interval} {$unit}";
+        default:
+            return ucfirst(str_replace('_', ' ', $pattern));
+    }
+}
+
+/**
+ * Separate visits into upcoming and past.
+ */
+function splitVisits(array $visits): array {
+    $today = date('Y-m-d');
+    $upcoming = [];
+    $past = [];
+
+    foreach ($visits as $v) {
+        if ($v['scheduled_date'] >= $today && in_array($v['status'], ['scheduled', 'in_progress'])) {
+            $upcoming[] = $v;
+        } else {
+            $past[] = $v;
+        }
+    }
+
+    // Sort upcoming by date ASC
+    usort($upcoming, function ($a, $b) {
+        return strcmp($a['scheduled_date'], $b['scheduled_date']);
+    });
+
+    // Past stays DESC (already from query)
+    return ['upcoming' => $upcoming, 'past' => $past];
+}
+
+$splitVisits = splitVisits($visits);
+
+// ── Page Setup ───────────────────────────────────────────────────────
+
+$pageTitle = 'Plan ' . htmlspecialchars($plan['plan_number']);
 $activePage = 'jobs';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
-            <a href="index.php" class="mw-back-link">&larr; Back to Jobs</a>
+            <a href="index.php" class="mw-back-link">&larr; Back to Plans</a>
 
             <?php if ($message): ?>
-                <div class="mw-message <?php echo $messageType; ?>"><?php echo htmlspecialchars($message); ?></div>
+                <div class="mw-message <?php echo htmlspecialchars($messageType); ?>">
+                    <?php echo htmlspecialchars($message); ?>
+                </div>
             <?php endif; ?>
+
+            <!-- ══════════════════════════════════════════════════════
+                 SECTION 1: Plan Header + Details
+                 ══════════════════════════════════════════════════════ -->
 
             <div class="mw-page-header">
                 <div>
-                    <h1 class="h3 mb-0"><?php echo htmlspecialchars($job['job_number']); ?></h1>
+                    <h1 class="h3 mb-0"><?php echo htmlspecialchars($plan['plan_number']); ?></h1>
                     <div class="mt-2">
-                        <?php echo getStatusBadge($job['status'], 'job'); ?>
+                        <?php echo getStatusBadge($plan['status'], 'plan'); ?>
+                        <span class="mw-badge-status" style="background: var(--mw-light); color: var(--mw-dark);">
+                            <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $plan['service_type']))); ?>
+                        </span>
+                        <?php if ($plan['is_recurring']): ?>
+                            <span class="mw-badge-status" style="background: var(--mw-lime); color: #000;">
+                                Recurring
+                            </span>
+                        <?php else: ?>
+                            <span class="mw-badge-status" style="background: #E5E7EB; color: #374151;">
+                                One-time
+                            </span>
+                        <?php endif; ?>
                         <span class="ml-3 text-muted">
-                            <?php echo htmlspecialchars($job['title'] ?? ''); ?>
+                            <?php echo htmlspecialchars($plan['title'] ?? ''); ?>
                         </span>
                     </div>
                 </div>
                 <div class="mw-header-actions">
-                    <button type="button" class="btn btn-primary" onclick="showModal('editJobModal')">
-                        ✎ Edit Job
-                    </button>
-                    <?php if ($job['status'] === 'scheduled'): ?>
+                    <?php if ($plan['status'] === 'active'): ?>
+                        <button type="button" class="btn btn-warning" onclick="showModal('pauseModal')">
+                            Pause Plan
+                        </button>
+                    <?php elseif ($plan['status'] === 'paused'): ?>
                         <form method="POST" style="display: inline;">
                             <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                            <button type="submit" name="action" value="start" class="btn btn-info">
-                                &#9654; Start Job
+                            <button type="submit" name="action" value="resume_plan" class="btn btn-success">
+                                Resume Plan
                             </button>
                         </form>
-                        <button type="button" class="btn btn-secondary" onclick="showModal('rescheduleModal')">
-                            Reschedule
-                        </button>
-                    <?php elseif ($job['status'] === 'in_progress'): ?>
-                        <button type="button" class="btn btn-success" onclick="showModal('completeModal')">
-                            &#10003; Complete Job
-                        </button>
-                    <?php elseif ($job['status'] === 'completed'): ?>
-                        <a href="../invoices/create.php?job_id=<?php echo $jobId; ?>" class="btn btn-primary">
-                            Create Invoice
+                    <?php endif; ?>
+                    <?php if ($plan['quote_id']): ?>
+                        <a href="../quotes/view.php?id=<?php echo (int)$plan['quote_id']; ?>" class="btn btn-secondary">
+                            View Quote <?php echo htmlspecialchars($plan['quote_number'] ?? ''); ?>
                         </a>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <div class="mw-content-grid">
-                <div>
-                    <!-- Job Details -->
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="card-title mb-0">Job Details</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Service Type</span>
-                                <span class="mw-detail-value"><?php echo ucfirst(str_replace('_', ' ', $job['service_type'])); ?></span>
-                            </div>
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Job Type</span>
-                                <span class="mw-detail-value"><?php echo ucfirst(str_replace('_', ' ', $job['job_type'])); ?></span>
-                            </div>
-                            <?php if ($job['description']): ?>
-                                <div class="mt-3">
-                                    <span class="mw-detail-label">Description</span>
-                                    <p class="mt-2" style="white-space: pre-line;"><?php echo htmlspecialchars($job['description']); ?></p>
-                                </div>
-                            <?php endif; ?>
-                            <?php if ($job['quote_number']): ?>
-                                <div class="mw-detail-row">
-                                    <span class="mw-detail-label">From Quote</span>
-                                    <span class="mw-detail-value">
-                                        <a href="../quotes/view.php?id=<?php echo $job['quote_id']; ?>"><?php echo htmlspecialchars($job['quote_number']); ?></a>
-                                    </span>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
+            <!-- ══════════════════════════════════════════════════════
+                 SECTION 2: Plan Stats Row
+                 ══════════════════════════════════════════════════════ -->
 
-                    <!-- Customer Info -->
+            <div class="row mb-4">
+                <div class="col-6 col-lg-3">
                     <div class="card">
-                        <div class="card-header">
-                            <h5 class="card-title mb-0">Customer</h5>
-                        </div>
                         <div class="card-body">
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Company</span>
-                                <span class="mw-detail-value"><?php echo htmlspecialchars($job['company_name'] ?? 'N/A'); ?></span>
+                            <div class="mw-stat-label">Visits Completed</div>
+                            <div class="mw-stat-value" style="color: var(--mw-green);">
+                                <?php echo $plan['visits_completed']; ?>
+                                <small class="text-muted">/ <?php echo $plan['total_visits']; ?></small>
                             </div>
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Contact</span>
-                                <span class="mw-detail-value">
-                                    <?php echo htmlspecialchars(trim(($job['contact_first'] ?? '') . ' ' . ($job['contact_last'] ?? '')) ?: 'N/A'); ?>
-                                </span>
-                            </div>
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Phone</span>
-                                <span class="mw-detail-value">
-                                    <?php $phone = $job['contact_phone'] ?: $job['billing_phone']; ?>
-                                    <?php if ($phone): ?>
-                                        <a href="tel:<?php echo htmlspecialchars($phone); ?>">
-                                            <?php echo htmlspecialchars($phone); ?>
-                                        </a>
-                                    <?php else: ?>
-                                        N/A
-                                    <?php endif; ?>
-                                </span>
-                            </div>
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Property</span>
-                                <span class="mw-detail-value">
-                                    <?php
-                                        $propertyDisplay = trim(($job['property_address'] ?? '') . ', ' . ($job['property_city'] ?? ''));
-                                        echo htmlspecialchars($propertyDisplay ?: 'N/A');
-                                    ?>
-                                </span>
-                            </div>
-
-                            <?php if ($job['latitude'] && $job['longitude']): ?>
-                                <div class="mw-map-placeholder" id="mapContainer">
-                                    <a href="https://www.google.com/maps/dir/?api=1&destination=<?php echo $job['latitude']; ?>,<?php echo $job['longitude']; ?>"
-                                       target="_blank" class="btn btn-secondary">
-                                       Get Directions
-                                    </a>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
-                    <!-- Notes -->
-                    <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="card-title mb-0">Notes</h5>
-                            <button type="button" class="btn btn-sm btn-secondary"
-                                    onclick="showModal('noteModal')">+ Add Note</button>
-                        </div>
-                        <div class="card-body">
-                            <?php if (empty($notes)): ?>
-                                <p class="text-muted small">No notes yet.</p>
-                            <?php else: ?>
-                                <?php foreach ($notes as $note): ?>
-                                    <div class="mw-note-item">
-                                        <div class="mw-note-header">
-                                            <span class="mw-note-type"><?php echo $note['note_type']; ?></span>
-                                            <span><?php echo htmlspecialchars($note['full_name'] ?? 'System'); ?> - <?php echo formatDateTime($note['created_at']); ?></span>
-                                        </div>
-                                        <div class="mw-note-content"><?php echo nl2br(htmlspecialchars($note['content'])); ?></div>
-                                    </div>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
-                    <!-- Photos -->
-                    <div class="card">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="card-title mb-0">Photos</h5>
-                            <button type="button" class="btn btn-sm btn-secondary"
-                                    onclick="showModal('photoModal')">+ Upload Photo</button>
-                        </div>
-                        <div class="card-body">
-                            <?php if (empty($photos)): ?>
-                                <p class="text-muted small">No photos yet.</p>
-                            <?php else: ?>
-                                <div class="mw-photos-grid">
-                                    <?php foreach ($photos as $photo): ?>
-                                        <div class="mw-photo-item">
-                                            <img src="../uploads/photos/<?php echo htmlspecialchars($photo['filename']); ?>"
-                                                 alt="<?php echo htmlspecialchars($photo['caption'] ?: 'Job photo'); ?>">
-                                            <span class="mw-photo-type-badge"><?php echo $photo['photo_type']; ?></span>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
-
-                <div>
-                    <!-- Scheduling -->
+                <div class="col-6 col-lg-3">
                     <div class="card">
-                        <div class="card-header">
-                            <h5 class="card-title mb-0">Schedule</h5>
-                        </div>
                         <div class="card-body">
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Date</span>
-                                <span class="mw-detail-value">
-                                    <?php echo $job['scheduled_date'] ? formatDate($job['scheduled_date']) : 'Not scheduled'; ?>
-                                </span>
+                            <div class="mw-stat-label">Visits Scheduled</div>
+                            <div class="mw-stat-value" style="color: #3B82F6;">
+                                <?php echo $plan['visits_scheduled']; ?>
                             </div>
-                            <?php if ($job['scheduled_time_start']): ?>
-                                <div class="mw-detail-row">
-                                    <span class="mw-detail-label">Time</span>
-                                    <span class="mw-detail-value">
-                                        <?php echo date('g:i A', strtotime($job['scheduled_time_start'])); ?>
-                                        <?php if ($job['scheduled_time_end']): ?>
-                                            - <?php echo date('g:i A', strtotime($job['scheduled_time_end'])); ?>
-                                        <?php endif; ?>
-                                    </span>
-                                </div>
-                            <?php endif; ?>
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Duration</span>
-                                <span class="mw-detail-value"><?php echo $job['estimated_duration_minutes']; ?> min</span>
-                            </div>
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Type</span>
-                                <span class="mw-detail-value">
-                                    <?php if ($job['job_type'] === 'recurring'): ?>
-                                        <span class="mw-badge" style="background: var(--mw-lime); color: #000;">Recurring</span>
-                                    <?php else: ?>
-                                        One-Time
-                                    <?php endif; ?>
-                                </span>
-                            </div>
-                            <?php if ($job['job_type'] === 'recurring' && $job['recurrence_pattern']): ?>
-                                <div class="mw-detail-row">
-                                    <span class="mw-detail-label">Frequency</span>
-                                    <span class="mw-detail-value">
-                                        <?php
-                                            // Display custom or preset recurrence pattern
-                                            if ($job['recurrence_pattern'] === 'weekly') {
-                                                $pattern = 'Weekly';
-                                            } elseif ($job['recurrence_pattern'] === 'biweekly') {
-                                                $pattern = 'Every 2 Weeks';
-                                            } elseif ($job['recurrence_pattern'] === 'monthly') {
-                                                $pattern = 'Monthly';
-                                            } else {
-                                                // Fallback for unknown patterns
-                                                $pattern = ucfirst(str_replace('_', ' ', $job['recurrence_pattern']));
-                                            }
-                                            echo htmlspecialchars($pattern);
-                                        ?>
-                                    </span>
-                                </div>
-                                <?php if ($job['recurrence_end_date']): ?>
-                                    <div class="mw-detail-row">
-                                        <span class="mw-detail-label">Until</span>
-                                        <span class="mw-detail-value"><?php echo formatDate($job['recurrence_end_date']); ?></span>
-                                    </div>
-                                <?php endif; ?>
-                            <?php endif; ?>
                         </div>
                     </div>
-
-                    <!-- Assignment -->
+                </div>
+                <div class="col-6 col-lg-3">
                     <div class="card">
-                        <div class="card-header">
-                            <h5 class="card-title mb-0">Assignment</h5>
-                        </div>
                         <div class="card-body">
-                            <form method="POST">
-                                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                                <input type="hidden" name="action" value="assign">
-
-                                <div class="form-group">
-                                    <label class="form-label">Assigned To</label>
-                                    <select name="assign_to" class="form-control" onchange="this.form.submit()">
-                                        <option value="">Unassigned</option>
-                                        <?php foreach ($staff as $s): ?>
-                                            <option value="<?php echo $s['id']; ?>" <?php echo $job['assigned_to'] == $s['id'] ? 'selected' : ''; ?>>
-                                                <?php echo htmlspecialchars($s['full_name']); ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                </div>
-                            </form>
+                            <div class="mw-stat-label">Total Revenue</div>
+                            <div class="mw-stat-value">
+                                <?php echo formatCurrency($plan['total_revenue']); ?>
+                            </div>
                         </div>
                     </div>
-
-                    <!-- Pricing -->
+                </div>
+                <div class="col-6 col-lg-3">
                     <div class="card">
-                        <div class="card-header">
-                            <h5 class="card-title mb-0">Pricing</h5>
-                        </div>
                         <div class="card-body">
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Estimated</span>
-                                <span class="mw-detail-value"><?php echo formatCurrency($job['estimated_amount']); ?></span>
-                            </div>
-                            <?php if ($job['actual_amount']): ?>
-                                <div class="mw-detail-row">
-                                    <span class="mw-detail-label">Actual</span>
-                                    <span class="mw-detail-value"><?php echo formatCurrency($job['actual_amount']); ?></span>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
-                    <!-- Timeline -->
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="card-title mb-0">Timeline</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Created</span>
-                                <span class="mw-detail-value"><?php echo formatDateTime($job['created_at']); ?></span>
-                            </div>
-                            <?php if ($job['started_at']): ?>
-                                <div class="mw-detail-row">
-                                    <span class="mw-detail-label">Started</span>
-                                    <span class="mw-detail-value"><?php echo formatDateTime($job['started_at']); ?></span>
-                                </div>
-                            <?php endif; ?>
-                            <?php if ($job['completed_at']): ?>
-                                <div class="mw-detail-row">
-                                    <span class="mw-detail-label">Completed</span>
-                                    <span class="mw-detail-value"><?php echo formatDateTime($job['completed_at']); ?></span>
-                                </div>
-                            <?php endif; ?>
-                            <div class="mw-detail-row">
-                                <span class="mw-detail-label">Created By</span>
-                                <span class="mw-detail-value"><?php echo htmlspecialchars($job['created_by_name'] ?? 'Unknown'); ?></span>
+                            <div class="mw-stat-label">Next Visit</div>
+                            <div class="mw-stat-value" style="font-size: 1.1rem;">
+                                <?php echo $plan['next_visit_date'] ? formatDate($plan['next_visit_date']) : 'None'; ?>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-    <!-- Edit Job Modal -->
-    <div class="mw-modal-overlay" id="editJobModal">
-        <div class="mw-modal" style="max-width: 600px;">
-            <h3 class="mw-modal-title">Edit Job</h3>
-            <form method="POST">
-                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                <input type="hidden" name="action" value="edit_job">
+            <!-- ══════════════════════════════════════════════════════
+                 Plan Details (Two-Column Grid)
+                 ══════════════════════════════════════════════════════ -->
 
-                <!-- Job Details Section -->
-                <div style="border-bottom: 1px solid #e0e0e0; padding-bottom: 16px; margin-bottom: 16px;">
-                    <h5 style="margin: 0 0 12px 0; font-weight: 600; color: #333;">Job Details</h5>
-
-                    <div class="form-group">
-                        <label class="form-label">Title</label>
-                        <input type="text" name="title" class="form-control" required
-                               value="<?php echo htmlspecialchars($job['title'] ?? ''); ?>">
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Description</label>
-                        <textarea name="description" class="form-control" rows="3"
-                                  placeholder="Job description..."><?php echo htmlspecialchars($job['description'] ?? ''); ?></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Service Type</label>
-                        <input type="text" name="service_type" class="form-control"
-                               value="<?php echo htmlspecialchars($job['service_type'] ?? ''); ?>">
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Estimated Amount ($)</label>
-                        <input type="number" name="estimated_amount" class="form-control" step="0.01"
-                               value="<?php echo htmlspecialchars($job['estimated_amount'] ?? 0); ?>">
+            <div class="row mb-4">
+                <!-- Left Column: Property, Client, Service, Pricing -->
+                <div class="col-lg-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Plan Details</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Property</span>
+                                <span class="mw-detail-value">
+                                    <?php
+                                        $addr = trim(($plan['property_address'] ?? '') . ', ' . ($plan['property_city'] ?? ''), ', ');
+                                        echo htmlspecialchars($addr ?: 'N/A');
+                                    ?>
+                                </span>
+                            </div>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Client</span>
+                                <span class="mw-detail-value">
+                                    <?php echo htmlspecialchars($plan['company_name'] ?? 'N/A'); ?>
+                                </span>
+                            </div>
+                            <?php
+                                $contactName = trim(($plan['first_name'] ?? '') . ' ' . ($plan['last_name'] ?? ''));
+                                if ($contactName):
+                            ?>
+                                <div class="mw-detail-row">
+                                    <span class="mw-detail-label">Contact</span>
+                                    <span class="mw-detail-value">
+                                        <?php echo htmlspecialchars($contactName); ?>
+                                        <?php if (!empty($plan['contact_phone'])): ?>
+                                            &mdash;
+                                            <a href="tel:<?php echo htmlspecialchars($plan['contact_phone']); ?>">
+                                                <?php echo htmlspecialchars($plan['contact_phone']); ?>
+                                            </a>
+                                        <?php endif; ?>
+                                    </span>
+                                </div>
+                            <?php endif; ?>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Service Type</span>
+                                <span class="mw-detail-value">
+                                    <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $plan['service_type']))); ?>
+                                </span>
+                            </div>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Pricing Model</span>
+                                <span class="mw-detail-value">
+                                    <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $plan['pricing_model'] ?? 'per_visit'))); ?>
+                                </span>
+                            </div>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Price / Visit</span>
+                                <span class="mw-detail-value">
+                                    <?php echo $plan['price_per_visit'] ? formatCurrency($plan['price_per_visit']) : 'N/A'; ?>
+                                </span>
+                            </div>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Duration</span>
+                                <span class="mw-detail-value">
+                                    <?php echo (int)$plan['estimated_duration_minutes']; ?> min
+                                </span>
+                            </div>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Default Crew</span>
+                                <span class="mw-detail-value">
+                                    <?php echo htmlspecialchars($plan['default_crew_name'] ?? 'Unassigned'); ?>
+                                </span>
+                            </div>
+                            <?php if ($plan['description']): ?>
+                                <div class="mt-3">
+                                    <span class="mw-detail-label">Description</span>
+                                    <p class="mt-1" style="white-space: pre-line;"><?php echo htmlspecialchars($plan['description']); ?></p>
+                                </div>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Scheduling Section -->
-                <div style="border-bottom: 1px solid #e0e0e0; padding-bottom: 16px; margin-bottom: 16px;">
-                    <h5 style="margin: 0 0 12px 0; font-weight: 600; color: #333;">Scheduling</h5>
-
-                    <div class="form-group">
-                        <label class="form-label">Job Type</label>
-                        <select name="job_type" id="editJobType" class="form-control" onchange="toggleEditRecurringOptions()">
-                            <option value="one_time" <?php echo $job['job_type'] === 'one_time' ? 'selected' : ''; ?>>One-Time</option>
-                            <option value="recurring" <?php echo $job['job_type'] === 'recurring' ? 'selected' : ''; ?>>Recurring</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Date</label>
-                        <input type="date" name="scheduled_date" class="form-control"
-                               value="<?php echo htmlspecialchars($job['scheduled_date'] ?? date('Y-m-d')); ?>">
-                    </div>
-
-                    <div style="display: flex; gap: 12px;">
-                        <div class="form-group" style="flex: 1;">
-                            <label class="form-label">Start Time</label>
-                            <input type="time" name="scheduled_time_start" class="form-control"
-                                   value="<?php echo htmlspecialchars($job['scheduled_time_start'] ?? '09:00'); ?>">
+                <!-- Right Column: Schedule, Recurrence, Dates, Audit -->
+                <div class="col-lg-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">Schedule & Recurrence</h5>
                         </div>
-                        <div class="form-group" style="flex: 1;">
-                            <label class="form-label">End Time</label>
-                            <input type="time" name="scheduled_time_end" class="form-control"
-                                   value="<?php echo htmlspecialchars($job['scheduled_time_end'] ?? '10:00'); ?>">
-                        </div>
-                    </div>
+                        <div class="card-body">
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Plan Type</span>
+                                <span class="mw-detail-value">
+                                    <?php echo $plan['is_recurring'] ? 'Recurring' : 'One-time'; ?>
+                                </span>
+                            </div>
+                            <?php if ($plan['is_recurring']): ?>
+                                <div class="mw-detail-row">
+                                    <span class="mw-detail-label">Recurrence</span>
+                                    <span class="mw-detail-value">
+                                        <?php echo htmlspecialchars(describeRecurrence($plan)); ?>
+                                        <?php if ($plan['recurrence_day_of_week'] !== null): ?>
+                                            <?php
+                                                $days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+                                                $dow = (int)$plan['recurrence_day_of_week'];
+                                                if (isset($days[$dow])) echo ' (' . $days[$dow] . ')';
+                                            ?>
+                                        <?php endif; ?>
+                                    </span>
+                                </div>
+                            <?php endif; ?>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Start Date</span>
+                                <span class="mw-detail-value">
+                                    <?php echo $plan['plan_start_date'] ? formatDate($plan['plan_start_date']) : 'Not set'; ?>
+                                </span>
+                            </div>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">End Date</span>
+                                <span class="mw-detail-value">
+                                    <?php echo $plan['plan_end_date'] ? formatDate($plan['plan_end_date']) : 'Ongoing'; ?>
+                                </span>
+                            </div>
+                            <?php if ($plan['default_time_start']): ?>
+                                <div class="mw-detail-row">
+                                    <span class="mw-detail-label">Default Time</span>
+                                    <span class="mw-detail-value">
+                                        <?php echo date('g:i A', strtotime($plan['default_time_start'])); ?>
+                                        <?php if ($plan['default_time_end']): ?>
+                                            - <?php echo date('g:i A', strtotime($plan['default_time_end'])); ?>
+                                        <?php endif; ?>
+                                    </span>
+                                </div>
+                            <?php endif; ?>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Horizon</span>
+                                <span class="mw-detail-value">
+                                    <?php echo (int)$plan['horizon_days']; ?> days ahead
+                                </span>
+                            </div>
+                            <?php if ($plan['status'] === 'paused' && $plan['paused_reason']): ?>
+                                <div class="mw-detail-row">
+                                    <span class="mw-detail-label">Paused Reason</span>
+                                    <span class="mw-detail-value text-warning">
+                                        <?php echo htmlspecialchars($plan['paused_reason']); ?>
+                                    </span>
+                                </div>
+                            <?php endif; ?>
 
-                    <div class="form-group">
-                        <label class="form-label">Duration (minutes)</label>
-                        <input type="number" name="estimated_duration_minutes" class="form-control"
-                               value="<?php echo htmlspecialchars($job['estimated_duration_minutes'] ?? 60); ?>">
+                            <hr class="my-3">
+
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Created By</span>
+                                <span class="mw-detail-value">
+                                    <?php echo htmlspecialchars($plan['created_by_name'] ?? 'Unknown'); ?>
+                                </span>
+                            </div>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">Created At</span>
+                                <span class="mw-detail-value">
+                                    <?php echo formatDateTime($plan['created_at']); ?>
+                                </span>
+                            </div>
+                            <?php if ($plan['quote_number']): ?>
+                                <div class="mw-detail-row">
+                                    <span class="mw-detail-label">From Quote</span>
+                                    <span class="mw-detail-value">
+                                        <a href="../quotes/view.php?id=<?php echo (int)$plan['quote_id']; ?>">
+                                            <?php echo htmlspecialchars($plan['quote_number']); ?>
+                                        </a>
+                                    </span>
+                                </div>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- Recurring Options Section (Conditional) -->
-                <div id="editRecurringOptions" style="<?php echo $job['job_type'] === 'recurring' ? '' : 'display: none;'; ?> border-bottom: 1px solid #e0e0e0; padding-bottom: 16px; margin-bottom: 16px;">
-                    <h5 style="margin: 0 0 12px 0; font-weight: 600; color: #333;">Recurring Options</h5>
+            <!-- ══════════════════════════════════════════════════════
+                 SECTION 3: Visits List
+                 ══════════════════════════════════════════════════════ -->
 
-                    <div class="form-group">
-                        <label class="form-label">Frequency</label>
-                        <select name="recurrence_pattern" id="editRecurrencePattern" class="form-control" onchange="toggleEditCustomRecurrence()">
-                            <option value="weekly" <?php echo $job['recurrence_pattern'] === 'weekly' ? 'selected' : ''; ?>>Weekly</option>
-                            <option value="biweekly" <?php echo $job['recurrence_pattern'] === 'biweekly' ? 'selected' : ''; ?>>Every 2 Weeks</option>
-                            <option value="monthly" <?php echo $job['recurrence_pattern'] === 'monthly' ? 'selected' : ''; ?>>Monthly</option>
-                            <option value="custom" <?php echo $job['recurrence_pattern'] === 'custom' ? 'selected' : ''; ?>>Custom Interval</option>
-                        </select>
-                    </div>
-
-                    <!-- Custom Interval Options (Conditional) -->
-                    <div id="editCustomIntervalOptions" style="<?php echo $job['recurrence_pattern'] === 'custom' ? '' : 'display: none;'; ?> display: flex; gap: 12px; margin-bottom: 16px;">
-                        <div style="flex: 1;">
-                            <label class="form-label">Every</label>
-                            <input type="number" name="recurrence_interval" class="form-control" min="1"
-                                   value="<?php echo htmlspecialchars($job['recurrence_interval'] ?? 1); ?>">
-                        </div>
-                        <div style="flex: 1;">
-                            <label class="form-label">Unit</label>
-                            <select name="recurrence_interval_unit" class="form-control">
-                                <option value="days" <?php echo ($job['recurrence_interval_unit'] ?? 'weeks') === 'days' ? 'selected' : ''; ?>>Days</option>
-                                <option value="weeks" <?php echo ($job['recurrence_interval_unit'] ?? 'weeks') === 'weeks' ? 'selected' : ''; ?>>Weeks</option>
-                                <option value="months" <?php echo ($job['recurrence_interval_unit'] ?? 'weeks') === 'months' ? 'selected' : ''; ?>>Months</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">End Date</label>
-                        <input type="date" name="recurrence_end_date" class="form-control"
-                               value="<?php echo htmlspecialchars($job['recurrence_end_date'] ?? ''); ?>">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        Visits
+                        <small class="text-muted">(<?php echo count($visits); ?> total)</small>
+                    </h5>
+                    <div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mw-visit-filter active" data-filter="all">All</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary mw-visit-filter" data-filter="upcoming">Upcoming</button>
+                        <button type="button" class="btn btn-sm btn-outline-success mw-visit-filter" data-filter="completed">Completed</button>
                     </div>
                 </div>
-
-                <div class="mw-modal-actions">
-                    <button type="submit" class="btn btn-primary">Save Changes</button>
-                    <button type="button" class="btn btn-secondary" onclick="hideModal('editJobModal')">Cancel</button>
+                <div class="card-body p-0">
+                    <?php if (empty($visits)): ?>
+                        <div class="p-4 text-center text-muted">
+                            <p>No visits generated yet.</p>
+                            <?php if ($plan['status'] === 'active'): ?>
+                                <p class="small">Visits are generated automatically based on the recurrence pattern and horizon.</p>
+                            <?php endif; ?>
+                        </div>
+                    <?php else: ?>
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="visitsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Visit #</th>
+                                        <th>Date</th>
+                                        <th>Time</th>
+                                        <th>Crew</th>
+                                        <th>Status</th>
+                                        <th>Amount</th>
+                                        <th class="text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($visits as $visit):
+                                        $isUpcoming = ($visit['scheduled_date'] >= date('Y-m-d') && in_array($visit['status'], ['scheduled', 'in_progress']));
+                                        $isCompleted = ($visit['status'] === 'completed');
+                                        $rowClass = $isUpcoming ? 'mw-visit-upcoming' : ($isCompleted ? 'mw-visit-completed' : 'mw-visit-other');
+                                    ?>
+                                        <tr class="<?php echo $rowClass; ?>" data-visit-status="<?php echo htmlspecialchars($visit['status']); ?>">
+                                            <td>
+                                                <span class="font-weight-bold">
+                                                    <?php echo htmlspecialchars($visit['visit_number']); ?>
+                                                </span>
+                                                <br>
+                                                <small class="text-muted">#<?php echo (int)$visit['sequence_index']; ?></small>
+                                            </td>
+                                            <td>
+                                                <?php echo formatDate($visit['scheduled_date']); ?>
+                                                <?php if ($visit['scheduled_date'] === date('Y-m-d')): ?>
+                                                    <span class="mw-badge-status" style="background: var(--mw-orange); color: #fff; font-size: 0.65rem; padding: 2px 6px;">TODAY</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <?php if ($visit['scheduled_time_start']): ?>
+                                                    <?php echo date('g:i A', strtotime($visit['scheduled_time_start'])); ?>
+                                                    <?php if ($visit['scheduled_time_end']): ?>
+                                                        <br><small class="text-muted">to <?php echo date('g:i A', strtotime($visit['scheduled_time_end'])); ?></small>
+                                                    <?php endif; ?>
+                                                <?php else: ?>
+                                                    <span class="text-muted">-</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <?php echo htmlspecialchars($visit['crew_name'] ?? 'Unassigned'); ?>
+                                            </td>
+                                            <td>
+                                                <?php echo getStatusBadge($visit['status'], 'visit'); ?>
+                                                <?php if ($visit['photo_count'] > 0): ?>
+                                                    <small class="text-muted ml-1" title="<?php echo (int)$visit['photo_count']; ?> photos">
+                                                        <i data-feather="camera" style="width: 12px; height: 12px;"></i>
+                                                        <?php echo (int)$visit['photo_count']; ?>
+                                                    </small>
+                                                <?php endif; ?>
+                                                <?php if ($visit['note_count'] > 0): ?>
+                                                    <small class="text-muted ml-1" title="<?php echo (int)$visit['note_count']; ?> notes">
+                                                        <i data-feather="message-square" style="width: 12px; height: 12px;"></i>
+                                                        <?php echo (int)$visit['note_count']; ?>
+                                                    </small>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td>
+                                                <?php if ($visit['actual_amount']): ?>
+                                                    <?php echo formatCurrency($visit['actual_amount']); ?>
+                                                <?php elseif ($plan['price_per_visit']): ?>
+                                                    <span class="text-muted"><?php echo formatCurrency($plan['price_per_visit']); ?></span>
+                                                <?php else: ?>
+                                                    <span class="text-muted">-</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td class="text-right">
+                                                <?php if ($visit['status'] === 'scheduled'): ?>
+                                                    <form method="POST" style="display: inline;">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                                                        <input type="hidden" name="visit_id" value="<?php echo (int)$visit['id']; ?>">
+                                                        <button type="submit" name="action" value="start_visit"
+                                                                class="btn btn-sm btn-info" title="Start this visit">
+                                                            Start
+                                                        </button>
+                                                    </form>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                            onclick="openSkipModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
+                                                            title="Skip this visit">
+                                                        Skip
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-outline-info"
+                                                            onclick="openWeatherModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
+                                                            title="Weather delay">
+                                                        <i data-feather="cloud-rain" style="width: 14px; height: 14px;"></i>
+                                                    </button>
+                                                <?php elseif ($visit['status'] === 'in_progress'): ?>
+                                                    <button type="button" class="btn btn-sm btn-success"
+                                                            onclick="openCompleteModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', <?php echo floatval($plan['price_per_visit'] ?? 0); ?>)"
+                                                            title="Complete this visit">
+                                                        Complete
+                                                    </button>
+                                                <?php elseif ($visit['status'] === 'completed'): ?>
+                                                    <span class="text-muted small">
+                                                        <?php echo $visit['completed_at'] ? formatDateTime($visit['completed_at']) : ''; ?>
+                                                    </span>
+                                                <?php elseif ($visit['status'] === 'skipped'): ?>
+                                                    <span class="text-muted small">Skipped</span>
+                                                <?php elseif ($visit['status'] === 'weather'): ?>
+                                                    <span class="text-muted small">Weather</span>
+                                                <?php endif; ?>
+                                            </td>
+                                        </tr>
+                                        <?php if ($visit['completion_notes']): ?>
+                                            <tr class="<?php echo $rowClass; ?> mw-visit-note-row">
+                                                <td></td>
+                                                <td colspan="6">
+                                                    <small class="text-muted">
+                                                        <i data-feather="message-circle" style="width: 12px; height: 12px;"></i>
+                                                        <?php echo htmlspecialchars($visit['completion_notes']); ?>
+                                                    </small>
+                                                </td>
+                                            </tr>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
                 </div>
-            </form>
-        </div>
-    </div>
+            </div>
 
-    <!-- Reschedule Modal -->
-    <div class="mw-modal-overlay" id="rescheduleModal">
+            <!-- ══════════════════════════════════════════════════════
+                 Plan Notes Section
+                 ══════════════════════════════════════════════════════ -->
+
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Plan Notes</h5>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="showModal('noteModal')">
+                        + Add Note
+                    </button>
+                </div>
+                <div class="card-body">
+                    <?php if (empty($notes)): ?>
+                        <p class="text-muted small mb-0">No notes yet. Add instructions, customer requests, or internal notes.</p>
+                    <?php else: ?>
+                        <?php foreach ($notes as $note): ?>
+                            <div class="mw-note-item">
+                                <div class="mw-note-header">
+                                    <span class="mw-note-type"><?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $note['note_type']))); ?></span>
+                                    <span>
+                                        <?php echo htmlspecialchars($note['full_name'] ?? 'System'); ?>
+                                        &mdash;
+                                        <?php echo formatDateTime($note['created_at']); ?>
+                                    </span>
+                                </div>
+                                <div class="mw-note-content">
+                                    <?php echo nl2br(htmlspecialchars($note['content'])); ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+
+    <!-- ══════════════════════════════════════════════════════
+         MODALS
+         ══════════════════════════════════════════════════════ -->
+
+    <!-- Pause Plan Modal -->
+    <div class="mw-modal-overlay" id="pauseModal">
         <div class="mw-modal">
-            <h3 class="mw-modal-title">Reschedule Job</h3>
+            <h3 class="mw-modal-title">Pause Plan</h3>
+            <p class="text-muted small">Pausing will cancel all future scheduled visits. You can resume at any time.</p>
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                <input type="hidden" name="action" value="reschedule">
+                <input type="hidden" name="action" value="pause_plan">
 
                 <div class="form-group">
-                    <label class="form-label">Date</label>
-                    <input type="date" name="scheduled_date" class="form-control"
-                           value="<?php echo $job['scheduled_date'] ?? date('Y-m-d'); ?>">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Start Time</label>
-                    <input type="time" name="scheduled_time_start" class="form-control"
-                           value="<?php echo $job['scheduled_time_start'] ?? '09:00'; ?>">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">End Time</label>
-                    <input type="time" name="scheduled_time_end" class="form-control"
-                           value="<?php echo $job['scheduled_time_end'] ?? '10:00'; ?>">
+                    <label class="form-label">Reason (optional)</label>
+                    <textarea name="pause_reason" class="form-control" rows="2"
+                              placeholder="Why is this plan being paused?"></textarea>
                 </div>
 
                 <div class="mw-modal-actions">
-                    <button type="submit" class="btn btn-primary">Save</button>
-                    <button type="button" class="btn btn-secondary" onclick="hideModal('rescheduleModal')">Cancel</button>
+                    <button type="submit" class="btn btn-warning">Pause Plan</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('pauseModal')">Cancel</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Complete Modal -->
+    <!-- Complete Visit Modal -->
     <div class="mw-modal-overlay" id="completeModal">
         <div class="mw-modal">
-            <h3 class="mw-modal-title">Complete Job</h3>
+            <h3 class="mw-modal-title">Complete Visit <span id="completeVisitNumber"></span></h3>
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                <input type="hidden" name="action" value="complete">
+                <input type="hidden" name="action" value="complete_visit">
+                <input type="hidden" name="visit_id" id="completeVisitId" value="">
 
                 <div class="form-group">
-                    <label class="form-label">Actual Amount</label>
-                    <input type="number" name="actual_amount" class="form-control" step="0.01"
-                           value="<?php echo $job['estimated_amount']; ?>">
+                    <label class="form-label">Actual Amount ($)</label>
+                    <input type="number" name="actual_amount" id="completeActualAmount" class="form-control" step="0.01" min="0">
+                    <small class="form-text text-muted">Leave blank to use the plan's default price per visit.</small>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Completion Notes</label>
-                    <textarea name="completion_notes" class="form-control"
+                    <textarea name="completion_notes" class="form-control" rows="3"
                               placeholder="Any notes about the completed work..."></textarea>
                 </div>
 
                 <div class="mw-modal-actions">
-                    <button type="submit" class="btn btn-success">Complete Job</button>
+                    <button type="submit" class="btn btn-success">Complete Visit</button>
                     <button type="button" class="btn btn-secondary" onclick="hideModal('completeModal')">Cancel</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Note Modal -->
+    <!-- Skip Visit Modal -->
+    <div class="mw-modal-overlay" id="skipModal">
+        <div class="mw-modal">
+            <h3 class="mw-modal-title">Skip Visit <span id="skipVisitNumber"></span></h3>
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="action" value="skip_visit">
+                <input type="hidden" name="visit_id" id="skipVisitId" value="">
+
+                <div class="form-group">
+                    <label class="form-label">Reason (optional)</label>
+                    <textarea name="skip_reason" class="form-control" rows="2"
+                              placeholder="Why is this visit being skipped?"></textarea>
+                </div>
+
+                <div class="mw-modal-actions">
+                    <button type="submit" class="btn btn-secondary">Skip Visit</button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="hideModal('skipModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Weather Visit Modal -->
+    <div class="mw-modal-overlay" id="weatherModal">
+        <div class="mw-modal">
+            <h3 class="mw-modal-title">Weather Delay <span id="weatherVisitNumber"></span></h3>
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="action" value="weather_visit">
+                <input type="hidden" name="visit_id" id="weatherVisitId" value="">
+
+                <div class="form-group">
+                    <label class="form-label">Details (optional)</label>
+                    <textarea name="weather_reason" class="form-control" rows="2"
+                              placeholder="e.g., Heavy rain, snow storm..."></textarea>
+                </div>
+
+                <div class="mw-modal-actions">
+                    <button type="submit" class="btn btn-info">Mark Weather Delay</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('weatherModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Add Note Modal -->
     <div class="mw-modal-overlay" id="noteModal">
         <div class="mw-modal">
-            <h3 class="mw-modal-title">Add Note</h3>
+            <h3 class="mw-modal-title">Add Plan Note</h3>
             <form method="POST">
                 <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                 <input type="hidden" name="action" value="add_note">
@@ -858,12 +804,13 @@ $activePage = 'jobs';
                         <option value="general">General</option>
                         <option value="customer_request">Customer Request</option>
                         <option value="issue">Issue</option>
+                        <option value="follow_up">Follow-up</option>
                         <option value="internal">Internal</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Note</label>
-                    <textarea name="note_content" class="form-control" required
+                    <textarea name="note_content" class="form-control" required rows="4"
                               placeholder="Enter note..."></textarea>
                 </div>
 
@@ -875,41 +822,12 @@ $activePage = 'jobs';
         </div>
     </div>
 
-    <!-- Photo Modal -->
-    <div class="mw-modal-overlay" id="photoModal">
-        <div class="mw-modal">
-            <h3 class="mw-modal-title">Upload Photo</h3>
-            <form method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                <input type="hidden" name="action" value="upload_photo">
 
-                <div class="form-group">
-                    <label class="form-label">Photo Type</label>
-                    <select name="photo_type" class="form-control">
-                        <option value="before">Before</option>
-                        <option value="during">During</option>
-                        <option value="after" selected>After</option>
-                        <option value="issue">Issue</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Photo</label>
-                    <input type="file" name="photo" class="form-control" accept="image/*" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Caption (optional)</label>
-                    <input type="text" name="photo_caption" class="form-control" placeholder="Describe the photo...">
-                </div>
-
-                <div class="mw-modal-actions">
-                    <button type="submit" class="btn btn-primary">Upload</button>
-                    <button type="button" class="btn btn-secondary" onclick="hideModal('photoModal')">Cancel</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
+    <!-- ══════════════════════════════════════════════════════
+         JAVASCRIPT
+         ══════════════════════════════════════════════════════ -->
     <script>
+        // ── Modal helpers ─────────────────────────────────────
         function showModal(id) {
             document.getElementById(id).classList.add('show');
         }
@@ -919,7 +837,7 @@ $activePage = 'jobs';
         }
 
         // Close modal on overlay click
-        document.querySelectorAll('.mw-modal-overlay').forEach(overlay => {
+        document.querySelectorAll('.mw-modal-overlay').forEach(function(overlay) {
             overlay.addEventListener('click', function(e) {
                 if (e.target === this) {
                     this.classList.remove('show');
@@ -927,27 +845,50 @@ $activePage = 'jobs';
             });
         });
 
-        // Toggle recurring options based on job type in Edit modal
-        function toggleEditRecurringOptions() {
-            var jobType = document.getElementById('editJobType').value;
-            var recurringOptions = document.getElementById('editRecurringOptions');
-            if (jobType === 'recurring') {
-                recurringOptions.style.display = 'block';
-            } else {
-                recurringOptions.style.display = 'none';
-            }
+        // ── Visit action modals ───────────────────────────────
+        function openCompleteModal(visitId, visitNumber, defaultAmount) {
+            document.getElementById('completeVisitId').value = visitId;
+            document.getElementById('completeVisitNumber').textContent = visitNumber;
+            document.getElementById('completeActualAmount').value = defaultAmount > 0 ? defaultAmount.toFixed(2) : '';
+            showModal('completeModal');
         }
 
-        // Toggle custom interval fields based on recurrence pattern
-        function toggleEditCustomRecurrence() {
-            var pattern = document.getElementById('editRecurrencePattern').value;
-            var customOptions = document.getElementById('editCustomIntervalOptions');
-            if (pattern === 'custom') {
-                customOptions.style.display = 'flex';
-            } else {
-                customOptions.style.display = 'none';
-            }
+        function openSkipModal(visitId, visitNumber) {
+            document.getElementById('skipVisitId').value = visitId;
+            document.getElementById('skipVisitNumber').textContent = visitNumber;
+            showModal('skipModal');
         }
+
+        function openWeatherModal(visitId, visitNumber) {
+            document.getElementById('weatherVisitId').value = visitId;
+            document.getElementById('weatherVisitNumber').textContent = visitNumber;
+            showModal('weatherModal');
+        }
+
+        // ── Visit filter buttons ──────────────────────────────
+        document.querySelectorAll('.mw-visit-filter').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var filter = this.getAttribute('data-filter');
+
+                // Toggle active class
+                document.querySelectorAll('.mw-visit-filter').forEach(function(b) {
+                    b.classList.remove('active');
+                });
+                this.classList.add('active');
+
+                // Show/hide rows
+                var rows = document.querySelectorAll('#visitsTable tbody tr');
+                rows.forEach(function(row) {
+                    if (filter === 'all') {
+                        row.style.display = '';
+                    } else if (filter === 'upcoming') {
+                        row.style.display = row.classList.contains('mw-visit-upcoming') ? '' : 'none';
+                    } else if (filter === 'completed') {
+                        row.style.display = row.classList.contains('mw-visit-completed') ? '' : 'none';
+                    }
+                });
+            });
+        });
     </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
