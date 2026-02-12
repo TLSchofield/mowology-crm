@@ -1,0 +1,15 @@
+# /public/api/.htaccess — Route clean API URLs to facade dispatcher
+#
+# Rewrites:  /api/jobs/create  →  /api/index.php?module=jobs&action=create
+#             /api/team/time-clock  →  /api/index.php?module=team&action=time-clock
+#
+# Legacy URLs (/crm/api/*.php) still work via their shim files.
+
+RewriteEngine On
+
+# If the request maps to a real file, serve it directly
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# Route /api/<module>/<action> to the facade dispatcher
+RewriteRule ^([a-z]+)/([a-z0-9\-]+)/?$ index.php?module=$1&action=$2 [L,QSA]

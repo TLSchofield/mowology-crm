@@ -25,6 +25,9 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^services/([a-z0-9\-]+)/?$ /services/$1.php [L,QSA]
 
+# /api/module/action → handled by /api/.htaccess (do not rewrite here)
+RewriteRule ^api/ - [L]
+
 # ── CMS Catch-All ──
 # Routes unmatched slugs to CMS front controller.
 # Backwards-compatible: existing files still load directly.
