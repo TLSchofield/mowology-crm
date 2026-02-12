@@ -1,0 +1,3 @@
+# Deny all web access to /app/ directory
+# These files are included by PHP, not served directly
+Deny from all
