@@ -1,9 +1,9 @@
 <?php
 /**
- * LEGACY SHIM — reschedule-stop.php
- * Real logic lives at /app/Modules/Jobs/Api/reschedule-stop.php
- * DO NOT add new code here. Edit the target file instead.
+ * @deprecated Use reschedule-stop.php instead.
+ * This endpoint operated on the legacy `jobs` table which has been dropped.
  */
+
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
     for ($__i = 0; $__i < 5; $__i++) {
@@ -15,4 +15,7 @@ if (!defined('APP_ROOT')) {
     }
     unset($__dir, $__i);
 }
-require_once APP_ROOT . '/Modules/Jobs/Api/reschedule-stop.php';
+
+header('Content-Type: application/json');
+http_response_code(410);
+echo json_encode(['success' => false, 'error' => 'This endpoint is deprecated. Use reschedule-stop.php instead.']);
