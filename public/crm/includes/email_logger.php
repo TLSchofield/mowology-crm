@@ -1,48 +1,18 @@
 <?php
 /**
- * Email Logger - Writes email details to a visible file for debugging
- *
- * This helps diagnose email sending issues on shared hosting where
- * server logs aren't easily accessible
+ * LEGACY SHIM — Email Logger - Debug email logging
+ * Real logic lives at app/Services/Messaging/EmailLogger.php
+ * DO NOT add new code here. Edit the target file instead.
  */
-
-declare(strict_types=1);
-
-/**
- * Log email send attempt to a file
- */
-function logEmailAttempt(
-    string $to,
-    string $subject,
-    string $htmlBody,
-    string $headers,
-    bool $result
-): void {
-    try {
-        $logDir = dirname(__DIR__) . '/email-logs';
-
-        // Create directory if it doesn't exist
-        if (!is_dir($logDir)) {
-            @mkdir($logDir, 0755, true);
+if (!defined('APP_ROOT')) {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 5; $__i++) {
+        $__dir = dirname($__dir);
+        if (is_file($__dir . '/app/Core/paths.php')) {
+            require_once $__dir . '/app/Core/paths.php';
+            break;
         }
-
-        // Create a readable log file
-        $timestamp = date('Y-m-d H:i:s');
-        $filename = $logDir . '/email-' . date('Y-m-d') . '.log';
-
-        $logEntry = "\n" . str_repeat('=', 80) . "\n";
-        $logEntry .= "TIMESTAMP: {$timestamp}\n";
-        $logEntry .= "RECIPIENT: {$to}\n";
-        $logEntry .= "SUBJECT: {$subject}\n";
-        $logEntry .= "RESULT: " . ($result ? "✅ ACCEPTED (mail() returned TRUE)" : "❌ FAILED (mail() returned FALSE)") . "\n";
-        $logEntry .= "HEADERS:\n" . $headers . "\n";
-        $logEntry .= "BODY PREVIEW:\n" . substr(strip_tags($htmlBody), 0, 500) . "...\n";
-        $logEntry .= "BODY LENGTH: " . strlen($htmlBody) . " characters\n";
-        $logEntry .= str_repeat('=', 80) . "\n";
-
-        file_put_contents($filename, $logEntry, FILE_APPEND);
-
-    } catch (Throwable $e) {
-        error_log("Email logger error: " . $e->getMessage());
     }
+    unset($__dir, $__i);
 }
+require_once APP_ROOT . '/Services/Messaging/EmailLogger.php';
