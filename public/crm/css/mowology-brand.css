@@ -5017,11 +5017,20 @@ textarea.font-monospace {
 .mw-clock-toast-error { background: #dc2626; }
 .mw-clock-toast-info { background: #2563eb; }
 
-/* Mobile: hide label text */
+/* Mobile: larger touch targets, keep label visible */
 @media (max-width: 768px) {
-  .mw-clock-label { display: none; }
+  .mw-clock-btn {
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    min-height: 44px;
+  }
+  .mw-clock-btn svg {
+    width: 18px;
+    height: 18px;
+  }
   .mw-clock-job-badge { display: none; }
-  .mw-clock-active { padding: 3px 6px 3px 8px; gap: 6px; }
+  .mw-clock-active { padding: 4px 6px 4px 10px; gap: 8px; }
+  .mw-clock-timer { font-size: 0.9rem; }
 }
 
 /* ── My Schedule Page ─────────────────────────────────── */
