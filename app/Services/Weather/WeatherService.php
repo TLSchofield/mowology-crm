@@ -27,14 +27,14 @@ if (!defined('APP_ROOT')) {
  * Cache directory constant
  */
 if (!defined('WEATHER_CACHE_DIR')) {
-    define('WEATHER_CACHE_DIR', PUBLIC_ROOT . '/storage/weather');
+    define('WEATHER_CACHE_DIR', STORAGE_ROOT . '/cache/weather');
 }
 
 /**
  * Geocode cache for city/province -> lat/lng
  */
 if (!defined('GEOCODE_CACHE_DIR')) {
-    define('GEOCODE_CACHE_DIR', PUBLIC_ROOT . '/storage/geocode');
+    define('GEOCODE_CACHE_DIR', STORAGE_ROOT . '/cache/geocode');
 }
 
 /**
@@ -502,7 +502,7 @@ function formatWeatherDisplay(array $weather): string
  * Hourly forecast cache directory (same as weather cache)
  */
 if (!defined('HOURLY_CACHE_DIR')) {
-    define('HOURLY_CACHE_DIR', PUBLIC_ROOT . '/storage/weather');
+    define('HOURLY_CACHE_DIR', STORAGE_ROOT . '/cache/weather');
 }
 
 /**

@@ -19,10 +19,10 @@ if (!defined('APP_ROOT')) {
  * Get the storage directory path for schema snapshots.
  * Creates the directory if it doesn't exist.
  *
- * @return string Absolute path to /storage/ directory
+ * @return string Absolute path to schema snapshot directory
  */
 function getStoragePath() {
-    $path = PUBLIC_ROOT . '/storage';
+    $path = STORAGE_ROOT . '/schema';
     if (!is_dir($path)) {
         mkdir($path, 0755, true);
     }
@@ -32,10 +32,10 @@ function getStoragePath() {
 /**
  * Get the history directory path for archived snapshots.
  *
- * @return string Absolute path to /storage/schema_history/ directory
+ * @return string Absolute path to schema history directory
  */
 function getHistoryPath() {
-    $path = getStoragePath() . '/schema_history';
+    $path = getStoragePath() . '/history';
     if (!is_dir($path)) {
         mkdir($path, 0755, true);
     }

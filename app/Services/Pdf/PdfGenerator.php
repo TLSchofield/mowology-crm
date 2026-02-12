@@ -28,34 +28,17 @@ class PdfGenerator
     public function __construct()
     {
         $this->db = getDB();
-        $this->projectRoot = $this->findProjectRoot();
-        $this->storagePath = $this->projectRoot . '/storage/pdfs';
+        $this->projectRoot = PROJECT_ROOT;
+        $this->storagePath = STORAGE_ROOT . '/pdfs';
         $this->templatePath = CRM_ROOT . '/templates/pdf';
-    }
 
-    /**
-     * Find the project root by looking for the storage/ directory.
-     * Works both locally (repo root above public/) and on cPanel (above public_html/).
-     * Falls back to inside public_html/ if storage/ was uploaded there.
-     */
-    private function findProjectRoot(): string
-    {
-        // Use PUBLIC_ROOT to compute paths reliably
-        // Try above PUBLIC_ROOT first (repo root / above public_html)
-        $abovePublic = dirname(PUBLIC_ROOT);
-        if (is_dir($abovePublic . '/storage')) {
-            return $abovePublic;
+        // Ensure subdirectories exist
+        if (!is_dir($this->storagePath . '/quotes')) {
+            @mkdir($this->storagePath . '/quotes', 0755, true);
         }
-
-        // Try inside PUBLIC_ROOT (FTP upload scenario)
-        if (is_dir(PUBLIC_ROOT . '/storage')) {
-            return PUBLIC_ROOT;
+        if (!is_dir($this->storagePath . '/invoices')) {
+            @mkdir($this->storagePath . '/invoices', 0755, true);
         }
-
-        // Default: create storage next to public_html
-        @mkdir($abovePublic . '/storage/pdfs/quotes', 0755, true);
-        @mkdir($abovePublic . '/storage/pdfs/invoices', 0755, true);
-        return $abovePublic;
     }
 
     /**
