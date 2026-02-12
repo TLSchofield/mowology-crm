@@ -1,109 +1,152 @@
 <?php
 /**
- * Jobs Management - List View
+ * Job Plans Management - List View
+ * Lists job_plans with visit counts, filters, and bulk delete.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/plan-functions.php';
 require_once dirname(__DIR__) . '/includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
 
 // Initialize error handler
-$errorHandler = new CRMErrorHandler('Jobs', $_SERVER['REQUEST_METHOD']);
+$errorHandler = new CRMErrorHandler('Job Plans', $_SERVER['REQUEST_METHOD']);
 $GLOBALS['crm_error_handler'] = $errorHandler;
 
 // Handle filters
 $statusFilter = $_GET['status'] ?? '';
-$assignedFilter = $_GET['assigned'] ?? '';
-$dateFilter = $_GET['date'] ?? '';
+$serviceFilter = $_GET['service'] ?? '';
+$crewFilter = $_GET['crew'] ?? '';
 $searchQuery = trim($_GET['search'] ?? '');
 
 // Build query
 $db = getDB();
-$jobs = [];
+$plans = [];
 $statusCounts = [];
 $totalCount = 0;
-$todayCount = 0;
+$activePlansCount = 0;
+$todayVisitsCount = 0;
+$weekVisitsCount = 0;
+$completedVisitsCount = 0;
 
 try {
-$params = [];
-$whereConditions = ['1=1'];
+    $params = [];
+    $whereConditions = ['1=1'];
 
-if ($statusFilter) {
-    $whereConditions[] = 'j.status = ?';
-    $params[] = $statusFilter;
-}
-
-if ($assignedFilter) {
-    if ($assignedFilter === 'unassigned') {
-        $whereConditions[] = 'j.assigned_to IS NULL';
-    } else {
-        $whereConditions[] = 'j.assigned_to = ?';
-        $params[] = intval($assignedFilter);
+    if ($statusFilter) {
+        $whereConditions[] = 'jp.status = ?';
+        $params[] = $statusFilter;
     }
-}
 
-if ($dateFilter) {
-    $whereConditions[] = 'j.scheduled_date = ?';
-    $params[] = $dateFilter;
-}
+    if ($serviceFilter) {
+        $whereConditions[] = 'jp.service_type = ?';
+        $params[] = $serviceFilter;
+    }
 
-if ($searchQuery) {
-    $whereConditions[] = '(j.job_number LIKE ? OR c.company_name LIKE ? OR p.address LIKE ? OR j.title LIKE ?)';
-    $searchParam = "%{$searchQuery}%";
-    $params[] = $searchParam;
-    $params[] = $searchParam;
-    $params[] = $searchParam;
-    $params[] = $searchParam;
-}
+    if ($crewFilter) {
+        if ($crewFilter === 'unassigned') {
+            $whereConditions[] = 'jp.default_crew_id IS NULL';
+        } else {
+            $whereConditions[] = 'jp.default_crew_id = ?';
+            $params[] = intval($crewFilter);
+        }
+    }
 
-$whereClause = implode(' AND ', $whereConditions);
+    if ($searchQuery) {
+        $whereConditions[] = '(jp.plan_number LIKE ? OR c.company_name LIKE ? OR p.address LIKE ? OR jp.title LIKE ?)';
+        $searchParam = "%{$searchQuery}%";
+        $params[] = $searchParam;
+        $params[] = $searchParam;
+        $params[] = $searchParam;
+        $params[] = $searchParam;
+    }
 
-$stmt = $db->prepare("
-    SELECT
-        j.*,
-        c.company_name,
-        p.address as property_address,
-        p.city as property_city,
-        u.full_name as assigned_to_name,
-        q.quote_number
-    FROM jobs j
-    LEFT JOIN properties p ON j.property_id = p.id
-    LEFT JOIN companies c ON j.company_id = c.id
-    LEFT JOIN users u ON j.assigned_to = u.id
-    LEFT JOIN quotes q ON j.quote_id = q.id
-    WHERE {$whereClause}
-    ORDER BY j.scheduled_date ASC, j.scheduled_time_start ASC
-    LIMIT 100
-");
-$stmt->execute($params);
-$jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $whereClause = implode(' AND ', $whereConditions);
 
-// Get counts for filter tabs
-$countStmt = $db->query("
-    SELECT status, COUNT(*) as count
-    FROM jobs
-    GROUP BY status
-");
-$statusCounts = [];
-while ($row = $countStmt->fetch()) {
-    $statusCounts[$row['status']] = $row['count'];
-}
-$totalCount = array_sum($statusCounts);
+    $stmt = $db->prepare("
+        SELECT
+            jp.*,
+            c.company_name,
+            p.address,
+            p.city,
+            u.full_name AS crew_name,
+            q.quote_number,
+            (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'completed') AS visits_completed,
+            (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'scheduled') AS visits_scheduled,
+            (SELECT MIN(jv.scheduled_date) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'scheduled' AND jv.scheduled_date >= CURDATE()) AS next_visit
+        FROM job_plans jp
+        LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN companies c ON jp.company_id = c.id
+        LEFT JOIN users u ON jp.default_crew_id = u.id
+        LEFT JOIN quotes q ON jp.quote_id = q.id
+        WHERE {$whereClause}
+        ORDER BY jp.created_at DESC
+        LIMIT 200
+    ");
+    $stmt->execute($params);
+    $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Get staff for filter
+    // Get counts for filter tabs
+    $countStmt = $db->query("
+        SELECT status, COUNT(*) AS count
+        FROM job_plans
+        GROUP BY status
+    ");
+    $statusCounts = [];
+    while ($row = $countStmt->fetch()) {
+        $statusCounts[$row['status']] = $row['count'];
+    }
+    $totalCount = array_sum($statusCounts);
+
+    // Stat cards
+    $activePlansCount = $statusCounts['active'] ?? 0;
+
+    $todayVisitsCount = (int)$db->query("
+        SELECT COUNT(*) FROM job_visits
+        WHERE scheduled_date = CURDATE() AND status IN ('scheduled', 'in_progress')
+    ")->fetchColumn();
+
+    $weekVisitsCount = (int)$db->query("
+        SELECT COUNT(*) FROM job_visits
+        WHERE scheduled_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
+        AND status IN ('scheduled', 'in_progress')
+    ")->fetchColumn();
+
+    $completedVisitsCount = (int)$db->query("
+        SELECT COUNT(*) FROM job_visits WHERE status = 'completed'
+    ")->fetchColumn();
+
+    // Get staff for crew filter
     $staff = getStaffMembers();
 
-    // Count today's jobs
-    $todayCount = $db->query("SELECT COUNT(*) FROM jobs WHERE scheduled_date = CURDATE()")->fetchColumn();
+    // Get distinct service types for filter dropdown
+    $serviceTypes = [];
+    $svcStmt = $db->query("SELECT DISTINCT service_type FROM job_plans WHERE service_type IS NOT NULL AND service_type != '' ORDER BY service_type");
+    while ($row = $svcStmt->fetch()) {
+        $serviceTypes[] = $row['service_type'];
+    }
 
 } catch (PDOException $e) {
-    $errorHandler->logDatabaseError($e, '', [], 'Unable to load jobs. Please refresh the page.');
+    $errorHandler->logDatabaseError($e, '', [], 'Unable to load job plans. Please refresh the page.');
     $staff = [];
+    $serviceTypes = [];
 }
 
-$pageTitle = 'Jobs';
+// Service type display labels
+$serviceLabels = [
+    'maintenance' => 'Maintenance',
+    'cleanup' => 'Cleanup',
+    'hedge_trimming' => 'Hedge Trimming',
+    'lawn_care' => 'Lawn Care',
+    'snow_removal' => 'Snow Removal',
+    'landscaping' => 'Landscaping',
+    'garden_maintenance' => 'Garden Maintenance',
+    'seasonal_cleanup' => 'Seasonal Cleanup',
+];
+
+$pageTitle = 'Job Plans';
 $activePage = 'jobs';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
@@ -127,136 +170,203 @@ $activePage = 'jobs';
 
           <div class="d-flex justify-content-between align-items-center mb-4">
               <div>
-                  <h1 class="h3 mb-1">Jobs</h1>
-                  <p class="text-muted mb-0">Manage scheduled work and track completion</p>
+                  <h1 class="h3 mb-1">Job Plans</h1>
+                  <p class="text-muted mb-0">Manage service agreements, schedules, and visit tracking</p>
               </div>
               <div class="d-flex" style="gap: 12px;">
                   <a href="schedule.php" class="btn btn-secondary"><i data-feather="calendar" class="mr-1"></i> Calendar View</a>
-                  <a href="create.php" class="btn btn-primary"><i data-feather="plus" class="mr-1"></i> Create Job</a>
+                  <a href="create.php" class="btn btn-primary"><i data-feather="plus" class="mr-1"></i> Create Plan</a>
               </div>
           </div>
 
           <!-- Stats -->
           <div class="mw-stats-row">
               <div class="mw-stat-card today">
-                  <h4>Today</h4>
-                  <div class="value"><?php echo $todayCount; ?></div>
+                  <h4>Active Plans</h4>
+                  <div class="value"><?php echo $activePlansCount; ?></div>
               </div>
               <div class="mw-stat-card scheduled">
-                  <h4>Scheduled</h4>
-                  <div class="value"><?php echo $statusCounts['scheduled'] ?? 0; ?></div>
+                  <h4>Today's Visits</h4>
+                  <div class="value"><?php echo $todayVisitsCount; ?></div>
               </div>
               <div class="mw-stat-card in-progress">
-                  <h4>In Progress</h4>
-                  <div class="value"><?php echo $statusCounts['in_progress'] ?? 0; ?></div>
+                  <h4>This Week</h4>
+                  <div class="value"><?php echo $weekVisitsCount; ?></div>
               </div>
               <div class="mw-stat-card completed">
-                  <h4>Completed</h4>
-                  <div class="value"><?php echo $statusCounts['completed'] ?? 0; ?></div>
+                  <h4>Completed Visits</h4>
+                  <div class="value"><?php echo $completedVisitsCount; ?></div>
               </div>
           </div>
 
+          <!-- Filters -->
           <div class="d-flex flex-wrap align-items-center mb-3" style="gap: 16px;">
               <div class="mw-filter-tabs">
-                  <a href="?status=" class="mw-filter-tab <?php echo !$statusFilter ? 'active' : ''; ?>">
+                  <a href="?<?php echo $serviceFilter ? 'service=' . urlencode($serviceFilter) . '&' : ''; ?><?php echo $crewFilter ? 'crew=' . urlencode($crewFilter) . '&' : ''; ?>status=" class="mw-filter-tab <?php echo !$statusFilter ? 'active' : ''; ?>">
                       All <span class="count"><?php echo $totalCount; ?></span>
                   </a>
-                  <a href="?status=scheduled" class="mw-filter-tab <?php echo $statusFilter === 'scheduled' ? 'active' : ''; ?>">
-                      Scheduled <span class="count"><?php echo $statusCounts['scheduled'] ?? 0; ?></span>
+                  <a href="?<?php echo $serviceFilter ? 'service=' . urlencode($serviceFilter) . '&' : ''; ?><?php echo $crewFilter ? 'crew=' . urlencode($crewFilter) . '&' : ''; ?>status=active" class="mw-filter-tab <?php echo $statusFilter === 'active' ? 'active' : ''; ?>">
+                      Active <span class="count"><?php echo $statusCounts['active'] ?? 0; ?></span>
                   </a>
-                  <a href="?status=in_progress" class="mw-filter-tab <?php echo $statusFilter === 'in_progress' ? 'active' : ''; ?>">
-                      In Progress <span class="count"><?php echo $statusCounts['in_progress'] ?? 0; ?></span>
+                  <a href="?<?php echo $serviceFilter ? 'service=' . urlencode($serviceFilter) . '&' : ''; ?><?php echo $crewFilter ? 'crew=' . urlencode($crewFilter) . '&' : ''; ?>status=paused" class="mw-filter-tab <?php echo $statusFilter === 'paused' ? 'active' : ''; ?>">
+                      Paused <span class="count"><?php echo $statusCounts['paused'] ?? 0; ?></span>
                   </a>
-                  <a href="?status=completed" class="mw-filter-tab <?php echo $statusFilter === 'completed' ? 'active' : ''; ?>">
+                  <a href="?<?php echo $serviceFilter ? 'service=' . urlencode($serviceFilter) . '&' : ''; ?><?php echo $crewFilter ? 'crew=' . urlencode($crewFilter) . '&' : ''; ?>status=completed" class="mw-filter-tab <?php echo $statusFilter === 'completed' ? 'active' : ''; ?>">
                       Completed <span class="count"><?php echo $statusCounts['completed'] ?? 0; ?></span>
+                  </a>
+                  <a href="?<?php echo $serviceFilter ? 'service=' . urlencode($serviceFilter) . '&' : ''; ?><?php echo $crewFilter ? 'crew=' . urlencode($crewFilter) . '&' : ''; ?>status=cancelled" class="mw-filter-tab <?php echo $statusFilter === 'cancelled' ? 'active' : ''; ?>">
+                      Cancelled <span class="count"><?php echo $statusCounts['cancelled'] ?? 0; ?></span>
                   </a>
               </div>
 
-              <select class="form-control" style="width: auto;" onchange="filterByAssigned(this.value)">
-                  <option value="">All Staff</option>
-                  <option value="unassigned" <?php echo $assignedFilter === 'unassigned' ? 'selected' : ''; ?>>Unassigned</option>
+              <select class="form-control" style="width: auto;" onchange="filterByService(this.value)">
+                  <option value="">All Services</option>
+                  <?php foreach ($serviceTypes as $svc): ?>
+                      <option value="<?php echo htmlspecialchars($svc); ?>" <?php echo $serviceFilter === $svc ? 'selected' : ''; ?>>
+                          <?php echo htmlspecialchars($serviceLabels[$svc] ?? ucwords(str_replace('_', ' ', $svc))); ?>
+                      </option>
+                  <?php endforeach; ?>
+              </select>
+
+              <select class="form-control" style="width: auto;" onchange="filterByCrew(this.value)">
+                  <option value="">All Crews</option>
+                  <option value="unassigned" <?php echo $crewFilter === 'unassigned' ? 'selected' : ''; ?>>Unassigned</option>
                   <?php foreach ($staff as $s): ?>
-                      <option value="<?php echo $s['id']; ?>" <?php echo $assignedFilter == $s['id'] ? 'selected' : ''; ?>>
+                      <option value="<?php echo $s['id']; ?>" <?php echo $crewFilter == $s['id'] ? 'selected' : ''; ?>>
                           <?php echo htmlspecialchars($s['full_name']); ?>
                       </option>
                   <?php endforeach; ?>
               </select>
 
-              <input type="date" class="form-control" style="width: auto;" value="<?php echo htmlspecialchars($dateFilter); ?>"
-                     onchange="filterByDate(this.value)">
-
               <form class="mw-search-box" method="GET">
                   <?php if ($statusFilter): ?><input type="hidden" name="status" value="<?php echo htmlspecialchars($statusFilter); ?>"><?php endif; ?>
+                  <?php if ($serviceFilter): ?><input type="hidden" name="service" value="<?php echo htmlspecialchars($serviceFilter); ?>"><?php endif; ?>
+                  <?php if ($crewFilter): ?><input type="hidden" name="crew" value="<?php echo htmlspecialchars($crewFilter); ?>"><?php endif; ?>
                   <input type="text" name="search" class="mw-search-input"
-                         placeholder="Search jobs..."
+                         placeholder="Search plans..."
                          value="<?php echo htmlspecialchars($searchQuery); ?>">
               </form>
           </div>
 
+          <!-- Table -->
           <div class="mw-table-card">
-              <?php if (empty($jobs)): ?>
+              <?php if (empty($plans)): ?>
                   <div class="mw-empty-state">
-                      <span class="mw-empty-state-icon" data-feather="tool"></span>
-                      <p>No jobs found. Create a job or accept a quote to get started!</p>
+                      <span class="mw-empty-state-icon" data-feather="clipboard"></span>
+                      <p>No job plans found. Create a plan or accept a quote to get started!</p>
                   </div>
               <?php else: ?>
                   <table class="mw-table">
                       <thead>
                           <tr>
                               <th class="mw-bulk-checkbox-cell">
-                                  <input type="checkbox" class="mw-bulk-checkbox" id="mw-jobs-select-all" title="Select all">
+                                  <input type="checkbox" class="mw-bulk-checkbox" id="mw-plans-select-all" title="Select all">
                               </th>
-                              <th>Job #</th>
-                              <th>Client / Property</th>
+                              <th>Plan #</th>
+                              <th>Title</th>
                               <th>Service</th>
-                              <th>Scheduled</th>
-                              <th>Assigned To</th>
+                              <th>Property</th>
+                              <th>Client</th>
+                              <th>Crew</th>
+                              <th>Pricing</th>
                               <th>Status</th>
+                              <th>Visits</th>
+                              <th>Next Visit</th>
                               <th>Actions</th>
                           </tr>
                       </thead>
                       <tbody>
-                          <?php foreach ($jobs as $job): ?>
+                          <?php foreach ($plans as $plan): ?>
                               <tr>
                                   <td class="mw-bulk-checkbox-cell">
-                                      <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$job['id']; ?>">
+                                      <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$plan['id']; ?>">
                                   </td>
                                   <td>
-                                      <span class="font-weight-bold"><?php echo htmlspecialchars($job['job_number']); ?></span>
-                                  </td>
-                                  <td>
-                                      <div class="font-weight-medium"><?php echo htmlspecialchars($job['company_name'] ?? 'N/A'); ?></div>
-                                      <div class="text-muted small"><?php echo htmlspecialchars($job['property_address'] ?? ''); ?></div>
-                                  </td>
-                                  <td>
-                                      <div><?php echo htmlspecialchars($job['title'] ?: ucfirst(str_replace('_', ' ', $job['service_type']))); ?></div>
-                                  </td>
-                                  <td>
-                                      <?php if ($job['scheduled_date']): ?>
-                                          <div class="font-weight-bold"><?php echo date('M j, Y', strtotime($job['scheduled_date'])); ?></div>
-                                          <?php if ($job['scheduled_time_start']): ?>
-                                              <div class="text-muted small"><?php echo date('g:i A', strtotime($job['scheduled_time_start'])); ?></div>
-                                          <?php endif; ?>
-                                      <?php else: ?>
-                                          <span class="text-warning">Not scheduled</span>
+                                      <a href="view.php?id=<?php echo (int)$plan['id']; ?>" class="font-weight-bold">
+                                          <?php echo htmlspecialchars($plan['plan_number']); ?>
+                                      </a>
+                                      <?php if (!empty($plan['quote_number'])): ?>
+                                          <div class="text-muted small"><?php echo htmlspecialchars($plan['quote_number']); ?></div>
                                       <?php endif; ?>
                                   </td>
                                   <td>
-                                      <?php if ($job['assigned_to_name']): ?>
-                                          <span class="badge badge-light"><?php echo htmlspecialchars($job['assigned_to_name']); ?></span>
+                                      <div class="font-weight-medium"><?php echo htmlspecialchars($plan['title'] ?: '-'); ?></div>
+                                  </td>
+                                  <td>
+                                      <?php
+                                          $svcLabel = $serviceLabels[$plan['service_type'] ?? ''] ?? ucwords(str_replace('_', ' ', $plan['service_type'] ?? ''));
+                                      ?>
+                                      <span class="badge badge-light"><?php echo htmlspecialchars($svcLabel); ?></span>
+                                  </td>
+                                  <td>
+                                      <div><?php echo htmlspecialchars($plan['address'] ?? '-'); ?></div>
+                                      <?php if (!empty($plan['city'])): ?>
+                                          <div class="text-muted small"><?php echo htmlspecialchars($plan['city']); ?></div>
+                                      <?php endif; ?>
+                                  </td>
+                                  <td>
+                                      <div><?php echo htmlspecialchars($plan['company_name'] ?? 'N/A'); ?></div>
+                                  </td>
+                                  <td>
+                                      <?php if (!empty($plan['crew_name'])): ?>
+                                          <span class="badge badge-light"><?php echo htmlspecialchars($plan['crew_name']); ?></span>
                                       <?php else: ?>
                                           <span class="badge badge-warning">Unassigned</span>
                                       <?php endif; ?>
                                   </td>
-                                  <td><?php echo getStatusBadge($job['status'], 'job'); ?></td>
+                                  <td>
+                                      <?php
+                                          $pricingModel = $plan['pricing_model'] ?? 'per_visit';
+                                          $priceDisplay = '-';
+                                          if ($pricingModel === 'per_visit' && $plan['price_per_visit']) {
+                                              $priceDisplay = formatCurrency($plan['price_per_visit']) . '/visit';
+                                          } elseif ($pricingModel === 'monthly_flat' && $plan['monthly_flat_price']) {
+                                              $priceDisplay = formatCurrency($plan['monthly_flat_price']) . '/mo';
+                                          } elseif ($pricingModel === 'seasonal' && $plan['seasonal_price']) {
+                                              $priceDisplay = formatCurrency($plan['seasonal_price']) . '/season';
+                                          } elseif ($plan['estimated_amount']) {
+                                              $priceDisplay = formatCurrency($plan['estimated_amount']);
+                                          }
+                                      ?>
+                                      <div><?php echo htmlspecialchars($priceDisplay); ?></div>
+                                      <div class="text-muted small"><?php echo htmlspecialchars(ucwords(str_replace('_', ' ', $pricingModel))); ?></div>
+                                  </td>
+                                  <td>
+                                      <?php echo getStatusBadge($plan['status'], 'plan'); ?>
+                                      <?php if ($plan['is_recurring']): ?>
+                                          <div class="text-muted small mt-1">
+                                              <i data-feather="repeat" style="width: 12px; height: 12px;"></i>
+                                              <?php echo htmlspecialchars(ucfirst($plan['recurrence_pattern'] ?? 'recurring')); ?>
+                                          </div>
+                                      <?php endif; ?>
+                                  </td>
+                                  <td>
+                                      <span class="font-weight-bold text-success"><?php echo (int)$plan['visits_completed']; ?></span>
+                                      <span class="text-muted">/</span>
+                                      <span class="text-primary"><?php echo (int)$plan['visits_scheduled']; ?></span>
+                                      <div class="text-muted small">done / sched</div>
+                                  </td>
+                                  <td>
+                                      <?php if ($plan['next_visit']): ?>
+                                          <div class="font-weight-bold"><?php echo date('M j, Y', strtotime($plan['next_visit'])); ?></div>
+                                          <?php
+                                              $daysUntil = (int)((strtotime($plan['next_visit']) - strtotime('today')) / 86400);
+                                              if ($daysUntil === 0): ?>
+                                                  <span class="badge badge-success">Today</span>
+                                              <?php elseif ($daysUntil === 1): ?>
+                                                  <span class="badge badge-info">Tomorrow</span>
+                                              <?php elseif ($daysUntil <= 7): ?>
+                                                  <span class="text-muted small">in <?php echo $daysUntil; ?> days</span>
+                                              <?php else: ?>
+                                                  <span class="text-muted small"><?php echo date('D', strtotime($plan['next_visit'])); ?></span>
+                                              <?php endif; ?>
+                                      <?php else: ?>
+                                          <span class="text-muted">-</span>
+                                      <?php endif; ?>
+                                  </td>
                                   <td>
                                       <div class="d-flex" style="gap: 8px;">
-                                          <a href="view.php?id=<?php echo $job['id']; ?>" class="mw-action-btn mw-action-btn-view">View</a>
-                                          <?php if ($job['status'] === 'scheduled'): ?>
-                                              <a href="view.php?id=<?php echo $job['id']; ?>&action=start" class="mw-action-btn mw-action-btn-start">Start</a>
-                                          <?php elseif ($job['status'] === 'in_progress'): ?>
-                                              <a href="view.php?id=<?php echo $job['id']; ?>&action=complete" class="mw-action-btn mw-action-btn-complete">Complete</a>
-                                          <?php endif; ?>
+                                          <a href="view.php?id=<?php echo (int)$plan['id']; ?>" class="mw-action-btn mw-action-btn-view">View</a>
                                       </div>
                                   </td>
                               </tr>
@@ -267,100 +377,100 @@ $activePage = 'jobs';
           </div>
 
           <!-- Bulk Action Bar -->
-          <div class="mw-bulk-action-bar" id="mw-jobs-bulk-bar">
+          <div class="mw-bulk-action-bar" id="mw-plans-bulk-bar">
               <div>
-                  <span class="mw-bulk-count" id="mw-jobs-bulk-count">0</span> jobs selected
-                  <button class="btn btn-sm mw-bulk-clear-btn ml-3" onclick="mwBulkClearJobs()">Clear Selection</button>
+                  <span class="mw-bulk-count" id="mw-plans-bulk-count">0</span> plans selected
+                  <button class="btn btn-sm mw-bulk-clear-btn ml-3" onclick="mwBulkClearPlans()">Clear Selection</button>
               </div>
-              <button class="btn btn-sm btn-danger" onclick="mwBulkDeleteJobs()">
+              <button class="btn btn-sm btn-danger" onclick="mwBulkDeletePlans()">
                   <i data-feather="trash-2"></i> Delete Selected
               </button>
           </div>
 
           <script>
-              function filterByAssigned(value) {
-                  const url = new URL(window.location);
+              function filterByService(value) {
+                  var url = new URL(window.location);
                   if (value) {
-                      url.searchParams.set('assigned', value);
+                      url.searchParams.set('service', value);
                   } else {
-                      url.searchParams.delete('assigned');
+                      url.searchParams.delete('service');
                   }
                   window.location = url;
               }
 
-              function filterByDate(value) {
-                  const url = new URL(window.location);
+              function filterByCrew(value) {
+                  var url = new URL(window.location);
                   if (value) {
-                      url.searchParams.set('date', value);
+                      url.searchParams.set('crew', value);
                   } else {
-                      url.searchParams.delete('date');
+                      url.searchParams.delete('crew');
                   }
                   window.location = url;
               }
 
               // Bulk select/delete
-              var mwJobsBulkSelected = new Set();
+              var mwPlansBulkSelected = new Set();
 
-              var jobsSelectAll = document.getElementById('mw-jobs-select-all');
-              if (jobsSelectAll) jobsSelectAll.addEventListener('change', function() {
+              var plansSelectAll = document.getElementById('mw-plans-select-all');
+              if (plansSelectAll) plansSelectAll.addEventListener('change', function() {
                   var checked = this.checked;
                   document.querySelectorAll('.mw-bulk-row-select').forEach(function(cb) {
                       cb.checked = checked;
                       var id = parseInt(cb.dataset.id);
                       if (checked) {
-                          mwJobsBulkSelected.add(id);
+                          mwPlansBulkSelected.add(id);
                       } else {
-                          mwJobsBulkSelected.delete(id);
+                          mwPlansBulkSelected.delete(id);
                       }
                   });
-                  mwJobsBulkUpdateBar();
+                  mwPlansBulkUpdateBar();
               });
 
               document.addEventListener('change', function(e) {
                   if (e.target.classList.contains('mw-bulk-row-select')) {
                       var id = parseInt(e.target.dataset.id);
                       if (e.target.checked) {
-                          mwJobsBulkSelected.add(id);
+                          mwPlansBulkSelected.add(id);
                       } else {
-                          mwJobsBulkSelected.delete(id);
-                          if (jobsSelectAll) jobsSelectAll.checked = false;
+                          mwPlansBulkSelected.delete(id);
+                          if (plansSelectAll) plansSelectAll.checked = false;
                       }
-                      mwJobsBulkUpdateBar();
+                      mwPlansBulkUpdateBar();
                   }
               });
 
-              function mwJobsBulkUpdateBar() {
-                  var bar = document.getElementById('mw-jobs-bulk-bar');
-                  var count = document.getElementById('mw-jobs-bulk-count');
-                  count.textContent = mwJobsBulkSelected.size;
-                  if (mwJobsBulkSelected.size > 0) {
+              function mwPlansBulkUpdateBar() {
+                  var bar = document.getElementById('mw-plans-bulk-bar');
+                  var count = document.getElementById('mw-plans-bulk-count');
+                  count.textContent = mwPlansBulkSelected.size;
+                  if (mwPlansBulkSelected.size > 0) {
                       bar.classList.add('mw-bulk-visible');
                   } else {
                       bar.classList.remove('mw-bulk-visible');
                   }
               }
 
-              function mwBulkClearJobs() {
-                  mwJobsBulkSelected.clear();
+              function mwBulkClearPlans() {
+                  mwPlansBulkSelected.clear();
                   document.querySelectorAll('.mw-bulk-row-select').forEach(function(cb) { cb.checked = false; });
-                  if (jobsSelectAll) jobsSelectAll.checked = false;
-                  mwJobsBulkUpdateBar();
+                  if (plansSelectAll) plansSelectAll.checked = false;
+                  mwPlansBulkUpdateBar();
               }
 
-              function mwBulkDeleteJobs() {
-                  var count = mwJobsBulkSelected.size;
+              function mwBulkDeletePlans() {
+                  var count = mwPlansBulkSelected.size;
                   if (count === 0) return;
-                  if (!confirm('Permanently delete ' + count + ' job(s)? This will also remove their notes, photos, and proof-of-work records. Linked invoices will be unlinked. This cannot be undone.')) return;
+                  if (!confirm('Permanently delete ' + count + ' plan(s)? This will also remove all associated visits. This cannot be undone.')) return;
 
-                  fetch('api-jobs.php?action=bulk-delete', {
+                  fetch('api-jobs.php?action=bulk-delete-plans', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ ids: Array.from(mwJobsBulkSelected) })
+                      body: JSON.stringify({ ids: Array.from(mwPlansBulkSelected) })
                   })
                   .then(function(r) { return r.json(); })
                   .then(function(data) {
                       if (data.success) {
-                          alert(data.deleted_count + ' job(s) deleted.');
+                          alert(data.deleted_count + ' plan(s) deleted.');
                           location.reload();
                       } else {
                           alert('Error: ' + (data.error || 'Unknown error'));
