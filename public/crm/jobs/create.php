@@ -225,6 +225,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $recurrenceDayOfWeek = $isRecurring && isset($_POST['recurrence_day_of_week']) && $_POST['recurrence_day_of_week'] !== ''
                                ? intval($_POST['recurrence_day_of_week']) : null;
         $recurrenceEndDate   = $isRecurring && !empty($_POST['plan_end_date']) ? $_POST['plan_end_date'] : null;
+        $recurrenceInterval     = $isRecurring ? max(1, intval($_POST['recurrence_interval'] ?? 1)) : 1;
+        $recurrenceIntervalUnit = $isRecurring ? ($_POST['recurrence_interval_unit'] ?? 'weeks') : 'weeks';
+
+        // Map quick-pick presets to their interval values
+        if ($recurrencePattern === 'daily') {
+            $recurrencePattern = 'custom';
+            $recurrenceInterval = 1;
+            $recurrenceIntervalUnit = 'days';
+        } elseif ($recurrencePattern === 'biweekly') {
+            $recurrenceInterval = 2;
+            $recurrenceIntervalUnit = 'weeks';
+        }
+
+        // Validate custom interval unit
+        if (!in_array($recurrenceIntervalUnit, ['days', 'weeks', 'months'], true)) {
+            $recurrenceIntervalUnit = 'weeks';
+        }
 
         // Build plan data array
         $planData = [
@@ -235,6 +252,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'quote_id'                 => $linkedQuoteId ?: null,
             'is_recurring'             => $isRecurring,
             'recurrence_pattern'       => $recurrencePattern,
+            'recurrence_interval'      => $recurrenceInterval,
+            'recurrence_interval_unit' => $recurrenceIntervalUnit,
             'recurrence_day_of_week'   => $recurrenceDayOfWeek,
             'plan_start_date'          => $planStartDate,
             'plan_end_date'            => $planEndDate ?: $recurrenceEndDate,
@@ -447,11 +466,12 @@ $activePage = 'jobs';
                           <div class="mw-form-row">
                               <div class="mw-form-group">
                                   <label class="form-label">Repeat Pattern</label>
-                                  <select name="recurrence_pattern" class="form-control">
-                                      <option value="weekly">Weekly</option>
+                                  <select name="recurrence_pattern" id="recurrencePattern" class="form-control" onchange="toggleCustomInterval()">
+                                      <option value="daily">Daily</option>
+                                      <option value="weekly" selected>Weekly</option>
                                       <option value="biweekly">Every 2 Weeks</option>
                                       <option value="monthly">Monthly</option>
-                                      <option value="custom">Custom</option>
+                                      <option value="custom">Custom...</option>
                                   </select>
                               </div>
                               <div class="mw-form-group">
@@ -465,6 +485,21 @@ $activePage = 'jobs';
                                       <option value="4">Thursday</option>
                                       <option value="5">Friday</option>
                                       <option value="6">Saturday</option>
+                                  </select>
+                              </div>
+                          </div>
+                          <div class="mw-form-row" id="customIntervalRow" style="display:none;">
+                              <div class="mw-form-group">
+                                  <label class="form-label">Repeat Every</label>
+                                  <input type="number" name="recurrence_interval" id="recurrenceInterval"
+                                         class="form-control" value="1" min="1" max="365">
+                              </div>
+                              <div class="mw-form-group">
+                                  <label class="form-label">Unit</label>
+                                  <select name="recurrence_interval_unit" id="recurrenceUnit" class="form-control">
+                                      <option value="days">Days</option>
+                                      <option value="weeks" selected>Weeks</option>
+                                      <option value="months">Months</option>
                                   </select>
                               </div>
                           </div>
@@ -735,6 +770,23 @@ $activePage = 'jobs';
                       recurringOptions.classList.add('show');
                   } else {
                       recurringOptions.classList.remove('show');
+                  }
+              };
+
+              // ── Custom interval toggle ──
+              window.toggleCustomInterval = function() {
+                  var pattern = document.getElementById('recurrencePattern').value;
+                  var customRow = document.getElementById('customIntervalRow');
+                  var dowGroup = document.querySelector('[name="recurrence_day_of_week"]').closest('.mw-form-group');
+
+                  // Show custom interval fields only for "custom"
+                  customRow.style.display = (pattern === 'custom') ? '' : 'none';
+
+                  // Hide day-of-week for daily (every day, so DOW is irrelevant)
+                  if (pattern === 'daily') {
+                      dowGroup.style.display = 'none';
+                  } else {
+                      dowGroup.style.display = '';
                   }
               };
 
