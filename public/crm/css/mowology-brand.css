@@ -6980,3 +6980,249 @@ textarea.font-monospace {
 .min-width-0 {
   min-width: 0;
 }
+
+/* ── Media Uploader ─────────────────────────────── */
+
+.mw-media-dropzone {
+  border: 2px dashed #d0d5dd;
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  transition: border-color 0.2s, background-color 0.2s;
+  background: #fafbfc;
+  margin-bottom: 1.5rem;
+}
+
+.mw-media-dropzone.mw-dropzone-active {
+  border-color: var(--mw-green);
+  background: var(--mw-light);
+  box-shadow: 0 0 0 3px rgba(45, 134, 89, 0.15);
+}
+
+.mw-dropzone-prompt p {
+  margin: 0.5rem 0 0.25rem;
+  color: #555;
+}
+
+.mw-dropzone-prompt small {
+  color: #999;
+}
+
+.mw-dropzone-options {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  color: #666;
+}
+
+.mw-dropzone-options label {
+  font-weight: normal;
+  margin-bottom: 0;
+}
+
+/* Upload queue items */
+.mw-dropzone-queue {
+  text-align: left;
+  margin-top: 0.75rem;
+}
+
+.mw-upload-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.82rem;
+}
+
+.mw-upload-item:last-child {
+  border-bottom: none;
+}
+
+.mw-upload-thumb {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+}
+
+.mw-upload-thumb img {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+.mw-upload-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  color: #333;
+}
+
+.mw-upload-size {
+  flex-shrink: 0;
+  width: 4.5rem;
+  text-align: right;
+  color: #999;
+  font-size: 0.75rem;
+}
+
+.mw-upload-progress {
+  flex-shrink: 0;
+  width: 100px;
+  height: 6px;
+  background: #e9ecef;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mw-upload-progress-bar {
+  height: 100%;
+  background: var(--mw-green);
+  width: 0%;
+  transition: width 0.15s ease;
+  border-radius: 3px;
+}
+
+.mw-upload-pct {
+  flex-shrink: 0;
+  width: 2.5rem;
+  text-align: right;
+  color: #666;
+  font-size: 0.75rem;
+}
+
+.mw-upload-status {
+  flex-shrink: 0;
+  width: 5rem;
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: #666;
+}
+
+.mw-upload-done .mw-upload-status {
+  color: var(--mw-green);
+}
+
+.mw-upload-done .mw-upload-progress-bar {
+  background: var(--mw-green);
+  width: 100%;
+}
+
+.mw-upload-error .mw-upload-status {
+  color: #dc3545;
+}
+
+.mw-upload-error .mw-upload-progress-bar {
+  background: #dc3545;
+}
+
+/* Media grid cards on library page */
+.mw-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.mw-media-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  transition: box-shadow 0.15s;
+}
+
+.mw-media-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.mw-media-card-thumb {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  background: #f5f5f5;
+  display: block;
+}
+
+.mw-media-card-body {
+  padding: 0.5rem 0.75rem;
+}
+
+.mw-media-card-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #333;
+  margin-bottom: 0.2rem;
+}
+
+.mw-media-card-meta {
+  font-size: 0.72rem;
+  color: #999;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.mw-media-card-actions {
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.mw-media-card-actions .btn-sm {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.4rem;
+}
+
+/* Context chips */
+.mw-context-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.mw-context-chip-job_visit {
+  background: #d4edda;
+  color: #155724;
+}
+
+.mw-context-chip-quote_visit {
+  background: #cce5ff;
+  color: #004085;
+}
+
+.mw-context-chip-marketing_general {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.mw-context-chip-cms {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
+/* Responsive: stack upload items on mobile */
+@media (max-width: 576px) {
+  .mw-upload-item {
+    flex-wrap: wrap;
+  }
+  .mw-upload-progress {
+    width: 100%;
+    order: 10;
+  }
+  .mw-upload-size {
+    display: none;
+  }
+}

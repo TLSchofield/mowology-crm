@@ -1,0 +1,11 @@
+# Block PHP and script execution in upload directories
+<FilesMatch "\.ph(p[3457]?|t|tml)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(cgi|pl|py|sh|asp|aspx|jsp)$">
+    Require all denied
+</FilesMatch>
+
+# Prevent directory listing
+Options -Indexes

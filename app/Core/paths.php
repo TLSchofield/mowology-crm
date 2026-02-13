@@ -31,4 +31,5 @@ if (!defined('APP_ROOT')) {
     define('CRM_ROOT', PUBLIC_ROOT . '/crm');
     define('CRM_INCLUDES', CRM_ROOT . '/includes');
     define('STORAGE_ROOT', APP_ROOT . '/Storage');
+    define('MEDIA_ROOT', PUBLIC_ROOT . '/_media');
 }

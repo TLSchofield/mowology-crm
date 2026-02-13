@@ -1,9 +1,9 @@
 <?php
 /**
- * CMS Media Library
+ * CMS Media Library — Unified Upload + Variants + Context Linking
  *
- * Manage all media assets: upload, organize, delete, bulk actions
- * Uses AppStack layout with admin UI kit components
+ * Upload once → optimized variants → context linking → proof-of-work stamps.
+ * Supports drag-and-drop, multi-file, mobile camera capture, browser GPS.
  *
  * @package Mowology CRM
  * @subpackage CMS
@@ -14,6 +14,20 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/loginAuth/auth.php';
 require_once dirname(__DIR__) . '/crm/includes/cms-functions.php';
 require_once dirname(__DIR__) . '/crm/includes/admin-ui-kit.php';
+
+// Load new media helpers via paths.php
+if (!defined('APP_ROOT')) {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 5; $__i++) {
+        $__dir = dirname($__dir);
+        if (is_file($__dir . '/app/Core/paths.php')) {
+            require_once $__dir . '/app/Core/paths.php';
+            break;
+        }
+    }
+    unset($__dir, $__i);
+}
+require_once APP_ROOT . '/Services/Media/MediaHelpers.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -26,11 +40,12 @@ if (!in_array($user['role'], ['admin', 'staff'])) {
 
 $pageTitle = 'Media Library';
 $activePage = 'media';
+$extraHead = '<script src="/crm/js/media-uploader.js" defer></script>';
 
 // Get filter values
 $typeFilter = $_GET['type'] ?? '';
 $searchFilter = $_GET['search'] ?? '';
-$page = (int)($_GET['page'] ?? 1);
+$viewMode = $_GET['view'] ?? 'grid';
 
 // Fetch media assets
 $allMedia = cms_getMediaAssets();
@@ -38,7 +53,7 @@ $allMedia = cms_getMediaAssets();
 // Apply filters
 $media = $allMedia;
 if ($typeFilter) {
-    $media = array_filter($media, fn($m) => $m['file_type'] === $typeFilter);
+    $media = array_filter($media, fn($m) => ($m['file_type'] ?? '') === $typeFilter);
 }
 if ($searchFilter) {
     $search = strtolower($searchFilter);
@@ -51,21 +66,57 @@ if ($searchFilter) {
 // Sort by date (newest first)
 usort($media, fn($a, $b) => strtotime($b['created_at'] ?? '0') <=> strtotime($a['created_at'] ?? '0'));
 
-// Prepare for table rendering
+// Enrich media items
+$db = getDB();
+
+// Check if new columns exist (graceful degradation if migration not run yet)
+$hasNewCols = false;
+try {
+    $colCheck = $db->query("SHOW COLUMNS FROM media_assets LIKE 'uuid'");
+    $hasNewCols = $colCheck && $colCheck->rowCount() > 0;
+} catch (Exception $e) {
+    // Columns don't exist yet — that's fine
+}
+
+// Check if media_variants table exists
+$hasVariantsTable = false;
+try {
+    $tblCheck = $db->query("SHOW TABLES LIKE 'media_variants'");
+    $hasVariantsTable = $tblCheck && $tblCheck->rowCount() > 0;
+} catch (Exception $e) {
+    // Table doesn't exist yet
+}
+
 foreach ($media as &$m) {
-    // Map to display-friendly keys used by the table template
     $m['filename'] = $m['original_filename'] ?? $m['stored_filename'] ?? '';
     $m['media_type'] = $m['file_type'] ?? 'image';
-    $m['type_badge'] = match($m['file_type'] ?? '') {
-        'image' => 'primary',
-        'video' => 'info',
-        'document' => 'secondary',
-        default => 'secondary',
-    };
-    $m['type_display'] = ucfirst($m['file_type'] ?? 'unknown');
     $m['uploaded_date'] = !empty($m['created_at']) ? date('M d, Y', strtotime($m['created_at'])) : '';
-    $m['file_size_kb'] = round(($m['file_size'] ?? 0) / 1024, 1);
+    $m['file_size_display'] = formatMediaBytes((int)($m['file_size'] ?? 0));
+
+    // Try to get square thumbnail from new variants table
+    $m['thumb_url'] = null;
+    $m['variant_count'] = 0;
+    if ($hasVariantsTable && !empty($m['id'])) {
+        $thStmt = $db->prepare('SELECT file_path FROM media_variants WHERE media_id = ? AND variant_type = ? AND format = ? LIMIT 1');
+        $thStmt->execute([(int)$m['id'], 'thumb_square', 'jpeg']);
+        $th = $thStmt->fetch(PDO::FETCH_ASSOC);
+        $m['thumb_url'] = $th ? $th['file_path'] : null;
+
+        $vcStmt = $db->prepare('SELECT COUNT(*) as cnt FROM media_variants WHERE media_id = ?');
+        $vcStmt->execute([(int)$m['id']]);
+        $vc = $vcStmt->fetch(PDO::FETCH_ASSOC);
+        $m['variant_count'] = (int)($vc['cnt'] ?? 0);
+    }
+
+    $m['context_display'] = $hasNewCols ? ($m['context_type'] ?? 'cms') : 'cms';
 }
+unset($m);
+
+// Stats
+$totalImages = count(array_filter($allMedia, fn($m) => ($m['file_type'] ?? '') === 'image'));
+$totalVideos = count(array_filter($allMedia, fn($m) => ($m['file_type'] ?? '') === 'video'));
+$totalDocs = count(array_filter($allMedia, fn($m) => ($m['file_type'] ?? '') === 'document'));
+$totalAll = count($allMedia);
 
 ?>
 <?php include dirname(__DIR__) . '/crm/includes/appstack_head.php'; ?>
@@ -75,51 +126,104 @@ foreach ($media as &$m) {
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="mb-0">Media Library</h1>
-            <small class="text-muted">Manage images, videos, and documents</small>
+            <small class="text-muted">Upload, optimize, and manage media assets</small>
         </div>
-        <button class="btn btn-primary" data-toggle="modal" data-target="#uploadModal">
-            <i data-feather="upload"></i> Upload Media
-        </button>
+        <div>
+            <a href="?view=grid<?php echo $typeFilter ? '&type=' . h($typeFilter) : ''; ?><?php echo $searchFilter ? '&search=' . urlencode($searchFilter) : ''; ?>"
+               class="btn btn-sm <?php echo $viewMode === 'grid' ? 'btn-primary' : 'btn-outline-secondary'; ?>">
+                <i data-feather="grid" style="width:14px;height:14px;"></i> Grid
+            </a>
+            <a href="?view=table<?php echo $typeFilter ? '&type=' . h($typeFilter) : ''; ?><?php echo $searchFilter ? '&search=' . urlencode($searchFilter) : ''; ?>"
+               class="btn btn-sm <?php echo $viewMode === 'table' ? 'btn-primary' : 'btn-outline-secondary'; ?>">
+                <i data-feather="list" style="width:14px;height:14px;"></i> Table
+            </a>
+        </div>
+    </div>
+
+    <!-- Upload Dropzone -->
+    <div class="card mb-4">
+        <div class="card-body p-3">
+            <div class="row mb-2">
+                <div class="col-md-3">
+                    <label class="small font-weight-bold mb-1">Context</label>
+                    <select id="upload-context-type" class="form-control form-control-sm">
+                        <option value="marketing_general">Marketing / General</option>
+                        <option value="cms">CMS Content</option>
+                        <option value="job_visit">Job Visit</option>
+                        <option value="quote_visit">Quote Visit</option>
+                        <option value="portfolio">Portfolio</option>
+                        <option value="internal_general">Internal</option>
+                    </select>
+                </div>
+                <div class="col-md-2" id="upload-context-id-group" style="display:none;">
+                    <label class="small font-weight-bold mb-1">Visit/Quote ID</label>
+                    <input type="number" id="upload-context-id" class="form-control form-control-sm" placeholder="ID" min="0">
+                </div>
+                <div class="col-md-2">
+                    <label class="small font-weight-bold mb-1">Category</label>
+                    <select id="upload-category" class="form-control form-control-sm">
+                        <option value="">None</option>
+                        <option value="before">Before</option>
+                        <option value="during">During</option>
+                        <option value="after">After</option>
+                        <option value="issue">Issue</option>
+                        <option value="access">Access</option>
+                        <option value="equipment">Equipment</option>
+                        <option value="damage">Damage</option>
+                        <option value="hero">Hero/Feature</option>
+                        <option value="gallery">Gallery</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="small font-weight-bold mb-1">Visibility</label>
+                    <select id="upload-visibility" class="form-control form-control-sm">
+                        <option value="internal">Internal</option>
+                        <option value="client_visible">Client Visible</option>
+                        <?php if ($user['role'] === 'admin'): ?>
+                        <option value="marketing_eligible">Marketing Eligible</option>
+                        <?php endif; ?>
+                    </select>
+                </div>
+            </div>
+
+            <?php echo renderMediaDropzone('marketing_general', 0, '', 'internal', [
+                'showPowToggle' => true,
+                'showGpsToggle' => true,
+            ]); ?>
+        </div>
     </div>
 
     <!-- Stats -->
     <div class="row mb-4">
         <div class="col-md-3">
-            <div class="card border-left border-primary">
-                <div class="card-body">
-                    <div style="font-size: 1.5rem; font-weight: bold; color: #007bff;">
-                        <?php echo count(array_filter($allMedia, fn($m) => ($m['file_type'] ?? '') === 'image')); ?>
-                    </div>
+            <div class="card" style="border-left: 3px solid #007bff;">
+                <div class="card-body py-2 px-3">
+                    <div style="font-size: 1.3rem; font-weight: bold; color: #007bff;"><?php echo $totalImages; ?></div>
                     <small class="text-muted">Images</small>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card border-left border-info">
-                <div class="card-body">
-                    <div style="font-size: 1.5rem; font-weight: bold; color: #17a2b8;">
-                        <?php echo count(array_filter($allMedia, fn($m) => ($m['file_type'] ?? '') === 'video')); ?>
-                    </div>
+            <div class="card" style="border-left: 3px solid #17a2b8;">
+                <div class="card-body py-2 px-3">
+                    <div style="font-size: 1.3rem; font-weight: bold; color: #17a2b8;"><?php echo $totalVideos; ?></div>
                     <small class="text-muted">Videos</small>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card border-left border-success">
-                <div class="card-body">
-                    <div style="font-size: 1.5rem; font-weight: bold; color: #28a745;">
-                        <?php echo count(array_filter($allMedia, fn($m) => ($m['file_type'] ?? '') === 'document')); ?>
-                    </div>
+            <div class="card" style="border-left: 3px solid #28a745;">
+                <div class="card-body py-2 px-3">
+                    <div style="font-size: 1.3rem; font-weight: bold; color: #28a745;"><?php echo $totalDocs; ?></div>
                     <small class="text-muted">Documents</small>
                 </div>
             </div>
         </div>
         <div class="col-md-3">
-            <div class="card border-left border-secondary">
-                <div class="card-body">
-                    <div style="font-size: 1.5rem; font-weight: bold; color: #6c757d;">
-                        <?php echo count($allMedia); ?>
-                    </div>
+            <div class="card" style="border-left: 3px solid #6c757d;">
+                <div class="card-body py-2 px-3">
+                    <div style="font-size: 1.3rem; font-weight: bold; color: #6c757d;"><?php echo $totalAll; ?></div>
                     <small class="text-muted">Total Assets</small>
                 </div>
             </div>
@@ -147,22 +251,91 @@ foreach ($media as &$m) {
         'type' => $typeFilter,
     ]); ?>
 
-    <!-- Media Table -->
     <?php if (empty($media)): ?>
         <?php echo admin_empty_state(
             'No media found',
-            'Upload media files to get started',
-            ['url' => '#', 'label' => 'Upload Media', 'onclick' => 'jQuery("#uploadModal").modal("show")']
+            'Upload media files using the dropzone above',
+            null
         ); ?>
+    <?php elseif ($viewMode === 'grid'): ?>
+        <!-- Grid View -->
+        <div class="mw-media-grid">
+            <?php foreach ($media as $m): ?>
+                <div class="mw-media-card" data-id="<?php echo (int)($m['id'] ?? 0); ?>">
+                    <?php
+                    $thumbSrc = $m['thumb_url'] ?: ($m['file_path'] ?? '');
+                    if ($m['media_type'] === 'image' && $thumbSrc): ?>
+                        <img src="<?php echo h($thumbSrc); ?>"
+                             alt="<?php echo h($m['alt_text'] ?? ''); ?>"
+                             class="mw-media-card-thumb"
+                             loading="lazy">
+                    <?php else: ?>
+                        <div class="mw-media-card-thumb d-flex align-items-center justify-content-center"
+                             style="background:#f0f2f5;">
+                            <i data-feather="<?php echo $m['media_type'] === 'video' ? 'film' : 'file-text'; ?>"
+                               style="width:32px;height:32px;color:#94a3b8;"></i>
+                        </div>
+                    <?php endif; ?>
+
+                    <div class="mw-media-card-body">
+                        <div class="mw-media-card-name" title="<?php echo h($m['filename']); ?>">
+                            <?php echo h($m['filename']); ?>
+                        </div>
+                        <div class="mw-media-card-meta">
+                            <?php if (!empty($m['image_width'])): ?>
+                                <span><?php echo (int)$m['image_width']; ?>&times;<?php echo (int)$m['image_height']; ?></span>
+                            <?php endif; ?>
+                            <span><?php echo h($m['file_size_display']); ?></span>
+                            <?php if ($m['variant_count'] > 0): ?>
+                                <span title="<?php echo $m['variant_count']; ?> optimized variants"><?php echo $m['variant_count']; ?> variants</span>
+                            <?php endif; ?>
+                        </div>
+                        <?php if (!empty($m['context_display']) && $m['context_display'] !== 'cms'): ?>
+                            <div class="mt-1">
+                                <span class="mw-context-chip mw-context-chip-<?php echo h($m['context_display']); ?>">
+                                    <?php echo h(str_replace('_', ' ', $m['context_display'])); ?>
+                                </span>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="mw-media-card-actions">
+                        <?php if (!empty($m['id'])): ?>
+                            <button type="button" class="btn btn-sm btn-outline-secondary mw-copy-responsive"
+                                    data-media-id="<?php echo (int)$m['id']; ?>"
+                                    title="Copy responsive image snippet">
+                                <i data-feather="code" style="width:12px;height:12px;"></i>
+                            </button>
+                        <?php endif; ?>
+                        <a href="/cms/cms-media-editor.php?id=<?php echo (int)($m['id'] ?? 0); ?>"
+                           class="btn btn-sm btn-outline-primary">
+                            <i data-feather="edit-2" style="width:12px;height:12px;"></i>
+                        </a>
+                        <button type="button" class="btn btn-sm btn-outline-danger mw-media-delete"
+                                data-id="<?php echo (int)($m['id'] ?? 0); ?>">
+                            <i data-feather="trash-2" style="width:12px;height:12px;"></i>
+                        </button>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </div>
     <?php else: ?>
-        <?php echo admin_table($media, [
+        <!-- Table View -->
+        <?php
+        foreach ($media as &$mt) {
+            $mt['type_display'] = ucfirst($mt['file_type'] ?? 'unknown');
+        }
+        unset($mt);
+
+        echo admin_table($media, [
             'file_path' => [
                 'label' => '',
                 'width' => '60px',
                 'format' => function($val, $row) {
                     $type = $row['file_type'] ?? '';
-                    if ($type === 'image' && !empty($val)) {
-                        return '<img src="' . h((string)$val) . '" alt="' . h((string)($row['alt_text'] ?? '')) . '" style="width:48px;height:48px;object-fit:cover;border-radius:4px;">';
+                    $thumbSrc = $row['thumb_url'] ?? $val ?? '';
+                    if ($type === 'image' && !empty($thumbSrc)) {
+                        return '<img src="' . h((string)$thumbSrc) . '" alt="' . h((string)($row['alt_text'] ?? '')) . '" style="width:48px;height:48px;object-fit:cover;border-radius:4px;" loading="lazy">';
                     } elseif ($type === 'video') {
                         return '<div style="width:48px;height:48px;background:#e2e8f0;border-radius:4px;display:flex;align-items:center;justify-content:center;"><i data-feather="film" style="width:20px;height:20px;color:#64748b;"></i></div>';
                     } else {
@@ -172,26 +345,34 @@ foreach ($media as &$m) {
             ],
             'filename' => [
                 'label' => 'Filename',
-                'width' => '28%',
+                'width' => '25%',
             ],
             'alt_text' => [
                 'label' => 'Alt Text',
-                'width' => '22%',
+                'width' => '18%',
             ],
             'type_display' => [
                 'label' => 'Type',
                 'badge' => true,
                 'badge_variant' => ['Image' => 'primary', 'Video' => 'info', 'Document' => 'secondary'],
-                'width' => '10%',
+                'width' => '8%',
             ],
-            'file_size_kb' => [
-                'label' => 'Size (KB)',
-                'width' => '10%',
+            'file_size_display' => [
+                'label' => 'Size',
+                'width' => '8%',
                 'align' => 'right',
+            ],
+            'variant_count' => [
+                'label' => 'Variants',
+                'width' => '7%',
+                'align' => 'center',
+                'format' => function($val) {
+                    return $val > 0 ? '<span class="badge badge-success">' . (int)$val . '</span>' : '<span class="text-muted">&mdash;</span>';
+                },
             ],
             'uploaded_date' => [
                 'label' => 'Uploaded',
-                'width' => '12%',
+                'width' => '10%',
                 'align' => 'right',
             ],
         ], [
@@ -206,94 +387,126 @@ foreach ($media as &$m) {
     <?php endif; ?>
 </div>
 
-<!-- Upload Modal -->
-<div class="modal fade" id="uploadModal" tabindex="-1" role="dialog">
-    <div class="modal-dialog" role="document">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Upload Media</h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
-                </button>
-            </div>
-            <div class="modal-body">
-                <form id="upload-form" method="POST" action="/crm/api/upload-media.php" enctype="multipart/form-data">
-                    <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+<!-- Hidden CSRF token for JS -->
+<input type="hidden" name="csrf_token" id="csrf_token" value="<?php echo generateCSRFToken(); ?>">
 
-                    <div class="form-group">
-                        <label for="media_file">Select File</label>
-                        <input type="file" class="form-control-file" id="media_file" name="media_file" required>
-                        <small class="form-text text-muted">Images: JPG, PNG, GIF (max 5MB) | Videos: MP4, WebM (max 50MB) | Documents: PDF, DOCX (max 10MB)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="alt_text">Alt Text</label>
-                        <input type="text" class="form-control" id="alt_text" name="alt_text" placeholder="Description for accessibility">
-                    </div>
-
-                    <button type="submit" class="btn btn-primary">Upload</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Scripts -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Delete action handler
-    document.querySelectorAll('[data-action="delete"]').forEach(btn => {
+    // --- Dynamic context fields ---
+    var contextSelect = document.getElementById('upload-context-type');
+    var contextIdGroup = document.getElementById('upload-context-id-group');
+    var contextIdInput = document.getElementById('upload-context-id');
+    var categorySelect = document.getElementById('upload-category');
+    var visibilitySelect = document.getElementById('upload-visibility');
+    var dropzone = document.querySelector('.mw-media-dropzone');
+
+    if (contextSelect && dropzone) {
+        contextSelect.addEventListener('change', function() {
+            var val = this.value;
+            // Show/hide context ID field for visit types
+            if (contextIdGroup) {
+                contextIdGroup.style.display = (val === 'job_visit' || val === 'quote_visit') ? '' : 'none';
+            }
+            // Update dropzone data attributes
+            dropzone.dataset.contextType = val;
+
+            // Show/hide PoW toggle
+            var powLabel = dropzone.querySelector('.mw-dropzone-pow-toggle');
+            if (powLabel) {
+                powLabel.closest('label').style.display =
+                    (val === 'job_visit' || val === 'quote_visit') ? '' : 'none';
+            }
+        });
+    }
+
+    if (contextIdInput && dropzone) {
+        contextIdInput.addEventListener('input', function() {
+            dropzone.dataset.contextId = this.value || '0';
+        });
+    }
+
+    if (categorySelect && dropzone) {
+        categorySelect.addEventListener('change', function() {
+            dropzone.dataset.category = this.value;
+        });
+    }
+
+    if (visibilitySelect && dropzone) {
+        visibilitySelect.addEventListener('change', function() {
+            dropzone.dataset.visibility = this.value;
+        });
+    }
+
+    // --- Reload page when uploads complete ---
+    if (dropzone) {
+        dropzone.addEventListener('allUploadsComplete', function(e) {
+            if (e.detail && e.detail.succeeded > 0) {
+                setTimeout(function() { location.reload(); }, 1500);
+            }
+        });
+    }
+
+    // --- Delete handlers ---
+    // Grid delete buttons
+    document.querySelectorAll('.mw-media-delete').forEach(function(btn) {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
-            if (!confirm('Are you sure you want to delete this media?')) return;
-
-            const row = this.closest('tr');
-            const mediaId = row.dataset.id;
-
-            fetch('/crm/api/delete-media.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': document.querySelector('[name="csrf_token"]')?.value || '',
-                },
-                body: JSON.stringify({ id: mediaId }),
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    row.remove();
-                    alert('Media deleted successfully');
-                } else {
-                    alert('Error: ' + (data.error || 'Unknown error'));
-                }
-            })
-            .catch(err => alert('Error: ' + err.message));
+            if (!confirm('Delete this media asset?')) return;
+            deleteMedia(this.dataset.id, this.closest('.mw-media-card'));
         });
     });
 
-    // Upload form handler
-    const uploadForm = document.getElementById('upload-form');
-    if (uploadForm) {
-        uploadForm.addEventListener('submit', function(e) {
+    // Table delete buttons (from admin_table)
+    document.querySelectorAll('[data-action="delete"]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
             e.preventDefault();
-            const formData = new FormData(this);
-
-            fetch('/crm/api/upload-media.php', {
-                method: 'POST',
-                body: formData,
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.success) {
-                    alert('Media uploaded successfully');
-                    location.reload();
-                } else {
-                    alert('Error: ' + (data.error || 'Unknown error'));
-                }
-            })
-            .catch(err => alert('Error: ' + err.message));
+            if (!confirm('Delete this media asset?')) return;
+            var row = this.closest('tr');
+            if (row && row.dataset.id) deleteMedia(row.dataset.id, row);
         });
+    });
+
+    function deleteMedia(mediaId, element) {
+        var csrf = document.getElementById('csrf_token');
+        fetch('/crm/api/delete-media.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrf ? csrf.value : ''
+            },
+            body: JSON.stringify({ id: mediaId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                if (element) element.remove();
+            } else {
+                alert('Error: ' + (data.error || 'Delete failed'));
+            }
+        })
+        .catch(function(err) { alert('Error: ' + err.message); });
     }
+
+    // --- Copy responsive HTML snippet ---
+    document.querySelectorAll('.mw-copy-responsive').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var mediaId = this.dataset.mediaId;
+            var snippet = '<?php echo "<?"; ?>php echo renderResponsiveImage(' + mediaId + '); ?>';
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(snippet).then(function() {
+                    btn.innerHTML = '<i data-feather="check" style="width:12px;height:12px;"></i>';
+                    if (typeof feather !== 'undefined') feather.replace();
+                    setTimeout(function() {
+                        btn.innerHTML = '<i data-feather="code" style="width:12px;height:12px;"></i>';
+                        if (typeof feather !== 'undefined') feather.replace();
+                    }, 2000);
+                });
+            } else {
+                prompt('Copy this snippet:', snippet);
+            }
+        });
+    });
 });
 </script>
 
