@@ -65,7 +65,8 @@ $activePage = 'timeclock';
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                 <span class="mw-mobile-clock-timer" id="mobileClockTimer">
                     <?php
-                    $elapsed = time() - strtotime($activeClock['clock_in']);
+                    // Use MySQL-calculated elapsed (avoids PHP/MySQL timezone mismatch)
+                    $elapsed = max(0, (int)$activeClock['elapsed_seconds']);
                     $h = floor($elapsed / 3600);
                     $m = floor(($elapsed % 3600) / 60);
                     $s = $elapsed % 60;
@@ -206,7 +207,7 @@ $activePage = 'timeclock';
 
                 <?php elseif ($job['status'] === 'in_progress' && $hasActiveTimer): ?>
                     <div class="mw-tc-active-timer" id="jobTimer-<?php echo (int)$job['id']; ?>"
-                         data-start="<?php echo htmlspecialchars($job['timer_start_time']); ?>">
+                         data-elapsed="<?php echo max(0, (int)$job['timer_elapsed_seconds']); ?>">
                         <i data-feather="activity"></i>
                         <span class="mw-tc-timer-display">00:00:00</span>
                     </div>
@@ -363,14 +364,14 @@ $activePage = 'timeclock';
     function initJobTimers() {
         var timers = document.querySelectorAll('.mw-tc-active-timer');
         timers.forEach(function(timer) {
-            var startStr = timer.getAttribute('data-start');
-            if (!startStr) return;
-            var startTime = new Date(startStr.replace(' ', 'T'));
+            var initialElapsed = parseInt(timer.getAttribute('data-elapsed'), 10);
+            if (isNaN(initialElapsed)) return;
             var display = timer.querySelector('.mw-tc-timer-display');
             var jobId = timer.id.replace('jobTimer-', '');
+            var tickStart = Math.floor(Date.now() / 1000);
 
             function updateDisplay() {
-                var elapsed = Math.floor((Date.now() - startTime.getTime()) / 1000);
+                var elapsed = initialElapsed + (Math.floor(Date.now() / 1000) - tickStart);
                 display.textContent = formatSec(elapsed);
             }
 
@@ -484,12 +485,14 @@ $activePage = 'timeclock';
     'use strict';
 
     // Mobile clock-in timer (keep it ticking if clocked in)
+    // Uses MySQL TIMESTAMPDIFF elapsed_seconds to avoid PHP/MySQL timezone mismatch
     var mobileTimer = document.getElementById('mobileClockTimer');
     if (mobileTimer) {
-        var clockInEpoch = <?php echo $activeClock ? strtotime($activeClock['clock_in']) : '0'; ?>;
-        if (clockInEpoch > 0) {
+        var initialElapsed = <?php echo $activeClock ? max(0, (int)$activeClock['elapsed_seconds']) : '0'; ?>;
+        if (initialElapsed >= 0 && <?php echo $activeClock ? 'true' : 'false'; ?>) {
+            var tickStart = Math.floor(Date.now() / 1000);
             setInterval(function() {
-                var elapsed = Math.floor(Date.now() / 1000) - clockInEpoch;
+                var elapsed = initialElapsed + (Math.floor(Date.now() / 1000) - tickStart);
                 var h = Math.floor(elapsed / 3600);
                 var m = Math.floor((elapsed % 3600) / 60);
                 var s = elapsed % 60;

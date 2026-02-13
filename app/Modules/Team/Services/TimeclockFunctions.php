@@ -353,7 +353,8 @@ function getUserJobsForDate($userId, $date) {
                p.address as property_address, p.city as property_city,
                p.latitude as property_lat, p.longitude as property_lng,
                c.company_name,
-               jte.id as active_timer_id, jte.start_time as timer_start_time
+               jte.id as active_timer_id, jte.start_time as timer_start_time,
+               TIMESTAMPDIFF(SECOND, jte.start_time, NOW()) AS timer_elapsed_seconds
         FROM job_visits jv
         JOIN job_plans jp ON jv.plan_id = jp.id
         LEFT JOIN properties p ON jp.property_id = p.id
