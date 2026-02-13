@@ -28,7 +28,15 @@ $user = getCurrentUser();
 
 header('Content-Type: application/json');
 
-$action = $_GET['action'] ?? ($_POST['action'] ?? null);
+// Parse JSON body once (for POST requests)
+$input = null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true);
+}
+
+// Determine action from query string, form data, or JSON body
+$action = $_GET['action'] ?? ($_POST['action'] ?? ($input['action'] ?? null));
+
 $db = getDB();
 
 try {
@@ -83,7 +91,6 @@ try {
             throw new Exception('POST method required');
         }
 
-        $input = json_decode(file_get_contents('php://input'), true);
         if (!$input) throw new Exception('Invalid request body');
 
         // CSRF check
