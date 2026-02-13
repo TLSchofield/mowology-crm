@@ -92,6 +92,74 @@ try {
 
         echo json_encode(['success' => true, 'message' => 'Setting saved']);
 
+    } elseif ($action === 'get-cron-status') {
+        // Get the latest weather cron run info from weather_action_log
+        // Check if the table exists first (migration 202 may not have run)
+        $tableCheck = $db->query("SHOW TABLES LIKE 'weather_action_log'");
+        if ($tableCheck->rowCount() === 0) {
+            echo json_encode(['success' => true, 'has_table' => false, 'last_run' => null]);
+            exit;
+        }
+
+        // Last WEATHER_EVAL entry = last time the cron ran
+        $stmt = $db->prepare("
+            SELECT created_at, action_date, details
+            FROM weather_action_log
+            WHERE action_type = 'WEATHER_EVAL'
+            ORDER BY created_at DESC
+            LIMIT 1
+        ");
+        $stmt->execute();
+        $lastEval = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // Count today's evaluations
+        $todayStmt = $db->prepare("
+            SELECT created_at, details
+            FROM weather_action_log
+            WHERE action_type = 'WEATHER_EVAL'
+              AND action_date = CURDATE()
+            ORDER BY created_at ASC
+        ");
+        $todayStmt->execute();
+        $todayRows = $todayStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $todaySummary = ['total' => count($todayRows), 'ok_count' => 0, 'not_ok_count' => 0, 'borderline_count' => 0, 'first_eval' => null, 'last_eval' => null];
+        foreach ($todayRows as $i => $row) {
+            $d = json_decode($row['details'] ?? '', true);
+            $status = $d['status'] ?? '';
+            if ($status === 'OK') $todaySummary['ok_count']++;
+            elseif ($status === 'NOT_OK') $todaySummary['not_ok_count']++;
+            elseif ($status === 'BORDERLINE') $todaySummary['borderline_count']++;
+            if ($i === 0) $todaySummary['first_eval'] = $row['created_at'];
+            $todaySummary['last_eval'] = $row['created_at'];
+        }
+
+        // Last salt alert
+        $saltStmt = $db->prepare("
+            SELECT created_at, details
+            FROM weather_action_log
+            WHERE action_type = 'SALT_ALERT'
+            ORDER BY created_at DESC
+            LIMIT 1
+        ");
+        $saltStmt->execute();
+        $lastSalt = $saltStmt->fetch(PDO::FETCH_ASSOC);
+
+        echo json_encode([
+            'success'    => true,
+            'has_table'  => true,
+            'last_run'   => $lastEval ? $lastEval['created_at'] : null,
+            'today'      => [
+                'total'      => (int)($todaySummary['total'] ?? 0),
+                'ok'         => (int)($todaySummary['ok_count'] ?? 0),
+                'not_ok'     => (int)($todaySummary['not_ok_count'] ?? 0),
+                'borderline' => (int)($todaySummary['borderline_count'] ?? 0),
+                'first_eval' => $todaySummary['first_eval'] ?? null,
+                'last_eval'  => $todaySummary['last_eval'] ?? null,
+            ],
+            'last_salt_alert' => $lastSalt ? $lastSalt['created_at'] : null,
+        ]);
+
     } elseif ($action === 'get-service-weather-rules') {
         // Get weather rules for all service packages
         $stmt = $db->prepare("

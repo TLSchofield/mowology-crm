@@ -27,6 +27,32 @@ $activePage = 'ops-weather';
             </div>
           </div>
 
+          <!-- Cron Status Card -->
+          <div class="card mb-3" id="cronStatusCard">
+            <div class="card-body py-3">
+              <div class="d-flex align-items-center justify-content-between flex-wrap" style="gap:1rem;">
+                <div class="d-flex align-items-center" style="gap:0.75rem;">
+                  <div id="cronStatusIcon" style="width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#f8f9fa;">
+                    <i data-feather="clock" style="width:20px;height:20px;color:#6c757d;"></i>
+                  </div>
+                  <div>
+                    <div class="d-flex align-items-center" style="gap:0.5rem;">
+                      <strong>Weather Guard Cron</strong>
+                      <span class="badge" id="cronStatusBadge" style="font-size:0.75rem;">Loading...</span>
+                    </div>
+                    <div id="cronStatusDetail" class="text-muted" style="font-size:0.85rem;">Checking cron status...</div>
+                  </div>
+                </div>
+                <div class="d-flex align-items-center" style="gap:0.75rem;">
+                  <div id="cronTodaySummary" style="font-size:0.85rem;"></div>
+                  <button class="btn btn-sm btn-outline-primary" onclick="runCronNow()" id="runCronBtn" title="Run weather check now">
+                    <i data-feather="play" style="width:14px;height:14px;"></i> Run Now
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Tabs -->
           <ul class="nav nav-tabs mb-3" role="tablist">
             <li class="nav-item">
@@ -466,10 +492,130 @@ $activePage = 'ops-weather';
           let globalConstraints = {};
 
           document.addEventListener('DOMContentLoaded', function() {
+            loadCronStatus();
             loadSaltConfig();
             loadGlobalConstraints();
             loadServiceRules();
           });
+
+          // ============================================================
+          // Cron Status
+          // ============================================================
+          function loadCronStatus() {
+            fetch('/crm/api/ops-settings.php?action=get-cron-status')
+              .then(r => r.json())
+              .then(data => {
+                if (!data.success) {
+                  setCronStatus('error', 'Error', data.error || 'Failed to load');
+                  return;
+                }
+                if (!data.has_table) {
+                  setCronStatus('warning', 'Not Migrated', 'Migration 202 has not run yet — weather_action_log table missing');
+                  return;
+                }
+                if (!data.last_run) {
+                  setCronStatus('warning', 'Never Run', 'The weather guard has never been executed. Set up a cron job or click Run Now.');
+                  return;
+                }
+
+                var lastRun = new Date(data.last_run.replace(' ', 'T'));
+                var now = new Date();
+                var hoursAgo = Math.round((now - lastRun) / (1000 * 60 * 60));
+                var timeAgo = hoursAgo < 1 ? 'just now' : hoursAgo === 1 ? '1 hour ago' : hoursAgo < 24 ? hoursAgo + ' hours ago' : Math.floor(hoursAgo / 24) + ' day(s) ago';
+
+                var isStale = hoursAgo > 25;
+                var status = isStale ? 'stale' : 'ok';
+                var label = isStale ? 'Stale' : 'Active';
+                var detail = 'Last run: ' + formatDateTime(data.last_run) + ' (' + timeAgo + ')';
+
+                setCronStatus(status, label, detail);
+
+                // Today summary
+                var t = data.today || {};
+                if (t.total > 0) {
+                  var parts = [];
+                  parts.push(t.total + ' evaluated');
+                  if (t.ok > 0) parts.push('<span class="text-success">' + t.ok + ' OK</span>');
+                  if (t.not_ok > 0) parts.push('<span class="text-danger">' + t.not_ok + ' flagged</span>');
+                  if (t.borderline > 0) parts.push('<span style="color:#e68a00;">' + t.borderline + ' borderline</span>');
+                  document.getElementById('cronTodaySummary').innerHTML = 'Today: ' + parts.join(' · ');
+                } else {
+                  document.getElementById('cronTodaySummary').innerHTML = '<span class="text-muted">No evaluations today</span>';
+                }
+
+                // Salt alert info
+                if (data.last_salt_alert) {
+                  var saltAgo = Math.round((now - new Date(data.last_salt_alert.replace(' ', 'T'))) / (1000 * 60 * 60));
+                  var saltLabel = saltAgo < 24 ? 'today' : saltAgo < 48 ? 'yesterday' : Math.floor(saltAgo / 24) + 'd ago';
+                  document.getElementById('cronStatusDetail').innerHTML += ' · Last salt alert: ' + saltLabel;
+                }
+              })
+              .catch(err => {
+                setCronStatus('error', 'Error', 'Could not check: ' + err.message);
+              });
+          }
+
+          function setCronStatus(status, label, detail) {
+            var badge = document.getElementById('cronStatusBadge');
+            var icon = document.getElementById('cronStatusIcon');
+            var detailEl = document.getElementById('cronStatusDetail');
+
+            detailEl.innerHTML = detail;
+
+            var colors = {
+              ok:      { bg: '#d4edda', text: '#155724', iconBg: '#d4edda', iconColor: 'var(--mw-green)' },
+              stale:   { bg: '#fff3cd', text: '#856404', iconBg: '#fff3cd', iconColor: '#e68a00' },
+              warning: { bg: '#fff3cd', text: '#856404', iconBg: '#fff3cd', iconColor: '#e68a00' },
+              error:   { bg: '#f8d7da', text: '#721c24', iconBg: '#f8d7da', iconColor: '#dc3545' },
+            };
+            var c = colors[status] || colors.warning;
+
+            badge.textContent = label;
+            badge.style.background = c.bg;
+            badge.style.color = c.text;
+            icon.style.background = c.iconBg;
+            icon.querySelector('i, svg').style.color = c.iconColor;
+
+            if (typeof feather !== 'undefined') feather.replace();
+          }
+
+          function formatDateTime(str) {
+            if (!str) return '—';
+            var d = new Date(str.replace(' ', 'T'));
+            return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' }) +
+                   ' at ' + d.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' });
+          }
+
+          function runCronNow() {
+            var btn = document.getElementById('runCronBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-feather="loader" style="width:14px;height:14px;"></i> Running...';
+            if (typeof feather !== 'undefined') feather.replace();
+
+            fetch('/crm/cron/weather_schedule_guard.php', { method: 'POST' })
+              .then(r => r.json())
+              .then(data => {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="play" style="width:14px;height:14px;"></i> Run Now';
+                if (typeof feather !== 'undefined') feather.replace();
+
+                if (data.success) {
+                  var msg = 'Evaluated ' + (data.evaluated || 0) + ' visits: ' +
+                    (data.ok || 0) + ' OK, ' + (data.not_ok || 0) + ' flagged, ' +
+                    (data.borderline || 0) + ' borderline, ' + (data.auto_moved || 0) + ' auto-moved';
+                  alert(msg);
+                  loadCronStatus();
+                } else {
+                  alert('Error: ' + (data.error || 'Unknown error'));
+                }
+              })
+              .catch(err => {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="play" style="width:14px;height:14px;"></i> Run Now';
+                if (typeof feather !== 'undefined') feather.replace();
+                alert('Error: ' + err.message);
+              });
+          }
 
           function loadGlobalConstraints() {
             fetch('/crm/api/ops-settings.php?action=get&key=weather_ops_constraints')
