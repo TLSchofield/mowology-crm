@@ -56,6 +56,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <a class="nav-link" id="messages-tab" data-toggle="tab" href="#messages" role="tab">Messages</a>
     </li>
     <li class="nav-item">
+        <a class="nav-link" id="receipts-tab" data-toggle="tab" href="#receipts" role="tab">Receipt Forwarding</a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a>
     </li>
 </ul>
@@ -241,6 +244,59 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <label for="receipt_message_footer" class="form-label">Footer</label>
                         <textarea class="form-control" id="receipt_message_footer" rows="3" maxlength="1000"></textarea>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Receipt Forwarding Tab -->
+        <div class="tab-pane fade" id="receipts" role="tabpanel">
+            <div class="card">
+                <div class="card-header"><h5 class="card-title">Receipt Forwarding</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-4">Forward expense receipts to your accounting software (e.g., QuickBooks) via email.</p>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="receipt_forwarding_enabled" class="form-label">Receipt Forwarding</label>
+                            <select class="form-control" id="receipt_forwarding_enabled">
+                                <option value="0">Disabled</option>
+                                <option value="1">Enabled</option>
+                            </select>
+                            <small class="form-text text-muted">Enable to allow sending receipts to accounting.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="receipt_auto_send" class="form-label">Auto-Send on Upload</label>
+                            <select class="form-control" id="receipt_auto_send">
+                                <option value="0">Off — manual send only</option>
+                                <option value="1">On — auto-send when expense is created with receipt</option>
+                            </select>
+                            <small class="form-text text-muted">Automatically forward receipts when a new expense is saved.</small>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="receipt_accounting_email" class="form-label">Accounting Email Address <span class="text-danger">*</span></label>
+                            <input type="email" class="form-control" id="receipt_accounting_email" maxlength="255" placeholder="receipts@quickbooks.intuit.com">
+                            <small class="form-text text-muted">The email address your accounting software monitors for receipts.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="receipt_from_name" class="form-label">From Name</label>
+                            <input type="text" class="form-control" id="receipt_from_name" maxlength="255" placeholder="Mowology Receipts">
+                            <small class="form-text text-muted">Sender name on forwarded receipt emails.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><h5 class="card-title">Test Connection</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Send a test email to verify your accounting email receives receipts correctly.</p>
+                    <button type="button" class="btn btn-outline-primary" id="btnTestReceiptEmail" disabled>
+                        <i data-feather="send" style="width:16px;height:16px;"></i> Send Test Email
+                    </button>
+                    <div id="receiptTestResult" class="mt-2" style="display:none;"></div>
                 </div>
             </div>
         </div>

@@ -7530,3 +7530,189 @@ textarea.font-monospace {
   border-color: var(--mw-dark, #1A5F4A);
   color: #fff;
 }
+
+/* ─────────────────────────────────────────────────
+   Expenses Module
+   ───────────────────────────────────────────────── */
+
+/* Expense stat cards */
+.mw-expense-stats {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+.mw-expense-stat-card {
+  flex: 1;
+  min-width: 140px;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+  padding: 1rem;
+  text-align: center;
+}
+.mw-expense-stat-card .stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--mw-green);
+}
+.mw-expense-stat-card .stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  margin-top: 0.25rem;
+}
+
+/* Expense status badges */
+.mw-badge-draft {
+  background: #6c757d;
+  color: #fff;
+}
+.mw-badge-approved {
+  background: var(--mw-green);
+  color: #fff;
+}
+.mw-badge-forwarded {
+  background: #17a2b8;
+  color: #fff;
+}
+
+/* Expense table */
+.mw-expense-table th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  border-bottom: 2px solid var(--mw-light);
+  white-space: nowrap;
+}
+.mw-expense-table td {
+  vertical-align: middle;
+  font-size: 0.875rem;
+}
+.mw-expense-table .mw-expense-amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Receipt thumbnail in table */
+.mw-receipt-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  object-fit: cover;
+  cursor: pointer;
+  border: 1px solid #dee2e6;
+}
+.mw-receipt-thumb:hover {
+  border-color: var(--mw-green);
+  box-shadow: 0 0 0 2px rgba(45, 134, 89, 0.2);
+}
+
+/* Confidence indicator */
+.mw-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+}
+.mw-confidence-bar {
+  width: 40px;
+  height: 6px;
+  background: #e9ecef;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.mw-confidence-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.mw-confidence-fill.high { background: var(--mw-green); }
+.mw-confidence-fill.medium { background: #ffc107; }
+.mw-confidence-fill.low { background: #dc3545; }
+
+/* Filter bar */
+.mw-expense-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+.mw-expense-filters .form-group {
+  margin-bottom: 0;
+}
+.mw-expense-filters label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  margin-bottom: 0.25rem;
+  display: block;
+}
+.mw-expense-filters .form-control {
+  font-size: 0.85rem;
+}
+
+/* Vendor card in vendors tab */
+.mw-vendor-card {
+  border-left: 3px solid var(--mw-green);
+  transition: box-shadow 0.15s ease;
+}
+.mw-vendor-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.mw-vendor-aliases {
+  font-size: 0.8rem;
+  color: #888;
+  font-style: italic;
+}
+
+/* Send log table */
+.mw-send-log .badge-sent { background: var(--mw-green); color: #fff; }
+.mw-send-log .badge-failed { background: #dc3545; color: #fff; }
+.mw-send-log .badge-queued { background: #ffc107; color: #333; }
+
+/* Expense modal */
+.mw-expense-modal .modal-header {
+  background: var(--mw-light);
+  border-bottom: 1px solid #dee2e6;
+}
+.mw-expense-modal .form-label {
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+/* Vendor autocomplete dropdown */
+.mw-vendor-autocomplete {
+  position: absolute;
+  z-index: 1050;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-top: none;
+  border-radius: 0 0 0.375rem 0.375rem;
+  max-height: 200px;
+  overflow-y: auto;
+  width: 100%;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.mw-vendor-autocomplete-item {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  border-bottom: 1px solid #f0f0f0;
+}
+.mw-vendor-autocomplete-item:hover,
+.mw-vendor-autocomplete-item.active {
+  background: var(--mw-light);
+}
+.mw-vendor-autocomplete-item .vendor-aliases {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+/* Settings — receipt forwarding tab */
+#receipts .card { border-color: #dee2e6; }
+#receipts .card-header { background: var(--mw-light); }

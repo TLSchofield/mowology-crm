@@ -23,6 +23,7 @@ $navItems = [
     ['key' => 'quotes',    'label' => 'Quotes',        'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',           'perm' => 'billing.view'],
     ['key' => 'jobs',      'label' => 'Jobs',          'icon' => 'briefcase',   'href' => '/crm/jobs/index.php',                'perm' => 'jobs.view'],
     ['key' => 'invoices',  'label' => 'Invoices',      'icon' => 'file-text',   'href' => '/crm/invoices/index.php',            'perm' => 'billing.view'],
+    ['key' => 'expenses',  'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',         'perm' => 'expenses.view'],
     ['key' => 'schedule',  'label' => 'Schedule',      'icon' => 'calendar',    'href' => '/crm/jobs/schedule.php',             'perm' => 'schedule.view'],
     ['key' => 'timeclock', 'label' => 'Time Clock',    'icon' => 'clock',       'href' => '/crm/timeclock/my-schedule.php',     'perm' => 'schedule.view'],
     ['key' => 'team',      'label' => 'Team',          'icon' => 'user-check',  'href' => '/crm/team/index.php',                'perm' => 'team.view'],
