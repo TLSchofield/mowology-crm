@@ -11,7 +11,7 @@
  * Cache versioning: bump CACHE_VERSION to bust all caches on next deploy.
  */
 
-var CACHE_VERSION = 'mw-v1';
+var CACHE_VERSION = 'mw-v2';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
