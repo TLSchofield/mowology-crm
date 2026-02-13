@@ -1220,7 +1220,9 @@ $unconvertedRequests = $db->query("
               $geocodedCount = 0;
               $ungeocodedCount = 0;
               foreach ($contactProperties as $p) {
-                  if (!empty($p['latitude']) && !empty($p['longitude'])) $geocodedCount++;
+                  $lat = floatval($p['latitude'] ?? 0);
+                  $lng = floatval($p['longitude'] ?? 0);
+                  if ($lat != 0 && $lng != 0) $geocodedCount++;
                   else $ungeocodedCount++;
               }
             ?>
@@ -1347,7 +1349,7 @@ $unconvertedRequests = $db->query("
                             </div>
                           </div>
                           <div>
-                            <?php if (empty($prop['latitude']) || empty($prop['longitude'])): ?>
+                            <?php if (floatval($prop['latitude'] ?? 0) == 0 || floatval($prop['longitude'] ?? 0) == 0): ?>
                               <button type="button" class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); geocodeProperty(<?php echo (int)$prop['id']; ?>, this)" title="Geocode this address">
                                 <i data-feather="crosshair" style="width: 12px; height: 12px;"></i>
                               </button>
@@ -1511,10 +1513,9 @@ $unconvertedRequests = $db->query("
                 });
 
                 propertiesData.forEach(function(prop) {
-                  if (!prop.latitude || !prop.longitude) return;
                   var lat = parseFloat(prop.latitude);
                   var lng = parseFloat(prop.longitude);
-                  if (isNaN(lat) || isNaN(lng)) return;
+                  if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
 
                   var pos = { lat: lat, lng: lng };
                   var marker = new google.maps.Marker({
