@@ -450,12 +450,63 @@
     }
 
     /* ════════════════════════════════════════════════════
+       FLOATING LOCATE BUTTON
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-locate-btn {
+        position: fixed;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+        right: 20px;
+        width: 52px;
+        height: 52px;
+        border-radius: 50%;
+        background: var(--mw-green, #2D8659);
+        color: #fff;
+        border: none;
+        box-shadow: 0 4px 14px rgba(45, 134, 89, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 1000;
+        transition: transform 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-locate-btn:active {
+        transform: scale(0.92);
+        box-shadow: 0 2px 8px rgba(45, 134, 89, 0.3);
+    }
+
+    .mw-mc-locate-btn svg {
+        color: #fff;
+    }
+
+    /* ════════════════════════════════════════════════════
+       PROXIMITY HIGHLIGHT ANIMATION
+       ════════════════════════════════════════════════════ */
+
+    @keyframes mc-proximity-pulse {
+        0%   { box-shadow: 0 0 0 0 rgba(45, 134, 89, 0.4); }
+        50%  { box-shadow: 0 0 0 8px rgba(45, 134, 89, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(45, 134, 89, 0); }
+    }
+
+    .mw-mc-card.mw-mc-proximity-match {
+        animation: mc-proximity-pulse 1.2s ease-out 2;
+    }
+
+    /* ════════════════════════════════════════════════════
        PWA STANDALONE TWEAKS
        ════════════════════════════════════════════════════ */
 
     @media (display-mode: standalone) {
         .mw-mc-container {
             padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+        }
+
+        .mw-mc-locate-btn {
+            bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
         }
     }
 }

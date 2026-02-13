@@ -182,7 +182,7 @@ foreach ($mobileStops as $s) {
 
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213a" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213b" rel="stylesheet">';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -472,9 +472,130 @@ function applyCrewFilter(crewId) {
             } else {
                 card.classList.add('mw-mc-expanded');
                 detail.style.display = 'block';
+                // Scroll expanded card into comfortable view
+                setTimeout(function() {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 50);
             }
         });
     });
+})();
+
+/**
+ * Geolocation proximity — auto-expand & scroll to the nearest stop card
+ *
+ * On mobile, uses GPS to find which job site the user is physically at.
+ * If within PROXIMITY_METERS, that card auto-expands and scrolls to center.
+ * Runs once on page load; also adds a "Locate Me" floating button for re-check.
+ */
+(function() {
+    // Only run on mobile-width screens where the card view is visible
+    if (window.innerWidth > 991) return;
+    if (!navigator.geolocation) return;
+
+    var PROXIMITY_METERS = 150; // How close the user must be to auto-match
+
+    /**
+     * Haversine distance (meters) between two lat/lng points
+     */
+    function haversine(lat1, lng1, lat2, lng2) {
+        var R = 6371000; // Earth radius in meters
+        var toRad = Math.PI / 180;
+        var dLat = (lat2 - lat1) * toRad;
+        var dLng = (lng2 - lng1) * toRad;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    /**
+     * Find nearest card and expand/scroll to it
+     */
+    function locateAndExpand(position) {
+        var userLat = position.coords.latitude;
+        var userLng = position.coords.longitude;
+
+        var cards = document.querySelectorAll('.mw-mc-card[data-lat][data-lng]');
+        var nearest = null;
+        var nearestDist = Infinity;
+
+        cards.forEach(function(card) {
+            var lat = parseFloat(card.dataset.lat);
+            var lng = parseFloat(card.dataset.lng);
+            if (!lat || !lng || (lat === 0 && lng === 0)) return;
+
+            var dist = haversine(userLat, userLng, lat, lng);
+            if (dist < nearestDist) {
+                nearestDist = dist;
+                nearest = card;
+            }
+        });
+
+        if (!nearest || nearestDist > PROXIMITY_METERS) return;
+
+        // Remove previous proximity highlights
+        document.querySelectorAll('.mw-mc-proximity-match').forEach(function(el) {
+            el.classList.remove('mw-mc-proximity-match');
+        });
+
+        // If it's the already-expanded active card, just scroll to it
+        if (nearest.classList.contains('mw-mc-card-active')) {
+            nearest.classList.add('mw-mc-proximity-match');
+            nearest.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+
+        // It's a compact card — expand it
+        if (nearest.classList.contains('mw-mc-card-compact')) {
+            // Collapse any other expanded cards first
+            document.querySelectorAll('.mw-mc-card-compact.mw-mc-expanded').forEach(function(other) {
+                other.classList.remove('mw-mc-expanded');
+                var d = other.querySelector('.mw-mc-expand-detail');
+                if (d) d.style.display = 'none';
+            });
+
+            // Expand this card
+            nearest.classList.add('mw-mc-expanded');
+            nearest.classList.add('mw-mc-proximity-match');
+            var detail = nearest.querySelector('.mw-mc-expand-detail');
+            if (detail) detail.style.display = 'block';
+
+            // Scroll into center view after expansion renders
+            setTimeout(function() {
+                nearest.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+        }
+    }
+
+    // ── Auto-detect on page load ──
+    navigator.geolocation.getCurrentPosition(
+        locateAndExpand,
+        function() { /* Permission denied or unavailable — silent fail */ },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+    );
+
+    // ── Floating "Locate Me" button for manual re-check ──
+    var locBtn = document.createElement('button');
+    locBtn.className = 'mw-mc-locate-btn';
+    locBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>';
+    locBtn.title = 'Find my current stop';
+    locBtn.addEventListener('click', function() {
+        locBtn.style.opacity = '0.5';
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {
+                locBtn.style.opacity = '1';
+                locateAndExpand(pos);
+            },
+            function() {
+                locBtn.style.opacity = '1';
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+        );
+    });
+
+    var container = document.querySelector('.mw-mc-container');
+    if (container) container.appendChild(locBtn);
 })();
 </script>
 <script src="../js/schedule-drag-drop.js"></script>
