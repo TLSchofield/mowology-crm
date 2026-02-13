@@ -1457,5 +1457,278 @@ function suggestModifiers($propertyId, $servicePackageId) {
     }
 }
 
+// ── Contact Duplicate Detection ──────────────────────────────────────────────
 
+/**
+ * Find potential duplicate contacts.
+ * Returns array keyed by contact ID, each value is an array of potential duplicate contact IDs.
+ *
+ * Matching tiers:
+ *  1. Exact email match (non-empty) OR exact phone/mobile match (digits-only)
+ *  2. Same property address (via properties.site_contact_id)
+ *  3. Exact first+last name (case-insensitive) — only if both have a last name
+ *
+ * @return array [contact_id => [duplicate_id, ...], ...]
+ */
+function findDuplicateContacts() {
+    $db = getDB();
+    $duplicates = [];
+
+    try {
+        // Check if merged_into_id column exists
+        $hasMergedCol = false;
+        try {
+            $cols = $db->query("SHOW COLUMNS FROM contacts LIKE 'merged_into_id'")->fetchAll();
+            $hasMergedCol = count($cols) > 0;
+        } catch (Exception $e) {}
+
+        $mergedFilter = $hasMergedCol ? "AND (merged_into_id IS NULL OR merged_into_id = 0)" : "";
+
+        $contacts = $db->query("
+            SELECT id, first_name, last_name, email, phone, mobile
+            FROM contacts
+            WHERE is_active = 1
+            {$mergedFilter}
+            ORDER BY id ASC
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        // Build property address map: contact_id => [addresses]
+        $addressMap = [];
+        try {
+            $props = $db->query("
+                SELECT site_contact_id, LOWER(TRIM(address)) as addr
+                FROM properties
+                WHERE site_contact_id IS NOT NULL
+                AND address IS NOT NULL AND address != ''
+            ")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($props as $p) {
+                $addressMap[(int)$p['site_contact_id']][] = $p['addr'];
+            }
+        } catch (Exception $e) {}
+
+        $count = count($contacts);
+        $matched = [];
+
+        for ($i = 0; $i < $count; $i++) {
+            for ($j = $i + 1; $j < $count; $j++) {
+                $a = $contacts[$i];
+                $b = $contacts[$j];
+                $pairKey = $a['id'] . '-' . $b['id'];
+
+                if (isset($matched[$pairKey])) continue;
+
+                $isDuplicate = false;
+
+                // Tier 1: exact email match (non-empty)
+                if (!empty($a['email']) && !empty($b['email'])
+                    && strtolower(trim($a['email'])) === strtolower(trim($b['email']))) {
+                    $isDuplicate = true;
+                }
+
+                // Tier 1: exact phone/mobile match (digits-only)
+                if (!$isDuplicate) {
+                    $phonesA = array_filter([
+                        preg_replace('/\D/', '', $a['phone'] ?? ''),
+                        preg_replace('/\D/', '', $a['mobile'] ?? '')
+                    ], function($v) { return $v !== ''; });
+                    $phonesB = array_filter([
+                        preg_replace('/\D/', '', $b['phone'] ?? ''),
+                        preg_replace('/\D/', '', $b['mobile'] ?? '')
+                    ], function($v) { return $v !== ''; });
+
+                    foreach ($phonesA as $pa) {
+                        foreach ($phonesB as $pb) {
+                            if ($pa === $pb) { $isDuplicate = true; break 2; }
+                        }
+                    }
+                }
+
+                // Tier 2: same property address
+                if (!$isDuplicate) {
+                    $addrsA = $addressMap[(int)$a['id']] ?? [];
+                    $addrsB = $addressMap[(int)$b['id']] ?? [];
+                    foreach ($addrsA as $addrA) {
+                        if (in_array($addrA, $addrsB)) { $isDuplicate = true; break; }
+                    }
+                }
+
+                // Tier 3: exact name match (first + last, case-insensitive, last name required)
+                if (!$isDuplicate
+                    && trim($a['last_name'] ?? '') !== ''
+                    && trim($b['last_name'] ?? '') !== ''
+                    && strtolower(trim($a['first_name'])) === strtolower(trim($b['first_name']))
+                    && strtolower(trim($a['last_name'])) === strtolower(trim($b['last_name']))) {
+                    $isDuplicate = true;
+                }
+
+                if ($isDuplicate) {
+                    $matched[$pairKey] = true;
+                    if (!isset($duplicates[$a['id']])) $duplicates[$a['id']] = [];
+                    if (!isset($duplicates[$b['id']])) $duplicates[$b['id']] = [];
+                    if (!in_array($b['id'], $duplicates[$a['id']])) $duplicates[$a['id']][] = $b['id'];
+                    if (!in_array($a['id'], $duplicates[$b['id']])) $duplicates[$b['id']][] = $a['id'];
+                }
+            }
+        }
+    } catch (Exception $e) {
+        error_log("findDuplicateContacts error: " . $e->getMessage());
+    }
+
+    return $duplicates;
+}
+
+/**
+ * Merge two contacts: keep one, absorb the other.
+ * The "merge" contact is soft-deleted and all its FK references are reassigned.
+ *
+ * @param int   $keepId       Contact to survive
+ * @param int   $mergeId      Contact to absorb (will be soft-deleted)
+ * @param array $fieldChoices ['first_name' => 'keep'|'merge', 'email' => 'keep'|'merge', ...]
+ * @param int   $userId       User performing the merge
+ * @return array ['success' => bool, 'error' => string|null]
+ */
+function mergeContacts($keepId, $mergeId, $fieldChoices, $userId) {
+    $db = getDB();
+
+    try {
+        // 1. Fetch both contacts
+        $stmt = $db->prepare("SELECT * FROM contacts WHERE id = ? AND is_active = 1");
+        $stmt->execute([$keepId]);
+        $keep = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $stmt->execute([$mergeId]);
+        $merge = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$keep || !$merge) {
+            return ['success' => false, 'error' => 'One or both contacts not found or inactive.'];
+        }
+        if ($keepId === $mergeId) {
+            return ['success' => false, 'error' => 'Cannot merge a contact with itself.'];
+        }
+
+        $db->beginTransaction();
+
+        // 2. Apply field choices to surviving contact
+        $mergeableFields = ['first_name', 'last_name', 'email', 'phone', 'mobile', 'preferred_contact_method'];
+        $updates = [];
+        $params = [];
+        foreach ($mergeableFields as $field) {
+            $choice = $fieldChoices[$field] ?? 'keep';
+            if ($choice === 'merge' && isset($merge[$field]) && $merge[$field] !== '') {
+                $updates[] = "{$field} = ?";
+                $params[] = $merge[$field];
+            }
+        }
+
+        // Notes: append option
+        if (($fieldChoices['notes'] ?? 'keep') === 'append') {
+            $combined = trim(
+                ($keep['notes'] ?? '') .
+                "\n---\nMerged from contact #{$mergeId}:\n" .
+                ($merge['notes'] ?? '')
+            );
+            $updates[] = "notes = ?";
+            $params[] = $combined;
+        } elseif (($fieldChoices['notes'] ?? 'keep') === 'merge') {
+            $updates[] = "notes = ?";
+            $params[] = $merge['notes'] ?? '';
+        }
+
+        if (!empty($updates)) {
+            $params[] = $keepId;
+            $db->prepare("UPDATE contacts SET " . implode(', ', $updates) . ", updated_at = NOW() WHERE id = ?")
+               ->execute($params);
+        }
+
+        // 3. Reassign foreign keys
+        // Simple updates (no unique constraint conflicts)
+        $simpleUpdates = [
+            "UPDATE companies SET primary_contact_id = ? WHERE primary_contact_id = ?",
+            "UPDATE companies SET billing_contact_id = ? WHERE billing_contact_id = ?",
+            "UPDATE properties SET site_contact_id = ? WHERE site_contact_id = ?",
+            "UPDATE quote_requests SET contact_id = ? WHERE contact_id = ?",
+            "UPDATE activity_log SET contact_id = ? WHERE contact_id = ?",
+        ];
+        foreach ($simpleUpdates as $sql) {
+            try { $db->prepare($sql)->execute([$keepId, $mergeId]); } catch (Exception $e) {}
+        }
+
+        // consent_log — no unique constraint
+        try {
+            $db->prepare("UPDATE consent_log SET contact_id = ? WHERE contact_id = ?")
+               ->execute([$keepId, $mergeId]);
+        } catch (Exception $e) {}
+
+        // client_notes — no unique constraint
+        try {
+            $db->prepare("UPDATE client_notes SET contact_id = ? WHERE contact_id = ?")
+               ->execute([$keepId, $mergeId]);
+        } catch (Exception $e) {}
+
+        // invoice_contacts — may have unique constraint on (invoice_id, contact_id, contact_role)
+        try {
+            $db->prepare("
+                DELETE ic_merge FROM invoice_contacts ic_merge
+                INNER JOIN invoice_contacts ic_keep
+                    ON ic_keep.invoice_id = ic_merge.invoice_id
+                    AND ic_keep.contact_role = ic_merge.contact_role
+                    AND ic_keep.contact_id = ?
+                WHERE ic_merge.contact_id = ?
+            ")->execute([$keepId, $mergeId]);
+            $db->prepare("UPDATE invoice_contacts SET contact_id = ? WHERE contact_id = ?")
+               ->execute([$keepId, $mergeId]);
+        } catch (Exception $e) {}
+
+        // property_contacts — may have unique constraint on (property_id, contact_id, contact_role)
+        try {
+            $db->prepare("
+                DELETE pc_merge FROM property_contacts pc_merge
+                INNER JOIN property_contacts pc_keep
+                    ON pc_keep.property_id = pc_merge.property_id
+                    AND pc_keep.contact_role = pc_merge.contact_role
+                    AND pc_keep.contact_id = ?
+                WHERE pc_merge.contact_id = ?
+            ")->execute([$keepId, $mergeId]);
+            $db->prepare("UPDATE property_contacts SET contact_id = ? WHERE contact_id = ?")
+               ->execute([$keepId, $mergeId]);
+        } catch (Exception $e) {}
+
+        // 4. Soft-delete the merged contact
+        $hasMergedCol = false;
+        try {
+            $cols = $db->query("SHOW COLUMNS FROM contacts LIKE 'merged_into_id'")->fetchAll();
+            $hasMergedCol = count($cols) > 0;
+        } catch (Exception $e) {}
+
+        if ($hasMergedCol) {
+            $db->prepare("
+                UPDATE contacts SET is_active = 0, merged_into_id = ?, merged_at = NOW(), merged_by = ?
+                WHERE id = ?
+            ")->execute([$keepId, $userId, $mergeId]);
+        } else {
+            $db->prepare("UPDATE contacts SET is_active = 0 WHERE id = ?")->execute([$mergeId]);
+        }
+
+        // 5. Log the merge
+        try {
+            $db->prepare("
+                INSERT INTO activity_log (user_id, contact_id, action, details, ip_address)
+                VALUES (?, ?, 'Contacts merged', ?, ?)
+            ")->execute([
+                $userId,
+                $keepId,
+                "Merged contact #{$mergeId} (" . trim($merge['first_name'] . ' ' . $merge['last_name']) . ") into #{$keepId} (" . trim($keep['first_name'] . ' ' . $keep['last_name']) . ")",
+                $_SERVER['REMOTE_ADDR'] ?? null
+            ]);
+        } catch (Exception $e) {}
+
+        $db->commit();
+        return ['success' => true, 'error' => null];
+
+    } catch (Exception $e) {
+        if ($db->inTransaction()) $db->rollBack();
+        error_log("mergeContacts error: " . $e->getMessage());
+        return ['success' => false, 'error' => 'Merge failed: ' . $e->getMessage()];
+    }
+}
 

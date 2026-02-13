@@ -293,6 +293,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $consentQuoteFollowup = isset($_POST['consent_quote_followup']) ? 1 : 0;
             $notes = trim($_POST['notes'] ?? '');
 
+            // ── Property address fields ──
+            $propertyAddress = trim($_POST['property_address'] ?? '');
+            $propertyCity = trim($_POST['property_city'] ?? 'Vancouver');
+            $propertyPostalCode = trim($_POST['property_postal_code'] ?? '');
+
             // ── Optional company fields ──
             $linkCompany = isset($_POST['link_company']) ? true : false;
             $companyMode = $_POST['company_mode'] ?? 'new';
@@ -352,6 +357,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $notes
                     ]);
                     $contactId = $db->lastInsertId();
+
+                    // Create property if address provided
+                    if (!empty($propertyAddress)) {
+                        $checkProp = $db->prepare("SELECT id FROM properties WHERE address = ? LIMIT 1");
+                        $checkProp->execute([$propertyAddress]);
+                        $existingProp = $checkProp->fetch(PDO::FETCH_ASSOC);
+
+                        if ($existingProp) {
+                            // Link existing property to this contact if not already linked
+                            $db->prepare("UPDATE properties SET site_contact_id = COALESCE(site_contact_id, ?) WHERE id = ?")
+                               ->execute([$contactId, $existingProp['id']]);
+                        } else {
+                            $db->prepare("
+                                INSERT INTO properties (property_name, address, city, province, postal_code, site_contact_id, status)
+                                VALUES (?, ?, ?, 'BC', ?, ?, 'active')
+                            ")->execute([
+                                $firstName . ' ' . $lastName . ' Property',
+                                $propertyAddress,
+                                $propertyCity,
+                                $propertyPostalCode,
+                                $contactId
+                            ]);
+                        }
+                    }
 
                     if ($linkCompany) {
                         if ($companyMode === 'new') {
@@ -532,6 +561,14 @@ try {
     $standaloneContacts = [];
 }
 
+// Detect duplicate contacts
+$duplicateMap = [];
+try {
+    $duplicateMap = findDuplicateContacts();
+} catch (Exception $e) {
+    // Non-blocking — duplicate detection is a nice-to-have
+}
+
 // Also get quote_requests without companies (not yet converted to prospects)
 $unconvertedRequests = $db->query("
     SELECT
@@ -657,7 +694,41 @@ $unconvertedRequests = $db->query("
                 </div>
               </div>
 
-              <!-- Card 2: Communication Preferences -->
+              <!-- Card 2: Property Address -->
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="map-pin"></i> Property Address</h5>
+                </div>
+                <div class="card-body">
+                  <div class="form-group">
+                    <label>Street Address</label>
+                    <input type="text" class="form-control" name="property_address" id="propertyAddress"
+                      value="<?php echo h($_POST['property_address'] ?? ''); ?>"
+                      placeholder="e.g. 123 Main Street">
+                  </div>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>City</label>
+                        <input type="text" class="form-control" name="property_city"
+                          value="<?php echo h($_POST['property_city'] ?? 'Vancouver'); ?>"
+                          placeholder="Vancouver">
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="form-group mb-0">
+                        <label>Postal Code</label>
+                        <input type="text" class="form-control" name="property_postal_code"
+                          value="<?php echo h($_POST['property_postal_code'] ?? ''); ?>"
+                          placeholder="V5K 1A1">
+                      </div>
+                    </div>
+                  </div>
+                  <small class="form-text text-muted">Links this contact to a service property for scheduling and quoting.</small>
+                </div>
+              </div>
+
+              <!-- Card 3: Communication Preferences -->
               <div class="card mb-3">
                 <div class="card-header">
                   <h5 class="card-title mb-0"><i data-feather="message-circle"></i> Communication Preferences</h5>
@@ -1101,6 +1172,14 @@ $unconvertedRequests = $db->query("
                             </small>
                           </div>
                         </a>
+                        <?php if (!empty($duplicateMap[$contact['id']])): ?>
+                        <div class="mt-2 pt-2 border-top">
+                          <button type="button" class="mw-duplicate-badge" onclick="event.preventDefault(); event.stopPropagation(); showMergeModal(<?php echo (int)$contact['id']; ?>)" title="Possible duplicate contact detected — click to review and merge">
+                            <i data-feather="alert-triangle" style="width: 12px; height: 12px;"></i>
+                            Possible Duplicate
+                          </button>
+                        </div>
+                        <?php endif; ?>
                       </div>
                     <?php endforeach; ?>
                   </div>
@@ -1406,6 +1485,32 @@ $unconvertedRequests = $db->query("
                 </div>
                 <div class="modal-footer">
                   <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Merge Contact Modal -->
+          <div class="modal fade" id="mergeContactModal" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-xl" role="document">
+              <div class="modal-content">
+                <div class="modal-header" style="background: var(--mw-orange); color: #fff;">
+                  <h5 class="modal-title"><i data-feather="git-merge" style="width: 18px; height: 18px;"></i> Merge Duplicate Contacts</h5>
+                  <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                  </button>
+                </div>
+                <div class="modal-body" id="mergeModalBody">
+                  <div class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Loading contact details...</p>
+                  </div>
+                </div>
+                <div class="modal-footer" id="mergeModalFooter" style="display: none;">
+                  <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                  <button type="button" class="btn btn-warning" id="mergeConfirmBtn" onclick="executeMerge()">
+                    <i data-feather="git-merge" style="width: 14px; height: 14px;"></i> Merge Contacts
+                  </button>
                 </div>
               </div>
             </div>
@@ -1785,6 +1890,205 @@ $unconvertedRequests = $db->query("
                 }
               })
               .catch(function(err) { alert('Error: ' + err.message); });
+            }
+
+            // ── Merge Duplicate Contacts ──────────────────────────────
+
+            var mergeKeepId = null;
+            var mergeMergeId = null;
+            var mergeContactA = null;
+            var mergeContactB = null;
+
+            function showMergeModal(contactId) {
+              mergeKeepId = null;
+              mergeMergeId = null;
+              document.getElementById('mergeModalBody').innerHTML =
+                '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2 text-muted">Loading contact details...</p></div>';
+              document.getElementById('mergeModalFooter').style.display = 'none';
+              $('#mergeContactModal').modal('show');
+
+              fetch('api/contact-duplicates.php?action=pair&id=' + contactId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (!data.success || !data.contact || !data.duplicates.length) {
+                    document.getElementById('mergeModalBody').innerHTML =
+                      '<div class="text-center py-4"><p class="text-muted">No duplicates found for this contact.</p></div>';
+                    return;
+                  }
+
+                  mergeContactA = data.contact;
+                  mergeContactB = data.duplicates[0]; // First duplicate
+                  mergeKeepId = parseInt(mergeContactA.id);
+                  mergeMergeId = parseInt(mergeContactB.id);
+
+                  renderMergeComparison();
+                  document.getElementById('mergeModalFooter').style.display = '';
+                  feather.replace();
+                })
+                .catch(function(err) {
+                  document.getElementById('mergeModalBody').innerHTML =
+                    '<div class="alert alert-danger">Failed to load contact details: ' + err.message + '</div>';
+                });
+            }
+
+            function renderMergeComparison() {
+              var a = mergeContactA;
+              var b = mergeContactB;
+              var fields = [
+                { key: 'first_name', label: 'First Name' },
+                { key: 'last_name', label: 'Last Name' },
+                { key: 'email', label: 'Email' },
+                { key: 'phone', label: 'Phone' },
+                { key: 'mobile', label: 'Mobile' },
+                { key: 'preferred_contact_method', label: 'Preferred Contact' }
+              ];
+
+              var html = '<div class="mb-3">';
+              html += '<div class="d-flex justify-content-between align-items-center mb-3">';
+              html += '<div><small class="text-muted">Select which value to keep for each field. The "merge" contact will be deactivated.</small></div>';
+              html += '<button type="button" class="btn btn-sm mw-merge-swap-btn" onclick="swapMergeSides()">';
+              html += '<i data-feather="refresh-cw" style="width: 14px; height: 14px;"></i> Swap Sides</button>';
+              html += '</div>';
+
+              // Duplicate selector if multiple duplicates
+              html += '<table class="mw-merge-table">';
+              html += '<thead><tr>';
+              html += '<th class="mw-merge-field-label">Field</th>';
+              html += '<th class="mw-merge-radio-cell" style="background: #d4edda;">Keep — #' + a.id + ' <small>(created ' + formatMergeDate(a.created_at) + ')</small></th>';
+              html += '<th class="mw-merge-radio-cell" style="background: #f8d7da;">Merge — #' + b.id + ' <small>(created ' + formatMergeDate(b.created_at) + ')</small></th>';
+              html += '</tr></thead><tbody>';
+
+              fields.forEach(function(f) {
+                var valA = (a[f.key] || '').toString().trim();
+                var valB = (b[f.key] || '').toString().trim();
+                // Default: pick the non-empty value, or the 'keep' side
+                var defaultChoice = 'keep';
+                if (!valA && valB) defaultChoice = 'merge';
+
+                html += '<tr>';
+                html += '<td class="mw-merge-field-label">' + f.label + '</td>';
+                html += '<td class="mw-merge-radio-cell"><label>';
+                html += '<input type="radio" name="merge_' + f.key + '" value="keep"' + (defaultChoice === 'keep' ? ' checked' : '') + '> ';
+                html += valA ? escHtml(valA) : '<span class="mw-merge-value-empty">empty</span>';
+                html += '</label></td>';
+                html += '<td class="mw-merge-radio-cell"><label>';
+                html += '<input type="radio" name="merge_' + f.key + '" value="merge"' + (defaultChoice === 'merge' ? ' checked' : '') + '> ';
+                html += valB ? escHtml(valB) : '<span class="mw-merge-value-empty">empty</span>';
+                html += '</label></td>';
+                html += '</tr>';
+              });
+
+              // Notes row — special handling with append option
+              var notesA = (a.notes || '').trim();
+              var notesB = (b.notes || '').trim();
+              html += '<tr>';
+              html += '<td class="mw-merge-field-label">Notes</td>';
+              html += '<td colspan="2">';
+              html += '<label class="d-block mb-1"><input type="radio" name="merge_notes" value="keep" checked> Keep notes from #' + a.id;
+              if (notesA) html += ': <em class="text-muted">' + escHtml(notesA.substring(0, 80)) + (notesA.length > 80 ? '...' : '') + '</em>';
+              html += '</label>';
+              html += '<label class="d-block mb-1"><input type="radio" name="merge_notes" value="merge"> Use notes from #' + b.id;
+              if (notesB) html += ': <em class="text-muted">' + escHtml(notesB.substring(0, 80)) + (notesB.length > 80 ? '...' : '') + '</em>';
+              html += '</label>';
+              if (notesA || notesB) {
+                html += '<label class="d-block"><input type="radio" name="merge_notes" value="append"> Append both notes together</label>';
+              }
+              html += '</td>';
+              html += '</tr>';
+
+              html += '</tbody></table>';
+
+              // Show related data summary
+              html += '<div class="row mt-3">';
+              html += '<div class="col-md-6"><div class="card"><div class="card-body p-2">';
+              html += '<small class="font-weight-bold">Contact #' + a.id + ' links:</small><br>';
+              html += '<small>Properties: ' + (a.property_addresses || 'none') + '</small><br>';
+              html += '<small>Quote requests: ' + (a.quote_request_count || 0) + '</small>';
+              html += '</div></div></div>';
+              html += '<div class="col-md-6"><div class="card"><div class="card-body p-2">';
+              html += '<small class="font-weight-bold">Contact #' + b.id + ' links:</small><br>';
+              html += '<small>Properties: ' + (b.property_addresses || 'none') + '</small><br>';
+              html += '<small>Quote requests: ' + (b.quote_request_count || 0) + '</small>';
+              html += '</div></div></div>';
+              html += '</div>';
+
+              html += '<div class="alert alert-info mt-3 mb-0"><small><strong>What happens on merge:</strong> All quote requests, properties, notes, and other records from the "Merge" contact will be reassigned to the "Keep" contact. The merged contact will be deactivated.</small></div>';
+
+              html += '</div>';
+
+              document.getElementById('mergeModalBody').innerHTML = html;
+            }
+
+            function swapMergeSides() {
+              var tmp = mergeContactA;
+              mergeContactA = mergeContactB;
+              mergeContactB = tmp;
+              mergeKeepId = parseInt(mergeContactA.id);
+              mergeMergeId = parseInt(mergeContactB.id);
+              renderMergeComparison();
+              feather.replace();
+            }
+
+            function executeMerge() {
+              if (!mergeKeepId || !mergeMergeId) return;
+
+              var fields = {};
+              var fieldKeys = ['first_name', 'last_name', 'email', 'phone', 'mobile', 'preferred_contact_method', 'notes'];
+              fieldKeys.forEach(function(key) {
+                var radios = document.querySelectorAll('input[name="merge_' + key + '"]');
+                radios.forEach(function(r) {
+                  if (r.checked) fields[key] = r.value;
+                });
+              });
+
+              if (!confirm('Are you sure you want to merge contact #' + mergeMergeId + ' into contact #' + mergeKeepId + '? This cannot be undone.')) {
+                return;
+              }
+
+              document.getElementById('mergeConfirmBtn').disabled = true;
+              document.getElementById('mergeConfirmBtn').innerHTML = '<span class="spinner-border spinner-border-sm"></span> Merging...';
+
+              fetch('api/contact-duplicates.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'merge',
+                  keep_id: mergeKeepId,
+                  merge_id: mergeMergeId,
+                  fields: fields,
+                  csrf_token: '<?php echo csrf_token(); ?>'
+                })
+              })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                if (data.success) {
+                  alert('Contacts merged successfully!');
+                  location.reload();
+                } else {
+                  alert('Merge failed: ' + (data.error || 'Unknown error'));
+                  document.getElementById('mergeConfirmBtn').disabled = false;
+                  document.getElementById('mergeConfirmBtn').innerHTML = '<i data-feather="git-merge" style="width: 14px; height: 14px;"></i> Merge Contacts';
+                  feather.replace();
+                }
+              })
+              .catch(function(err) {
+                alert('Error: ' + err.message);
+                document.getElementById('mergeConfirmBtn').disabled = false;
+                document.getElementById('mergeConfirmBtn').innerHTML = '<i data-feather="git-merge" style="width: 14px; height: 14px;"></i> Merge Contacts';
+                feather.replace();
+              });
+            }
+
+            function formatMergeDate(dateStr) {
+              if (!dateStr) return '—';
+              var d = new Date(dateStr);
+              return d.toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' });
+            }
+
+            function escHtml(str) {
+              var div = document.createElement('div');
+              div.appendChild(document.createTextNode(str));
+              return div.innerHTML;
             }
           </script>
 

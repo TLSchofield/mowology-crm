@@ -3176,6 +3176,98 @@ a:hover {
   text-decoration: none;
 }
 
+/* ── Duplicate Detection & Merge ─────────────────────────── */
+
+.mw-duplicate-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #F59E0B;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.mw-duplicate-badge:hover {
+  background: #FDE68A;
+}
+
+.mw-duplicate-badge:focus {
+  outline: 2px solid #F59E0B;
+  outline-offset: 1px;
+}
+
+.mw-merge-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mw-merge-table th {
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.mw-merge-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.mw-merge-table tr:hover td {
+  background: #f8fafb;
+}
+
+.mw-merge-field-label {
+  font-weight: 600;
+  color: #4A5568;
+  min-width: 120px;
+}
+
+.mw-merge-radio-cell {
+  min-width: 200px;
+}
+
+.mw-merge-radio-cell label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 2px 0;
+  margin: 0;
+}
+
+.mw-merge-value-empty {
+  color: #A0AEC0;
+  font-style: italic;
+}
+
+.mw-merge-swap-btn {
+  background: var(--mw-light);
+  border: 1px solid var(--mw-green);
+  color: var(--mw-green);
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mw-merge-swap-btn:hover {
+  background: var(--mw-green);
+  color: #fff;
+}
+
 /* View Mode Toggle */
 .btn-group {
   margin-bottom: 16px;
