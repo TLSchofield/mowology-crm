@@ -631,22 +631,95 @@ $activePage = 'ops-weather';
                 btn.innerHTML = '<i data-feather="play" style="width:14px;height:14px;"></i> Run Now';
                 if (typeof feather !== 'undefined') feather.replace();
 
-                if (data.success) {
-                  var msg = 'Evaluated ' + (data.evaluated || 0) + ' visits: ' +
-                    (data.ok || 0) + ' OK, ' + (data.not_ok || 0) + ' flagged, ' +
-                    (data.borderline || 0) + ' borderline, ' + (data.auto_moved || 0) + ' auto-moved';
-                  alert(msg);
-                  loadCronStatus();
-                } else {
-                  alert('Error: ' + (data.error || 'Unknown error'));
-                }
+                showCronResults(data);
+                loadCronStatus();
               })
               .catch(err => {
                 btn.disabled = false;
                 btn.innerHTML = '<i data-feather="play" style="width:14px;height:14px;"></i> Run Now';
                 if (typeof feather !== 'undefined') feather.replace();
-                alert('Error: ' + err.message);
+                showCronResults({ success: false, error: err.message });
               });
+          }
+
+          function showCronResults(data) {
+            // Remove any existing results panel
+            var existing = document.getElementById('cronResultsPanel');
+            if (existing) existing.remove();
+
+            var card = document.getElementById('cronStatusCard');
+            var panel = document.createElement('div');
+            panel.id = 'cronResultsPanel';
+            panel.style.cssText = 'margin-top:12px;border-top:1px solid #e9ecef;padding-top:12px;';
+
+            if (!data.success) {
+              panel.innerHTML = '<div class="alert alert-danger mb-0 py-2"><strong>Error:</strong> ' + escapeHtml(data.error || 'Unknown error') + (data.file ? '<br><small>' + escapeHtml(data.file) + ':' + (data.line||'') + '</small>' : '') + '</div>';
+              card.querySelector('.card-body').appendChild(panel);
+              return;
+            }
+
+            var html = '<div class="row" style="font-size:0.85rem;">';
+
+            // Visit evaluation summary
+            html += '<div class="col-md-6"><h6 style="font-size:0.9rem;margin-bottom:8px;">📋 Visit Evaluation</h6>';
+            html += '<table class="table table-sm table-borderless mb-2" style="font-size:0.85rem;">';
+            html += '<tr><td>Lookahead window</td><td><strong>' + escapeHtml(data.lookahead || '—') + '</strong></td></tr>';
+            html += '<tr><td>Total visits found</td><td><strong>' + (data.total_visits || 0) + '</strong></td></tr>';
+            html += '<tr><td>Evaluated</td><td><strong>' + (data.evaluated || 0) + '</strong></td></tr>';
+            html += '<tr><td>Skipped (already done today)</td><td>' + (data.skipped_dedup || 0) + '</td></tr>';
+            if (data.ok > 0) html += '<tr><td>OK</td><td><span class="text-success">' + data.ok + '</span></td></tr>';
+            if (data.not_ok > 0) html += '<tr><td>Flagged NOT_OK</td><td><span class="text-danger">' + data.not_ok + '</span></td></tr>';
+            if (data.borderline > 0) html += '<tr><td>Borderline</td><td><span style="color:#e68a00;">' + data.borderline + '</span></td></tr>';
+            if (data.auto_moved > 0) html += '<tr><td>Auto-rescheduled</td><td><span class="text-info">' + data.auto_moved + '</span></td></tr>';
+            html += '</table>';
+
+            // Visit errors
+            if (data.errors && data.errors.length > 0) {
+              html += '<div class="text-danger" style="font-size:0.8rem;">';
+              data.errors.forEach(function(e) { html += '⚠ ' + escapeHtml(e) + '<br>'; });
+              html += '</div>';
+            }
+            html += '</div>';
+
+            // Salt operations summary
+            html += '<div class="col-md-6"><h6 style="font-size:0.9rem;margin-bottom:8px;">❄️ Salt Operations</h6>';
+            var s = data.salt || {};
+            html += '<table class="table table-sm table-borderless mb-2" style="font-size:0.85rem;">';
+            html += '<tr><td>Salt check ran</td><td><strong>' + (s.checked ? 'Yes' : 'No') + '</strong></td></tr>';
+            html += '<tr><td>Salt days in forecast</td><td><strong>' + (s.salt_days !== undefined ? s.salt_days : '—') + '</strong></td></tr>';
+            html += '<tr><td>Alerts sent</td><td><strong>' + (s.alerts_sent || 0) + '</strong></td></tr>';
+            if (s.skipped > 0) html += '<tr><td>Skipped (dedup/quiet)</td><td>' + s.skipped + '</td></tr>';
+            html += '</table>';
+
+            if (s.forecast && s.forecast.length > 0) {
+              html += '<div style="font-size:0.8rem;margin-top:4px;">';
+              html += '<strong>Forecast vs trigger (≤ ' + (s.trigger_temp !== undefined ? s.trigger_temp : '0') + '°C):</strong><br>';
+              s.forecast.forEach(function(f) {
+                var icon = f.salt ? '❄️' : '✅';
+                html += icon + ' ' + f.date + ': low ' + f.low + '°C, ' + escapeHtml(f.condition) + '<br>';
+              });
+              html += '</div>';
+            } else if (s.salt_days === 0) {
+              html += '<div class="text-muted" style="font-size:0.8rem;">No salt days detected. Current trigger: ≤ ' + (document.getElementById('salt_trigger_temp').value || '0') + '°C. Forecast lows are above this threshold.</div>';
+            }
+
+            if (s.skipped_reason) {
+              html += '<div class="text-warning" style="font-size:0.8rem;">ℹ ' + escapeHtml(s.skipped_reason) + '</div>';
+            }
+
+            // Salt errors
+            if (s.errors && s.errors.length > 0) {
+              html += '<div class="text-danger" style="font-size:0.8rem;">';
+              s.errors.forEach(function(e) { html += '⚠ ' + escapeHtml(e) + '<br>'; });
+              html += '</div>';
+            }
+            html += '</div></div>';
+
+            // Dismiss button
+            html += '<div class="text-right mt-2"><button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById(\'cronResultsPanel\').remove()">Dismiss</button></div>';
+
+            panel.innerHTML = html;
+            card.querySelector('.card-body').appendChild(panel);
           }
 
           function toggleCronSetup() {

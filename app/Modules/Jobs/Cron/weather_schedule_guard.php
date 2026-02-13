@@ -373,6 +373,7 @@ function runSaltAlerts(PDO $db): array
 
         // Determine which days need salting
         $saltDays = [];
+        $forecastSummary = [];
         foreach ($weekForecast as $date => $day) {
             $low = (float)($day['temp_low'] ?? 99);
             $cond = strtolower($day['condition'] ?? '');
@@ -382,10 +383,21 @@ function runSaltAlerts(PDO $db): array
             if (!$needsSalt && $checkFreezing && strpos($cond, 'freezing') !== false) $needsSalt = true;
             if (!$needsSalt && $checkIce && strpos($cond, 'ice') !== false) $needsSalt = true;
 
+            $forecastSummary[] = [
+                'date' => $date,
+                'low' => $low,
+                'high' => (float)($day['temp_high'] ?? 0),
+                'condition' => $day['condition'] ?? 'Unknown',
+                'salt' => $needsSalt,
+            ];
+
             if ($needsSalt) {
                 $saltDays[$date] = $day;
             }
         }
+
+        $saltResults['trigger_temp'] = $triggerTemp;
+        $saltResults['forecast'] = $forecastSummary;
 
         if (empty($saltDays)) {
             $saltResults['salt_days'] = 0;
