@@ -416,7 +416,7 @@ function mp_renderResponsiveImage(int $mediaId, array $media, ?string $alt = nul
         $html .= '<source type="image/webp" srcset="';
         $srcset = [];
         foreach ($sizes as $width => $path) {
-            $srcset[] = "$path ${width}w";
+            $srcset[] = "{$path} {$width}w";
         }
         $html .= implode(', ', $srcset) . '">';
     }
@@ -428,7 +428,7 @@ function mp_renderResponsiveImage(int $mediaId, array $media, ?string $alt = nul
         foreach ($sizes as $width => $path) {
             // Convert webp path back to jpg
             $jpgPath = str_replace('.webp', '.jpg', $path);
-            $srcset[] = "$jpgPath ${width}w";
+            $srcset[] = "{$jpgPath} {$width}w";
         }
         $html .= implode(', ', $srcset) . '">';
     }
