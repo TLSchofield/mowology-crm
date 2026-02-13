@@ -62,45 +62,49 @@
 
     // ── Render States ──
 
+    // Inline SVG icons — no dependency on feather-icons loading
+    var SVG_PLAY = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>';
+    var SVG_STOP = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>';
+    var SVG_CLOCK = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+    var SVG_NAV = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>';
+
     function renderClockedOut() {
         stopTimer();
         stopTracking();
         widget.innerHTML =
             '<button class="mw-clock-btn mw-clock-in" id="btnClockIn" title="Clock In">' +
-                '<i data-feather="play-circle"></i>' +
+                SVG_PLAY +
                 '<span class="mw-clock-label">Clock In</span>' +
             '</button>';
-        activateFeather();
         document.getElementById('btnClockIn').addEventListener('click', doClockIn);
     }
 
     function renderClockedIn(elapsedSeconds, activeJob) {
         var html =
             '<div class="mw-clock-active">' +
-                '<i data-feather="clock" class="mw-clock-icon-pulse"></i>' +
+                '<span class="mw-clock-icon-pulse">' + SVG_CLOCK + '</span>' +
                 '<span class="mw-clock-timer" id="clockTimer">' + formatSeconds(elapsedSeconds) + '</span>';
 
         if (activeJob) {
             html += '<span class="mw-clock-job-badge" title="' + escapeHtml(activeJob.job_title || '') + '">' +
-                        '<i data-feather="briefcase"></i> ' + escapeHtml(activeJob.job_number || '') +
+                        escapeHtml(activeJob.job_number || '') +
                     '</span>';
         }
 
         // GPS tracking indicator
         if (trackingEnabled) {
             html += '<span class="mw-tracking-indicator" id="trackingIndicator" title="GPS tracking active">' +
-                        '<i data-feather="navigation"></i>' +
+                        SVG_NAV +
                     '</span>';
         }
 
         html +=     '<button class="mw-clock-btn mw-clock-out" id="btnClockOut" title="Clock Out">' +
-                        '<i data-feather="square"></i>' +
+                        SVG_STOP +
                         '<span class="mw-clock-label">Out</span>' +
                     '</button>' +
                 '</div>';
 
         widget.innerHTML = html;
-        activateFeather();
         document.getElementById('btnClockOut').addEventListener('click', doClockOut);
         startTimer(elapsedSeconds);
     }
