@@ -407,6 +407,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $messageType = 'error';
                 }
             }
+        } elseif ($action === 'update_contact') {
+            $contactId = intval($_POST['contact_id'] ?? 0);
+            if ($contactId) {
+                $firstName = trim($_POST['first_name'] ?? '');
+                $lastName = trim($_POST['last_name'] ?? '');
+                $email = trim($_POST['email'] ?? '');
+                $phone = trim($_POST['phone'] ?? '');
+                $mobile = trim($_POST['mobile'] ?? '');
+                $preferredContact = $_POST['preferred_contact_method'] ?? 'phone';
+                $receiveSms = isset($_POST['receive_sms']) ? 1 : 0;
+                $receiveMarketing = isset($_POST['receive_marketing']) ? 1 : 0;
+                $consentQuoteFollowup = isset($_POST['consent_quote_followup']) ? 1 : 0;
+                $notes = trim($_POST['notes'] ?? '');
+
+                if (empty($firstName)) {
+                    $message = 'Please enter a first name.';
+                    $messageType = 'error';
+                    $action = 'edit_contact';
+                    $clientId = $contactId;
+                } else {
+                    try {
+                        $stmt = $db->prepare("
+                            UPDATE contacts SET
+                                first_name = ?, last_name = ?, email = ?, phone = ?, mobile = ?,
+                                preferred_contact_method = ?, receive_sms = ?, receive_marketing = ?,
+                                consent_quote_followup = ?, notes = ?
+                            WHERE id = ?
+                        ");
+                        $stmt->execute([
+                            $firstName, $lastName, $email, $phone, $mobile,
+                            $preferredContact, $receiveSms, $receiveMarketing,
+                            $consentQuoteFollowup, $notes, $contactId
+                        ]);
+                        $message = 'Contact updated successfully!';
+                        $messageType = 'success';
+                        $action = null;
+                    } catch (PDOException $e) {
+                        $errorHandler->logDatabaseError($e, '', [], 'Failed to update contact.');
+                        $message = 'Failed to update contact. Please try again.';
+                        $messageType = 'error';
+                        $action = 'edit_contact';
+                        $clientId = $contactId;
+                    }
+                }
+            }
         }
     }
 }
@@ -417,6 +462,19 @@ if ($action === 'edit' && $clientId) {
     $stmt = $db->prepare("SELECT * FROM companies WHERE id = ?");
     $stmt->execute([$clientId]);
     $client = $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+// Get contact data if editing a contact
+$contact = null;
+if ($action === 'edit_contact' && $clientId) {
+    $stmt = $db->prepare("SELECT * FROM contacts WHERE id = ?");
+    $stmt->execute([$clientId]);
+    $contact = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$contact) {
+        $message = 'Contact not found.';
+        $messageType = 'error';
+        $action = null;
+    }
 }
 
 // Get all clients and prospects
@@ -790,6 +848,121 @@ $unconvertedRequests = $db->query("
               </div>
             </form>
 
+          <?php elseif ($action === 'edit_contact' && $contact): ?>
+            <!-- Edit Contact Form -->
+            <form method="POST" id="editContactForm">
+              <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
+              <input type="hidden" name="action" value="update_contact">
+              <input type="hidden" name="contact_id" value="<?php echo (int)$contact['id']; ?>">
+
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="user"></i> Edit Contact</h5>
+                </div>
+                <div class="card-body">
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>First Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="first_name" required
+                          value="<?php echo h($_POST['first_name'] ?? $contact['first_name'] ?? ''); ?>">
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Last Name</label>
+                        <input type="text" class="form-control" name="last_name"
+                          value="<?php echo h($_POST['last_name'] ?? $contact['last_name'] ?? ''); ?>">
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" class="form-control" name="email"
+                          value="<?php echo h($_POST['email'] ?? $contact['email'] ?? ''); ?>">
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Phone</label>
+                        <input type="tel" class="form-control" name="phone"
+                          value="<?php echo h($_POST['phone'] ?? $contact['phone'] ?? ''); ?>">
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Cell / Mobile</label>
+                        <input type="tel" class="form-control" name="mobile"
+                          value="<?php echo h($_POST['mobile'] ?? $contact['mobile'] ?? ''); ?>">
+                        <small class="form-text text-muted">Used for SMS notifications</small>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="form-group mb-0">
+                    <label>Notes</label>
+                    <textarea class="form-control" name="notes" rows="2"><?php echo h($_POST['notes'] ?? $contact['notes'] ?? ''); ?></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="message-circle"></i> Communication Preferences</h5>
+                </div>
+                <div class="card-body">
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Preferred Contact Method</label>
+                        <select class="form-control" name="preferred_contact_method">
+                          <?php $pref = $_POST['preferred_contact_method'] ?? $contact['preferred_contact_method'] ?? 'phone'; ?>
+                          <option value="phone" <?php echo $pref === 'phone' ? 'selected' : ''; ?>>Phone</option>
+                          <option value="email" <?php echo $pref === 'email' ? 'selected' : ''; ?>>Email</option>
+                          <option value="text" <?php echo $pref === 'text' ? 'selected' : ''; ?>>Text / SMS</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mw-comm-prefs">
+                    <div class="custom-control custom-checkbox">
+                      <input type="checkbox" class="custom-control-input" id="receiveSms" name="receive_sms"
+                        <?php echo (!empty($_POST['receive_sms']) || (!isset($_POST['action']) && !empty($contact['receive_sms']))) ? 'checked' : ''; ?>>
+                      <label class="custom-control-label" for="receiveSms">
+                        OK to send SMS notifications
+                      </label>
+                    </div>
+                    <div class="custom-control custom-checkbox">
+                      <input type="checkbox" class="custom-control-input" id="receiveMarketing" name="receive_marketing"
+                        <?php echo (!empty($_POST['receive_marketing']) || (!isset($_POST['action']) && !empty($contact['receive_marketing']))) ? 'checked' : ''; ?>>
+                      <label class="custom-control-label" for="receiveMarketing">
+                        OK to send marketing emails
+                      </label>
+                    </div>
+                    <div class="custom-control custom-checkbox">
+                      <input type="checkbox" class="custom-control-input" id="consentQuoteFollowup" name="consent_quote_followup"
+                        <?php echo (!empty($_POST['consent_quote_followup']) || (!isset($_POST['action']) && !empty($contact['consent_quote_followup']))) ? 'checked' : ''; ?>>
+                      <label class="custom-control-label" for="consentQuoteFollowup">
+                        Consent to quote follow-up
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group mt-3">
+                <button type="submit" class="btn btn-primary btn-lg">
+                  <i data-feather="save"></i> Update Contact
+                </button>
+                <a href="clients_appstack.php" class="btn btn-secondary btn-lg ml-2">
+                  <i data-feather="x"></i> Cancel
+                </a>
+              </div>
+            </form>
+
           <?php else: ?>
             <!-- View Toggle -->
             <div class="mb-3 d-flex justify-content-between align-items-center">
@@ -877,56 +1050,57 @@ $unconvertedRequests = $db->query("
                   <div class="mw-kanban-cards" data-stage="<?php echo h($stage['stage_key']); ?>">
                     <?php foreach ($stagesData[$stage['stage_key']]['companies'] ?? [] as $company): ?>
                       <div class="mw-kanban-card" draggable="true" data-company-id="<?php echo (int)$company['id']; ?>" data-company-name="<?php echo h($company['company_name']); ?>">
-                        <div class="mw-card-header">
-                          <strong><?php echo h($company['company_name']); ?></strong>
-                        </div>
-                        <div class="mw-card-body">
-                          <small class="text-muted d-block">
-                            <i data-feather="mail" style="width: 14px; height: 14px;"></i>
-                            <?php echo h($company['billing_email'] ?? '—'); ?>
-                          </small>
-                          <small class="text-muted d-block mt-1">
-                            <i data-feather="home" style="width: 14px; height: 14px;"></i>
-                            <?php echo ucwords(str_replace('_', ' ', $company['company_type'])); ?>
-                          </small>
-                          <small class="text-muted d-block mt-1">
-                            <i data-feather="calendar" style="width: 14px; height: 14px;"></i>
-                            <?php echo formatDate($company['created_at']); ?>
-                          </small>
-                        </div>
+                        <a href="?action=edit&id=<?php echo (int)$company['id']; ?>" class="mw-card-link">
+                          <div class="mw-card-header">
+                            <strong><?php echo h($company['company_name']); ?></strong>
+                          </div>
+                          <div class="mw-card-body">
+                            <small class="text-muted d-block">
+                              <i data-feather="mail" style="width: 14px; height: 14px;"></i>
+                              <?php echo h($company['billing_email'] ?? '—'); ?>
+                            </small>
+                            <small class="text-muted d-block mt-1">
+                              <i data-feather="home" style="width: 14px; height: 14px;"></i>
+                              <?php echo ucwords(str_replace('_', ' ', $company['company_type'])); ?>
+                            </small>
+                            <small class="text-muted d-block mt-1">
+                              <i data-feather="calendar" style="width: 14px; height: 14px;"></i>
+                              <?php echo formatDate($company['created_at']); ?>
+                            </small>
+                          </div>
+                        </a>
                         <div class="mw-card-actions mt-2 pt-2 border-top">
                           <a href="?action=edit&id=<?php echo (int)$company['id']; ?>" class="btn btn-sm btn-outline-primary" title="Edit">
                             <i data-feather="edit-2"></i>
                           </a>
-                          <button class="btn btn-sm btn-outline-secondary" onclick="showCompanyDetails(<?php echo (int)$company['id']; ?>, '<?php echo h(addslashes($company['company_name'])); ?>')" title="View">
-                            <i data-feather="eye"></i>
-                          </button>
                         </div>
                       </div>
                     <?php endforeach; ?>
 
                     <?php foreach ($stagesData[$stage['stage_key']]['contacts'] ?? [] as $contact): ?>
                       <div class="mw-kanban-card" draggable="true" data-contact-id="<?php echo (int)$contact['id']; ?>" data-company-name="<?php echo h(trim($contact['first_name'] . ' ' . $contact['last_name'])); ?>" style="border-left: 3px solid var(--mw-orange);">
-                        <div class="mw-card-header">
-                          <strong><?php echo h(trim($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))); ?></strong>
-                          <span class="badge badge-light ml-1" style="font-size: 0.65rem;">Contact</span>
-                        </div>
-                        <div class="mw-card-body">
-                          <small class="text-muted d-block">
-                            <i data-feather="mail" style="width: 14px; height: 14px;"></i>
-                            <?php echo h($contact['email'] ?? '—'); ?>
-                          </small>
-                          <?php if (!empty($contact['phone'])): ?>
-                          <small class="text-muted d-block mt-1">
-                            <i data-feather="phone" style="width: 14px; height: 14px;"></i>
-                            <?php echo h($contact['phone']); ?>
-                          </small>
-                          <?php endif; ?>
-                          <small class="text-muted d-block mt-1">
-                            <i data-feather="calendar" style="width: 14px; height: 14px;"></i>
-                            <?php echo formatDate($contact['created_at']); ?>
-                          </small>
-                        </div>
+                        <a href="?action=edit_contact&id=<?php echo (int)$contact['id']; ?>" class="mw-card-link">
+                          <div class="mw-card-header">
+                            <strong><?php echo h(trim($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))); ?></strong>
+                            <span class="badge badge-light ml-1" style="font-size: 0.65rem;">Contact</span>
+                          </div>
+                          <div class="mw-card-body">
+                            <small class="text-muted d-block">
+                              <i data-feather="mail" style="width: 14px; height: 14px;"></i>
+                              <?php echo h($contact['email'] ?? '—'); ?>
+                            </small>
+                            <?php if (!empty($contact['phone'])): ?>
+                            <small class="text-muted d-block mt-1">
+                              <i data-feather="phone" style="width: 14px; height: 14px;"></i>
+                              <?php echo h($contact['phone']); ?>
+                            </small>
+                            <?php endif; ?>
+                            <small class="text-muted d-block mt-1">
+                              <i data-feather="calendar" style="width: 14px; height: 14px;"></i>
+                              <?php echo formatDate($contact['created_at']); ?>
+                            </small>
+                          </div>
+                        </a>
                       </div>
                     <?php endforeach; ?>
                   </div>
@@ -974,7 +1148,9 @@ $unconvertedRequests = $db->query("
                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$c['id']; ?>">
                             </td>
                             <td>
-                              <strong><?php echo h($c['company_name']); ?></strong>
+                              <a href="?action=edit&id=<?php echo (int)$c['id']; ?>" class="mw-client-name-link">
+                                <strong><?php echo h($c['company_name']); ?></strong>
+                              </a>
                               <?php if ($c['source_type'] === 'prospect'): ?>
                                 <br><small class="text-warning">🔵 Prospect</small>
                               <?php endif; ?>
@@ -1039,7 +1215,9 @@ $unconvertedRequests = $db->query("
                           <?php foreach ($standaloneContacts as $ct): ?>
                           <tr>
                             <td>
-                              <strong><?php echo h(trim($ct['first_name'] . ' ' . ($ct['last_name'] ?? ''))); ?></strong>
+                              <a href="?action=edit_contact&id=<?php echo (int)$ct['id']; ?>" class="mw-client-name-link">
+                                <strong><?php echo h(trim($ct['first_name'] . ' ' . ($ct['last_name'] ?? ''))); ?></strong>
+                              </a>
                             </td>
                             <td><?php echo h($ct['email'] ?? '—'); ?></td>
                             <td><?php echo h($ct['phone'] ?? '—'); ?></td>
@@ -1456,11 +1634,6 @@ $unconvertedRequests = $db->query("
                 }
               })
               .catch(err => alert('Error: ' + err.message));
-            }
-
-            function showCompanyDetails(companyId, companyName) {
-              // Placeholder for company details modal - can be expanded
-              alert('Company: ' + companyName + '\nID: ' + companyId);
             }
 
             // Company toggle and mode switching
