@@ -270,6 +270,130 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             echo json_encode(['success' => false, 'error' => 'Failed to convert prospect']);
             exit;
         }
+
+    } elseif ($requestAction === 'add_property_to_contact') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $contactId = intval($jsonData['contact_id'] ?? 0);
+        $address = trim($jsonData['address'] ?? '');
+        $city = trim($jsonData['city'] ?? 'Vancouver');
+        $postalCode = trim($jsonData['postal_code'] ?? '');
+        $propertyName = trim($jsonData['property_name'] ?? '');
+
+        if (!$contactId || empty($address)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Contact ID and address are required']);
+            exit;
+        }
+
+        try {
+            // Check if property with this address already exists
+            $checkStmt = $db->prepare("SELECT id, site_contact_id FROM properties WHERE address = ? LIMIT 1");
+            $checkStmt->execute([$address]);
+            $existingProp = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($existingProp) {
+                // Link existing property to this contact if not already linked
+                if (empty($existingProp['site_contact_id'])) {
+                    $db->prepare("UPDATE properties SET site_contact_id = ? WHERE id = ?")
+                       ->execute([$contactId, $existingProp['id']]);
+                }
+                echo json_encode(['success' => true, 'property_id' => (int)$existingProp['id'], 'linked_existing' => true]);
+            } else {
+                // Auto-generate property_name if empty
+                if (empty($propertyName)) {
+                    $contactStmt = $db->prepare("SELECT first_name, last_name FROM contacts WHERE id = ?");
+                    $contactStmt->execute([$contactId]);
+                    $ct = $contactStmt->fetch(PDO::FETCH_ASSOC);
+                    $propertyName = trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? '')) . ' Property';
+                }
+
+                $stmt = $db->prepare("
+                    INSERT INTO properties (property_name, address, city, province, postal_code, site_contact_id, status)
+                    VALUES (?, ?, ?, 'BC', ?, ?, 'active')
+                ");
+                $stmt->execute([$propertyName, $address, $city, $postalCode, $contactId]);
+                $newPropId = (int)$db->lastInsertId();
+                echo json_encode(['success' => true, 'property_id' => $newPropId, 'linked_existing' => false]);
+            }
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Failed to add property']);
+        }
+        exit;
+
+    } elseif ($requestAction === 'link_company_to_contact') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $contactId = intval($jsonData['contact_id'] ?? 0);
+        $companyId = intval($jsonData['company_id'] ?? 0);
+
+        if (!$contactId || !$companyId) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid contact or company']);
+            exit;
+        }
+
+        try {
+            $stmt = $db->prepare("UPDATE companies SET primary_contact_id = ?, billing_contact_id = ? WHERE id = ?");
+            $stmt->execute([$contactId, $contactId, $companyId]);
+            echo json_encode(['success' => true]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Failed to link company']);
+        }
+        exit;
+
+    } elseif ($requestAction === 'geocode_property') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $propertyId = intval($jsonData['property_id'] ?? 0);
+        if (!$propertyId) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid property']);
+            exit;
+        }
+
+        try {
+            $stmt = $db->prepare("SELECT address, city, province, postal_code FROM properties WHERE id = ?");
+            $stmt->execute([$propertyId]);
+            $prop = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$prop) throw new Exception('Property not found');
+
+            $fullAddress = $prop['address'] . ', ' . ($prop['city'] ?: 'Vancouver') . ', ' . ($prop['province'] ?: 'BC') . ' ' . ($prop['postal_code'] ?: '') . ', Canada';
+            $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+            if (!$apiKey) throw new Exception('Google Maps API key not configured');
+
+            $url = 'https://maps.googleapis.com/maps/api/geocode/json?' . http_build_query(['address' => $fullAddress, 'key' => $apiKey]);
+            $context = stream_context_create(['http' => ['timeout' => 5]]);
+            $response = @file_get_contents($url, false, $context);
+            $data = json_decode($response, true);
+
+            if ($data['status'] === 'OK' && !empty($data['results'])) {
+                $location = $data['results'][0]['geometry']['location'];
+                $db->prepare("UPDATE properties SET latitude = ?, longitude = ?, geocoded_at = NOW() WHERE id = ?")
+                   ->execute([$location['lat'], $location['lng'], $propertyId]);
+                echo json_encode(['success' => true, 'lat' => $location['lat'], 'lng' => $location['lng']]);
+            } else {
+                echo json_encode(['success' => false, 'error' => 'Could not geocode address']);
+            }
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Geocoding failed']);
+        }
+        exit;
     }
 }
 
@@ -506,6 +630,61 @@ if ($action === 'edit_contact' && $clientId) {
     }
 }
 
+// Get contact data if viewing a contact (read-only profile page)
+$viewContact = null;
+$contactProperties = [];
+$contactCompany = null;
+if ($action === 'view_contact' && $clientId) {
+    $stmt = $db->prepare("SELECT * FROM contacts WHERE id = ?");
+    $stmt->execute([$clientId]);
+    $viewContact = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$viewContact) {
+        $message = 'Contact not found.';
+        $messageType = 'error';
+        $action = null;
+    } else {
+        // Fetch properties linked via site_contact_id
+        $stmt = $db->prepare("
+            SELECT p.id, p.property_name, p.address, p.city, p.province,
+                   p.postal_code, p.latitude, p.longitude, p.property_type,
+                   p.lot_size_sqft, p.status, p.notes
+            FROM properties p
+            WHERE p.site_contact_id = ?
+            ORDER BY p.address ASC
+        ");
+        $stmt->execute([$clientId]);
+        $contactProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Check if contact is linked to a company (as primary or billing contact)
+        try {
+            $stmt = $db->prepare("
+                SELECT c.id, c.company_name, c.company_type, c.billing_email,
+                       c.billing_phone, c.account_status
+                FROM companies c
+                WHERE c.primary_contact_id = ? OR c.billing_contact_id = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$clientId, $clientId]);
+            $contactCompany = $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            // billing_contact_id may not exist yet
+            $contactCompany = null;
+        }
+
+        // Load Google Maps API
+        $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+        if ($apiKey) {
+            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry" defer></script>';
+        }
+    }
+}
+
+// Fetch companies list for link-company dropdown (used in view_contact and new action)
+$existingCompaniesForLink = [];
+if ($action === 'view_contact' || $action === 'new') {
+    $existingCompaniesForLink = $db->query("SELECT id, company_name, company_type FROM companies ORDER BY company_name")->fetchAll(PDO::FETCH_ASSOC);
+}
+
 // Get all clients and prospects
 // Prospects are created from quote_requests
 $clients = $db->query("
@@ -612,7 +791,7 @@ $unconvertedRequests = $db->query("
 
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h1 class="h3 mb-0">Client Management</h1>
-            <?php if ($action !== 'edit' && $action !== 'new'): ?>
+            <?php if (!in_array($action, ['edit', 'new', 'view_contact', 'edit_contact'])): ?>
               <button class="btn btn-primary" onclick="location.href='?action=new'">
                 <i data-feather="plus"></i> Add New Client
               </button>
@@ -1034,6 +1213,487 @@ $unconvertedRequests = $db->query("
               </div>
             </form>
 
+          <?php elseif ($action === 'view_contact' && $viewContact): ?>
+            <!-- View Contact Profile -->
+            <?php
+              $contactName = trim(h($viewContact['first_name'] . ' ' . ($viewContact['last_name'] ?? '')));
+              $geocodedCount = 0;
+              $ungeocodedCount = 0;
+              foreach ($contactProperties as $p) {
+                  if (!empty($p['latitude']) && !empty($p['longitude'])) $geocodedCount++;
+                  else $ungeocodedCount++;
+              }
+            ?>
+
+            <!-- Header -->
+            <div class="mw-contact-header">
+              <div>
+                <h3 class="mw-contact-name">
+                  <i data-feather="user" style="width: 24px; height: 24px;"></i>
+                  <?php echo $contactName; ?>
+                </h3>
+                <?php
+                  $stage = $viewContact['prospect_status'] ?? 'prospect';
+                  $stageColors = ['prospect' => '#3B82F6', 'client' => '#2D8659', 'inactive' => '#6B7280'];
+                  $stageColor = $stageColors[$stage] ?? '#6B7280';
+                ?>
+                <span class="badge ml-2" style="background: <?php echo $stageColor; ?>; color: #fff; font-size: 0.75rem;">
+                  <?php echo ucfirst(h($stage)); ?>
+                </span>
+              </div>
+              <div class="mw-contact-actions">
+                <a href="?action=edit_contact&id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-primary">
+                  <i data-feather="edit-2"></i> Edit
+                </a>
+                <a href="clients_appstack.php" class="btn btn-secondary">
+                  <i data-feather="arrow-left"></i> Back
+                </a>
+              </div>
+            </div>
+
+            <div class="row">
+              <!-- Left Column -->
+              <div class="col-lg-7">
+
+                <!-- Contact Details Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="info"></i> Contact Details</h5>
+                  </div>
+                  <div class="card-body">
+                    <div class="row mb-2">
+                      <div class="col-sm-3 text-muted">Name</div>
+                      <div class="col-sm-9"><strong><?php echo $contactName; ?></strong></div>
+                    </div>
+                    <?php if (!empty($viewContact['email'])): ?>
+                    <div class="row mb-2">
+                      <div class="col-sm-3 text-muted">Email</div>
+                      <div class="col-sm-9"><a href="mailto:<?php echo h($viewContact['email']); ?>"><?php echo h($viewContact['email']); ?></a></div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if (!empty($viewContact['phone'])): ?>
+                    <div class="row mb-2">
+                      <div class="col-sm-3 text-muted">Phone</div>
+                      <div class="col-sm-9"><a href="tel:<?php echo h($viewContact['phone']); ?>"><?php echo h($viewContact['phone']); ?></a></div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if (!empty($viewContact['mobile'])): ?>
+                    <div class="row mb-2">
+                      <div class="col-sm-3 text-muted">Mobile</div>
+                      <div class="col-sm-9"><a href="tel:<?php echo h($viewContact['mobile']); ?>"><?php echo h($viewContact['mobile']); ?></a></div>
+                    </div>
+                    <?php endif; ?>
+                    <div class="row mb-2">
+                      <div class="col-sm-3 text-muted">Preferred</div>
+                      <div class="col-sm-9"><?php echo ucfirst(h($viewContact['preferred_contact_method'] ?? 'phone')); ?></div>
+                    </div>
+
+                    <!-- Communication Preferences -->
+                    <div class="row mb-2">
+                      <div class="col-sm-3 text-muted">Preferences</div>
+                      <div class="col-sm-9">
+                        <span class="mw-contact-pref-badge <?php echo !empty($viewContact['receive_sms']) ? 'active' : 'inactive'; ?>">
+                          <i data-feather="message-square" style="width: 12px; height: 12px;"></i> SMS
+                        </span>
+                        <span class="mw-contact-pref-badge <?php echo !empty($viewContact['receive_marketing']) ? 'active' : 'inactive'; ?>">
+                          <i data-feather="mail" style="width: 12px; height: 12px;"></i> Marketing
+                        </span>
+                        <span class="mw-contact-pref-badge <?php echo !empty($viewContact['consent_quote_followup']) ? 'active' : 'inactive'; ?>">
+                          <i data-feather="check-circle" style="width: 12px; height: 12px;"></i> Follow-up
+                        </span>
+                      </div>
+                    </div>
+
+                    <?php if (!empty($viewContact['notes'])): ?>
+                    <div class="row mb-0">
+                      <div class="col-sm-3 text-muted">Notes</div>
+                      <div class="col-sm-9"><span class="text-muted"><?php echo nl2br(h($viewContact['notes'])); ?></span></div>
+                    </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Properties Card -->
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="map-pin"></i> Properties
+                      <span class="badge badge-primary ml-1"><?php echo count($contactProperties); ?></span>
+                    </h5>
+                    <button type="button" class="btn btn-sm btn-success" data-toggle="modal" data-target="#addPropertyModal">
+                      <i data-feather="plus"></i> Add Property
+                    </button>
+                  </div>
+                  <div class="card-body">
+                    <?php if (empty($contactProperties)): ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="map" style="width: 36px; height: 36px;"></i>
+                        <p class="mt-2 mb-0">No properties linked yet.</p>
+                        <small>Add a property address to enable scheduling and quoting.</small>
+                      </div>
+                    <?php else: ?>
+                      <?php foreach ($contactProperties as $prop): ?>
+                        <div class="mw-contact-property-item" onclick="focusProperty(<?php echo (int)$prop['id']; ?>)">
+                          <div>
+                            <div class="mw-contact-property-addr">
+                              <i data-feather="home" style="width: 14px; height: 14px;"></i>
+                              <?php echo h($prop['address']); ?>
+                            </div>
+                            <div class="mw-contact-property-meta">
+                              <?php echo h($prop['city'] ?? ''); ?><?php echo !empty($prop['province']) ? ', ' . h($prop['province']) : ''; ?> <?php echo h($prop['postal_code'] ?? ''); ?>
+                              <?php if (!empty($prop['property_type'])): ?>
+                                &middot; <?php echo ucwords(str_replace('_', ' ', $prop['property_type'])); ?>
+                              <?php endif; ?>
+                            </div>
+                          </div>
+                          <div>
+                            <?php if (empty($prop['latitude']) || empty($prop['longitude'])): ?>
+                              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); geocodeProperty(<?php echo (int)$prop['id']; ?>, this)" title="Geocode this address">
+                                <i data-feather="crosshair" style="width: 12px; height: 12px;"></i>
+                              </button>
+                            <?php else: ?>
+                              <span class="text-success" title="Geocoded"><i data-feather="check-circle" style="width: 14px; height: 14px;"></i></span>
+                            <?php endif; ?>
+                          </div>
+                        </div>
+                      <?php endforeach; ?>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Company Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="briefcase"></i> Company</h5>
+                  </div>
+                  <div class="card-body">
+                    <?php if ($contactCompany): ?>
+                      <div class="mw-contact-company-link">
+                        <div>
+                          <div class="mw-contact-company-name">
+                            <a href="?action=edit&id=<?php echo (int)$contactCompany['id']; ?>">
+                              <?php echo h($contactCompany['company_name']); ?>
+                            </a>
+                          </div>
+                          <small class="text-muted">
+                            <?php echo ucwords(str_replace('_', ' ', $contactCompany['company_type'] ?? '')); ?>
+                            <?php if (!empty($contactCompany['billing_email'])): ?>
+                              &middot; <?php echo h($contactCompany['billing_email']); ?>
+                            <?php endif; ?>
+                            &middot; <?php echo ucfirst($contactCompany['account_status'] ?? 'active'); ?>
+                          </small>
+                        </div>
+                      </div>
+                    <?php else: ?>
+                      <div class="d-flex align-items-center gap-2">
+                        <select class="form-control form-control-sm mr-2" id="linkCompanySelect" style="max-width: 300px;">
+                          <option value="">-- Select a company --</option>
+                          <?php foreach ($existingCompaniesForLink as $comp): ?>
+                            <option value="<?php echo (int)$comp['id']; ?>">
+                              <?php echo h($comp['company_name']); ?> (<?php echo ucwords(str_replace('_', ' ', $comp['company_type'])); ?>)
+                            </option>
+                          <?php endforeach; ?>
+                        </select>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="linkCompanyToContact()">
+                          <i data-feather="link"></i> Link
+                        </button>
+                      </div>
+                      <?php if (empty($existingCompaniesForLink)): ?>
+                        <small class="text-muted mt-2 d-block">No companies exist yet. Create one from the client list first.</small>
+                      <?php endif; ?>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+              </div><!-- end left col -->
+
+              <!-- Right Column: Map -->
+              <div class="col-lg-5">
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="map"></i> Property Map</h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <?php if (!empty($contactProperties) && $geocodedCount > 0): ?>
+                      <div id="contactMapContainer" class="mw-contact-map-container"></div>
+                      <?php if ($ungeocodedCount > 0): ?>
+                        <div class="p-2 text-center">
+                          <small class="text-muted"><?php echo $ungeocodedCount; ?> propert<?php echo $ungeocodedCount === 1 ? 'y needs' : 'ies need'; ?> geocoding</small>
+                        </div>
+                      <?php endif; ?>
+                    <?php else: ?>
+                      <div class="mw-contact-map-empty">
+                        <i data-feather="map-pin" style="width: 36px; height: 36px;"></i>
+                        <?php if (empty($contactProperties)): ?>
+                          <p class="mb-0">Add a property to see it on the map</p>
+                        <?php else: ?>
+                          <p class="mb-0">Properties need geocoding to show on the map</p>
+                          <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="geocodeAllProperties()">
+                            <i data-feather="crosshair"></i> Geocode All
+                          </button>
+                        <?php endif; ?>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+              </div><!-- end right col -->
+            </div><!-- end row -->
+
+            <!-- Add Property Modal -->
+            <div class="modal fade" id="addPropertyModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                  <div class="modal-header" style="background: var(--mw-green); color: #fff;">
+                    <h5 class="modal-title"><i data-feather="plus-circle" style="width: 18px; height: 18px;"></i> Add Property</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                      <span aria-hidden="true">&times;</span>
+                    </button>
+                  </div>
+                  <form onsubmit="addPropertyToContact(event)">
+                    <div class="modal-body">
+                      <div class="form-group">
+                        <label>Street Address <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="propAddress" required placeholder="e.g. 123 Main Street">
+                      </div>
+                      <div class="row">
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>City</label>
+                            <input type="text" class="form-control" id="propCity" value="Vancouver">
+                          </div>
+                        </div>
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>Postal Code</label>
+                            <input type="text" class="form-control" id="propPostalCode" placeholder="V5K 1A1">
+                          </div>
+                        </div>
+                      </div>
+                      <div class="form-group mb-0">
+                        <label>Property Name <small class="text-muted">(optional, auto-generated if blank)</small></label>
+                        <input type="text" class="form-control" id="propName" placeholder="e.g. Main Residence">
+                      </div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                      <button type="submit" class="btn btn-success" id="addPropBtn">
+                        <i data-feather="plus"></i> Add Property
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <script>
+            (function() {
+              var CONTACT_ID = <?php echo (int)$viewContact['id']; ?>;
+              var CSRF_TOKEN = '<?php echo csrf_token(); ?>';
+              var propertiesData = <?php echo json_encode($contactProperties); ?>;
+              var gmap = null;
+              var markers = {};
+
+              // ── Google Map ──────────────────────────────────────
+              function initContactMap() {
+                var mapEl = document.getElementById('contactMapContainer');
+                if (!mapEl) return;
+                if (typeof google === 'undefined' || typeof google.maps === 'undefined') return;
+
+                var bounds = new google.maps.LatLngBounds();
+                var hasMarkers = false;
+
+                gmap = new google.maps.Map(mapEl, {
+                  zoom: 12,
+                  center: { lat: 49.2827, lng: -123.1207 },
+                  mapTypeId: google.maps.MapTypeId.ROADMAP,
+                  mapTypeControl: false,
+                  streetViewControl: false
+                });
+
+                propertiesData.forEach(function(prop) {
+                  if (!prop.latitude || !prop.longitude) return;
+                  var lat = parseFloat(prop.latitude);
+                  var lng = parseFloat(prop.longitude);
+                  if (isNaN(lat) || isNaN(lng)) return;
+
+                  var pos = { lat: lat, lng: lng };
+                  var marker = new google.maps.Marker({
+                    position: pos,
+                    map: gmap,
+                    title: prop.address
+                  });
+
+                  var infoContent = '<div style="max-width: 250px;">' +
+                    '<strong>' + escHtml(prop.address) + '</strong><br>' +
+                    '<small>' + escHtml((prop.city || '') + (prop.province ? ', ' + prop.province : '') + ' ' + (prop.postal_code || '')) + '</small>' +
+                    '</div>';
+                  var infoWindow = new google.maps.InfoWindow({ content: infoContent });
+                  marker.addListener('click', function() { infoWindow.open(gmap, marker); });
+
+                  markers[prop.id] = marker;
+                  bounds.extend(pos);
+                  hasMarkers = true;
+                });
+
+                if (hasMarkers) {
+                  gmap.fitBounds(bounds);
+                  if (Object.keys(markers).length === 1) {
+                    google.maps.event.addListenerOnce(gmap, 'bounds_changed', function() {
+                      gmap.setZoom(15);
+                    });
+                  }
+                }
+              }
+
+              // ── Focus Property on Map ──────────────────────────
+              window.focusProperty = function(propertyId) {
+                if (!gmap || !markers[propertyId]) return;
+                var marker = markers[propertyId];
+                gmap.panTo(marker.getPosition());
+                gmap.setZoom(16);
+                google.maps.event.trigger(marker, 'click');
+              };
+
+              // ── Add Property ────────────────────────────────────
+              window.addPropertyToContact = function(event) {
+                event.preventDefault();
+                var address = document.getElementById('propAddress').value.trim();
+                if (!address) { alert('Please enter a street address'); return; }
+
+                var btn = document.getElementById('addPropBtn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Adding...';
+
+                fetch('clients_appstack.php?action=add_property_to_contact', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contact_id: CONTACT_ID,
+                    address: address,
+                    city: document.getElementById('propCity').value.trim() || 'Vancouver',
+                    postal_code: document.getElementById('propPostalCode').value.trim(),
+                    property_name: document.getElementById('propName').value.trim(),
+                    csrf_token: CSRF_TOKEN
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    // Geocode the new property asynchronously then reload
+                    geocodePropertyAjax(data.property_id).finally(function() {
+                      location.reload();
+                    });
+                  } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    btn.disabled = false;
+                    btn.innerHTML = '<i data-feather="plus"></i> Add Property';
+                    feather.replace();
+                  }
+                })
+                .catch(function(err) {
+                  alert('Error: ' + err.message);
+                  btn.disabled = false;
+                  btn.innerHTML = '<i data-feather="plus"></i> Add Property';
+                  feather.replace();
+                });
+              };
+
+              // ── Link Company ────────────────────────────────────
+              window.linkCompanyToContact = function() {
+                var sel = document.getElementById('linkCompanySelect');
+                if (!sel || !sel.value) { alert('Please select a company'); return; }
+
+                fetch('clients_appstack.php?action=link_company_to_contact', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contact_id: CONTACT_ID,
+                    company_id: parseInt(sel.value),
+                    csrf_token: CSRF_TOKEN
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) location.reload();
+                  else alert('Error: ' + (data.error || 'Unknown error'));
+                })
+                .catch(function(err) { alert('Error: ' + err.message); });
+              };
+
+              // ── Geocode Property ────────────────────────────────
+              function geocodePropertyAjax(propertyId) {
+                return fetch('clients_appstack.php?action=geocode_property', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    property_id: propertyId,
+                    csrf_token: CSRF_TOKEN
+                  })
+                }).then(function(r) { return r.json(); });
+              }
+
+              window.geocodeProperty = function(propertyId, btn) {
+                if (btn) {
+                  btn.disabled = true;
+                  btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:12px;height:12px;"></span>';
+                }
+                geocodePropertyAjax(propertyId)
+                  .then(function(data) {
+                    if (data.success) {
+                      location.reload();
+                    } else {
+                      alert('Geocoding failed: ' + (data.error || 'Unknown error'));
+                      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" style="width:12px;height:12px;"></i>'; feather.replace(); }
+                    }
+                  })
+                  .catch(function(err) {
+                    alert('Error: ' + err.message);
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" style="width:12px;height:12px;"></i>'; feather.replace(); }
+                  });
+              };
+
+              window.geocodeAllProperties = function() {
+                var toGeocode = propertiesData.filter(function(p) { return !p.latitude || !p.longitude; });
+                if (toGeocode.length === 0) return;
+
+                var chain = Promise.resolve();
+                toGeocode.forEach(function(p) {
+                  chain = chain.then(function() {
+                    return geocodePropertyAjax(p.id);
+                  });
+                });
+                chain.then(function() { location.reload(); });
+              };
+
+              // ── Utilities ───────────────────────────────────────
+              function escHtml(str) {
+                if (!str) return '';
+                var div = document.createElement('div');
+                div.appendChild(document.createTextNode(str));
+                return div.innerHTML;
+              }
+
+              // ── Init ────────────────────────────────────────────
+              document.addEventListener('DOMContentLoaded', function() {
+                // Wait for Google Maps to load
+                if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+                  initContactMap();
+                } else {
+                  // Poll until loaded
+                  var attempts = 0;
+                  var interval = setInterval(function() {
+                    attempts++;
+                    if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+                      clearInterval(interval);
+                      initContactMap();
+                    }
+                    if (attempts > 50) clearInterval(interval);
+                  }, 200);
+                }
+              });
+            })();
+            </script>
+
           <?php else: ?>
             <!-- View Toggle -->
             <div class="mb-3 d-flex justify-content-between align-items-center">
@@ -1150,7 +1810,7 @@ $unconvertedRequests = $db->query("
 
                     <?php foreach ($stagesData[$stage['stage_key']]['contacts'] ?? [] as $contact): ?>
                       <div class="mw-kanban-card" draggable="true" data-contact-id="<?php echo (int)$contact['id']; ?>" data-company-name="<?php echo h(trim($contact['first_name'] . ' ' . $contact['last_name'])); ?>" style="border-left: 3px solid var(--mw-orange);">
-                        <a href="?action=edit_contact&id=<?php echo (int)$contact['id']; ?>" class="mw-card-link">
+                        <a href="?action=view_contact&id=<?php echo (int)$contact['id']; ?>" class="mw-card-link">
                           <div class="mw-card-header">
                             <strong><?php echo h(trim($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))); ?></strong>
                             <span class="badge badge-light ml-1" style="font-size: 0.65rem;">Contact</span>
@@ -1294,7 +1954,7 @@ $unconvertedRequests = $db->query("
                           <?php foreach ($standaloneContacts as $ct): ?>
                           <tr>
                             <td>
-                              <a href="?action=edit_contact&id=<?php echo (int)$ct['id']; ?>" class="mw-client-name-link">
+                              <a href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>" class="mw-client-name-link">
                                 <strong><?php echo h(trim($ct['first_name'] . ' ' . ($ct['last_name'] ?? ''))); ?></strong>
                               </a>
                             </td>

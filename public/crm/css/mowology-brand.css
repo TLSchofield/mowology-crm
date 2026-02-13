@@ -3346,6 +3346,143 @@ a:hover {
   }
 }
 
+/* ── Contact View Page ───────────────────────────────── */
+
+.mw-contact-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mw-contact-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1a202c;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mw-contact-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.mw-contact-map-container {
+  height: 400px;
+  width: 100%;
+  background: #f5f7fa;
+  border-radius: 0 0 4px 4px;
+}
+
+.mw-contact-map-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  color: #6c757d;
+  font-size: 0.9rem;
+  text-align: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 1rem;
+}
+
+.mw-contact-property-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mw-contact-property-item:hover {
+  border-color: var(--mw-green);
+  background: var(--mw-light);
+}
+
+.mw-contact-property-addr {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mw-contact-property-meta {
+  font-size: 0.78rem;
+  color: #888;
+  margin-top: 2px;
+  padding-left: 20px;
+}
+
+.mw-contact-company-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--mw-light);
+  border-radius: 6px;
+  border-left: 4px solid var(--mw-green);
+}
+
+.mw-contact-company-name {
+  font-weight: 600;
+  color: var(--mw-dark);
+}
+
+.mw-contact-company-name a {
+  color: var(--mw-dark);
+  text-decoration: none;
+}
+
+.mw-contact-company-name a:hover {
+  color: var(--mw-green);
+  text-decoration: underline;
+}
+
+.mw-contact-pref-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  margin-right: 4px;
+}
+
+.mw-contact-pref-badge.active {
+  background: #d4edda;
+  color: #155724;
+}
+
+.mw-contact-pref-badge.inactive {
+  background: #f8f9fa;
+  color: #6c757d;
+  text-decoration: line-through;
+}
+
+@media (max-width: 991px) {
+  .mw-contact-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .mw-contact-map-container {
+    height: 300px;
+  }
+}
+
 /* Kanban Board Container - Alternative layout for full grid */
 .mw-kanban-board {
   display: grid;
