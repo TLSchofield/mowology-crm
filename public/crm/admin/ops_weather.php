@@ -1,6 +1,7 @@
 <?php
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
+require_once dirname(__DIR__) . '/includes/weather-service.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -9,6 +10,9 @@ if (($user['role'] ?? '') !== 'admin') {
     header('Location: /crm/dashboard_appstack.php');
     exit;
 }
+
+// Fetch 7-day forecast for salt preview
+$weekWeather = getWeekForecast('Vancouver', 'BC');
 
 $pageTitle = 'Ops Weather Constraints';
 $activePage = 'ops-weather';
@@ -23,26 +27,13 @@ $activePage = 'ops-weather';
             </div>
           </div>
 
-          <!-- How It Works -->
-          <div class="card mb-3" style="border-left:4px solid var(--mw-green);">
-            <div class="card-body py-3">
-              <h6 class="mb-2" style="color:var(--mw-green);"><i data-feather="info" style="width:16px;height:16px;"></i> How Weather Guard Works</h6>
-              <p class="mb-2" style="font-size:0.9rem;">
-                The weather guard checks the forecast for your upcoming visits and flags anything that might be a problem. Here's the flow:
-              </p>
-              <ol class="mb-0" style="font-size:0.9rem;padding-left:1.2rem;">
-                <li class="mb-1"><strong>Set global defaults</strong> below — these are the fallback thresholds for all services.</li>
-                <li class="mb-1"><strong>Assign weather policies to your services</strong> in the <em>Service Weather Rules</em> tab — e.g. mark "Lawn Mowing" as <strong>Dry Only</strong>, or "Snow Removal" as <strong>Any Weather</strong>.</li>
-                <li class="mb-1">The guard runs daily, checks the hourly forecast for each visit, and flags anything that doesn't meet the rules.</li>
-                <li class="mb-0">Flagged visits appear in <a href="/crm/ops/weather_actions.php"><strong>Weather Ops</strong></a> where you can keep, reschedule, or dismiss them.</li>
-              </ol>
-            </div>
-          </div>
-
           <!-- Tabs -->
           <ul class="nav nav-tabs mb-3" role="tablist">
             <li class="nav-item">
-              <a class="nav-link active" data-toggle="tab" href="#tab-global">Global Defaults</a>
+              <a class="nav-link active" data-toggle="tab" href="#tab-salt"><i data-feather="cloud-snow" style="width:16px;height:16px;"></i> Salt Operations</a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" data-toggle="tab" href="#tab-global">Global Defaults</a>
             </li>
             <li class="nav-item">
               <a class="nav-link" data-toggle="tab" href="#tab-services">Service Weather Rules</a>
@@ -50,8 +41,158 @@ $activePage = 'ops-weather';
           </ul>
 
           <div class="tab-content">
-            <!-- Tab 1: Global Defaults -->
-            <div class="tab-pane fade show active" id="tab-global" role="tabpanel">
+
+            <!-- Tab 1: Salt Operations -->
+            <div class="tab-pane fade show active" id="tab-salt" role="tabpanel">
+
+              <!-- Salt Trigger Settings -->
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="thermometer" style="width:18px;height:18px;"></i> Salt Trigger Settings</h5>
+                  <small class="text-muted">When should salting operations be triggered?</small>
+                </div>
+                <div class="card-body">
+                  <div class="row">
+                    <div class="col-md-4">
+                      <div class="form-group">
+                        <label><strong>Salt when temperature drops below</strong></label>
+                        <div class="input-group">
+                          <input type="number" class="form-control" id="salt_trigger_temp" min="-20" max="10" step="1" value="0">
+                          <div class="input-group-append"><span class="input-group-text">°C</span></div>
+                        </div>
+                        <small class="form-text text-muted">The forecast low must drop below this to trigger a salt alert</small>
+                      </div>
+                    </div>
+                    <div class="col-md-8">
+                      <label><strong>Also salt when forecast includes:</strong></label>
+                      <div class="d-flex flex-wrap mt-2" style="gap:1rem;">
+                        <label class="d-flex align-items-center" style="gap:0.4rem;cursor:pointer;">
+                          <input type="checkbox" id="salt_on_snow" checked> ❄️ Snow
+                        </label>
+                        <label class="d-flex align-items-center" style="gap:0.4rem;cursor:pointer;">
+                          <input type="checkbox" id="salt_on_freezing_rain" checked> 🧊 Freezing Rain
+                        </label>
+                        <label class="d-flex align-items-center" style="gap:0.4rem;cursor:pointer;">
+                          <input type="checkbox" id="salt_on_ice_pellets" checked> 🌨️ Ice Pellets
+                        </label>
+                      </div>
+                      <small class="form-text text-muted mt-2">If any of these conditions appear in the forecast, a salt alert fires regardless of temperature</small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Crew SMS Alerts -->
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="message-circle" style="width:18px;height:18px;"></i> Crew SMS Alerts</h5>
+                  <small class="text-muted">When should crew get a heads-up text about upcoming salt conditions?</small>
+                </div>
+                <div class="card-body">
+                  <div class="row">
+                    <div class="col-md-6">
+                      <label><strong>Send heads-up alerts at:</strong></label>
+                      <div class="mt-2">
+                        <label class="d-flex align-items-center mb-2" style="gap:0.5rem;cursor:pointer;">
+                          <input type="checkbox" id="salt_alert_7day"> 7 days before <span class="badge badge-secondary ml-1">Long-range</span>
+                        </label>
+                        <label class="d-flex align-items-center mb-2" style="gap:0.5rem;cursor:pointer;">
+                          <input type="checkbox" id="salt_alert_48hr" checked> 48 hours before <span class="badge badge-info ml-1">Planning</span>
+                        </label>
+                        <label class="d-flex align-items-center mb-0" style="gap:0.5rem;cursor:pointer;">
+                          <input type="checkbox" id="salt_alert_24hr" checked> 24 hours before <span class="badge badge-warning ml-1">Action</span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <label><strong>Quiet Hours</strong></label>
+                      <div class="form-group mt-2">
+                        <label>Don't text after:</label>
+                        <input type="time" class="form-control" id="salt_quiet_hour" value="20:00" style="max-width:140px;">
+                      </div>
+                      <label class="d-flex align-items-center" style="gap:0.5rem;cursor:pointer;">
+                        <input type="checkbox" id="salt_quiet_exception" checked> <strong>Exception:</strong> Always text if crew is clocked in
+                      </label>
+                      <small class="form-text text-muted mt-2">Each crew member can opt out of weather SMS on the <a href="/crm/team/">Team page</a></small>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 7-Day Forecast Preview -->
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="calendar" style="width:18px;height:18px;"></i> 7-Day Salt Forecast</h5>
+                  <small class="text-muted">Days highlighted in blue will trigger salt alerts based on your settings above</small>
+                </div>
+                <div class="card-body p-2">
+                  <div class="d-flex" style="gap:4px;overflow-x:auto;" id="saltForecastPreview">
+                    <?php
+                    $dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                    foreach ($weekWeather as $date => $day):
+                      $low = $day['temp_low'] ?? 0;
+                      $high = $day['temp_high'] ?? 0;
+                      $cond = strtolower($day['condition'] ?? '');
+                      $ts = strtotime($date);
+                      $dayName = $dayNames[date('w', $ts)];
+                      $monthDay = date('M j', $ts);
+                      // Default salt check: temp <= 0 or snow/ice conditions
+                      $isSaltDay = ($low <= 0)
+                        || strpos($cond, 'snow') !== false
+                        || strpos($cond, 'ice') !== false
+                        || strpos($cond, 'freezing') !== false;
+                    ?>
+                    <div class="text-center flex-fill p-2 rounded <?php echo $isSaltDay ? 'salt-day-highlight' : ''; ?>"
+                         style="min-width:100px;<?php echo $isSaltDay ? 'background:#e3f2fd;border:2px solid #42a5f5;' : 'background:#f8f9fa;border:2px solid transparent;'; ?>"
+                         data-date="<?php echo $date; ?>"
+                         data-low="<?php echo $low; ?>"
+                         data-condition="<?php echo htmlspecialchars($cond); ?>">
+                      <div style="font-size:0.75rem;color:#666;"><?php echo $dayName; ?></div>
+                      <div style="font-weight:600;"><?php echo $monthDay; ?></div>
+                      <div style="font-size:1.2rem;" class="my-1">
+                        <?php if ($isSaltDay): ?>❄️<?php else: ?>✅<?php endif; ?>
+                      </div>
+                      <div style="font-size:0.85rem;">
+                        <span style="color:#1565c0;font-weight:600;"><?php echo $high; ?>°</span>
+                        <span style="color:#666;">/ <?php echo $low; ?>°</span>
+                      </div>
+                      <div style="font-size:0.75rem;color:#888;"><?php echo htmlspecialchars(ucfirst($day['condition'] ?? '')); ?></div>
+                      <?php if ($isSaltDay): ?>
+                      <div style="font-size:0.7rem;color:#1565c0;font-weight:600;margin-top:2px;">SALT</div>
+                      <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Save Button -->
+              <div class="mb-4">
+                <button type="button" class="btn btn-primary" onclick="saveSaltConfig()">
+                  <i data-feather="save"></i> Save Salt Settings
+                </button>
+                <span id="saltSaveStatus" class="ml-3 text-muted"></span>
+              </div>
+            </div>
+
+            <!-- Tab 2: Global Defaults -->
+            <div class="tab-pane fade" id="tab-global" role="tabpanel">
+
+              <!-- How It Works -->
+              <div class="card mb-3" style="border-left:4px solid var(--mw-green);">
+                <div class="card-body py-3">
+                  <h6 class="mb-2" style="color:var(--mw-green);"><i data-feather="info" style="width:16px;height:16px;"></i> How Weather Guard Works</h6>
+                  <p class="mb-2" style="font-size:0.9rem;">
+                    The weather guard checks the forecast for your upcoming visits and flags anything that might be a problem. Here's the flow:
+                  </p>
+                  <ol class="mb-0" style="font-size:0.9rem;padding-left:1.2rem;">
+                    <li class="mb-1"><strong>Set global defaults</strong> below — these are the fallback thresholds for all services.</li>
+                    <li class="mb-1"><strong>Assign weather policies to your services</strong> in the <em>Service Weather Rules</em> tab — e.g. mark "Lawn Mowing" as <strong>Dry Only</strong>, or "Snow Removal" as <strong>Any Weather</strong>.</li>
+                    <li class="mb-1">The guard runs daily, checks the hourly forecast for each visit, and flags anything that doesn't meet the rules.</li>
+                    <li class="mb-0">Flagged visits appear in <a href="/crm/ops/weather_actions.php"><strong>Weather Ops</strong></a> where you can keep, reschedule, or dismiss them.</li>
+                  </ol>
+                </div>
+              </div>
               <div class="card">
                 <div class="card-header">
                   <h5 class="card-title mb-0">Default Weather Thresholds</h5>
@@ -325,6 +466,7 @@ $activePage = 'ops-weather';
           let globalConstraints = {};
 
           document.addEventListener('DOMContentLoaded', function() {
+            loadSaltConfig();
             loadGlobalConstraints();
             loadServiceRules();
           });
@@ -576,6 +718,134 @@ $activePage = 'ops-weather';
             div.textContent = text;
             return div.innerHTML;
           }
+
+          // ============================================================
+          // Salt Operations Config
+          // ============================================================
+          let saltConfig = {};
+
+          function loadSaltConfig() {
+            fetch('/crm/api/ops-settings.php?action=get&key=salt_ops_config')
+              .then(r => r.json())
+              .then(data => {
+                if (data.success && data.value) {
+                  saltConfig = data.value;
+                } else {
+                  // Defaults
+                  saltConfig = {
+                    salt_trigger_temp_c: 0,
+                    salt_on_snow: true,
+                    salt_on_freezing_rain: true,
+                    salt_on_ice_pellets: true,
+                    alert_7day: false,
+                    alert_48hr: true,
+                    alert_24hr: true,
+                    quiet_hour_start: '20:00',
+                    quiet_unless_clocked_in: true
+                  };
+                }
+                populateSaltForm(saltConfig);
+                updateSaltPreview();
+              })
+              .catch(err => console.error('Error loading salt config:', err));
+          }
+
+          function populateSaltForm(c) {
+            document.getElementById('salt_trigger_temp').value = c.salt_trigger_temp_c ?? 0;
+            document.getElementById('salt_on_snow').checked = c.salt_on_snow !== false;
+            document.getElementById('salt_on_freezing_rain').checked = c.salt_on_freezing_rain !== false;
+            document.getElementById('salt_on_ice_pellets').checked = c.salt_on_ice_pellets !== false;
+            document.getElementById('salt_alert_7day').checked = !!c.alert_7day;
+            document.getElementById('salt_alert_48hr').checked = c.alert_48hr !== false;
+            document.getElementById('salt_alert_24hr').checked = c.alert_24hr !== false;
+            document.getElementById('salt_quiet_hour').value = c.quiet_hour_start || '20:00';
+            document.getElementById('salt_quiet_exception').checked = c.quiet_unless_clocked_in !== false;
+          }
+
+          function saveSaltConfig() {
+            const config = {
+              salt_trigger_temp_c: parseFloat(document.getElementById('salt_trigger_temp').value) || 0,
+              salt_on_snow: document.getElementById('salt_on_snow').checked,
+              salt_on_freezing_rain: document.getElementById('salt_on_freezing_rain').checked,
+              salt_on_ice_pellets: document.getElementById('salt_on_ice_pellets').checked,
+              alert_7day: document.getElementById('salt_alert_7day').checked,
+              alert_48hr: document.getElementById('salt_alert_48hr').checked,
+              alert_24hr: document.getElementById('salt_alert_24hr').checked,
+              quiet_hour_start: document.getElementById('salt_quiet_hour').value || '20:00',
+              quiet_unless_clocked_in: document.getElementById('salt_quiet_exception').checked,
+            };
+
+            fetch('/crm/api/ops-settings.php?action=save', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                key: 'salt_ops_config',
+                value: config,
+                description: 'Salt operations configuration: trigger temp, conditions, SMS alerts, quiet hours'
+              })
+            })
+            .then(r => r.json())
+            .then(data => {
+              const status = document.getElementById('saltSaveStatus');
+              if (data.success) {
+                saltConfig = config;
+                status.textContent = 'Saved!';
+                status.style.color = 'var(--mw-green)';
+                updateSaltPreview();
+              } else {
+                status.textContent = 'Error: ' + (data.error || 'Unknown');
+                status.style.color = '#dc3545';
+              }
+              setTimeout(() => { status.textContent = ''; }, 3000);
+            })
+            .catch(err => alert('Error: ' + err.message));
+          }
+
+          function updateSaltPreview() {
+            // Re-evaluate forecast cards against current settings
+            const triggerTemp = parseFloat(document.getElementById('salt_trigger_temp').value) || 0;
+            const checkSnow = document.getElementById('salt_on_snow').checked;
+            const checkFreezing = document.getElementById('salt_on_freezing_rain').checked;
+            const checkIce = document.getElementById('salt_on_ice_pellets').checked;
+
+            document.querySelectorAll('#saltForecastPreview > div').forEach(function(card) {
+              const low = parseFloat(card.dataset.low);
+              const cond = (card.dataset.condition || '').toLowerCase();
+              let isSaltDay = low <= triggerTemp;
+              if (!isSaltDay && checkSnow && cond.indexOf('snow') !== -1) isSaltDay = true;
+              if (!isSaltDay && checkFreezing && cond.indexOf('freezing') !== -1) isSaltDay = true;
+              if (!isSaltDay && checkIce && cond.indexOf('ice') !== -1) isSaltDay = true;
+
+              if (isSaltDay) {
+                card.style.background = '#e3f2fd';
+                card.style.border = '2px solid #42a5f5';
+                card.classList.add('salt-day-highlight');
+              } else {
+                card.style.background = '#f8f9fa';
+                card.style.border = '2px solid transparent';
+                card.classList.remove('salt-day-highlight');
+              }
+
+              // Update emoji and SALT label
+              var emojiEl = card.querySelector('div:nth-child(3)');
+              var saltLabel = card.querySelector('div:last-child');
+              if (emojiEl) emojiEl.textContent = isSaltDay ? '❄️' : '✅';
+              if (saltLabel && saltLabel.textContent.trim() === 'SALT' && !isSaltDay) {
+                saltLabel.style.display = 'none';
+              } else if (saltLabel && saltLabel.textContent.trim() === 'SALT' && isSaltDay) {
+                saltLabel.style.display = '';
+              }
+            });
+          }
+
+          // Live preview: update when user changes trigger settings
+          document.addEventListener('DOMContentLoaded', function() {
+            ['salt_trigger_temp','salt_on_snow','salt_on_freezing_rain','salt_on_ice_pellets'].forEach(function(id) {
+              var el = document.getElementById(id);
+              if (el) el.addEventListener('change', updateSaltPreview);
+              if (el && el.type === 'number') el.addEventListener('input', updateSaltPreview);
+            });
+          });
           </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

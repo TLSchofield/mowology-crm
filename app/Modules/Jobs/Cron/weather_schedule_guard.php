@@ -294,6 +294,12 @@ try {
         $results['alerts'] = $alertResult;
     }
 
+    // ========================================================
+    // Salt Operations: Check 7-day forecast for freezing/snow
+    // ========================================================
+    $saltResults = runSaltAlerts($db);
+    $results['salt'] = $saltResults;
+
     $results['success'] = true;
     $results['run_at'] = date('Y-m-d H:i:s');
     $results['lookahead'] = "{$startDate} to {$endDate}";
@@ -322,4 +328,146 @@ try {
         http_response_code(500);
         jsonRespond($error);
     }
+}
+
+/**
+ * Run salt operations alert check.
+ * Loads salt_ops_config, checks 7-day forecast for freezing/snow conditions,
+ * and sends SMS alerts to crew at the configured lead times (24hr, 48hr, 7-day).
+ *
+ * @param PDO $db
+ * @return array Summary of salt alerts sent
+ */
+function runSaltAlerts(PDO $db): array
+{
+    $saltResults = ['checked' => false, 'alerts_sent' => 0, 'skipped' => 0, 'errors' => []];
+
+    try {
+        // Load salt ops config
+        $stmt = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'salt_ops_config'");
+        $stmt->execute();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            $saltResults['skipped_reason'] = 'No salt config found';
+            return $saltResults;
+        }
+
+        $config = json_decode($row['setting_value'], true);
+        if (!is_array($config)) {
+            $saltResults['skipped_reason'] = 'Invalid salt config';
+            return $saltResults;
+        }
+
+        $saltResults['checked'] = true;
+        $triggerTemp = (float)($config['salt_trigger_temp_c'] ?? 0);
+        $checkSnow = $config['salt_on_snow'] ?? true;
+        $checkFreezing = $config['salt_on_freezing_rain'] ?? true;
+        $checkIce = $config['salt_on_ice_pellets'] ?? true;
+        $alert7day = $config['alert_7day'] ?? false;
+        $alert48hr = $config['alert_48hr'] ?? true;
+        $alert24hr = $config['alert_24hr'] ?? true;
+
+        // Get 7-day forecast
+        $weekForecast = getWeekForecast('Vancouver', 'BC');
+
+        // Determine which days need salting
+        $saltDays = [];
+        foreach ($weekForecast as $date => $day) {
+            $low = (float)($day['temp_low'] ?? 99);
+            $cond = strtolower($day['condition'] ?? '');
+            $needsSalt = ($low <= $triggerTemp);
+
+            if (!$needsSalt && $checkSnow && strpos($cond, 'snow') !== false) $needsSalt = true;
+            if (!$needsSalt && $checkFreezing && strpos($cond, 'freezing') !== false) $needsSalt = true;
+            if (!$needsSalt && $checkIce && strpos($cond, 'ice') !== false) $needsSalt = true;
+
+            if ($needsSalt) {
+                $saltDays[$date] = $day;
+            }
+        }
+
+        if (empty($saltDays)) {
+            $saltResults['salt_days'] = 0;
+            return $saltResults;
+        }
+
+        $saltResults['salt_days'] = count($saltDays);
+
+        // Get all active crew who have SMS enabled
+        $crewStmt = $db->prepare("
+            SELECT id, phone, full_name
+            FROM users
+            WHERE is_active = 1 AND IFNULL(receive_weather_sms, 1) = 1 AND phone IS NOT NULL AND phone != ''
+        ");
+        $crewStmt->execute();
+        $crewMembers = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($crewMembers)) {
+            $saltResults['skipped_reason'] = 'No crew with SMS enabled';
+            return $saltResults;
+        }
+
+        $today = new DateTime();
+
+        foreach ($saltDays as $date => $day) {
+            $forecastDate = new DateTime($date);
+            $daysOut = (int)$today->diff($forecastDate)->days;
+
+            // Determine which alert window applies
+            $timing = null;
+            if ($daysOut <= 1 && $alert24hr) {
+                $timing = '24hr';
+            } elseif ($daysOut <= 2 && $alert48hr) {
+                $timing = '48hr';
+            } elseif ($daysOut <= 7 && $alert7day) {
+                $timing = '7day';
+            }
+
+            if (!$timing) {
+                continue; // No alert window matches
+            }
+
+            // Dedup: check if salt alert already sent for this date
+            $dedupKey = 'SALT_ALERT_' . $date . '_' . $timing;
+            if (hasWeatherActionToday('SALT_ALERT', 'forecast', 0)) {
+                // Already sent salt alerts today
+                $saltResults['skipped']++;
+                continue;
+            }
+
+            $low = $day['temp_low'] ?? '?';
+            $condition = ucfirst($day['condition'] ?? 'Unknown');
+            $dateLabel = date('M j', strtotime($date));
+
+            // Send to each crew member
+            foreach ($crewMembers as $crew) {
+                $result = sendSaltSmsAlert((int)$crew['id'], $dateLabel, (string)$low, $condition, $timing);
+                if ($result['success']) {
+                    $saltResults['alerts_sent']++;
+                } else {
+                    if (strpos($result['error'] ?? '', 'Quiet hours') !== false) {
+                        $saltResults['skipped']++;
+                    } else {
+                        $saltResults['errors'][] = $crew['full_name'] . ': ' . ($result['error'] ?? 'unknown');
+                    }
+                }
+            }
+
+            // Log that salt alerts were sent for this date
+            logWeatherAction('SALT_ALERT', 'forecast', 0, json_encode([
+                'date' => $date,
+                'timing' => $timing,
+                'low_temp' => $low,
+                'condition' => $condition,
+                'crew_notified' => count($crewMembers),
+            ]));
+        }
+
+    } catch (Throwable $e) {
+        $saltResults['errors'][] = 'Salt alert error: ' . $e->getMessage();
+        error_log('Salt alert error: ' . $e->getMessage());
+    }
+
+    return $saltResults;
 }

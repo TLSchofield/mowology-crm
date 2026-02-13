@@ -164,6 +164,11 @@ function sendWeatherSmsAlert(int $crewId, string $visitNumber, string $date, str
             return ['success' => false, 'error' => 'Crew member has weather SMS alerts disabled'];
         }
 
+        // Quiet hours check — load salt ops config
+        if (isInQuietHours($db, $crewId)) {
+            return ['success' => false, 'error' => 'Quiet hours — crew not clocked in'];
+        }
+
         $newSlot = $item['suggested_slot'] ?? null;
         $msg = "Weather alert: {$visitNumber} on {$date}";
         if ($newSlot && !empty($item['auto_rescheduled'])) {
@@ -175,6 +180,105 @@ function sendWeatherSmsAlert(int $crewId, string $visitNumber, string $date, str
         return sendSms($crew['phone'], $msg);
     } catch (Throwable $e) {
         error_log("sendWeatherSmsAlert error: " . $e->getMessage());
+        return ['success' => false, 'error' => $e->getMessage()];
+    }
+}
+
+/**
+ * Check if the current time is in quiet hours AND the crew member is NOT clocked in.
+ * Returns true if SMS should be suppressed (it's quiet hours and they're off the clock).
+ *
+ * @param PDO $db
+ * @param int $crewId
+ * @return bool True = suppress SMS
+ */
+function isInQuietHours(PDO $db, int $crewId): bool
+{
+    try {
+        // Load salt ops config for quiet hours settings
+        $stmt = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'salt_ops_config'");
+        $stmt->execute();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            return false; // No config = no quiet hours
+        }
+
+        $config = json_decode($row['setting_value'], true);
+        if (!is_array($config)) {
+            return false;
+        }
+
+        $quietStart = $config['quiet_hour_start'] ?? '20:00';
+        $allowClocked = $config['quiet_unless_clocked_in'] ?? true;
+
+        // Check if current time is after quiet hour start (e.g. after 20:00)
+        $now = date('H:i');
+        if ($now < $quietStart) {
+            return false; // Not in quiet hours yet
+        }
+
+        // It's quiet hours — check if exception applies
+        if ($allowClocked) {
+            // Check if crew is clocked in
+            $clockStmt = $db->prepare("
+                SELECT id FROM time_clock_entries
+                WHERE user_id = ? AND clock_out IS NULL AND status = 'active'
+                LIMIT 1
+            ");
+            $clockStmt->execute([$crewId]);
+            if ($clockStmt->fetch()) {
+                return false; // Clocked in — OK to send
+            }
+        }
+
+        // In quiet hours and not clocked in (or exception disabled)
+        return true;
+    } catch (Throwable $e) {
+        error_log("isInQuietHours error: " . $e->getMessage());
+        return false; // On error, don't suppress — let the SMS through
+    }
+}
+
+/**
+ * Send a salt operation SMS alert to a specific crew member.
+ * Used by the salt alert cron to notify crew about upcoming freezing conditions.
+ *
+ * @param int    $crewId
+ * @param string $date    Forecast date (e.g. "Feb 14")
+ * @param string $lowTemp Low temperature
+ * @param string $condition Weather condition
+ * @param string $timing  Alert timing label (e.g. "24hr", "48hr", "7day")
+ * @return array ['success' => bool, 'error' => string|null]
+ */
+function sendSaltSmsAlert(int $crewId, string $date, string $lowTemp, string $condition, string $timing): array
+{
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT phone, full_name, IFNULL(receive_weather_sms, 1) AS receive_weather_sms FROM users WHERE id = ?");
+        $stmt->execute([$crewId]);
+        $crew = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$crew || empty($crew['phone'])) {
+            return ['success' => false, 'error' => 'Crew member has no phone number'];
+        }
+
+        if (!$crew['receive_weather_sms']) {
+            return ['success' => false, 'error' => 'Crew member has weather SMS alerts disabled'];
+        }
+
+        // Quiet hours check
+        if (isInQuietHours($db, $crewId)) {
+            return ['success' => false, 'error' => 'Quiet hours — crew not clocked in'];
+        }
+
+        require_once dirname(dirname(__DIR__)) . '/includes/messaging.php';
+
+        $msg = "Salt alert ({$timing}): {$date} forecast {$lowTemp}C, {$condition}. Prep salt.";
+
+        return sendSms($crew['phone'], $msg);
+    } catch (Throwable $e) {
+        error_log("sendSaltSmsAlert error: " . $e->getMessage());
         return ['success' => false, 'error' => $e->getMessage()];
     }
 }
