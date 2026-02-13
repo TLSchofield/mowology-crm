@@ -5088,6 +5088,117 @@ textarea.font-monospace {
   .navbar-collapse .navbar-nav { margin-left: auto; }
 }
 
+/* ── Mobile In-Page Clock Section ─────────────────────── */
+
+/* Hidden on desktop — the topbar widget handles it */
+.mw-mobile-clock {
+  display: none;
+}
+
+/* Visible on mobile/tablet */
+@media (max-width: 1024px) {
+  .mw-mobile-clock {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 16px;
+    margin: -12px -12px 16px;
+    background: linear-gradient(135deg, var(--mw-green) 0%, var(--mw-dark) 100%);
+    border-radius: 0 0 12px 12px;
+  }
+
+  .mw-mobile-clock-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: none;
+    border-radius: 30px;
+    font-size: 1.3rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+  }
+
+  .mw-mobile-clock-in {
+    background: #fff;
+    color: var(--mw-green);
+    padding: 18px 48px;
+    min-height: 60px;
+    width: 100%;
+    max-width: 320px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  }
+
+  .mw-mobile-clock-in:active {
+    transform: scale(0.97);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  .mw-mobile-clock-in:disabled {
+    opacity: 0.7;
+  }
+
+  .mw-mobile-clock-active {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .mw-mobile-clock-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+  }
+
+  .mw-mobile-clock-status svg {
+    opacity: 0.8;
+    animation: mw-pulse 2s ease-in-out infinite;
+  }
+
+  .mw-mobile-clock-timer {
+    font-family: 'Montserrat', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 1px;
+  }
+
+  .mw-mobile-clock-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: rgba(255,255,255,0.7);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .mw-mobile-clock-out {
+    background: #dc2626;
+    color: #fff;
+    padding: 14px 28px;
+    min-height: 50px;
+    box-shadow: 0 2px 8px rgba(220,38,38,0.3);
+  }
+
+  .mw-mobile-clock-out:active {
+    transform: scale(0.97);
+  }
+
+  /* Hide topbar clock widget on mobile — in-page version takes over */
+  .mw-clock-widget {
+    display: none !important;
+  }
+
+  /* Hide desktop-only schedule elements */
+  .mw-schedule-title-desktop { display: none; }
+  .mw-schedule-status-desktop { display: none; }
+}
+
 /* ── My Schedule Page ─────────────────────────────────── */
 
 .mw-schedule-header {

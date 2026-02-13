@@ -57,10 +57,40 @@ $activePage = 'timeclock';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
+<!-- ═══ Mobile/Tablet: In-Page Clock Section (no JS dependency) ═══ -->
+<div class="mw-mobile-clock" id="mobileClockSection">
+    <?php if ($activeClock): ?>
+        <div class="mw-mobile-clock-active">
+            <div class="mw-mobile-clock-status">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                <span class="mw-mobile-clock-timer" id="mobileClockTimer">
+                    <?php
+                    $elapsed = time() - strtotime($activeClock['clock_in']);
+                    $h = floor($elapsed / 3600);
+                    $m = floor(($elapsed % 3600) / 60);
+                    $s = $elapsed % 60;
+                    echo sprintf('%02d:%02d:%02d', $h, $m, $s);
+                    ?>
+                </span>
+                <span class="mw-mobile-clock-label">Clocked In</span>
+            </div>
+            <button class="mw-mobile-clock-btn mw-mobile-clock-out" id="mobileClockOut">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                Clock Out
+            </button>
+        </div>
+    <?php else: ?>
+        <button class="mw-mobile-clock-btn mw-mobile-clock-in" id="mobileClockIn">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+            Clock In
+        </button>
+    <?php endif; ?>
+</div>
+
 <!-- Schedule Header -->
 <div class="mw-schedule-header">
     <div>
-        <h1 class="h3 mb-1">My Schedule</h1>
+        <h1 class="h3 mb-1 mw-schedule-title-desktop">My Schedule</h1>
         <div class="mw-schedule-date-nav">
             <a href="?date=<?php echo $prevDate; ?>" class="btn btn-sm btn-outline-secondary">&laquo;</a>
             <span class="mw-schedule-date-display">
@@ -73,7 +103,7 @@ $activePage = 'timeclock';
         </div>
     </div>
 
-    <div class="d-flex align-items-center gap-3" style="gap: 12px;">
+    <div class="d-flex align-items-center gap-3 mw-schedule-status-desktop" style="gap: 12px;">
         <!-- GPS Status -->
         <div class="mw-gps-status mw-gps-inactive" id="gpsStatus">
             <span class="mw-gps-dot"></span>
@@ -445,6 +475,121 @@ $activePage = 'timeclock';
         }, 3000);
     }
 
+})();
+</script>
+
+<!-- Mobile clock button logic (zero dependency — inline, no fetch needed for display) -->
+<script>
+(function() {
+    'use strict';
+
+    // Mobile clock-in timer (keep it ticking if clocked in)
+    var mobileTimer = document.getElementById('mobileClockTimer');
+    if (mobileTimer) {
+        var clockInEpoch = <?php echo $activeClock ? strtotime($activeClock['clock_in']) : '0'; ?>;
+        if (clockInEpoch > 0) {
+            setInterval(function() {
+                var elapsed = Math.floor(Date.now() / 1000) - clockInEpoch;
+                var h = Math.floor(elapsed / 3600);
+                var m = Math.floor((elapsed % 3600) / 60);
+                var s = elapsed % 60;
+                mobileTimer.textContent =
+                    (h < 10 ? '0' + h : h) + ':' +
+                    (m < 10 ? '0' + m : m) + ':' +
+                    (s < 10 ? '0' + s : s);
+            }, 1000);
+        }
+    }
+
+    // Mobile clock-in button
+    var btnIn = document.getElementById('mobileClockIn');
+    if (btnIn) {
+        btnIn.addEventListener('click', function() {
+            btnIn.disabled = true;
+            btnIn.textContent = 'Clocking in...';
+
+            // Get GPS first, then clock in
+            var lat = null, lng = null;
+            function doClockIn() {
+                fetch('/crm/api/time-clock.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert(data.error || 'Clock in failed');
+                        btnIn.disabled = false;
+                        btnIn.textContent = 'Clock In';
+                    }
+                })
+                .catch(function() {
+                    alert('Network error — please try again');
+                    btnIn.disabled = false;
+                    btnIn.textContent = 'Clock In';
+                });
+            }
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    function(pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; doClockIn(); },
+                    function() { doClockIn(); },
+                    { timeout: 5000, maximumAge: 60000 }
+                );
+            } else {
+                doClockIn();
+            }
+        });
+    }
+
+    // Mobile clock-out button
+    var btnOut = document.getElementById('mobileClockOut');
+    if (btnOut) {
+        btnOut.addEventListener('click', function() {
+            if (!confirm('Clock out now?')) return;
+            btnOut.disabled = true;
+            btnOut.textContent = 'Clocking out...';
+
+            var lat = null, lng = null;
+            function doClockOut() {
+                fetch('/crm/api/time-clock.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'clock_out', lat: lat, lng: lng })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        location.reload();
+                    } else {
+                        alert(data.error || 'Clock out failed');
+                        btnOut.disabled = false;
+                        btnOut.textContent = 'Clock Out';
+                    }
+                })
+                .catch(function() {
+                    alert('Network error — please try again');
+                    btnOut.disabled = false;
+                    btnOut.textContent = 'Clock Out';
+                });
+            }
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    function(pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; doClockOut(); },
+                    function() { doClockOut(); },
+                    { timeout: 5000, maximumAge: 60000 }
+                );
+            } else {
+                doClockOut();
+            }
+        });
+    }
 })();
 </script>
 
