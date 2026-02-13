@@ -1,6 +1,6 @@
 <?php
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
-require_once __DIR__ . '/config.php';
+// config.php no longer needed — GOOGLE_MAPS_API_KEY is defined in secrets.php via auth chain
 
 // Load MeasurementService for shared save logic
 $__dir = __DIR__;
