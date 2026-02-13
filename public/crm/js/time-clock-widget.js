@@ -335,11 +335,37 @@
         }, 3000);
     }
 
+    // ── Mobile Resilience: Page Visibility API ──
+    // Mobile Safari suspends JS when backgrounded or screen-locked.
+    // When the tab comes back, restart GPS watch and send a ping immediately.
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible' && trackingEnabled && clockInTime !== null) {
+            // Restart GPS tracking if it was running
+            stopTracking();
+            startTracking();
+        }
+    });
+
+    // Also handle the 'pageshow' event which fires on iOS Safari when
+    // navigating back to a page from the bfcache
+    window.addEventListener('pageshow', function(event) {
+        if (event.persisted && trackingEnabled && clockInTime !== null) {
+            stopTracking();
+            startTracking();
+        }
+    });
+
     // Expose for use by my-schedule page
     window.MwTimeClock = {
         fetchStatus: fetchStatus,
         isActive: function() { return clockInTime !== null; },
-        isTracking: function() { return gpsWatchId !== null; }
+        isTracking: function() { return gpsWatchId !== null; },
+        restartTracking: function() {
+            if (trackingEnabled && clockInTime !== null) {
+                stopTracking();
+                startTracking();
+            }
+        }
     };
 
 })();

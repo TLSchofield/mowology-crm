@@ -81,7 +81,21 @@ try {
                 throw new Exception('Invalid date format. Use YYYY-MM-DD');
             }
 
-            // Get all location points for tracked users on the given date
+            // Get all location points for tracked users on the given date.
+            // PHP runs in America/Vancouver but MySQL NOW() is in a different timezone
+            // (currently ~3h ahead). We detect the offset dynamically and convert
+            // the requested Pacific day boundaries to MySQL server timestamps.
+            $mysqlOffsetRow = $db->query("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) as offset_sec")->fetch(PDO::FETCH_ASSOC);
+            $mysqlFromUtc = (int)$mysqlOffsetRow['offset_sec']; // e.g., -18000 for EST
+            $phpFromUtc   = (int)date('Z');                      // e.g., -28800 for PST
+            $shift = $mysqlFromUtc - $phpFromUtc;                // seconds to add to Pacific → MySQL
+
+            // Convert Pacific day boundaries to MySQL server time
+            $dayStartEpoch = strtotime($date . ' 00:00:00');
+            $dayEndEpoch   = strtotime($date . ' 23:59:59');
+            $mysqlStart = date('Y-m-d H:i:s', $dayStartEpoch + $shift);
+            $mysqlEnd   = date('Y-m-d H:i:s', $dayEndEpoch + $shift);
+
             $stmt = $db->prepare("
                 SELECT
                     clh.crew_id as user_id,
@@ -94,10 +108,11 @@ try {
                 INNER JOIN users u ON u.id = clh.crew_id
                 WHERE u.is_active = 1
                   AND u.location_tracking_enabled = 1
-                  AND DATE(clh.timestamp) = ?
+                  AND clh.timestamp >= ?
+                  AND clh.timestamp <= ?
                 ORDER BY clh.crew_id ASC, clh.timestamp ASC
             ");
-            $stmt->execute([$date]);
+            $stmt->execute([$mysqlStart, $mysqlEnd]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Group by user
@@ -156,20 +171,18 @@ try {
             throw new Exception('Tracking not enabled');
         }
 
-        // Rate limit: reject if last entry < 10 seconds ago
+        // Rate limit: reject if last entry < 10 seconds ago (use MySQL time to avoid timezone mismatch)
         $rateStmt = $db->prepare("
-            SELECT timestamp FROM crew_location_history
+            SELECT TIMESTAMPDIFF(SECOND, timestamp, NOW()) as seconds_ago
+            FROM crew_location_history
             WHERE crew_id = ?
             ORDER BY timestamp DESC LIMIT 1
         ");
         $rateStmt->execute([$user['id']]);
         $lastRow = $rateStmt->fetch(PDO::FETCH_ASSOC);
-        if ($lastRow) {
-            $lastTime = strtotime($lastRow['timestamp']);
-            if (time() - $lastTime < 10) {
-                echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'rate_limited']);
-                exit;
-            }
+        if ($lastRow && (int)$lastRow['seconds_ago'] < 10) {
+            echo json_encode(['success' => true, 'skipped' => true, 'reason' => 'rate_limited']);
+            exit;
         }
 
         // Insert location

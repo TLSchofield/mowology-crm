@@ -596,4 +596,86 @@ $activePage = 'timeclock';
 })();
 </script>
 
+<?php if ($activeClock): ?>
+<!-- Backup GPS tracking for mobile — ensures pings continue even if topbar widget fails -->
+<script>
+(function() {
+    'use strict';
+
+    var SEND_INTERVAL = 30000; // 30 seconds
+    var gpsWatchId = null;
+    var sendTimer = null;
+    var latestPos = null;
+
+    function sendGPS() {
+        if (!latestPos) return;
+        fetch('/crm/api/crew-location.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                lat: latestPos.lat,
+                lng: latestPos.lng,
+                accuracy: latestPos.accuracy,
+                speed: latestPos.speed,
+                heading: latestPos.heading
+            })
+        }).catch(function() { /* silent */ });
+    }
+
+    function startWatch() {
+        if (gpsWatchId !== null) return;
+        if (!navigator.geolocation) return;
+
+        gpsWatchId = navigator.geolocation.watchPosition(
+            function(pos) {
+                latestPos = {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    speed: pos.coords.speed,
+                    heading: pos.coords.heading
+                };
+            },
+            function() { /* silent */ },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+
+        sendGPS(); // immediate ping
+        sendTimer = setInterval(sendGPS, SEND_INTERVAL);
+    }
+
+    function stopWatch() {
+        if (gpsWatchId !== null) {
+            navigator.geolocation.clearWatch(gpsWatchId);
+            gpsWatchId = null;
+        }
+        if (sendTimer) {
+            clearInterval(sendTimer);
+            sendTimer = null;
+        }
+    }
+
+    // Start tracking
+    startWatch();
+
+    // Restart on visibility change (mobile Safari suspends JS when backgrounded)
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            stopWatch();
+            startWatch();
+        }
+    });
+
+    // iOS bfcache
+    window.addEventListener('pageshow', function(e) {
+        if (e.persisted) {
+            stopWatch();
+            startWatch();
+        }
+    });
+})();
+</script>
+<?php endif; ?>
+
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
