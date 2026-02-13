@@ -93,6 +93,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// ── Check if RBAC tables exist ──────────────────────────────
+$rbacReady = false;
+try {
+    $tblCheck = $db->query("SHOW TABLES LIKE 'roles'");
+    $rbacReady = $tblCheck && $tblCheck->rowCount() > 0;
+} catch (Throwable $e) {
+    $rbacReady = false;
+}
+
+if (!$rbacReady) {
+    // Tables not created yet — show migration prompt instead of crashing
+    $pageTitle = 'User Management';
+    $activePage = 'users';
+    include 'includes/appstack_head.php';
+    echo '<div class="alert alert-warning">';
+    echo '<h4 class="alert-heading">RBAC Tables Not Found</h4>';
+    echo '<p>The roles and permissions tables have not been created yet.</p>';
+    echo '<a href="/crm/migrate_400_rbac.php" class="btn btn-primary">Run Migration 400</a>';
+    echo '</div>';
+    include 'includes/appstack_footer.php';
+    exit;
+}
+
 // ── Fetch data ──────────────────────────────────────────────
 // All users
 $users = $db->query("
