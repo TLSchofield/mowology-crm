@@ -171,17 +171,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     logActivityExtended($user['id'], 'Quote created', "Quote {$quoteNumber} created", null, null, $quoteId);
                 }
 
-                // Insert line items
+                // Insert line items (extended with pricing snapshot columns)
                 $stmt = $db->prepare("
                     INSERT INTO quote_line_items (
-                        quote_id, service_type, description, quantity, unit_type,
-                        unit_price, line_total, sort_order, is_optional
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        quote_id, product_id, pricing_rule_id, measurement_group_key,
+                        service_type, description, quantity, unit_type,
+                        unit_price, line_total, sort_order, is_optional,
+                        units_used, price_per_unit, minimum_applied, included_units,
+                        pricing_snapshot, bundle_id, is_upsell
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
 
                 foreach ($newLineItems as $index => $item) {
                     $stmt->execute([
                         $quoteId,
+                        !empty($item['product_id']) ? intval($item['product_id']) : null,
+                        !empty($item['pricing_rule_id']) ? intval($item['pricing_rule_id']) : null,
+                        $item['measurement_group_key'] ?? null,
                         $item['service_type'] ?? 'Service',
                         $item['description'] ?? '',
                         floatval($item['quantity'] ?? 1),
@@ -189,7 +195,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         floatval($item['unit_price'] ?? 0),
                         floatval($item['line_total'] ?? 0),
                         $index,
-                        $item['is_optional'] ?? false
+                        $item['is_optional'] ?? false,
+                        isset($item['units_used']) ? floatval($item['units_used']) : null,
+                        isset($item['price_per_unit']) ? floatval($item['price_per_unit']) : null,
+                        $item['minimum_applied'] ?? 0,
+                        isset($item['included_units']) ? floatval($item['included_units']) : null,
+                        $item['pricing_snapshot'] ?? null,
+                        !empty($item['bundle_id']) ? intval($item['bundle_id']) : null,
+                        $item['is_upsell'] ?? 0,
                     ]);
                 }
 
@@ -296,6 +309,20 @@ $activePage = 'quotes';
                                         <option value="seasonal_cleanup" <?php echo ($quote['service_type'] ?? '') === 'seasonal_cleanup' ? 'selected' : ''; ?>>Seasonal Cleanup</option>
                                     </select>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Measurement Summary + Auto-Fill -->
+                        <div class="card mw-measurement-summary" id="measurementPanel" style="display:none;">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">Property Measurements</h5>
+                                <span class="badge badge-info" id="measurementBadge"></span>
+                            </div>
+                            <div class="card-body py-2">
+                                <div id="measurementSummaryContent" class="small text-muted mb-2"></div>
+                                <button type="button" class="btn btn-sm btn-success mw-autofill-btn" onclick="autoFillFromMeasurements()">
+                                    Auto-fill Quote from Measurements
+                                </button>
                             </div>
                         </div>
 
@@ -558,10 +585,120 @@ $activePage = 'quotes';
                     ${selected.city}<br>
                     <span style="opacity: 0.7">${selected.property_type}</span>
                 `;
+                // Fetch measurement data for the selected property
+                fetchMeasurements(this.value);
             } else {
                 propertySummary.textContent = 'Select a property to see details';
+                document.getElementById('measurementPanel').style.display = 'none';
             }
         });
+
+        // Measurement auto-fill functionality
+        let propertyMeasurements = null;
+
+        function fetchMeasurements(propertyId) {
+            const panel = document.getElementById('measurementPanel');
+            const content = document.getElementById('measurementSummaryContent');
+            const badge = document.getElementById('measurementBadge');
+
+            fetch('../api/quote-autofill.php?action=get-measurements&property_id=' + propertyId)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.has_data) {
+                        propertyMeasurements = data;
+                        panel.style.display = '';
+
+                        // Build summary display
+                        const groupLabels = {
+                            'lawn_area': 'Lawn & Garden',
+                            'hard_surface': 'Hard Surface',
+                            'hedge_linear': 'Hedge / Edge',
+                            'other_area': 'Other'
+                        };
+                        let summaryHtml = '';
+                        let totalAreas = 0;
+
+                        Object.entries(data.measurements).forEach(([key, m]) => {
+                            totalAreas += m.count;
+                            const label = groupLabels[key] || key;
+                            const value = key === 'hedge_linear'
+                                ? m.linear_ft.toLocaleString() + ' lin ft'
+                                : m.sqft.toLocaleString() + ' sq ft';
+                            const names = m.names.join(', ');
+                            summaryHtml += `<div class="mb-1"><strong>${label}:</strong> ${value} <span class="text-muted">(${names})</span></div>`;
+                        });
+
+                        content.innerHTML = summaryHtml;
+                        badge.textContent = totalAreas + ' area' + (totalAreas !== 1 ? 's' : '');
+                    } else {
+                        panel.style.display = 'none';
+                        propertyMeasurements = null;
+                    }
+                })
+                .catch(() => {
+                    panel.style.display = 'none';
+                    propertyMeasurements = null;
+                });
+        }
+
+        function autoFillFromMeasurements() {
+            const propertyId = propertySelect.value;
+            if (!propertyId) {
+                alert('Please select a property first.');
+                return;
+            }
+
+            // Confirm if there are existing line items
+            if (lineItems.length > 0) {
+                if (!confirm('This will add auto-calculated line items to the existing list. Continue?')) return;
+            }
+
+            const formData = new FormData();
+            formData.append('action', 'auto-fill');
+            formData.append('property_id', propertyId);
+
+            fetch('../api/quote-autofill.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.items.length > 0) {
+                    data.items.forEach(item => {
+                        lineItems.push({
+                            id: ++itemIdCounter,
+                            product_id: item.product_id || null,
+                            pricing_rule_id: item.pricing_rule_id || null,
+                            measurement_group_key: item.measurement_group_key || null,
+                            service_type: item.service_type || '',
+                            description: item.description || '',
+                            quantity: item.quantity || 1,
+                            unit_type: item.unit_type || 'each',
+                            unit_price: item.unit_price || 0,
+                            line_total: item.line_total || 0,
+                            is_optional: item.is_optional || false,
+                            units_used: item.units_used || null,
+                            price_per_unit: item.price_per_unit || null,
+                            minimum_applied: item.minimum_applied || 0,
+                            included_units: item.included_units || null,
+                            pricing_snapshot: item.pricing_snapshot || null,
+                            bundle_id: item.bundle_id || null,
+                            is_upsell: item.is_upsell || 0,
+                        });
+                    });
+                    renderLineItems();
+
+                    if (data.warnings && data.warnings.length > 0) {
+                        alert('Auto-fill complete with warnings:\n' + data.warnings.join('\n'));
+                    }
+                } else if (data.warnings && data.warnings.length > 0) {
+                    alert('Could not auto-fill:\n' + data.warnings.join('\n'));
+                } else {
+                    alert('No pricing rules found for this property\'s measurements. Configure pricing rules on products first.');
+                }
+            })
+            .catch(err => alert('Error: ' + err.message));
+        }
 
         // Initialize
         if (lineItems.length === 0) {

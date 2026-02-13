@@ -509,6 +509,31 @@ $activePage = 'products';
                       </div>
                     </div>
 
+                    <!-- Measurement-Based Pricing Rules -->
+                    <div class="mw-product-form-section" id="pricingRulesSection">
+                      <h4>Measurement-Based Pricing Rules</h4>
+                      <p class="text-muted mb-2" style="font-size: 0.85rem;">
+                        Link this product to property measurements for auto-quoting.
+                        When a quote is auto-filled, the system will use these rules to calculate prices based on the property's measured areas.
+                      </p>
+                      <div id="pricingRulesList"></div>
+                      <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addPricingRuleRow()">
+                        + Add Pricing Rule
+                      </button>
+                    </div>
+
+                    <!-- Upsell Recommendations -->
+                    <div class="mw-product-form-section" id="upsellsSection">
+                      <h4>Upsell Recommendations</h4>
+                      <p class="text-muted mb-2" style="font-size: 0.85rem;">
+                        When this product is on a customer quote, suggest these add-ons.
+                      </p>
+                      <div id="upsellsList"></div>
+                      <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addUpsellRow()">
+                        + Add Upsell Product
+                      </button>
+                    </div>
+
                     <!-- Display Settings -->
                     <div class="mw-product-form-section">
                       <h4>Display Settings</h4>
@@ -888,6 +913,10 @@ $activePage = 'products';
               document.getElementById('productForm').reset();
               clearProductImage();
               document.getElementById('imageSuggestions').style.display = 'none';
+              currentPricingRules = [];
+              currentUpsells = [];
+              renderPricingRules();
+              renderUpsells();
               $('#productModal').modal('show');
             }
 
@@ -934,6 +963,9 @@ $activePage = 'products';
                 loadInlineSuggestions(product.name);
               }
 
+              // Load pricing rules and upsells
+              loadProductExtras(productId);
+
               document.getElementById('modalTitle').textContent = 'Edit Product/Service';
               $('#productModal').modal('show');
             }
@@ -957,13 +989,21 @@ $activePage = 'products';
                 body: JSON.stringify(data)
               })
               .then(r => r.json())
-              .then(data => {
-                if (data.success) {
-                  $('#productModal').modal('hide');
-                  loadProducts();
-                  alert('Product saved successfully!');
+              .then(result => {
+                if (result.success) {
+                  const productId = result.id || data.id;
+                  // Save pricing rules and upsells
+                  if (productId && (currentPricingRules.length > 0 || currentUpsells.length > 0)) {
+                    saveProductExtras(productId).then(() => {
+                      $('#productModal').modal('hide');
+                      loadProducts();
+                    });
+                  } else {
+                    $('#productModal').modal('hide');
+                    loadProducts();
+                  }
                 } else {
-                  alert('Error: ' + (data.error || 'Unknown error'));
+                  alert('Error: ' + (result.error || 'Unknown error'));
                 }
               })
               .catch(err => alert('Error: ' + err.message));
@@ -1240,6 +1280,238 @@ $activePage = 'products';
                 }
               })
               .catch(function(err) { alert('Error: ' + err.message); });
+            }
+
+            // ============================================================
+            // Pricing Rules Management
+            // ============================================================
+            let measurementGroups = [];
+            let currentPricingRules = [];
+            let currentUpsells = [];
+
+            // Load measurement groups on page load
+            function loadMeasurementGroups() {
+              fetch('api-products.php?action=get-measurement-groups')
+                .then(r => r.json())
+                .then(data => {
+                  if (data.success) measurementGroups = data.groups;
+                })
+                .catch(err => console.error('Error loading measurement groups:', err));
+            }
+            loadMeasurementGroups();
+
+            function renderPricingRules() {
+              const container = document.getElementById('pricingRulesList');
+              if (currentPricingRules.length === 0) {
+                container.innerHTML = '<p class="text-muted small">No pricing rules configured. This product will use manual pricing only.</p>';
+                return;
+              }
+              container.innerHTML = currentPricingRules.map((rule, idx) => `
+                <div class="mw-pricing-rule-row" data-idx="${idx}">
+                  <div class="row">
+                    <div class="col-md-4">
+                      <label class="small">Measurement Group</label>
+                      <select class="form-control form-control-sm" onchange="currentPricingRules[${idx}].measurement_group_id=this.value">
+                        ${measurementGroups.map(g => `<option value="${g.id}" ${g.id == rule.measurement_group_id ? 'selected' : ''}>${escapeHtml(g.group_label)}</option>`).join('')}
+                      </select>
+                    </div>
+                    <div class="col-md-4">
+                      <label class="small">Pricing Model</label>
+                      <select class="form-control form-control-sm" onchange="currentPricingRules[${idx}].pricing_model=this.value;renderPricingRules()">
+                        <option value="flat" ${rule.pricing_model==='flat'?'selected':''}>Flat Price</option>
+                        <option value="per_sqft" ${rule.pricing_model==='per_sqft'?'selected':''}>Per Sq Ft</option>
+                        <option value="per_linear_ft" ${rule.pricing_model==='per_linear_ft'?'selected':''}>Per Linear Ft</option>
+                        <option value="min_plus_sqft" ${rule.pricing_model==='min_plus_sqft'?'selected':''}>Min + Per Sq Ft</option>
+                        <option value="min_plus_linear_ft" ${rule.pricing_model==='min_plus_linear_ft'?'selected':''}>Min + Per Linear Ft</option>
+                      </select>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="small">Frequency</label>
+                      <select class="form-control form-control-sm" onchange="currentPricingRules[${idx}].default_frequency=this.value">
+                        <option value="one_off" ${rule.default_frequency==='one_off'?'selected':''}>One-off</option>
+                        <option value="7_day" ${rule.default_frequency==='7_day'?'selected':''}>Weekly</option>
+                        <option value="14_day" ${rule.default_frequency==='14_day'?'selected':''}>Bi-weekly</option>
+                        <option value="21_day" ${rule.default_frequency==='21_day'?'selected':''}>Every 3 wks</option>
+                        <option value="monthly" ${rule.default_frequency==='monthly'?'selected':''}>Monthly</option>
+                        <option value="seasonal" ${rule.default_frequency==='seasonal'?'selected':''}>Seasonal</option>
+                      </select>
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                      <button type="button" class="btn btn-sm btn-outline-danger" onclick="removePricingRule(${idx})" title="Remove">
+                        &times;
+                      </button>
+                    </div>
+                  </div>
+                  ${rule.pricing_model !== 'flat' ? `
+                  <div class="row mt-2">
+                    <div class="col-md-3">
+                      <label class="small">Price/Unit ($)</label>
+                      <input type="number" class="form-control form-control-sm" step="0.0001" value="${rule.price_per_unit||0}"
+                             onchange="currentPricingRules[${idx}].price_per_unit=this.value">
+                    </div>
+                    <div class="col-md-3">
+                      <label class="small">Minimum ($)</label>
+                      <input type="number" class="form-control form-control-sm" step="0.01" value="${rule.minimum_price||0}"
+                             onchange="currentPricingRules[${idx}].minimum_price=this.value">
+                    </div>
+                    ${rule.pricing_model.startsWith('min_plus') ? `
+                    <div class="col-md-3">
+                      <label class="small">Included Units</label>
+                      <input type="number" class="form-control form-control-sm" step="0.01" value="${rule.included_units||0}"
+                             onchange="currentPricingRules[${idx}].included_units=this.value">
+                    </div>` : ''}
+                    <div class="col-md-3 d-flex align-items-end">
+                      <label class="mw-product-checkbox-label small">
+                        <input type="checkbox" ${rule.is_default_for_group == 1 ? 'checked' : ''}
+                               onchange="currentPricingRules[${idx}].is_default_for_group=this.checked?1:0">
+                        Default for group
+                      </label>
+                    </div>
+                  </div>` : ''}
+                </div>
+              `).join('');
+            }
+
+            function addPricingRuleRow() {
+              if (measurementGroups.length === 0) {
+                alert('No measurement groups available. Please run the database migration first.');
+                return;
+              }
+              currentPricingRules.push({
+                id: null,
+                measurement_group_id: measurementGroups[0].id,
+                pricing_model: 'per_sqft',
+                price_per_unit: 0,
+                minimum_price: 0,
+                included_units: 0,
+                default_frequency: 'one_off',
+                is_default_for_group: 0,
+                priority: 0,
+                is_active: 1,
+              });
+              renderPricingRules();
+            }
+
+            function removePricingRule(idx) {
+              currentPricingRules.splice(idx, 1);
+              renderPricingRules();
+            }
+
+            // ============================================================
+            // Upsells Management
+            // ============================================================
+
+            function renderUpsells() {
+              const container = document.getElementById('upsellsList');
+              if (currentUpsells.length === 0) {
+                container.innerHTML = '<p class="text-muted small">No upsells configured.</p>';
+                return;
+              }
+              container.innerHTML = currentUpsells.map((up, idx) => `
+                <div class="mw-upsell-row" data-idx="${idx}">
+                  <div class="row">
+                    <div class="col-md-4">
+                      <label class="small">Upsell Product</label>
+                      <select class="form-control form-control-sm" onchange="currentUpsells[${idx}].upsell_product_id=this.value">
+                        ${allProducts.filter(p => !p.is_archived).map(p => `<option value="${p.id}" ${p.id == up.upsell_product_id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+                      </select>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="small">Type</label>
+                      <select class="form-control form-control-sm" onchange="currentUpsells[${idx}].upsell_type=this.value">
+                        <option value="recommended" ${up.upsell_type==='recommended'?'selected':''}>Recommended</option>
+                        <option value="addon" ${up.upsell_type==='addon'?'selected':''}>Add-on</option>
+                        <option value="upgrade" ${up.upsell_type==='upgrade'?'selected':''}>Upgrade</option>
+                      </select>
+                    </div>
+                    <div class="col-md-3">
+                      <label class="small">Display Text</label>
+                      <input type="text" class="form-control form-control-sm" value="${escapeHtml(up.display_text||'')}"
+                             placeholder="Optional override"
+                             onchange="currentUpsells[${idx}].display_text=this.value">
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                      <label class="mw-product-checkbox-label small" title="Pre-selected on customer view">
+                        <input type="checkbox" ${up.default_checked == 1 ? 'checked' : ''}
+                               onchange="currentUpsells[${idx}].default_checked=this.checked?1:0">
+                      </label>
+                    </div>
+                    <div class="col-md-1 d-flex align-items-end">
+                      <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeUpsell(${idx})">&times;</button>
+                    </div>
+                  </div>
+                </div>
+              `).join('');
+            }
+
+            function addUpsellRow() {
+              if (allProducts.length === 0) {
+                alert('No products loaded to select as upsells.');
+                return;
+              }
+              const currentProductId = document.getElementById('productForm').elements['id'].value;
+              const firstOther = allProducts.find(p => !p.is_archived && p.id != currentProductId);
+              currentUpsells.push({
+                id: null,
+                upsell_product_id: firstOther ? firstOther.id : allProducts[0].id,
+                upsell_type: 'recommended',
+                display_text: '',
+                default_checked: 0,
+                sort_order: currentUpsells.length,
+                is_active: 1,
+              });
+              renderUpsells();
+            }
+
+            function removeUpsell(idx) {
+              currentUpsells.splice(idx, 1);
+              renderUpsells();
+            }
+
+            // Load pricing rules and upsells for a product
+            function loadProductExtras(productId) {
+              // Load pricing rules
+              fetch('api-products.php?action=get-pricing-rules&product_id=' + productId)
+                .then(r => r.json())
+                .then(data => {
+                  currentPricingRules = data.success ? data.rules : [];
+                  renderPricingRules();
+                })
+                .catch(() => { currentPricingRules = []; renderPricingRules(); });
+
+              // Load upsells
+              fetch('api-products.php?action=get-upsells&product_id=' + productId)
+                .then(r => r.json())
+                .then(data => {
+                  currentUpsells = data.success ? data.upsells : [];
+                  renderUpsells();
+                })
+                .catch(() => { currentUpsells = []; renderUpsells(); });
+            }
+
+            // Save pricing rules and upsells after product save
+            function saveProductExtras(productId) {
+              // Save pricing rules (delete + recreate)
+              const rulePromises = currentPricingRules.map(rule => {
+                rule.product_id = productId;
+                return fetch('api-products.php?action=save-pricing-rule', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(rule)
+                }).then(r => r.json());
+              });
+
+              // Save upsells
+              const upsellPromises = currentUpsells.map(up => {
+                up.base_product_id = productId;
+                return fetch('api-products.php?action=save-upsell', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(up)
+                }).then(r => r.json());
+              });
+
+              return Promise.all([...rulePromises, ...upsellPromises]);
             }
 
             // Utility: Escape HTML

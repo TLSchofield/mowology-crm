@@ -6,6 +6,20 @@
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once 'includes/functions.php';
 
+// Load MeasurementService for shared save logic
+$__dir = __DIR__;
+for ($__i = 0; $__i < 5; $__i++) {
+    $__dir = dirname($__dir);
+    if (is_file($__dir . '/app/Core/paths.php')) {
+        require_once $__dir . '/app/Core/paths.php';
+        break;
+    }
+}
+unset($__dir, $__i);
+if (defined('APP_ROOT')) {
+    require_once APP_ROOT . '/Services/MeasurementService.php';
+}
+
 requireLogin();
 $user = getCurrentUser();
 $db = getDB();
@@ -22,7 +36,7 @@ if (!$requestId) {
 // Handle POST actions before loading page data
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
-    // AJAX: Save measurements
+    // AJAX: Save measurements (using shared MeasurementService)
     if ($_POST['action'] === 'save_measurements') {
         header('Content-Type: application/json');
 
@@ -39,54 +53,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit;
         }
 
-        try {
-            $db->beginTransaction();
-
-            $db->prepare("DELETE FROM property_measurements WHERE property_id = ?")->execute([$propId]);
-
-            $stmt = $db->prepare("
-                INSERT INTO property_measurements
-                    (property_id, measurement_name, measurement_type, area_sqft, area_sqm, perimeter_ft, polygon_coords, measured_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-
-            $totalLawn = 0;
-            $totalDriveway = 0;
-
-            foreach ($measurements as $m) {
-                $sqft = (float)($m['sqFt'] ?? 0);
-                $sqm = $sqft / 10.764;
-                $type = $m['type'] ?? 'other';
-
-                $stmt->execute([
-                    $propId,
-                    $m['name'] ?? 'Unnamed Area',
-                    $type,
-                    $sqft,
-                    round($sqm, 2),
-                    $m['perimeter'] ?? null,
-                    isset($m['coords']) ? json_encode($m['coords']) : null,
-                    $user['id']
-                ]);
-
-                if (in_array($type, ['lawn', 'garden'])) {
-                    $totalLawn += $sqft;
-                } elseif (in_array($type, ['driveway', 'walkway', 'parking', 'patio'])) {
-                    $totalDriveway += $sqft;
-                }
-            }
-
-            $db->prepare("
-                UPDATE properties SET total_lawn_sqft = ?, total_driveway_sqft = ?, measurements_updated_at = NOW()
-                WHERE id = ?
-            ")->execute([$totalLawn, $totalDriveway, $propId]);
-
-            $db->commit();
-            echo json_encode(['success' => true, 'message' => 'Measurements saved']);
-        } catch (Exception $e) {
-            $db->rollBack();
-            error_log("Save measurements error: " . $e->getMessage());
-            echo json_encode(['success' => false, 'error' => 'Database error']);
+        if (function_exists('saveMeasurementsForProperty')) {
+            $result = saveMeasurementsForProperty($propId, $measurements, $user['id']);
+            echo json_encode($result);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'MeasurementService not available']);
         }
         exit;
     }
@@ -136,17 +107,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     ]);
                     $quoteId = $db->lastInsertId();
 
-                    // Insert line items
+                    // Insert line items (extended with pricing snapshot columns)
                     $liStmt = $db->prepare("
                         INSERT INTO quote_line_items (
-                            quote_id, service_type, description, quantity, unit_type,
-                            unit_price, line_total, sort_order, is_optional
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            quote_id, product_id, pricing_rule_id, measurement_group_key,
+                            service_type, description, quantity, unit_type,
+                            unit_price, line_total, sort_order, is_optional,
+                            units_used, price_per_unit, minimum_applied, included_units,
+                            pricing_snapshot, bundle_id, is_upsell
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ");
 
                     foreach ($lineItemsData as $index => $item) {
                         $liStmt->execute([
                             $quoteId,
+                            !empty($item['product_id']) ? intval($item['product_id']) : null,
+                            !empty($item['pricing_rule_id']) ? intval($item['pricing_rule_id']) : null,
+                            $item['measurement_group_key'] ?? null,
                             $item['service_type'] ?? 'Service',
                             $item['description'] ?? '',
                             floatval($item['quantity'] ?? 1),
@@ -154,7 +131,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             floatval($item['unit_price'] ?? 0),
                             floatval($item['line_total'] ?? 0),
                             $index,
-                            $item['is_optional'] ?? false
+                            $item['is_optional'] ?? false,
+                            isset($item['units_used']) ? floatval($item['units_used']) : null,
+                            isset($item['price_per_unit']) ? floatval($item['price_per_unit']) : null,
+                            $item['minimum_applied'] ?? 0,
+                            isset($item['included_units']) ? floatval($item['included_units']) : null,
+                            $item['pricing_snapshot'] ?? null,
+                            !empty($item['bundle_id']) ? intval($item['bundle_id']) : null,
+                            $item['is_upsell'] ?? 0,
                         ]);
                     }
 
@@ -439,6 +423,20 @@ $extraHead = '<script>
                                             <div class="col-md-3">
                                                 <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Valid Until</label>
                                                 <input type="date" name="valid_until" class="form-control" value="<?php echo date('Y-m-d', strtotime('+30 days')); ?>">
+                                            </div>
+                                        </div>
+
+                                        <!-- Measurement Auto-Fill -->
+                                        <div class="card mb-2 mw-measurement-summary" id="wfMeasurementPanel" style="display:none;">
+                                            <div class="card-body py-2">
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <strong class="small">Property Measurements</strong>
+                                                    <span class="badge badge-info small" id="wfMeasurementBadge"></span>
+                                                </div>
+                                                <div id="wfMeasurementSummary" class="small text-muted mb-2"></div>
+                                                <button type="button" class="btn btn-sm btn-success mw-autofill-btn" onclick="wfAutoFill()">
+                                                    Auto-fill from Measurements
+                                                </button>
                                             </div>
                                         </div>
 
@@ -1282,6 +1280,101 @@ Work to be completed weather permitting.</textarea>
             initMaps();
         }
         setTimeout(resizeMaps, 500);
+    }
+
+    // ─── Measurement Auto-Fill ───────────────────────────────
+    (function() {
+        if (!propertyId) return;
+
+        var panel = document.getElementById('wfMeasurementPanel');
+        var content = document.getElementById('wfMeasurementSummary');
+        var badge = document.getElementById('wfMeasurementBadge');
+
+        var groupLabels = {
+            'lawn_area': 'Lawn & Garden',
+            'hard_surface': 'Hard Surface',
+            'hedge_linear': 'Hedge / Edge',
+            'other_area': 'Other'
+        };
+
+        fetch('api/quote-autofill.php?action=get-measurements&property_id=' + propertyId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success && data.has_data) {
+                    var html = '';
+                    var totalAreas = 0;
+
+                    Object.keys(data.measurements).forEach(function(key) {
+                        var m = data.measurements[key];
+                        totalAreas += m.count;
+                        var label = groupLabels[key] || key;
+                        var value = key === 'hedge_linear'
+                            ? m.linear_ft.toLocaleString() + ' lin ft'
+                            : m.sqft.toLocaleString() + ' sq ft';
+                        html += '<div class="mb-1"><strong>' + label + ':</strong> ' + value + ' <span class="text-muted">(' + m.names.join(', ') + ')</span></div>';
+                    });
+
+                    content.innerHTML = html;
+                    badge.textContent = totalAreas + ' area' + (totalAreas !== 1 ? 's' : '');
+                    panel.style.display = '';
+                }
+            })
+            .catch(function() { /* ignore */ });
+    })();
+
+    function wfAutoFill() {
+        if (!propertyId) {
+            alert('No property associated with this request.');
+            return;
+        }
+
+        if (lineItems.length > 0) {
+            if (!confirm('This will add auto-calculated line items to the existing list. Continue?')) return;
+        }
+
+        var formData = new FormData();
+        formData.append('action', 'auto-fill');
+        formData.append('property_id', propertyId);
+
+        fetch('api/quote-autofill.php', { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success && data.items.length > 0) {
+                    data.items.forEach(function(item) {
+                        lineItems.push({
+                            id: ++itemIdCounter,
+                            product_id: item.product_id || null,
+                            pricing_rule_id: item.pricing_rule_id || null,
+                            measurement_group_key: item.measurement_group_key || null,
+                            service_type: item.service_type || '',
+                            description: item.description || '',
+                            quantity: item.quantity || 1,
+                            unit_type: item.unit_type || 'each',
+                            unit_price: item.unit_price || 0,
+                            line_total: item.line_total || 0,
+                            is_optional: item.is_optional || false,
+                            units_used: item.units_used || null,
+                            price_per_unit: item.price_per_unit || null,
+                            minimum_applied: item.minimum_applied || 0,
+                            included_units: item.included_units || null,
+                            pricing_snapshot: item.pricing_snapshot || null,
+                            bundle_id: item.bundle_id || null,
+                            is_upsell: item.is_upsell || 0,
+                            fromMeasurement: true
+                        });
+                    });
+                    renderLineItems();
+
+                    if (data.warnings && data.warnings.length > 0) {
+                        alert('Auto-fill complete with warnings:\n' + data.warnings.join('\n'));
+                    }
+                } else if (data.warnings && data.warnings.length > 0) {
+                    alert('Could not auto-fill:\n' + data.warnings.join('\n'));
+                } else {
+                    alert('No pricing rules found. Configure pricing rules on products first.');
+                }
+            })
+            .catch(function(err) { alert('Error: ' + err.message); });
     }
     </script>
 

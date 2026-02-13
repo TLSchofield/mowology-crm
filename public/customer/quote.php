@@ -548,6 +548,42 @@ function formatCurrency($amount) {
             font-size: 48px;
             margin-bottom: 16px;
         }
+
+        /* Upsell Cards */
+        .upsell-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .upsell-card:hover {
+            border-color: var(--forest-main, #2D8659);
+            background: #f0faf5;
+        }
+        .upsell-toggle {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            margin: 0;
+        }
+        .upsell-toggle input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            accent-color: var(--forest-main, #2D8659);
+        }
+        .upsell-info {
+            flex: 1;
+            font-size: 14px;
+        }
+        .upsell-price {
+            font-weight: 600;
+            font-size: 15px;
+            color: var(--forest-main, #2D8659);
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -667,6 +703,17 @@ function formatCurrency($amount) {
                         </div>
                     </div>
                 </div>
+
+                <!-- Upsell Section (only shown for sent quotes) -->
+                <?php if ($quote['status'] === 'sent'): ?>
+                    <div class="card" id="upsellSection" style="display:none;">
+                        <h3 class="card-title">Enhance Your Service</h3>
+                        <p style="font-size:14px; color:#555; margin-bottom:16px;">
+                            Add recommended services to get the most out of your visit.
+                        </p>
+                        <div id="upsellOptions"></div>
+                    </div>
+                <?php endif; ?>
 
                 <!-- Terms -->
                 <?php if ($quote['terms']): ?>
@@ -823,6 +870,81 @@ function formatCurrency($amount) {
 
             document.getElementById('signatureData').value = signaturePad.toDataURL();
         });
+    </script>
+    <?php endif; ?>
+
+    <?php if ($quote && $quote['status'] === 'sent'): ?>
+    <script>
+    // ── Upsell Management ──────────────────────────────
+    (function() {
+        var quoteToken = <?php echo json_encode($token); ?>;
+        var upsellSection = document.getElementById('upsellSection');
+        var upsellContainer = document.getElementById('upsellOptions');
+        if (!upsellSection || !upsellContainer) return;
+
+        function formatCurrencyJS(amount) {
+            return '$' + parseFloat(amount).toFixed(2);
+        }
+
+        fetch('api/quote-upsell.php?action=get-upsells&token=' + encodeURIComponent(quoteToken))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success || !data.upsells || data.upsells.length === 0) return;
+
+                upsellSection.style.display = '';
+
+                upsellContainer.innerHTML = data.upsells.map(function(up) {
+                    var text = up.display_text || up.upsell_product_name;
+                    var desc = up.upsell_description || '';
+                    var price = up.calculated_price || up.upsell_price;
+                    var checked = up.is_added;
+
+                    return '<div class="upsell-card" data-product-id="' + up.upsell_product_id + '">' +
+                        '<label class="upsell-toggle">' +
+                            '<input type="checkbox" ' + (checked ? 'checked' : '') +
+                            ' onchange="toggleUpsell(' + up.upsell_product_id + ', this.checked)">' +
+                            '<div class="upsell-info">' +
+                                '<strong>' + text + '</strong>' +
+                                (desc ? '<br><span style="font-size:12px;color:#666;">' + desc + '</span>' : '') +
+                            '</div>' +
+                            '<div class="upsell-price">+ ' + formatCurrencyJS(price) + '</div>' +
+                        '</label>' +
+                    '</div>';
+                }).join('');
+            })
+            .catch(function() { /* silently fail */ });
+    })();
+
+    function toggleUpsell(productId, add) {
+        var formData = new FormData();
+        formData.append('token', <?php echo json_encode($token); ?>);
+        formData.append('action', add ? 'add-upsell' : 'remove-upsell');
+        formData.append('upsell_product_id', productId);
+
+        fetch('api/quote-upsell.php', { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success && data.totals) {
+                    // Update displayed totals
+                    var subtotalEls = document.querySelectorAll('.total-row .total-value');
+                    if (subtotalEls.length >= 3) {
+                        subtotalEls[0].textContent = '$' + parseFloat(data.totals.subtotal).toFixed(2);
+                        subtotalEls[1].textContent = '$' + parseFloat(data.totals.tax_amount).toFixed(2);
+                        subtotalEls[2].textContent = '$' + parseFloat(data.totals.total).toFixed(2);
+                    }
+                } else if (!data.success) {
+                    alert(data.error || 'Could not update quote');
+                    // Revert checkbox
+                    var card = document.querySelector('.upsell-card[data-product-id="' + productId + '"] input');
+                    if (card) card.checked = !add;
+                }
+            })
+            .catch(function(err) {
+                alert('Error: ' + err.message);
+                var card = document.querySelector('.upsell-card[data-product-id="' + productId + '"] input');
+                if (card) card.checked = !add;
+            });
+    }
     </script>
     <?php endif; ?>
 </body>

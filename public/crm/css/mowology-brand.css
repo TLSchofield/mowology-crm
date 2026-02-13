@@ -7337,3 +7337,79 @@ textarea.font-monospace {
     display: none;
   }
 }
+
+/* ────────────────────────────────────────────────────────
+   Pricing Rules (Product Modal)
+   ──────────────────────────────────────────────────────── */
+
+.mw-pricing-rule-row {
+  background: var(--mw-light, #E8F3F0);
+  border: 1px solid #d1e7e0;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.mw-pricing-rule-row .row {
+  align-items: flex-end;
+}
+
+.mw-pricing-rule-row label.small {
+  font-weight: 500;
+  font-size: 11px;
+  color: #555;
+  margin-bottom: 2px;
+  display: block;
+}
+
+/* ────────────────────────────────────────────────────────
+   Upsells (Product Modal)
+   ──────────────────────────────────────────────────────── */
+
+.mw-upsell-row {
+  background: #fef9ee;
+  border: 1px solid #f3e8c8;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.mw-upsell-row .row {
+  align-items: flex-end;
+}
+
+.mw-upsell-row label.small {
+  font-weight: 500;
+  font-size: 11px;
+  color: #555;
+  margin-bottom: 2px;
+  display: block;
+}
+
+/* ────────────────────────────────────────────────────────
+   Measurement Summary Panel (Quote Create / Workflow)
+   ──────────────────────────────────────────────────────── */
+
+.mw-measurement-summary {
+  border-left: 4px solid var(--mw-green, #2D8659);
+}
+
+.mw-measurement-summary .badge-info {
+  background: var(--mw-green, #2D8659);
+  color: #fff;
+  font-size: 11px;
+}
+
+.mw-autofill-btn {
+  background: var(--mw-green, #2D8659);
+  border-color: var(--mw-green, #2D8659);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.mw-autofill-btn:hover {
+  background: var(--mw-dark, #1A5F4A);
+  border-color: var(--mw-dark, #1A5F4A);
+  color: #fff;
+}

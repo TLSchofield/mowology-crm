@@ -20,6 +20,8 @@ function getTimeClockSetting($key, $default = null) {
  * Check if time clock is enabled for a given role
  */
 function isTimeClockEnabledForRole($role) {
+    // Empty/null role defaults to 'user' so new employees can always clock in
+    if (empty($role)) $role = 'user';
     $enabledRoles = getTimeClockSetting('enabled_roles', 'admin,manager,user');
     $roles = array_map('trim', explode(',', $enabledRoles));
     return in_array($role, $roles);

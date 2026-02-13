@@ -2,6 +2,20 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once __DIR__ . '/config.php';
 
+// Load MeasurementService for shared save logic
+$__dir = __DIR__;
+for ($__i = 0; $__i < 5; $__i++) {
+    $__dir = dirname($__dir);
+    if (is_file($__dir . '/app/Core/paths.php')) {
+        require_once $__dir . '/app/Core/paths.php';
+        break;
+    }
+}
+unset($__dir, $__i);
+if (defined('APP_ROOT')) {
+    require_once APP_ROOT . '/Services/MeasurementService.php';
+}
+
 requireLogin();
 $user = getCurrentUser();
 $db = getDB();
@@ -40,7 +54,7 @@ if ($propertyId) {
     }
 }
 
-// Handle AJAX save request
+// Handle AJAX save request (using shared MeasurementService)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
 
@@ -53,73 +67,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             exit;
         }
 
-        try {
-            $db->beginTransaction();
-
-            // Delete existing measurements for this property (replace all)
-            $db->prepare("DELETE FROM property_measurements WHERE property_id = ?")->execute([$propId]);
-
-            // Insert new measurements
-            $stmt = $db->prepare("
-                INSERT INTO property_measurements
-                    (property_id, measurement_name, measurement_type, area_sqft, area_sqm, perimeter_ft, polygon_coords, measured_by)
-                VALUES
-                    (?, ?, ?, ?, ?, ?, ?, ?)
-            ");
-
-            $totalLawn = 0;
-            $totalDriveway = 0;
-
-            foreach ($measurements as $m) {
-                $sqft = (float)($m['sqFt'] ?? 0);
-                $sqm = $sqft / 10.764;
-                $type = $m['type'] ?? 'other';
-
-                $stmt->execute([
-                    $propId,
-                    $m['name'] ?? 'Unnamed Area',
-                    $type,
-                    $sqft,
-                    round($sqm, 2),
-                    $m['perimeter'] ?? null,
-                    isset($m['coords']) ? json_encode($m['coords']) : null,
-                    $user['id']
-                ]);
-
-                // Tally totals
-                if (in_array($type, ['lawn', 'garden'])) {
-                    $totalLawn += $sqft;
-                } elseif (in_array($type, ['driveway', 'walkway', 'parking', 'patio'])) {
-                    $totalDriveway += $sqft;
-                }
-            }
-
-            // Update property summary fields
-            $db->prepare("
-                UPDATE properties SET
-                    total_lawn_sqft = ?,
-                    total_driveway_sqft = ?,
-                    measurements_updated_at = NOW()
-                WHERE id = ?
-            ")->execute([$totalLawn, $totalDriveway, $propId]);
-
-            // Log activity
-            $db->prepare("
-                INSERT INTO activity_log (user_id, property_id, action, details, ip_address)
-                VALUES (?, ?, 'Measurements updated', ?, ?)
-            ")->execute([
-                $user['id'],
-                $propId,
-                count($measurements) . ' areas measured. Total: ' . number_format($totalLawn + $totalDriveway) . ' sq ft',
-                $_SERVER['REMOTE_ADDR'] ?? ''
-            ]);
-
-            $db->commit();
-            echo json_encode(['success' => true, 'message' => 'Measurements saved successfully']);
-        } catch (Exception $e) {
-            $db->rollBack();
-            error_log("Save measurements error: " . $e->getMessage());
-            echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
+        if (function_exists('saveMeasurementsForProperty')) {
+            $result = saveMeasurementsForProperty($propId, $measurements, $user['id']);
+            echo json_encode($result);
+        } else {
+            echo json_encode(['success' => false, 'error' => 'MeasurementService not available']);
         }
         exit;
     }
@@ -212,6 +164,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                           <div class="mw-measure-tools">
                               <button class="btn btn-outline-secondary btn-sm" id="drawPolygonBtn" onclick="startDrawing('polygon')">Draw Area</button>
                               <button class="btn btn-outline-secondary btn-sm" id="drawRectangleBtn" onclick="startDrawing('rectangle')">Rectangle</button>
+                              <button class="btn btn-outline-secondary btn-sm" id="drawPolylineBtn" onclick="startDrawing('polyline')">Draw Line</button>
                               <button class="btn btn-outline-secondary btn-sm" onclick="clearCurrentDrawing()">Clear Drawing</button>
                               <button class="btn btn-outline-danger btn-sm" onclick="clearAllAreas()">Clear All</button>
                           </div>
@@ -464,6 +417,12 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                     strokeColor: '#2d5016',
                     editable: true,
                     draggable: true
+                },
+                polylineOptions: {
+                    strokeColor: '#e85d04',
+                    strokeWeight: 3,
+                    editable: true,
+                    draggable: true
                 }
             });
 
@@ -476,6 +435,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 }
 
                 currentShape = event.overlay;
+                currentShapeType = event.type; // polygon, rectangle, or polyline
                 drawingManager.setDrawingMode(null);
 
                 // Update button states
@@ -492,6 +452,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                     google.maps.event.addListener(currentShape.getPath(), 'insert_at', updateMeasurements);
                 } else if (event.type === 'rectangle') {
                     google.maps.event.addListener(currentShape, 'bounds_changed', updateMeasurements);
+                } else if (event.type === 'polyline') {
+                    google.maps.event.addListener(currentShape.getPath(), 'set_at', updateMeasurements);
+                    google.maps.event.addListener(currentShape.getPath(), 'insert_at', updateMeasurements);
                 }
             });
 
@@ -584,8 +547,14 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             } else if (type === 'rectangle') {
                 drawingManager.setDrawingMode(google.maps.drawing.OverlayType.RECTANGLE);
                 document.getElementById('drawRectangleBtn').classList.add('mw-tool-active');
+            } else if (type === 'polyline') {
+                drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYLINE);
+                document.getElementById('drawPolylineBtn').classList.add('mw-tool-active');
             }
         }
+
+        // Track current shape type for polyline vs polygon/rectangle
+        var currentShapeType = 'polygon';
 
         function clearCurrentDrawing() {
             if (currentShape) {
@@ -598,10 +567,17 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         function updateMeasurements() {
             if (!currentShape) return;
 
-            let area;
+            let area = 0;
             let perimeter = 0;
+            let linearLength = 0;
 
-            if (currentShape.getPath) {
+            if (currentShapeType === 'polyline') {
+                // Polyline — compute length only, no area
+                const path = currentShape.getPath();
+                linearLength = google.maps.geometry.spherical.computeLength(path);
+                area = 0;
+                perimeter = 0;
+            } else if (currentShape.getPath) {
                 // Polygon
                 const path = currentShape.getPath();
                 area = google.maps.geometry.spherical.computeArea(path);
@@ -635,12 +611,20 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             const sqFeet = sqMeters * 10.764;
             const acres = sqMeters * 0.000247105;
             const perimeterFeet = perimeter * 3.28084;
+            const linearFeet = linearLength * 3.28084;
 
             // Display measurements
-            document.getElementById('currentSqFt').textContent = Math.round(sqFeet).toLocaleString();
-            document.getElementById('currentSqM').textContent = Math.round(sqMeters).toLocaleString();
-            document.getElementById('currentAcres').textContent = acres.toFixed(3);
-            document.getElementById('currentPerimeter').textContent = Math.round(perimeterFeet).toLocaleString() + ' ft';
+            if (currentShapeType === 'polyline') {
+                document.getElementById('currentSqFt').textContent = '—';
+                document.getElementById('currentSqM').textContent = '—';
+                document.getElementById('currentAcres').textContent = '—';
+                document.getElementById('currentPerimeter').textContent = Math.round(linearFeet).toLocaleString() + ' lin ft';
+            } else {
+                document.getElementById('currentSqFt').textContent = Math.round(sqFeet).toLocaleString();
+                document.getElementById('currentSqM').textContent = Math.round(sqMeters).toLocaleString();
+                document.getElementById('currentAcres').textContent = acres.toFixed(3);
+                document.getElementById('currentPerimeter').textContent = Math.round(perimeterFeet).toLocaleString() + ' ft';
+            }
 
             document.getElementById('currentMeasurement').style.display = 'block';
         }
@@ -650,24 +634,38 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
             const areaName = document.getElementById('areaName').value || `Area ${areaCounter + 1}`;
             const areaType = document.getElementById('areaType').value;
-            const sqFt = parseInt(document.getElementById('currentSqFt').textContent.replace(/,/g, ''));
+            const sqFtText = document.getElementById('currentSqFt').textContent.replace(/,/g, '');
+            const sqFt = sqFtText === '—' ? 0 : parseInt(sqFtText);
+            const perimText = document.getElementById('currentPerimeter').textContent.replace(/,/g, '').replace(/\s*(ft|lin ft)/, '');
+            const linearFt = currentShapeType === 'polyline' ? parseInt(perimText) || 0 : 0;
 
             const area = {
                 id: ++areaCounter,
                 name: areaName,
                 type: areaType,
                 sqFt: sqFt,
+                linearFt: linearFt,
                 shape: currentShape,
+                shapeType: currentShapeType,
                 color: getRandomColor()
             };
 
-            // Update shape color
-            currentShape.setOptions({
-                fillColor: area.color,
-                fillOpacity: 0.3,
-                editable: false,
-                draggable: false
-            });
+            // Update shape appearance
+            if (currentShapeType === 'polyline') {
+                currentShape.setOptions({
+                    strokeColor: area.color,
+                    strokeWeight: 3,
+                    editable: false,
+                    draggable: false
+                });
+            } else {
+                currentShape.setOptions({
+                    fillColor: area.color,
+                    fillOpacity: 0.3,
+                    editable: false,
+                    draggable: false
+                });
+            }
 
             savedAreas.push(area);
             updateAreasList();
@@ -692,7 +690,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 <div class="mw-area-item" style="border-left: 4px solid ${area.color};">
                     <div class="mw-area-item-info">
                         <div class="mw-area-item-name">${area.name}</div>
-                        <div class="mw-area-item-detail">${area.type} - ${area.sqFt.toLocaleString()} sq ft</div>
+                        <div class="mw-area-item-detail">${area.type} - ${area.shapeType === 'polyline' ? (area.linearFt || 0).toLocaleString() + ' lin ft' : area.sqFt.toLocaleString() + ' sq ft'}</div>
                     </div>
                     <div class="mw-area-item-actions">
                         <button onclick="zoomToArea(${area.id})" title="Zoom to area">Zoom</button>
@@ -860,7 +858,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                     name: area.name,
                     type: area.type,
                     sqFt: area.sqFt,
+                    linearFt: area.linearFt || null,
                     perimeter: area.perimeter || null,
+                    shape: area.shapeType || 'polygon',
                     coords: coords
                 };
             });

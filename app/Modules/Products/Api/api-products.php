@@ -393,6 +393,294 @@ try {
             throw $e;
         }
 
+    // ── Measurement Groups ──────────────────────────────────
+
+    } elseif ($action === 'get-measurement-groups') {
+        $stmt = $db->query("SELECT * FROM measurement_groups WHERE is_active = 1 ORDER BY sort_order");
+        echo json_encode(['success' => true, 'groups' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+
+    // ── Product Pricing Rules ──────────────────────────────
+
+    } elseif ($action === 'get-pricing-rules') {
+        $productId = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
+
+        $sql = "
+            SELECT r.*, mg.group_key, mg.group_label, mg.unit
+            FROM product_pricing_rules r
+            JOIN measurement_groups mg ON r.measurement_group_id = mg.id
+        ";
+        $params = [];
+        if ($productId) {
+            $sql .= " WHERE r.product_id = ?";
+            $params[] = $productId;
+        }
+        $sql .= " ORDER BY r.product_id, r.priority DESC";
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        echo json_encode(['success' => true, 'rules' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+
+    } elseif ($action === 'save-pricing-rule') {
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        if (empty($data['product_id']) || empty($data['measurement_group_id']) || empty($data['pricing_model'])) {
+            throw new Exception('Product, measurement group, and pricing model are required');
+        }
+
+        $validModels = ['flat', 'per_sqft', 'per_linear_ft', 'min_plus_sqft', 'min_plus_linear_ft'];
+        if (!in_array($data['pricing_model'], $validModels)) {
+            throw new Exception('Invalid pricing model');
+        }
+
+        $validFreqs = ['one_off', '7_day', '14_day', '21_day', 'monthly', 'seasonal'];
+        $freq = (isset($data['default_frequency']) && in_array($data['default_frequency'], $validFreqs))
+            ? $data['default_frequency'] : 'one_off';
+
+        if (!empty($data['id'])) {
+            // Update
+            $stmt = $db->prepare("
+                UPDATE product_pricing_rules SET
+                    measurement_group_id = ?, pricing_model = ?, price_per_unit = ?,
+                    minimum_price = ?, included_units = ?, default_frequency = ?,
+                    is_default_for_group = ?, priority = ?, notes = ?, is_active = ?
+                WHERE id = ? AND product_id = ?
+            ");
+            $stmt->execute([
+                $data['measurement_group_id'],
+                $data['pricing_model'],
+                $data['price_per_unit'] ?? 0,
+                $data['minimum_price'] ?? 0,
+                $data['included_units'] ?? 0,
+                $freq,
+                $data['is_default_for_group'] ?? 0,
+                $data['priority'] ?? 0,
+                $data['notes'] ?? null,
+                $data['is_active'] ?? 1,
+                $data['id'],
+                $data['product_id'],
+            ]);
+            echo json_encode(['success' => true, 'message' => 'Pricing rule updated']);
+        } else {
+            // Create
+            $stmt = $db->prepare("
+                INSERT INTO product_pricing_rules
+                    (product_id, measurement_group_id, pricing_model, price_per_unit,
+                     minimum_price, included_units, default_frequency,
+                     is_default_for_group, priority, notes, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $data['product_id'],
+                $data['measurement_group_id'],
+                $data['pricing_model'],
+                $data['price_per_unit'] ?? 0,
+                $data['minimum_price'] ?? 0,
+                $data['included_units'] ?? 0,
+                $freq,
+                $data['is_default_for_group'] ?? 0,
+                $data['priority'] ?? 0,
+                $data['notes'] ?? null,
+                $data['is_active'] ?? 1,
+            ]);
+            echo json_encode(['success' => true, 'id' => $db->lastInsertId(), 'message' => 'Pricing rule created']);
+        }
+
+    } elseif ($action === 'delete-pricing-rule') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (empty($data['id'])) throw new Exception('Rule ID is required');
+
+        $stmt = $db->prepare("DELETE FROM product_pricing_rules WHERE id = ?");
+        $stmt->execute([$data['id']]);
+        echo json_encode(['success' => true, 'message' => 'Pricing rule deleted']);
+
+    // ── Product Upsells ────────────────────────────────────
+
+    } elseif ($action === 'get-upsells') {
+        $productId = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
+
+        $sql = "
+            SELECT u.*, p.name as upsell_product_name, p.base_price as upsell_price,
+                   p.description as upsell_description
+            FROM product_upsells u
+            JOIN products p ON u.upsell_product_id = p.id
+        ";
+        $params = [];
+        if ($productId) {
+            $sql .= " WHERE u.base_product_id = ?";
+            $params[] = $productId;
+        }
+        $sql .= " ORDER BY u.sort_order";
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        echo json_encode(['success' => true, 'upsells' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+
+    } elseif ($action === 'save-upsell') {
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        if (empty($data['base_product_id']) || empty($data['upsell_product_id'])) {
+            throw new Exception('Base product and upsell product are required');
+        }
+
+        if ($data['base_product_id'] == $data['upsell_product_id']) {
+            throw new Exception('A product cannot be its own upsell');
+        }
+
+        $validTypes = ['recommended', 'addon', 'upgrade'];
+        $type = (isset($data['upsell_type']) && in_array($data['upsell_type'], $validTypes))
+            ? $data['upsell_type'] : 'recommended';
+
+        if (!empty($data['id'])) {
+            $stmt = $db->prepare("
+                UPDATE product_upsells SET
+                    upsell_product_id = ?, upsell_type = ?, display_text = ?,
+                    default_checked = ?, sort_order = ?, is_active = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $data['upsell_product_id'],
+                $type,
+                $data['display_text'] ?? null,
+                $data['default_checked'] ?? 0,
+                $data['sort_order'] ?? 0,
+                $data['is_active'] ?? 1,
+                $data['id'],
+            ]);
+            echo json_encode(['success' => true, 'message' => 'Upsell updated']);
+        } else {
+            $stmt = $db->prepare("
+                INSERT INTO product_upsells
+                    (base_product_id, upsell_product_id, upsell_type, display_text,
+                     default_checked, sort_order, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $data['base_product_id'],
+                $data['upsell_product_id'],
+                $type,
+                $data['display_text'] ?? null,
+                $data['default_checked'] ?? 0,
+                $data['sort_order'] ?? 0,
+                $data['is_active'] ?? 1,
+            ]);
+            echo json_encode(['success' => true, 'id' => $db->lastInsertId(), 'message' => 'Upsell created']);
+        }
+
+    } elseif ($action === 'delete-upsell') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (empty($data['id'])) throw new Exception('Upsell ID is required');
+
+        $stmt = $db->prepare("DELETE FROM product_upsells WHERE id = ?");
+        $stmt->execute([$data['id']]);
+        echo json_encode(['success' => true, 'message' => 'Upsell deleted']);
+
+    // ── Product Bundles ────────────────────────────────────
+
+    } elseif ($action === 'get-bundles') {
+        $stmt = $db->query("
+            SELECT b.*, GROUP_CONCAT(bi.product_id ORDER BY bi.sort_order) as product_ids
+            FROM product_bundles b
+            LEFT JOIN product_bundle_items bi ON b.id = bi.bundle_id
+            WHERE b.is_active = 1
+            GROUP BY b.id
+            ORDER BY b.sort_order
+        ");
+        $bundles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Load items for each bundle
+        foreach ($bundles as &$bundle) {
+            $itemStmt = $db->prepare("
+                SELECT bi.*, p.name as product_name, p.base_price, p.description as product_description
+                FROM product_bundle_items bi
+                JOIN products p ON bi.product_id = p.id
+                WHERE bi.bundle_id = ?
+                ORDER BY bi.sort_order
+            ");
+            $itemStmt->execute([$bundle['id']]);
+            $bundle['items'] = $itemStmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+        unset($bundle);
+
+        echo json_encode(['success' => true, 'bundles' => $bundles]);
+
+    } elseif ($action === 'save-bundle') {
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        if (empty($data['bundle_name'])) {
+            throw new Exception('Bundle name is required');
+        }
+
+        $validTiers = ['good', 'better', 'best', 'custom'];
+        $tier = (isset($data['tier']) && in_array($data['tier'], $validTiers)) ? $data['tier'] : 'custom';
+
+        $validDiscountTypes = ['percentage', 'fixed'];
+        $discountType = (isset($data['discount_type']) && in_array($data['discount_type'], $validDiscountTypes))
+            ? $data['discount_type'] : 'percentage';
+
+        $db->beginTransaction();
+        try {
+            if (!empty($data['id'])) {
+                $stmt = $db->prepare("
+                    UPDATE product_bundles SET
+                        bundle_name = ?, tier = ?, description = ?,
+                        discount_type = ?, discount_value = ?, is_active = ?, sort_order = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $data['bundle_name'], $tier, $data['description'] ?? null,
+                    $discountType, $data['discount_value'] ?? 0,
+                    $data['is_active'] ?? 1, $data['sort_order'] ?? 0, $data['id'],
+                ]);
+                $bundleId = $data['id'];
+
+                // Clear existing items
+                $db->prepare("DELETE FROM product_bundle_items WHERE bundle_id = ?")->execute([$bundleId]);
+            } else {
+                $stmt = $db->prepare("
+                    INSERT INTO product_bundles (bundle_name, tier, description, discount_type, discount_value, is_active, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmt->execute([
+                    $data['bundle_name'], $tier, $data['description'] ?? null,
+                    $discountType, $data['discount_value'] ?? 0,
+                    $data['is_active'] ?? 1, $data['sort_order'] ?? 0,
+                ]);
+                $bundleId = $db->lastInsertId();
+            }
+
+            // Insert bundle items
+            if (!empty($data['items']) && is_array($data['items'])) {
+                $itemStmt = $db->prepare("
+                    INSERT INTO product_bundle_items (bundle_id, product_id, quantity_multiplier, override_price, sort_order)
+                    VALUES (?, ?, ?, ?, ?)
+                ");
+                foreach ($data['items'] as $idx => $item) {
+                    if (empty($item['product_id'])) continue;
+                    $itemStmt->execute([
+                        $bundleId,
+                        $item['product_id'],
+                        $item['quantity_multiplier'] ?? 1,
+                        !empty($item['override_price']) ? $item['override_price'] : null,
+                        $item['sort_order'] ?? $idx,
+                    ]);
+                }
+            }
+
+            $db->commit();
+            echo json_encode(['success' => true, 'id' => $bundleId, 'message' => 'Bundle saved']);
+        } catch (Exception $e) {
+            $db->rollBack();
+            throw $e;
+        }
+
+    } elseif ($action === 'delete-bundle') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (empty($data['id'])) throw new Exception('Bundle ID is required');
+
+        $stmt = $db->prepare("DELETE FROM product_bundles WHERE id = ?");
+        $stmt->execute([$data['id']]);
+        echo json_encode(['success' => true, 'message' => 'Bundle deleted']);
+
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }

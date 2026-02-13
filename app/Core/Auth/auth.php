@@ -93,7 +93,7 @@ function getCurrentUser(): ?array {
         'id'    => (int)$_SESSION['user_id'],
         'email' => (string)($_SESSION['user_email'] ?? ''),
         'name'  => (string)($_SESSION['user_name'] ?? ''),
-        'role'  => (string)($_SESSION['user_role'] ?? 'staff'),
+        'role'  => (string)($_SESSION['user_role'] ?? 'user'),
     ];
 }
 
@@ -123,7 +123,7 @@ function loginUser(string $email, string $password): bool {
             $_SESSION['user_id'] = (int)$user['id'];
             $_SESSION['user_email'] = (string)$user['email'];
             $_SESSION['user_name'] = (string)($user['full_name'] ?? '');
-            $_SESSION['user_role'] = (string)($user['role'] ?? 'staff');
+            $_SESSION['user_role'] = (string)($user['role'] ?: 'user');
             $_SESSION['login_time'] = time();
             $_SESSION['last_activity'] = time();
 
