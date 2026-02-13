@@ -138,6 +138,9 @@ if (!$plan) {
 // Get visits
 $visits = getPlanVisits($planId, null, 200, 0);
 
+// Get plan line items
+$planLineItems = getPlanLineItems($planId);
+
 // Get plan notes
 $stmt = $db->prepare("
     SELECT pn.*, u.full_name
@@ -503,6 +506,54 @@ $activePage = 'jobs';
                     </div>
                 </div>
             </div>
+
+            <!-- ══════════════════════════════════════════════════════
+                 Services Included (Plan Line Items)
+                 ══════════════════════════════════════════════════════ -->
+            <?php if (!empty($planLineItems)): ?>
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Services Included</h5>
+                </div>
+                <div class="card-body p-0">
+                    <table class="mw-plan-items-table">
+                        <thead>
+                            <tr>
+                                <th>Service</th>
+                                <th>Description</th>
+                                <th class="text-right">Qty</th>
+                                <th class="text-right">Unit Price</th>
+                                <th class="text-right">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php $itemsSubtotal = 0; ?>
+                            <?php foreach ($planLineItems as $pli): ?>
+                                <?php $itemsSubtotal += floatval($pli['line_total']); ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($pli['service_type']); ?></td>
+                                    <td class="text-muted"><?php echo htmlspecialchars($pli['description'] ?: '-'); ?></td>
+                                    <td class="text-right"><?php echo number_format(floatval($pli['quantity']), ($pli['quantity'] == intval($pli['quantity'])) ? 0 : 2); ?></td>
+                                    <td class="text-right"><?php echo formatCurrency($pli['unit_price']); ?></td>
+                                    <td class="text-right"><?php echo formatCurrency($pli['line_total']); ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="4" class="text-right">Per Visit Total</td>
+                                <td class="text-right"><?php echo formatCurrency($itemsSubtotal); ?></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <?php if ($plan['quote_id']): ?>
+                    <div class="card-footer text-muted small">
+                        From quote <a href="../quotes/view.php?id=<?php echo (int)$plan['quote_id']; ?>"><?php echo htmlspecialchars($plan['quote_number'] ?? ''); ?></a>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
 
             <!-- ══════════════════════════════════════════════════════
                  SECTION 3: Visits List

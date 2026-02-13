@@ -7853,3 +7853,208 @@ textarea.font-monospace {
 /* Settings — receipt forwarding tab */
 #receipts .card { border-color: #dee2e6; }
 #receipts .card-header { background: var(--mw-light); }
+
+
+/* ── Create from Quote — Split Panel ─────────────── */
+
+.mw-cfq-quote-panel {
+  position: sticky;
+  top: 80px;
+}
+
+/* Quote item cards on the right panel */
+.mw-cfq-quote-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  transition: all 0.15s ease;
+}
+
+.mw-cfq-quote-item.mw-cfq-available {
+  cursor: pointer;
+  border-left: 3px solid var(--mw-green);
+}
+.mw-cfq-quote-item.mw-cfq-available:hover {
+  background: var(--mw-light);
+  border-color: var(--mw-green);
+}
+
+.mw-cfq-quote-item.mw-cfq-added {
+  border-left: 3px solid #3B82F6;
+  background: #EFF6FF;
+  cursor: default;
+  opacity: 0.7;
+}
+
+.mw-cfq-quote-item.mw-cfq-converted {
+  border-left: 3px solid #9CA3AF;
+  background: #F9FAFB;
+  cursor: default;
+  opacity: 0.6;
+}
+
+.mw-cfq-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.mw-cfq-item-service {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #111;
+}
+
+.mw-cfq-item-desc {
+  font-size: 0.78rem;
+  color: #6B7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-cfq-item-price {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  color: var(--mw-dark);
+}
+
+.mw-cfq-item-status {
+  flex-shrink: 0;
+}
+
+.mw-cfq-badge-available {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #D1FAE5;
+  color: var(--mw-dark);
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.mw-cfq-badge-converted {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #E5E7EB;
+  color: #6B7280;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.mw-cfq-items-empty {
+  text-align: center;
+  padding: 24px 16px;
+  color: #9CA3AF;
+  font-size: 0.9rem;
+  border: 2px dashed #E5E7EB;
+  border-radius: 8px;
+}
+
+/* Line items table in the form */
+.mw-line-items-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.mw-line-items-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6B7280;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-bottom: 2px solid #E5E7EB;
+}
+.mw-line-items-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #F3F4F6;
+  vertical-align: middle;
+}
+.mw-line-items-table tfoot td {
+  border-top: 2px solid #E5E7EB;
+  border-bottom: none;
+  padding-top: 10px;
+}
+.mw-line-items-table .form-control-sm {
+  padding: 0.2rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+/* Align with existing visit option */
+.mw-cfq-align-option {
+  padding: 10px 14px;
+  background: #FFF7ED;
+  border: 1px solid #FDBA74;
+  border-radius: 6px;
+}
+.mw-cfq-align-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+/* Recurring options panel */
+.mw-recurring-options {
+  display: none;
+  margin-top: 16px;
+  padding: 16px;
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+}
+.mw-recurring-options.show {
+  display: block;
+}
+
+/* Form row helpers */
+.mw-form-row.three {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+/* Progress bar for conversion tracking */
+.mw-cfq-progress .progress {
+  background: #E5E7EB;
+  border-radius: 3px;
+}
+
+/* Plan line items card on plan view */
+.mw-plan-items-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.mw-plan-items-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6B7280;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 2px solid #E5E7EB;
+  text-align: left;
+}
+.mw-plan-items-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #F3F4F6;
+}
+.mw-plan-items-table tfoot td {
+  border-top: 2px solid #E5E7EB;
+  border-bottom: none;
+  padding-top: 10px;
+  font-weight: 600;
+}
+
+/* Responsive: stack panels on mobile */
+@media (max-width: 991px) {
+  .mw-cfq-quote-panel {
+    position: static;
+  }
+  .mw-form-row.three {
+    grid-template-columns: 1fr;
+  }
+}

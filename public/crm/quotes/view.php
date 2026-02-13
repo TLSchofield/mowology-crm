@@ -577,12 +577,9 @@ $activePage = 'quotes';
                           <i data-feather="check-circle" class="mr-1"></i> Approve (Verbal)
                       </button>
                   <?php elseif ($quote['status'] === 'accepted'): ?>
-                      <form method="POST" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="convert_to_job" class="btn btn-primary">
-                              <i data-feather="tool" class="mr-1"></i> Convert to Plan
-                          </button>
-                      </form>
+                      <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
+                          <i data-feather="clipboard" class="mr-1"></i> Create Plans
+                      </a>
                   <?php endif; ?>
               </div>
           </div>

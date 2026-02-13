@@ -3,10 +3,11 @@
  * Job Plan / Visit / Calendar Stop Functions
  * /crm/includes/plan-functions.php
  *
- * Core functions for the three-table job model:
- *   job_plans     → the service agreement / contract
- *   calendar_stops → one card per property per day per crew
- *   job_visits     → one occurrence of work
+ * Core functions for the job model:
+ *   job_plans       → the service agreement / contract
+ *   plan_line_items → what services are included in each visit
+ *   calendar_stops  → one card per property per day per crew
+ *   job_visits      → one occurrence of work
  *
  * Migrated from: public/crm/includes/plan-functions.php
  */
@@ -185,6 +186,12 @@ function createJobPlan(array $planData, int $userId): array {
         $stmt = $db->prepare("UPDATE properties SET status = 'active' WHERE id = ?");
         $stmt->execute([$planData['property_id']]);
 
+        // Insert line items if provided
+        if (!empty($planData['line_items'])) {
+            addPlanLineItems($planId, $planData['line_items']);
+            updatePlanTotalFromItems($planId);
+        }
+
         $db->commit();
 
         // Generate initial visits (outside transaction for clarity)
@@ -274,6 +281,134 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
     }
 
     return $result;
+}
+
+
+// ============================================================================
+// PLAN LINE ITEMS
+// ============================================================================
+
+/**
+ * Add line items to a plan.
+ *
+ * @param int   $planId
+ * @param array $items Each item: ['service_type', 'description', 'quantity',
+ *                      'unit_type', 'unit_price', 'line_total', 'sort_order',
+ *                      'quote_line_item_id']
+ * @return bool
+ */
+function addPlanLineItems(int $planId, array $items): bool {
+    $db = getDB();
+
+    $stmt = $db->prepare("
+        INSERT INTO plan_line_items
+            (plan_id, quote_line_item_id, service_type, description, quantity,
+             unit_type, unit_price, line_total, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ");
+
+    $sortOrder = 0;
+    foreach ($items as $item) {
+        $qty = floatval($item['quantity'] ?? 1);
+        $unitPrice = floatval($item['unit_price'] ?? 0);
+        $lineTotal = floatval($item['line_total'] ?? ($qty * $unitPrice));
+
+        $stmt->execute([
+            $planId,
+            $item['quote_line_item_id'] ?? null,
+            $item['service_type'] ?? 'Service',
+            $item['description'] ?? '',
+            $qty,
+            $item['unit_type'] ?? 'visit',
+            $unitPrice,
+            $lineTotal,
+            $item['sort_order'] ?? $sortOrder,
+        ]);
+
+        // Mark the source quote line item as converted
+        if (!empty($item['quote_line_item_id'])) {
+            $upStmt = $db->prepare("UPDATE quote_line_items SET plan_id = ? WHERE id = ?");
+            $upStmt->execute([$planId, $item['quote_line_item_id']]);
+        }
+
+        $sortOrder++;
+    }
+
+    return true;
+}
+
+/**
+ * Get line items for a plan.
+ */
+function getPlanLineItems(int $planId): array {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT pli.*, qli.quote_id
+        FROM plan_line_items pli
+        LEFT JOIN quote_line_items qli ON pli.quote_line_item_id = qli.id
+        WHERE pli.plan_id = ?
+        ORDER BY pli.sort_order, pli.id
+    ");
+    $stmt->execute([$planId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Recalculate plan price_per_visit from its line items.
+ */
+function updatePlanTotalFromItems(int $planId): void {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT COALESCE(SUM(line_total), 0) AS total
+        FROM plan_line_items
+        WHERE plan_id = ?
+    ");
+    $stmt->execute([$planId]);
+    $total = floatval($stmt->fetchColumn());
+
+    $upStmt = $db->prepare("
+        UPDATE job_plans SET price_per_visit = ?, estimated_amount = ? WHERE id = ?
+    ");
+    $upStmt->execute([$total, $total, $planId]);
+}
+
+/**
+ * Get the next scheduled visit date at a property (for "align with existing visit").
+ */
+function getNextScheduledVisitDate(int $propertyId): ?string {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT jv.scheduled_date
+        FROM job_visits jv
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        WHERE jp.property_id = ?
+          AND jv.status = 'scheduled'
+          AND jv.scheduled_date >= CURDATE()
+        ORDER BY jv.scheduled_date ASC
+        LIMIT 1
+    ");
+    $stmt->execute([$propertyId]);
+    $date = $stmt->fetchColumn();
+    return $date ?: null;
+}
+
+/**
+ * Get quote line items with their conversion status.
+ * Returns all items for a quote, marking which have been converted to plans.
+ */
+function getQuoteLineItemsWithStatus(int $quoteId): array {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT qli.*,
+               jp.plan_number,
+               jp.id AS converted_plan_id
+        FROM quote_line_items qli
+        LEFT JOIN job_plans jp ON qli.plan_id = jp.id
+        WHERE qli.quote_id = ?
+        ORDER BY qli.sort_order, qli.id
+    ");
+    $stmt->execute([$quoteId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 

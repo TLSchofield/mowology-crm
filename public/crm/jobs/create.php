@@ -244,6 +244,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $recurrenceIntervalUnit = 'weeks';
         }
 
+        // Parse line items from form
+        $formItems = [];
+        if (!empty($_POST['items']) && is_array($_POST['items'])) {
+            foreach ($_POST['items'] as $item) {
+                if (empty($item['service_type'])) continue;
+                $formItems[] = [
+                    'quote_line_item_id' => null,
+                    'service_type'       => $item['service_type'],
+                    'description'        => $item['description'] ?? '',
+                    'quantity'           => floatval($item['quantity'] ?? 1),
+                    'unit_type'          => $item['unit_type'] ?? 'visit',
+                    'unit_price'         => floatval($item['unit_price'] ?? 0),
+                    'line_total'         => floatval($item['line_total'] ?? 0),
+                ];
+            }
+        }
+
         // Build plan data array
         $planData = [
             'property_id'              => $propertyId,
@@ -266,6 +283,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'default_time_start'       => $defaultTimeStart,
             'default_time_end'         => $defaultTimeEnd,
             'horizon_days'             => $horizonDays,
+            'line_items'               => !empty($formItems) ? $formItems : null,
         ];
 
         // Client validation
@@ -406,6 +424,39 @@ $activePage = 'jobs';
                                     placeholder="Service details, special instructions..."><?php echo htmlspecialchars($prefill['description'] ?? ''); ?></textarea>
                       </div>
 
+                  </div>
+              </div>
+
+              <!-- Plan Items Card (optional) -->
+              <div class="card">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                      <h5 class="card-title mb-0">Plan Items <small class="text-muted">(optional)</small></h5>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addManualItem()">
+                          <i data-feather="plus" style="width:14px;height:14px;"></i> Add Item
+                      </button>
+                  </div>
+                  <div class="card-body">
+                      <p class="text-muted small mb-3" id="itemsHint">Add service items to break down what's included in each visit. If no items are added, the plan will use the price per visit from the Pricing section below.</p>
+                      <table class="mw-line-items-table" id="planItemsTable" style="display:none;">
+                          <thead>
+                              <tr>
+                                  <th>Service</th>
+                                  <th>Description</th>
+                                  <th>Qty</th>
+                                  <th class="text-right">Price</th>
+                                  <th class="text-right">Total</th>
+                                  <th></th>
+                              </tr>
+                          </thead>
+                          <tbody id="planItemsBody"></tbody>
+                          <tfoot>
+                              <tr>
+                                  <td colspan="4" class="text-right"><strong>Per Visit Total</strong></td>
+                                  <td class="text-right"><strong id="planItemsTotal">$0.00</strong></td>
+                                  <td></td>
+                              </tr>
+                          </tfoot>
+                      </table>
                   </div>
               </div>
 
@@ -761,6 +812,68 @@ $activePage = 'jobs';
               }
               function escapeAttr(str) {
                   return str.replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              }
+
+              // ── Plan Items Management ──
+              var itemIndex = 0;
+
+              window.addManualItem = function() {
+                  var table = document.getElementById('planItemsTable');
+                  var body = document.getElementById('planItemsBody');
+                  var hint = document.getElementById('itemsHint');
+
+                  table.style.display = '';
+                  if (hint) hint.style.display = 'none';
+
+                  var idx = itemIndex++;
+                  var tr = document.createElement('tr');
+                  tr.innerHTML =
+                      '<td><input type="text" name="items[' + idx + '][service_type]" class="form-control form-control-sm" placeholder="Service type" required></td>' +
+                      '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm" placeholder="Description"></td>' +
+                      '<td><input type="number" name="items[' + idx + '][quantity]" class="form-control form-control-sm mw-cfq-qty" value="1" min="0.01" step="0.01" onchange="recalcItemRow(this)" style="width:70px;"></td>' +
+                      '<td><input type="number" name="items[' + idx + '][unit_price]" class="form-control form-control-sm mw-cfq-price text-right" value="0" min="0" step="0.01" onchange="recalcItemRow(this)" style="width:90px;">' +
+                          '<input type="hidden" name="items[' + idx + '][unit_type]" value="visit"></td>' +
+                      '<td class="text-right"><span class="mw-cfq-row-total">$0.00</span>' +
+                          '<input type="hidden" name="items[' + idx + '][line_total]" class="mw-cfq-total-input" value="0"></td>' +
+                      '<td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeItemRow(this)" title="Remove">&times;</button></td>';
+                  body.appendChild(tr);
+              };
+
+              window.recalcItemRow = function(input) {
+                  var tr = input.closest('tr');
+                  var qty = parseFloat(tr.querySelector('.mw-cfq-qty').value) || 0;
+                  var price = parseFloat(tr.querySelector('.mw-cfq-price').value) || 0;
+                  var total = qty * price;
+                  tr.querySelector('.mw-cfq-row-total').textContent = '$' + total.toFixed(2);
+                  tr.querySelector('.mw-cfq-total-input').value = total.toFixed(2);
+                  updateItemTotals();
+              };
+
+              window.removeItemRow = function(btn) {
+                  btn.closest('tr').remove();
+                  updateItemTotals();
+                  var body = document.getElementById('planItemsBody');
+                  if (body.children.length === 0) {
+                      document.getElementById('planItemsTable').style.display = 'none';
+                      var hint = document.getElementById('itemsHint');
+                      if (hint) hint.style.display = '';
+                  }
+              };
+
+              function updateItemTotals() {
+                  var inputs = document.querySelectorAll('.mw-cfq-total-input');
+                  var sum = 0;
+                  inputs.forEach(function(inp) { sum += parseFloat(inp.value) || 0; });
+                  var totalEl = document.getElementById('planItemsTotal');
+                  if (totalEl) totalEl.textContent = '$' + sum.toFixed(2);
+
+                  // Auto-sync to price_per_visit if items exist
+                  if (inputs.length > 0 && sum > 0) {
+                      var ppv = document.querySelector('[name="price_per_visit"]');
+                      var ea = document.querySelector('[name="estimated_amount"]');
+                      if (ppv) ppv.value = sum.toFixed(2);
+                      if (ea) ea.value = sum.toFixed(2);
+                  }
               }
 
               // ── Recurring toggle ──
