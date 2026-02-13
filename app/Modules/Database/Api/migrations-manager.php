@@ -108,7 +108,9 @@ function handleListMigrations() {
         ORDER BY executed_at DESC
     ");
     $applied = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    $appliedNames = array_column($applied, 'migration_filename');
+    // Only treat successful migrations as "applied" — failed ones should be re-runnable
+    $successfulApplied = array_filter($applied, function($row) { return ($row['status'] ?? '') === 'success'; });
+    $appliedNames = array_column($successfulApplied, 'migration_filename');
 
     // Build pending and assumed-executed lists with metadata
     $pending = [];
