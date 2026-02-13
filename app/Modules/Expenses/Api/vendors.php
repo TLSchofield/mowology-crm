@@ -76,6 +76,11 @@ try {
             handleDeleteLocation($db, $input);
             break;
 
+        case 'delete':
+            if (!$canEdit) throw new Exception('Permission denied');
+            handleVendorDelete($db, $input);
+            break;
+
         case 'categories':
             handleCategories();
             break;
@@ -275,6 +280,30 @@ function handleDeleteLocation(PDO $db, ?array $input): void
     $stmt->execute([$id]);
 
     echo json_encode(['success' => true, 'message' => 'Location deleted']);
+}
+
+
+function handleVendorDelete(PDO $db, array $input): void
+{
+    $id = (int)($input['id'] ?? 0);
+    if (!$id) throw new Exception('Vendor ID is required');
+
+    // Check for linked expenses first
+    $stmt = $db->prepare("SELECT COUNT(*) FROM expenses WHERE vendor_id = ?");
+    $stmt->execute([$id]);
+    $count = (int)$stmt->fetchColumn();
+
+    if ($count > 0) {
+        // Soft-delete: set is_active = 0 instead of deleting
+        $db->prepare("UPDATE vendors SET is_active = 0 WHERE id = ?")->execute([$id]);
+        echo json_encode(['success' => true, 'message' => 'Vendor deactivated (has linked expenses)']);
+        return;
+    }
+
+    // Hard delete: no linked expenses
+    $db->prepare("DELETE FROM vendor_locations WHERE vendor_id = ?")->execute([$id]);
+    $db->prepare("DELETE FROM vendors WHERE id = ?")->execute([$id]);
+    echo json_encode(['success' => true, 'message' => 'Vendor deleted']);
 }
 
 
