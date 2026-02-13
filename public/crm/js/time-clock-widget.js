@@ -31,10 +31,14 @@
         fetch('/crm/api/time-clock.php?action=status', {
             credentials: 'same-origin'
         })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
         .then(function(data) {
             if (!data.success) {
-                renderDisabled();
+                // API responded but not successful — still show clock-in button
+                renderClockedOut();
                 return;
             }
             trackingEnabled = !!data.location_tracking_enabled;
@@ -49,8 +53,10 @@
                 renderClockedOut();
             }
         })
-        .catch(function() {
-            renderDisabled();
+        .catch(function(err) {
+            // API failed — still show clock-in button so crew can always clock in
+            console.warn('Time clock API error:', err);
+            renderClockedOut();
         });
     }
 
@@ -100,7 +106,8 @@
     }
 
     function renderDisabled() {
-        widget.innerHTML = '';
+        // Never hide the widget — always show clock-in as fallback
+        renderClockedOut();
     }
 
     // ── Timer Logic ──
