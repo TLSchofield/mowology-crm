@@ -7854,6 +7854,113 @@ textarea.font-monospace {
 #receipts .card { border-color: #dee2e6; }
 #receipts .card-header { background: var(--mw-light); }
 
+/* ── Receipt Capture (Photo-First) ─────────────── */
+
+/* Camera capture button */
+.mw-capture-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 0.75rem;
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+}
+.mw-capture-btn:hover {
+  background: var(--mw-dark);
+  border-color: var(--mw-dark);
+}
+
+/* Gallery link below camera button */
+.mw-gallery-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #666;
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.mw-gallery-link:hover {
+  color: var(--mw-green);
+}
+
+/* Receipt preview in review panel */
+.mw-receipt-preview-container {
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  background: #f8f9fa;
+  text-align: center;
+  max-height: 400px;
+}
+.mw-receipt-preview-img {
+  max-width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+}
+
+/* Confidence dots next to field labels */
+.mw-confidence-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.mw-conf-high {
+  background: var(--mw-green);
+  box-shadow: 0 0 4px rgba(45, 134, 89, 0.4);
+}
+.mw-conf-medium {
+  background: #ffc107;
+  box-shadow: 0 0 4px rgba(255, 193, 7, 0.4);
+}
+.mw-conf-low {
+  background: #dc3545;
+  box-shadow: 0 0 4px rgba(220, 53, 69, 0.4);
+}
+
+/* ── Receipt Capture — Mobile Responsive ─────────── */
+
+@media (max-width: 767px) {
+  /* Full-width camera button on mobile */
+  .mw-capture-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 1.25rem;
+    font-size: 1.2rem;
+  }
+
+  /* Stack preview above form on mobile */
+  .mw-receipt-preview-container {
+    max-height: 250px;
+    margin-bottom: 1rem;
+  }
+  .mw-receipt-preview-img {
+    max-height: 250px;
+  }
+
+  /* Compact form fields on mobile */
+  #receiptReviewPanel .form-label {
+    font-size: 0.75rem;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 991px) {
+  /* Tablet: slightly smaller preview */
+  .mw-receipt-preview-container {
+    max-height: 300px;
+  }
+  .mw-receipt-preview-img {
+    max-height: 300px;
+  }
+}
+
 
 /* ── Create from Quote — Split Panel ─────────────── */
 
