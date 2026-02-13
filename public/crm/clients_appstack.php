@@ -377,17 +377,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             if (!$apiKey) throw new Exception('Google Maps API key not configured');
 
             $url = 'https://maps.googleapis.com/maps/api/geocode/json?' . http_build_query(['address' => $fullAddress, 'key' => $apiKey]);
-            $context = stream_context_create(['http' => ['timeout' => 5]]);
-            $response = @file_get_contents($url, false, $context);
+
+            // Try curl first, fall back to file_get_contents
+            $response = false;
+            if (function_exists('curl_init')) {
+                $ch = curl_init($url);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                $response = curl_exec($ch);
+                curl_close($ch);
+            }
+            if ($response === false) {
+                $context = stream_context_create(['http' => ['timeout' => 10], 'ssl' => ['verify_peer' => false]]);
+                $response = @file_get_contents($url, false, $context);
+            }
+
+            if ($response === false) {
+                echo json_encode(['success' => false, 'error' => 'HTTP request to geocoding API failed']);
+                exit;
+            }
+
             $data = json_decode($response, true);
 
-            if ($data['status'] === 'OK' && !empty($data['results'])) {
+            if (isset($data['status']) && $data['status'] === 'OK' && !empty($data['results'])) {
                 $location = $data['results'][0]['geometry']['location'];
                 $db->prepare("UPDATE properties SET latitude = ?, longitude = ?, geocoded_at = NOW() WHERE id = ?")
                    ->execute([$location['lat'], $location['lng'], $propertyId]);
                 echo json_encode(['success' => true, 'lat' => $location['lat'], 'lng' => $location['lng']]);
             } else {
-                echo json_encode(['success' => false, 'error' => 'Could not geocode address']);
+                $apiStatus = $data['status'] ?? 'unknown';
+                $apiError = $data['error_message'] ?? '';
+                echo json_encode(['success' => false, 'error' => 'Geocode failed: ' . $apiStatus . ($apiError ? ' - ' . $apiError : '')]);
             }
         } catch (Exception $e) {
             http_response_code(500);
