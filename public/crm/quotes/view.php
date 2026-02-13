@@ -218,6 +218,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
     }
 
+    if ($action === 'approve_verbal') {
+        // Admin approves quote on behalf of customer (verbal confirmation)
+        $approverName = trim($_POST['approver_name'] ?? '');
+        if (empty($approverName)) {
+            $approverName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? ''));
+        }
+        if (empty($approverName)) {
+            $approverName = 'Customer (verbal)';
+        }
+
+        try {
+            $stmt = $db->prepare("
+                UPDATE quotes SET
+                    status = 'accepted',
+                    accepted_at = NOW(),
+                    accepted_by_name = ?,
+                    accepted_ip_address = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $approverName . ' (verbal approval by ' . $user['full_name'] . ')',
+                $_SERVER['REMOTE_ADDR'],
+                $quoteId
+            ]);
+
+            logActivityExtended($user['id'], 'Quote approved (verbal)', "Approved on behalf of {$approverName} by {$user['full_name']}", null, null, $quoteId);
+
+            $quote['status'] = 'accepted';
+            $message = "Quote approved (verbal confirmation from {$approverName}).";
+            $messageType = 'success';
+        } catch (Exception $e) {
+            error_log("Quote verbal approval error: " . $e->getMessage());
+            $message = 'Error approving quote. Please try again.';
+            $messageType = 'error';
+        }
+    }
+
+    if ($action === 'update_contact') {
+        // Update contact details from quote view (AJAX or form)
+        $contactId = intval($_POST['contact_id'] ?? 0);
+        $firstName = trim($_POST['first_name'] ?? '');
+        $lastName = trim($_POST['last_name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
+
+        $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+
+        if (!$contactId) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['success' => false, 'error' => 'No contact linked to this quote.']); exit; }
+            $message = 'No contact linked to this quote.';
+            $messageType = 'error';
+        } elseif (empty($firstName)) {
+            if ($isAjax) { header('Content-Type: application/json'); echo json_encode(['success' => false, 'error' => 'First name is required.']); exit; }
+            $message = 'First name is required.';
+            $messageType = 'error';
+        } else {
+            try {
+                $stmt = $db->prepare("
+                    UPDATE contacts SET
+                        first_name = ?,
+                        last_name = ?,
+                        email = ?,
+                        phone = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$firstName, $lastName, $email, $phone, $contactId]);
+
+                logActivityExtended($user['id'], 'Contact updated', "Updated contact #{$contactId}: {$firstName} {$lastName}", null, null, $quoteId);
+
+                // If this is an AJAX request, return JSON
+                if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => true, 'message' => 'Contact updated.']);
+                    exit;
+                }
+
+                // Otherwise redirect back
+                header("Location: view.php?id={$quoteId}&saved=1");
+                exit;
+            } catch (Exception $e) {
+                error_log("Contact update error: " . $e->getMessage());
+                if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+                    header('Content-Type: application/json');
+                    echo json_encode(['success' => false, 'error' => 'Database error.']);
+                    exit;
+                }
+                $message = 'Error updating contact.';
+                $messageType = 'error';
+            }
+        }
+    }
+
     if ($action === 'convert_to_job') {
         $result = createPlanFromQuote($quoteId, (int)$user['id']);
         if ($result['success']) {
@@ -470,6 +562,9 @@ $activePage = 'quotes';
                               <i data-feather="send" class="mr-1"></i> Send to Customer
                           </button>
                       </form>
+                      <button type="button" class="btn btn-outline-success" onclick="showApproveModal()">
+                          <i data-feather="check-circle" class="mr-1"></i> Approve (Verbal)
+                      </button>
                   <?php elseif ($quote['status'] === 'sent'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
@@ -477,6 +572,9 @@ $activePage = 'quotes';
                               <i data-feather="send" class="mr-1"></i> Resend
                           </button>
                       </form>
+                      <button type="button" class="btn btn-outline-success" onclick="showApproveModal()">
+                          <i data-feather="check-circle" class="mr-1"></i> Approve (Verbal)
+                      </button>
                   <?php elseif ($quote['status'] === 'accepted'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
@@ -492,8 +590,16 @@ $activePage = 'quotes';
               <div>
                   <!-- Customer Info -->
                   <div class="card">
-                      <div class="card-header">
+                      <div class="card-header d-flex justify-content-between align-items-center">
                           <h5 class="card-title mb-0">Customer Information</h5>
+                          <?php
+                              $editContactId = $quote['qr_contact_id'] ?? $quote['contact_id'] ?? null;
+                          ?>
+                          <?php if ($editContactId): ?>
+                              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showContactEditModal()">
+                                  <i data-feather="edit-2" style="width: 14px; height: 14px;"></i> Edit
+                              </button>
+                          <?php endif; ?>
                       </div>
                       <div class="card-body">
                           <?php
@@ -785,10 +891,145 @@ $activePage = 'quotes';
               </div>
           </div>
 
+          <!-- Approve (Verbal) Modal -->
+          <?php if (in_array($quote['status'], ['draft', 'sent'])): ?>
+          <div class="modal fade" id="approveModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                  <div class="modal-content">
+                      <form method="POST">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <input type="hidden" name="action" value="approve_verbal">
+                          <div class="modal-header">
+                              <h5 class="modal-title">Approve Quote (Verbal Confirmation)</h5>
+                              <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                          </div>
+                          <div class="modal-body">
+                              <p class="text-muted mb-3">Record verbal approval from the customer. This will mark the quote as accepted without requiring a digital signature.</p>
+                              <div class="form-group">
+                                  <label for="approverName">Customer Name</label>
+                                  <input type="text" class="form-control" id="approverName" name="approver_name"
+                                         value="<?php echo htmlspecialchars(trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? ''))); ?>"
+                                         placeholder="Name of person who gave verbal approval">
+                              </div>
+                          </div>
+                          <div class="modal-footer">
+                              <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                              <button type="submit" class="btn btn-success">
+                                  <i data-feather="check-circle" class="mr-1"></i> Confirm Approval
+                              </button>
+                          </div>
+                      </form>
+                  </div>
+              </div>
+          </div>
+          <?php endif; ?>
+
+          <!-- Edit Contact Modal -->
+          <?php
+              $editContactId = $quote['qr_contact_id'] ?? $quote['contact_id'] ?? null;
+              if ($editContactId):
+                  // Fetch current contact data for the edit form
+                  $editStmt = $db->prepare("SELECT id, first_name, last_name, email, phone FROM contacts WHERE id = ?");
+                  $editStmt->execute([$editContactId]);
+                  $editContact = $editStmt->fetch(PDO::FETCH_ASSOC);
+          ?>
+          <?php if ($editContact): ?>
+          <div class="modal fade" id="contactEditModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                  <div class="modal-content">
+                      <form method="POST" id="contactEditForm">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <input type="hidden" name="action" value="update_contact">
+                          <input type="hidden" name="contact_id" value="<?php echo (int)$editContact['id']; ?>">
+                          <div class="modal-header">
+                              <h5 class="modal-title">Edit Contact Details</h5>
+                              <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                          </div>
+                          <div class="modal-body">
+                              <div class="form-group">
+                                  <label for="editFirstName">First Name *</label>
+                                  <input type="text" class="form-control" id="editFirstName" name="first_name"
+                                         value="<?php echo htmlspecialchars($editContact['first_name']); ?>" required>
+                              </div>
+                              <div class="form-group">
+                                  <label for="editLastName">Last Name</label>
+                                  <input type="text" class="form-control" id="editLastName" name="last_name"
+                                         value="<?php echo htmlspecialchars($editContact['last_name']); ?>">
+                              </div>
+                              <div class="form-group">
+                                  <label for="editEmail">Email</label>
+                                  <input type="email" class="form-control" id="editEmail" name="email"
+                                         value="<?php echo htmlspecialchars($editContact['email']); ?>">
+                              </div>
+                              <div class="form-group">
+                                  <label for="editPhone">Phone</label>
+                                  <input type="tel" class="form-control" id="editPhone" name="phone"
+                                         value="<?php echo htmlspecialchars($editContact['phone']); ?>">
+                              </div>
+                          </div>
+                          <div class="modal-footer">
+                              <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                              <button type="submit" class="btn btn-primary" id="contactSaveBtn">
+                                  <i data-feather="save" class="mr-1"></i> Save Changes
+                              </button>
+                          </div>
+                      </form>
+                  </div>
+              </div>
+          </div>
+          <?php endif; ?>
+          <?php endif; ?>
+
           <script>
             const quoteId = <?php echo (int)$quoteId; ?>;
             const csrfToken = '<?php echo htmlspecialchars($csrfToken); ?>';
 
+            // --- Approve Modal ---
+            function showApproveModal() {
+              $('#approveModal').modal('show');
+            }
+
+            // --- Contact Edit Modal ---
+            function showContactEditModal() {
+              $('#contactEditModal').modal('show');
+            }
+
+            // Handle contact edit form via AJAX
+            const contactForm = document.getElementById('contactEditForm');
+            if (contactForm) {
+              contactForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const btn = document.getElementById('contactSaveBtn');
+                btn.disabled = true;
+                btn.innerHTML = '<i data-feather="loader" class="mr-1"></i> Saving...';
+
+                const formData = new FormData(this);
+                fetch('view.php?id=' + quoteId, {
+                  method: 'POST',
+                  headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                  body: formData
+                })
+                .then(r => r.json())
+                .then(data => {
+                  if (data.success) {
+                    // Reload to show updated info
+                    window.location.href = 'view.php?id=' + quoteId + '&saved=1';
+                  } else {
+                    alert('Error: ' + (data.error || 'Failed to save.'));
+                    btn.disabled = false;
+                    btn.innerHTML = '<i data-feather="save" class="mr-1"></i> Save Changes';
+                  }
+                })
+                .catch(err => {
+                  console.error(err);
+                  alert('Error saving contact.');
+                  btn.disabled = false;
+                  btn.innerHTML = '<i data-feather="save" class="mr-1"></i> Save Changes';
+                });
+              });
+            }
+
+            // --- Notes ---
             function toggleNoteForm() {
               const form = document.getElementById('noteForm');
               form.style.display = form.style.display === 'none' ? 'block' : 'none';
@@ -822,9 +1063,7 @@ $activePage = 'quotes';
               .then(response => response.json())
               .then(data => {
                 if (data.success) {
-                  // Add note to list
                   addNoteToList(data.note);
-                  // Clear form
                   document.getElementById('noteContent').value = '';
                   document.getElementById('noteType').value = 'general';
                   toggleNoteForm();
@@ -842,12 +1081,10 @@ $activePage = 'quotes';
               const notesList = document.getElementById('notesList');
               const noNotesMsg = document.querySelector('.mw-notes-panel .text-muted');
 
-              // Remove "no notes" message if it exists
               if (noNotesMsg && noNotesMsg.textContent.includes('No notes')) {
                 noNotesMsg.remove();
               }
 
-              // Create note item HTML
               const noteHtml = `
                 <li class="mw-note-item mb-3 pb-3 border-bottom">
                   <div class="mw-note-header d-flex justify-content-between align-items-start mb-1">
@@ -865,7 +1102,6 @@ $activePage = 'quotes';
                 </li>
               `;
 
-              // Insert at beginning of list
               if (notesList) {
                 notesList.insertAdjacentHTML('afterbegin', noteHtml);
               }
