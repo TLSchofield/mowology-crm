@@ -1654,7 +1654,7 @@ $unconvertedRequests = $db->query("
               };
 
               window.geocodeAllProperties = function() {
-                var toGeocode = propertiesData.filter(function(p) { return !p.latitude || !p.longitude; });
+                var toGeocode = propertiesData.filter(function(p) { return !parseFloat(p.latitude) || !parseFloat(p.longitude); });
                 if (toGeocode.length === 0) return;
 
                 var chain = Promise.resolve();
