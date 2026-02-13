@@ -52,11 +52,22 @@ try {
         // No properties — create some with contacts
         $results['message'] = 'No active properties found. Creating test properties and contacts.';
 
+        // Discover actual columns on contacts and properties tables
+        $contactCols = [];
+        $colStmt = $db->query("SHOW COLUMNS FROM contacts");
+        while ($col = $colStmt->fetch(PDO::FETCH_ASSOC)) { $contactCols[] = $col['Field']; }
+
+        $propertyCols = [];
+        $colStmt = $db->query("SHOW COLUMNS FROM properties");
+        while ($col = $colStmt->fetch(PDO::FETCH_ASSOC)) { $propertyCols[] = $col['Field']; }
+
+        $results['contact_columns'] = $contactCols;
+        $results['property_columns'] = $propertyCols;
+
         // Check for contacts
         $contacts = $db->query("SELECT id, first_name, last_name FROM contacts LIMIT 4")->fetchAll(PDO::FETCH_ASSOC);
 
         if (empty($contacts)) {
-            // Create test contacts
             $testContacts = [
                 ['John', 'Smith', 'john@example.com', '604-555-0101'],
                 ['Sarah', 'Johnson', 'sarah@example.com', '604-555-0102'],
@@ -64,10 +75,15 @@ try {
                 ['Lisa', 'Chen', 'lisa@example.com', '604-555-0104'],
             ];
 
-            $insContact = $db->prepare("
-                INSERT INTO contacts (first_name, last_name, email, phone, status, created_at)
-                VALUES (?, ?, ?, ?, 'active', NOW())
-            ");
+            // Build INSERT dynamically based on actual columns
+            $cFields = ['first_name', 'last_name', 'email', 'phone'];
+            $cSql = "INSERT INTO contacts (first_name, last_name, email, phone";
+            $cVals = "VALUES (?, ?, ?, ?";
+            if (in_array('status', $contactCols)) { $cSql .= ", status"; $cVals .= ", 'active'"; }
+            if (in_array('created_at', $contactCols)) { $cSql .= ", created_at"; $cVals .= ", NOW()"; }
+            $cSql .= ") " . $cVals . ")";
+
+            $insContact = $db->prepare($cSql);
 
             $contacts = [];
             foreach ($testContacts as $tc) {
@@ -91,10 +107,14 @@ try {
             ['987 Birch Lane', 'Surrey', 49.1913, -122.8490],
         ];
 
-        $insProperty = $db->prepare("
-            INSERT INTO properties (address, city, site_contact_id, latitude, longitude, status, created_at)
-            VALUES (?, ?, ?, ?, ?, 'active', NOW())
-        ");
+        // Build property INSERT dynamically
+        $pSql = "INSERT INTO properties (address, city, site_contact_id, latitude, longitude";
+        $pVals = "VALUES (?, ?, ?, ?, ?";
+        if (in_array('status', $propertyCols)) { $pSql .= ", status"; $pVals .= ", 'active'"; }
+        if (in_array('created_at', $propertyCols)) { $pSql .= ", created_at"; $pVals .= ", NOW()"; }
+        $pSql .= ") " . $pVals . ")";
+
+        $insProperty = $db->prepare($pSql);
 
         $properties = [];
         foreach ($testProperties as $idx => $tp) {
@@ -108,6 +128,35 @@ try {
             ];
         }
         $results['properties_created'] = count($properties);
+    }
+
+    // ─── Ensure a test company exists (company_id is NOT NULL) ─────
+    $testCompany = $db->query("SELECT id FROM companies LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    if (!$testCompany) {
+        // Check which columns exist on companies table
+        $companyCols = [];
+        $colStmt = $db->query("SHOW COLUMNS FROM companies");
+        while ($col = $colStmt->fetch(PDO::FETCH_ASSOC)) {
+            $companyCols[] = $col['Field'];
+        }
+        $results['company_columns'] = $companyCols;
+
+        $insertCols = ['company_name'];
+        $insertVals = ["'Mowology Test Co'"];
+        if (in_array('status', $companyCols)) {
+            $insertCols[] = 'status';
+            $insertVals[] = "'active'";
+        }
+        if (in_array('created_at', $companyCols)) {
+            $insertCols[] = 'created_at';
+            $insertVals[] = "NOW()";
+        }
+
+        $db->exec("INSERT INTO companies (" . implode(', ', $insertCols) . ") VALUES (" . implode(', ', $insertVals) . ")");
+        $testCompanyId = (int)$db->lastInsertId();
+        $results['company_created'] = $testCompanyId;
+    } else {
+        $testCompanyId = (int)$testCompany['id'];
     }
 
     // ─── Get crew member (use current user) ─────────────────────────
@@ -162,7 +211,7 @@ try {
                 default_time_start, default_time_end, estimated_duration_minutes,
                 horizon_days, status, created_by, created_at
             ) VALUES (
-                ?, ?, 0, ?, ?,
+                ?, ?, ?, ?, ?,
                 ?, 1, 'weekly', 1,
                 ?, ?, ?,
                 ?, ?, ?,
@@ -176,6 +225,7 @@ try {
         $stmt->execute([
             $planNumber,
             $prop['id'],
+            $testCompanyId,
             $title,
             'Test plan for mobile schedule view',
             $serviceType,
