@@ -78,6 +78,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
+// Load measurement groups for dynamic dropdowns
+$measurementGroups = [];
+try {
+    $measurementGroups = $db->query("
+        SELECT id, group_key, group_label, measurement_types, unit, sort_order
+        FROM measurement_groups
+        WHERE is_active = 1
+        ORDER BY sort_order ASC, id ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    // Table may not exist yet — fallback handled in JS
+}
+
+// Build flat list of measurement types from groups
+$areaTypeOptions = [];
+foreach ($measurementGroups as $g) {
+    $types = array_filter(array_map('trim', explode(',', $g['measurement_types'])));
+    foreach ($types as $t) {
+        $areaTypeOptions[] = ['value' => $t, 'label' => ucfirst(str_replace('_', ' ', $t)), 'group' => $g['group_label']];
+    }
+}
+
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 
 $pageTitle = 'Area Measurement';
@@ -217,16 +239,28 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                           </div>
 
                           <div class="form-group mb-3">
-                              <label class="small font-weight-bold">Area Type</label>
-                              <select id="areaType" class="form-control">
-                                  <option value="lawn">Lawn/Grass</option>
-                                  <option value="garden">Garden Bed</option>
-                                  <option value="driveway">Driveway</option>
-                                  <option value="walkway">Walkway/Sidewalk</option>
-                                  <option value="patio">Patio/Deck</option>
-                                  <option value="parking">Parking Lot</option>
-                                  <option value="hedge">Hedge</option>
-                                  <option value="other">Other</option>
+                              <div class="d-flex justify-content-between align-items-center">
+                                  <label class="small font-weight-bold mb-0">Area Type</label>
+                                  <button type="button" class="btn btn-link btn-sm p-0" onclick="openGroupManager()" title="Manage area groups" style="font-size: 0.75rem;">
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                      Manage Groups
+                                  </button>
+                              </div>
+                              <select id="areaType" class="form-control mt-1">
+                                  <?php if (!empty($areaTypeOptions)): ?>
+                                      <?php foreach ($areaTypeOptions as $opt): ?>
+                                          <option value="<?php echo htmlspecialchars($opt['value']); ?>"><?php echo htmlspecialchars($opt['label']); ?></option>
+                                      <?php endforeach; ?>
+                                  <?php else: ?>
+                                      <option value="lawn">Lawn</option>
+                                      <option value="garden">Garden</option>
+                                      <option value="driveway">Driveway</option>
+                                      <option value="walkway">Walkway</option>
+                                      <option value="patio">Patio</option>
+                                      <option value="parking">Parking</option>
+                                      <option value="hedge">Hedge</option>
+                                      <option value="other">Other</option>
+                                  <?php endif; ?>
                               </select>
                           </div>
 
@@ -902,6 +936,192 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
         // Service type change handler
         document.getElementById('serviceType').addEventListener('change', calculatePricing);
+
+        // ─── Group Manager ──────────────────────────────────────
+        function openGroupManager() {
+            document.getElementById('groupManagerModal').style.display = 'flex';
+            loadGroups();
+        }
+
+        function closeGroupManager() {
+            document.getElementById('groupManagerModal').style.display = 'none';
+        }
+
+        function loadGroups() {
+            var container = document.getElementById('groupsList');
+            container.innerHTML = '<p class="text-muted text-center py-3">Loading...</p>';
+
+            fetch('../api/measurement-groups.php?action=list')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) { container.innerHTML = '<p class="text-danger">' + (data.error || 'Error') + '</p>'; return; }
+                    if (data.groups.length === 0) { container.innerHTML = '<p class="text-muted text-center py-3">No groups defined</p>'; return; }
+
+                    var html = '';
+                    data.groups.forEach(function(g) {
+                        var typeBadges = (g.types_array || []).map(function(t) {
+                            return '<span class="badge badge-secondary mr-1 mb-1" style="font-size:0.75rem;">' + t +
+                                   ' <button type="button" class="close ml-1" style="font-size:0.85rem; line-height:1; color:#fff; text-shadow:none;" onclick="removeTypeFromGroup(' + g.id + ', \'' + t + '\')">&times;</button></span>';
+                        }).join('');
+
+                        html += '<div class="card mb-2">' +
+                            '<div class="card-body py-2 px-3">' +
+                                '<div class="d-flex justify-content-between align-items-start mb-1">' +
+                                    '<div style="flex:1;">' +
+                                        '<input type="text" class="form-control form-control-sm font-weight-bold" value="' + (g.group_label || '').replace(/"/g, '&quot;') + '" ' +
+                                            'onchange="renameGroup(' + g.id + ', this.value)" style="border:none; padding:0; background:transparent; font-size:0.9rem;" onfocus="this.style.border=\'1px solid #ced4da\'; this.style.padding=\'0.15rem 0.25rem\'; this.style.background=\'#fff\';" onblur="this.style.border=\'none\'; this.style.padding=\'0\'; this.style.background=\'transparent\';">' +
+                                        '<div class="text-muted" style="font-size:0.7rem;">Key: ' + g.group_key + ' | Unit: ' + g.unit + '</div>' +
+                                    '</div>' +
+                                    '<button type="button" class="btn btn-sm btn-outline-danger ml-2" onclick="deleteGroup(' + g.id + ', \'' + g.group_key.replace(/'/g, "\\'") + '\')" style="font-size:0.7rem; padding:0.1rem 0.4rem;">Delete</button>' +
+                                '</div>' +
+                                '<div class="mt-1">' + typeBadges + '</div>' +
+                                '<div class="mt-1 d-flex" style="gap:0.25rem;">' +
+                                    '<input type="text" class="form-control form-control-sm" id="newType_' + g.id + '" placeholder="New type..." style="font-size:0.75rem; max-width:140px;">' +
+                                    '<button class="btn btn-sm btn-outline-primary" onclick="addTypeToGroup(' + g.id + ')" style="font-size:0.7rem; white-space:nowrap;">+ Type</button>' +
+                                '</div>' +
+                            '</div>' +
+                        '</div>';
+                    });
+
+                    container.innerHTML = html;
+                })
+                .catch(function(err) { container.innerHTML = '<p class="text-danger">Error: ' + err.message + '</p>'; });
+        }
+
+        function renameGroup(groupId, newLabel) {
+            if (!newLabel.trim()) return;
+            var fd = new FormData();
+            fd.append('action', 'update-label');
+            fd.append('group_id', groupId);
+            fd.append('group_label', newLabel.trim());
+            fetch('../api/measurement-groups.php', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) alert(data.error || 'Error');
+                    // Refresh the area type dropdown
+                    refreshAreaTypeDropdown();
+                });
+        }
+
+        function deleteGroup(groupId, groupKey) {
+            if (!confirm('Delete group "' + groupKey + '"? Existing measurements will keep their data.')) return;
+            var fd = new FormData();
+            fd.append('action', 'delete');
+            fd.append('group_id', groupId);
+            fetch('../api/measurement-groups.php', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) { loadGroups(); refreshAreaTypeDropdown(); }
+                    else alert(data.error || 'Error');
+                });
+        }
+
+        function addTypeToGroup(groupId) {
+            var input = document.getElementById('newType_' + groupId);
+            var newType = (input.value || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+            if (!newType) { alert('Enter a type name'); return; }
+            var fd = new FormData();
+            fd.append('action', 'add-type');
+            fd.append('group_id', groupId);
+            fd.append('measurement_type', newType);
+            fetch('../api/measurement-groups.php', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) { loadGroups(); refreshAreaTypeDropdown(); }
+                    else alert(data.error || 'Error');
+                });
+        }
+
+        function removeTypeFromGroup(groupId, type) {
+            if (!confirm('Remove type "' + type + '" from this group?')) return;
+            var fd = new FormData();
+            fd.append('action', 'remove-type');
+            fd.append('group_id', groupId);
+            fd.append('measurement_type', type);
+            fetch('../api/measurement-groups.php', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) { loadGroups(); refreshAreaTypeDropdown(); }
+                    else alert(data.error || 'Error');
+                });
+        }
+
+        function addNewGroup() {
+            var label = document.getElementById('newGroupLabel').value.trim();
+            if (!label) { alert('Enter a group name'); return; }
+            var key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+            var unit = document.getElementById('newGroupUnit').value;
+
+            var fd = new FormData();
+            fd.append('action', 'add');
+            fd.append('group_key', key);
+            fd.append('group_label', label);
+            fd.append('unit', unit);
+            fd.append('measurement_types', key); // default: one type matching the key
+            fetch('../api/measurement-groups.php', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        document.getElementById('newGroupLabel').value = '';
+                        loadGroups();
+                        refreshAreaTypeDropdown();
+                    } else {
+                        alert(data.error || 'Error');
+                    }
+                });
+        }
+
+        function refreshAreaTypeDropdown() {
+            fetch('../api/measurement-groups.php?action=list')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success) return;
+                    var select = document.getElementById('areaType');
+                    var currentVal = select.value;
+                    select.innerHTML = '';
+                    data.groups.forEach(function(g) {
+                        if (!g.is_active || g.is_active === '0') return;
+                        (g.types_array || []).forEach(function(t) {
+                            var opt = document.createElement('option');
+                            opt.value = t;
+                            opt.textContent = t.charAt(0).toUpperCase() + t.slice(1).replace(/_/g, ' ');
+                            select.appendChild(opt);
+                        });
+                    });
+                    // Restore selection if still valid
+                    if (select.querySelector('option[value="' + currentVal + '"]')) {
+                        select.value = currentVal;
+                    }
+                });
+        }
     </script>
+
+    <!-- Group Manager Modal -->
+    <div id="groupManagerModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div class="card" style="width:500px; max-width:90vw; max-height:85vh; overflow-y:auto;">
+            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">Manage Area Groups</h5>
+                <button type="button" class="close" onclick="closeGroupManager()" style="font-size:1.2rem;">&times;</button>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">Area groups organize measurement types for pricing. Edit names inline, add/remove types, or create new groups.</p>
+
+                <div id="groupsList">
+                    <p class="text-muted text-center py-3">Loading...</p>
+                </div>
+
+                <hr>
+                <h6 class="mb-2" style="font-size:0.85rem;">Add New Group</h6>
+                <div class="d-flex mb-2" style="gap:0.5rem;">
+                    <input type="text" id="newGroupLabel" class="form-control form-control-sm" placeholder="Group name (e.g., Salt Area)" style="flex:2;">
+                    <select id="newGroupUnit" class="form-control form-control-sm" style="flex:1;">
+                        <option value="sqft">sq ft</option>
+                        <option value="linear_ft">linear ft</option>
+                    </select>
+                    <button class="btn btn-sm btn-primary" onclick="addNewGroup()" style="white-space:nowrap;">Add Group</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

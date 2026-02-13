@@ -101,16 +101,20 @@ function saveMeasurementsForProperty(int $propertyId, array $measurements, int $
         }
         $stmt = $db->prepare($insertSql);
 
-        // Tally totals by group
-        $totals = [
-            'lawn_area'     => 0,
-            'hard_surface'  => 0,
-            'hedge_linear'  => 0,
-            'other_area'    => 0,
-        ];
-        // Also keep legacy totals for backward compatibility
+        // Tally totals by group — data-driven from typeToGroup map
+        $totals = [];
+        // Legacy totals for backward compatibility with properties table columns
         $totalLawn     = 0;
         $totalDriveway = 0;
+
+        // Build group unit lookup from DB
+        $groupUnits = [];
+        try {
+            $guRows = $db->query("SELECT group_key, unit FROM measurement_groups WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($guRows as $gu) { $groupUnits[$gu['group_key']] = $gu['unit']; }
+        } catch (Exception $e) {
+            $groupUnits = ['lawn_area' => 'sqft', 'hard_surface' => 'sqft', 'hedge_linear' => 'linear_ft', 'other_area' => 'sqft'];
+        }
 
         foreach ($measurements as $m) {
             $sqft      = (float)($m['sqFt'] ?? 0);
@@ -153,17 +157,20 @@ function saveMeasurementsForProperty(int $propertyId, array $measurements, int $
                 ]);
             }
 
-            // Accumulate totals
+            // Accumulate totals dynamically by group
+            if (!isset($totals[$groupKey])) $totals[$groupKey] = 0;
+            $groupUnit = $groupUnits[$groupKey] ?? 'sqft';
+            if ($groupUnit === 'linear_ft') {
+                $totals[$groupKey] += ($linearFt > 0 ? $linearFt : $perimeter ?? 0);
+            } else {
+                $totals[$groupKey] += $sqft;
+            }
+
+            // Legacy totals for properties table columns
             if (in_array($type, ['lawn', 'garden'])) {
                 $totalLawn += $sqft;
-                $totals['lawn_area'] += $sqft;
             } elseif (in_array($type, ['driveway', 'walkway', 'parking', 'patio'])) {
                 $totalDriveway += $sqft;
-                $totals['hard_surface'] += $sqft;
-            } elseif ($type === 'hedge') {
-                $totals['hedge_linear'] += ($linearFt > 0 ? $linearFt : $perimeter ?? 0);
-            } else {
-                $totals['other_area'] += $sqft;
             }
         }
 
@@ -189,9 +196,9 @@ function saveMeasurementsForProperty(int $propertyId, array $measurements, int $
             ")->execute([
                 $totalLawn,
                 $totalDriveway,
-                $totals['hard_surface'],
-                $totals['hedge_linear'],
-                $totals['other_area'],
+                $totals['hard_surface'] ?? 0,
+                $totals['hedge_linear'] ?? 0,
+                $totals['other_area'] ?? 0,
                 $propertyId,
             ]);
         } else {
@@ -205,7 +212,7 @@ function saveMeasurementsForProperty(int $propertyId, array $measurements, int $
         }
 
         // Log activity
-        $totalAll = $totalLawn + $totalDriveway + $totals['hedge_linear'] + $totals['other_area'];
+        $totalAll = array_sum($totals);
         try {
             $db->prepare("
                 INSERT INTO activity_log (user_id, property_id, action, details, ip_address)
@@ -226,13 +233,13 @@ function saveMeasurementsForProperty(int $propertyId, array $measurements, int $
         return [
             'success' => true,
             'message' => 'Measurements saved successfully',
-            'totals'  => [
+            'totals'  => array_merge([
                 'lawn_sqft'         => $totalLawn,
                 'driveway_sqft'     => $totalDriveway,
-                'hard_surface_sqft' => $totals['hard_surface'],
-                'hedge_linear_ft'   => $totals['hedge_linear'],
-                'other_sqft'        => $totals['other_area'],
-            ],
+                'hard_surface_sqft' => $totals['hard_surface'] ?? 0,
+                'hedge_linear_ft'   => $totals['hedge_linear'] ?? 0,
+                'other_sqft'        => $totals['other_area'] ?? 0,
+            ], $totals),
         ];
     } catch (Exception $e) {
         $db->rollBack();

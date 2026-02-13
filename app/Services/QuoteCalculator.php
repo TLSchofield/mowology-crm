@@ -31,27 +31,16 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
     $groupKey    = $rule['group_key'] ?? '';
     $groupLabel  = $rule['group_label'] ?? '';
 
-    $quantity     = 1;
-    $unitPrice    = 0;
     $lineTotal    = 0;
-    $unitType     = 'each';
     $minApplied   = false;
 
     switch ($model) {
         case 'flat':
-            // Flat price regardless of area
-            $quantity  = 1;
-            $unitPrice = $basePrice;
             $lineTotal = $basePrice;
-            $unitType  = 'each';
             break;
 
         case 'per_sqft':
-            // Price per square foot, with optional minimum
-            $quantity  = $totalUnits;
-            $unitPrice = $perUnit;
             $lineTotal = $totalUnits * $perUnit;
-            $unitType  = 'sqft';
             if ($minPrice > 0 && $lineTotal < $minPrice) {
                 $lineTotal  = $minPrice;
                 $minApplied = true;
@@ -59,11 +48,7 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
             break;
 
         case 'per_linear_ft':
-            // Price per linear foot, with optional minimum
-            $quantity  = $totalUnits;
-            $unitPrice = $perUnit;
             $lineTotal = $totalUnits * $perUnit;
-            $unitType  = 'each'; // 'linear_ft' not in existing enum, use 'each'
             if ($minPrice > 0 && $lineTotal < $minPrice) {
                 $lineTotal  = $minPrice;
                 $minApplied = true;
@@ -71,29 +56,21 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
             break;
 
         case 'min_plus_sqft':
-            // Minimum price includes some sqft, extra sqft charged per-unit
             $excessUnits = max(0, $totalUnits - $included);
             $lineTotal   = $minPrice + ($excessUnits * $perUnit);
-            $quantity    = 1;
-            $unitPrice   = $lineTotal; // single line item
-            $unitType    = 'each';
             $minApplied  = true;
             break;
 
         case 'min_plus_linear_ft':
-            // Minimum price includes some linear ft, excess charged per-unit
             $excessUnits = max(0, $totalUnits - $included);
             $lineTotal   = $minPrice + ($excessUnits * $perUnit);
-            $quantity    = 1;
-            $unitPrice   = $lineTotal;
-            $unitType    = 'each';
             $minApplied  = true;
             break;
     }
 
-    // Round to 2 decimals
+    // Round to 2 decimals — line item always shows qty=1 at the calculated price.
+    // Actual per-unit rate and total units are preserved in snapshot columns.
     $lineTotal = round($lineTotal, 2);
-    $unitPrice = round($unitPrice, 2);
 
     // Build description with area names
     $areaDesc = !empty($measurementNames)
@@ -123,9 +100,9 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
         'pricing_rule_id'       => (int)$rule['id'],
         'service_type'          => $product['name'],
         'description'           => $areaDesc,
-        'quantity'              => $quantity,
-        'unit_type'             => $unitType,
-        'unit_price'            => $unitPrice,
+        'quantity'              => 1,
+        'unit_type'             => 'each',
+        'unit_price'            => $lineTotal,
         'line_total'            => $lineTotal,
         'measurement_group_key' => $groupKey,
         'units_used'            => $totalUnits,

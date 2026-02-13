@@ -247,6 +247,23 @@ try {
     // Service templates table may not exist yet
 }
 
+// Load measurement groups for dynamic area type dropdown
+$wfMeasurementGroups = [];
+try {
+    $wfMeasurementGroups = $db->query("
+        SELECT id, group_key, group_label, measurement_types, unit, sort_order
+        FROM measurement_groups WHERE is_active = 1 ORDER BY sort_order ASC, id ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) { /* table may not exist yet */ }
+
+$wfAreaTypeOptions = [];
+foreach ($wfMeasurementGroups as $g) {
+    $types = array_filter(array_map('trim', explode(',', $g['measurement_types'])));
+    foreach ($types as $t) {
+        $wfAreaTypeOptions[] = ['value' => $t, 'label' => ucfirst(str_replace('_', ' ', $t))];
+    }
+}
+
 // Auto-update status to 'reviewing' if currently 'new'
 if ($request['status'] === 'new') {
     $db->prepare("UPDATE quote_requests SET status = 'reviewing', reviewed_at = NOW() WHERE id = ? AND status = 'new'")
@@ -599,14 +616,20 @@ Work to be completed weather permitting.</textarea>
                                             </div>
                                             <div class="col-5">
                                                 <select id="areaType" class="form-control form-control-sm">
-                                                    <option value="lawn">Lawn</option>
-                                                    <option value="garden">Garden</option>
-                                                    <option value="driveway">Driveway</option>
-                                                    <option value="walkway">Walkway</option>
-                                                    <option value="patio">Patio</option>
-                                                    <option value="parking">Parking</option>
-                                                    <option value="hedge">Hedge</option>
-                                                    <option value="other">Other</option>
+                                                    <?php if (!empty($wfAreaTypeOptions)): ?>
+                                                        <?php foreach ($wfAreaTypeOptions as $opt): ?>
+                                                            <option value="<?php echo htmlspecialchars($opt['value']); ?>"><?php echo htmlspecialchars($opt['label']); ?></option>
+                                                        <?php endforeach; ?>
+                                                    <?php else: ?>
+                                                        <option value="lawn">Lawn</option>
+                                                        <option value="garden">Garden</option>
+                                                        <option value="driveway">Driveway</option>
+                                                        <option value="walkway">Walkway</option>
+                                                        <option value="patio">Patio</option>
+                                                        <option value="parking">Parking</option>
+                                                        <option value="hedge">Hedge</option>
+                                                        <option value="other">Other</option>
+                                                    <?php endif; ?>
                                                 </select>
                                             </div>
                                         </div>
@@ -1290,12 +1313,11 @@ Work to be completed weather permitting.</textarea>
         var content = document.getElementById('wfMeasurementSummary');
         var badge = document.getElementById('wfMeasurementBadge');
 
-        var groupLabels = {
-            'lawn_area': 'Lawn & Garden',
-            'hard_surface': 'Hard Surface',
-            'hedge_linear': 'Hedge / Edge',
-            'other_area': 'Other'
-        };
+        var groupLabels = <?php
+            $gl = ['lawn_area' => 'Lawn & Garden', 'hard_surface' => 'Hard Surface', 'hedge_linear' => 'Hedge / Edge', 'other_area' => 'Other'];
+            foreach ($wfMeasurementGroups as $g) { $gl[$g['group_key']] = $g['group_label']; }
+            echo json_encode($gl);
+        ?>;
 
         fetch('api/quote-autofill.php?action=get-measurements&property_id=' + propertyId)
             .then(function(r) { return r.json(); })
@@ -1304,11 +1326,20 @@ Work to be completed weather permitting.</textarea>
                     var html = '';
                     var totalAreas = 0;
 
+                    // Build group unit map from rules data
+                    var groupUnits = {};
+                    if (data.rules) {
+                        Object.keys(data.rules).forEach(function(gk) {
+                            if (data.rules[gk].length > 0) groupUnits[gk] = data.rules[gk][0].unit;
+                        });
+                    }
+
                     Object.keys(data.measurements).forEach(function(key) {
                         var m = data.measurements[key];
                         totalAreas += m.count;
                         var label = groupLabels[key] || key;
-                        var value = key === 'hedge_linear'
+                        var isLinear = (groupUnits[key] === 'linear_ft') || (m.linear_ft > 0 && m.sqft === 0);
+                        var value = isLinear
                             ? m.linear_ft.toLocaleString() + ' lin ft'
                             : m.sqft.toLocaleString() + ' sq ft';
                         html += '<div class="mb-1"><strong>' + label + ':</strong> ' + value + ' <span class="text-muted">(' + m.names.join(', ') + ')</span></div>';
