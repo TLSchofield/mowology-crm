@@ -30,13 +30,7 @@ require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-
-// Only admins can manage business settings
-if ($user['role'] !== 'admin') {
-    http_response_code(403);
-    echo json_encode(['error' => 'Only administrators can manage business settings']);
-    exit;
-}
+requirePermission('settings.edit');
 
 $db = getDB();
 

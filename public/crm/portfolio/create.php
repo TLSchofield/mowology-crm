@@ -7,6 +7,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('portfolio.edit');
 
 $projectId = intval($_GET['id'] ?? 0);
 $project = null;

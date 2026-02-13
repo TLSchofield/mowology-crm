@@ -8,6 +8,7 @@ require_once 'includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('clients.view');
 
 $db = getDB();
 $pageTitle = 'Clients';

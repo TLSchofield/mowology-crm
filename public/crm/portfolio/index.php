@@ -10,6 +10,7 @@ require_once dirname(__DIR__) . '/includes/roi-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('portfolio.view');
 
 // Get active tab (default: upload)
 $activeTab = isset($_GET['tab']) ? trim($_GET['tab']) : 'upload';

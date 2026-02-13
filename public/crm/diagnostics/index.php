@@ -16,12 +16,7 @@ require_once __DIR__ . '/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-
-// Admin only
-if (($user['role'] ?? '') !== 'admin') {
-    header('Location: /crm/dashboard_appstack.php');
-    exit;
-}
+requirePermission('diagnostics.view');
 
 $pageTitle  = 'Messaging Diagnostics';
 $activePage = 'diagnostics';

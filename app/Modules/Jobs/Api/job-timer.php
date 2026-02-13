@@ -34,6 +34,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    requirePermission('timer.start');
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $action = $_GET['action'] ?? '';

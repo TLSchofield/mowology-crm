@@ -10,6 +10,7 @@ require_once dirname(__DIR__) . '/includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('jobs.view');
 
 // Initialize error handler
 $errorHandler = new CRMErrorHandler('Job Plans', $_SERVER['REQUEST_METHOD']);

@@ -8,11 +8,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-
-if (!$user || $user['role'] !== 'admin') {
-    http_response_code(403);
-    die('Admin access required');
-}
+requirePermission('marketing.view');
 
 $pageTitle = 'SEO Recommendations';
 $activePage = 'marketing';

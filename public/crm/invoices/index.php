@@ -7,6 +7,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('billing.view');
 
 // Handle filters
 $statusFilter = $_GET['status'] ?? '';

@@ -37,14 +37,9 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/cms-functions.php';
 
-// Check auth
 requireLogin();
 $user = getCurrentUser();
-
-if (!in_array($user['role'], ['admin', 'staff'])) {
-    http_response_code(403);
-    json_response(['success' => false, 'error' => 'Access denied']);
-}
+requirePermission('marketing.edit');
 
 // Verify CSRF token
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

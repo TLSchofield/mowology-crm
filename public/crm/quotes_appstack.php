@@ -8,6 +8,7 @@ require_once 'includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('billing.view');
 $db = getDB();
 
 // Initialize error handler

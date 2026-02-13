@@ -191,6 +191,10 @@ function verifyCSRFToken(string $token): bool {
         && hash_equals($_SESSION['csrf_token'], $token);
 }
 
+// -------------------- RBAC authorization (permissions) --------------------
+
+require_once __DIR__ . '/authz.php';
+
 // -------------------- Activity log --------------------
 
 function logActivity(int $user_id, $client_id, string $action, ?string $details = null): void {

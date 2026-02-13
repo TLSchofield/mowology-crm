@@ -9,6 +9,7 @@ require_once dirname(__DIR__) . '/includes/plan-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('jobs.view');
 
 $planId = isset($_GET['id']) ? intval($_GET['id']) : 0;
 

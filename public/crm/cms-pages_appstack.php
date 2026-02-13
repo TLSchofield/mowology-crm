@@ -14,6 +14,7 @@ require_once __DIR__ . '/includes/cms-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('marketing.edit');
 
 $pageTitle = 'CMS Pages';
 $activePage = 'cms';

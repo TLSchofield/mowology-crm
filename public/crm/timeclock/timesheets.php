@@ -8,12 +8,7 @@ require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-
-// Only admin/manager can view all timesheets
-if (!in_array($user['role'], ['admin', 'manager'])) {
-    header('Location: /crm/timeclock/my-schedule.php');
-    exit;
-}
+requirePermission('timer.override');
 
 $db = getDB();
 

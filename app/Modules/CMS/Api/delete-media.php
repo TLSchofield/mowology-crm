@@ -28,6 +28,7 @@ header('Content-Type: application/json');
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('photos.delete');
 
 // Access control
 if (!in_array($user['role'], ['admin', 'staff'])) {

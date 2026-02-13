@@ -8,6 +8,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('products.view');
 
 $pageTitle = 'Products & Services';
 $activePage = 'products';

@@ -27,6 +27,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    requirePermission('timer.start');
 
     // Check if time clock is enabled for this user's role
     if (!isTimeClockEnabledForRole($user['role'])) {

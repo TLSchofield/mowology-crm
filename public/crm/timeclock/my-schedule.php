@@ -9,6 +9,7 @@ require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('schedule.view');
 
 $db = getDB();
 

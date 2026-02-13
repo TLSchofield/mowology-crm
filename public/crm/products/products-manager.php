@@ -3,6 +3,7 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('products.edit');
 
 $pageTitle = 'Products Catalog';
 $activePage = 'products';

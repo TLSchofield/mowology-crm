@@ -13,6 +13,7 @@ require_once dirname(__DIR__) . '/includes/weather-service.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('schedule.view');
 
 $db = getDB();
 

@@ -26,10 +26,10 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    requirePermission('team.view');
 
-    // Admin only for create/update; admin/manager for read
-    $isAdmin = ($user['role'] === 'admin');
-    $isManager = in_array($user['role'], ['admin', 'manager']);
+    // Check edit permissions for write operations
+    $canEdit = userHasPermission('team.edit');
 
     $db = getDB();
 
@@ -43,7 +43,7 @@ try {
 
     switch ($action) {
         case 'get':
-            if (!$isManager) {
+            if (!$canEdit) {
                 throw new Exception('Access denied');
             }
 
@@ -66,7 +66,7 @@ try {
             break;
 
         case 'create':
-            if (!$isAdmin) throw new Exception('Admin access required');
+            if (!$canEdit) throw new Exception('Admin access required');
 
             // Validate CSRF
             if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
@@ -126,7 +126,7 @@ try {
             break;
 
         case 'update':
-            if (!$isAdmin) throw new Exception('Admin access required');
+            if (!$canEdit) throw new Exception('Admin access required');
 
             // Validate CSRF
             if (!verifyCSRFToken($input['csrf_token'] ?? '')) {

@@ -8,6 +8,7 @@ require_once dirname(__DIR__) . '/includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('billing.edit');
 
 $db = getDB();
 

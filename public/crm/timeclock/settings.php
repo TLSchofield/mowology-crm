@@ -8,11 +8,7 @@ require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-
-if ($user['role'] !== 'admin') {
-    header('Location: /crm/timeclock/my-schedule.php');
-    exit;
-}
+requirePermission('settings.edit');
 
 $db = getDB();
 

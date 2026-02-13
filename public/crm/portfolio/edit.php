@@ -5,6 +5,8 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 
 requireLogin();
+$user = getCurrentUser();
+requirePermission('portfolio.edit');
 
 $projectId = intval($_GET['id'] ?? 0);
 if (!$projectId) {

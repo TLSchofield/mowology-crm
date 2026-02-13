@@ -4,12 +4,7 @@ require_once 'includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
-
-// Only admins can access settings
-if ($user['role'] !== 'admin') {
-    header('Location: dashboard_appstack.php');
-    exit;
-}
+requirePermission('settings.edit');
 
 // Initialize error handler
 $errorHandler = new CRMErrorHandler('Settings', $_SERVER['REQUEST_METHOD']);

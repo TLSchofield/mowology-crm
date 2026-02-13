@@ -5,6 +5,7 @@ require_once 'includes/error-handler.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('jobs.view');
 
 $db = getDB();
 

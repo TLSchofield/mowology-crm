@@ -18,6 +18,7 @@ if (defined('APP_ROOT')) {
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('products.view');
 $db = getDB();
 
 // Check if property_id is passed

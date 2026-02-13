@@ -15,12 +15,7 @@ require_once 'includes/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-
-// Admin only
-if (($user['role'] ?? '') !== 'admin') {
-    header('Location: dashboard_appstack.php');
-    exit;
-}
+requirePermission('database.manage');
 
 $pageTitle = 'Database Manager';
 $activePage = 'database';

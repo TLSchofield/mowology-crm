@@ -9,12 +9,7 @@ require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-
-// Only admin/manager can access
-if (!in_array($user['role'], ['admin', 'manager'])) {
-    header('Location: /crm/dashboard_appstack.php');
-    exit;
-}
+requirePermission('team.view');
 
 $db = getDB();
 

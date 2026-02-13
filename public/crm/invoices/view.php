@@ -10,6 +10,7 @@ require_once dirname(__DIR__) . '/includes/messaging.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('billing.view');
 
 $invoiceId = isset($_GET['id']) ? intval($_GET['id']) : 0;
 

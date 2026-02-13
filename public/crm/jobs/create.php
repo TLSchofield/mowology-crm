@@ -12,6 +12,7 @@ require_once dirname(__DIR__) . '/includes/roi-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('jobs.edit');
 
 $db = getDB();
 

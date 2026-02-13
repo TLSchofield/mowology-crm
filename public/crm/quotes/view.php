@@ -12,6 +12,7 @@ require_once dirname(__DIR__) . '/includes/roi-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+requirePermission('billing.view');
 
 $quoteId = isset($_GET['id']) ? intval($_GET['id']) : 0;
 

@@ -24,16 +24,9 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 require_once CRM_INCLUDES . '/plan-functions.php';
 
-// Require admin
 requireLogin();
 $user = getCurrentUser();
-
-// Check admin role
-if ($user['role'] !== 'admin' && $user['role'] !== 'manager') {
-    http_response_code(403);
-    echo json_encode(['error' => 'Permission denied', 'success' => false]);
-    exit;
-}
+requirePermission('jobs.edit');
 
 // Set JSON response header
 header('Content-Type: application/json');

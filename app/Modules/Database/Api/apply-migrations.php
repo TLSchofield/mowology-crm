@@ -22,17 +22,9 @@ if (!defined('APP_ROOT')) {
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 
-// Only allow admin users
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    die('Unauthorized');
-}
-
+requireLogin();
 $user = getCurrentUser();
-if ($user['role'] !== 'admin') {
-    http_response_code(403);
-    die('Forbidden: Admin access required');
-}
+requirePermission('database.manage');
 
 header('Content-Type: text/plain; charset=utf-8');
 
