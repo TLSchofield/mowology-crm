@@ -48,6 +48,38 @@ $activePage = 'ops-weather';
                   <button class="btn btn-sm btn-outline-primary" onclick="runCronNow()" id="runCronBtn" title="Run weather check now">
                     <i data-feather="play" style="width:14px;height:14px;"></i> Run Now
                   </button>
+                  <button class="btn btn-sm btn-outline-secondary" onclick="toggleCronSetup()" id="cronSetupToggle" title="Show cron setup">
+                    <i data-feather="terminal" style="width:14px;height:14px;"></i> Setup
+                  </button>
+                </div>
+              </div>
+              <!-- Cron Setup Panel (hidden by default) -->
+              <div id="cronSetupPanel" style="display:none;margin-top:12px;border-top:1px solid #e9ecef;padding-top:12px;">
+                <p class="mb-2" style="font-size:0.85rem;"><strong>cPanel Cron Job Setup</strong> — Add this in cPanel &rarr; Cron Jobs. Recommended: daily at noon.</p>
+                <div class="mb-2">
+                  <label style="font-size:0.8rem;color:#666;margin-bottom:2px;display:block;">Schedule (once daily at noon):</label>
+                  <div class="d-flex align-items-center" style="gap:8px;">
+                    <code style="background:#f1f3f5;padding:6px 12px;border-radius:4px;font-size:0.82rem;flex:1;word-break:break-all;user-select:all;">0 12 * * *</code>
+                  </div>
+                </div>
+                <div class="mb-2">
+                  <label style="font-size:0.8rem;color:#666;margin-bottom:2px;display:block;">Command (copy &amp; paste into cPanel):</label>
+                  <div class="d-flex align-items-center" style="gap:8px;">
+                    <code id="cronCommand" style="background:#f1f3f5;padding:6px 12px;border-radius:4px;font-size:0.82rem;flex:1;word-break:break-all;user-select:all;">/usr/local/bin/php /home/mowology/app/Modules/Jobs/Cron/weather_schedule_guard.php >> /home/mowology/logs/weather_cron.log 2>&1</code>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="copyCronCommand()" title="Copy to clipboard" style="white-space:nowrap;">
+                      <i data-feather="copy" style="width:14px;height:14px;"></i> Copy
+                    </button>
+                  </div>
+                </div>
+                <div class="mb-0">
+                  <label style="font-size:0.8rem;color:#666;margin-bottom:2px;display:block;">Alternative — HTTP trigger via curl:</label>
+                  <div class="d-flex align-items-center" style="gap:8px;">
+                    <code id="cronCurlCommand" style="background:#f1f3f5;padding:6px 12px;border-radius:4px;font-size:0.82rem;flex:1;word-break:break-all;user-select:all;">curl -s -X POST https://mowology.ca/crm/cron/weather_schedule_guard.php -b "PHPSESSID=CRON" >> /home/mowology/logs/weather_cron.log 2>&1</code>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="copyCurlCommand()" title="Copy to clipboard" style="white-space:nowrap;">
+                      <i data-feather="copy" style="width:14px;height:14px;"></i> Copy
+                    </button>
+                  </div>
+                  <small class="text-muted mt-1 d-block">Note: The HTTP method requires an authenticated admin session. The CLI method (above) is recommended for cPanel cron.</small>
                 </div>
               </div>
             </div>
@@ -615,6 +647,33 @@ $activePage = 'ops-weather';
                 if (typeof feather !== 'undefined') feather.replace();
                 alert('Error: ' + err.message);
               });
+          }
+
+          function toggleCronSetup() {
+            var panel = document.getElementById('cronSetupPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          }
+
+          function copyCronCommand() {
+            var text = document.getElementById('cronCommand').textContent;
+            navigator.clipboard.writeText(text).then(function() {
+              var btn = event.target.closest('button');
+              var orig = btn.innerHTML;
+              btn.innerHTML = '<i data-feather="check" style="width:14px;height:14px;"></i> Copied';
+              if (typeof feather !== 'undefined') feather.replace();
+              setTimeout(function() { btn.innerHTML = orig; if (typeof feather !== 'undefined') feather.replace(); }, 2000);
+            });
+          }
+
+          function copyCurlCommand() {
+            var text = document.getElementById('cronCurlCommand').textContent;
+            navigator.clipboard.writeText(text).then(function() {
+              var btn = event.target.closest('button');
+              var orig = btn.innerHTML;
+              btn.innerHTML = '<i data-feather="check" style="width:14px;height:14px;"></i> Copied';
+              if (typeof feather !== 'undefined') feather.replace();
+              setTimeout(function() { btn.innerHTML = orig; if (typeof feather !== 'undefined') feather.replace(); }, 2000);
+            });
           }
 
           function loadGlobalConstraints() {

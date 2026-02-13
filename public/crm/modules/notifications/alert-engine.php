@@ -241,6 +241,78 @@ function isInQuietHours(PDO $db, int $crewId): bool
 }
 
 /**
+ * Send a salt operation email alert to admin.
+ * Notifies about upcoming freezing/snow conditions that require salting.
+ *
+ * @param string $date       Full date (YYYY-MM-DD)
+ * @param string $dayName    Day name (e.g. "Monday")
+ * @param string $dateLabel  Short date (e.g. "Feb 14")
+ * @param string $lowTemp    Low temperature
+ * @param string $highTemp   High temperature
+ * @param string $condition  Weather condition
+ * @param string $timing     Alert timing label (24hr, 48hr, 7day)
+ * @param int    $crewCount  Number of crew being notified
+ * @return array ['success' => bool, 'error' => string|null]
+ */
+function sendSaltEmailAlert(string $date, string $dayName, string $dateLabel, string $lowTemp, string $highTemp, string $condition, string $timing, int $crewCount): array
+{
+    require_once dirname(dirname(__DIR__)) . '/includes/messaging.php';
+
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT company_email FROM business_settings WHERE id = 1");
+        $stmt->execute();
+        $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+        $adminEmail = $settings['company_email'] ?? '';
+    } catch (Throwable $e) {
+        $adminEmail = '';
+    }
+
+    if (empty($adminEmail)) {
+        return ['success' => false, 'error' => 'No admin email configured'];
+    }
+
+    $timingLabels = [
+        '24hr' => '24-Hour Warning',
+        '48hr' => '48-Hour Heads-Up',
+        '7day' => '7-Day Forecast Alert',
+    ];
+    $timingLabel = $timingLabels[$timing] ?? $timing;
+
+    $subject = "❄️ Salt Alert ({$timingLabel}): {$dayName} {$dateLabel} — {$lowTemp}°C, {$condition}";
+
+    $htmlBody = "
+        <div style='font-family:Arial,sans-serif;max-width:600px;'>
+            <h2 style='color:#1565c0;'>❄️ Salt Operations Alert</h2>
+            <p style='font-size:16px;color:#333;'><strong>{$timingLabel}</strong> — salting conditions expected.</p>
+            <table style='width:100%;border-collapse:collapse;margin:16px 0;'>
+                <tr style='background:#e3f2fd;'>
+                    <td style='padding:10px;font-weight:600;'>Date</td>
+                    <td style='padding:10px;'>{$dayName}, {$dateLabel}</td>
+                </tr>
+                <tr>
+                    <td style='padding:10px;font-weight:600;'>Forecast</td>
+                    <td style='padding:10px;'>{$condition}</td>
+                </tr>
+                <tr style='background:#e3f2fd;'>
+                    <td style='padding:10px;font-weight:600;'>Temperature</td>
+                    <td style='padding:10px;'>High: {$highTemp}°C / Low: {$lowTemp}°C</td>
+                </tr>
+                <tr>
+                    <td style='padding:10px;font-weight:600;'>Crew Notified</td>
+                    <td style='padding:10px;'>{$crewCount} crew member(s) sent SMS</td>
+                </tr>
+            </table>
+            <p><a href='https://mowology.ca/crm/admin/ops_weather.php' style='color:#2D8659;'>View Weather Ops Settings →</a></p>
+            <hr style='border:none;border-top:1px solid #eee;margin:20px 0;'>
+            <p style='color:#999;font-size:12px;'>Mowology Weather Guard — automated salt operations monitoring</p>
+        </div>
+    ";
+
+    return sendEmail($adminEmail, $subject, $htmlBody);
+}
+
+/**
  * Send a salt operation SMS alert to a specific crew member.
  * Used by the salt alert cron to notify crew about upcoming freezing conditions.
  *

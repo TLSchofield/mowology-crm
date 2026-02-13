@@ -428,19 +428,29 @@ function runSaltAlerts(PDO $db): array
                 continue; // No alert window matches
             }
 
-            // Dedup: check if salt alert already sent for this date
-            $dedupKey = 'SALT_ALERT_' . $date . '_' . $timing;
-            if (hasWeatherActionToday('SALT_ALERT', 'forecast', 0)) {
-                // Already sent salt alerts today
+            // Dedup: check if salt alert already sent for this specific forecast date
+            // Use date-derived entity_id so each salt day gets its own dedup slot
+            $saltEntityId = abs(crc32($date . '_' . $timing)) % 2147483647;
+            if (hasWeatherActionToday('SALT_ALERT', 'forecast', $saltEntityId)) {
                 $saltResults['skipped']++;
                 continue;
             }
 
             $low = $day['temp_low'] ?? '?';
+            $high = $day['temp_high'] ?? '?';
             $condition = ucfirst($day['condition'] ?? 'Unknown');
             $dateLabel = date('M j', strtotime($date));
+            $dayName = date('l', strtotime($date));
 
-            // Send to each crew member
+            // Send email alert to admin
+            $emailResult = sendSaltEmailAlert($date, $dayName, $dateLabel, (string)$low, (string)$high, $condition, $timing, count($crewMembers));
+            if ($emailResult['success']) {
+                $saltResults['alerts_sent']++;
+            } else {
+                $saltResults['errors'][] = 'Salt email: ' . ($emailResult['error'] ?? 'unknown');
+            }
+
+            // Send SMS to each crew member
             foreach ($crewMembers as $crew) {
                 $result = sendSaltSmsAlert((int)$crew['id'], $dateLabel, (string)$low, $condition, $timing);
                 if ($result['success']) {
@@ -454,8 +464,8 @@ function runSaltAlerts(PDO $db): array
                 }
             }
 
-            // Log that salt alerts were sent for this date
-            logWeatherAction('SALT_ALERT', 'forecast', 0, json_encode([
+            // Log that salt alerts were sent for this date (entity_id matches dedup check)
+            logWeatherAction('SALT_ALERT', 'forecast', $saltEntityId, json_encode([
                 'date' => $date,
                 'timing' => $timing,
                 'low_temp' => $low,
