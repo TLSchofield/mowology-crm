@@ -2,8 +2,9 @@
 /**
  * Schedule - Weekly Calendar View (Calendar Stops + Job Visits)
  *
- * Shows a weekly grid (Mon-Sun) with stop cards per property per day.
- * Each stop card contains visit pills for each service type.
+ * Desktop: Shows a weekly grid (Mon-Sun) with stop cards per property per day.
+ * Mobile (<992px): Shows a card-based execution interface for today's stops.
+ *
  * Data comes from calendar_stops + job_visits via getCalendarStops().
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
@@ -108,8 +109,80 @@ $crewQueryStr = buildCrewQuery($crewFilter);
 // ─── Day names ──────────────────────────────────────────────────────
 $dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+// ─── Mobile card view: today's stops with contact info ──────────────
+$today = date('Y-m-d');
+$todayDayName = date('l');  // e.g. "Thursday"
+$todayDateDisplay = date('F j, Y'); // e.g. "February 13, 2026"
+
+// Get today's weather
+$todayWeather = $weekWeather[$today] ?? $todaysForecast[$today] ?? [
+    'temp_high' => 12, 'temp_low' => 8, 'condition' => 'Clear'
+];
+
+// Build today's stops with contact names for mobile view
+$mobileStops = [];
+$todayStops = $calendarData[$today] ?? [];
+if (!empty($todayStops)) {
+    // Fetch contact names for all properties in today's stops
+    $propertyIds = array_column($todayStops, 'property_id');
+    $contactMap = [];
+    if (!empty($propertyIds)) {
+        $placeholders = implode(',', array_fill(0, count($propertyIds), '?'));
+        $cStmt = $db->prepare("
+            SELECT p.id AS property_id,
+                   CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name
+            FROM properties p
+            JOIN contacts ct ON p.site_contact_id = ct.id
+            WHERE p.id IN ({$placeholders})
+        ");
+        $cStmt->execute($propertyIds);
+        while ($row = $cStmt->fetch(PDO::FETCH_ASSOC)) {
+            $contactMap[(int)$row['property_id']] = $row['contact_name'];
+        }
+    }
+
+    // Sort by time, then route_order
+    uasort($todayStops, function ($a, $b) {
+        $aTime = $a['estimated_arrival'] ?? ($a['visits'][0]['scheduled_time_start'] ?? '23:59:59');
+        $bTime = $b['estimated_arrival'] ?? ($b['visits'][0]['scheduled_time_start'] ?? '23:59:59');
+        $timeCmp = strcmp($aTime, $bTime);
+        if ($timeCmp !== 0) return $timeCmp;
+        return ($a['route_order'] ?? 999) - ($b['route_order'] ?? 999);
+    });
+
+    foreach ($todayStops as $stop) {
+        $stop['contact_name'] = $contactMap[(int)$stop['property_id']] ?? '';
+        $stop['client_tier'] = null; // Future: pull from DB
+        $mobileStops[] = $stop;
+    }
+}
+
+// Determine which is the active stop (first non-completed stop, or first one)
+$activeIndex = 0;
+foreach ($mobileStops as $idx => $stop) {
+    $status = $stop['stop_status'] ?? 'scheduled';
+    if ($status !== 'completed' && $status !== 'skipped') {
+        $activeIndex = $idx;
+        break;
+    }
+}
+
+// Get user permissions for button visibility
+$userPermissions = function_exists('getUserPermissions')
+    ? getUserPermissions((int)$user['id'])
+    : [];
+
+$totalStops = count($mobileStops);
+$completedStops = 0;
+foreach ($mobileStops as $s) {
+    if (($s['stop_status'] ?? 'scheduled') === 'completed') {
+        $completedStops++;
+    }
+}
+
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213a" rel="stylesheet">';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -142,7 +215,9 @@ $activePage = 'schedule';
               </div>
           </div>
 
-          <!-- Calendar container -->
+          <!-- ═══════════════════════════════════════════════
+               DESKTOP: Calendar container (hidden on mobile)
+               ═══════════════════════════════════════════════ -->
           <div class="mw-calendar-container">
 
               <!-- Day name header row -->
@@ -278,6 +353,81 @@ $activePage = 'schedule';
               <span id="dragMessage"></span>
           </div>
 
+          <!-- ═══════════════════════════════════════════════
+               MOBILE: Card Execution View (hidden on desktop)
+               ═══════════════════════════════════════════════ -->
+          <div class="mw-mc-container">
+
+              <!-- Day header with weather -->
+              <div class="mw-mc-day-header">
+                  <div class="mw-mc-day-title"><?php echo htmlspecialchars($todayDayName); ?></div>
+                  <div class="mw-mc-day-weather">
+                      <span class="mw-mc-weather-icon"><?php echo getWeatherIcon($todayWeather['condition'] ?? 'Clear'); ?></span>
+                      <span><?php echo htmlspecialchars($todayWeather['condition'] ?? 'Clear'); ?></span>
+                      <span><?php echo (int)($todayWeather['temp_high'] ?? 12); ?>&deg;/<?php echo (int)($todayWeather['temp_low'] ?? 8); ?>&deg;</span>
+                  </div>
+                  <?php if ($totalStops > 0): ?>
+                      <div class="mw-mc-stop-count">
+                          <?php echo $completedStops; ?> of <?php echo $totalStops; ?> stops completed
+                      </div>
+                  <?php endif; ?>
+              </div>
+
+              <?php if (empty($mobileStops)): ?>
+                  <!-- Empty state -->
+                  <div class="mw-mc-empty">
+                      <div class="mw-mc-empty-icon">&#127793;</div>
+                      <div class="mw-mc-empty-text">No stops today</div>
+                      <div class="mw-mc-empty-sub">Check the weekly view for upcoming work</div>
+                  </div>
+              <?php else: ?>
+
+                  <?php
+                  // Separate completed vs upcoming
+                  $upcomingStops = [];
+                  $completedStopsList = [];
+                  foreach ($mobileStops as $idx => $stop) {
+                      $status = $stop['stop_status'] ?? 'scheduled';
+                      if ($status === 'completed' || $status === 'skipped') {
+                          $completedStopsList[] = $stop;
+                      } else {
+                          $upcomingStops[] = ['stop' => $stop, 'originalIndex' => $idx];
+                      }
+                  }
+                  ?>
+
+                  <?php if (!empty($upcomingStops)): ?>
+                      <!-- Active / current job -->
+                      <?php
+                      $activeStop = $upcomingStops[0]['stop'];
+                      $isActive = true;
+                      $permissions = $userPermissions;
+                      $stop = $activeStop;
+                      include dirname(__DIR__) . '/partials/job-card.php';
+                      ?>
+
+                      <!-- Upcoming jobs -->
+                      <?php if (count($upcomingStops) > 1): ?>
+                          <div class="mw-mc-section-label">Up Next</div>
+                          <?php for ($i = 1; $i < count($upcomingStops); $i++):
+                              $stop = $upcomingStops[$i]['stop'];
+                              $isActive = false;
+                              include dirname(__DIR__) . '/partials/job-card.php';
+                          endfor; ?>
+                      <?php endif; ?>
+                  <?php endif; ?>
+
+                  <?php if (!empty($completedStopsList)): ?>
+                      <div class="mw-mc-section-label">Completed</div>
+                      <?php foreach ($completedStopsList as $stop):
+                          $isActive = false;
+                          include dirname(__DIR__) . '/partials/job-card.php';
+                      endforeach; ?>
+                  <?php endif; ?>
+
+              <?php endif; ?>
+          </div>
+
 <script>
 /**
  * Crew filter: navigate with crew param
@@ -291,6 +441,41 @@ function applyCrewFilter(crewId) {
     }
     window.location.search = params.toString();
 }
+
+/**
+ * Mobile card expand/collapse for compact cards
+ */
+(function() {
+    document.querySelectorAll('.mw-mc-card-compact').forEach(function(card) {
+        card.addEventListener('click', function(e) {
+            // Don't toggle if clicking an action button or link
+            if (e.target.closest('.mw-mc-action-btn') || e.target.closest('a')) return;
+
+            var detail = card.querySelector('.mw-mc-expand-detail');
+            if (!detail) return;
+
+            var isExpanded = card.classList.contains('mw-mc-expanded');
+
+            // Collapse all other expanded cards
+            document.querySelectorAll('.mw-mc-card-compact.mw-mc-expanded').forEach(function(other) {
+                if (other !== card) {
+                    other.classList.remove('mw-mc-expanded');
+                    var otherDetail = other.querySelector('.mw-mc-expand-detail');
+                    if (otherDetail) otherDetail.style.display = 'none';
+                }
+            });
+
+            // Toggle this card
+            if (isExpanded) {
+                card.classList.remove('mw-mc-expanded');
+                detail.style.display = 'none';
+            } else {
+                card.classList.add('mw-mc-expanded');
+                detail.style.display = 'block';
+            }
+        });
+    });
+})();
 </script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

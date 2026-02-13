@@ -1,0 +1,461 @@
+/**
+ * Mobile Card Execution View — Schedule
+ * ──────────────────────────────────────
+ * Field execution interface for mobile/PWA.
+ * Only active at screen widths < 992px.
+ *
+ * Prefix: .mw-mc- (mowology mobile-card)
+ *
+ * Uses CSS custom properties for theming:
+ *   --mc-bg-app       — Off-white app background
+ *   --mc-card-bg      — Card background (white)
+ *   --mc-shadow-soft   — Soft card elevation
+ *   --mc-radius-xl     — Card border radius
+ */
+
+/* ════════════════════════════════════════════════════════
+   MOBILE-ONLY: hide desktop calendar, show card view
+   ════════════════════════════════════════════════════════ */
+
+/* Card container is hidden on desktop */
+.mw-mc-container {
+    display: none;
+}
+
+@media (max-width: 991px) {
+    /* ── Design tokens ── */
+    :root {
+        --mc-bg-app: #F6F4EF;
+        --mc-card-bg: #FFFFFF;
+        --mc-shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.06);
+        --mc-shadow-active: 0 10px 30px rgba(0, 0, 0, 0.10);
+        --mc-radius-xl: 18px;
+        --mc-radius-md: 12px;
+    }
+
+    /* ── Hide desktop calendar elements ── */
+    .mw-calendar-container,
+    .mw-legend,
+    #dragFeedback {
+        display: none !important;
+    }
+
+    /* ── Show mobile card container ── */
+    .mw-mc-container {
+        display: block;
+    }
+
+    /* ── Override page background ── */
+    .content {
+        background: var(--mc-bg-app) !important;
+    }
+
+    .container-fluid {
+        background: var(--mc-bg-app);
+    }
+
+    /* ── Safe area support (iPhone notch / home bar) ── */
+    .mw-mc-container {
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+        padding-left: env(safe-area-inset-left, 16px);
+        padding-right: env(safe-area-inset-right, 16px);
+    }
+
+    /* ── Simplify page header for mobile ── */
+    .mw-page-header {
+        flex-direction: column;
+        gap: 12px;
+        padding-bottom: 16px;
+    }
+
+    .mw-page-header > div:last-child {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .mw-page-header h1 {
+        font-size: 1.25rem;
+    }
+
+    .mw-header-nav {
+        font-size: 0.9rem;
+    }
+
+    /* ════════════════════════════════════════════════════
+       MOBILE HEADER (date + weather summary)
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-day-header {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    .mw-mc-day-title {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        margin-bottom: 2px;
+    }
+
+    .mw-mc-day-weather {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+
+    .mw-mc-weather-icon {
+        font-size: 1.2rem;
+        line-height: 1;
+    }
+
+    .mw-mc-stop-count {
+        font-size: 0.8rem;
+        color: #9e9e9e;
+        margin-top: 4px;
+    }
+
+    /* ════════════════════════════════════════════════════
+       CARD BASE
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-card {
+        position: relative;
+        background: var(--mc-card-bg);
+        border-radius: var(--mc-radius-xl);
+        box-shadow: var(--mc-shadow-soft);
+        overflow: hidden;
+        margin-bottom: 12px;
+        display: flex;
+        flex-direction: row;
+        transition: transform 0.25s ease, box-shadow 0.25s ease, opacity 0.3s ease;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-card:active {
+        transform: translateY(-2px);
+        box-shadow: var(--mc-shadow-active);
+    }
+
+    /* ── Client tier strip (thin top line) ── */
+    .mw-mc-tier-strip {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        z-index: 2;
+    }
+
+    /* ── Left accent bar (job type color) ── */
+    .mw-mc-accent {
+        width: 5px;
+        min-height: 100%;
+        flex-shrink: 0;
+    }
+
+    /* ── Card body ── */
+    .mw-mc-card-body {
+        flex: 1;
+        min-width: 0;
+    }
+
+    /* ── Completed card fade ── */
+    .mw-mc-card-completed {
+        opacity: 0.5;
+    }
+
+    /* ════════════════════════════════════════════════════
+       ACTIVE CARD (large, expanded)
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-card-active .mw-mc-card-body {
+        padding: 20px 18px;
+    }
+
+    .mw-mc-card-active .mw-mc-accent {
+        width: 6px;
+    }
+
+    /* Time row */
+    .mw-mc-time-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+
+    .mw-mc-time {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #1a1a1a;
+    }
+
+    .mw-mc-duration {
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: #9e9e9e;
+        background: #f5f5f5;
+        padding: 2px 8px;
+        border-radius: 20px;
+    }
+
+    /* Title */
+    .mw-mc-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #212529;
+        margin: 0 0 8px 0;
+        line-height: 1.3;
+    }
+
+    /* Address */
+    .mw-mc-address {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-bottom: 4px;
+    }
+
+    .mw-mc-address svg {
+        flex-shrink: 0;
+        color: #9e9e9e;
+    }
+
+    /* Client name */
+    .mw-mc-client {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-bottom: 6px;
+    }
+
+    .mw-mc-client svg {
+        flex-shrink: 0;
+        color: #9e9e9e;
+    }
+
+    /* Multi-service pills */
+    .mw-mc-services {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+        margin-bottom: 4px;
+    }
+
+    .mw-mc-service-pill {
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 3px 10px;
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-left: 3px solid #455A64;
+        border-radius: 6px;
+        color: #495057;
+    }
+
+    /* ════════════════════════════════════════════════════
+       ACTION BUTTONS
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+        padding-top: 14px;
+        border-top: 1px solid #f0ede8;
+    }
+
+    .mw-mc-action-btn {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 10px 8px;
+        background: #f8f7f4;
+        border: 1px solid #e8e5de;
+        border-radius: var(--mc-radius-md);
+        color: #555;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: background 0.15s ease, transform 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+        text-align: center;
+        line-height: 1;
+    }
+
+    .mw-mc-action-btn:hover,
+    .mw-mc-action-btn:active {
+        background: #f0ede8;
+        transform: translateY(-1px);
+        text-decoration: none;
+        color: #333;
+    }
+
+    .mw-mc-action-btn[disabled] {
+        opacity: 0.4;
+        pointer-events: none;
+    }
+
+    .mw-mc-btn-timer svg { color: #2E7D32; }
+    .mw-mc-btn-route svg { color: #1565C0; }
+    .mw-mc-btn-photos svg { color: #6A1B9A; }
+
+    /* ════════════════════════════════════════════════════
+       STATUS BADGES
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-badge {
+        display: inline-block;
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 20px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .mw-mc-badge-progress {
+        background: #FFF3E0;
+        color: #E65100;
+    }
+
+    .mw-mc-badge-done {
+        background: #E8F5E9;
+        color: #2E7D32;
+    }
+
+    .mw-mc-badge-skipped {
+        background: #ECEFF1;
+        color: #546E7A;
+    }
+
+    /* ════════════════════════════════════════════════════
+       COMPACT CARD (minimized two-line)
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-card-compact .mw-mc-card-body {
+        padding: 14px 14px;
+    }
+
+    .mw-mc-compact-line1 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .mw-mc-compact-time {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        flex-shrink: 0;
+    }
+
+    .mw-mc-compact-title {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #333;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .mw-mc-compact-line2 {
+        font-size: 0.78rem;
+        color: #9e9e9e;
+        margin-top: 2px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* ── Expand detail (hidden, revealed on tap) ── */
+    .mw-mc-expand-detail {
+        padding: 0 14px 14px 14px;
+    }
+
+    .mw-mc-duration-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.8rem;
+        color: #9e9e9e;
+        margin-bottom: 6px;
+    }
+
+    .mw-mc-duration-row svg {
+        flex-shrink: 0;
+        color: #bdbdbd;
+    }
+
+    /* ── Expand animation ── */
+    .mw-mc-card-compact {
+        cursor: pointer;
+    }
+
+    .mw-mc-card-compact.mw-mc-expanded {
+        box-shadow: var(--mc-shadow-active);
+    }
+
+    /* ════════════════════════════════════════════════════
+       SECTION DIVIDER
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-section-label {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        color: #b0a89e;
+        padding: 16px 4px 8px;
+    }
+
+    /* ════════════════════════════════════════════════════
+       EMPTY STATE
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-empty {
+        text-align: center;
+        padding: 60px 20px;
+        color: #b0a89e;
+    }
+
+    .mw-mc-empty-icon {
+        font-size: 3rem;
+        margin-bottom: 12px;
+        opacity: 0.5;
+    }
+
+    .mw-mc-empty-text {
+        font-size: 1rem;
+        font-weight: 500;
+    }
+
+    .mw-mc-empty-sub {
+        font-size: 0.8rem;
+        margin-top: 4px;
+    }
+
+    /* ════════════════════════════════════════════════════
+       PWA STANDALONE TWEAKS
+       ════════════════════════════════════════════════════ */
+
+    @media (display-mode: standalone) {
+        .mw-mc-container {
+            padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+        }
+    }
+}
