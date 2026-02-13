@@ -184,10 +184,4 @@ INSERT IGNORE INTO `vendors` (`name`, `aliases`, `default_accounting_category`, 
     ('Vancouver Landfill','Vancouver Landfill, CITY OF VANCOUVER, TRANSFER STATION', 'Disposal/Dump', 'Waste disposal/landfill');
 
 
--- ============================================================================
--- 7. Track migration
--- ============================================================================
-
-INSERT INTO migrations_log (migration_file, executed_at)
-VALUES ('500_expenses_receipts_system.sql', NOW())
-ON DUPLICATE KEY UPDATE executed_at = NOW();
+-- Note: Migration tracking is handled automatically by the migrations manager

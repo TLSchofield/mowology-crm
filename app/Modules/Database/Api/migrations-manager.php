@@ -196,13 +196,18 @@ function handleExecuteMigration($input, $user) {
         return;
     }
 
-    // Check if already applied
-    $checkStmt = $db->prepare("SELECT id FROM migrations_log WHERE migration_filename = ?");
+    // Check if already applied successfully (allow re-running failed migrations)
+    $checkStmt = $db->prepare("SELECT id, status FROM migrations_log WHERE migration_filename = ? ORDER BY executed_at DESC LIMIT 1");
     $checkStmt->execute([$filename]);
-    if ($checkStmt->fetch()) {
+    $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
+    if ($existing && $existing['status'] === 'success') {
         http_response_code(409);
         echo json_encode(['success' => false, 'error' => 'Migration already applied']);
         return;
+    }
+    // Remove failed entry so we can log a fresh attempt
+    if ($existing && $existing['status'] === 'failed') {
+        $db->prepare("DELETE FROM migrations_log WHERE id = ?")->execute([$existing['id']]);
     }
 
     try {
