@@ -352,7 +352,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
         exit;
 
-    } elseif ($requestAction === 'geocode_property') {
+    } elseif ($requestAction === 'save_property_coords') {
+        // Save lat/lng from client-side geocoding
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
             echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
@@ -360,59 +361,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
 
         $propertyId = intval($jsonData['property_id'] ?? 0);
-        if (!$propertyId) {
+        $lat = floatval($jsonData['lat'] ?? 0);
+        $lng = floatval($jsonData['lng'] ?? 0);
+
+        if (!$propertyId || !$lat || !$lng) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid property']);
+            echo json_encode(['success' => false, 'error' => 'Invalid property or coordinates']);
             exit;
         }
 
         try {
-            $stmt = $db->prepare("SELECT address, city, province, postal_code FROM properties WHERE id = ?");
-            $stmt->execute([$propertyId]);
-            $prop = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$prop) throw new Exception('Property not found');
-
-            $fullAddress = $prop['address'] . ', ' . ($prop['city'] ?: 'Vancouver') . ', ' . ($prop['province'] ?: 'BC') . ' ' . ($prop['postal_code'] ?: '') . ', Canada';
-            $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-            if (!$apiKey) throw new Exception('Google Maps API key not configured');
-
-            $url = 'https://maps.googleapis.com/maps/api/geocode/json?' . http_build_query(['address' => $fullAddress, 'key' => $apiKey]);
-
-            // Try curl first, fall back to file_get_contents
-            $response = false;
-            if (function_exists('curl_init')) {
-                $ch = curl_init($url);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                $response = curl_exec($ch);
-                curl_close($ch);
-            }
-            if ($response === false) {
-                $context = stream_context_create(['http' => ['timeout' => 10], 'ssl' => ['verify_peer' => false]]);
-                $response = @file_get_contents($url, false, $context);
-            }
-
-            if ($response === false) {
-                echo json_encode(['success' => false, 'error' => 'HTTP request to geocoding API failed']);
-                exit;
-            }
-
-            $data = json_decode($response, true);
-
-            if (isset($data['status']) && $data['status'] === 'OK' && !empty($data['results'])) {
-                $location = $data['results'][0]['geometry']['location'];
-                $db->prepare("UPDATE properties SET latitude = ?, longitude = ?, geocoded_at = NOW() WHERE id = ?")
-                   ->execute([$location['lat'], $location['lng'], $propertyId]);
-                echo json_encode(['success' => true, 'lat' => $location['lat'], 'lng' => $location['lng']]);
-            } else {
-                $apiStatus = $data['status'] ?? 'unknown';
-                $apiError = $data['error_message'] ?? '';
-                echo json_encode(['success' => false, 'error' => 'Geocode failed: ' . $apiStatus . ($apiError ? ' - ' . $apiError : '')]);
-            }
+            $db->prepare("UPDATE properties SET latitude = ?, longitude = ? WHERE id = ?")
+               ->execute([$lat, $lng, $propertyId]);
+            echo json_encode(['success' => true]);
         } catch (Exception $e) {
             http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Geocoding failed']);
+            echo json_encode(['success' => false, 'error' => 'Failed to save coordinates']);
         }
         exit;
     }
@@ -1642,16 +1606,38 @@ $unconvertedRequests = $db->query("
                 .catch(function(err) { alert('Error: ' + err.message); });
               };
 
-              // ── Geocode Property ────────────────────────────────
+              // ── Geocode Property (client-side via Google Maps JS API) ──
+              var geocoder = null;
               function geocodePropertyAjax(propertyId) {
-                return fetch('clients_appstack.php?action=geocode_property', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    property_id: propertyId,
-                    csrf_token: CSRF_TOKEN
-                  })
-                }).then(function(r) { return r.json(); });
+                if (!geocoder) geocoder = new google.maps.Geocoder();
+                var prop = propertiesData.find(function(p) { return p.id == propertyId; });
+                if (!prop) return Promise.reject(new Error('Property not found'));
+
+                var parts = [prop.address, prop.city, prop.province, prop.postal_code, 'Canada'].filter(Boolean);
+                var address = parts.join(', ');
+
+                return new Promise(function(resolve, reject) {
+                  geocoder.geocode({ address: address }, function(results, status) {
+                    if (status === 'OK' && results[0]) {
+                      var loc = results[0].geometry.location;
+                      fetch('clients_appstack.php?action=save_property_coords', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          property_id: propertyId,
+                          lat: loc.lat(),
+                          lng: loc.lng(),
+                          csrf_token: CSRF_TOKEN
+                        })
+                      })
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) { resolve(data); })
+                      .catch(function(err) { reject(err); });
+                    } else {
+                      resolve({ success: false, error: 'Geocode failed: ' + status + ' for "' + address + '"' });
+                    }
+                  });
+                });
               }
 
               window.geocodeProperty = function(propertyId, btn) {
@@ -1682,6 +1668,9 @@ $unconvertedRequests = $db->query("
                 toGeocode.forEach(function(p) {
                   chain = chain.then(function() {
                     return geocodePropertyAjax(p.id);
+                  }).then(function() {
+                    // Small delay between geocode requests to avoid rate limiting
+                    return new Promise(function(resolve) { setTimeout(resolve, 300); });
                   });
                 });
                 chain.then(function() { location.reload(); });
