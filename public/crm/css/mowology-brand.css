@@ -5045,8 +5045,8 @@ textarea.font-monospace {
 .mw-clock-toast-error { background: #dc2626; }
 .mw-clock-toast-info { background: #2563eb; }
 
-/* Mobile: prominent clock button — must be unmissable for field crew */
-@media (max-width: 768px) {
+/* Mobile + tablet: prominent clock button — must be unmissable for field crew */
+@media (max-width: 1024px) {
   .navbar.navbar-expand {
     flex-wrap: wrap;
     padding-bottom: 0;
