@@ -4930,6 +4930,7 @@ textarea.font-monospace {
   align-items: center;
   margin-left: auto;
   margin-right: 12px;
+  flex-shrink: 0;
 }
 
 .mw-clock-btn {
@@ -5044,20 +5045,47 @@ textarea.font-monospace {
 .mw-clock-toast-error { background: #dc2626; }
 .mw-clock-toast-info { background: #2563eb; }
 
-/* Mobile: larger touch targets, keep label visible */
+/* Mobile: prominent clock button — must be unmissable for field crew */
 @media (max-width: 768px) {
+  .navbar.navbar-expand {
+    flex-wrap: wrap;
+    padding-bottom: 0;
+  }
+  .mw-clock-widget {
+    order: 10;
+    flex: 1 0 100%;
+    margin: 0;
+    padding: 8px 12px 10px;
+    justify-content: center;
+    background: var(--mw-light);
+    border-top: 1px solid rgba(45, 134, 89, 0.15);
+  }
   .mw-clock-btn {
-    padding: 8px 16px;
-    font-size: 0.85rem;
-    min-height: 44px;
+    padding: 14px 32px;
+    font-size: 1.1rem;
+    min-height: 52px;
+    border-radius: 26px;
+    box-shadow: 0 2px 8px rgba(45, 134, 89, 0.3);
   }
   .mw-clock-btn svg {
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
+  }
+  .mw-clock-active {
+    padding: 6px 8px 6px 14px;
+    gap: 10px;
+    width: 100%;
+    justify-content: center;
+  }
+  .mw-clock-timer { font-size: 1.05rem; }
+  .mw-clock-out {
+    padding: 12px 24px;
+    min-height: 48px;
+    font-size: 1rem;
   }
   .mw-clock-job-badge { display: none; }
-  .mw-clock-active { padding: 4px 6px 4px 10px; gap: 8px; }
-  .mw-clock-timer { font-size: 0.9rem; }
+  /* Hide user name text, keep gear icon only */
+  .navbar-collapse .navbar-nav { margin-left: auto; }
 }
 
 /* ── My Schedule Page ─────────────────────────────────── */
