@@ -380,13 +380,17 @@ function uploadImage(input, fieldName) {
                 pathInput = document.createElement('input');
                 pathInput.type = 'hidden';
                 pathInput.id = fieldName + 'Path';
-                pathInput.name = fieldName + '_image_path';  // Fix: was fieldName + '_path'
+                pathInput.name = fieldName + '_image_path';
                 input.parentElement.appendChild(pathInput);
             }
             pathInput.value = data.filepath;
 
-            // Update preview
-            preview.innerHTML = '<img src="' + data.filepath + '" style="max-width: 100%; max-height: 200px;"> <small style="display:block; margin-top:5px; color:green;">✓ Uploaded</small>';
+            // Update preview with optimization status
+            let statusMsg = '✓ Uploaded';
+            if (data.optimized) {
+                statusMsg += ' & optimized (' + data.variants_count + ' responsive sizes)';
+            }
+            preview.innerHTML = '<img src="' + data.filepath + '" style="max-width: 100%; max-height: 200px;"> <small style="display:block; margin-top:5px; color:green;">' + statusMsg + '</small>';
         } else {
             preview.innerHTML += '<small style="display:block; margin-top:5px; color:red;">Error: ' + data.message + '</small>';
         }
@@ -476,10 +480,14 @@ function uploadGalleryImage(file, previewElement) {
             galleryImages.push(data.filepath);
             updateGalleryImagesInput();
 
-            // Update preview
+            // Update preview with optimization status
+            let statusMsg = '✓ Uploaded';
+            if (data.optimized) {
+                statusMsg += ' & optimized';
+            }
             previewElement.innerHTML = '<div class="mw-gallery-item" style="display: inline-block;">' +
                 '<img src="' + data.filepath + '" style="max-width: 150px; max-height: 150px; border: 2px solid #2D8659;">' +
-                '<small style="display:block; margin-top:5px; color:green;">✓ Uploaded</small>' +
+                '<small style="display:block; margin-top:5px; color:green;">' + statusMsg + '</small>' +
                 '<button type="button" class="btn btn-sm btn-danger mt-2" onclick="removeGalleryImageFromPreview(this, \'' + data.filepath + '\')">' +
                 '<i data-feather="trash-2"></i> Remove' +
                 '</button></div>';
