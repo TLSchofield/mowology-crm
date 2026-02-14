@@ -462,6 +462,9 @@ $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214i" rel="stylesheet
                       <?php endif; ?>
                   </div>
                   <div class="mw-mc-topbar-right">
+                      <button class="mw-mc-topbar-locate" id="mw-mc-locate-trigger" title="Find nearest stop">
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+                      </button>
                       <span class="mw-mc-topbar-weather">
                           <?php echo getWeatherIcon($todayWeather['condition'] ?? 'Clear'); ?>
                           <?php echo (int)($todayWeather['temp_high'] ?? 12); ?>&deg;
@@ -545,10 +548,6 @@ $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214i" rel="stylesheet
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
                       <span>Route</span>
                   </a>
-                  <button class="mw-mc-bottombar-btn" id="mw-mc-locate-trigger">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
-                      <span>Locate</span>
-                  </button>
                   <a href="index.php" class="mw-mc-bottombar-btn">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                       <span>List</span>
