@@ -27,7 +27,7 @@ try {
     LEFT JOIN job_plans jp ON p.id = jp.property_id AND jp.status = 'active'
     LEFT JOIN job_visits jv ON jp.id = jv.plan_id AND jv.status IN ('scheduled', 'in_progress')
     LEFT JOIN quotes q ON p.id = q.property_id AND q.status IN ('sent', 'accepted')
-    WHERE (jv.id IS NOT NULL OR q.id IS NOT NULL) AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+    WHERE (jv.id IS NOT NULL OR q.id IS NOT NULL) AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL AND p.latitude != 0 AND p.longitude != 0
     GROUP BY p.id
     ORDER BY COALESCE(active_jobs, 0) + COALESCE(active_quotes, 0) DESC
     LIMIT 50
@@ -246,15 +246,17 @@ $activePage = 'map';
 
               // Calculate bounds from all data with coordinates
               propertiesData.forEach(prop => {
-                if (prop.latitude && prop.longitude) {
-                  bounds.extend({ lat: parseFloat(prop.latitude), lng: parseFloat(prop.longitude) });
+                const lat = parseFloat(prop.latitude), lng = parseFloat(prop.longitude);
+                if (lat && lng) {
+                  bounds.extend({ lat, lng });
                   hasCoordinates = true;
                 }
               });
 
               quoteRequestsData.forEach(qr => {
-                if (qr.latitude && qr.longitude) {
-                  bounds.extend({ lat: parseFloat(qr.latitude), lng: parseFloat(qr.longitude) });
+                const lat = parseFloat(qr.latitude), lng = parseFloat(qr.longitude);
+                if (lat && lng) {
+                  bounds.extend({ lat, lng });
                   hasCoordinates = true;
                 }
               });
@@ -301,12 +303,10 @@ $activePage = 'map';
               if (!layerVisibility.jobs && !layerVisibility.quotes) return;
 
               propertiesData.forEach(prop => {
-                if (!prop.latitude || !prop.longitude) return;
+                const lat = parseFloat(prop.latitude), lng = parseFloat(prop.longitude);
+                if (!lat || !lng) return;
 
-                const position = {
-                  lat: parseFloat(prop.latitude),
-                  lng: parseFloat(prop.longitude)
-                };
+                const position = { lat, lng };
 
                 // Create custom icon
                 const icon = {
@@ -371,12 +371,10 @@ $activePage = 'map';
               if (!layerVisibility.requests) return;
 
               quoteRequestsData.forEach(qr => {
-                if (!qr.latitude || !qr.longitude) return; // Only show if geocoded
+                const lat = parseFloat(qr.latitude), lng = parseFloat(qr.longitude);
+                if (!lat || !lng) return; // Only show if geocoded
 
-                const position = {
-                  lat: parseFloat(qr.latitude),
-                  lng: parseFloat(qr.longitude)
-                };
+                const position = { lat, lng };
 
                 // Color by urgency
                 let color = '#3B82F6'; // blue default
