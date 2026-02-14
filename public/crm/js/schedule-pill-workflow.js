@@ -416,7 +416,7 @@
 
                     // Show before thumb in drawer briefly, then close
                     if (thumbUrl) {
-                        showThumbConfirmation(card, thumbUrl, 'Before', function() {
+                        showThumbConfirmation(card, thumbUrl, 'Before', visitId, function() {
                             closeDrawer();
                         });
                     } else {
@@ -425,7 +425,7 @@
                 } else if (category === 'after') {
                     // After after photo → show thumb briefly, then clock out
                     if (thumbUrl) {
-                        showThumbConfirmation(card, thumbUrl, 'After', function() {
+                        showThumbConfirmation(card, thumbUrl, 'After', visitId, function() {
                             clockOut(visitId);
                         });
                     } else {
@@ -434,7 +434,7 @@
                 }
                 // 'during' photos: stay in working state, show thumb briefly
                 if (category === 'during' && thumbUrl) {
-                    showThumbConfirmation(card, thumbUrl, 'Photo', null);
+                    showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
                 }
             });
         };
@@ -586,7 +586,9 @@
     }
 
     /**
-     * Render a before/after thumbnail strip below the completed pill's card services area
+     * Render/update a persistent before/after thumbnail strip for a visit.
+     * Uses .mw-mc-photo-strips container (outside the drawer) so it persists.
+     * Called after every photo capture — incrementally adds thumbs.
      */
     function renderPhotoStrip(visitId) {
         var v = visits[visitId];
@@ -596,12 +598,22 @@
         var card = v.pill.closest('.mw-mc-card');
         if (!card) return;
 
-        // Find or create the photo strip container in the drawer area
-        var drawer = card.querySelector('.mw-mc-pill-drawer');
-        if (!drawer) return;
+        // Use the persistent photo strips container (NOT the drawer)
+        var container = card.querySelector('.mw-mc-photo-strips');
+        if (!container) return;
 
-        // Build the strip HTML
-        var html = '<div class="mw-mc-photo-strip">';
+        // Find or create this visit's strip div
+        var stripId = 'photo-strip-' + visitId;
+        var strip = container.querySelector('[data-strip-visit="' + visitId + '"]');
+        if (!strip) {
+            strip = document.createElement('div');
+            strip.className = 'mw-mc-photo-strip';
+            strip.setAttribute('data-strip-visit', visitId);
+            container.appendChild(strip);
+        }
+
+        // Rebuild strip contents
+        var html = '';
         if (v.beforeThumb) {
             html += '<div class="mw-mc-photo-thumb">' +
                     '  <img src="' + escHtml(v.beforeThumb) + '" alt="Before" loading="lazy">' +
@@ -614,17 +626,25 @@
                     '  <span class="mw-mc-photo-thumb-label">After</span>' +
                     '</div>';
         }
-        html += '</div>';
+        strip.innerHTML = html;
 
-        drawer.innerHTML = html;
-        drawer.style.display = 'block';
+        console.log('[PillWorkflow] Photo strip updated for visit ' + visitId +
+            ' (before: ' + (v.beforeThumb ? 'yes' : 'no') +
+            ', after: ' + (v.afterThumb ? 'yes' : 'no') + ')');
     }
 
     /**
-     * Show a brief thumbnail confirmation in the drawer, then run callback
+     * Show a brief thumbnail confirmation in the drawer, then add to
+     * persistent strip and run callback.
      */
-    function showThumbConfirmation(card, thumbUrl, label, callback) {
+    function showThumbConfirmation(card, thumbUrl, label, visitId, callback) {
         var drawer = card.querySelector('.mw-mc-pill-drawer');
+
+        // Always add to persistent strip immediately
+        if (visitId) {
+            renderPhotoStrip(visitId);
+        }
+
         if (!drawer) {
             if (callback) callback();
             return;

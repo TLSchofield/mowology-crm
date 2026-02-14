@@ -166,6 +166,8 @@ if (!empty($stop['visits'])) {
                 </div>
                 <!-- Pill action drawer (JS populates based on tapped pill) -->
                 <div class="mw-mc-pill-drawer" style="display: none;"></div>
+                <!-- Persistent photo strip (JS populates after photo capture) -->
+                <div class="mw-mc-photo-strips"></div>
             <?php endif; ?>
         </div>
 
@@ -231,6 +233,8 @@ if (!empty($stop['visits'])) {
             </div>
             <!-- Pill action drawer (JS populates based on tapped pill) -->
             <div class="mw-mc-pill-drawer" style="display: none;"></div>
+            <!-- Persistent photo strip (JS populates after photo capture) -->
+            <div class="mw-mc-photo-strips"></div>
         <?php endif; ?>
     </div>
 

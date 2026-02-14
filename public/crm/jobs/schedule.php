@@ -197,7 +197,7 @@ foreach ($mobileStops as $s) {
 
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214a" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214b" rel="stylesheet">';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -505,11 +505,11 @@ function applyCrewFilter(crewId) {
 (function() {
     document.querySelectorAll('.mw-mc-card-compact').forEach(function(card) {
         card.addEventListener('click', function(e) {
-            // Don't toggle if clicking an action button, link, pill, or drawer element
+            // Don't toggle if clicking an action button, link, pill, drawer, or photo strip
             if (e.target.closest('.mw-mc-action-btn') || e.target.closest('a') ||
                 e.target.closest('.mw-mc-pill-interactive') || e.target.closest('.mw-mc-pill-drawer') ||
                 e.target.closest('.mw-mc-drawer-btn') || e.target.closest('.mw-mc-drawer-camera-btn') ||
-                e.target.closest('.mw-mc-drawer-skip')) return;
+                e.target.closest('.mw-mc-drawer-skip') || e.target.closest('.mw-mc-photo-strips')) return;
 
             var detail = card.querySelector('.mw-mc-expand-detail');
             if (!detail) return;
@@ -675,6 +675,6 @@ var MW_SCHEDULE_STATE = {
     activeTimer: <?php echo json_encode($activeTimerData); ?>
 };
 </script>
-<script src="../js/schedule-pill-workflow.js?v=20260214a"></script>
+<script src="../js/schedule-pill-workflow.js?v=20260214b"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
