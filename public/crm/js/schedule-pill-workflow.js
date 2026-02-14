@@ -607,6 +607,38 @@
             default:
                 pill.classList.add('mw-mc-pill-scheduled');
         }
+
+        // Hide route button once any visit on this card is active (crew is on-site)
+        updateRouteButtonVisibility(pill);
+    }
+
+    /**
+     * Hide the card-level Route button when any visit on that card is
+     * in-progress or completed (crew is already at the location).
+     * Show it only when all visits are still scheduled.
+     */
+    function updateRouteButtonVisibility(pill) {
+        var card = pill.closest('.mw-mc-card');
+        if (!card) return;
+        var routeBtn = card.querySelector('.mw-mc-btn-route');
+        if (!routeBtn) return;
+
+        // Check if any pill on this card is active or done
+        var cardPills = card.querySelectorAll('.mw-mc-pill-interactive');
+        var anyActive = false;
+        cardPills.forEach(function(p) {
+            if (p.classList.contains('mw-mc-pill-active') || p.classList.contains('mw-mc-pill-done')) {
+                anyActive = true;
+            }
+        });
+
+        // Hide route button (and its parent actions row) when crew is on-site
+        var actionsRow = routeBtn.closest('.mw-mc-actions');
+        if (anyActive) {
+            if (actionsRow) actionsRow.style.display = 'none';
+        } else {
+            if (actionsRow) actionsRow.style.display = '';
+        }
     }
 
     /**
