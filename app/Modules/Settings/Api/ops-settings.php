@@ -221,6 +221,91 @@ try {
 
         echo json_encode(['success' => true, 'message' => 'Weather rules saved']);
 
+    } elseif ($action === 'test-email') {
+        // Send a test weather alert email to admin
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            throw new Exception('POST method required');
+        }
+
+        require_once CRM_INCLUDES . '/messaging.php';
+
+        // Get admin email
+        $stmt = $db->prepare("SELECT company_email FROM business_settings WHERE id = 1");
+        $stmt->execute();
+        $settings = $stmt->fetch(PDO::FETCH_ASSOC);
+        $adminEmail = $settings['company_email'] ?? '';
+
+        if (empty($adminEmail)) {
+            throw new Exception('No admin email configured in Business Settings');
+        }
+
+        $subject = "🧪 Test Weather Alert — " . date('M j, g:i A');
+        $htmlBody = "
+            <div style='font-family:Arial,sans-serif;max-width:600px;'>
+                <h2 style='color:#1565c0;'>🧪 Test Weather Alert</h2>
+                <p>This is a <strong>test email</strong> from the Mowology Weather Operations system.</p>
+                <table style='width:100%;border-collapse:collapse;margin:16px 0;'>
+                    <tr style='background:#e3f2fd;'>
+                        <td style='padding:10px;font-weight:600;'>Type</td>
+                        <td style='padding:10px;'>Salt Alert (Test)</td>
+                    </tr>
+                    <tr>
+                        <td style='padding:10px;font-weight:600;'>Date</td>
+                        <td style='padding:10px;'>" . date('l, F j, Y') . "</td>
+                    </tr>
+                    <tr style='background:#e3f2fd;'>
+                        <td style='padding:10px;font-weight:600;'>Sent By</td>
+                        <td style='padding:10px;'>" . htmlspecialchars($user['full_name'] ?? 'Admin') . "</td>
+                    </tr>
+                    <tr>
+                        <td style='padding:10px;font-weight:600;'>Sent To</td>
+                        <td style='padding:10px;'>" . htmlspecialchars($adminEmail) . "</td>
+                    </tr>
+                </table>
+                <p style='color:#2D8659;'>✅ If you received this, email alerts are working correctly.</p>
+                <hr style='border:none;border-top:1px solid #eee;margin:20px 0;'>
+                <p style='color:#999;font-size:12px;'>Mowology Weather Guard — test message</p>
+            </div>
+        ";
+
+        $result = sendEmail($adminEmail, $subject, $htmlBody);
+
+        echo json_encode([
+            'success' => $result['success'],
+            'message' => $result['success'] ? "Test email sent to {$adminEmail}" : 'Email failed',
+            'error'   => $result['error'] ?? null,
+            'to'      => $adminEmail,
+        ]);
+
+    } elseif ($action === 'test-sms') {
+        // Send a test weather SMS to the current admin user
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            throw new Exception('POST method required');
+        }
+
+        require_once CRM_INCLUDES . '/messaging.php';
+
+        // Get current user's phone number
+        $stmt = $db->prepare("SELECT phone, full_name FROM users WHERE id = ?");
+        $stmt->execute([$user['id']]);
+        $u = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $phone = $u['phone'] ?? '';
+        if (empty($phone)) {
+            throw new Exception('Your user account has no phone number set. Add one on the Team page.');
+        }
+
+        $msg = "Mowology test: Weather SMS alerts are working. " . date('M j, g:iA');
+
+        $result = sendSms($phone, $msg);
+
+        echo json_encode([
+            'success' => $result['success'],
+            'message' => $result['success'] ? "Test SMS sent to {$phone}" : 'SMS failed',
+            'error'   => $result['error'] ?? null,
+            'to'      => $phone,
+        ]);
+
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action ?? ''));
     }

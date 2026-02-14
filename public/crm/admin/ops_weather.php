@@ -177,6 +177,34 @@ $activePage = 'ops-weather';
                 </div>
               </div>
 
+              <!-- Test Alert Buttons -->
+              <div class="card mb-3" style="border-left:4px solid var(--mw-orange);">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="send" style="width:18px;height:18px;"></i> Test Alerts</h5>
+                  <small class="text-muted">Send yourself a test notification to verify email and SMS delivery</small>
+                </div>
+                <div class="card-body">
+                  <div class="d-flex flex-wrap align-items-start" style="gap:1rem;">
+                    <div>
+                      <button class="btn btn-outline-primary" onclick="sendTestEmail()" id="testEmailBtn">
+                        <i data-feather="mail" style="width:16px;height:16px;"></i> Send Test Email
+                      </button>
+                      <div id="testEmailResult" class="mt-2" style="font-size:0.85rem;"></div>
+                    </div>
+                    <div>
+                      <button class="btn btn-outline-success" onclick="sendTestSms()" id="testSmsBtn">
+                        <i data-feather="smartphone" style="width:16px;height:16px;"></i> Send Test SMS
+                      </button>
+                      <div id="testSmsResult" class="mt-2" style="font-size:0.85rem;"></div>
+                    </div>
+                  </div>
+                  <small class="text-muted d-block mt-3">
+                    <strong>Email</strong> sends to the admin email in Business Settings.
+                    <strong>SMS</strong> sends to your phone number on your user profile.
+                  </small>
+                </div>
+              </div>
+
               <!-- 7-Day Forecast Preview -->
               <div class="card mb-3">
                 <div class="card-header">
@@ -1114,6 +1142,69 @@ $activePage = 'ops-weather';
                 saltLabel.style.display = '';
               }
             });
+          }
+
+          // ============================================================
+          // Test Alert Buttons
+          // ============================================================
+          function sendTestEmail() {
+            var btn = document.getElementById('testEmailBtn');
+            var result = document.getElementById('testEmailResult');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-feather="loader" style="width:16px;height:16px;"></i> Sending...';
+            if (typeof feather !== 'undefined') feather.replace();
+            result.innerHTML = '';
+
+            fetch('/crm/api/ops-settings.php?action=test-email', { method: 'POST' })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="mail" style="width:16px;height:16px;"></i> Send Test Email';
+                if (typeof feather !== 'undefined') feather.replace();
+
+                if (data.success) {
+                  result.innerHTML = '<span class="text-success">✅ Sent to ' + escapeHtml(data.to) + '</span>';
+                } else {
+                  result.innerHTML = '<span class="text-danger">❌ ' + escapeHtml(data.error || 'Failed') + '</span>';
+                }
+                setTimeout(function() { result.innerHTML = ''; }, 8000);
+              })
+              .catch(function(err) {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="mail" style="width:16px;height:16px;"></i> Send Test Email';
+                if (typeof feather !== 'undefined') feather.replace();
+                result.innerHTML = '<span class="text-danger">❌ ' + escapeHtml(err.message) + '</span>';
+              });
+          }
+
+          function sendTestSms() {
+            var btn = document.getElementById('testSmsBtn');
+            var result = document.getElementById('testSmsResult');
+            btn.disabled = true;
+            btn.innerHTML = '<i data-feather="loader" style="width:16px;height:16px;"></i> Sending...';
+            if (typeof feather !== 'undefined') feather.replace();
+            result.innerHTML = '';
+
+            fetch('/crm/api/ops-settings.php?action=test-sms', { method: 'POST' })
+              .then(function(r) { return r.json(); })
+              .then(function(data) {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="smartphone" style="width:16px;height:16px;"></i> Send Test SMS';
+                if (typeof feather !== 'undefined') feather.replace();
+
+                if (data.success) {
+                  result.innerHTML = '<span class="text-success">✅ Sent to ' + escapeHtml(data.to) + '</span>';
+                } else {
+                  result.innerHTML = '<span class="text-danger">❌ ' + escapeHtml(data.error || 'Failed') + '</span>';
+                }
+                setTimeout(function() { result.innerHTML = ''; }, 8000);
+              })
+              .catch(function(err) {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="smartphone" style="width:16px;height:16px;"></i> Send Test SMS';
+                if (typeof feather !== 'undefined') feather.replace();
+                result.innerHTML = '<span class="text-danger">❌ ' + escapeHtml(err.message) + '</span>';
+              });
           }
 
           // Live preview: update when user changes trigger settings
