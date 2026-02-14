@@ -63,7 +63,15 @@
         });
     }
 
-    // ── Tracking Dot (always visible in topbar) ──
+    // ── Tracking Dot (always visible in topbar, clickable to toggle) ──
+
+    var trackingToggleBusy = false;
+
+    // Bind click handler once on init
+    var trackingWrapper = document.getElementById('trackingDotWrapper');
+    if (trackingWrapper) {
+        trackingWrapper.addEventListener('click', toggleTracking);
+    }
 
     function updateTrackingDot(enabled) {
         var dot = document.getElementById('trackingDot');
@@ -76,11 +84,50 @@
             wrapper.title = 'Checking tracking status...';
         } else if (enabled) {
             dot.className = 'mw-tracking-dot mw-tracking-dot-on';
-            wrapper.title = 'Location tracking: ON';
+            wrapper.title = 'Location tracking: ON — tap to disable';
         } else {
             dot.className = 'mw-tracking-dot mw-tracking-dot-off';
-            wrapper.title = 'Location tracking: OFF';
+            wrapper.title = 'Location tracking: OFF — tap to enable';
         }
+    }
+
+    function toggleTracking() {
+        if (trackingToggleBusy) return;
+        trackingToggleBusy = true;
+
+        // Optimistic UI: show loading
+        updateTrackingDot(null);
+
+        fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'toggle_tracking' })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            trackingToggleBusy = false;
+            if (data.success) {
+                trackingEnabled = !!data.location_tracking_enabled;
+                updateTrackingDot(trackingEnabled);
+                showToast(data.message, trackingEnabled ? 'success' : 'info');
+
+                // Start or stop GPS tracking based on new state
+                if (trackingEnabled && clockInTime !== null) {
+                    startTracking();
+                } else {
+                    stopTracking();
+                }
+            } else {
+                updateTrackingDot(trackingEnabled); // revert to previous state
+                showToast(data.error || 'Failed to toggle tracking', 'error');
+            }
+        })
+        .catch(function() {
+            trackingToggleBusy = false;
+            updateTrackingDot(trackingEnabled); // revert to previous state
+            showToast('Network error', 'error');
+        });
     }
 
     // ── Render States ──

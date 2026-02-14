@@ -5218,8 +5218,20 @@ textarea.font-monospace {
   justify-content: center;
   margin-left: 12px;
   margin-right: 4px;
-  cursor: default;
+  cursor: pointer;
   flex-shrink: 0;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background 0.2s ease;
+}
+
+.mw-tracking-dot-wrapper:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.mw-tracking-dot-wrapper:active {
+  background: rgba(0, 0, 0, 0.1);
+  transform: scale(0.95);
 }
 
 .mw-tracking-dot {
