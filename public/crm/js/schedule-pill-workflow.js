@@ -18,10 +18,18 @@
     'use strict';
 
     // Only run on mobile-width screens where the card view is visible
-    if (window.innerWidth > 991) return;
+    if (window.innerWidth > 991) {
+        console.log('[PillWorkflow] Skipped: desktop viewport (' + window.innerWidth + 'px)');
+        return;
+    }
 
     // Wait for the state object from schedule.php
-    if (typeof MW_SCHEDULE_STATE === 'undefined') return;
+    if (typeof MW_SCHEDULE_STATE === 'undefined') {
+        console.log('[PillWorkflow] Skipped: MW_SCHEDULE_STATE not defined');
+        return;
+    }
+
+    console.log('[PillWorkflow] Initializing...', MW_SCHEDULE_STATE);
 
     var state = MW_SCHEDULE_STATE;
     var visits = {};        // visitId -> { status, pill, serviceLabel, entryId, startTime, timerInterval, beforeThumb, afterThumb }
@@ -35,9 +43,15 @@
 
     function init() {
         // Scan all interactive pills and register them
-        document.querySelectorAll('.mw-mc-pill-interactive').forEach(function(pill) {
+        var allPills = document.querySelectorAll('.mw-mc-pill-interactive');
+        console.log('[PillWorkflow] Found ' + allPills.length + ' interactive pills');
+
+        allPills.forEach(function(pill) {
             var visitId = parseInt(pill.dataset.visitId, 10);
-            if (!visitId) return;
+            if (!visitId) {
+                console.log('[PillWorkflow] Skipping pill with no visitId:', pill.textContent.trim());
+                return;
+            }
 
             var visitStatus = pill.dataset.visitStatus || 'scheduled';
             var serviceLabel = pill.textContent.trim();
@@ -72,12 +86,17 @@
             pill.addEventListener('click', function(e) {
                 e.stopPropagation();
                 e.preventDefault();
+                console.log('[PillWorkflow] Pill tapped: visit ' + visitId + ' (' + serviceLabel + '), status: ' + visits[visitId].status);
                 handlePillTap(visitId);
             });
         });
 
+        console.log('[PillWorkflow] Registered ' + Object.keys(visits).length + ' visits');
+
         // Pre-fetch GPS for later use
-        getGps(function() {});
+        getGps(function(lat, lng) {
+            console.log('[PillWorkflow] GPS ready:', lat, lng);
+        });
     }
 
     // ═══════════════════════════════════════════════════════
@@ -267,6 +286,7 @@
      * Start a visit timer (clock in)
      */
     function clockIn(visitId) {
+        console.log('[PillWorkflow] clockIn called for visit ' + visitId);
         var btn = activeDrawer ? activeDrawer.querySelector('[data-action="clock-in"]') : null;
         if (btn) {
             btn.disabled = true;
@@ -274,6 +294,7 @@
         }
 
         getGps(function(lat, lng) {
+            console.log('[PillWorkflow] Sending start timer request for visit ' + visitId);
             fetch('/crm/api/job-timer.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -286,6 +307,7 @@
             })
             .then(function(r) { return r.json(); })
             .then(function(data) {
+                console.log('[PillWorkflow] Timer start response:', JSON.stringify(data));
                 if (data.success) {
                     visits[visitId].entryId = data.entry_id;
                     visits[visitId].startTime = new Date();
@@ -451,12 +473,14 @@
         // Show uploading feedback on pill
         flashPillFeedback(visitId, 'Uploading...');
 
+        console.log('[PillWorkflow] Uploading photo: visit=' + visitId + ', category=' + category);
         fetch('/crm/api/media-upload.php', {
             method: 'POST',
             body: formData
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
+            console.log('[PillWorkflow] Upload response:', JSON.stringify(data));
             if (data.success && data.total_uploaded > 0) {
                 // Store thumbnail URL for display on pill
                 var thumbUrl = null;
