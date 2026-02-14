@@ -25,7 +25,7 @@
     var TRACKING_INTERVAL_MS = 30000; // 30 seconds
 
     // ── Initialization ──
-    updateTrackingDot(null); // neutral state until API responds
+    updateTrackingDot('unknown', 'Checking GPS...');
     fetchStatus();
 
     function fetchStatus() {
@@ -43,7 +43,6 @@
                 return;
             }
             trackingEnabled = !!data.location_tracking_enabled;
-            updateTrackingDot(trackingEnabled);
 
             if (data.clocked_in) {
                 clockInTime = new Date(data.clock_in.replace(' ', 'T'));
@@ -58,76 +57,89 @@
         .catch(function(err) {
             // API failed — still show clock-in button so crew can always clock in
             console.warn('Time clock API error:', err);
-            updateTrackingDot(false);
+            updateTrackingDot('error', 'Unable to check status');
             renderClockedOut();
         });
     }
 
-    // ── Tracking Dot (always visible in topbar, clickable to toggle) ──
+    // ── Tracking Dot (GPS status indicator — tap to re-request permission) ──
+    // Green = GPS actively sending positions
+    // Red = GPS denied, unavailable, or not sending
+    // Grey = waiting / not clocked in
 
-    var trackingToggleBusy = false;
+    var gpsState = 'unknown'; // 'active', 'error', 'unknown'
 
-    // Bind click handler once on init
+    // Bind click handler — tapping red icon re-requests GPS permission
     var trackingWrapper = document.getElementById('trackingDotWrapper');
     if (trackingWrapper) {
-        trackingWrapper.addEventListener('click', toggleTracking);
+        trackingWrapper.addEventListener('click', onTrackingDotTap);
     }
 
-    function updateTrackingDot(enabled) {
+    function updateTrackingDot(state, detail) {
         var dot = document.getElementById('trackingDot');
         var wrapper = document.getElementById('trackingDotWrapper');
         if (!dot || !wrapper) return;
 
-        if (enabled === null) {
-            // Loading state
-            dot.className = 'mw-tracking-dot mw-tracking-dot-loading';
-            wrapper.title = 'Checking tracking status...';
-        } else if (enabled) {
+        gpsState = state;
+
+        if (state === 'active') {
             dot.className = 'mw-tracking-dot mw-tracking-dot-on';
-            wrapper.title = 'Location tracking: ON — tap to disable';
-        } else {
+            wrapper.title = 'GPS active' + (detail ? ' — ' + detail : '');
+        } else if (state === 'error') {
             dot.className = 'mw-tracking-dot mw-tracking-dot-off';
-            wrapper.title = 'Location tracking: OFF — tap to enable';
+            wrapper.title = (detail || 'GPS off') + ' — tap to enable';
+        } else {
+            // unknown / loading / not clocked in
+            dot.className = 'mw-tracking-dot mw-tracking-dot-loading';
+            wrapper.title = detail || 'Checking GPS...';
         }
     }
 
-    function toggleTracking() {
-        if (trackingToggleBusy) return;
-        trackingToggleBusy = true;
-
-        // Optimistic UI: show loading
-        updateTrackingDot(null);
-
-        fetch('/crm/api/time-clock.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'toggle_tracking' })
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            trackingToggleBusy = false;
-            if (data.success) {
-                trackingEnabled = !!data.location_tracking_enabled;
-                updateTrackingDot(trackingEnabled);
-                showToast(data.message, trackingEnabled ? 'success' : 'info');
-
-                // Start or stop GPS tracking based on new state
-                if (trackingEnabled && clockInTime !== null) {
-                    startTracking();
-                } else {
-                    stopTracking();
-                }
+    function onTrackingDotTap() {
+        if (gpsState === 'active') {
+            // Already working, just show accuracy info
+            if (latestPosition) {
+                showToast('GPS active — accuracy: ' + Math.round(latestPosition.accuracy) + 'm', 'success');
             } else {
-                updateTrackingDot(trackingEnabled); // revert to previous state
-                showToast(data.error || 'Failed to toggle tracking', 'error');
+                showToast('GPS active', 'success');
             }
-        })
-        .catch(function() {
-            trackingToggleBusy = false;
-            updateTrackingDot(trackingEnabled); // revert to previous state
-            showToast('Network error', 'error');
-        });
+            return;
+        }
+
+        // GPS is off or errored — try to re-request permission
+        if (!navigator.geolocation) {
+            showToast('Location not supported on this browser', 'error');
+            return;
+        }
+
+        updateTrackingDot('unknown', 'Requesting GPS...');
+        showToast('Requesting location access...', 'info');
+
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {
+                updateTrackingDot('active', 'accuracy: ' + Math.round(pos.coords.accuracy) + 'm');
+                showToast('GPS enabled — location active', 'success');
+
+                // If clocked in and tracking should be on, restart the watch
+                if (trackingEnabled && clockInTime !== null) {
+                    stopTracking();
+                    startTracking();
+                }
+            },
+            function(err) {
+                if (err.code === 1) {
+                    updateTrackingDot('error', 'Permission denied');
+                    showToast('Location denied — open browser settings to allow location for this site', 'error');
+                } else if (err.code === 2) {
+                    updateTrackingDot('error', 'GPS unavailable');
+                    showToast('GPS unavailable — enable Location Services in your phone settings', 'error');
+                } else {
+                    updateTrackingDot('error', 'GPS timed out');
+                    showToast('GPS timed out — try again or check phone settings', 'error');
+                }
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
     }
 
     // ── Render States ──
@@ -212,11 +224,13 @@
         if (gpsWatchId !== null) return; // Already tracking
         if (!navigator.geolocation) {
             showToast('Location not supported on this browser', 'error');
+            updateTrackingDot('error', 'Not supported');
             return;
         }
 
         gpsErrorCount = 0;
         gpsErrorToastShown = false;
+        updateTrackingDot('unknown', 'Acquiring GPS...');
 
         // Start high-accuracy continuous GPS watch
         gpsWatchId = navigator.geolocation.watchPosition(
@@ -229,27 +243,24 @@
                     speed: pos.coords.speed,
                     heading: pos.coords.heading
                 };
-                // Update indicator to show we have a fix
-                var indicator = document.getElementById('trackingIndicator');
-                if (indicator) {
-                    indicator.classList.add('mw-tracking-active');
-                    indicator.classList.remove('mw-tracking-error');
-                    indicator.title = 'GPS active — accuracy: ' + Math.round(pos.coords.accuracy) + 'm';
-                }
+                // Update topbar dot to green — GPS is actively sending
+                updateTrackingDot('active', 'accuracy: ' + Math.round(pos.coords.accuracy) + 'm');
             },
             function(err) {
                 gpsErrorCount++;
-                var indicator = document.getElementById('trackingIndicator');
-                if (indicator) {
-                    indicator.classList.remove('mw-tracking-active');
-                    indicator.classList.add('mw-tracking-error');
-                    indicator.title = 'GPS error: ' + err.message;
+                // Update topbar dot to red — GPS error
+                if (err.code === 1) {
+                    updateTrackingDot('error', 'Permission denied');
+                } else if (err.code === 2) {
+                    updateTrackingDot('error', 'GPS unavailable');
+                } else {
+                    updateTrackingDot('error', 'GPS timed out');
                 }
                 // Show a visible toast on first error so mobile users know GPS is failing
                 if (!gpsErrorToastShown) {
                     gpsErrorToastShown = true;
                     if (err.code === 1) {
-                        showToast('Location permission denied — enable in browser settings', 'error');
+                        showToast('Location permission denied — tap the signal icon to retry', 'error');
                     } else if (err.code === 2) {
                         showToast('GPS unavailable — enable Location in phone settings', 'error');
                     } else {
@@ -279,6 +290,10 @@
             trackingInterval = null;
         }
         latestPosition = null;
+        // Not clocked in or tracking stopped — show grey
+        if (!clockInTime) {
+            updateTrackingDot('unknown', 'Not clocked in');
+        }
     }
 
     function sendPosition() {

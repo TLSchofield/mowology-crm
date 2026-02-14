@@ -1,9 +1,8 @@
 <?php
 /**
- * Time Clock API — Clock In / Clock Out / Status / Toggle Tracking
+ * Time Clock API — Clock In / Clock Out / Status
  * POST: {action: 'clock_in', lat?, lng?, user_id?}
  * POST: {action: 'clock_out', lat?, lng?, notes?, user_id?}
- * POST: {action: 'toggle_tracking'} — toggle own location tracking on/off
  * GET:  ?action=status
  *
  * Admin/Manager can pass user_id to clock in/out another user.
@@ -165,22 +164,9 @@ try {
             ]);
             break;
 
-        case 'toggle_tracking':
-            // User toggles their own location tracking on/off
-            $newValue = $locationTrackingEnabled ? 0 : 1;
-            $toggleStmt = $db->prepare("UPDATE users SET location_tracking_enabled = ? WHERE id = ?");
-            $toggleStmt->execute([$newValue, $user['id']]);
-
-            echo json_encode([
-                'success' => true,
-                'location_tracking_enabled' => (bool)$newValue,
-                'message' => $newValue ? 'Location tracking enabled' : 'Location tracking disabled',
-            ]);
-            break;
-
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out, toggle_tracking']);
+            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out']);
     }
 
 } catch (Exception $e) {
