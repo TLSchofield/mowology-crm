@@ -485,7 +485,9 @@
                 // Store thumbnail URL for display on pill
                 var thumbUrl = null;
                 if (data.results && data.results[0]) {
-                    thumbUrl = data.results[0].thumb_url || data.results[0].file_path || null;
+                    var r = data.results[0];
+                    console.log('[PillWorkflow] Upload result: thumb_url=' + r.thumb_url + ', file_path=' + r.file_path);
+                    thumbUrl = r.thumb_url || r.file_path || null;
                 }
                 if (thumbUrl && visits[visitId]) {
                     if (category === 'before') {

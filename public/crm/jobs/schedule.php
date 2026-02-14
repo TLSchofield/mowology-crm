@@ -197,7 +197,7 @@ foreach ($mobileStops as $s) {
 
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214b" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214c" rel="stylesheet">';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -675,6 +675,6 @@ var MW_SCHEDULE_STATE = {
     activeTimer: <?php echo json_encode($activeTimerData); ?>
 };
 </script>
-<script src="../js/schedule-pill-workflow.js?v=20260214b"></script>
+<script src="../js/schedule-pill-workflow.js?v=20260214c"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
