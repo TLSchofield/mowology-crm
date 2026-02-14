@@ -33,16 +33,25 @@
         --mc-radius-md: 12px;
     }
 
-    /* ── Hide desktop calendar elements ── */
+    /* ── Hide desktop calendar elements + desktop page header ── */
     .mw-calendar-container,
     .mw-legend,
-    #dragFeedback {
+    #dragFeedback,
+    .mw-page-header {
         display: none !important;
     }
 
     /* ── Show mobile card container ── */
     .mw-mc-container {
-        display: block;
+        display: flex;
+        flex-direction: column;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1050;
+        background: var(--mc-bg-app);
     }
 
     /* ── Override page background ── */
@@ -54,68 +63,160 @@
         background: var(--mc-bg-app);
     }
 
-    /* ── Safe area support (iPhone notch / home bar) ── */
-    .mw-mc-container {
-        padding-top: env(safe-area-inset-top, 0px);
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
-        padding-left: env(safe-area-inset-left, 16px);
-        padding-right: env(safe-area-inset-right, 16px);
-    }
+    /* ════════════════════════════════════════════════════
+       FIXED TOP BAR
+       ════════════════════════════════════════════════════ */
 
-    /* ── Simplify page header for mobile ── */
-    .mw-page-header {
-        flex-direction: column;
-        gap: 12px;
-        padding-bottom: 16px;
-    }
-
-    .mw-page-header > div:last-child {
-        width: 100%;
+    .mw-mc-topbar {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
         justify-content: space-between;
+        padding: 12px 16px;
+        padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+        background: var(--mc-card-bg);
+        border-bottom: 1px solid #ebe8e2;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        z-index: 10;
     }
 
-    .mw-page-header h1 {
-        font-size: 1.25rem;
+    .mw-mc-topbar-left {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.2;
     }
 
-    .mw-header-nav {
+    .mw-mc-topbar-day {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #1a1a1a;
+    }
+
+    .mw-mc-topbar-date {
+        font-size: 0.75rem;
+        color: #9e9e9e;
+        font-weight: 500;
+    }
+
+    .mw-mc-topbar-center {
+        flex: 1;
+        padding: 0 16px;
+    }
+
+    .mw-mc-topbar-progress {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .mw-mc-topbar-progress-bar {
+        flex: 1;
+        height: 6px;
+        background: #ebe8e2;
+        border-radius: 3px;
+        overflow: hidden;
+    }
+
+    .mw-mc-topbar-progress-fill {
+        height: 100%;
+        background: var(--mw-green, #2D8659);
+        border-radius: 3px;
+        transition: width 0.3s ease;
+    }
+
+    .mw-mc-topbar-progress-text {
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: #9e9e9e;
+        white-space: nowrap;
+    }
+
+    .mw-mc-topbar-right {
+        flex-shrink: 0;
+    }
+
+    .mw-mc-topbar-weather {
+        display: flex;
+        align-items: center;
+        gap: 4px;
         font-size: 0.9rem;
+        font-weight: 600;
+        color: #555;
     }
 
     /* ════════════════════════════════════════════════════
-       MOBILE HEADER (date + weather summary)
+       SCROLLABLE CARD AREA
        ════════════════════════════════════════════════════ */
 
-    .mw-mc-day-header {
-        text-align: center;
-        margin-bottom: 20px;
+    .mw-mc-scroll-area {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        padding: 16px 16px 8px 16px;
     }
 
-    .mw-mc-day-title {
-        font-size: 1.4rem;
-        font-weight: 700;
-        color: #1a1a1a;
-        margin-bottom: 2px;
-    }
+    /* ════════════════════════════════════════════════════
+       FIXED BOTTOM BAR
+       ════════════════════════════════════════════════════ */
 
-    .mw-mc-day-weather {
+    .mw-mc-bottombar {
+        flex-shrink: 0;
         display: flex;
+        align-items: stretch;
+        justify-content: space-around;
+        padding: 6px 8px;
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
+        background: var(--mc-card-bg);
+        border-top: 1px solid #ebe8e2;
+        box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+        z-index: 10;
+    }
+
+    .mw-mc-bottombar-btn {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 8px;
-        font-size: 0.85rem;
-        color: #6c757d;
-    }
-
-    .mw-mc-weather-icon {
-        font-size: 1.2rem;
+        gap: 2px;
+        padding: 8px 4px;
+        border: none;
+        background: transparent;
+        color: #9e9e9e;
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        transition: color 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
         line-height: 1;
     }
 
-    .mw-mc-stop-count {
-        font-size: 0.8rem;
-        color: #9e9e9e;
-        margin-top: 4px;
+    .mw-mc-bottombar-btn:hover,
+    .mw-mc-bottombar-btn:active {
+        text-decoration: none;
+        color: #555;
+    }
+
+    .mw-mc-bottombar-btn svg {
+        color: inherit;
+    }
+
+    .mw-mc-bottombar-btn-active {
+        color: var(--mw-green, #2D8659);
+    }
+
+    .mw-mc-bottombar-btn-active svg {
+        color: var(--mw-green, #2D8659);
+    }
+
+    /* ════════════════════════════════════════════════════
+       LEGACY MOBILE HEADER (kept for backwards compat)
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-day-header {
+        display: none;
     }
 
     /* ════════════════════════════════════════════════════
@@ -450,36 +551,11 @@
     }
 
     /* ════════════════════════════════════════════════════
-       FLOATING LOCATE BUTTON
+       FLOATING LOCATE BUTTON (legacy — now in bottom bar)
        ════════════════════════════════════════════════════ */
 
     .mw-mc-locate-btn {
-        position: fixed;
-        bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
-        right: 20px;
-        width: 52px;
-        height: 52px;
-        border-radius: 50%;
-        background: var(--mw-green, #2D8659);
-        color: #fff;
-        border: none;
-        box-shadow: 0 4px 14px rgba(45, 134, 89, 0.4);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        z-index: 1000;
-        transition: transform 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .mw-mc-locate-btn:active {
-        transform: scale(0.92);
-        box-shadow: 0 2px 8px rgba(45, 134, 89, 0.3);
-    }
-
-    .mw-mc-locate-btn svg {
-        color: #fff;
+        display: none;
     }
 
     /* ════════════════════════════════════════════════════
@@ -501,12 +577,12 @@
        ════════════════════════════════════════════════════ */
 
     @media (display-mode: standalone) {
-        .mw-mc-container {
-            padding-top: calc(env(safe-area-inset-top, 0px) + 8px);
+        .mw-mc-topbar {
+            padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
         }
 
-        .mw-mc-locate-btn {
-            bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+        .mw-mc-bottombar {
+            padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6px);
         }
     }
 }

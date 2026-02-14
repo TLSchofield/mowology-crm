@@ -182,7 +182,7 @@ foreach ($mobileStops as $s) {
 
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213b" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213c" rel="stylesheet">';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -358,20 +358,32 @@ $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213b" rel="stylesheet
                ═══════════════════════════════════════════════ -->
           <div class="mw-mc-container">
 
-              <!-- Day header with weather -->
-              <div class="mw-mc-day-header">
-                  <div class="mw-mc-day-title"><?php echo htmlspecialchars($todayDayName); ?></div>
-                  <div class="mw-mc-day-weather">
-                      <span class="mw-mc-weather-icon"><?php echo getWeatherIcon($todayWeather['condition'] ?? 'Clear'); ?></span>
-                      <span><?php echo htmlspecialchars($todayWeather['condition'] ?? 'Clear'); ?></span>
-                      <span><?php echo (int)($todayWeather['temp_high'] ?? 12); ?>&deg;/<?php echo (int)($todayWeather['temp_low'] ?? 8); ?>&deg;</span>
+              <!-- ── Fixed Top Bar ── -->
+              <div class="mw-mc-topbar">
+                  <div class="mw-mc-topbar-left">
+                      <div class="mw-mc-topbar-day"><?php echo htmlspecialchars($todayDayName); ?></div>
+                      <div class="mw-mc-topbar-date"><?php echo date('M j'); ?></div>
                   </div>
-                  <?php if ($totalStops > 0): ?>
-                      <div class="mw-mc-stop-count">
-                          <?php echo $completedStops; ?> of <?php echo $totalStops; ?> stops completed
-                      </div>
-                  <?php endif; ?>
+                  <div class="mw-mc-topbar-center">
+                      <?php if ($totalStops > 0): ?>
+                          <div class="mw-mc-topbar-progress">
+                              <div class="mw-mc-topbar-progress-bar">
+                                  <div class="mw-mc-topbar-progress-fill" style="width: <?php echo $totalStops > 0 ? round(($completedStops / $totalStops) * 100) : 0; ?>%"></div>
+                              </div>
+                              <span class="mw-mc-topbar-progress-text"><?php echo $completedStops; ?>/<?php echo $totalStops; ?></span>
+                          </div>
+                      <?php endif; ?>
+                  </div>
+                  <div class="mw-mc-topbar-right">
+                      <span class="mw-mc-topbar-weather">
+                          <?php echo getWeatherIcon($todayWeather['condition'] ?? 'Clear'); ?>
+                          <?php echo (int)($todayWeather['temp_high'] ?? 12); ?>&deg;
+                      </span>
+                  </div>
               </div>
+
+              <!-- ── Scrollable Card Area ── -->
+              <div class="mw-mc-scroll-area">
 
               <?php if (empty($mobileStops)): ?>
                   <!-- Empty state -->
@@ -426,7 +438,48 @@ $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213b" rel="stylesheet
                   <?php endif; ?>
 
               <?php endif; ?>
-          </div>
+
+              </div><!-- /.mw-mc-scroll-area -->
+
+              <!-- ── Fixed Bottom Bar ── -->
+              <div class="mw-mc-bottombar">
+                  <a href="?<?php echo ltrim($crewQueryStr, '&'); ?>" class="mw-mc-bottombar-btn mw-mc-bottombar-btn-active">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                      <span>Today</span>
+                  </a>
+                  <?php
+                  // Route button — link to Google Maps with all upcoming stops as waypoints
+                  $routeStops = [];
+                  foreach ($mobileStops as $rs) {
+                      if (($rs['stop_status'] ?? 'scheduled') !== 'completed' && !empty($rs['property_address'])) {
+                          $routeStops[] = $rs['property_address'];
+                      }
+                  }
+                  $routeUrl = '#';
+                  if (!empty($routeStops)) {
+                      $dest = urlencode(array_pop($routeStops));
+                      $waypoints = '';
+                      if (!empty($routeStops)) {
+                          $waypoints = '&waypoints=' . implode('|', array_map('urlencode', $routeStops));
+                      }
+                      $routeUrl = "https://maps.google.com/maps/dir/?api=1&destination={$dest}{$waypoints}&travelmode=driving";
+                  }
+                  ?>
+                  <a href="<?php echo $routeUrl; ?>" target="_blank" rel="noopener" class="mw-mc-bottombar-btn">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                      <span>Route</span>
+                  </a>
+                  <button class="mw-mc-bottombar-btn" id="mw-mc-locate-trigger">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+                      <span>Locate</span>
+                  </button>
+                  <a href="index.php" class="mw-mc-bottombar-btn">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                      <span>List</span>
+                  </a>
+              </div>
+
+          </div><!-- /.mw-mc-container -->
 
 <script>
 /**
@@ -472,9 +525,9 @@ function applyCrewFilter(crewId) {
             } else {
                 card.classList.add('mw-mc-expanded');
                 detail.style.display = 'block';
-                // Scroll expanded card into comfortable view
+                // Scroll expanded card into comfortable view within scroll area
                 setTimeout(function() {
-                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }, 50);
             }
         });
@@ -575,27 +628,23 @@ function applyCrewFilter(crewId) {
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     );
 
-    // ── Floating "Locate Me" button for manual re-check ──
-    var locBtn = document.createElement('button');
-    locBtn.className = 'mw-mc-locate-btn';
-    locBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>';
-    locBtn.title = 'Find my current stop';
-    locBtn.addEventListener('click', function() {
-        locBtn.style.opacity = '0.5';
-        navigator.geolocation.getCurrentPosition(
-            function(pos) {
-                locBtn.style.opacity = '1';
-                locateAndExpand(pos);
-            },
-            function() {
-                locBtn.style.opacity = '1';
-            },
-            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-        );
-    });
-
-    var container = document.querySelector('.mw-mc-container');
-    if (container) container.appendChild(locBtn);
+    // ── Hook up the bottom bar "Locate" button for manual re-check ──
+    var locBtn = document.getElementById('mw-mc-locate-trigger');
+    if (locBtn) {
+        locBtn.addEventListener('click', function() {
+            locBtn.style.opacity = '0.5';
+            navigator.geolocation.getCurrentPosition(
+                function(pos) {
+                    locBtn.style.opacity = '1';
+                    locateAndExpand(pos);
+                },
+                function() {
+                    locBtn.style.opacity = '1';
+                },
+                { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+            );
+        });
+    }
 })();
 </script>
 <script src="../js/schedule-drag-drop.js"></script>
