@@ -25,6 +25,7 @@
     var TRACKING_INTERVAL_MS = 30000; // 30 seconds
 
     // ── Initialization ──
+    updateTrackingDot(null); // neutral state until API responds
     fetchStatus();
 
     function fetchStatus() {
@@ -42,6 +43,7 @@
                 return;
             }
             trackingEnabled = !!data.location_tracking_enabled;
+            updateTrackingDot(trackingEnabled);
 
             if (data.clocked_in) {
                 clockInTime = new Date(data.clock_in.replace(' ', 'T'));
@@ -56,8 +58,29 @@
         .catch(function(err) {
             // API failed — still show clock-in button so crew can always clock in
             console.warn('Time clock API error:', err);
+            updateTrackingDot(false);
             renderClockedOut();
         });
+    }
+
+    // ── Tracking Dot (always visible in topbar) ──
+
+    function updateTrackingDot(enabled) {
+        var dot = document.getElementById('trackingDot');
+        var wrapper = document.getElementById('trackingDotWrapper');
+        if (!dot || !wrapper) return;
+
+        if (enabled === null) {
+            // Loading state
+            dot.className = 'mw-tracking-dot mw-tracking-dot-loading';
+            wrapper.title = 'Checking tracking status...';
+        } else if (enabled) {
+            dot.className = 'mw-tracking-dot mw-tracking-dot-on';
+            wrapper.title = 'Location tracking: ON';
+        } else {
+            dot.className = 'mw-tracking-dot mw-tracking-dot-off';
+            wrapper.title = 'Location tracking: OFF';
+        }
     }
 
     // ── Render States ──

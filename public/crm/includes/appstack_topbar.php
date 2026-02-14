@@ -12,6 +12,11 @@ if (!isset($user)) $user = ['name' => 'Admin'];
         <i class="hamburger align-self-center"></i>
     </a>
 
+    <!-- Location Tracking Status Indicator (always visible) -->
+    <div class="mw-tracking-dot-wrapper" id="trackingDotWrapper" title="Loading...">
+        <span class="mw-tracking-dot" id="trackingDot"></span>
+    </div>
+
     <!-- Time Clock Widget (JS enhances this default button) -->
     <div class="mw-clock-widget" id="clockWidget">
         <button class="mw-clock-btn mw-clock-in" id="btnClockIn" title="Clock In" style="opacity:0.6" disabled>
