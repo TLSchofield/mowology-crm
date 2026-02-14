@@ -182,7 +182,7 @@ foreach ($mobileStops as $s) {
 
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213d" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213e" rel="stylesheet">';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -409,24 +409,13 @@ $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213d" rel="stylesheet
                   ?>
 
                   <?php if (!empty($upcomingStops)): ?>
-                      <!-- Active / current job -->
-                      <?php
-                      $activeStop = $upcomingStops[0]['stop'];
-                      $isActive = true;
-                      $permissions = $userPermissions;
-                      $stop = $activeStop;
-                      include dirname(__DIR__) . '/partials/job-card.php';
-                      ?>
-
-                      <!-- Upcoming jobs -->
-                      <?php if (count($upcomingStops) > 1): ?>
-                          <div class="mw-mc-section-label">Up Next</div>
-                          <?php for ($i = 1; $i < count($upcomingStops); $i++):
-                              $stop = $upcomingStops[$i]['stop'];
-                              $isActive = false;
-                              include dirname(__DIR__) . '/partials/job-card.php';
-                          endfor; ?>
-                      <?php endif; ?>
+                      <!-- All upcoming stops rendered as compact cards; JS promotes the GPS-matched one -->
+                      <?php foreach ($upcomingStops as $upIdx => $upEntry):
+                          $stop = $upEntry['stop'];
+                          $isActive = false;
+                          $permissions = $userPermissions;
+                          include dirname(__DIR__) . '/partials/job-card.php';
+                      endforeach; ?>
                   <?php endif; ?>
 
                   <?php if (!empty($completedStopsList)): ?>
@@ -535,11 +524,13 @@ function applyCrewFilter(crewId) {
 })();
 
 /**
- * Geolocation proximity — auto-expand & scroll to the nearest stop card
+ * Geolocation proximity — promote nearest stop to hero card
  *
  * On mobile, uses GPS to find which job site the user is physically at.
- * If within PROXIMITY_METERS, that card auto-expands and scrolls to center.
- * Runs once on page load; also adds a "Locate Me" floating button for re-check.
+ * If within PROXIMITY_METERS, that card becomes a "hero" card (large,
+ * with full details visible) and an "Up Next" divider is inserted
+ * before the remaining compact cards.
+ * Runs once on page load; also hooks the bottom-bar "Locate" button.
  */
 (function() {
     // Only run on mobile-width screens where the card view is visible
@@ -552,7 +543,7 @@ function applyCrewFilter(crewId) {
      * Haversine distance (meters) between two lat/lng points
      */
     function haversine(lat1, lng1, lat2, lng2) {
-        var R = 6371000; // Earth radius in meters
+        var R = 6371000;
         var toRad = Math.PI / 180;
         var dLat = (lat2 - lat1) * toRad;
         var dLng = (lng2 - lng1) * toRad;
@@ -563,9 +554,9 @@ function applyCrewFilter(crewId) {
     }
 
     /**
-     * Find nearest card and expand/scroll to it
+     * Promote the nearest card to hero status
      */
-    function locateAndExpand(position) {
+    function promoteToHero(position) {
         var userLat = position.coords.latitude;
         var userLng = position.coords.longitude;
 
@@ -587,43 +578,51 @@ function applyCrewFilter(crewId) {
 
         if (!nearest || nearestDist > PROXIMITY_METERS) return;
 
-        // Remove previous proximity highlights
+        // Remove previous hero promotion
+        document.querySelectorAll('.mw-mc-card-hero').forEach(function(el) {
+            el.classList.remove('mw-mc-card-hero');
+        });
+        document.querySelectorAll('.mw-mc-hero-divider').forEach(function(el) {
+            el.remove();
+        });
         document.querySelectorAll('.mw-mc-proximity-match').forEach(function(el) {
             el.classList.remove('mw-mc-proximity-match');
         });
 
-        // If it's the already-expanded active card, just scroll to it
-        if (nearest.classList.contains('mw-mc-card-active')) {
-            nearest.classList.add('mw-mc-proximity-match');
-            nearest.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            return;
+        // Collapse any expanded cards
+        document.querySelectorAll('.mw-mc-card-compact.mw-mc-expanded').forEach(function(other) {
+            other.classList.remove('mw-mc-expanded');
+            var d = other.querySelector('.mw-mc-expand-detail');
+            if (d) d.style.display = 'none';
+        });
+
+        // Promote this card to hero
+        nearest.classList.add('mw-mc-card-hero');
+        nearest.classList.add('mw-mc-proximity-match');
+
+        // Move hero card to top of the scroll area (before other cards)
+        var scrollArea = document.querySelector('.mw-mc-scroll-area');
+        if (scrollArea && scrollArea.firstElementChild !== nearest) {
+            scrollArea.insertBefore(nearest, scrollArea.firstElementChild);
         }
 
-        // It's a compact card — expand it
-        if (nearest.classList.contains('mw-mc-card-compact')) {
-            // Collapse any other expanded cards first
-            document.querySelectorAll('.mw-mc-card-compact.mw-mc-expanded').forEach(function(other) {
-                other.classList.remove('mw-mc-expanded');
-                var d = other.querySelector('.mw-mc-expand-detail');
-                if (d) d.style.display = 'none';
-            });
-
-            // Expand this card
-            nearest.classList.add('mw-mc-expanded');
-            nearest.classList.add('mw-mc-proximity-match');
-            var detail = nearest.querySelector('.mw-mc-expand-detail');
-            if (detail) detail.style.display = 'block';
-
-            // Scroll into center view after expansion renders
-            setTimeout(function() {
-                nearest.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 100);
+        // Insert "Up Next" divider after the hero card if there are more cards
+        var nextSibling = nearest.nextElementSibling;
+        if (nextSibling && !nextSibling.classList.contains('mw-mc-hero-divider') &&
+            !nextSibling.classList.contains('mw-mc-section-label')) {
+            var divider = document.createElement('div');
+            divider.className = 'mw-mc-hero-divider';
+            divider.textContent = 'Up Next';
+            nearest.parentNode.insertBefore(divider, nextSibling);
         }
+
+        // Scroll to top
+        if (scrollArea) scrollArea.scrollTop = 0;
     }
 
     // ── Auto-detect on page load ──
     navigator.geolocation.getCurrentPosition(
-        locateAndExpand,
+        promoteToHero,
         function() { /* Permission denied or unavailable — silent fail */ },
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     );
@@ -636,7 +635,7 @@ function applyCrewFilter(crewId) {
             navigator.geolocation.getCurrentPosition(
                 function(pos) {
                     locBtn.style.opacity = '1';
-                    locateAndExpand(pos);
+                    promoteToHero(pos);
                 },
                 function() {
                     locBtn.style.opacity = '1';
