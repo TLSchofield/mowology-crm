@@ -24,7 +24,7 @@
     if (typeof MW_SCHEDULE_STATE === 'undefined') return;
 
     var state = MW_SCHEDULE_STATE;
-    var visits = {};        // visitId -> { status, pill, serviceLabel, entryId, startTime, timerInterval }
+    var visits = {};        // visitId -> { status, pill, serviceLabel, entryId, startTime, timerInterval, beforeThumb, afterThumb }
     var activeDrawer = null;
     var activeDrawerVisitId = null;
     var cachedGps = null;
@@ -48,7 +48,9 @@
                 serviceLabel: serviceLabel,
                 entryId: null,
                 startTime: null,
-                timerInterval: null
+                timerInterval: null,
+                beforeThumb: null,
+                afterThumb: null
             };
 
             // Restore in-progress timer from page load state
@@ -381,20 +383,37 @@
             input.removeEventListener('change', handler);
             if (!input.files || !input.files.length) return;
 
-            uploadPhoto(visitId, input.files[0], category, function(success) {
+            uploadPhoto(visitId, input.files[0], category, function(success, thumbUrl) {
                 input.value = ''; // Reset for reuse
 
                 if (category === 'before') {
-                    // After before photo → go to working state
+                    // After before photo → go to working state with thumb preview
                     visits[visitId].status = 'in_progress';
                     updatePillVisual(visitId, 'in_progress');
                     startPillTimer(visitId);
-                    closeDrawer();
+
+                    // Show before thumb in drawer briefly, then close
+                    if (thumbUrl) {
+                        showThumbConfirmation(card, thumbUrl, 'Before', function() {
+                            closeDrawer();
+                        });
+                    } else {
+                        closeDrawer();
+                    }
                 } else if (category === 'after') {
-                    // After after photo → clock out
-                    clockOut(visitId);
+                    // After after photo → show thumb briefly, then clock out
+                    if (thumbUrl) {
+                        showThumbConfirmation(card, thumbUrl, 'After', function() {
+                            clockOut(visitId);
+                        });
+                    } else {
+                        clockOut(visitId);
+                    }
                 }
-                // 'during' photos: stay in working state, just flash feedback
+                // 'during' photos: stay in working state, show thumb briefly
+                if (category === 'during' && thumbUrl) {
+                    showThumbConfirmation(card, thumbUrl, 'Photo', null);
+                }
             });
         };
 
@@ -439,20 +458,32 @@
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success && data.total_uploaded > 0) {
+                // Store thumbnail URL for display on pill
+                var thumbUrl = null;
+                if (data.results && data.results[0]) {
+                    thumbUrl = data.results[0].thumb_url || data.results[0].file_path || null;
+                }
+                if (thumbUrl && visits[visitId]) {
+                    if (category === 'before') {
+                        visits[visitId].beforeThumb = thumbUrl;
+                    } else if (category === 'after') {
+                        visits[visitId].afterThumb = thumbUrl;
+                    }
+                }
                 flashPillFeedback(visitId, 'Photo saved');
-                callback(true);
+                callback(true, thumbUrl);
             } else {
                 var errMsg = 'Upload failed';
                 if (data.results && data.results[0] && data.results[0].errors) {
                     errMsg = data.results[0].errors.join(', ');
                 }
                 showToast(errMsg);
-                callback(false);
+                callback(false, null);
             }
         })
         .catch(function(err) {
             showToast('Upload failed. Check connection.');
-            callback(false);
+            callback(false, null);
         });
     }
 
@@ -521,10 +552,77 @@
                 pill.innerHTML =
                     '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg> ' +
                     escHtml(v.serviceLabel);
+
+                // Show before/after thumbnail strip below pill if photos exist
+                renderPhotoStrip(visitId);
                 break;
             default:
                 pill.classList.add('mw-mc-pill-scheduled');
         }
+    }
+
+    /**
+     * Render a before/after thumbnail strip below the completed pill's card services area
+     */
+    function renderPhotoStrip(visitId) {
+        var v = visits[visitId];
+        if (!v) return;
+        if (!v.beforeThumb && !v.afterThumb) return;
+
+        var card = v.pill.closest('.mw-mc-card');
+        if (!card) return;
+
+        // Find or create the photo strip container in the drawer area
+        var drawer = card.querySelector('.mw-mc-pill-drawer');
+        if (!drawer) return;
+
+        // Build the strip HTML
+        var html = '<div class="mw-mc-photo-strip">';
+        if (v.beforeThumb) {
+            html += '<div class="mw-mc-photo-thumb">' +
+                    '  <img src="' + escHtml(v.beforeThumb) + '" alt="Before" loading="lazy">' +
+                    '  <span class="mw-mc-photo-thumb-label">Before</span>' +
+                    '</div>';
+        }
+        if (v.afterThumb) {
+            html += '<div class="mw-mc-photo-thumb">' +
+                    '  <img src="' + escHtml(v.afterThumb) + '" alt="After" loading="lazy">' +
+                    '  <span class="mw-mc-photo-thumb-label">After</span>' +
+                    '</div>';
+        }
+        html += '</div>';
+
+        drawer.innerHTML = html;
+        drawer.style.display = 'block';
+    }
+
+    /**
+     * Show a brief thumbnail confirmation in the drawer, then run callback
+     */
+    function showThumbConfirmation(card, thumbUrl, label, callback) {
+        var drawer = card.querySelector('.mw-mc-pill-drawer');
+        if (!drawer) {
+            if (callback) callback();
+            return;
+        }
+
+        drawer.innerHTML =
+            '<div class="mw-mc-thumb-confirm">' +
+            '  <img src="' + escHtml(thumbUrl) + '" alt="' + escHtml(label) + '">' +
+            '  <span class="mw-mc-thumb-confirm-label">' + escHtml(label) + ' saved</span>' +
+            '</div>';
+        drawer.style.display = 'block';
+
+        // Auto-dismiss after 1.5s
+        setTimeout(function() {
+            if (callback) {
+                callback();
+            } else {
+                // Just hide it for 'during' photos
+                drawer.style.display = 'none';
+                drawer.innerHTML = '';
+            }
+        }, 1500);
     }
 
     /**
