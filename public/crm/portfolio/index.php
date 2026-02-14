@@ -154,27 +154,37 @@ $activePage = 'portfolio';
                           <i data-feather="info"></i>
                           <div class="mw-guide-text">
                               <strong>Upload & Organize Marketing Assets</strong>
-                              Upload photos of your work (before/after, projects, team). All uploads go through admin review before appearing in the portfolio.
+                              Upload photos of your work (before/after, projects, team). Images are automatically optimized with responsive sizes and WebP variants.
                           </div>
                       </div>
 
-                      <!-- Drag & Drop Area -->
-                      <div class="mw-upload-drop" id="dropZone">
-                          <i data-feather="upload-cloud" style="width: 48px; height: 48px; margin-bottom: 16px;"></i>
-                          <p class="mb-2">Drag photos here or <a href="#" onclick="document.getElementById('fileInput').click(); return false;">click to select</a></p>
-                          <small class="text-muted">JPEG, PNG, WebP • Max 10MB per file</small>
-                          <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
-                      </div>
+                      <!-- Unified Media Uploader Dropzone -->
+                      <div class="mw-media-dropzone"
+                           data-context-type="portfolio"
+                           data-context-id="0"
+                           data-category=""
+                           data-visibility="internal"
+                           data-csrf="<?php echo $csrfToken; ?>"
+                           data-upload-url="/crm/api/media-upload.php"
+                           data-max-size="15728640"
+                           data-allowed-types="image/jpeg,image/png,image/webp">
 
-                      <!-- Help text below upload -->
-                      <div class="mw-help-text" style="margin-top: 12px;">
-                          <i data-feather="zap"></i>
-                          <span>
-                              <strong class="mw-tooltip">
-                                  Tip: Upload high-quality photos
-                                  <span class="mw-tooltip-text">Clear, well-lit photos with landscaping work in focus get approved faster. Avoid blurry or poorly lit images.</span>
-                              </strong>
-                          </span>
+                          <input type="file" class="mw-dropzone-input" multiple accept="image/jpeg,image/png,image/webp" style="display:none;">
+                          <input type="file" class="mw-dropzone-camera-input" accept="image/*" capture="environment" style="display:none;">
+
+                          <div style="text-align:center; padding: 2rem; border: 2px dashed var(--mw-light, #E8F3F0); border-radius: 8px; background: #fafbfc; cursor: pointer;">
+                              <i data-feather="upload-cloud" style="width: 48px; height: 48px; margin-bottom: 16px; color: var(--mw-green, #2D8659);"></i>
+                              <p class="mb-2">Drag photos here or <a href="#" class="mw-dropzone-browse">click to select</a></p>
+                              <small class="text-muted">JPEG, PNG, WebP — Max 15MB per file — Auto-optimized</small>
+                              <div class="d-md-none mt-3">
+                                  <button type="button" class="btn btn-sm btn-outline-secondary mw-dropzone-camera">
+                                      <i data-feather="camera" style="width:14px;height:14px;"></i> Take Photo
+                                  </button>
+                              </div>
+                          </div>
+
+                          <!-- Upload queue (populated by media-uploader.js) -->
+                          <div class="mw-dropzone-queue" style="margin-top: 1rem;"></div>
                       </div>
 
                       <!-- Recent Uploads -->
@@ -183,7 +193,7 @@ $activePage = 'portfolio';
                           <h6>Recent Uploads</h6>
                           <div class="mw-tooltip">
                               <span class="mw-help-icon">?</span>
-                              <span class="mw-tooltip-text">Shows your 20 most recent uploads and their approval status. Approved uploads are ready to use in portfolio projects.</span>
+                              <span class="mw-tooltip-text">Shows your 20 most recent uploads and their status.</span>
                           </div>
                       </div>
                       <?php if (empty($recentUploads)): ?>
@@ -206,6 +216,8 @@ $activePage = 'portfolio';
                                               <td>
                                                   <?php if ($upload['thumb_path']): ?>
                                                       <img src="<?php echo h($upload['thumb_path']); ?>" alt="Upload" style="width: 50px; height: 50px; object-fit: cover; border-radius: 3px;">
+                                                  <?php elseif ($upload['file_path']): ?>
+                                                      <img src="<?php echo h($upload['file_path']); ?>" alt="Upload" style="width: 50px; height: 50px; object-fit: cover; border-radius: 3px;">
                                                   <?php else: ?>
                                                       <div style="width: 50px; height: 50px; background: #f0f0f0; border-radius: 3px;"></div>
                                                   <?php endif; ?>
@@ -223,7 +235,7 @@ $activePage = 'portfolio';
                                                   <span class="badge <?php echo $statusBadgeClass; ?>"><?php echo ucfirst($upload['status']); ?></span>
                                               </td>
                                               <td><small><?php echo formatDate($upload['uploaded_at']); ?></small></td>
-                                              <td><a href="#" onclick="viewMediaDetails(<?php echo $upload['id']; ?>); return false;" class="btn btn-sm btn-outline-secondary">View</a></td>
+                                              <td><a href="/crm/cms-media_appstack.php" class="btn btn-sm btn-outline-secondary">View</a></td>
                                           </tr>
                                       <?php endforeach; ?>
                                   </tbody>
@@ -263,11 +275,13 @@ $activePage = 'portfolio';
                           <div class="mw-media-grid">
                               <?php
                               $stmt = $db->prepare("
-                                  SELECT mf.id, mf.thumb_path, mf.uploaded_at, u.full_name
-                                  FROM media_files mf
-                                  LEFT JOIN users u ON mf.owner_user_id = u.id
-                                  WHERE mf.status = 'uploaded'
-                                  ORDER BY mf.uploaded_at DESC
+                                  SELECT ma.id, ma.file_path, ma.created_at AS uploaded_at, u.full_name,
+                                         mv.file_path AS thumb_path
+                                  FROM media_assets ma
+                                  LEFT JOIN users u ON ma.created_by = u.id
+                                  LEFT JOIN media_variants mv ON mv.media_id = ma.id AND mv.variant_type = 'thumb'
+                                  WHERE ma.status NOT IN ('ready', 'rejected')
+                                  ORDER BY ma.created_at DESC
                               ");
                               $stmt->execute();
                               $pending = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -275,8 +289,9 @@ $activePage = 'portfolio';
                               foreach ($pending as $media):
                               ?>
                                   <div class="mw-media-item">
-                                      <?php if ($media['thumb_path']): ?>
-                                          <img src="<?php echo h($media['thumb_path']); ?>" alt="Media" loading="lazy">
+                                      <?php $imgSrc = $media['thumb_path'] ?: $media['file_path']; ?>
+                                      <?php if ($imgSrc): ?>
+                                          <img src="<?php echo h($imgSrc); ?>" alt="Media" loading="lazy">
                                       <?php else: ?>
                                           <div style="background: #f0f0f0;"></div>
                                       <?php endif; ?>
@@ -1063,82 +1078,27 @@ $activePage = 'portfolio';
 
 
 
+<script src="/crm/js/media-uploader.js"></script>
 <script>
 const CSRF_TOKEN = '<?php echo $csrfToken; ?>';
 
 document.addEventListener('DOMContentLoaded', function() {
-    const dropZone = document.getElementById('dropZone');
-    const fileInput = document.getElementById('fileInput');
-
-    if (dropZone && fileInput) {
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, preventDefaults, false);
+    // Reload page after successful uploads to refresh Recent Uploads table
+    var dropzone = document.querySelector('.mw-media-dropzone');
+    if (dropzone) {
+        dropzone.addEventListener('allUploadsComplete', function(e) {
+            if (e.detail.succeeded > 0) {
+                setTimeout(function() { location.reload(); }, 1000);
+            }
         });
-
-        ['dragenter', 'dragover'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => dropZone.classList.add('hover'), false);
-        });
-
-        ['dragleave', 'drop'].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => dropZone.classList.remove('hover'), false);
-        });
-
-        dropZone.addEventListener('drop', handleDrop, false);
-        fileInput.addEventListener('change', handleFileSelect, false);
     }
 
     if (typeof feather !== 'undefined') feather.replace();
 });
 
-function preventDefaults(e) {
-    e.preventDefault();
-    e.stopPropagation();
-}
-
-function handleDrop(e) {
-    const dt = e.dataTransfer;
-    const files = dt.files;
-    uploadFiles(files);
-}
-
-function handleFileSelect(e) {
-    uploadFiles(e.target.files);
-}
-
-function uploadFiles(files) {
-    for (let file of files) {
-        uploadFile(file);
-    }
-}
-
-function uploadFile(file) {
-    const formData = new FormData();
-    formData.append('photo', file);
-    formData.append('csrf_token', CSRF_TOKEN);
-    formData.append('service_type', 'general');
-
-    fetch('/crm/media/upload.php', {
-        method: 'POST',
-        body: formData
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            alert('Photo uploaded: ' + file.name);
-            location.reload();
-        } else {
-            alert('Upload failed: ' + (data.message || 'Unknown error'));
-        }
-    })
-    .catch(err => {
-        console.error('Upload error:', err);
-        alert('Upload error: ' + err.message);
-    });
-}
-
 function approveMedia(mediaId) {
     if (confirm('Approve this photo?')) {
-        const formData = new FormData();
+        var formData = new FormData();
         formData.append('media_id', mediaId);
         formData.append('action', 'approve');
         formData.append('csrf_token', CSRF_TOKEN);
@@ -1147,23 +1107,22 @@ function approveMedia(mediaId) {
             method: 'POST',
             body: formData
         })
-        .then(r => r.json())
-        .then(data => {
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
             if (data.success) {
-                alert('Photo approved');
                 location.reload();
             } else {
                 alert('Error: ' + (data.message || 'Unknown error'));
             }
         })
-        .catch(err => console.error(err));
+        .catch(function(err) { console.error(err); });
     }
 }
 
 function rejectMedia(mediaId) {
-    const reason = prompt('Reason for rejection (optional):');
+    var reason = prompt('Reason for rejection (optional):');
     if (reason !== null) {
-        const formData = new FormData();
+        var formData = new FormData();
         formData.append('media_id', mediaId);
         formData.append('action', 'reject');
         formData.append('reason', reason);
@@ -1173,22 +1132,21 @@ function rejectMedia(mediaId) {
             method: 'POST',
             body: formData
         })
-        .then(r => r.json())
-        .then(data => {
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
             if (data.success) {
-                alert('Photo rejected');
                 location.reload();
             } else {
                 alert('Error: ' + (data.message || 'Unknown error'));
             }
         })
-        .catch(err => console.error(err));
+        .catch(function(err) { console.error(err); });
     }
 }
 
 function toggleFavorite(mediaId, event) {
     event.preventDefault();
-    const formData = new FormData();
+    var formData = new FormData();
     formData.append('media_id', mediaId);
     formData.append('csrf_token', CSRF_TOKEN);
 
@@ -1196,19 +1154,15 @@ function toggleFavorite(mediaId, event) {
         method: 'POST',
         body: formData
     })
-    .then(r => r.json())
-    .then(data => {
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
         if (data.success) {
             location.reload();
         } else {
             alert('Error: ' + (data.message || 'Unknown error'));
         }
     })
-    .catch(err => console.error(err));
-}
-
-function viewMediaDetails(mediaId) {
-    alert('Media detail view coming soon (ID: ' + mediaId + ')');
+    .catch(function(err) { console.error(err); });
 }
 
 function deleteProject(projectId) {
@@ -1218,75 +1172,57 @@ function deleteProject(projectId) {
 }
 
 function syncGSCData() {
-    const btn = document.getElementById('syncGscBtn');
+    var btn = document.getElementById('syncGscBtn');
     if (!btn) return;
-    const originalHtml = btn.innerHTML;
+    var originalHtml = btn.innerHTML;
 
     btn.disabled = true;
     btn.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">&#x27F3;</span> Syncing...';
 
-    const formData = new FormData();
+    var formData = new FormData();
     formData.append('csrf_token', CSRF_TOKEN);
 
-    // Timeout after 90s to avoid hanging indefinitely
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function() { controller.abort(); }, 90000);
 
     fetch('/crm/gsc/sync-cron.php', {
         method: 'POST',
         body: formData,
         signal: controller.signal
     })
-    .then(response => {
+    .then(function(response) {
         clearTimeout(timeoutId);
-        if (!response.ok) {
-            throw new Error('Sync failed: ' + response.statusText);
-        }
-        return response.text().then(text => {
+        if (!response.ok) throw new Error('Sync failed: ' + response.statusText);
+        return response.text().then(function(text) {
             if (!text) throw new Error('Server returned empty response');
             try { return JSON.parse(text); }
             catch (e) { throw new Error('Invalid response: ' + text.substring(0, 200)); }
         });
     })
-    .then(data => {
+    .then(function(data) {
         btn.disabled = false;
         btn.innerHTML = originalHtml;
-
         if (data.success) {
-            let message = data.message || '';
-            if (data.errors && data.errors.length > 0) {
-                message += '\n\nFailed properties:\n';
-                data.errors.forEach(err => {
-                    message += '- ' + err.property + ': ' + err.reason + '\n';
-                });
-            }
-            alert('GSC data synced successfully!\n\n' + message);
-            setTimeout(() => location.reload(), 500);
+            alert('GSC data synced successfully!\n\n' + (data.message || ''));
+            setTimeout(function() { location.reload(); }, 500);
         } else {
             alert('Error: ' + (data.error || 'Unknown error'));
         }
     })
-    .catch(err => {
+    .catch(function(err) {
         clearTimeout(timeoutId);
         btn.disabled = false;
         btn.innerHTML = originalHtml;
-        const msg = err.name === 'AbortError'
+        var msg = err.name === 'AbortError'
             ? 'Sync timed out. The server may still be processing — check back in a minute.'
             : err.message;
         alert('Sync error: ' + msg);
-        console.error('GSC sync error:', err);
     });
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 }
 
 // Spinner animation
 (function() {
-    const s = document.createElement('style');
+    var s = document.createElement('style');
     s.textContent = '@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
     document.head.appendChild(s);
 })();

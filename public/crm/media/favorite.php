@@ -41,7 +41,7 @@ try {
     if ($result) {
         // Get updated status
         $db = getDB();
-        $stmt = $db->prepare("SELECT is_favorite FROM media_files WHERE id = ?");
+        $stmt = $db->prepare("SELECT is_favorite FROM media_assets WHERE id = ?");
         $stmt->execute([$mediaId]);
         $row = $stmt->fetch();
 
