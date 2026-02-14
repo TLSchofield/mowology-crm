@@ -70,14 +70,23 @@
     var gpsState = 'unknown'; // 'active', 'error', 'unknown'
 
     // Bind click handler — tapping icon re-requests GPS permission
-    // Works on both topbar dot AND mobile schedule dot
+    // Works on topbar dot; mobile crosshair handles its own click (see schedule.php)
     var trackingWrapper = document.getElementById('trackingDotWrapper');
-    var mobileDot = document.getElementById('mobileTrackingDot');
     if (trackingWrapper) {
         trackingWrapper.addEventListener('click', onTrackingDotTap);
     }
-    if (mobileDot) {
-        mobileDot.addEventListener('click', onTrackingDotTap);
+
+    // Mobile crosshair: override default click when GPS is off
+    var mobileCrosshair = document.getElementById('mobileTrackingDot');
+    if (mobileCrosshair) {
+        mobileCrosshair.addEventListener('click', function(e) {
+            if (gpsState !== 'active') {
+                e.preventDefault();
+                e.stopPropagation();
+                onTrackingDotTap();
+            }
+            // When GPS is active, let the existing locate-nearest-stop logic run
+        });
     }
 
     function updateTrackingDot(state, detail) {
@@ -102,12 +111,18 @@
         if (dot) dot.className = dotClass;
         if (wrapper) wrapper.title = titleText;
 
-        // Update mobile schedule dot (if present)
-        var mDot = document.getElementById('mobileTrackingDot');
-        if (mDot) {
-            // Mobile dot uses same classes on the wrapper element itself
-            mDot.className = 'mw-mc-gps-dot ' + (state === 'active' ? 'mw-mc-gps-on' : state === 'error' ? 'mw-mc-gps-off' : 'mw-mc-gps-loading');
-            mDot.title = titleText;
+        // Update mobile crosshair button (if present on schedule page)
+        var mBtn = document.getElementById('mobileTrackingDot');
+        if (mBtn) {
+            mBtn.classList.remove('mw-mc-locate-on', 'mw-mc-locate-off', 'mw-mc-locate-loading');
+            if (state === 'active') {
+                mBtn.classList.add('mw-mc-locate-on');
+            } else if (state === 'error') {
+                mBtn.classList.add('mw-mc-locate-off');
+            } else {
+                mBtn.classList.add('mw-mc-locate-loading');
+            }
+            mBtn.title = titleText;
         }
     }
 
