@@ -119,6 +119,7 @@ $tagIcons = [
 /**
  * Render property tags as badges
  */
+if (!function_exists('renderPropertyTags')):
 function renderPropertyTags(array $tags, array $tagIcons): string {
     if (empty($tags)) return '';
     $html = '<div class="mw-mc-tags">';
@@ -148,6 +149,7 @@ function renderPropertyTags(array $tags, array $tagIcons): string {
     $html .= '</div>';
     return $html;
 }
+endif;
 
 $stopTags = $stop['tags'] ?? [];
 ?>
