@@ -135,13 +135,23 @@
 
     // ── Location Tracking ──
 
+    var gpsErrorCount = 0;
+    var gpsErrorToastShown = false;
+
     function startTracking() {
         if (gpsWatchId !== null) return; // Already tracking
-        if (!navigator.geolocation) return;
+        if (!navigator.geolocation) {
+            showToast('Location not supported on this browser', 'error');
+            return;
+        }
+
+        gpsErrorCount = 0;
+        gpsErrorToastShown = false;
 
         // Start high-accuracy continuous GPS watch
         gpsWatchId = navigator.geolocation.watchPosition(
             function(pos) {
+                gpsErrorCount = 0; // Reset on success
                 latestPosition = {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude,
@@ -153,15 +163,28 @@
                 var indicator = document.getElementById('trackingIndicator');
                 if (indicator) {
                     indicator.classList.add('mw-tracking-active');
+                    indicator.classList.remove('mw-tracking-error');
                     indicator.title = 'GPS active — accuracy: ' + Math.round(pos.coords.accuracy) + 'm';
                 }
             },
             function(err) {
+                gpsErrorCount++;
                 var indicator = document.getElementById('trackingIndicator');
                 if (indicator) {
                     indicator.classList.remove('mw-tracking-active');
                     indicator.classList.add('mw-tracking-error');
                     indicator.title = 'GPS error: ' + err.message;
+                }
+                // Show a visible toast on first error so mobile users know GPS is failing
+                if (!gpsErrorToastShown) {
+                    gpsErrorToastShown = true;
+                    if (err.code === 1) {
+                        showToast('Location permission denied — enable in browser settings', 'error');
+                    } else if (err.code === 2) {
+                        showToast('GPS unavailable — enable Location in phone settings', 'error');
+                    } else {
+                        showToast('GPS timed out — trying again...', 'error');
+                    }
                 }
             },
             {
@@ -189,7 +212,10 @@
     }
 
     function sendPosition() {
-        if (!latestPosition) return;
+        if (!latestPosition) {
+            console.warn('[MwTracking] No GPS fix yet, skipping ping');
+            return;
+        }
 
         fetch('/crm/api/crew-location.php', {
             method: 'POST',
@@ -205,13 +231,15 @@
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            // Silent success — no UI feedback needed for tracking pings
+            if (data.success && !data.skipped) {
+                console.log('[MwTracking] Position sent OK');
+            }
             if (data.error === 'Not clocked in' || data.error === 'Tracking not enabled') {
                 stopTracking();
             }
         })
-        .catch(function() {
-            // Silent failure — will retry next interval
+        .catch(function(err) {
+            console.warn('[MwTracking] Send failed:', err);
         });
     }
 
