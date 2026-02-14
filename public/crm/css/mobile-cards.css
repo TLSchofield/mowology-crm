@@ -888,6 +888,62 @@
     }
 
     /* ════════════════════════════════════════════════════
+       PROPERTY TAGS (gate codes, warnings, access notes)
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin: 6px 0 4px 0;
+    }
+
+    .mw-mc-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 0.68rem;
+        font-weight: 600;
+        line-height: 1.3;
+        background: #f1f5f9;
+        color: #334155;
+        border-left: 3px solid var(--tag-color, #6B7280);
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .mw-mc-tag svg {
+        width: 11px;
+        height: 11px;
+        flex-shrink: 0;
+        color: var(--tag-color, #6B7280);
+    }
+
+    .mw-mc-tag-value {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* Hero card: larger tags */
+    .mw-mc-card-hero .mw-mc-tags {
+        gap: 6px;
+        margin: 8px 0 6px 0;
+    }
+
+    .mw-mc-card-hero .mw-mc-tag {
+        padding: 4px 10px;
+        font-size: 0.75rem;
+    }
+
+    .mw-mc-card-hero .mw-mc-tag svg {
+        width: 13px;
+        height: 13px;
+    }
+
+    /* ════════════════════════════════════════════════════
        PHOTO THUMBNAILS (before/after strip + confirmation)
        ════════════════════════════════════════════════════ */
 

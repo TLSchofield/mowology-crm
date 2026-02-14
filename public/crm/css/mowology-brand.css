@@ -8213,3 +8213,148 @@ textarea.font-monospace {
   font-weight: 700;
   color: #D97706;
 }
+
+/* ═══════════════════════════════════════════════════════
+   Property Tags — Client Edit Page
+   ═══════════════════════════════════════════════════════ */
+
+.mw-property-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  position: relative;
+}
+
+.mw-property-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: #334155;
+  border-left: 3px solid var(--tag-color, #6B7280);
+  white-space: nowrap;
+}
+
+.mw-property-tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: none;
+  background: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 2px;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.mw-property-tag-remove:hover {
+  color: #ef4444;
+  background: #fee2e2;
+}
+
+/* Small "+" button to add a tag */
+.mw-property-tag-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.mw-property-tag-add-btn:hover {
+  border-color: var(--mw-green, #2D8659);
+  color: var(--mw-green, #2D8659);
+  background: var(--mw-light, #E8F3F0);
+}
+
+/* Tag picker dropdown */
+.mw-tag-picker-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  padding: 8px;
+  min-width: 280px;
+}
+
+.mw-tag-picker-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mw-tag-picker-select {
+  font-size: 0.82rem;
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  min-width: 130px;
+  flex: 1;
+}
+
+.mw-tag-picker-value {
+  font-size: 0.82rem;
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  width: 100px;
+}
+
+.mw-tag-picker-save {
+  padding: 5px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  background: var(--mw-green, #2D8659);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.mw-tag-picker-save:hover {
+  background: var(--mw-dark, #1A5F4A);
+}
+
+.mw-tag-picker-cancel {
+  padding: 5px 8px;
+  font-size: 0.82rem;
+  border: none;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.mw-tag-picker-cancel:hover {
+  background: #e2e8f0;
+  color: #334155;
+}

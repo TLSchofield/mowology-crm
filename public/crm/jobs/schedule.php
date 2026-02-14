@@ -207,6 +207,43 @@ if (!empty($allVisitIds)) {
     }
 }
 
+// ─── Pre-load property tags for mobile cards ─────────────────────
+$propertyTagMap = []; // property_id => [['tag_label'=>..., 'tag_value'=>..., 'tag_color'=>..., 'icon'=>...], ...]
+$propIds = array_unique(array_filter(array_column($mobileStops, 'property_id')));
+if (!empty($propIds)) {
+    $tPlaceholders = implode(',', array_fill(0, count($propIds), '?'));
+    $tagStmt = $db->prepare("
+        SELECT et.entity_id AS property_id, t.tag_label, et.tag_value,
+               t.tag_color, t.icon, t.has_value
+        FROM entity_tags et
+        JOIN tags t ON t.id = et.tag_id
+        WHERE et.entity_type = 'property'
+          AND et.entity_id IN ({$tPlaceholders})
+          AND t.show_on_card = 1
+          AND t.is_active = 1
+        ORDER BY t.sort_order ASC, t.tag_label ASC
+    ");
+    $tagStmt->execute(array_values($propIds));
+    while ($tRow = $tagStmt->fetch(PDO::FETCH_ASSOC)) {
+        $pid = (int)$tRow['property_id'];
+        if (!isset($propertyTagMap[$pid])) {
+            $propertyTagMap[$pid] = [];
+        }
+        $propertyTagMap[$pid][] = [
+            'label' => $tRow['tag_label'],
+            'value' => $tRow['tag_value'],
+            'color' => $tRow['tag_color'],
+            'icon'  => $tRow['icon'],
+            'has_value' => (int)$tRow['has_value'],
+        ];
+    }
+}
+// Merge tags into stops
+foreach ($mobileStops as &$mStop) {
+    $mStop['tags'] = $propertyTagMap[(int)$mStop['property_id']] ?? [];
+}
+unset($mStop);
+
 // Determine which is the active stop (first non-completed stop, or first one)
 $activeIndex = 0;
 foreach ($mobileStops as $idx => $stop) {

@@ -105,6 +105,51 @@ if (!empty($stop['visits'])) {
     }
     $serviceLabelsStr = implode(', ', $labels);
 }
+
+// Tag icon SVG paths (Feather icon style)
+$tagIcons = [
+    'key'            => '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>',
+    'unlock'         => '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 019.9-1"/>',
+    'square'         => '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="bold" fill="currentColor" stroke="none">P</text>',
+    'alert-triangle' => '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    'bell'           => '<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>',
+    'info'           => '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+];
+
+/**
+ * Render property tags as badges
+ */
+function renderPropertyTags(array $tags, array $tagIcons): string {
+    if (empty($tags)) return '';
+    $html = '<div class="mw-mc-tags">';
+    foreach ($tags as $tag) {
+        $color = htmlspecialchars($tag['color'] ?? '#6B7280');
+        $icon = $tag['icon'] ?? '';
+        $label = htmlspecialchars($tag['label'] ?? '');
+        $value = htmlspecialchars($tag['value'] ?? '');
+        $hasValue = (int)($tag['has_value'] ?? 0);
+
+        $html .= '<span class="mw-mc-tag" style="--tag-color: ' . $color . '">';
+
+        // Icon
+        if ($icon && isset($tagIcons[$icon])) {
+            $html .= '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . $tagIcons[$icon] . '</svg>';
+        }
+
+        // Value or label
+        if ($hasValue && $value !== '') {
+            $html .= '<span class="mw-mc-tag-value">' . $value . '</span>';
+        } else {
+            $html .= '<span class="mw-mc-tag-value">' . $label . '</span>';
+        }
+
+        $html .= '</span>';
+    }
+    $html .= '</div>';
+    return $html;
+}
+
+$stopTags = $stop['tags'] ?? [];
 ?>
 
 <?php if ($isActive): ?>
@@ -148,6 +193,8 @@ if (!empty($stop['visits'])) {
                     <?php echo $clientName; ?>
                 </div>
             <?php endif; ?>
+
+            <?php echo renderPropertyTags($stopTags, $tagIcons); ?>
 
             <?php if (!empty($stop['visits'])): ?>
                 <div class="mw-mc-services">
@@ -246,6 +293,7 @@ if (!empty($stop['visits'])) {
                 <?php echo $clientName; ?>
             </div>
         <?php endif; ?>
+        <?php echo renderPropertyTags($stopTags, $tagIcons); ?>
         <?php if ($durationDisplay): ?>
             <div class="mw-mc-duration-row">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
