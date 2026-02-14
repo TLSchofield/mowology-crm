@@ -149,42 +149,41 @@ if (!empty($stop['visits'])) {
                 </div>
             <?php endif; ?>
 
-            <?php if (count($stop['visits'] ?? []) > 1): ?>
+            <?php if (!empty($stop['visits'])): ?>
                 <div class="mw-mc-services">
-                    <?php foreach ($stop['visits'] as $v): ?>
-                        <span class="mw-mc-service-pill" style="border-left-color: <?php echo $jobTypeColors[$v['service_type'] ?? ''] ?? '#455A64'; ?>">
+                    <?php foreach ($stop['visits'] as $v):
+                        $pillColor = $jobTypeColors[$v['service_type'] ?? ''] ?? '#455A64';
+                        $pillStatus = $v['visit_status'] ?? 'scheduled';
+                    ?>
+                        <span class="mw-mc-service-pill mw-mc-pill-interactive mw-mc-pill-<?php echo ($pillStatus === 'completed') ? 'done' : (($pillStatus === 'in_progress') ? 'active' : 'scheduled'); ?>"
+                              data-visit-id="<?php echo (int)($v['visit_id'] ?? 0); ?>"
+                              data-visit-status="<?php echo htmlspecialchars($pillStatus); ?>"
+                              data-service-type="<?php echo htmlspecialchars($v['service_type'] ?? ''); ?>"
+                              style="--pill-color: <?php echo $pillColor; ?>; border-left-color: <?php echo $pillColor; ?>">
                             <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $v['service_type'] ?? ''))); ?>
                         </span>
                     <?php endforeach; ?>
                 </div>
+                <!-- Pill action drawer (JS populates based on tapped pill) -->
+                <div class="mw-mc-pill-drawer" style="display: none;"></div>
             <?php endif; ?>
         </div>
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
         <div class="mw-mc-actions">
-            <?php if (in_array('timer.start', $permissions)): ?>
-                <button class="mw-mc-action-btn mw-mc-btn-timer" data-visit-id="<?php echo $visitId; ?>" disabled>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    <span>Timer</span>
-                </button>
-            <?php endif; ?>
-
             <a class="mw-mc-action-btn mw-mc-btn-route"
                href="https://maps.google.com/?daddr=<?php echo urlencode($stop['property_address'] ?? ''); ?>"
                target="_blank" rel="noopener">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
                 <span>Route</span>
             </a>
-
-            <?php if (in_array('photos.upload', $permissions)): ?>
-                <button class="mw-mc-action-btn mw-mc-btn-photos" data-visit-id="<?php echo $visitId; ?>" disabled>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                    <span>Photos</span>
-                </button>
-            <?php endif; ?>
         </div>
         <?php endif; ?>
     </div>
+
+    <!-- Hidden camera input for photo capture -->
+    <input type="file" class="mw-mc-camera-input" accept="image/*" capture="environment"
+           style="display: none;" data-stop-id="<?php echo (int)$stop['stop_id']; ?>">
 </div>
 
 <?php else: ?>
@@ -215,14 +214,23 @@ if (!empty($stop['visits'])) {
         <!-- Line 2: Street name -->
         <div class="mw-mc-compact-line2"><?php echo $fullAddress; ?></div>
 
-        <?php if (count($stop['visits'] ?? []) > 1): ?>
+        <?php if (!empty($stop['visits'])): ?>
             <div class="mw-mc-services" style="padding-top: 6px;">
-                <?php foreach ($stop['visits'] as $v): ?>
-                    <span class="mw-mc-service-pill" style="border-left-color: <?php echo $jobTypeColors[$v['service_type'] ?? ''] ?? '#455A64'; ?>">
+                <?php foreach ($stop['visits'] as $v):
+                    $pillColor = $jobTypeColors[$v['service_type'] ?? ''] ?? '#455A64';
+                    $pillStatus = $v['visit_status'] ?? 'scheduled';
+                ?>
+                    <span class="mw-mc-service-pill mw-mc-pill-interactive mw-mc-pill-<?php echo ($pillStatus === 'completed') ? 'done' : (($pillStatus === 'in_progress') ? 'active' : 'scheduled'); ?>"
+                          data-visit-id="<?php echo (int)($v['visit_id'] ?? 0); ?>"
+                          data-visit-status="<?php echo htmlspecialchars($pillStatus); ?>"
+                          data-service-type="<?php echo htmlspecialchars($v['service_type'] ?? ''); ?>"
+                          style="--pill-color: <?php echo $pillColor; ?>; border-left-color: <?php echo $pillColor; ?>">
                         <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $v['service_type'] ?? ''))); ?>
                     </span>
                 <?php endforeach; ?>
             </div>
+            <!-- Pill action drawer (JS populates based on tapped pill) -->
+            <div class="mw-mc-pill-drawer" style="display: none;"></div>
         <?php endif; ?>
     </div>
 
@@ -243,28 +251,18 @@ if (!empty($stop['visits'])) {
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
         <div class="mw-mc-actions">
-            <?php if (in_array('timer.start', $permissions)): ?>
-                <button class="mw-mc-action-btn mw-mc-btn-timer" data-visit-id="<?php echo $visitId; ?>" disabled>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    <span>Timer</span>
-                </button>
-            <?php endif; ?>
-
             <a class="mw-mc-action-btn mw-mc-btn-route"
                href="https://maps.google.com/?daddr=<?php echo urlencode($stop['property_address'] ?? ''); ?>"
                target="_blank" rel="noopener">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
                 <span>Route</span>
             </a>
-
-            <?php if (in_array('photos.upload', $permissions)): ?>
-                <button class="mw-mc-action-btn mw-mc-btn-photos" data-visit-id="<?php echo $visitId; ?>" disabled>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                    <span>Photos</span>
-                </button>
-            <?php endif; ?>
         </div>
         <?php endif; ?>
     </div>
+
+    <!-- Hidden camera input for photo capture -->
+    <input type="file" class="mw-mc-camera-input" accept="image/*" capture="environment"
+           style="display: none;" data-stop-id="<?php echo (int)$stop['stop_id']; ?>">
 </div>
 <?php endif; ?>

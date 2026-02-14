@@ -657,6 +657,232 @@
     }
 
     /* ════════════════════════════════════════════════════
+       INTERACTIVE SERVICE PILLS (tappable per-visit)
+       ════════════════════════════════════════════════════ */
+
+    /* Base interactive pill — tappable with proper touch targets */
+    .mw-mc-pill-interactive {
+        cursor: pointer;
+        min-height: 36px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        border-radius: 6px;
+        transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease,
+                    transform 0.1s ease, box-shadow 0.2s ease;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+
+    .mw-mc-pill-interactive:active {
+        transform: scale(0.95);
+    }
+
+    /* Hero card pills: larger touch targets */
+    .mw-mc-card-hero .mw-mc-pill-interactive {
+        min-height: 44px;
+        padding: 8px 14px;
+        font-size: 0.85rem;
+    }
+
+    /* ── Pill States ── */
+
+    /* Scheduled: neutral, ready to tap */
+    .mw-mc-pill-scheduled {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-left: 3px solid var(--pill-color, #455A64);
+        color: #495057;
+    }
+
+    /* Active/in-progress: solid service color background */
+    .mw-mc-pill-active {
+        background: var(--pill-color, #2D8659);
+        border: 1px solid var(--pill-color, #2D8659);
+        border-left: 3px solid var(--pill-color, #2D8659);
+        color: #fff;
+        font-weight: 700;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    /* Completed: green with checkmark */
+    .mw-mc-pill-done {
+        background: #E8F5E9;
+        border: 1px solid #A5D6A7;
+        border-left: 3px solid #2E7D32;
+        color: #2E7D32;
+        font-weight: 600;
+        opacity: 0.85;
+        pointer-events: none;
+    }
+
+    .mw-mc-pill-done svg {
+        color: #2E7D32;
+        flex-shrink: 0;
+    }
+
+    /* Timer text inside active pill */
+    .mw-mc-pill-timer {
+        font-variant-numeric: tabular-nums;
+        font-size: 0.72rem;
+        opacity: 0.9;
+        margin-left: 2px;
+    }
+
+    .mw-mc-card-hero .mw-mc-pill-timer {
+        font-size: 0.78rem;
+    }
+
+    /* Photo-saved flash feedback */
+    @keyframes mc-pill-flash {
+        0%   { box-shadow: 0 0 0 0 rgba(45, 134, 89, 0.5); }
+        50%  { box-shadow: 0 0 0 6px rgba(45, 134, 89, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(45, 134, 89, 0); }
+    }
+
+    .mw-mc-pill-feedback {
+        animation: mc-pill-flash 0.6s ease;
+    }
+
+    /* ════════════════════════════════════════════════════
+       PILL ACTION DRAWER
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-pill-drawer {
+        overflow: hidden;
+        padding: 0;
+    }
+
+    .mw-mc-pill-drawer[style*="block"] {
+        padding: 12px 0 4px 0;
+    }
+
+    /* Action button row */
+    .mw-mc-drawer-row {
+        display: flex;
+        gap: 8px;
+    }
+
+    .mw-mc-drawer-btn {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 12px 10px;
+        border: none;
+        border-radius: var(--mc-radius-md, 12px);
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: background 0.15s ease, transform 0.1s ease;
+        min-height: 44px;
+    }
+
+    .mw-mc-drawer-btn:active {
+        transform: scale(0.97);
+    }
+
+    /* Clock In button — primary green */
+    .mw-mc-drawer-btn-primary {
+        background: var(--mw-green, #2D8659);
+        color: #fff;
+    }
+
+    .mw-mc-drawer-btn-primary:active {
+        background: var(--mw-dark, #1A5F4A);
+    }
+
+    /* Photo button — neutral */
+    .mw-mc-drawer-btn-secondary {
+        background: #f0ede8;
+        color: #555;
+    }
+
+    .mw-mc-drawer-btn-secondary:active {
+        background: #e4e0da;
+    }
+
+    /* Finish button — orange warning style */
+    .mw-mc-drawer-btn-finish {
+        background: #FFF3E0;
+        color: #E65100;
+        border: 1px solid #FFE0B2;
+    }
+
+    .mw-mc-drawer-btn-finish:active {
+        background: #FFE0B2;
+    }
+
+    /* "Clock out of X first" warning message */
+    .mw-mc-drawer-warning {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 12px;
+        background: #FFF8E1;
+        border: 1px solid #FFF176;
+        border-radius: var(--mc-radius-md, 12px);
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: #F57F17;
+    }
+
+    /* Photo prompt layout */
+    .mw-mc-drawer-photo-prompt {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+    }
+
+    .mw-mc-drawer-camera-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: 16px 24px;
+        background: #f8f7f4;
+        border: 2px dashed #d0cdc7;
+        border-radius: var(--mc-radius-md, 12px);
+        color: #555;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        width: 100%;
+        min-height: 64px;
+        -webkit-tap-highlight-color: transparent;
+        transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .mw-mc-drawer-camera-btn:active {
+        background: #f0ede8;
+        border-color: var(--mw-green, #2D8659);
+    }
+
+    .mw-mc-drawer-skip {
+        background: none;
+        border: none;
+        color: #9e9e9e;
+        font-size: 0.75rem;
+        font-weight: 500;
+        cursor: pointer;
+        padding: 8px 16px;
+        min-height: 36px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-drawer-skip:active {
+        color: #666;
+    }
+
+    /* ════════════════════════════════════════════════════
        PWA STANDALONE TWEAKS
        ════════════════════════════════════════════════════ */
 

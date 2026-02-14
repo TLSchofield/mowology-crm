@@ -11,12 +11,27 @@ require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/plan-functions.php';
 require_once dirname(__DIR__) . '/includes/weather-service.php';
+require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
 requirePermission('schedule.view');
 
 $db = getDB();
+
+// ─── CSRF token for JS API calls ─────────────────────────────────
+$csrfToken = generateCSRFToken();
+
+// ─── Active visit timer (for restoring in-progress state on load) ─
+$activeTimer = getActiveVisitTimer($user['id']);
+$activeTimerData = null;
+if ($activeTimer) {
+    $activeTimerData = [
+        'visit_id'        => (int)$activeTimer['visit_id'],
+        'start_time'      => $activeTimer['start_time'],
+        'elapsed_seconds' => (int)($activeTimer['elapsed_seconds'] ?? 0),
+    ];
+}
 
 // ─── Generate visits on-demand (6 weeks out) ────────────────────────
 generateVisits(null, 42);
@@ -182,7 +197,7 @@ foreach ($mobileStops as $s) {
 
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213e" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213f" rel="stylesheet">';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -356,7 +371,7 @@ $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260213e" rel="stylesheet
           <!-- ═══════════════════════════════════════════════
                MOBILE: Card Execution View (hidden on desktop)
                ═══════════════════════════════════════════════ -->
-          <div class="mw-mc-container">
+          <div class="mw-mc-container" data-csrf="<?php echo htmlspecialchars($csrfToken); ?>">
 
               <!-- ── Fixed Top Bar ── -->
               <div class="mw-mc-topbar">
@@ -646,5 +661,17 @@ function applyCrewFilter(crewId) {
     }
 })();
 </script>
+<script>
+/**
+ * Mobile schedule state — embedded by PHP for JS state machine.
+ * Used by schedule-pill-workflow.js to restore in-progress timers.
+ */
+var MW_SCHEDULE_STATE = {
+    csrf: <?php echo json_encode($csrfToken); ?>,
+    userId: <?php echo (int)$user['id']; ?>,
+    activeTimer: <?php echo json_encode($activeTimerData); ?>
+};
+</script>
+<script src="../js/schedule-pill-workflow.js?v=20260213a"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
