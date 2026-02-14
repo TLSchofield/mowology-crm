@@ -119,6 +119,45 @@
         getGps(function(lat, lng) {
             console.log('[PillWorkflow] GPS ready:', lat, lng);
         });
+
+        // Listen for hero promotion (GPS arrival) — auto-clock-in single-visit cards
+        document.addEventListener('mw-hero-promoted', function(e) {
+            autoClockInSingleVisit(e.detail.card);
+        });
+    }
+
+    /**
+     * Auto-start timer when crew arrives at a single-visit stop.
+     * Skips if: multiple visits on card, timer already running, or visit not scheduled.
+     */
+    function autoClockInSingleVisit(card) {
+        if (!card) return;
+
+        // Only auto-start if no other timer is running
+        if (getActiveInProgressVisitId() !== null) {
+            console.log('[PillWorkflow] Auto-clock-in skipped: another timer is active');
+            return;
+        }
+
+        // Find all scheduled pills on this card
+        var pills = card.querySelectorAll('.mw-mc-pill-interactive');
+        var scheduledVisitIds = [];
+        pills.forEach(function(p) {
+            var vid = parseInt(p.dataset.visitId, 10);
+            if (vid && visits[vid] && visits[vid].status === 'scheduled') {
+                scheduledVisitIds.push(vid);
+            }
+        });
+
+        // Only auto-start if exactly one scheduled visit remains
+        if (scheduledVisitIds.length !== 1) {
+            console.log('[PillWorkflow] Auto-clock-in skipped: ' + scheduledVisitIds.length + ' scheduled visits on card');
+            return;
+        }
+
+        var visitId = scheduledVisitIds[0];
+        console.log('[PillWorkflow] Auto-clock-in: single visit ' + visitId + ' (' + visits[visitId].serviceLabel + ')');
+        clockIn(visitId);
     }
 
     // ═══════════════════════════════════════════════════════

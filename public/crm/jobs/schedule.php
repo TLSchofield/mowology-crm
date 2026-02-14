@@ -671,6 +671,11 @@ function applyCrewFilter(crewId) {
 
         // Scroll to top
         if (scrollArea) scrollArea.scrollTop = 0;
+
+        // Notify pill workflow for auto-clock-in on single-visit cards
+        document.dispatchEvent(new CustomEvent('mw-hero-promoted', {
+            detail: { card: nearest, distance: nearestDist }
+        }));
     }
 
     // ── Auto-detect on page load ──
@@ -711,6 +716,6 @@ var MW_SCHEDULE_STATE = {
     visitPhotos: <?php echo json_encode($visitPhotoMap, JSON_FORCE_OBJECT); ?>
 };
 </script>
-<script src="../js/schedule-pill-workflow.js?v=20260214g"></script>
+<script src="../js/schedule-pill-workflow.js?v=20260214h"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
