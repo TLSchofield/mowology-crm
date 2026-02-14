@@ -93,6 +93,28 @@
 
         console.log('[PillWorkflow] Registered ' + Object.keys(visits).length + ' visits');
 
+        // Pre-populate existing photo thumbnails from DB data
+        if (state.visitPhotos) {
+            var photoCount = 0;
+            for (var vid in state.visitPhotos) {
+                if (!state.visitPhotos.hasOwnProperty(vid)) continue;
+                var photos = state.visitPhotos[vid];
+                var numVid = parseInt(vid, 10);
+                if (visits[numVid]) {
+                    if (photos.before) {
+                        visits[numVid].beforeThumb = photos.before;
+                        photoCount++;
+                    }
+                    if (photos.after) {
+                        visits[numVid].afterThumb = photos.after;
+                        photoCount++;
+                    }
+                    renderPhotoStrip(numVid);
+                }
+            }
+            console.log('[PillWorkflow] Pre-loaded ' + photoCount + ' existing photo thumbnails');
+        }
+
         // Pre-fetch GPS for later use
         getGps(function(lat, lng) {
             console.log('[PillWorkflow] GPS ready:', lat, lng);

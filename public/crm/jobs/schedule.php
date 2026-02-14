@@ -172,6 +172,41 @@ if (!empty($todayStops)) {
     }
 }
 
+// ─── Pre-load existing visit photo thumbnails ─────────────────────
+$visitPhotoMap = []; // visitId => ['before' => thumbUrl, 'after' => thumbUrl]
+$allVisitIds = [];
+foreach ($mobileStops as $stop) {
+    foreach (($stop['visits'] ?? []) as $v) {
+        $allVisitIds[] = (int)$v['visit_id'];
+    }
+}
+if (!empty($allVisitIds)) {
+    $vPlaceholders = implode(',', array_fill(0, count($allVisitIds), '?'));
+    $photoStmt = $db->prepare("
+        SELECT ml.context_id AS visit_id, ml.category,
+               mv.file_path AS thumb_url
+        FROM media_links ml
+        JOIN media_variants mv ON mv.media_id = ml.media_id
+            AND mv.variant_type = 'thumb_square' AND mv.format = 'jpeg'
+        WHERE ml.context_type = 'job_visit'
+            AND ml.context_id IN ({$vPlaceholders})
+            AND ml.category IN ('before', 'after')
+        ORDER BY ml.context_id, ml.category, ml.created_at ASC
+    ");
+    $photoStmt->execute($allVisitIds);
+    while ($pRow = $photoStmt->fetch(PDO::FETCH_ASSOC)) {
+        $vid = (int)$pRow['visit_id'];
+        $cat = $pRow['category']; // 'before' or 'after'
+        if (!isset($visitPhotoMap[$vid])) {
+            $visitPhotoMap[$vid] = [];
+        }
+        // Keep the first one per category (ASC order = oldest first)
+        if (!isset($visitPhotoMap[$vid][$cat])) {
+            $visitPhotoMap[$vid][$cat] = $pRow['thumb_url'];
+        }
+    }
+}
+
 // Determine which is the active stop (first non-completed stop, or first one)
 $activeIndex = 0;
 foreach ($mobileStops as $idx => $stop) {
@@ -197,7 +232,7 @@ foreach ($mobileStops as $s) {
 
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214c" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214d" rel="stylesheet">';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -672,9 +707,10 @@ function applyCrewFilter(crewId) {
 var MW_SCHEDULE_STATE = {
     csrf: <?php echo json_encode($csrfToken); ?>,
     userId: <?php echo (int)$user['id']; ?>,
-    activeTimer: <?php echo json_encode($activeTimerData); ?>
+    activeTimer: <?php echo json_encode($activeTimerData); ?>,
+    visitPhotos: <?php echo json_encode($visitPhotoMap, JSON_FORCE_OBJECT); ?>
 };
 </script>
-<script src="../js/schedule-pill-workflow.js?v=20260214c"></script>
+<script src="../js/schedule-pill-workflow.js?v=20260214d"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
