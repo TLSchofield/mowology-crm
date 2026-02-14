@@ -122,7 +122,7 @@ function buildCrewQuery(?int $crewId): string {
 $crewQueryStr = buildCrewQuery($crewFilter);
 
 // ─── Day names ──────────────────────────────────────────────────────
-$dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+$dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
 // ─── Mobile card view: today's stops with contact info ──────────────
 $today = date('Y-m-d');
