@@ -20,7 +20,7 @@ if (!isset($user))       $user = ['name' => 'Admin'];
 $navItems = [
     ['key' => 'dashboard', 'label' => 'Dashboard',     'icon' => 'sliders',     'href' => '/crm/dashboard_appstack.php'],
     ['key' => 'clients',   'label' => 'Clients',       'icon' => 'users',       'href' => '/crm/clients_appstack.php',          'perm' => 'clients.view'],
-    ['key' => 'companies', 'label' => 'Companies',     'icon' => 'home',        'href' => '/crm/companies/',                    'perm' => 'clients.view'],
+    ['key' => 'companies', 'label' => 'Companies',     'icon' => 'home',        'href' => '/crm/companies/index.php',           'perm' => 'clients.view'],
     ['key' => 'quotes',    'label' => 'Quotes',        'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',           'perm' => 'billing.view'],
     ['key' => 'jobs',      'label' => 'Jobs',          'icon' => 'briefcase',   'href' => '/crm/jobs/index.php',                'perm' => 'jobs.view'],
     ['key' => 'invoices',  'label' => 'Invoices',      'icon' => 'file-text',   'href' => '/crm/invoices/index.php',            'perm' => 'billing.view'],
