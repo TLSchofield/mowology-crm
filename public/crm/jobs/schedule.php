@@ -126,7 +126,7 @@ $dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
 // ─── Mobile card view: today's stops with contact info ──────────────
 $today = date('Y-m-d');
-$todayDayName = date('l');  // e.g. "Thursday"
+$todayDayName = strtoupper(date('D'));  // e.g. "SAT"
 $todayDateDisplay = date('F j, Y'); // e.g. "February 13, 2026"
 
 // Get today's weather
