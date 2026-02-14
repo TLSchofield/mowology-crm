@@ -510,6 +510,47 @@ $activePage = 'products';
                       </div>
                     </div>
 
+                    <!-- Tracking & Compliance -->
+                    <div class="mw-product-form-section" id="trackingSection">
+                      <h4>Tracking &amp; Compliance</h4>
+                      <p class="text-muted mb-2" style="font-size: 0.85rem;">
+                        Set default tracking requirements for this service. These can be overridden on individual job plans.
+                      </p>
+
+                      <div class="form-group">
+                        <label>Tracking Level</label>
+                        <select class="form-control" name="tracking_level" id="trackingLevel">
+                          <option value="standard">Standard — no special requirements</option>
+                          <option value="heightened">Heightened — require clock-in, GPS, and photos</option>
+                          <option value="custom">Custom — set individual requirements below</option>
+                        </select>
+                      </div>
+
+                      <div id="trackingCustomOptions" class="mw-tracking-flag-grid" style="display: none;">
+                        <div class="mw-tracking-flag-card">
+                          <label class="mw-product-checkbox-label">
+                            <input type="checkbox" name="require_clock_in" id="requireClockIn">
+                            <strong>Require Clock-In</strong>
+                          </label>
+                          <small class="form-text text-muted">Auto-prompt crew to clock in before starting this service</small>
+                        </div>
+                        <div class="mw-tracking-flag-card">
+                          <label class="mw-product-checkbox-label">
+                            <input type="checkbox" name="require_gps" id="requireGps">
+                            <strong>Require GPS</strong>
+                          </label>
+                          <small class="form-text text-muted">GPS tracking must be active during this service</small>
+                        </div>
+                        <div class="mw-tracking-flag-card">
+                          <label class="mw-product-checkbox-label">
+                            <input type="checkbox" name="require_photos" id="requirePhotos">
+                            <strong>Require Photos</strong>
+                          </label>
+                          <small class="form-text text-muted">Before/after photos required for completion</small>
+                        </div>
+                      </div>
+                    </div>
+
                     <!-- Measurement-Based Pricing Rules -->
                     <div class="mw-product-form-section" id="pricingRulesSection">
                       <h4>Measurement-Based Pricing Rules</h4>
@@ -651,6 +692,26 @@ $activePage = 'products';
 
               document.getElementById('trackInventory').addEventListener('change', function() {
                 document.getElementById('inventoryOptions').style.display = this.checked ? 'block' : 'none';
+              });
+
+              // Tracking level preset toggle
+              document.getElementById('trackingLevel').addEventListener('change', function() {
+                var level = this.value;
+                var customDiv = document.getElementById('trackingCustomOptions');
+                if (level === 'standard') {
+                  customDiv.style.display = 'none';
+                  document.getElementById('requireClockIn').checked = false;
+                  document.getElementById('requireGps').checked = false;
+                  document.getElementById('requirePhotos').checked = false;
+                } else if (level === 'heightened') {
+                  customDiv.style.display = 'grid';
+                  document.getElementById('requireClockIn').checked = true;
+                  document.getElementById('requireGps').checked = true;
+                  document.getElementById('requirePhotos').checked = true;
+                } else {
+                  // custom — show checkboxes, don't change their state
+                  customDiv.style.display = 'grid';
+                }
               });
 
               // Auto-load image suggestions when product name changes
@@ -918,6 +979,9 @@ $activePage = 'products';
               currentUpsells = [];
               renderPricingRules();
               renderUpsells();
+              // Reset tracking fields
+              document.getElementById('trackingLevel').value = 'standard';
+              document.getElementById('trackingCustomOptions').style.display = 'none';
               $('#productModal').modal('show');
             }
 
@@ -948,6 +1012,15 @@ $activePage = 'products';
 
               // Weather policy
               form.elements['weather_policy'].value = product.weather_policy || 'ANY';
+
+              // Tracking flags
+              var tLevel = product.tracking_level || 'standard';
+              form.elements['tracking_level'].value = tLevel;
+              form.elements['require_clock_in'].checked = product.require_clock_in == 1;
+              form.elements['require_gps'].checked = product.require_gps == 1;
+              form.elements['require_photos'].checked = product.require_photos == 1;
+              document.getElementById('trackingCustomOptions').style.display =
+                (tLevel === 'heightened' || tLevel === 'custom') ? 'grid' : 'none';
 
               // Refresh calculated displays
               updatePricingCalculations();
@@ -983,6 +1056,11 @@ $activePage = 'products';
               data.track_inventory = form.elements['track_inventory'] && form.elements['track_inventory'].checked ? 1 : 0;
               data.featured = form.elements['featured'] && form.elements['featured'].checked ? 1 : 0;
               data.active = form.elements['active'] && form.elements['active'].checked ? 1 : 0;
+
+              // Tracking flags
+              data.require_clock_in = form.elements['require_clock_in'] && form.elements['require_clock_in'].checked ? 1 : 0;
+              data.require_gps = form.elements['require_gps'] && form.elements['require_gps'].checked ? 1 : 0;
+              data.require_photos = form.elements['require_photos'] && form.elements['require_photos'].checked ? 1 : 0;
 
               fetch('api-products.php?action=save-product', {
                 method: 'POST',

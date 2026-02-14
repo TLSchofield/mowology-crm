@@ -1266,3 +1266,124 @@ function getRecentPlansOnProperty(int $propertyId, int $limit = 5): array {
     $stmt->execute([$propertyId, $limit]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
+
+/**
+ * Resolve effective tracking requirements for a job plan.
+ * Priority: plan overrides (if not NULL) > product defaults (most restrictive) > standard.
+ *
+ * @return array ['require_clock_in' => bool, 'require_gps' => bool, 'require_photos' => bool,
+ *               'tracking_level' => string, 'source' => array]
+ */
+function resolveTrackingRequirementsForPlan(int $planId): array {
+    $db = getDB();
+    $defaults = [
+        'require_clock_in' => false,
+        'require_gps' => false,
+        'require_photos' => false,
+        'tracking_level' => 'standard',
+        'source' => ['clock_in' => 'default', 'gps' => 'default', 'photos' => 'default']
+    ];
+
+    // Check if tracking columns exist
+    try {
+        $check = $db->query("SHOW COLUMNS FROM job_plans LIKE 'tracking_level_override'");
+        if ($check->rowCount() === 0) {
+            return $defaults;
+        }
+    } catch (Exception $e) {
+        return $defaults;
+    }
+
+    // Get plan override columns
+    $stmt = $db->prepare("
+        SELECT tracking_level_override, require_clock_in_override,
+               require_gps_override, require_photos_override
+        FROM job_plans WHERE id = ?
+    ");
+    $stmt->execute([$planId]);
+    $plan = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$plan) {
+        return $defaults;
+    }
+
+    // Get product-level defaults (most restrictive across all linked products)
+    $pClockIn = 0;
+    $pGps = 0;
+    $pPhotos = 0;
+    $pLevel = 'standard';
+
+    try {
+        $checkProd = $db->query("SHOW COLUMNS FROM products LIKE 'tracking_level'");
+        if ($checkProd->rowCount() > 0) {
+            $prodStmt = $db->prepare("
+                SELECT MAX(p.require_clock_in) AS require_clock_in,
+                       MAX(p.require_gps) AS require_gps,
+                       MAX(p.require_photos) AS require_photos,
+                       MAX(CASE WHEN p.tracking_level = 'heightened' THEN 2
+                                WHEN p.tracking_level = 'custom' THEN 1
+                                ELSE 0 END) AS level_rank
+                FROM plan_line_items pli
+                JOIN quote_line_items qli ON pli.quote_line_item_id = qli.id
+                JOIN products p ON qli.product_id = p.id
+                WHERE pli.plan_id = ?
+            ");
+            $prodStmt->execute([$planId]);
+            $prod = $prodStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($prod && $prod['level_rank'] !== null) {
+                $pClockIn = (int)$prod['require_clock_in'];
+                $pGps = (int)$prod['require_gps'];
+                $pPhotos = (int)$prod['require_photos'];
+                $pLevel = $prod['level_rank'] == 2 ? 'heightened' :
+                          ($prod['level_rank'] == 1 ? 'custom' : 'standard');
+            }
+        }
+    } catch (Exception $e) {
+        // Products table may not have tracking columns yet
+    }
+
+    // Resolve: plan override wins if not NULL, else product default
+    return [
+        'require_clock_in' => $plan['require_clock_in_override'] !== null
+            ? (bool)(int)$plan['require_clock_in_override']
+            : (bool)$pClockIn,
+        'require_gps' => $plan['require_gps_override'] !== null
+            ? (bool)(int)$plan['require_gps_override']
+            : (bool)$pGps,
+        'require_photos' => $plan['require_photos_override'] !== null
+            ? (bool)(int)$plan['require_photos_override']
+            : (bool)$pPhotos,
+        'tracking_level' => $plan['tracking_level_override'] !== null
+            ? $plan['tracking_level_override']
+            : $pLevel,
+        'source' => [
+            'clock_in' => $plan['require_clock_in_override'] !== null ? 'plan' : 'product',
+            'gps' => $plan['require_gps_override'] !== null ? 'plan' : 'product',
+            'photos' => $plan['require_photos_override'] !== null ? 'plan' : 'product',
+        ]
+    ];
+}
+
+/**
+ * Resolve effective tracking requirements for a specific visit.
+ * Looks up the plan from the visit, then delegates to resolveTrackingRequirementsForPlan().
+ */
+function resolveTrackingRequirements(int $visitId): array {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT plan_id FROM job_visits WHERE id = ?");
+    $stmt->execute([$visitId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row || !$row['plan_id']) {
+        return [
+            'require_clock_in' => false,
+            'require_gps' => false,
+            'require_photos' => false,
+            'tracking_level' => 'standard',
+            'source' => ['clock_in' => 'default', 'gps' => 'default', 'photos' => 'default']
+        ];
+    }
+
+    return resolveTrackingRequirementsForPlan((int)$row['plan_id']);
+}

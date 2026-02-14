@@ -1,9 +1,12 @@
 <?php
 /**
  * Time Clock API — Clock In / Clock Out / Status
- * POST: {action: 'clock_in', lat?, lng?}
- * POST: {action: 'clock_out', lat?, lng?, notes?}
+ * POST: {action: 'clock_in', lat?, lng?, user_id?}
+ * POST: {action: 'clock_out', lat?, lng?, notes?, user_id?}
  * GET:  ?action=status
+ *
+ * Admin/Manager can pass user_id to clock in/out another user.
+ * If user_id is omitted, defaults to the logged-in user (existing behavior).
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -45,6 +48,32 @@ try {
     }
 
     $db = getDB();
+
+    // Admin/Manager override: allow clocking in/out a different user
+    $targetUserId = $user['id'];
+    if (!empty($input['user_id']) && (int)$input['user_id'] !== $user['id']) {
+        if (!in_array($user['role'], ['admin', 'manager'])) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Only admin/manager can clock in other users']);
+            exit;
+        }
+        $targetUserId = (int)$input['user_id'];
+
+        // Verify target user exists and is active
+        $targetStmt = $db->prepare("SELECT id, full_name, role, is_active FROM users WHERE id = ? LIMIT 1");
+        $targetStmt->execute([$targetUserId]);
+        $targetUser = $targetStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$targetUser || !$targetUser['is_active']) {
+            http_response_code(404);
+            echo json_encode(['error' => 'User not found or inactive']);
+            exit;
+        }
+        if (!isTimeClockEnabledForRole($targetUser['role'])) {
+            http_response_code(403);
+            echo json_encode(['error' => 'Time clock not enabled for that user\'s role']);
+            exit;
+        }
+    }
 
     // Get tracking flag from database (not in session)
     $trackStmt = $db->prepare("SELECT location_tracking_enabled FROM users WHERE id = ?");
@@ -88,7 +117,12 @@ try {
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
 
-            $entryId = clockIn($user['id'], $lat, $lng);
+            $entryId = clockIn($targetUserId, $lat, $lng);
+
+            // Log if admin clocked in someone else
+            if ($targetUserId !== $user['id']) {
+                logActivity($user['id'], null, 'Admin clock-in for user #' . $targetUserId, 'Clocked in by ' . ($user['name'] ?? 'admin'));
+            }
 
             echo json_encode([
                 'success' => true,
@@ -103,13 +137,24 @@ try {
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $notes = $input['notes'] ?? null;
 
-            // Stop any active visit timers first
-            $activeJob = getActiveVisitTimer($user['id']);
-            if ($activeJob) {
-                stopVisitTimer((int)$activeJob['visit_id'], $user['id'], $lat, $lng, 'Auto-stopped on clock out');
+            // If admin is clocking out someone else, add note
+            if ($targetUserId !== $user['id']) {
+                $adminNote = 'Clocked out by ' . ($user['name'] ?? 'admin');
+                $notes = $notes ? $notes . ' — ' . $adminNote : $adminNote;
             }
 
-            $totalMinutes = clockOut($user['id'], $lat, $lng, $notes);
+            // Stop any active visit timers first
+            $activeJob = getActiveVisitTimer($targetUserId);
+            if ($activeJob) {
+                stopVisitTimer((int)$activeJob['visit_id'], $targetUserId, $lat, $lng, 'Auto-stopped on clock out');
+            }
+
+            $totalMinutes = clockOut($targetUserId, $lat, $lng, $notes);
+
+            // Log if admin clocked out someone else
+            if ($targetUserId !== $user['id']) {
+                logActivity($user['id'], null, 'Admin clock-out for user #' . $targetUserId, formatMinutesAsHours($totalMinutes) . ' total');
+            }
 
             echo json_encode([
                 'success' => true,

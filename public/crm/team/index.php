@@ -134,6 +134,19 @@ $activePage = 'team';
             </div>
 
             <div class="mw-emp-actions">
+                <?php if ($user['role'] === 'admin' && $emp['is_active']): ?>
+                    <?php if ($emp['is_clocked_in']): ?>
+                    <button class="btn btn-sm btn-outline-danger" onclick="adminClockOut(<?php echo (int)$emp['id']; ?>, '<?php echo htmlspecialchars(addslashes($emp['full_name'] ?? 'User'), ENT_QUOTES); ?>')"
+                            title="Clock Out <?php echo htmlspecialchars($emp['full_name'] ?? ''); ?>">
+                        <i data-feather="log-out" style="width:13px;height:13px;"></i> Clock Out
+                    </button>
+                    <?php else: ?>
+                    <button class="btn btn-sm" style="background:var(--mw-green);color:#fff;border:none;" onclick="adminClockIn(<?php echo (int)$emp['id']; ?>, '<?php echo htmlspecialchars(addslashes($emp['full_name'] ?? 'User'), ENT_QUOTES); ?>')"
+                            title="Clock In <?php echo htmlspecialchars($emp['full_name'] ?? ''); ?>">
+                        <i data-feather="log-in" style="width:13px;height:13px;"></i> Clock In
+                    </button>
+                    <?php endif; ?>
+                <?php endif; ?>
                 <?php if ($user['role'] === 'admin'): ?>
                 <div class="mw-tracking-toggle" title="<?php echo !empty($emp['receive_weather_sms']) ? 'Weather SMS alerts ON' : 'Weather SMS alerts OFF'; ?>">
                     <label class="mw-toggle-switch">
@@ -287,6 +300,48 @@ $activePage = 'team';
 
     var form = document.getElementById('employeeForm');
     var modal = document.getElementById('employeeModal');
+
+    // Admin clock-in for another user
+    window.adminClockIn = function(empId, empName) {
+        if (!confirm('Clock in ' + empName + '?')) return;
+        fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'clock_in', user_id: empId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showAlert(empName + ' clocked in', 'success');
+                setTimeout(function() { location.reload(); }, 800);
+            } else {
+                showAlert(data.error || 'Failed to clock in', 'danger');
+            }
+        })
+        .catch(function() { showAlert('Network error', 'danger'); });
+    };
+
+    // Admin clock-out for another user
+    window.adminClockOut = function(empId, empName) {
+        if (!confirm('Clock out ' + empName + '?')) return;
+        fetch('/crm/api/time-clock.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'clock_out', user_id: empId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showAlert(empName + ' clocked out — ' + (data.total_formatted || ''), 'success');
+                setTimeout(function() { location.reload(); }, 800);
+            } else {
+                showAlert(data.error || 'Failed to clock out', 'danger');
+            }
+        })
+        .catch(function() { showAlert('Network error', 'danger'); });
+    };
 
     // Toggle weather SMS alerts
     window.toggleWeatherSms = function(empId, enabled) {

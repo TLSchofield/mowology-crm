@@ -159,10 +159,24 @@ try {
             // Ignore
         }
 
+        // Check if tracking flag columns exist (tracking flags migration)
+        $hasTrackingFlags = false;
+        try {
+            $tfCheck = $db->query("SHOW COLUMNS FROM products LIKE 'tracking_level'");
+            $hasTrackingFlags = ($tfCheck->rowCount() > 0);
+        } catch (Exception $e) {
+            // Ignore
+        }
+
         // Validate weather_policy value
         $validPolicies = ['ANY', 'DRY_ONLY', 'LIGHT_RAIN_OK', 'TEMP_LIMITED', 'WIND_LIMITED'];
         $weatherPolicy = (isset($data['weather_policy']) && in_array($data['weather_policy'], $validPolicies))
             ? $data['weather_policy'] : 'ANY';
+
+        // Validate tracking_level value
+        $validTrackingLevels = ['standard', 'heightened', 'custom'];
+        $trackingLevel = (isset($data['tracking_level']) && in_array($data['tracking_level'], $validTrackingLevels))
+            ? $data['tracking_level'] : 'standard';
 
         if (empty($data['id'])) {
             // Create new product
@@ -212,6 +226,15 @@ try {
                 $columns .= ", weather_policy";
                 $placeholders .= ", ?";
                 $params[] = $weatherPolicy;
+            }
+
+            if ($hasTrackingFlags) {
+                $columns .= ", tracking_level, require_clock_in, require_gps, require_photos";
+                $placeholders .= ", ?, ?, ?, ?";
+                $params[] = $trackingLevel;
+                $params[] = !empty($data['require_clock_in']) ? 1 : 0;
+                $params[] = !empty($data['require_gps']) ? 1 : 0;
+                $params[] = !empty($data['require_photos']) ? 1 : 0;
             }
 
             $stmt = $db->prepare("INSERT INTO products ({$columns}) VALUES ({$placeholders})");
@@ -267,6 +290,14 @@ try {
             if ($hasWeatherPolicy) {
                 $setClauses .= ", weather_policy = ?";
                 $params[] = $weatherPolicy;
+            }
+
+            if ($hasTrackingFlags) {
+                $setClauses .= ", tracking_level = ?, require_clock_in = ?, require_gps = ?, require_photos = ?";
+                $params[] = $trackingLevel;
+                $params[] = !empty($data['require_clock_in']) ? 1 : 0;
+                $params[] = !empty($data['require_gps']) ? 1 : 0;
+                $params[] = !empty($data['require_photos']) ? 1 : 0;
             }
 
             $params[] = $data['id'];

@@ -107,6 +107,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'error';
     }
 
+    // Update tracking overrides
+    if ($action === 'update_tracking') {
+        $trackingLevel = $_POST['tracking_level_override'] ?? 'inherit';
+        $clockIn = $_POST['require_clock_in_override'] ?? 'inherit';
+        $gps = $_POST['require_gps_override'] ?? 'inherit';
+        $photos = $_POST['require_photos_override'] ?? 'inherit';
+
+        $validLevels = ['standard', 'heightened', 'custom'];
+
+        $stmt = $db->prepare("
+            UPDATE job_plans SET
+                tracking_level_override = ?,
+                require_clock_in_override = ?,
+                require_gps_override = ?,
+                require_photos_override = ?
+            WHERE id = ?
+        ");
+        $stmt->execute([
+            ($trackingLevel !== 'inherit' && in_array($trackingLevel, $validLevels)) ? $trackingLevel : null,
+            $clockIn !== 'inherit' ? ($clockIn === '1' ? 1 : 0) : null,
+            $gps !== 'inherit' ? ($gps === '1' ? 1 : 0) : null,
+            $photos !== 'inherit' ? ($photos === '1' ? 1 : 0) : null,
+            $planId
+        ]);
+        header("Location: view.php?id={$planId}&tracking_updated=1");
+        exit;
+    }
+
     // Add plan note
     if ($action === 'add_note') {
         $noteContent = trim($_POST['note_content'] ?? '');
@@ -140,6 +168,9 @@ $visits = getPlanVisits($planId, null, 200, 0);
 
 // Get plan line items
 $planLineItems = getPlanLineItems($planId);
+
+// Get tracking requirements (resolved: plan overrides > product defaults)
+$trackingReqs = resolveTrackingRequirementsForPlan($planId);
 
 // Get plan notes
 $stmt = $db->prepare("
@@ -502,6 +533,99 @@ $activePage = 'jobs';
                                     </span>
                                 </div>
                             <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <!-- Tracking & Compliance -->
+                    <div class="card">
+                        <div class="card-header d-flex align-items-center justify-content-between">
+                            <h5 class="card-title mb-0">Tracking &amp; Compliance</h5>
+                            <span class="badge badge-<?php echo $trackingReqs['tracking_level'] === 'heightened' ? 'warning' : ($trackingReqs['tracking_level'] === 'custom' ? 'info' : 'secondary'); ?>">
+                                <?php echo ucfirst(htmlspecialchars($trackingReqs['tracking_level'])); ?>
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <?php
+                            $flags = [
+                                ['key' => 'require_clock_in', 'label' => 'Clock-In Required', 'icon' => 'clock', 'override_key' => 'clock_in'],
+                                ['key' => 'require_gps', 'label' => 'GPS Required', 'icon' => 'map-pin', 'override_key' => 'gps'],
+                                ['key' => 'require_photos', 'label' => 'Photos Required', 'icon' => 'camera', 'override_key' => 'photos'],
+                            ];
+                            foreach ($flags as $flag):
+                                $active = $trackingReqs[$flag['key']];
+                                $source = $trackingReqs['source'][$flag['override_key']];
+                            ?>
+                            <div class="mw-detail-row">
+                                <span class="mw-detail-label">
+                                    <i data-feather="<?php echo $flag['icon']; ?>" style="width:14px;height:14px;margin-right:4px;"></i>
+                                    <?php echo $flag['label']; ?>
+                                </span>
+                                <span class="mw-detail-value">
+                                    <?php if ($active): ?>
+                                        <span class="badge badge-success">Yes</span>
+                                    <?php else: ?>
+                                        <span class="badge badge-secondary">No</span>
+                                    <?php endif; ?>
+                                    <?php if ($source === 'plan'): ?>
+                                        <span class="mw-tracking-override-badge">Override</span>
+                                    <?php endif; ?>
+                                </span>
+                            </div>
+                            <?php endforeach; ?>
+
+                            <hr class="my-3">
+
+                            <button class="btn btn-sm btn-outline-primary" type="button" data-toggle="collapse" data-target="#trackingOverrideForm">
+                                Edit Overrides
+                            </button>
+
+                            <div class="collapse mt-3" id="trackingOverrideForm">
+                                <form method="POST">
+                                    <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+                                    <input type="hidden" name="action" value="update_tracking">
+
+                                    <?php
+                                    // Current raw override values from the plan
+                                    $rawOverrides = [
+                                        'tracking_level_override' => $plan['tracking_level_override'] ?? null,
+                                        'require_clock_in_override' => $plan['require_clock_in_override'] ?? null,
+                                        'require_gps_override' => $plan['require_gps_override'] ?? null,
+                                        'require_photos_override' => $plan['require_photos_override'] ?? null,
+                                    ];
+                                    ?>
+
+                                    <div class="form-group">
+                                        <label>Tracking Level</label>
+                                        <select class="form-control form-control-sm" name="tracking_level_override">
+                                            <option value="inherit" <?php echo $rawOverrides['tracking_level_override'] === null ? 'selected' : ''; ?>>Inherit from product</option>
+                                            <option value="standard" <?php echo $rawOverrides['tracking_level_override'] === 'standard' ? 'selected' : ''; ?>>Standard</option>
+                                            <option value="heightened" <?php echo $rawOverrides['tracking_level_override'] === 'heightened' ? 'selected' : ''; ?>>Heightened</option>
+                                            <option value="custom" <?php echo $rawOverrides['tracking_level_override'] === 'custom' ? 'selected' : ''; ?>>Custom</option>
+                                        </select>
+                                    </div>
+
+                                    <?php
+                                    $overrideFlags = [
+                                        ['name' => 'require_clock_in_override', 'label' => 'Clock-In'],
+                                        ['name' => 'require_gps_override', 'label' => 'GPS'],
+                                        ['name' => 'require_photos_override', 'label' => 'Photos'],
+                                    ];
+                                    foreach ($overrideFlags as $of):
+                                        $val = $rawOverrides[$of['name']];
+                                    ?>
+                                    <div class="form-group">
+                                        <label><?php echo $of['label']; ?></label>
+                                        <select class="form-control form-control-sm" name="<?php echo $of['name']; ?>">
+                                            <option value="inherit" <?php echo $val === null ? 'selected' : ''; ?>>Inherit from product</option>
+                                            <option value="1" <?php echo $val !== null && (int)$val === 1 ? 'selected' : ''; ?>>Required</option>
+                                            <option value="0" <?php echo $val !== null && (int)$val === 0 ? 'selected' : ''; ?>>Not required</option>
+                                        </select>
+                                    </div>
+                                    <?php endforeach; ?>
+
+                                    <button type="submit" class="btn btn-sm btn-primary">Save Overrides</button>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>

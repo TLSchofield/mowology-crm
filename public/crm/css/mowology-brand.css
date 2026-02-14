@@ -1798,6 +1798,39 @@ a:hover {
   font-size: 14px;
 }
 
+/* Tracking & Compliance */
+.mw-tracking-flag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.mw-tracking-flag-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #fff;
+  transition: border-color 0.15s ease;
+}
+
+.mw-tracking-flag-card:has(input:checked) {
+  border-color: var(--mw-green);
+  background: var(--mw-light);
+}
+
+.mw-tracking-override-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--mw-orange);
+  color: #fff;
+  font-weight: 600;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
 .mw-product-cost-breakdown {
   background: #f8fafc;
   padding: 1rem;
