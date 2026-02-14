@@ -100,6 +100,10 @@ $formData = $_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST : $company;
 
 $pageTitle = 'Edit ' . htmlspecialchars($company['company_name']);
 $activePage = 'companies';
+$apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+if ($apiKey) {
+    $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" defer></script>';
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -246,28 +250,29 @@ $activePage = 'companies';
 
                                 <div class="form-group">
                                     <label>Billing Address</label>
-                                    <input type="text" name="billing_address" class="form-control"
-                                           value="<?= htmlspecialchars($formData['billing_address'] ?? '') ?>">
+                                    <input type="text" name="billing_address" id="billingAddress" class="form-control"
+                                           value="<?= htmlspecialchars($formData['billing_address'] ?? '') ?>"
+                                           placeholder="Start typing an address..." autocomplete="off">
                                 </div>
                                 <div class="row">
                                     <div class="col-md-4">
                                         <div class="form-group">
                                             <label>City</label>
-                                            <input type="text" name="billing_city" class="form-control"
+                                            <input type="text" name="billing_city" id="billingCity" class="form-control"
                                                    value="<?= htmlspecialchars($formData['billing_city'] ?? 'Vancouver') ?>">
                                         </div>
                                     </div>
                                     <div class="col-md-4">
                                         <div class="form-group">
                                             <label>Province</label>
-                                            <input type="text" name="billing_province" class="form-control"
+                                            <input type="text" name="billing_province" id="billingProvince" class="form-control"
                                                    value="<?= htmlspecialchars($formData['billing_province'] ?? 'BC') ?>">
                                         </div>
                                     </div>
                                     <div class="col-md-4">
                                         <div class="form-group">
                                             <label>Postal Code</label>
-                                            <input type="text" name="billing_postal_code" class="form-control"
+                                            <input type="text" name="billing_postal_code" id="billingPostalCode" class="form-control"
                                                    value="<?= htmlspecialchars($formData['billing_postal_code'] ?? '') ?>">
                                         </div>
                                     </div>
@@ -365,6 +370,44 @@ $activePage = 'companies';
                     billingSection.style.display = this.checked ? 'none' : '';
                 });
             });
+
+            // ── Google Places Address Autocomplete ──
+            function initAddressAutocomplete(inputId, cityId, postalId, provinceId) {
+              var input = document.getElementById(inputId);
+              if (!input) return;
+              if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+                setTimeout(function() { initAddressAutocomplete(inputId, cityId, postalId, provinceId); }, 200);
+                return;
+              }
+              var ac = new google.maps.places.Autocomplete(input, {
+                types: ['address'],
+                componentRestrictions: { country: ['ca'] },
+                fields: ['address_components', 'geometry']
+              });
+              ac.addListener('place_changed', function() {
+                var place = ac.getPlace();
+                if (!place || !place.address_components) return;
+                var street = '', city = '', postal = '', province = '';
+                for (var i = 0; i < place.address_components.length; i++) {
+                  var c = place.address_components[i];
+                  if (c.types.indexOf('street_number') !== -1) street = c.long_name + ' ' + street;
+                  if (c.types.indexOf('route') !== -1) street = street + c.long_name;
+                  if (c.types.indexOf('locality') !== -1) city = c.long_name;
+                  if (c.types.indexOf('postal_code') !== -1) postal = c.long_name;
+                  if (c.types.indexOf('administrative_area_level_1') !== -1) province = c.short_name;
+                }
+                if (street.trim()) input.value = street.trim();
+                var cityEl = document.getElementById(cityId);
+                if (cityEl && city) cityEl.value = city;
+                var postalEl = document.getElementById(postalId);
+                if (postalEl && postal) postalEl.value = postal;
+                if (provinceId) {
+                  var provEl = document.getElementById(provinceId);
+                  if (provEl && province) provEl.value = province;
+                }
+              });
+            }
+            initAddressAutocomplete('billingAddress', 'billingCity', 'billingPostalCode', 'billingProvince');
             </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

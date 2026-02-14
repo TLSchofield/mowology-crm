@@ -406,6 +406,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $propertyAddress = trim($_POST['property_address'] ?? '');
             $propertyCity = trim($_POST['property_city'] ?? 'Vancouver');
             $propertyPostalCode = trim($_POST['property_postal_code'] ?? '');
+            $propertyLatitude = floatval($_POST['property_latitude'] ?? 0);
+            $propertyLongitude = floatval($_POST['property_longitude'] ?? 0);
 
             // ── Optional company fields ──
             $linkCompany = isset($_POST['link_company']) ? true : false;
@@ -479,13 +481,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                ->execute([$contactId, $existingProp['id']]);
                         } else {
                             $db->prepare("
-                                INSERT INTO properties (property_name, address, city, province, postal_code, site_contact_id, status)
-                                VALUES (?, ?, ?, 'BC', ?, ?, 'active')
+                                INSERT INTO properties (property_name, address, city, province, postal_code, latitude, longitude, site_contact_id, status)
+                                VALUES (?, ?, ?, 'BC', ?, ?, ?, ?, 'active')
                             ")->execute([
                                 $firstName . ' ' . $lastName . ' Property',
                                 $propertyAddress,
                                 $propertyCity,
                                 $propertyPostalCode,
+                                $propertyLatitude ?: null,
+                                $propertyLongitude ?: null,
                                 $contactId
                             ]);
                         }
@@ -640,6 +644,45 @@ if ($action === 'view_contact' && $clientId) {
         $stmt->execute([$clientId]);
         $contactProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Fetch tags for all properties (property_access + property_warning groups)
+        $propertyTagMap = [];
+        $availableTags = [];
+        if (!empty($contactProperties)) {
+            $propIds = array_column($contactProperties, 'id');
+            $tPlaceholders = implode(',', array_fill(0, count($propIds), '?'));
+            try {
+                $tagStmt = $db->prepare("
+                    SELECT et.entity_id AS property_id, et.id AS entity_tag_id,
+                           t.id AS tag_id, t.tag_key, t.tag_label, t.tag_group,
+                           t.tag_color, t.icon, t.has_value, et.tag_value
+                    FROM entity_tags et
+                    JOIN tags t ON t.id = et.tag_id
+                    WHERE et.entity_type = 'property'
+                      AND et.entity_id IN ({$tPlaceholders})
+                      AND t.is_active = 1
+                    ORDER BY t.sort_order ASC, t.tag_label ASC
+                ");
+                $tagStmt->execute(array_values($propIds));
+                $allTags = $tagStmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($allTags as $tRow) {
+                    $propertyTagMap[(int)$tRow['property_id']][] = $tRow;
+                }
+
+                // Fetch available tags for property groups
+                $availStmt = $db->query("
+                    SELECT id AS tag_id, tag_key, tag_label, tag_group,
+                           tag_color, icon, has_value, sort_order
+                    FROM tags
+                    WHERE is_active = 1
+                      AND tag_group IN ('property_access', 'property_warning')
+                    ORDER BY sort_order ASC, tag_label ASC
+                ");
+                $availableTags = $availStmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Exception $e) {
+                // Tags tables may not exist yet
+            }
+        }
+
         // Check if contact is linked to a company (as primary or billing contact)
         try {
             $stmt = $db->prepare("
@@ -656,11 +699,19 @@ if ($action === 'view_contact' && $clientId) {
             $contactCompany = null;
         }
 
-        // Load Google Maps API
+        // Load Google Maps API (geometry for map display, places for address autocomplete)
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
         if ($apiKey) {
-            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry" defer></script>';
+            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places" defer></script>';
         }
+    }
+}
+
+// Load Google Maps API for address autocomplete on create form too
+if ($action === 'new' && empty($extraHead)) {
+    $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+    if ($apiKey) {
+        $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" defer></script>';
     }
 }
 
@@ -868,13 +919,16 @@ $unconvertedRequests = $db->query("
                     <label>Street Address</label>
                     <input type="text" class="form-control" name="property_address" id="propertyAddress"
                       value="<?php echo h($_POST['property_address'] ?? ''); ?>"
-                      placeholder="e.g. 123 Main Street">
+                      placeholder="Start typing an address..." autocomplete="off">
+                    <input type="hidden" name="property_latitude" id="propertyLatitude" value="<?php echo h($_POST['property_latitude'] ?? ''); ?>">
+                    <input type="hidden" name="property_longitude" id="propertyLongitude" value="<?php echo h($_POST['property_longitude'] ?? ''); ?>">
+                    <div id="propertyAddressDupeWarning" class="alert alert-warning mt-2" style="display:none; font-size: 0.85rem;"></div>
                   </div>
                   <div class="row">
                     <div class="col-md-6">
                       <div class="form-group">
                         <label>City</label>
-                        <input type="text" class="form-control" name="property_city"
+                        <input type="text" class="form-control" name="property_city" id="propertyCity"
                           value="<?php echo h($_POST['property_city'] ?? 'Vancouver'); ?>"
                           placeholder="Vancouver">
                       </div>
@@ -882,7 +936,7 @@ $unconvertedRequests = $db->query("
                     <div class="col-md-6">
                       <div class="form-group mb-0">
                         <label>Postal Code</label>
-                        <input type="text" class="form-control" name="property_postal_code"
+                        <input type="text" class="form-control" name="property_postal_code" id="propertyPostalCode"
                           value="<?php echo h($_POST['property_postal_code'] ?? ''); ?>"
                           placeholder="V5K 1A1">
                       </div>
@@ -1015,28 +1069,29 @@ $unconvertedRequests = $db->query("
                   <h6 class="mb-3"><strong>Billing &amp; Account</strong></h6>
                   <div class="form-group">
                     <label>Billing Address</label>
-                    <input type="text" class="form-control" name="billing_address"
-                      value="<?php echo h($_POST['billing_address'] ?? ''); ?>">
+                    <input type="text" class="form-control" name="billing_address" id="billingAddress"
+                      value="<?php echo h($_POST['billing_address'] ?? ''); ?>"
+                      placeholder="Start typing an address..." autocomplete="off">
                   </div>
                   <div class="row">
                     <div class="col-md-4">
                       <div class="form-group">
                         <label>City</label>
-                        <input type="text" class="form-control" name="billing_city"
+                        <input type="text" class="form-control" name="billing_city" id="billingCity"
                           value="<?php echo h($_POST['billing_city'] ?? 'Vancouver'); ?>">
                       </div>
                     </div>
                     <div class="col-md-4">
                       <div class="form-group">
                         <label>Province</label>
-                        <input type="text" class="form-control" name="billing_province" maxlength="2"
+                        <input type="text" class="form-control" name="billing_province" id="billingProvince" maxlength="2"
                           value="<?php echo h($_POST['billing_province'] ?? 'BC'); ?>">
                       </div>
                     </div>
                     <div class="col-md-4">
                       <div class="form-group">
                         <label>Postal Code</label>
-                        <input type="text" class="form-control" name="billing_postal_code"
+                        <input type="text" class="form-control" name="billing_postal_code" id="billingPostalCode"
                           value="<?php echo h($_POST['billing_postal_code'] ?? ''); ?>">
                       </div>
                     </div>
@@ -1319,9 +1374,11 @@ $unconvertedRequests = $db->query("
                         <small>Add a property address to enable scheduling and quoting.</small>
                       </div>
                     <?php else: ?>
-                      <?php foreach ($contactProperties as $prop): ?>
+                      <?php foreach ($contactProperties as $prop):
+                          $propTags = $propertyTagMap[(int)$prop['id']] ?? [];
+                      ?>
                         <div class="mw-contact-property-item" onclick="focusProperty(<?php echo (int)$prop['id']; ?>)">
-                          <div>
+                          <div style="flex: 1; min-width: 0;">
                             <div class="mw-contact-property-addr">
                               <i data-feather="home" style="width: 14px; height: 14px;"></i>
                               <?php echo h($prop['address']); ?>
@@ -1331,6 +1388,18 @@ $unconvertedRequests = $db->query("
                               <?php if (!empty($prop['property_type'])): ?>
                                 &middot; <?php echo ucwords(str_replace('_', ' ', $prop['property_type'])); ?>
                               <?php endif; ?>
+                            </div>
+                            <!-- Property Tags -->
+                            <div class="mw-property-tags-row" id="propTags_<?php echo (int)$prop['id']; ?>" onclick="event.stopPropagation();">
+                              <?php foreach ($propTags as $pTag): ?>
+                                <span class="mw-property-tag" style="--tag-color: <?php echo h($pTag['tag_color']); ?>">
+                                  <?php echo h($pTag['has_value'] && !empty($pTag['tag_value']) ? $pTag['tag_label'] . ': ' . $pTag['tag_value'] : $pTag['tag_label']); ?>
+                                  <button type="button" class="mw-property-tag-remove" onclick="removePropertyTag(<?php echo (int)$prop['id']; ?>, <?php echo (int)$pTag['entity_tag_id']; ?>, this)" title="Remove tag">&times;</button>
+                                </span>
+                              <?php endforeach; ?>
+                              <button type="button" class="mw-property-tag-add-btn" onclick="showTagPicker(<?php echo (int)$prop['id']; ?>, this)" title="Add tag">
+                                <i data-feather="plus" style="width: 10px; height: 10px;"></i>
+                              </button>
                             </div>
                           </div>
                           <div>
@@ -1440,7 +1509,8 @@ $unconvertedRequests = $db->query("
                     <div class="modal-body">
                       <div class="form-group">
                         <label>Street Address <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" id="propAddress" required placeholder="e.g. 123 Main Street">
+                        <input type="text" class="form-control" id="propAddress" required placeholder="Start typing an address..." autocomplete="off">
+                        <div id="propAddressDupeWarning" class="alert alert-warning mt-2" style="display:none; font-size: 0.85rem;"></div>
                       </div>
                       <div class="row">
                         <div class="col-md-6">
@@ -1477,6 +1547,7 @@ $unconvertedRequests = $db->query("
               var CONTACT_ID = <?php echo (int)$viewContact['id']; ?>;
               var CSRF_TOKEN = '<?php echo csrf_token(); ?>';
               var propertiesData = <?php echo json_encode($contactProperties); ?>;
+              var availableTags = <?php echo json_encode($availableTags); ?>;
               var gmap = null;
               var markers = {};
 
@@ -1683,6 +1754,129 @@ $unconvertedRequests = $db->query("
                 div.appendChild(document.createTextNode(str));
                 return div.innerHTML;
               }
+
+              // ── Property Tags ──────────────────────────────────
+              var activeTagPicker = null;
+
+              window.showTagPicker = function(propertyId, btn) {
+                // Close any existing picker
+                if (activeTagPicker) {
+                  activeTagPicker.remove();
+                  activeTagPicker = null;
+                }
+
+                var picker = document.createElement('div');
+                picker.className = 'mw-tag-picker-dropdown';
+                picker.onclick = function(e) { e.stopPropagation(); };
+
+                var html = '<div class="mw-tag-picker-inner">';
+                html += '<select class="mw-tag-picker-select" id="tagSelect_' + propertyId + '" onchange="onTagSelectChange(' + propertyId + ')">';
+                html += '<option value="">Select tag…</option>';
+                for (var i = 0; i < availableTags.length; i++) {
+                  html += '<option value="' + availableTags[i].tag_id + '" data-has-value="' + availableTags[i].has_value + '">' + escHtml(availableTags[i].tag_label) + '</option>';
+                }
+                html += '</select>';
+                html += '<input type="text" class="mw-tag-picker-value" id="tagValue_' + propertyId + '" placeholder="Value…" style="display:none;">';
+                html += '<button type="button" class="mw-tag-picker-save" onclick="applyPropertyTag(' + propertyId + ')">Save</button>';
+                html += '<button type="button" class="mw-tag-picker-cancel" onclick="closeTagPicker()">&times;</button>';
+                html += '</div>';
+
+                picker.innerHTML = html;
+
+                // Insert after the add button
+                var tagsRow = document.getElementById('propTags_' + propertyId);
+                tagsRow.appendChild(picker);
+                activeTagPicker = picker;
+              };
+
+              window.onTagSelectChange = function(propertyId) {
+                var sel = document.getElementById('tagSelect_' + propertyId);
+                var valInput = document.getElementById('tagValue_' + propertyId);
+                var opt = sel.options[sel.selectedIndex];
+                if (opt && opt.getAttribute('data-has-value') === '1') {
+                  valInput.style.display = '';
+                  valInput.focus();
+                } else {
+                  valInput.style.display = 'none';
+                  valInput.value = '';
+                }
+              };
+
+              window.closeTagPicker = function() {
+                if (activeTagPicker) {
+                  activeTagPicker.remove();
+                  activeTagPicker = null;
+                }
+              };
+
+              window.applyPropertyTag = function(propertyId) {
+                var sel = document.getElementById('tagSelect_' + propertyId);
+                var valInput = document.getElementById('tagValue_' + propertyId);
+                var tagId = parseInt(sel.value);
+                if (!tagId) { alert('Please select a tag'); return; }
+
+                var tagValue = valInput.value.trim() || null;
+
+                fetch('/crm/api/tags.php', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'apply',
+                    entity_type: 'property',
+                    entity_id: propertyId,
+                    tag_id: tagId,
+                    tag_value: tagValue,
+                    csrf_token: CSRF_TOKEN
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    location.reload();
+                  } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                  }
+                })
+                .catch(function(err) { alert('Error: ' + err.message); });
+              };
+
+              window.removePropertyTag = function(propertyId, entityTagId, btn) {
+                if (!confirm('Remove this tag?')) return;
+                btn.disabled = true;
+
+                fetch('/crm/api/tags.php', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'remove',
+                    entity_tag_id: entityTagId,
+                    csrf_token: CSRF_TOKEN
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    // Remove the tag badge from DOM
+                    var tagBadge = btn.parentElement;
+                    tagBadge.remove();
+                  } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    btn.disabled = false;
+                  }
+                })
+                .catch(function(err) {
+                  alert('Error: ' + err.message);
+                  btn.disabled = false;
+                });
+              };
+
+              // Close tag picker on outside click
+              document.addEventListener('click', function() {
+                if (activeTagPicker) {
+                  activeTagPicker.remove();
+                  activeTagPicker = null;
+                }
+              });
 
               // ── Init ────────────────────────────────────────────
               document.addEventListener('DOMContentLoaded', function() {
@@ -2412,10 +2606,90 @@ $unconvertedRequests = $db->query("
               .catch(err => alert('Error: ' + err.message));
             }
 
+            // ── Google Places Address Autocomplete ──
+            function initAddressAutocomplete(inputId, cityId, postalId, provinceId, latId, lngId) {
+              var input = document.getElementById(inputId);
+              if (!input) return;
+              if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+                setTimeout(function() { initAddressAutocomplete(inputId, cityId, postalId, provinceId, latId, lngId); }, 200);
+                return;
+              }
+              var ac = new google.maps.places.Autocomplete(input, {
+                types: ['address'],
+                componentRestrictions: { country: ['ca'] },
+                fields: ['address_components', 'geometry', 'formatted_address']
+              });
+              ac.addListener('place_changed', function() {
+                var place = ac.getPlace();
+                if (!place || !place.geometry) return;
+                var street = '', city = '', postal = '', province = '';
+                if (place.address_components) {
+                  for (var i = 0; i < place.address_components.length; i++) {
+                    var c = place.address_components[i];
+                    if (c.types.indexOf('street_number') !== -1) street = c.long_name + ' ' + street;
+                    if (c.types.indexOf('route') !== -1) street = street + c.long_name;
+                    if (c.types.indexOf('locality') !== -1) city = c.long_name;
+                    if (c.types.indexOf('postal_code') !== -1) postal = c.long_name;
+                    if (c.types.indexOf('administrative_area_level_1') !== -1) province = c.short_name;
+                  }
+                }
+                if (street.trim()) input.value = street.trim();
+                var cityEl = document.getElementById(cityId);
+                if (cityEl && city) cityEl.value = city;
+                var postalEl = document.getElementById(postalId);
+                if (postalEl && postal) postalEl.value = postal;
+                if (provinceId) {
+                  var provEl = document.getElementById(provinceId);
+                  if (provEl && province) provEl.value = province;
+                }
+                if (latId) {
+                  var latEl = document.getElementById(latId);
+                  if (latEl) latEl.value = place.geometry.location.lat();
+                }
+                if (lngId) {
+                  var lngEl = document.getElementById(lngId);
+                  if (lngEl) lngEl.value = place.geometry.location.lng();
+                }
+                // Check for duplicate property address after selection
+                if (inputId === 'propertyAddress' || inputId === 'propAddress') {
+                  checkDuplicatePropertyAddress(input.value.trim(), inputId);
+                }
+              });
+            }
+
+            // ── Duplicate property address check ──
+            function checkDuplicatePropertyAddress(address, sourceInputId) {
+              if (!address) return;
+              fetch('api/check-address.php?address=' + encodeURIComponent(address))
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  var warningId = sourceInputId === 'propAddress' ? 'propAddressDupeWarning' : 'propertyAddressDupeWarning';
+                  var warningEl = document.getElementById(warningId);
+                  if (!warningEl) return;
+                  if (data.exists) {
+                    warningEl.innerHTML = '<i data-feather="alert-triangle" style="width:14px;height:14px;"></i> <strong>Address already exists</strong> — linked to ' +
+                      (data.contact_name ? data.contact_name : 'an existing property') +
+                      (data.property_id ? ' (Property #' + data.property_id + ')' : '') +
+                      '. Saving will link this contact to the existing property.';
+                    warningEl.style.display = 'block';
+                    if (typeof feather !== 'undefined') feather.replace();
+                  } else {
+                    warningEl.style.display = 'none';
+                  }
+                })
+                .catch(function() {});
+            }
+
             // Company toggle and mode switching
             document.addEventListener('DOMContentLoaded', function() {
               setupKanbanDragDrop();
               setupViewToggle();
+
+              // Initialize address autocomplete for create form
+              initAddressAutocomplete('propertyAddress', 'propertyCity', 'propertyPostalCode', null, 'propertyLatitude', 'propertyLongitude');
+              initAddressAutocomplete('billingAddress', 'billingCity', 'billingPostalCode', 'billingProvince', null, null);
+              // For Add Property modal
+              initAddressAutocomplete('propAddress', 'propCity', 'propPostalCode', null, null, null);
 
               // Company link toggle
               const linkToggle = document.getElementById('linkCompanyToggle');

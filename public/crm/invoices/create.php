@@ -237,6 +237,10 @@ $csrfToken = generateCSRFToken();
 
 $pageTitle = 'Create Invoice';
 $activePage = 'invoices';
+$apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+if ($apiKey) {
+    $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" defer></script>';
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -343,21 +347,22 @@ $activePage = 'invoices';
                             <div class="mw-form-row">
                                 <div class="mw-form-group" style="flex: 1 1 100%;">
                                     <label class="form-label">Address</label>
-                                    <input type="text" name="service_address" class="form-control" placeholder="Street address">
+                                    <input type="text" name="service_address" id="serviceAddress" class="form-control"
+                                           placeholder="Start typing an address..." autocomplete="off">
                                 </div>
                             </div>
                             <div class="mw-form-row">
                                 <div class="mw-form-group">
                                     <label class="form-label">City</label>
-                                    <input type="text" name="service_city" class="form-control" placeholder="Vancouver">
+                                    <input type="text" name="service_city" id="serviceCity" class="form-control" placeholder="Vancouver">
                                 </div>
                                 <div class="mw-form-group">
                                     <label class="form-label">Province</label>
-                                    <input type="text" name="service_province" class="form-control" placeholder="BC" maxlength="2">
+                                    <input type="text" name="service_province" id="serviceProvince" class="form-control" placeholder="BC" maxlength="2">
                                 </div>
                                 <div class="mw-form-group">
                                     <label class="form-label">Postal Code</label>
-                                    <input type="text" name="service_postal_code" class="form-control" placeholder="V6B 1A1">
+                                    <input type="text" name="service_postal_code" id="servicePostalCode" class="form-control" placeholder="V6B 1A1">
                                 </div>
                             </div>
                         </div>
@@ -375,21 +380,22 @@ $activePage = 'invoices';
                                 <div class="mw-form-row">
                                     <div class="mw-form-group" style="flex: 1 1 100%;">
                                         <label class="form-label">Address</label>
-                                        <input type="text" name="billing_address" class="form-control" placeholder="Street address">
+                                        <input type="text" name="billing_address" id="invBillingAddress" class="form-control"
+                                               placeholder="Start typing an address..." autocomplete="off">
                                     </div>
                                 </div>
                                 <div class="mw-form-row">
                                     <div class="mw-form-group">
                                         <label class="form-label">City</label>
-                                        <input type="text" name="billing_city" class="form-control" placeholder="Vancouver">
+                                        <input type="text" name="billing_city" id="invBillingCity" class="form-control" placeholder="Vancouver">
                                     </div>
                                     <div class="mw-form-group">
                                         <label class="form-label">Province</label>
-                                        <input type="text" name="billing_province" class="form-control" placeholder="BC" maxlength="2">
+                                        <input type="text" name="billing_province" id="invBillingProvince" class="form-control" placeholder="BC" maxlength="2">
                                     </div>
                                     <div class="mw-form-group">
                                         <label class="form-label">Postal Code</label>
-                                        <input type="text" name="billing_postal_code" class="form-control" placeholder="V6B 1A1">
+                                        <input type="text" name="billing_postal_code" id="invBillingPostalCode" class="form-control" placeholder="V6B 1A1">
                                     </div>
                                 </div>
                             </div>
@@ -623,6 +629,45 @@ $activePage = 'invoices';
 
                 // Initialize
                 calculateTotals();
+
+                // ── Google Places Address Autocomplete ──
+                function initAddressAutocomplete(inputId, cityId, postalId, provinceId) {
+                  var input = document.getElementById(inputId);
+                  if (!input) return;
+                  if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+                    setTimeout(function() { initAddressAutocomplete(inputId, cityId, postalId, provinceId); }, 200);
+                    return;
+                  }
+                  var ac = new google.maps.places.Autocomplete(input, {
+                    types: ['address'],
+                    componentRestrictions: { country: ['ca'] },
+                    fields: ['address_components', 'geometry']
+                  });
+                  ac.addListener('place_changed', function() {
+                    var place = ac.getPlace();
+                    if (!place || !place.address_components) return;
+                    var street = '', city = '', postal = '', province = '';
+                    for (var i = 0; i < place.address_components.length; i++) {
+                      var c = place.address_components[i];
+                      if (c.types.indexOf('street_number') !== -1) street = c.long_name + ' ' + street;
+                      if (c.types.indexOf('route') !== -1) street = street + c.long_name;
+                      if (c.types.indexOf('locality') !== -1) city = c.long_name;
+                      if (c.types.indexOf('postal_code') !== -1) postal = c.long_name;
+                      if (c.types.indexOf('administrative_area_level_1') !== -1) province = c.short_name;
+                    }
+                    if (street.trim()) input.value = street.trim();
+                    var cityEl = document.getElementById(cityId);
+                    if (cityEl && city) cityEl.value = city;
+                    var postalEl = document.getElementById(postalId);
+                    if (postalEl && postal) postalEl.value = postal;
+                    if (provinceId) {
+                      var provEl = document.getElementById(provinceId);
+                      if (provEl && province) provEl.value = province;
+                    }
+                  });
+                }
+                initAddressAutocomplete('serviceAddress', 'serviceCity', 'servicePostalCode', 'serviceProvince');
+                initAddressAutocomplete('invBillingAddress', 'invBillingCity', 'invBillingPostalCode', 'invBillingProvince');
             </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
