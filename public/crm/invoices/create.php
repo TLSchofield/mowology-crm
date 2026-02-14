@@ -250,7 +250,7 @@ if ($apiKey) {
             <p class="text-muted mb-4"><?php
                 if ($visitId && isset($visit)) {
                     echo 'Creating invoice from completed visit';
-                } elseif ($jobId && isset($job)) {
+                } elseif (!empty($jobId) && isset($job)) {
                     echo 'Creating invoice from completed job';
                 } else {
                     echo 'Create a new invoice';
