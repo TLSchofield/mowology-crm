@@ -80,13 +80,14 @@ function createJobPlan(array $planData, int $userId): array {
         $planNumber = generatePlanNumber();
 
         // Get company_id from property if not provided
-        $companyId = $planData['company_id'] ?? null;
+        $companyId = !empty($planData['company_id']) ? (int)$planData['company_id'] : null;
         if (!$companyId) {
             $stmt = $db->prepare("
                 SELECT cp.company_id FROM company_properties cp WHERE cp.property_id = ? LIMIT 1
             ");
             $stmt->execute([$planData['property_id']]);
-            $companyId = $stmt->fetchColumn() ?: 0;
+            $found = $stmt->fetchColumn();
+            $companyId = $found ? (int)$found : null;
         }
 
         // If service_package_id provided, inherit proof-of-work template
@@ -202,7 +203,7 @@ function createJobPlan(array $planData, int $userId): array {
     } catch (Exception $e) {
         if ($db->inTransaction()) $db->rollBack();
         error_log("createJobPlan error: " . $e->getMessage());
-        return ['success' => false, 'plan_id' => null, 'plan_number' => null, 'errors' => ['Error creating plan.']];
+        return ['success' => false, 'plan_id' => null, 'plan_number' => null, 'errors' => ['Error creating plan: ' . $e->getMessage()]];
     }
 }
 
