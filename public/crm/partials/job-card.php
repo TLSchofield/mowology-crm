@@ -214,6 +214,16 @@ if (!empty($stop['visits'])) {
         </div>
         <!-- Line 2: Street name -->
         <div class="mw-mc-compact-line2"><?php echo $fullAddress; ?></div>
+
+        <?php if (count($stop['visits'] ?? []) > 1): ?>
+            <div class="mw-mc-services" style="padding-top: 6px;">
+                <?php foreach ($stop['visits'] as $v): ?>
+                    <span class="mw-mc-service-pill" style="border-left-color: <?php echo $jobTypeColors[$v['service_type'] ?? ''] ?? '#455A64'; ?>">
+                        <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $v['service_type'] ?? ''))); ?>
+                    </span>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
     </div>
 
     <!-- Expandable detail (hidden by default, revealed on tap) -->
