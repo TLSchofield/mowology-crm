@@ -575,6 +575,11 @@
         margin-bottom: 10px;
     }
 
+    /* Hide route button on hero card — crew is already at this location */
+    .mw-mc-card-hero .mw-mc-btn-route {
+        display: none;
+    }
+
     .mw-mc-card-hero .mw-mc-actions {
         margin-top: 18px;
         padding-top: 16px;

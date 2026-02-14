@@ -613,17 +613,18 @@
     }
 
     /**
-     * Hide the card-level Route button when any visit on that card is
-     * in-progress or completed (crew is already at the location).
-     * Show it only when all visits are still scheduled.
+     * Hide route button when work has started on a card (pill active/done).
+     * Hero cards auto-hide route via CSS (.mw-mc-card-hero .mw-mc-btn-route).
      */
     function updateRouteButtonVisibility(pill) {
         var card = pill.closest('.mw-mc-card');
         if (!card) return;
         var routeBtn = card.querySelector('.mw-mc-btn-route');
         if (!routeBtn) return;
+        var actionsRow = routeBtn.closest('.mw-mc-actions');
+        if (!actionsRow) return;
 
-        // Check if any pill on this card is active or done
+        // Hide if any pill on this card is active or done
         var cardPills = card.querySelectorAll('.mw-mc-pill-interactive');
         var anyActive = false;
         cardPills.forEach(function(p) {
@@ -632,13 +633,7 @@
             }
         });
 
-        // Hide route button (and its parent actions row) when crew is on-site
-        var actionsRow = routeBtn.closest('.mw-mc-actions');
-        if (anyActive) {
-            if (actionsRow) actionsRow.style.display = 'none';
-        } else {
-            if (actionsRow) actionsRow.style.display = '';
-        }
+        actionsRow.style.display = anyActive ? 'none' : '';
     }
 
     /**

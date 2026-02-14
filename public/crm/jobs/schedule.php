@@ -711,6 +711,6 @@ var MW_SCHEDULE_STATE = {
     visitPhotos: <?php echo json_encode($visitPhotoMap, JSON_FORCE_OBJECT); ?>
 };
 </script>
-<script src="../js/schedule-pill-workflow.js?v=20260214d"></script>
+<script src="../js/schedule-pill-workflow.js?v=20260214g"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
