@@ -69,29 +69,45 @@
 
     var gpsState = 'unknown'; // 'active', 'error', 'unknown'
 
-    // Bind click handler — tapping red icon re-requests GPS permission
+    // Bind click handler — tapping icon re-requests GPS permission
+    // Works on both topbar dot AND mobile schedule dot
     var trackingWrapper = document.getElementById('trackingDotWrapper');
+    var mobileDot = document.getElementById('mobileTrackingDot');
     if (trackingWrapper) {
         trackingWrapper.addEventListener('click', onTrackingDotTap);
     }
+    if (mobileDot) {
+        mobileDot.addEventListener('click', onTrackingDotTap);
+    }
 
     function updateTrackingDot(state, detail) {
-        var dot = document.getElementById('trackingDot');
-        var wrapper = document.getElementById('trackingDotWrapper');
-        if (!dot || !wrapper) return;
-
         gpsState = state;
 
+        // Determine CSS class and title for each state
+        var dotClass, titleText;
         if (state === 'active') {
-            dot.className = 'mw-tracking-dot mw-tracking-dot-on';
-            wrapper.title = 'GPS active' + (detail ? ' — ' + detail : '');
+            dotClass = 'mw-tracking-dot mw-tracking-dot-on';
+            titleText = 'GPS active' + (detail ? ' — ' + detail : '');
         } else if (state === 'error') {
-            dot.className = 'mw-tracking-dot mw-tracking-dot-off';
-            wrapper.title = (detail || 'GPS off') + ' — tap to enable';
+            dotClass = 'mw-tracking-dot mw-tracking-dot-off';
+            titleText = (detail || 'GPS off') + ' — tap to enable';
         } else {
-            // unknown / loading / not clocked in
-            dot.className = 'mw-tracking-dot mw-tracking-dot-loading';
-            wrapper.title = detail || 'Checking GPS...';
+            dotClass = 'mw-tracking-dot mw-tracking-dot-loading';
+            titleText = detail || 'Checking GPS...';
+        }
+
+        // Update topbar dot
+        var dot = document.getElementById('trackingDot');
+        var wrapper = document.getElementById('trackingDotWrapper');
+        if (dot) dot.className = dotClass;
+        if (wrapper) wrapper.title = titleText;
+
+        // Update mobile schedule dot (if present)
+        var mDot = document.getElementById('mobileTrackingDot');
+        if (mDot) {
+            // Mobile dot uses same classes on the wrapper element itself
+            mDot.className = 'mw-mc-gps-dot ' + (state === 'active' ? 'mw-mc-gps-on' : state === 'error' ? 'mw-mc-gps-off' : 'mw-mc-gps-loading');
+            mDot.title = titleText;
         }
     }
 

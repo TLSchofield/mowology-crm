@@ -169,6 +169,58 @@
         color: #555;
     }
 
+    /* GPS Tracking Status Dot in mobile topbar */
+    .mw-mc-gps-dot {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        cursor: pointer;
+        color: #9ca3af;
+        transition: color 0.3s ease;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-gps-dot svg {
+        display: block;
+    }
+
+    .mw-mc-gps-dot:active {
+        transform: scale(0.9);
+    }
+
+    .mw-mc-gps-on {
+        color: #22c55e;
+        animation: mw-mc-gps-pulse-green 2s ease-in-out infinite;
+    }
+
+    .mw-mc-gps-off {
+        color: #ef4444;
+        animation: mw-mc-gps-pulse-red 2s ease-in-out infinite;
+    }
+
+    .mw-mc-gps-loading {
+        color: #9ca3af;
+        animation: mw-mc-gps-fade 1.5s ease-in-out infinite;
+    }
+
+    @keyframes mw-mc-gps-pulse-green {
+        0%, 100% { filter: drop-shadow(0 0 0px rgba(34, 197, 94, 0.6)); }
+        50% { filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.9)); }
+    }
+
+    @keyframes mw-mc-gps-pulse-red {
+        0%, 100% { filter: drop-shadow(0 0 0px rgba(239, 68, 68, 0.6)); }
+        50% { filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.9)); }
+    }
+
+    @keyframes mw-mc-gps-fade {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+
     /* ════════════════════════════════════════════════════
        SCROLLABLE CARD AREA
        ════════════════════════════════════════════════════ */
