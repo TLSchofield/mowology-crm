@@ -8165,3 +8165,51 @@ textarea.font-monospace {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ── Companies Module ──────────────────────────────────── */
+
+/* Company type badges */
+.mw-company-type-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.mw-company-type-badge.individual { background: var(--mw-light); color: var(--mw-green); }
+.mw-company-type-badge.business { background: #DBEAFE; color: #3B82F6; }
+.mw-company-type-badge.strata { background: #FEF3C7; color: #D97706; }
+.mw-company-type-badge.property_manager { background: #E9D5FF; color: #7C3AED; }
+
+/* Company view tabs */
+.mw-company-tabs .nav-link {
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #6B7280;
+  padding: 10px 18px;
+}
+.mw-company-tabs .nav-link:hover {
+  color: var(--mw-green);
+  border-bottom-color: var(--mw-light);
+}
+.mw-company-tabs .nav-link.active {
+  color: var(--mw-green);
+  border-bottom-color: var(--mw-green);
+  font-weight: 600;
+}
+
+/* Outstanding balance highlight */
+.mw-outstanding-balance {
+  background: #FEF3C7;
+  border-left: 4px solid #F59E0B;
+  padding: 16px;
+  border-radius: 4px;
+}
+.mw-outstanding-balance .amount {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #D97706;
+}

@@ -1,0 +1,370 @@
+<?php
+/**
+ * Companies - Edit Company
+ */
+require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once dirname(__DIR__) . '/includes/functions.php';
+
+requireLogin();
+$user = getCurrentUser();
+requirePermission('clients.view');
+
+$db = getDB();
+$errors = [];
+
+$companyId = (int)($_GET['id'] ?? 0);
+if (!$companyId) {
+    header('Location: index.php');
+    exit;
+}
+
+$company = getCompanyById($companyId);
+if (!$company) {
+    header('Location: index.php');
+    exit;
+}
+
+// Get contacts for dropdowns
+$contactsStmt = $db->query("SELECT id, first_name, last_name, email, phone FROM contacts WHERE is_active = 1 ORDER BY first_name ASC, last_name ASC");
+$contacts = $contactsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Get lifecycle stages
+$stages = getLifecycleStages('company');
+
+// Handle form submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+        $errors[] = 'Invalid form submission. Please try again.';
+    } else {
+        $companyName = trim($_POST['company_name'] ?? '');
+        $companyType = $_POST['company_type'] ?? 'individual';
+        $accountStatus = $_POST['account_status'] ?? 'active';
+        $lifecycleStage = $_POST['lifecycle_stage'] ?? 'prospect';
+        $notes = trim($_POST['notes'] ?? '');
+
+        $primaryContactId = !empty($_POST['primary_contact_id']) ? (int)$_POST['primary_contact_id'] : null;
+        $billingContactId = null;
+        if (!empty($_POST['billing_same_as_primary'])) {
+            $billingContactId = $primaryContactId;
+        } elseif (!empty($_POST['billing_contact_id'])) {
+            $billingContactId = (int)$_POST['billing_contact_id'];
+        }
+
+        $billingAddress = trim($_POST['billing_address'] ?? '');
+        $billingCity = trim($_POST['billing_city'] ?? 'Vancouver');
+        $billingProvince = trim($_POST['billing_province'] ?? 'BC');
+        $billingPostalCode = trim($_POST['billing_postal_code'] ?? '');
+        $billingEmail = trim($_POST['billing_email'] ?? '');
+        $billingPhone = trim($_POST['billing_phone'] ?? '');
+        $paymentTerms = trim($_POST['payment_terms'] ?? 'Net 30');
+        $paymentMethod = $_POST['payment_method'] ?? 'invoice';
+        $invoiceRouting = $_POST['invoice_routing_method'] ?? 'primary_contact';
+
+        if ($companyName === '') {
+            $errors[] = 'Company name is required.';
+        }
+
+        if (empty($errors)) {
+            try {
+                $stmt = $db->prepare("
+                    UPDATE companies SET
+                        company_name = ?, company_type = ?, primary_contact_id = ?, billing_contact_id = ?,
+                        billing_address = ?, billing_city = ?, billing_province = ?, billing_postal_code = ?,
+                        billing_email = ?, billing_phone = ?,
+                        account_status = ?, payment_terms = ?, payment_method = ?, lifecycle_stage = ?,
+                        invoice_routing_method = ?, notes = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([
+                    $companyName, $companyType, $primaryContactId, $billingContactId,
+                    $billingAddress ?: null, $billingCity, $billingProvince, $billingPostalCode ?: null,
+                    $billingEmail ?: null, $billingPhone ?: null,
+                    $accountStatus, $paymentTerms, $paymentMethod, $lifecycleStage,
+                    $invoiceRouting, $notes ?: null,
+                    $companyId
+                ]);
+
+                logActivityExtended($user['id'], 'Company updated', "Updated company: {$companyName}", $companyId);
+
+                header("Location: view.php?id={$companyId}&updated=1");
+                exit;
+            } catch (Exception $e) {
+                $errors[] = 'Save failed: ' . $e->getMessage();
+            }
+        }
+    }
+}
+
+// Use POST data if available (validation failure), otherwise use DB data
+$formData = $_SERVER['REQUEST_METHOD'] === 'POST' ? $_POST : $company;
+
+$pageTitle = 'Edit ' . htmlspecialchars($company['company_name']);
+$activePage = 'companies';
+?>
+<?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="h3 mb-1">Edit Company</h1>
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb mb-0 bg-transparent p-0">
+                            <li class="breadcrumb-item"><a href="index.php">Companies</a></li>
+                            <li class="breadcrumb-item"><a href="view.php?id=<?= $companyId ?>"><?= htmlspecialchars($company['company_name']) ?></a></li>
+                            <li class="breadcrumb-item active">Edit</li>
+                        </ol>
+                    </nav>
+                </div>
+            </div>
+
+            <?php if (!empty($errors)): ?>
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        <?php foreach ($errors as $err): ?>
+                            <li><?= htmlspecialchars($err) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
+            <form method="post" id="companyForm">
+                <input type="hidden" name="csrf_token" value="<?= generateCSRFToken() ?>">
+
+                <div class="row">
+                    <div class="col-lg-8">
+
+                        <!-- Company Information -->
+                        <div class="card mb-4">
+                            <div class="card-header"><h5 class="card-title mb-0">Company Information</h5></div>
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <label for="company_name">Company Name <span class="text-danger">*</span></label>
+                                    <input type="text" id="company_name" name="company_name" class="form-control"
+                                           value="<?= htmlspecialchars($formData['company_name'] ?? '') ?>" required>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="company_type">Company Type</label>
+                                            <select id="company_type" name="company_type" class="form-control">
+                                                <?php
+                                                $types = ['individual' => 'Individual', 'business' => 'Business', 'strata' => 'Strata', 'property_manager' => 'Property Manager'];
+                                                foreach ($types as $val => $label): ?>
+                                                    <option value="<?= $val ?>" <?= ($formData['company_type'] ?? 'individual') === $val ? 'selected' : '' ?>>
+                                                        <?= $label ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="lifecycle_stage">Lifecycle Stage</label>
+                                            <select id="lifecycle_stage" name="lifecycle_stage" class="form-control">
+                                                <?php if (!empty($stages)): ?>
+                                                    <?php foreach ($stages as $stage): ?>
+                                                        <option value="<?= htmlspecialchars($stage['stage_key']) ?>"
+                                                                <?= ($formData['lifecycle_stage'] ?? 'prospect') === $stage['stage_key'] ? 'selected' : '' ?>>
+                                                            <?= htmlspecialchars($stage['stage_label']) ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                <?php else: ?>
+                                                    <option value="prospect" <?= ($formData['lifecycle_stage'] ?? '') === 'prospect' ? 'selected' : '' ?>>Prospect</option>
+                                                    <option value="client" <?= ($formData['lifecycle_stage'] ?? '') === 'client' ? 'selected' : '' ?>>Client</option>
+                                                    <option value="inactive" <?= ($formData['lifecycle_stage'] ?? '') === 'inactive' ? 'selected' : '' ?>>Inactive</option>
+                                                <?php endif; ?>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="account_status">Account Status</label>
+                                            <select id="account_status" name="account_status" class="form-control">
+                                                <option value="active" <?= ($formData['account_status'] ?? 'active') === 'active' ? 'selected' : '' ?>>Active</option>
+                                                <option value="inactive" <?= ($formData['account_status'] ?? '') === 'inactive' ? 'selected' : '' ?>>Archived</option>
+                                                <option value="suspended" <?= ($formData['account_status'] ?? '') === 'suspended' ? 'selected' : '' ?>>Suspended</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-group mb-0">
+                                    <label for="notes">Internal Notes</label>
+                                    <textarea id="notes" name="notes" class="form-control" rows="3"><?= htmlspecialchars($formData['notes'] ?? '') ?></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Primary Contact -->
+                        <div class="card mb-4">
+                            <div class="card-header"><h5 class="card-title mb-0">Primary Contact</h5></div>
+                            <div class="card-body">
+                                <div class="form-group mb-0">
+                                    <label for="primary_contact_id">Select Contact</label>
+                                    <select id="primary_contact_id" name="primary_contact_id" class="form-control">
+                                        <option value="">— No contact —</option>
+                                        <?php foreach ($contacts as $ct): ?>
+                                            <option value="<?= $ct['id'] ?>" <?= ($formData['primary_contact_id'] ?? '') == $ct['id'] ? 'selected' : '' ?>>
+                                                <?= htmlspecialchars(trim($ct['first_name'] . ' ' . $ct['last_name'])) ?>
+                                                <?php if ($ct['email']): ?>(<?= htmlspecialchars($ct['email']) ?>)<?php endif; ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Billing Information -->
+                        <div class="card mb-4">
+                            <div class="card-header"><h5 class="card-title mb-0">Billing Information</h5></div>
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <div class="custom-control custom-checkbox">
+                                        <input type="checkbox" id="billing_same_as_primary" name="billing_same_as_primary"
+                                               value="1" class="custom-control-input"
+                                               <?php
+                                               $sameContact = ($formData['primary_contact_id'] ?? null) && ($formData['primary_contact_id'] == ($formData['billing_contact_id'] ?? null));
+                                               echo $sameContact ? 'checked' : '';
+                                               ?>>
+                                        <label class="custom-control-label" for="billing_same_as_primary">Billing contact same as primary</label>
+                                    </div>
+                                </div>
+                                <div id="billingContactSection" <?= $sameContact ? 'style="display:none;"' : '' ?>>
+                                    <div class="form-group">
+                                        <label for="billing_contact_id">Billing Contact</label>
+                                        <select id="billing_contact_id" name="billing_contact_id" class="form-control">
+                                            <option value="">— No billing contact —</option>
+                                            <?php foreach ($contacts as $ct): ?>
+                                                <option value="<?= $ct['id'] ?>" <?= ($formData['billing_contact_id'] ?? '') == $ct['id'] ? 'selected' : '' ?>>
+                                                    <?= htmlspecialchars(trim($ct['first_name'] . ' ' . $ct['last_name'])) ?>
+                                                    <?php if ($ct['email']): ?>(<?= htmlspecialchars($ct['email']) ?>)<?php endif; ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <hr>
+
+                                <div class="form-group">
+                                    <label>Billing Address</label>
+                                    <input type="text" name="billing_address" class="form-control"
+                                           value="<?= htmlspecialchars($formData['billing_address'] ?? '') ?>">
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label>City</label>
+                                            <input type="text" name="billing_city" class="form-control"
+                                                   value="<?= htmlspecialchars($formData['billing_city'] ?? 'Vancouver') ?>">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label>Province</label>
+                                            <input type="text" name="billing_province" class="form-control"
+                                                   value="<?= htmlspecialchars($formData['billing_province'] ?? 'BC') ?>">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label>Postal Code</label>
+                                            <input type="text" name="billing_postal_code" class="form-control"
+                                                   value="<?= htmlspecialchars($formData['billing_postal_code'] ?? '') ?>">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label>Billing Email</label>
+                                            <input type="email" name="billing_email" class="form-control"
+                                                   value="<?= htmlspecialchars($formData['billing_email'] ?? '') ?>">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group mb-0">
+                                            <label>Billing Phone</label>
+                                            <input type="text" name="billing_phone" class="form-control"
+                                                   value="<?= htmlspecialchars($formData['billing_phone'] ?? '') ?>">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sidebar -->
+                    <div class="col-lg-4">
+                        <div class="card mb-4">
+                            <div class="card-header"><h5 class="card-title mb-0">Payment Settings</h5></div>
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <label>Payment Terms</label>
+                                    <input type="text" name="payment_terms" class="form-control"
+                                           value="<?= htmlspecialchars($formData['payment_terms'] ?? 'Net 30') ?>">
+                                </div>
+                                <div class="form-group">
+                                    <label>Payment Method</label>
+                                    <select name="payment_method" class="form-control">
+                                        <?php
+                                        $methods = ['invoice' => 'Invoice', 'credit_card' => 'Credit Card', 'bank_transfer' => 'Bank Transfer', 'cheque' => 'Cheque'];
+                                        foreach ($methods as $val => $label): ?>
+                                            <option value="<?= $val ?>" <?= ($formData['payment_method'] ?? 'invoice') === $val ? 'selected' : '' ?>>
+                                                <?= $label ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="form-group mb-0">
+                                    <label>Invoice Routing</label>
+                                    <select name="invoice_routing_method" class="form-control">
+                                        <?php
+                                        $routing = [
+                                            'primary_contact' => 'Primary Contact',
+                                            'billing_contact' => 'Billing Contact',
+                                            'both_contacts' => 'Both Contacts',
+                                            'email_address' => 'Email Address'
+                                        ];
+                                        foreach ($routing as $val => $label): ?>
+                                            <option value="<?= $val ?>" <?= ($formData['invoice_routing_method'] ?? 'primary_contact') === $val ? 'selected' : '' ?>>
+                                                <?= $label ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-4">
+                            <div class="card-body">
+                                <button type="submit" class="btn btn-primary btn-block mb-2">
+                                    <i data-feather="save" class="align-middle mr-1" style="width:16px;height:16px;"></i> Save Changes
+                                </button>
+                                <a href="view.php?id=<?= $companyId ?>" class="btn btn-outline-secondary btn-block">Cancel</a>
+                            </div>
+                        </div>
+
+                        <!-- Meta info -->
+                        <div class="card">
+                            <div class="card-body">
+                                <small class="text-muted">
+                                    Created: <?= formatDateTime($company['created_at'] ?? '') ?><br>
+                                    Updated: <?= formatDateTime($company['updated_at'] ?? '') ?>
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                var billingCheckbox = document.getElementById('billing_same_as_primary');
+                var billingSection = document.getElementById('billingContactSection');
+
+                billingCheckbox.addEventListener('change', function() {
+                    billingSection.style.display = this.checked ? 'none' : '';
+                });
+            });
+            </script>
+
+<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

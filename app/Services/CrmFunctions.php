@@ -1732,3 +1732,66 @@ function mergeContacts($keepId, $mergeId, $fieldChoices, $userId) {
     }
 }
 
+// ── Company Helper Functions ──────────────────────────────────────────────
+
+/**
+ * Get a single company by ID with primary/billing contact names
+ */
+function getCompanyById($id) {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT c.*,
+               pc.first_name as primary_first_name, pc.last_name as primary_last_name,
+               pc.email as primary_email, pc.phone as primary_phone,
+               bc.first_name as billing_first_name, bc.last_name as billing_last_name,
+               bc.email as billing_email_contact, bc.phone as billing_phone_contact
+        FROM companies c
+        LEFT JOIN contacts pc ON c.primary_contact_id = pc.id
+        LEFT JOIN contacts bc ON c.billing_contact_id = bc.id
+        WHERE c.id = ?
+    ");
+    $stmt->execute([$id]);
+    return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Get all contacts linked to a company (primary, billing, or via company_contacts if exists)
+ */
+function getCompanyContacts($companyId) {
+    $db = getDB();
+    $company = getCompanyById($companyId);
+    if (!$company) return [];
+
+    $contactIds = array_filter([
+        $company['primary_contact_id'],
+        $company['billing_contact_id']
+    ]);
+
+    if (empty($contactIds)) return [];
+
+    $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
+    $stmt = $db->prepare("SELECT * FROM contacts WHERE id IN ({$placeholders}) ORDER BY first_name ASC");
+    $stmt->execute(array_values($contactIds));
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Get properties linked to a company via the company_properties junction table
+ */
+function getCompanyProperties($companyId) {
+    $db = getDB();
+    try {
+        $stmt = $db->prepare("
+            SELECT p.*, cp.relationship_type, cp.is_primary
+            FROM properties p
+            JOIN company_properties cp ON p.id = cp.property_id
+            WHERE cp.company_id = ?
+            ORDER BY cp.is_primary DESC, p.address ASC
+        ");
+        $stmt->execute([$companyId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
