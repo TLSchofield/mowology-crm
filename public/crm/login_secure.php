@@ -12,9 +12,13 @@ $error = '';
 // Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['csrf_token']) && verifyCSRFToken($_POST['csrf_token'])) {
-        $email = sanitizeInput($_POST['email'] ?? '');
+        $email = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
-        
+
+        // Normalize email: lowercase, strip invisible chars
+        $email = strtolower($email);
+        $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0]/u', '', $email);
+
         if (empty($email) || empty($password)) {
             $error = 'Please enter both email and password.';
         } else {

@@ -107,11 +107,15 @@ function isAdmin(): bool {
 function loginUser(string $email, string $password): bool {
     $db = getDB();
 
+    // Normalize email: trim, lowercase, strip invisible chars
+    $email = strtolower(trim($email));
+    $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0]/u', '', $email);
+
     try {
         $stmt = $db->prepare("
             SELECT id, email, password_hash, full_name, role, is_active
             FROM users
-            WHERE email = ? AND is_active = 1
+            WHERE LOWER(email) = ? AND is_active = 1
             LIMIT 1
         ");
         $stmt->execute([$email]);
