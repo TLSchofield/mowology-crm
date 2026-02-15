@@ -62,6 +62,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($companyName === '') {
             $errors[] = 'Company name is required.';
+        } elseif (mb_strlen($companyName) > 255) {
+            $errors[] = 'Company name must be 255 characters or fewer.';
+        }
+
+        // Validate billing email (if provided)
+        if ($billingEmail !== '' && !filter_var($billingEmail, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'Billing email is not a valid email address.';
+        }
+
+        // Validate billing phone — accept 10-digit North American numbers
+        if ($billingPhone !== '') {
+            $phoneDigits = preg_replace('/[^0-9]/', '', $billingPhone);
+            if (strlen($phoneDigits) === 11 && $phoneDigits[0] === '1') {
+                $phoneDigits = substr($phoneDigits, 1);
+            }
+            if (strlen($phoneDigits) !== 10) {
+                $errors[] = 'Billing phone must be a valid 10-digit phone number (e.g. 604-555-1234).';
+            }
+        }
+
+        // Validate postal code — Canadian format A1A 1A1
+        if ($billingPostalCode !== '') {
+            $postalClean = strtoupper(preg_replace('/\s+/', '', $billingPostalCode));
+            if (!preg_match('/^[A-Z]\d[A-Z]\d[A-Z]\d$/', $postalClean)) {
+                $errors[] = 'Billing postal code must be a valid Canadian postal code (e.g. V6B 1A1).';
+            } else {
+                // Normalize to "A1A 1A1" format
+                $billingPostalCode = substr($postalClean, 0, 3) . ' ' . substr($postalClean, 3, 3);
+            }
         }
 
         if (empty($errors)) {
@@ -368,6 +397,87 @@ if ($apiKey) {
 
                 billingCheckbox.addEventListener('change', function() {
                     billingSection.style.display = this.checked ? 'none' : '';
+                });
+
+                // ── Client-side Validation ──
+                var form = document.getElementById('companyForm');
+                var emailInput = form.querySelector('[name="billing_email"]');
+                var phoneInput = form.querySelector('[name="billing_phone"]');
+                var postalInput = form.querySelector('[name="billing_postal_code"]');
+
+                function setValidity(input, isValid, message) {
+                    var feedback = input.parentNode.querySelector('.invalid-feedback');
+                    if (!feedback) {
+                        feedback = document.createElement('div');
+                        feedback.className = 'invalid-feedback';
+                        input.parentNode.appendChild(feedback);
+                    }
+                    if (isValid || input.value.trim() === '') {
+                        input.classList.remove('is-invalid');
+                        if (input.value.trim() !== '') input.classList.add('is-valid');
+                        else input.classList.remove('is-valid');
+                    } else {
+                        input.classList.remove('is-valid');
+                        input.classList.add('is-invalid');
+                        feedback.textContent = message;
+                    }
+                }
+
+                function validateEmail() {
+                    var val = emailInput.value.trim();
+                    if (val === '') { setValidity(emailInput, true, ''); return true; }
+                    var valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+                    setValidity(emailInput, valid, 'Please enter a valid email address.');
+                    return valid;
+                }
+
+                function validatePhone() {
+                    var val = phoneInput.value.trim();
+                    if (val === '') { setValidity(phoneInput, true, ''); return true; }
+                    var digits = val.replace(/[^0-9]/g, '');
+                    if (digits.length === 11 && digits[0] === '1') digits = digits.substring(1);
+                    var valid = digits.length === 10;
+                    setValidity(phoneInput, valid, 'Enter a valid 10-digit phone number (e.g. 604-555-1234).');
+                    return valid;
+                }
+
+                function validatePostal() {
+                    var val = postalInput.value.trim();
+                    if (val === '') { setValidity(postalInput, true, ''); return true; }
+                    var clean = val.toUpperCase().replace(/\s+/g, '');
+                    var valid = /^[A-Z]\d[A-Z]\d[A-Z]\d$/.test(clean);
+                    setValidity(postalInput, valid, 'Enter a valid Canadian postal code (e.g. V6B 1A1).');
+                    if (valid) {
+                        postalInput.value = clean.substring(0, 3) + ' ' + clean.substring(3, 6);
+                    }
+                    return valid;
+                }
+
+                // Format phone on blur
+                phoneInput.addEventListener('blur', function() {
+                    var val = phoneInput.value.trim();
+                    if (val === '') return;
+                    var digits = val.replace(/[^0-9]/g, '');
+                    if (digits.length === 11 && digits[0] === '1') digits = digits.substring(1);
+                    if (digits.length === 10) {
+                        phoneInput.value = digits.substring(0, 3) + '-' + digits.substring(3, 6) + '-' + digits.substring(6, 10);
+                    }
+                    validatePhone();
+                });
+
+                emailInput.addEventListener('blur', validateEmail);
+                postalInput.addEventListener('blur', validatePostal);
+
+                form.addEventListener('submit', function(e) {
+                    var valid = true;
+                    if (!validateEmail()) valid = false;
+                    if (!validatePhone()) valid = false;
+                    if (!validatePostal()) valid = false;
+                    if (!valid) {
+                        e.preventDefault();
+                        var firstInvalid = form.querySelector('.is-invalid');
+                        if (firstInvalid) firstInvalid.focus();
+                    }
                 });
             });
 
