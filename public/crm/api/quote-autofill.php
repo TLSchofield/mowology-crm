@@ -75,13 +75,23 @@ try {
         $propertyId = intval($_POST['property_id'] ?? 0);
         if (!$propertyId) throw new Exception('Property ID is required');
 
-        // Optional: rule overrides per group
+        // New: selected_rules = array of specific rule IDs to generate items for
+        $selectedRules = null;
+        if (!empty($_POST['selected_rules'])) {
+            $selectedRules = json_decode($_POST['selected_rules'], true);
+        }
+
+        // Legacy: rule overrides per group (single rule per group)
         $ruleOverrides = null;
         if (!empty($_POST['rule_overrides'])) {
             $ruleOverrides = json_decode($_POST['rule_overrides'], true);
         }
 
-        $result = autoPopulateQuoteFromMeasurements($propertyId, $ruleOverrides);
+        if ($selectedRules && is_array($selectedRules)) {
+            $result = autoPopulateFromSelectedRules($propertyId, $selectedRules);
+        } else {
+            $result = autoPopulateQuoteFromMeasurements($propertyId, $ruleOverrides);
+        }
 
         echo json_encode([
             'success'      => true,

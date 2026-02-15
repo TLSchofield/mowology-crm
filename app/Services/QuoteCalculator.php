@@ -230,6 +230,87 @@ function autoPopulateQuoteFromMeasurements(int $propertyId, ?array $ruleOverride
 }
 
 /**
+ * Auto-populate quote line items from specific selected pricing rule IDs.
+ *
+ * Unlike autoPopulateQuoteFromMeasurements() which picks one rule per group,
+ * this generates one line item per selected rule — allowing multiple services
+ * for the same measurement group (e.g., 7-day and 14-day lawn cut).
+ *
+ * @param int   $propertyId
+ * @param int[] $selectedRuleIds  Array of product_pricing_rules.id values
+ * @return array ['items' => [...], 'measurements' => [...], 'warnings' => [...]]
+ */
+function autoPopulateFromSelectedRules(int $propertyId, array $selectedRuleIds): array {
+    $db = getDB();
+    $items    = [];
+    $warnings = [];
+
+    if (empty($selectedRuleIds)) {
+        return ['items' => [], 'measurements' => [], 'warnings' => ['No rules selected.']];
+    }
+
+    // Get measurement totals per group
+    $measurementTotals = getMeasurementTotalsForProperty($propertyId);
+
+    if (empty($measurementTotals)) {
+        return [
+            'items'        => [],
+            'measurements' => [],
+            'warnings'     => ['No measurements found for this property.'],
+        ];
+    }
+
+    // Fetch the selected rules with product + group info
+    $placeholders = implode(',', array_fill(0, count($selectedRuleIds), '?'));
+    $stmt = $db->prepare("
+        SELECT r.*, mg.group_key, mg.group_label, mg.unit,
+               p.name as product_name, p.base_price, p.base_cost,
+               p.description as product_description, p.min_price as product_min_price,
+               p.taxable, p.gst_rate
+        FROM product_pricing_rules r
+        JOIN measurement_groups mg ON r.measurement_group_id = mg.id
+        JOIN products p ON r.product_id = p.id
+        WHERE r.id IN ($placeholders) AND r.is_active = 1 AND p.active = 1 AND p.is_archived = 0
+        ORDER BY mg.sort_order, r.priority DESC
+    ");
+    $stmt->execute($selectedRuleIds);
+    $rules = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($rules as $rule) {
+        $groupKey = $rule['group_key'];
+
+        if (!isset($measurementTotals[$groupKey])) {
+            $warnings[] = "No measurements for group: {$groupKey}";
+            continue;
+        }
+
+        $totals = $measurementTotals[$groupKey];
+        $totalUnits = ($groupKey === 'hedge_linear')
+            ? $totals['linear_ft']
+            : $totals['sqft'];
+
+        if ($totalUnits <= 0) continue;
+
+        $product = [
+            'id'          => $rule['product_id'],
+            'name'        => $rule['product_name'],
+            'base_price'  => $rule['base_price'],
+            'base_cost'   => $rule['base_cost'],
+            'description' => $rule['product_description'],
+            'min_price'   => $rule['product_min_price'],
+        ];
+
+        $items[] = calculateLineItemFromRule($rule, $totalUnits, $product, $totals['names']);
+    }
+
+    return [
+        'items'        => $items,
+        'measurements' => $measurementTotals,
+        'warnings'     => $warnings,
+    ];
+}
+
+/**
  * Calculate bundle line items for a property.
  *
  * @param int $bundleId

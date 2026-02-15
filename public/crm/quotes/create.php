@@ -313,7 +313,7 @@ $activePage = 'quotes';
                             </div>
                         </div>
 
-                        <!-- Measurement Summary + Auto-Fill -->
+                        <!-- Measurement Summary + Service Picker -->
                         <div class="card mw-measurement-summary" id="measurementPanel" style="display:none;">
                             <div class="card-header d-flex justify-content-between align-items-center">
                                 <h5 class="card-title mb-0">Property Measurements</h5>
@@ -321,8 +321,9 @@ $activePage = 'quotes';
                             </div>
                             <div class="card-body py-2">
                                 <div id="measurementSummaryContent" class="small text-muted mb-2"></div>
-                                <button type="button" class="btn btn-sm btn-success mw-autofill-btn" onclick="autoFillFromMeasurements()">
-                                    Auto-fill Quote from Measurements
+                                <div id="servicePickerContainer"></div>
+                                <button type="button" class="btn btn-sm btn-success mw-autofill-btn" id="addSelectedServicesBtn" onclick="addSelectedServices()" style="display:none;">
+                                    Add Selected Services
                                 </button>
                             </div>
                         </div>
@@ -601,6 +602,8 @@ $activePage = 'quotes';
             const panel = document.getElementById('measurementPanel');
             const content = document.getElementById('measurementSummaryContent');
             const badge = document.getElementById('measurementBadge');
+            const pickerContainer = document.getElementById('servicePickerContainer');
+            const addBtn = document.getElementById('addSelectedServicesBtn');
 
             fetch('../api/quote-autofill.php?action=get-measurements&property_id=' + propertyId)
                 .then(r => r.json())
@@ -609,7 +612,6 @@ $activePage = 'quotes';
                         propertyMeasurements = data;
                         panel.style.display = '';
 
-                        // Build summary display
                         const groupLabels = {
                             'lawn_area': 'Lawn & Garden',
                             'hard_surface': 'Hard Surface',
@@ -631,32 +633,135 @@ $activePage = 'quotes';
 
                         content.innerHTML = summaryHtml;
                         badge.textContent = totalAreas + ' area' + (totalAreas !== 1 ? 's' : '');
+
+                        // Build service picker per measurement group
+                        buildServicePicker(data.measurements, data.rules);
                     } else {
                         panel.style.display = 'none';
                         propertyMeasurements = null;
+                        pickerContainer.innerHTML = '';
+                        addBtn.style.display = 'none';
                     }
                 })
                 .catch(() => {
                     panel.style.display = 'none';
                     propertyMeasurements = null;
+                    pickerContainer.innerHTML = '';
+                    addBtn.style.display = 'none';
                 });
         }
 
-        function autoFillFromMeasurements() {
+        function buildServicePicker(measurements, rulesByGroup) {
+            const container = document.getElementById('servicePickerContainer');
+            const addBtn = document.getElementById('addSelectedServicesBtn');
+            container.innerHTML = '';
+
+            const frequencyLabels = {
+                '7_day': '7-day',
+                '14_day': '14-day',
+                '21_day': '21-day',
+                'monthly': 'Monthly',
+                'seasonal': 'Seasonal',
+                'one_off': 'One-off'
+            };
+
+            let hasRules = false;
+
+            Object.entries(measurements).forEach(([groupKey, m]) => {
+                const rules = rulesByGroup[groupKey];
+                if (!rules || rules.length === 0) return;
+
+                hasRules = true;
+                const totalUnits = groupKey === 'hedge_linear' ? m.linear_ft : m.sqft;
+                const unitLabel = groupKey === 'hedge_linear' ? 'lin ft' : 'sq ft';
+
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'mw-service-picker-group';
+
+                let rulesHtml = '';
+                rules.forEach(rule => {
+                    const price = calculatePreviewPrice(rule, totalUnits);
+                    const freq = frequencyLabels[rule.default_frequency] || rule.default_frequency;
+                    const rateInfo = rule.pricing_model === 'flat'
+                        ? 'Flat rate'
+                        : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft');
+
+                    rulesHtml += `
+                        <label class="mw-service-option">
+                            <input type="checkbox" name="service_rule" value="${rule.id}" data-group="${groupKey}">
+                            <div class="mw-service-option-details">
+                                <span class="mw-service-option-name">${rule.product_name}</span>
+                                <span class="mw-service-option-meta">${freq} &middot; ${rateInfo}</span>
+                            </div>
+                            <span class="mw-service-option-price">${formatCurrency(price)}</span>
+                        </label>
+                    `;
+                });
+
+                groupDiv.innerHTML = rulesHtml;
+                container.appendChild(groupDiv);
+            });
+
+            if (hasRules) {
+                addBtn.style.display = '';
+                // Update button state on checkbox change
+                container.addEventListener('change', updateAddButtonState);
+                updateAddButtonState();
+            } else {
+                addBtn.style.display = 'none';
+            }
+        }
+
+        function calculatePreviewPrice(rule, totalUnits) {
+            const model = rule.pricing_model;
+            const perUnit = parseFloat(rule.price_per_unit) || 0;
+            const minPrice = parseFloat(rule.minimum_price) || 0;
+            const included = parseFloat(rule.included_units) || 0;
+            const basePrice = parseFloat(rule.base_price) || 0;
+
+            let price = 0;
+            switch (model) {
+                case 'flat':
+                    price = basePrice;
+                    break;
+                case 'per_sqft':
+                case 'per_linear_ft':
+                    price = totalUnits * perUnit;
+                    if (minPrice > 0 && price < minPrice) price = minPrice;
+                    break;
+                case 'min_plus_sqft':
+                case 'min_plus_linear_ft':
+                    price = minPrice + (Math.max(0, totalUnits - included) * perUnit);
+                    break;
+            }
+            return Math.round(price * 100) / 100;
+        }
+
+        function updateAddButtonState() {
+            const checked = document.querySelectorAll('#servicePickerContainer input[type="checkbox"]:checked');
+            const btn = document.getElementById('addSelectedServicesBtn');
+            btn.disabled = checked.length === 0;
+            btn.textContent = checked.length === 0
+                ? 'Select services above'
+                : 'Add ' + checked.length + ' Selected Service' + (checked.length !== 1 ? 's' : '');
+        }
+
+        function addSelectedServices() {
             const propertyId = propertySelect.value;
-            if (!propertyId) {
-                alert('Please select a property first.');
+            if (!propertyId) return;
+
+            const checked = document.querySelectorAll('#servicePickerContainer input[type="checkbox"]:checked');
+            if (checked.length === 0) {
+                alert('Please select at least one service.');
                 return;
             }
 
-            // Confirm if there are existing line items
-            if (lineItems.length > 0) {
-                if (!confirm('This will add auto-calculated line items to the existing list. Continue?')) return;
-            }
+            const selectedRuleIds = Array.from(checked).map(cb => parseInt(cb.value));
 
             const formData = new FormData();
             formData.append('action', 'auto-fill');
             formData.append('property_id', propertyId);
+            formData.append('selected_rules', JSON.stringify(selectedRuleIds));
 
             fetch('../api/quote-autofill.php', {
                 method: 'POST',
@@ -689,13 +794,17 @@ $activePage = 'quotes';
                     });
                     renderLineItems();
 
+                    // Uncheck all after adding
+                    document.querySelectorAll('#servicePickerContainer input[type="checkbox"]').forEach(cb => cb.checked = false);
+                    updateAddButtonState();
+
                     if (data.warnings && data.warnings.length > 0) {
-                        alert('Auto-fill complete with warnings:\n' + data.warnings.join('\n'));
+                        alert('Services added with warnings:\n' + data.warnings.join('\n'));
                     }
                 } else if (data.warnings && data.warnings.length > 0) {
-                    alert('Could not auto-fill:\n' + data.warnings.join('\n'));
+                    alert('Could not add services:\n' + data.warnings.join('\n'));
                 } else {
-                    alert('No pricing rules found for this property\'s measurements. Configure pricing rules on products first.');
+                    alert('No pricing rules matched. Check product pricing configuration.');
                 }
             })
             .catch(err => alert('Error: ' + err.message));
