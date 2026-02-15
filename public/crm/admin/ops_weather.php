@@ -22,8 +22,65 @@ $activePage = 'ops-weather';
           <!-- Page Header -->
           <div class="mw-page-header">
             <div>
-              <h1 class="h3 mb-0"><i data-feather="cloud-rain" style="width:28px;height:28px;"></i> Weather Operations Settings</h1>
-              <p class="text-muted mb-0">Control how weather affects your scheduled visits</p>
+              <h1 class="h3 mb-0"><i data-feather="cloud-rain" style="width:28px;height:28px;"></i> Weather Operations</h1>
+              <p class="text-muted mb-0">Forecast, salt alerts &amp; weather rules for scheduled visits</p>
+            </div>
+          </div>
+
+          <!-- 7-Day Forecast (top of page) -->
+          <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="card-title mb-0"><i data-feather="cloud" style="width:18px;height:18px;"></i> 7-Day Forecast — Vancouver</h5>
+                <small class="text-muted">Source: Environment Canada · Days highlighted in blue trigger salt alerts</small>
+              </div>
+              <span class="badge badge-secondary" style="font-size:0.75rem;">Updated <?php echo date('g:ia'); ?></span>
+            </div>
+            <div class="card-body p-2">
+              <div class="d-flex" style="gap:4px;overflow-x:auto;" id="saltForecastPreview">
+                <?php
+                $dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                foreach ($weekWeather as $date => $day):
+                  $high = $day['temp_high'] ?? 0;
+                  $overnightLow = $day['overnight_low'] ?? ($day['temp_low'] ?? 0);
+                  $cond = strtolower($day['condition'] ?? '');
+                  $condDisplay = ucfirst($day['condition'] ?? 'Unknown');
+                  $weatherEmoji = getWeatherIcon($day['condition'] ?? 'Clear');
+                  $ts = strtotime($date);
+                  $dayName = $dayNames[date('w', $ts)];
+                  $monthDay = date('M j', $ts);
+                  $isToday = ($date === date('Y-m-d'));
+                  $precip = (int)($day['precipitation'] ?? 0);
+                  $wind = (int)($day['wind'] ?? 0);
+                  // Salt check uses overnight low (6pm→8am)
+                  $isSaltDay = ($overnightLow <= 0)
+                    || strpos($cond, 'snow') !== false
+                    || strpos($cond, 'ice') !== false
+                    || strpos($cond, 'freezing') !== false;
+                ?>
+                <div class="text-center flex-fill p-2 rounded <?php echo $isSaltDay ? 'salt-day-highlight' : ''; ?>"
+                     style="min-width:110px;<?php echo $isSaltDay ? 'background:#e3f2fd;border:2px solid #42a5f5;' : ($isToday ? 'background:#f0f9f4;border:2px solid var(--mw-green);' : 'background:#f8f9fa;border:2px solid transparent;'); ?>"
+                     data-date="<?php echo $date; ?>"
+                     data-low="<?php echo $overnightLow; ?>"
+                     data-condition="<?php echo htmlspecialchars($cond); ?>">
+                  <div style="font-size:0.75rem;color:#666;font-weight:600;"><?php echo $dayName; ?><?php if ($isToday): ?> <span style="color:var(--mw-green);">TODAY</span><?php endif; ?></div>
+                  <div style="font-weight:600;"><?php echo $monthDay; ?></div>
+                  <div style="font-size:1.8rem;line-height:1.2;" class="my-1"><?php echo $weatherEmoji; ?></div>
+                  <div style="font-size:0.8rem;color:#555;margin-bottom:2px;"><?php echo htmlspecialchars($condDisplay); ?></div>
+                  <div style="font-size:0.95rem;font-weight:600;">
+                    <span style="color:#c62828;"><?php echo $high; ?>°</span>
+                    <span style="color:#999;">/</span>
+                    <span style="color:#1565c0;"><?php echo $overnightLow; ?>°</span>
+                  </div>
+                  <?php if ($precip > 0): ?>
+                  <div style="font-size:0.7rem;color:#666;">💧 <?php echo $precip; ?>%<?php if ($wind > 30): ?> · 💨 <?php echo $wind; ?><?php endif; ?></div>
+                  <?php endif; ?>
+                  <?php if ($isSaltDay): ?>
+                  <div style="font-size:0.7rem;color:#1565c0;font-weight:700;margin-top:2px;">🧂 SALT</div>
+                  <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+              </div>
             </div>
           </div>
 
@@ -202,56 +259,6 @@ $activePage = 'ops-weather';
                     <strong>Email</strong> sends to the admin email in Business Settings.
                     <strong>SMS</strong> sends to your phone number on your user profile.
                   </small>
-                </div>
-              </div>
-
-              <!-- 7-Day Forecast Preview -->
-              <div class="card mb-3">
-                <div class="card-header">
-                  <h5 class="card-title mb-0"><i data-feather="calendar" style="width:18px;height:18px;"></i> 7-Day Salt Forecast</h5>
-                  <small class="text-muted">Days highlighted in blue will trigger salt alerts based on your settings above</small>
-                </div>
-                <div class="card-body p-2">
-                  <div class="d-flex" style="gap:4px;overflow-x:auto;" id="saltForecastPreview">
-                    <?php
-                    $dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-                    foreach ($weekWeather as $date => $day):
-                      $high = $day['temp_high'] ?? 0;
-                      $overnightLow = $day['overnight_low'] ?? ($day['temp_low'] ?? 0);
-                      $cond = strtolower($day['condition'] ?? '');
-                      $ts = strtotime($date);
-                      $dayName = $dayNames[date('w', $ts)];
-                      $monthDay = date('M j', $ts);
-                      // Salt check uses overnight low (6pm→8am) — the temp you'd salt for
-                      $isSaltDay = ($overnightLow <= 0)
-                        || strpos($cond, 'snow') !== false
-                        || strpos($cond, 'ice') !== false
-                        || strpos($cond, 'freezing') !== false;
-                    ?>
-                    <div class="text-center flex-fill p-2 rounded <?php echo $isSaltDay ? 'salt-day-highlight' : ''; ?>"
-                         style="min-width:100px;<?php echo $isSaltDay ? 'background:#e3f2fd;border:2px solid #42a5f5;' : 'background:#f8f9fa;border:2px solid transparent;'; ?>"
-                         data-date="<?php echo $date; ?>"
-                         data-low="<?php echo $overnightLow; ?>"
-                         data-condition="<?php echo htmlspecialchars($cond); ?>">
-                      <div style="font-size:0.75rem;color:#666;"><?php echo $dayName; ?></div>
-                      <div style="font-weight:600;"><?php echo $monthDay; ?></div>
-                      <div style="font-size:1.2rem;" class="my-1">
-                        <?php if ($isSaltDay): ?>❄️<?php else: ?>✅<?php endif; ?>
-                      </div>
-                      <div style="font-size:0.85rem;">
-                        <span style="color:#1565c0;font-weight:600;"><?php echo $high; ?>°</span>
-                        <span style="color:#666;">/ <?php echo $overnightLow; ?>°</span>
-                      </div>
-                      <div style="font-size:0.7rem;color:#999;"><?php echo htmlspecialchars(ucfirst($day['condition'] ?? '')); ?></div>
-                      <?php if ($overnightLow !== ($day['temp_low'] ?? 0)): ?>
-                      <div style="font-size:0.65rem;color:#888;" title="Overnight low from hourly data (6pm–8am)">overnight</div>
-                      <?php endif; ?>
-                      <?php if ($isSaltDay): ?>
-                      <div style="font-size:0.7rem;color:#1565c0;font-weight:600;margin-top:2px;">SALT</div>
-                      <?php endif; ?>
-                    </div>
-                    <?php endforeach; ?>
-                  </div>
                 </div>
               </div>
 
@@ -1120,6 +1127,7 @@ $activePage = 'ops-weather';
             document.querySelectorAll('#saltForecastPreview > div').forEach(function(card) {
               const low = parseFloat(card.dataset.low);
               const cond = (card.dataset.condition || '').toLowerCase();
+              const isToday = card.querySelector('[style*="var(--mw-green)"]') !== null;
               let isSaltDay = low <= triggerTemp;
               if (!isSaltDay && checkSnow && cond.indexOf('snow') !== -1) isSaltDay = true;
               if (!isSaltDay && checkFreezing && cond.indexOf('freezing') !== -1) isSaltDay = true;
@@ -1129,20 +1137,20 @@ $activePage = 'ops-weather';
                 card.style.background = '#e3f2fd';
                 card.style.border = '2px solid #42a5f5';
                 card.classList.add('salt-day-highlight');
+              } else if (isToday) {
+                card.style.background = '#f0f9f4';
+                card.style.border = '2px solid var(--mw-green)';
+                card.classList.remove('salt-day-highlight');
               } else {
                 card.style.background = '#f8f9fa';
                 card.style.border = '2px solid transparent';
                 card.classList.remove('salt-day-highlight');
               }
 
-              // Update emoji and SALT label
-              var emojiEl = card.querySelector('div:nth-child(3)');
-              var saltLabel = card.querySelector('div:last-child');
-              if (emojiEl) emojiEl.textContent = isSaltDay ? '❄️' : '✅';
-              if (saltLabel && saltLabel.textContent.trim() === 'SALT' && !isSaltDay) {
-                saltLabel.style.display = 'none';
-              } else if (saltLabel && saltLabel.textContent.trim() === 'SALT' && isSaltDay) {
-                saltLabel.style.display = '';
+              // Toggle SALT label visibility
+              var saltLabel = card.querySelector('div[style*="SALT"]') || Array.from(card.querySelectorAll('div')).find(function(el) { return el.textContent.trim() === '🧂 SALT'; });
+              if (saltLabel) {
+                saltLabel.style.display = isSaltDay ? '' : 'none';
               }
             });
           }

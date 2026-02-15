@@ -725,33 +725,40 @@ function ensureCacheDirectory(string $dir): bool
 }
 
 /**
- * Get weather icon emoji for condition
+ * Get weather icon emoji for condition.
+ * Returns an actual emoji character for display in HTML.
  */
 function getWeatherIcon(string $condition): string
 {
     $condition = strtolower($condition);
 
+    // Order matters — more specific matches first
     $icons = [
-        'clear' => 'sunny',
-        'sunny' => 'sunny',
-        'partly cloudy' => 'partly-cloudy',
-        'cloudy' => 'cloudy',
-        'overcast' => 'cloudy',
-        'rain' => 'rainy',
-        'rainy' => 'rainy',
-        'rain showers' => 'rainy',
-        'heavy rain' => 'rainy',
-        'heavy rain showers' => 'rainy',
-        'showers' => 'rainy',
-        'thunderstorm' => 'storm',
-        'snow' => 'snow',
-        'snowing' => 'snow',
-        'snow showers' => 'snow',
-        'sleet' => 'sleet',
-        'fog' => 'fog',
-        'mist' => 'fog',
-        'wind' => 'windy',
-        'windy' => 'windy',
+        'thunderstorm'      => '⛈️',
+        'freezing rain'     => '🧊',
+        'freezing drizzle'  => '🧊',
+        'ice pellet'        => '🧊',
+        'snow showers'      => '🌨️',
+        'snow'              => '❄️',
+        'snowing'           => '❄️',
+        'blizzard'          => '❄️',
+        'sleet'             => '🌨️',
+        'heavy rain'        => '🌧️',
+        'heavy rain showers'=> '🌧️',
+        'rain showers'      => '🌦️',
+        'rain'              => '🌧️',
+        'rainy'             => '🌧️',
+        'showers'           => '🌦️',
+        'drizzle'           => '🌦️',
+        'fog'               => '🌫️',
+        'mist'              => '🌫️',
+        'overcast'          => '☁️',
+        'cloudy'            => '☁️',
+        'partly cloudy'     => '⛅',
+        'clear'             => '☀️',
+        'sunny'             => '☀️',
+        'wind'              => '💨',
+        'windy'             => '💨',
     ];
 
     foreach ($icons as $key => $icon) {
@@ -760,7 +767,7 @@ function getWeatherIcon(string $condition): string
         }
     }
 
-    return 'partly-cloudy'; // Default
+    return '⛅'; // Default: partly cloudy
 }
 
 /**
