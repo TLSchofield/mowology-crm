@@ -4009,6 +4009,28 @@ textarea.font-monospace {
   color: #d84315;
 }
 
+/* Holiday indicator */
+.mw-calendar-date-cell.holiday {
+  background: linear-gradient(135deg, rgba(220, 53, 69, 0.08) 0%, rgba(220, 53, 69, 0.04) 100%);
+  border-left: 4px solid var(--mw-orange);
+}
+
+.mw-calendar-date-cell.holiday .mw-date-number {
+  color: #dc3545;
+}
+
+.mw-holiday-badge {
+  font-size: 10px;
+  color: #dc3545;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 2px 0;
+  padding: 1px 4px;
+  background: rgba(220, 53, 69, 0.1);
+  border-radius: 3px;
+  display: inline-block;
+}
+
 /* ── Stop Grid (replaces hourly time grid) ──────────── */
 .mw-stop-grid {
   display: grid;

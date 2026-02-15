@@ -447,6 +447,20 @@ function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
         $stmt->execute($params);
         $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Fetch global holidays once for the full horizon window
+        $maxHorizon = $horizonDays ?? 42;
+        $holidayFrom = date('Y-m-d');
+        $holidayTo = date('Y-m-d', strtotime("+{$maxHorizon} days"));
+        // Extend range 7 days back to support bump lookups near window start
+        $holidayFromExtended = date('Y-m-d', strtotime("-7 days"));
+        $holidays = [];
+        try {
+            $holidays = getActiveHolidays($holidayFromExtended, $holidayTo);
+        } catch (Exception $e) {
+            // Table may not exist yet — continue without holidays
+            error_log("getActiveHolidays: " . $e->getMessage());
+        }
+
         foreach ($plans as $plan) {
             try {
                 $horizon = $horizonDays ?? (int)$plan['horizon_days'];
@@ -479,7 +493,7 @@ function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
                         continue; // Already generated up to horizon
                     }
 
-                    $dates = calculateRecurrenceDates($plan, $fromDate->format('Y-m-d'), $toDate->format('Y-m-d'));
+                    $dates = calculateRecurrenceDates($plan, $fromDate->format('Y-m-d'), $toDate->format('Y-m-d'), $holidays);
                 } else {
                     // One-time plan: single visit on plan_start_date
                     $visitDate = $plan['plan_start_date'] ?: date('Y-m-d');
@@ -556,10 +570,82 @@ function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
 }
 
 /**
- * Calculate occurrence dates for a recurring plan.
- * Returns array of YYYY-MM-DD strings. Respects blackout_dates.
+ * Fetch active company holidays for a date range.
+ * Returns lookup array: ['2026-07-01' => 'Canada Day', ...]
+ * Handles is_annual holidays by matching month+day across years.
  */
-function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate): array {
+function getActiveHolidays(string $fromDate, string $toDate): array {
+    $db = getDB();
+    $holidays = [];
+
+    // Exact date matches (non-annual or annual with matching year)
+    $stmt = $db->prepare("
+        SELECT holiday_date, name
+        FROM company_holidays
+        WHERE is_active = 1
+          AND holiday_date BETWEEN ? AND ?
+    ");
+    $stmt->execute([$fromDate, $toDate]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $holidays[$row['holiday_date']] = $row['name'];
+    }
+
+    // Annual holidays: generate dates for each year in range
+    $annualStmt = $db->prepare("
+        SELECT holiday_date, name
+        FROM company_holidays
+        WHERE is_active = 1 AND is_annual = 1
+    ");
+    $annualStmt->execute();
+    $annuals = $annualStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if ($annuals) {
+        $startYear = (int)substr($fromDate, 0, 4);
+        $endYear = (int)substr($toDate, 0, 4);
+        foreach ($annuals as $row) {
+            $md = substr($row['holiday_date'], 5); // MM-DD
+            for ($y = $startYear; $y <= $endYear; $y++) {
+                $genDate = $y . '-' . $md;
+                if ($genDate >= $fromDate && $genDate <= $toDate) {
+                    $holidays[$genDate] = $row['name'];
+                }
+            }
+        }
+    }
+
+    return $holidays;
+}
+
+/**
+ * Find the nearest working day before a holiday for visit bumping.
+ * Searches up to 7 days back, skipping weekends, holidays, and blackouts.
+ * Returns YYYY-MM-DD string or null if no valid day found.
+ */
+function findBumpDate(string $holidayDate, array $holidays, array $blackouts): ?string {
+    $dt = new DateTime($holidayDate);
+    for ($i = 0; $i < 7; $i++) {
+        $dt->modify('-1 day');
+        $candidate = $dt->format('Y-m-d');
+        $dow = (int)$dt->format('w'); // 0=Sun, 6=Sat
+
+        // Skip weekends
+        if ($dow === 0 || $dow === 6) continue;
+        // Skip other holidays
+        if (isset($holidays[$candidate])) continue;
+        // Skip per-plan blackouts
+        if (isset($blackouts[$candidate])) continue;
+
+        return $candidate;
+    }
+    return null; // No valid day found (extremely unlikely)
+}
+
+/**
+ * Calculate occurrence dates for a recurring plan.
+ * Returns array of YYYY-MM-DD strings. Respects blackout_dates and holidays.
+ * Holiday visits are bumped to the last available working day before the holiday.
+ */
+function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate, array $holidays = []): array {
     $dates = [];
     $current = new DateTime($fromDate);
     $end = new DateTime($toDate);
@@ -632,9 +718,18 @@ function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate)
                 break;
         }
 
-        // Check blackout
+        // Check per-plan blackout (drops visit entirely — client vacation, etc.)
         if ($shouldInclude && isset($blackouts[$dateStr])) {
             $shouldInclude = false;
+        }
+
+        // Check global holidays (bump visit to last working day before)
+        if ($shouldInclude && isset($holidays[$dateStr])) {
+            $bumped = findBumpDate($dateStr, $holidays, $blackouts);
+            if ($bumped && !in_array($bumped, $dates, true)) {
+                $dates[] = $bumped;
+            }
+            $shouldInclude = false; // Don't add the holiday date itself
         }
 
         if ($shouldInclude) {

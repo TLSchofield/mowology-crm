@@ -306,6 +306,91 @@ try {
             'to'      => $phone,
         ]);
 
+    } elseif ($action === 'get-holidays') {
+        // Ensure table exists
+        ensureHolidaysTable($db);
+
+        $stmt = $db->prepare("SELECT id, holiday_date, name, is_annual, is_active FROM company_holidays ORDER BY holiday_date ASC");
+        $stmt->execute();
+        $holidays = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        echo json_encode(['success' => true, 'holidays' => $holidays]);
+
+    } elseif ($action === 'save-holiday') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            throw new Exception('POST method required');
+        }
+        ensureHolidaysTable($db);
+
+        $data = json_decode(file_get_contents('php://input'), true);
+        $id = (int)($data['id'] ?? 0);
+        $holidayDate = $data['holiday_date'] ?? null;
+        $name = trim($data['name'] ?? '');
+        $isAnnual = !empty($data['is_annual']) ? 1 : 0;
+        $isActive = isset($data['is_active']) ? (int)$data['is_active'] : 1;
+
+        if (!$holidayDate || !$name) {
+            throw new Exception('Date and name are required');
+        }
+
+        if ($id > 0) {
+            // Update existing
+            $stmt = $db->prepare("
+                UPDATE company_holidays SET holiday_date = ?, name = ?, is_annual = ?, is_active = ? WHERE id = ?
+            ");
+            $stmt->execute([$holidayDate, $name, $isAnnual, $isActive, $id]);
+        } else {
+            // Insert new (ON DUPLICATE KEY UPDATE handles same-date conflicts)
+            $stmt = $db->prepare("
+                INSERT INTO company_holidays (holiday_date, name, is_annual, is_active)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE name = VALUES(name), is_annual = VALUES(is_annual), is_active = VALUES(is_active)
+            ");
+            $stmt->execute([$holidayDate, $name, $isAnnual, $isActive]);
+        }
+
+        echo json_encode(['success' => true, 'message' => 'Holiday saved']);
+
+    } elseif ($action === 'delete-holiday') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            throw new Exception('POST method required');
+        }
+        ensureHolidaysTable($db);
+
+        $data = json_decode(file_get_contents('php://input'), true);
+        $id = (int)($data['id'] ?? 0);
+        if (!$id) throw new Exception('Holiday ID is required');
+
+        $stmt = $db->prepare("DELETE FROM company_holidays WHERE id = ?");
+        $stmt->execute([$id]);
+
+        echo json_encode(['success' => true, 'message' => 'Holiday deleted']);
+
+    } elseif ($action === 'seed-holidays') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            throw new Exception('POST method required');
+        }
+        ensureHolidaysTable($db);
+
+        $data = json_decode(file_get_contents('php://input'), true);
+        $year = (int)($data['year'] ?? date('Y'));
+
+        $bcHolidays = getBCStatutoryHolidays($year);
+        $inserted = 0;
+
+        $stmt = $db->prepare("
+            INSERT INTO company_holidays (holiday_date, name, is_annual, is_active)
+            VALUES (?, ?, ?, 1)
+            ON DUPLICATE KEY UPDATE name = VALUES(name), is_annual = VALUES(is_annual)
+        ");
+
+        foreach ($bcHolidays as $h) {
+            $stmt->execute([$h['date'], $h['name'], $h['is_annual'] ? 1 : 0]);
+            $inserted++;
+        }
+
+        echo json_encode(['success' => true, 'message' => "Seeded {$inserted} BC statutory holidays for {$year}", 'count' => $inserted]);
+
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action ?? ''));
     }
@@ -313,4 +398,89 @@ try {
 } catch (Exception $e) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+}
+
+
+// ── Helper Functions ─────────────────────────────────────
+
+/**
+ * Ensure the company_holidays table exists (auto-create if missing).
+ */
+function ensureHolidaysTable(PDO $db): void {
+    $check = $db->query("SHOW TABLES LIKE 'company_holidays'");
+    if ($check->rowCount() === 0) {
+        $db->exec("
+            CREATE TABLE company_holidays (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                holiday_date DATE NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                is_annual TINYINT(1) DEFAULT 0,
+                is_active TINYINT(1) DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_holiday_date (holiday_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+        ");
+    }
+}
+
+/**
+ * Calculate BC/Canadian statutory holidays for a given year.
+ * Returns array of ['date' => 'YYYY-MM-DD', 'name' => '...', 'is_annual' => bool].
+ */
+function getBCStatutoryHolidays(int $year): array {
+    $holidays = [];
+
+    // Fixed-date holidays (is_annual = true)
+    $holidays[] = ['date' => "$year-01-01", 'name' => "New Year's Day", 'is_annual' => true];
+    $holidays[] = ['date' => "$year-07-01", 'name' => 'Canada Day', 'is_annual' => true];
+    $holidays[] = ['date' => "$year-11-11", 'name' => 'Remembrance Day', 'is_annual' => true];
+    $holidays[] = ['date' => "$year-12-25", 'name' => 'Christmas Day', 'is_annual' => true];
+    $holidays[] = ['date' => "$year-12-26", 'name' => 'Boxing Day', 'is_annual' => true];
+    $holidays[] = ['date' => "$year-09-30", 'name' => 'Truth & Reconciliation Day', 'is_annual' => true];
+
+    // Floating holidays (calculated, NOT annual — regenerate per year)
+
+    // Family Day: 3rd Monday of February
+    $holidays[] = ['date' => nthWeekdayOfMonth($year, 2, 1, 3), 'name' => 'Family Day', 'is_annual' => false];
+
+    // Good Friday: Friday before Easter Sunday
+    $easter = date('Y-m-d', easter_date($year));
+    $goodFriday = date('Y-m-d', strtotime('-2 days', strtotime($easter)));
+    $holidays[] = ['date' => $goodFriday, 'name' => 'Good Friday', 'is_annual' => false];
+
+    // Victoria Day: Monday before May 25
+    $may25 = new DateTime("$year-05-25");
+    $dow = (int)$may25->format('w');
+    $offset = ($dow === 1) ? 0 : (($dow === 0) ? 1 : $dow - 1);
+    $may25->modify("-{$offset} days");
+    $holidays[] = ['date' => $may25->format('Y-m-d'), 'name' => 'Victoria Day', 'is_annual' => false];
+
+    // BC Day: 1st Monday of August
+    $holidays[] = ['date' => nthWeekdayOfMonth($year, 8, 1, 1), 'name' => 'BC Day', 'is_annual' => false];
+
+    // Labour Day: 1st Monday of September
+    $holidays[] = ['date' => nthWeekdayOfMonth($year, 9, 1, 1), 'name' => 'Labour Day', 'is_annual' => false];
+
+    // Thanksgiving: 2nd Monday of October
+    $holidays[] = ['date' => nthWeekdayOfMonth($year, 10, 1, 2), 'name' => 'Thanksgiving', 'is_annual' => false];
+
+    return $holidays;
+}
+
+/**
+ * Get the Nth occurrence of a weekday in a month.
+ * @param int $year
+ * @param int $month 1-12
+ * @param int $weekday 0=Sun, 1=Mon, ..., 6=Sat
+ * @param int $nth 1=first, 2=second, 3=third, etc.
+ * @return string YYYY-MM-DD
+ */
+function nthWeekdayOfMonth(int $year, int $month, int $weekday, int $nth): string {
+    $first = new DateTime("$year-" . str_pad($month, 2, '0', STR_PAD_LEFT) . "-01");
+    $firstDow = (int)$first->format('w');
+    $diff = ($weekday - $firstDow + 7) % 7;
+    $first->modify("+{$diff} days");
+    $first->modify("+" . ($nth - 1) . " weeks");
+    return $first->format('Y-m-d');
 }

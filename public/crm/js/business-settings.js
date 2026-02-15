@@ -357,6 +357,224 @@
     });
   }
 
+  // ── Holidays ────────────────────────────────────────────
+
+  var holidaysLoaded = false;
+
+  function loadHolidays() {
+    var loading = document.getElementById('holidaysLoading');
+    var table = document.getElementById('holidaysTable');
+    var empty = document.getElementById('holidaysEmpty');
+    if (loading) loading.style.display = 'block';
+    if (table) table.style.display = 'none';
+    if (empty) empty.style.display = 'none';
+
+    fetch('/crm/api/ops-settings.php?action=get-holidays')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.success) throw new Error(data.error || 'Failed');
+        renderHolidaysTable(data.holidays || []);
+      })
+      .catch(function (err) {
+        showError('Failed to load holidays: ' + err.message);
+      })
+      .finally(function () {
+        if (loading) loading.style.display = 'none';
+      });
+  }
+
+  function renderHolidaysTable(holidays) {
+    var tbody = document.getElementById('holidaysTableBody');
+    var table = document.getElementById('holidaysTable');
+    var empty = document.getElementById('holidaysEmpty');
+
+    if (!holidays.length) {
+      if (table) table.style.display = 'none';
+      if (empty) empty.style.display = 'block';
+      return;
+    }
+
+    if (table) table.style.display = 'table';
+    if (empty) empty.style.display = 'none';
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+    holidays.forEach(function (h) {
+      var d = new Date(h.holiday_date + 'T12:00:00');
+      var dateStr = d.toLocaleDateString('en-CA', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+      var isPast = h.holiday_date < new Date().toISOString().slice(0, 10);
+      var row = document.createElement('tr');
+      if (isPast) row.style.opacity = '0.5';
+      row.innerHTML =
+        '<td>' + dateStr + '</td>' +
+        '<td>' + escapeHtml(h.name) + '</td>' +
+        '<td>' + (parseInt(h.is_annual) ? '<span class="badge badge-info">Annual</span>' : 'No') + '</td>' +
+        '<td>' + (parseInt(h.is_active) ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-secondary">Inactive</span>') + '</td>' +
+        '<td>' +
+          '<button class="btn btn-sm btn-outline-primary mr-1 btn-edit-holiday" data-id="' + h.id + '" data-date="' + h.holiday_date + '" data-name="' + escapeHtml(h.name) + '" data-annual="' + h.is_annual + '" title="Edit"><i data-feather="edit-2" style="width:14px;height:14px;"></i></button>' +
+          '<button class="btn btn-sm btn-outline-danger btn-delete-holiday" data-id="' + h.id + '" data-name="' + escapeHtml(h.name) + '" title="Delete"><i data-feather="trash-2" style="width:14px;height:14px;"></i></button>' +
+        '</td>';
+      tbody.appendChild(row);
+    });
+    if (window.feather) feather.replace();
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function setupHolidays() {
+    // Load holidays when tab is activated
+    var tab = document.getElementById('holidays-tab');
+    if (tab) {
+      tab.addEventListener('shown.bs.tab', function () {
+        if (!holidaysLoaded) {
+          loadHolidays();
+          holidaysLoaded = true;
+        }
+      });
+      // Also support Bootstrap 4 event
+      $(tab).on('shown.bs.tab', function () {
+        if (!holidaysLoaded) {
+          loadHolidays();
+          holidaysLoaded = true;
+        }
+      });
+    }
+
+    // Add holiday button
+    var addBtn = document.getElementById('btnAddHoliday');
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        document.getElementById('holiday_edit_id').value = '0';
+        document.getElementById('holiday_date').value = '';
+        document.getElementById('holiday_name').value = '';
+        document.getElementById('holiday_is_annual').value = '0';
+        document.getElementById('holidayFormTitle').textContent = 'Add Holiday';
+        document.getElementById('holidayFormCard').style.display = 'block';
+      });
+    }
+
+    // Cancel
+    var cancelBtn = document.getElementById('btnCancelHoliday');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function () {
+        document.getElementById('holidayFormCard').style.display = 'none';
+      });
+    }
+
+    // Save holiday
+    var saveBtn = document.getElementById('btnSaveHoliday');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', function () {
+        var dateVal = document.getElementById('holiday_date').value;
+        var nameVal = document.getElementById('holiday_name').value.trim();
+        if (!dateVal || !nameVal) {
+          showError('Date and name are required');
+          return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+
+        var payload = {
+          id: parseInt(document.getElementById('holiday_edit_id').value) || 0,
+          holiday_date: dateVal,
+          name: nameVal,
+          is_annual: parseInt(document.getElementById('holiday_is_annual').value) || 0,
+          is_active: 1
+        };
+
+        fetch('/crm/api/ops-settings.php?action=save-holiday', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (!data.success) throw new Error(data.error || 'Failed');
+            document.getElementById('holidayFormCard').style.display = 'none';
+            showSuccess('Holiday saved');
+            setTimeout(function () { successEl.style.display = 'none'; }, 3000);
+            loadHolidays();
+          })
+          .catch(function (err) { showError('Failed to save holiday: ' + err.message); })
+          .finally(function () {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+          });
+      });
+    }
+
+    // Edit/delete via event delegation on table
+    var tbody = document.getElementById('holidaysTableBody');
+    if (tbody) {
+      tbody.addEventListener('click', function (e) {
+        var editBtn = e.target.closest('.btn-edit-holiday');
+        var deleteBtn = e.target.closest('.btn-delete-holiday');
+
+        if (editBtn) {
+          document.getElementById('holiday_edit_id').value = editBtn.dataset.id;
+          document.getElementById('holiday_date').value = editBtn.dataset.date;
+          document.getElementById('holiday_name').value = editBtn.dataset.name;
+          document.getElementById('holiday_is_annual').value = editBtn.dataset.annual;
+          document.getElementById('holidayFormTitle').textContent = 'Edit Holiday';
+          document.getElementById('holidayFormCard').style.display = 'block';
+        }
+
+        if (deleteBtn) {
+          if (!confirm('Delete holiday "' + deleteBtn.dataset.name + '"?')) return;
+          fetch('/crm/api/ops-settings.php?action=delete-holiday', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: parseInt(deleteBtn.dataset.id) })
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!data.success) throw new Error(data.error || 'Failed');
+              showSuccess('Holiday deleted');
+              setTimeout(function () { successEl.style.display = 'none'; }, 3000);
+              loadHolidays();
+            })
+            .catch(function (err) { showError('Failed to delete: ' + err.message); });
+        }
+      });
+    }
+
+    // Seed BC holidays
+    var seedBtn = document.getElementById('btnSeedHolidays');
+    if (seedBtn) {
+      seedBtn.addEventListener('click', function () {
+        var year = prompt('Load BC statutory holidays for which year?', new Date().getFullYear());
+        if (!year) return;
+
+        seedBtn.disabled = true;
+        seedBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Loading...';
+
+        fetch('/crm/api/ops-settings.php?action=seed-holidays', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ year: parseInt(year) })
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (!data.success) throw new Error(data.error || 'Failed');
+            showSuccess(data.message);
+            setTimeout(function () { successEl.style.display = 'none'; }, 3000);
+            loadHolidays();
+          })
+          .catch(function (err) { showError('Failed to seed holidays: ' + err.message); })
+          .finally(function () {
+            seedBtn.disabled = false;
+            seedBtn.innerHTML = '<i data-feather="download" style="width:14px;height:14px;"></i> Load BC Stat Holidays';
+            if (window.feather) feather.replace();
+          });
+      });
+    }
+  }
+
   /**
    * Initialize
    */
@@ -368,6 +586,7 @@
     setupLogoPreview();
     setupFormSubmit();
     setupReceiptTest();
+    setupHolidays();
   }
 
   // Initialize when DOM is ready

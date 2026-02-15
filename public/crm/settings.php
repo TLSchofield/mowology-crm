@@ -59,6 +59,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <a class="nav-link" id="receipts-tab" data-toggle="tab" href="#receipts" role="tab">Receipt Forwarding</a>
     </li>
     <li class="nav-item">
+        <a class="nav-link" id="holidays-tab" data-toggle="tab" href="#holidays" role="tab">Holidays</a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a>
     </li>
 </ul>
@@ -297,6 +300,76 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <i data-feather="send" style="width:16px;height:16px;"></i> Send Test Email
                     </button>
                     <div id="receiptTestResult" class="mt-2" style="display:none;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Holidays Tab -->
+        <div class="tab-pane fade" id="holidays" role="tabpanel">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Company Holidays</h5>
+                    <div>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="btnSeedHolidays">
+                            <i data-feather="download" style="width:14px;height:14px;"></i> Load BC Stat Holidays
+                        </button>
+                        <button type="button" class="btn btn-primary btn-sm ml-2" id="btnAddHoliday">
+                            <i data-feather="plus" style="width:14px;height:14px;"></i> Add Holiday
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        Scheduled visits that land on a holiday are automatically moved to the last working day before the holiday.
+                        Per-plan blackout dates still skip visits entirely.
+                    </p>
+                    <div id="holidaysLoading" class="text-center py-3" style="display:none;">
+                        <div class="spinner-border spinner-border-sm text-primary"></div> Loading holidays...
+                    </div>
+                    <table class="table table-hover mb-0" id="holidaysTable" style="display:none;">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Name</th>
+                                <th>Annual</th>
+                                <th>Active</th>
+                                <th style="width:80px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="holidaysTableBody"></tbody>
+                    </table>
+                    <div id="holidaysEmpty" class="text-center py-4 text-muted" style="display:none;">
+                        No holidays configured. Click "Load BC Stat Holidays" to get started.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add/Edit Holiday Form -->
+            <div class="card mt-3" id="holidayFormCard" style="display:none;">
+                <div class="card-header"><h5 class="card-title mb-0" id="holidayFormTitle">Add Holiday</h5></div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="holiday_date" class="form-label">Date <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" id="holiday_date" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="holiday_name" class="form-label">Holiday Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="holiday_name" maxlength="100" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Annual</label>
+                            <select class="form-control" id="holiday_is_annual">
+                                <option value="0">No</option>
+                                <option value="1">Yes</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button type="button" class="btn btn-primary mr-2" id="btnSaveHoliday">Save</button>
+                            <button type="button" class="btn btn-secondary" id="btnCancelHoliday">Cancel</button>
+                        </div>
+                    </div>
+                    <input type="hidden" id="holiday_edit_id" value="0">
                 </div>
             </div>
         </div>

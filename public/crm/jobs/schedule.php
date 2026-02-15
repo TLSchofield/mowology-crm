@@ -75,6 +75,14 @@ for ($i = 0; $i < 7; $i++) {
 // ─── Calendar stop data ─────────────────────────────────────────────
 $calendarData = getCalendarStops($startDate, $endDate, $crewFilter);
 
+// ─── Holiday lookup for calendar display ────────────────────────────
+$weekHolidays = [];
+try {
+    $weekHolidays = getActiveHolidays($startDate, $endDate);
+} catch (Exception $e) {
+    // Table may not exist yet — continue without holiday display
+}
+
 // ─── Service type config ────────────────────────────────────────────
 $serviceColors = [
     'landscaping'          => '#2D8659',
@@ -330,10 +338,16 @@ $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214k" rel="stylesheet
                       $condition = strtolower($weather['condition'] ?? '');
 
                       $saltNeeded = $low <= 0 || strpos($condition, 'snow') !== false || strpos($condition, 'ice') !== false;
+                      $holidayName = $weekHolidays[$dateStr] ?? null;
                   ?>
-                      <div class="mw-calendar-date-cell <?php echo $isToday ? 'today' : ''; ?><?php echo $saltNeeded ? ' salt-needed' : ''; ?>"
+                      <div class="mw-calendar-date-cell <?php echo $isToday ? 'today' : ''; ?><?php echo $saltNeeded ? ' salt-needed' : ''; ?><?php echo $holidayName ? ' holiday' : ''; ?>"
                            data-date="<?php echo $dateStr; ?>">
                           <div class="mw-date-number"><?php echo $currentDate->format('j'); ?></div>
+                          <?php if ($holidayName): ?>
+                              <div class="mw-holiday-badge" title="<?php echo htmlspecialchars($holidayName); ?>">
+                                  <?php echo htmlspecialchars($holidayName); ?>
+                              </div>
+                          <?php endif; ?>
                           <div class="mw-weather-display">
                               <div class="mw-weather-icon" title="<?php echo htmlspecialchars($weather['condition'] ?? 'Clear'); ?>">
                                   <?php echo $icon; ?>
