@@ -104,9 +104,9 @@ $navItems = [
                 </a>
             </li>
             <?php endif; ?>
-            <!-- Install App (hidden when already installed or not available) -->
-            <li class="sidebar-item" id="mw-pwa-sidebar-item" style="display:none;">
-                <a class="sidebar-link" href="#" id="mw-pwa-sidebar-link" onclick="return false;">
+            <!-- Install App — always visible, hidden by JS when already installed -->
+            <li class="sidebar-item" id="mw-pwa-sidebar-item">
+                <a class="sidebar-link" href="/crm/downloads/mowology-crew.apk" id="mw-pwa-sidebar-link" download>
                     <i class="align-middle" data-feather="download"></i>
                     <span class="align-middle">Install App</span>
                 </a>

@@ -94,6 +94,31 @@
   }
   </script>
 
+  <!-- Hide sidebar Install App link when already in native app or installed PWA -->
+  <script>
+  (function(){
+    var sidebarItem = document.getElementById('mw-pwa-sidebar-item');
+    if (!sidebarItem) return;
+
+    // Hide if inside Capacitor native app
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+      sidebarItem.style.display = 'none';
+      return;
+    }
+    // Hide if already running as installed PWA
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+      sidebarItem.style.display = 'none';
+      return;
+    }
+    // Hide on desktop (only useful on mobile/tablet)
+    var isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry/i.test(navigator.userAgent);
+    if (!isMobile) {
+      sidebarItem.style.display = 'none';
+      return;
+    }
+  })();
+  </script>
+
   <!-- Mobile App Install Splash Screen -->
   <script>
   (function(){
@@ -151,18 +176,6 @@
       document.body.style.overflow = '';
       localStorage.setItem('mw-install-splash-dismissed', Date.now().toString());
     });
-
-    // Sidebar install link — show it and wire it up
-    var sidebarItem = document.getElementById('mw-pwa-sidebar-item');
-    var sidebarLink = document.getElementById('mw-pwa-sidebar-link');
-    if (sidebarItem && isAndroid) {
-      sidebarItem.style.display = '';
-      if (sidebarLink) {
-        sidebarLink.setAttribute('href', '/crm/downloads/mowology-crew.apk');
-        sidebarLink.setAttribute('download', '');
-        sidebarLink.removeAttribute('onclick');
-      }
-    }
   })();
   </script>
 
