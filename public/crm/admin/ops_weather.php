@@ -14,6 +14,29 @@ if (($user['role'] ?? '') !== 'admin') {
 // Fetch 7-day forecast with overnight lows for salt preview
 $weekWeather = getWeekForecastWithOvernightLow('Vancouver', 'BC');
 
+// Fetch hourly data for winter weather days (snow/ice/freeze/sub-zero)
+$hourlyData = getHourlyForecastByCity('Vancouver', 'BC');
+$winterHourly = []; // keyed by date => array of hourly blocks
+if (!empty($hourlyData)) {
+    foreach ($weekWeather as $date => $day) {
+        $cond = strtolower($day['condition'] ?? '');
+        $overnightLow = $day['overnight_low'] ?? ($day['temp_low'] ?? 99);
+        $isWinter = ($overnightLow <= 0)
+            || strpos($cond, 'snow') !== false
+            || strpos($cond, 'ice') !== false
+            || strpos($cond, 'freezing') !== false;
+        if ($isWinter) {
+            $winterHourly[$date] = [];
+            foreach ($hourlyData as $block) {
+                $blockDate = substr($block['hour'], 0, 10);
+                if ($blockDate === $date) {
+                    $winterHourly[$date][] = $block;
+                }
+            }
+        }
+    }
+}
+
 $pageTitle = 'Ops Weather Constraints';
 $activePage = 'ops-weather';
 ?>
@@ -57,12 +80,14 @@ $activePage = 'ops-weather';
                     || strpos($cond, 'snow') !== false
                     || strpos($cond, 'ice') !== false
                     || strpos($cond, 'freezing') !== false;
+                  $hasHourly = isset($winterHourly[$date]) && !empty($winterHourly[$date]);
                 ?>
                 <div class="text-center flex-fill p-2 rounded <?php echo $isSaltDay ? 'salt-day-highlight' : ''; ?>"
-                     style="min-width:110px;<?php echo $isSaltDay ? 'background:#e3f2fd;border:2px solid #42a5f5;' : ($isToday ? 'background:#f0f9f4;border:2px solid var(--mw-green);' : 'background:#f8f9fa;border:2px solid transparent;'); ?>"
+                     style="min-width:110px;<?php echo $isSaltDay ? 'background:#e3f2fd;border:2px solid #42a5f5;' : ($isToday ? 'background:#f0f9f4;border:2px solid var(--mw-green);' : 'background:#f8f9fa;border:2px solid transparent;'); ?><?php if ($hasHourly): ?>cursor:pointer;<?php endif; ?>"
                      data-date="<?php echo $date; ?>"
                      data-low="<?php echo $overnightLow; ?>"
-                     data-condition="<?php echo htmlspecialchars($cond); ?>">
+                     data-condition="<?php echo htmlspecialchars($cond); ?>"
+                     <?php if ($hasHourly): ?>onclick="toggleWinterDetail('<?php echo $date; ?>')"<?php endif; ?>>
                   <div style="font-size:0.75rem;color:#666;font-weight:600;"><?php echo $dayName; ?><?php if ($isToday): ?> <span style="color:var(--mw-green);">TODAY</span><?php endif; ?></div>
                   <div style="font-weight:600;"><?php echo $monthDay; ?></div>
                   <div style="font-size:1.8rem;line-height:1.2;" class="my-1"><?php echo $weatherEmoji; ?></div>
@@ -78,10 +103,105 @@ $activePage = 'ops-weather';
                   <?php if ($isSaltDay): ?>
                   <div style="font-size:0.7rem;color:#1565c0;font-weight:700;margin-top:2px;">🧂 SALT</div>
                   <?php endif; ?>
+                  <?php if ($hasHourly): ?>
+                  <div style="font-size:0.65rem;color:#42a5f5;margin-top:3px;">▼ hourly detail</div>
+                  <?php endif; ?>
                 </div>
                 <?php endforeach; ?>
               </div>
             </div>
+
+            <?php
+            // Render expanded hourly detail panels for winter days (auto-shown)
+            foreach ($winterHourly as $date => $hours):
+              if (empty($hours)) continue;
+              $day = $weekWeather[$date] ?? [];
+              $ts = strtotime($date);
+              $dayLabel = $dayNames[date('w', $ts)] . ' ' . date('M j', $ts);
+              $condDisplay = ucfirst($day['condition'] ?? 'Unknown');
+              $overnightLow = $day['overnight_low'] ?? ($day['temp_low'] ?? 0);
+              $high = $day['temp_high'] ?? 0;
+              $wind = (int)($day['wind'] ?? 0);
+
+              // Find the freezing window (hours at or below 0)
+              $freezeStart = null;
+              $freezeEnd = null;
+              foreach ($hours as $h) {
+                  if ($h['temp_c'] <= 0) {
+                      $hr = substr($h['hour'], 11, 5);
+                      if ($freezeStart === null) $freezeStart = $hr;
+                      $freezeEnd = $hr;
+                  }
+              }
+            ?>
+            <div class="mw-winter-detail" id="winterDetail-<?php echo $date; ?>" style="background:#e8f0fe;border:2px solid #42a5f5;border-top:none;border-radius:0 0 6px 6px;margin:-4px 0 8px 0;padding:12px;">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                  <strong style="color:#1565c0;">❄️ <?php echo $dayLabel; ?> — Winter Detail</strong>
+                  <span class="ml-2" style="font-size:0.8rem;color:#555;"><?php echo htmlspecialchars($condDisplay); ?> · High <?php echo $high; ?>° / Overnight <?php echo $overnightLow; ?>°</span>
+                </div>
+                <div style="font-size:0.8rem;">
+                  <?php if ($freezeStart !== null): ?>
+                  <span style="color:#c62828;font-weight:600;">Freezing: <?php echo $freezeStart; ?> – <?php echo $freezeEnd; ?></span>
+                  <?php endif; ?>
+                  <button class="btn btn-sm btn-link p-0 ml-2" onclick="toggleWinterDetail('<?php echo $date; ?>')" style="color:#42a5f5;font-size:0.75rem;">collapse ▲</button>
+                </div>
+              </div>
+              <div style="overflow-x:auto;">
+                <table style="width:100%;font-size:0.75rem;border-collapse:collapse;min-width:600px;">
+                  <thead>
+                    <tr style="border-bottom:2px solid #90caf9;">
+                      <th style="padding:4px 6px;text-align:left;color:#1565c0;">Hour</th>
+                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">Cond</th>
+                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">Temp</th>
+                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">Precip %</th>
+                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">mm/hr</th>
+                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">Wind</th>
+                      <th style="padding:4px 6px;text-align:left;color:#1565c0;">Risk</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <?php foreach ($hours as $h):
+                      $hour = substr($h['hour'], 11, 5);
+                      $temp = $h['temp_c'];
+                      $pop = $h['precip_chance_pct'] ?? 0;
+                      $mm = $h['precip_mm'] ?? 0;
+                      $wnd = $h['wind_kph'] ?? 0;
+                      $hCond = $h['condition'] ?? 'Unknown';
+                      $hIcon = $h['icon'] ?? getWeatherIcon($hCond);
+
+                      // Determine risk level for this hour
+                      $risks = [];
+                      if ($temp <= 0) $risks[] = '🧊 Freeze';
+                      if ($temp <= -5) $risks[] = '🥶 Severe';
+                      $hCondLower = strtolower($hCond);
+                      if (strpos($hCondLower, 'snow') !== false) $risks[] = '❄️ Snow';
+                      if (strpos($hCondLower, 'ice') !== false) $risks[] = '🧊 Ice';
+                      if (strpos($hCondLower, 'freezing') !== false) $risks[] = '🧊 Freezing';
+                      if ($wnd > 40) $risks[] = '💨 High wind';
+                      $riskStr = !empty($risks) ? implode(', ', $risks) : '—';
+
+                      // Row color
+                      $rowBg = '';
+                      if ($temp <= -5) $rowBg = 'background:#ffcdd2;'; // severe cold
+                      elseif ($temp <= 0) $rowBg = 'background:#bbdefb;'; // freezing
+                      elseif (strpos($hCondLower, 'snow') !== false || strpos($hCondLower, 'ice') !== false) $rowBg = 'background:#e1f5fe;';
+                    ?>
+                    <tr style="border-bottom:1px solid #bbdefb;<?php echo $rowBg; ?>">
+                      <td style="padding:3px 6px;font-weight:600;"><?php echo $hour; ?></td>
+                      <td style="padding:3px 6px;text-align:center;"><?php echo $hIcon; ?> <?php echo htmlspecialchars($hCond); ?></td>
+                      <td style="padding:3px 6px;text-align:center;font-weight:600;<?php echo $temp <= 0 ? 'color:#c62828;' : 'color:#333;'; ?>"><?php echo $temp; ?>°</td>
+                      <td style="padding:3px 6px;text-align:center;"><?php echo $pop; ?>%</td>
+                      <td style="padding:3px 6px;text-align:center;"><?php echo $mm; ?></td>
+                      <td style="padding:3px 6px;text-align:center;"><?php echo round($wnd); ?> km/h</td>
+                      <td style="padding:3px 6px;font-size:0.7rem;"><?php echo $riskStr; ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <?php endforeach; ?>
           </div>
 
           <!-- Cron Status Card -->
@@ -556,6 +676,19 @@ $activePage = 'ops-weather';
           </div>
 
           <script>
+          // ============================================================
+          // Winter Detail Toggle
+          // ============================================================
+          function toggleWinterDetail(date) {
+            var panel = document.getElementById('winterDetail-' + date);
+            if (!panel) return;
+            if (panel.style.display === 'none') {
+              panel.style.display = 'block';
+            } else {
+              panel.style.display = 'none';
+            }
+          }
+
           // ============================================================
           // Global Constraints
           // ============================================================
