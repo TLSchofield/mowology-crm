@@ -93,6 +93,11 @@ $activePage = 'team';
                     <span class="mw-ts-status <?php echo $roleBadges[$emp['role']] ?? ''; ?>">
                         <?php echo ucfirst(htmlspecialchars($emp['role'])); ?>
                     </span>
+                    <?php if (($emp['device_type'] ?? 'personal') === 'truck'): ?>
+                        <span class="mw-ts-status" style="background: var(--mw-orange); color: #fff;">
+                            <i data-feather="truck" style="width:11px;height:11px;margin-right:2px;"></i> Truck
+                        </span>
+                    <?php endif; ?>
                     <?php if (!$emp['is_active']): ?>
                         <span class="mw-ts-status mw-ts-status-rejected">Inactive</span>
                     <?php endif; ?>
@@ -221,6 +226,15 @@ $activePage = 'team';
                                 </select>
                             </div>
                         </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Device Type</label>
+                        <select class="form-control" name="device_type" id="empDeviceType">
+                            <option value="personal">Personal (Phone) — GPS only during jobs</option>
+                            <option value="truck">Truck (Tablet) — GPS tracks continuously</option>
+                        </select>
+                        <small class="form-text text-muted">Truck devices track GPS whenever the app is open, regardless of clock-in status.</small>
                     </div>
 
                     <div class="row">
@@ -429,6 +443,7 @@ $activePage = 'team';
                 document.getElementById('empNotes').value = emp.notes || '';
                 document.getElementById('empActive').checked = emp.is_active == 1;
                 document.getElementById('empWeatherSms').checked = emp.receive_weather_sms != 0;
+                document.getElementById('empDeviceType').value = emp.device_type || 'personal';
 
                 // Hide password for edit, show active toggle
                 document.getElementById('passwordSection').style.display = 'none';

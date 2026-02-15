@@ -25,6 +25,7 @@ try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once CRM_INCLUDES . '/plan-functions.php';
 
     // Load location functions if available
     $locFuncsPath = CRM_INCLUDES . '/location-functions.php';
@@ -73,6 +74,12 @@ try {
 
             $entryId = startVisitTimer($visitId, $user['id'], $lat, $lng, $autoStarted);
 
+            // Resolve tracking requirements for this visit (product defaults + plan overrides)
+            $trackingReqs = [];
+            if (function_exists('resolveTrackingRequirements')) {
+                $trackingReqs = resolveTrackingRequirements($visitId);
+            }
+
             echo json_encode([
                 'success' => true,
                 'message' => 'Visit timer started',
@@ -80,6 +87,10 @@ try {
                 'visit_id' => $visitId,
                 'start_time' => date('Y-m-d H:i:s'),
                 'auto_started' => $autoStarted,
+                'tracking_level' => $trackingReqs['tracking_level'] ?? 'standard',
+                'require_photos' => (bool)($trackingReqs['require_photos'] ?? false),
+                'require_gps' => (bool)($trackingReqs['require_gps'] ?? false),
+                'require_clock_in' => (bool)($trackingReqs['require_clock_in'] ?? false),
             ]);
             break;
 

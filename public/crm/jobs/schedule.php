@@ -763,7 +763,9 @@ var MW_SCHEDULE_STATE = {
     csrf: <?php echo json_encode($csrfToken); ?>,
     userId: <?php echo (int)$user['id']; ?>,
     activeTimer: <?php echo json_encode($activeTimerData); ?>,
-    visitPhotos: <?php echo json_encode($visitPhotoMap, JSON_FORCE_OBJECT); ?>
+    visitPhotos: <?php echo json_encode($visitPhotoMap, JSON_FORCE_OBJECT); ?>,
+    autoArrivalEnabled: <?php echo json_encode((bool)(int)getTimeClockSetting('auto_arrival_enabled', '1')); ?>,
+    autoArrivalServiceTypes: <?php echo json_encode(array_filter(array_map('trim', explode(',', getTimeClockSetting('auto_arrival_service_types', ''))))); ?>
 };
 </script>
 <script src="../js/schedule-pill-workflow.js?v=20260214h"></script>

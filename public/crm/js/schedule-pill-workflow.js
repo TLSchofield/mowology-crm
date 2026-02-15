@@ -55,11 +55,15 @@
 
             var visitStatus = pill.dataset.visitStatus || 'scheduled';
             var serviceLabel = pill.textContent.trim();
+            var serviceType = pill.dataset.serviceType || '';
 
             visits[visitId] = {
                 status: visitStatus,
                 pill: pill,
                 serviceLabel: serviceLabel,
+                serviceType: serviceType,
+                trackingLevel: null,
+                requirePhotos: false,
                 entryId: null,
                 startTime: null,
                 timerInterval: null,
@@ -128,10 +132,17 @@
 
     /**
      * Auto-start timer when crew arrives at a single-visit stop.
-     * Skips if: multiple visits on card, timer already running, or visit not scheduled.
+     * Skips if: multiple visits on card, timer already running, visit not scheduled,
+     * or service type not in auto-arrival allowed list.
      */
     function autoClockInSingleVisit(card) {
         if (!card) return;
+
+        // Check if auto-arrival is enabled (set by MW_SCHEDULE_STATE)
+        if (!state.autoArrivalEnabled) {
+            console.log('[PillWorkflow] Auto-clock-in skipped: auto-arrival disabled');
+            return;
+        }
 
         // Only auto-start if no other timer is running
         if (getActiveInProgressVisitId() !== null) {
@@ -156,7 +167,16 @@
         }
 
         var visitId = scheduledVisitIds[0];
-        console.log('[PillWorkflow] Auto-clock-in: single visit ' + visitId + ' (' + visits[visitId].serviceLabel + ')');
+        var serviceType = visits[visitId].serviceType || '';
+
+        // Check if this service type is allowed for auto-arrival
+        var allowedTypes = state.autoArrivalServiceTypes || [];
+        if (allowedTypes.length > 0 && allowedTypes.indexOf(serviceType) === -1) {
+            console.log('[PillWorkflow] Auto-clock-in skipped: ' + serviceType + ' not in allowed types [' + allowedTypes.join(',') + ']');
+            return;
+        }
+
+        console.log('[PillWorkflow] Auto-clock-in: single visit ' + visitId + ' (' + visits[visitId].serviceLabel + ', type: ' + serviceType + ')');
         clockIn(visitId);
     }
 
@@ -307,14 +327,17 @@
     function renderPhotoPrompt(drawer, visitId, category) {
         var label = category === 'before' ? 'Before Photo' : 'After Photo';
         var icon = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+        var photosRequired = visits[visitId].requirePhotos;
 
         drawer.innerHTML =
             '<div class="mw-mc-drawer-photo-prompt">' +
             '  <button class="mw-mc-drawer-camera-btn" data-action="take-photo">' +
             '    ' + icon +
-            '    <span>' + label + '</span>' +
+            '    <span>' + label + (photosRequired ? ' (Required)' : '') + '</span>' +
             '  </button>' +
-            '  <button class="mw-mc-drawer-skip" data-action="skip-photo">Skip</button>' +
+            (photosRequired
+                ? '<span class="mw-mc-drawer-skip-disabled">Photo required for this job</span>'
+                : '<button class="mw-mc-drawer-skip" data-action="skip-photo">Skip</button>') +
             '</div>';
 
         drawer.querySelector('[data-action="take-photo"]')
@@ -323,8 +346,8 @@
                 triggerCamera(visitId, category);
             });
 
-        drawer.querySelector('[data-action="skip-photo"]')
-            .addEventListener('click', function(e) {
+        var skipBtn = drawer.querySelector('[data-action="skip-photo"]');
+        if (skipBtn) skipBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
                 if (category === 'before') {
                     // Skip before photo → go to working state
@@ -373,6 +396,23 @@
                     visits[visitId].entryId = data.entry_id;
                     visits[visitId].startTime = new Date();
                     visits[visitId].status = 'prompt_before';
+
+                    // Store tracking requirements from API response
+                    if (data.tracking_level) {
+                        visits[visitId].trackingLevel = data.tracking_level;
+                    }
+                    if (data.require_photos !== undefined) {
+                        visits[visitId].requirePhotos = data.require_photos;
+                    }
+
+                    // Notify GPS widget: job timer started (activates GPS on personal devices)
+                    if (window.MwTimeClock) {
+                        window.MwTimeClock.notifyJobTimerStarted();
+                        // Adjust GPS interval for heightened tracking
+                        if (data.tracking_level === 'heightened') {
+                            window.MwTimeClock.setTrackingInterval('heightened');
+                        }
+                    }
 
                     // Update pill to show it's been activated
                     updatePillVisual(visitId, 'in_progress');
@@ -431,6 +471,16 @@
                     stopPillTimer(visitId);
                     updatePillVisual(visitId, 'completed');
                     closeDrawer();
+
+                    // Notify GPS widget: job timer stopped
+                    if (window.MwTimeClock) {
+                        // Check if any OTHER visit is still in progress
+                        var otherActive = getActiveInProgressVisitId();
+                        if (!otherActive) {
+                            window.MwTimeClock.notifyJobTimerStopped();
+                            window.MwTimeClock.setTrackingInterval('standard'); // Reset to standard
+                        }
+                    }
 
                     // Check if ALL visits on this stop are now completed
                     var card = visits[visitId].pill.closest('.mw-mc-card');

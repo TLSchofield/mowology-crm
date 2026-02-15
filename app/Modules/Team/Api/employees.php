@@ -54,7 +54,8 @@ try {
                 SELECT id, email, full_name, phone, role, is_active,
                        hourly_rate, hire_date, emergency_contact, notes,
                        location_tracking_enabled, last_login, created_at,
-                       IFNULL(receive_weather_sms, 1) AS receive_weather_sms
+                       IFNULL(receive_weather_sms, 1) AS receive_weather_sms,
+                       IFNULL(device_type, 'personal') AS device_type
                 FROM users WHERE id = ?
             ");
             $stmt->execute([$id]);
@@ -202,6 +203,11 @@ try {
             if (isset($input['receive_weather_sms'])) {
                 $updates[] = 'receive_weather_sms = ?';
                 $params[] = $input['receive_weather_sms'] ? 1 : 0;
+            }
+
+            if (isset($input['device_type']) && in_array($input['device_type'], ['personal', 'truck'])) {
+                $updates[] = 'device_type = ?';
+                $params[] = $input['device_type'];
             }
 
             // Optional password reset

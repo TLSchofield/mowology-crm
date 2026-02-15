@@ -27,12 +27,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($_POST['role_user'])) $roles[] = 'user';
         $enabledRoles = implode(',', $roles) ?: 'user';
 
+        // Build auto-arrival service types from checkboxes
+        $arrivalTypes = [];
+        foreach (['lawn_care', 'landscaping', 'snow_removal', 'hedge_trimming', 'garden_maintenance', 'seasonal_cleanup'] as $st) {
+            if (!empty($_POST['arrival_' . $st])) $arrivalTypes[] = $st;
+        }
+
         $settings = [
             'enabled_roles' => $enabledRoles,
             'gps_proximity_meters' => max(50, min(500, (int)($_POST['gps_proximity_meters'] ?? 150))),
             'auto_clock_out_hours' => max(1, min(24, (int)($_POST['auto_clock_out_hours'] ?? 12))),
             'require_gps_for_clock_in' => !empty($_POST['require_gps_for_clock_in']) ? '1' : '0',
             'require_gps_for_job_start' => !empty($_POST['require_gps_for_job_start']) ? '1' : '0',
+            'auto_arrival_enabled' => !empty($_POST['auto_arrival_enabled']) ? '1' : '0',
+            'auto_arrival_service_types' => implode(',', $arrivalTypes),
+            'gps_interval_standard_ms' => max(10000, min(120000, (int)($_POST['gps_interval_standard_ms'] ?? 30000))),
+            'gps_interval_heightened_ms' => max(5000, min(30000, (int)($_POST['gps_interval_heightened_ms'] ?? 10000))),
         ];
 
         $stmt = $db->prepare("
@@ -56,6 +66,25 @@ $gpsProximity = (int)getTimeClockSetting('gps_proximity_meters', '150');
 $autoClockOut = (int)getTimeClockSetting('auto_clock_out_hours', '12');
 $requireGpsClock = getTimeClockSetting('require_gps_for_clock_in', '0');
 $requireGpsJob = getTimeClockSetting('require_gps_for_job_start', '1');
+
+// Auto-arrival settings
+$autoArrivalEnabled = getTimeClockSetting('auto_arrival_enabled', '1');
+$autoArrivalServiceTypesStr = getTimeClockSetting('auto_arrival_service_types', '');
+$autoArrivalServiceTypes = array_filter(array_map('trim', explode(',', $autoArrivalServiceTypesStr)));
+
+// GPS interval settings
+$gpsIntervalStandard = (int)getTimeClockSetting('gps_interval_standard_ms', '30000');
+$gpsIntervalHeightened = (int)getTimeClockSetting('gps_interval_heightened_ms', '10000');
+
+// Available service types
+$allServiceTypes = [
+    'lawn_care'           => 'Lawn Care',
+    'landscaping'         => 'Landscaping',
+    'snow_removal'        => 'Snow Removal',
+    'hedge_trimming'      => 'Hedge Trimming',
+    'garden_maintenance'  => 'Garden Maintenance',
+    'seasonal_cleanup'    => 'Seasonal Cleanup',
+];
 
 $pageTitle = 'Time Clock Settings';
 $activePage = 'timeclock';
@@ -184,6 +213,80 @@ $activePage = 'timeclock';
                        value="<?php echo $autoClockOut; ?>">
                 <small class="text-muted">hours (1–24)</small>
             </div>
+        </div>
+    </div>
+
+    <!-- Auto-Arrival -->
+    <div class="mw-tcs-section">
+        <h3><i data-feather="navigation" style="width:16px;height:16px;"></i> Auto-Arrival</h3>
+        <p class="text-muted small">When crew arrives within the GPS proximity radius of a scheduled visit, auto-start the job timer. Only triggers for single-visit stops.</p>
+
+        <div class="mw-tcs-row">
+            <div class="mw-tcs-label">
+                Enable auto-arrival
+                <small>Auto-start job timer when crew is near a scheduled stop</small>
+            </div>
+            <div class="custom-control custom-switch">
+                <input type="checkbox" class="custom-control-input" id="autoArrivalEnabled"
+                       name="auto_arrival_enabled" value="1"
+                    <?php echo $autoArrivalEnabled === '1' ? 'checked' : ''; ?>>
+                <label class="custom-control-label" for="autoArrivalEnabled"></label>
+            </div>
+        </div>
+
+        <div class="mw-tcs-row" style="flex-direction: column; align-items: flex-start;">
+            <div class="mw-tcs-label mb-2">
+                Allowed service types
+                <small>Only these service types will auto-start on arrival. If none selected, all types are allowed.</small>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; width: 100%;">
+                <?php foreach ($allServiceTypes as $stKey => $stLabel): ?>
+                <div class="custom-control custom-checkbox">
+                    <input type="checkbox" class="custom-control-input" id="arrival_<?php echo $stKey; ?>"
+                           name="arrival_<?php echo $stKey; ?>" value="1"
+                        <?php echo in_array($stKey, $autoArrivalServiceTypes) ? 'checked' : ''; ?>>
+                    <label class="custom-control-label" for="arrival_<?php echo $stKey; ?>"><?php echo htmlspecialchars($stLabel); ?></label>
+                </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+
+    <!-- GPS Intervals -->
+    <div class="mw-tcs-section">
+        <h3><i data-feather="activity" style="width:16px;height:16px;"></i> GPS Tracking Intervals</h3>
+        <p class="text-muted small">How frequently GPS positions are sent to the server. Truck devices always track; personal devices only track during active job timers.</p>
+
+        <div class="mw-tcs-row">
+            <div class="mw-tcs-label">
+                Standard interval
+                <small>Normal GPS reporting frequency</small>
+            </div>
+            <div>
+                <input type="number" name="gps_interval_standard_ms" class="form-control form-control-sm"
+                       style="width: 100px;" min="10000" max="120000" step="5000"
+                       value="<?php echo $gpsIntervalStandard; ?>">
+                <small class="text-muted">ms (10,000–120,000)</small>
+            </div>
+        </div>
+
+        <div class="mw-tcs-row">
+            <div class="mw-tcs-label">
+                Heightened interval
+                <small>Faster GPS reporting for high-risk jobs</small>
+            </div>
+            <div>
+                <input type="number" name="gps_interval_heightened_ms" class="form-control form-control-sm"
+                       style="width: 100px;" min="5000" max="30000" step="1000"
+                       value="<?php echo $gpsIntervalHeightened; ?>">
+                <small class="text-muted">ms (5,000–30,000)</small>
+            </div>
+        </div>
+
+        <div class="alert alert-info small mt-2 mb-0" style="background: var(--mw-light); border-color: var(--mw-green); color: #333;">
+            <i data-feather="truck" style="width:14px;height:14px;"></i>
+            <strong>Device types</strong> are set per employee on the <a href="/crm/team/" style="color: var(--mw-dark);">Team page</a>.
+            Truck devices track GPS continuously. Personal devices only track during active job timers.
         </div>
     </div>
 

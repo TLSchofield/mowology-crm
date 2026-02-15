@@ -3,10 +3,11 @@
  * Manages the persistent clock-in/out widget in the CRM navbar.
  * Loaded on every CRM page via appstack_footer.php.
  *
- * Also handles continuous GPS tracking when:
- * - User is clocked in
- * - User has location_tracking_enabled = 1
- * Sends position to /crm/api/crew-location.php every 30 seconds.
+ * GPS tracking profiles:
+ * - Truck devices: track continuously whenever app is open (no clock-in required)
+ * - Personal devices: track only when a job timer is running
+ *
+ * Sends position to /crm/api/crew-location.php at configurable intervals.
  */
 (function() {
     'use strict';
@@ -17,12 +18,16 @@
     var timerInterval = null;
     var clockInTime = null;
 
-    // ── Location Tracking State ──
+    // ── Device & Tracking State ──
+    var deviceType = 'personal'; // 'personal' or 'truck'
     var trackingEnabled = false;
     var gpsWatchId = null;
     var trackingInterval = null;
     var latestPosition = null; // { lat, lng, accuracy, speed, heading }
-    var TRACKING_INTERVAL_MS = 30000; // 30 seconds
+    var TRACKING_INTERVAL_MS = 30000; // 30 seconds (default, can be changed dynamically)
+    var GPS_INTERVAL_STANDARD = 30000; // Configurable from server settings
+    var GPS_INTERVAL_HEIGHTENED = 10000; // Configurable from server settings
+    var hasActiveJobTimer = false; // Whether a job timer is currently running
 
     // ── Initialization ──
     updateTrackingDot('unknown', 'Checking GPS...');
@@ -38,29 +43,45 @@
         })
         .then(function(data) {
             if (!data.success) {
-                // API responded but not successful — still show clock-in button
                 renderClockedOut();
                 return;
             }
             trackingEnabled = !!data.location_tracking_enabled;
+            deviceType = data.device_type || 'personal';
+            hasActiveJobTimer = !!(data.active_job);
+
+            // Store configurable GPS intervals from server
+            if (data.gps_interval_standard_ms) {
+                GPS_INTERVAL_STANDARD = data.gps_interval_standard_ms;
+                TRACKING_INTERVAL_MS = GPS_INTERVAL_STANDARD;
+            }
+            if (data.gps_interval_heightened_ms) {
+                GPS_INTERVAL_HEIGHTENED = data.gps_interval_heightened_ms;
+            }
 
             if (data.clocked_in) {
                 clockInTime = new Date(data.clock_in.replace(' ', 'T'));
                 renderClockedIn(data.elapsed_seconds, data.active_job);
-                if (trackingEnabled) {
+            } else {
+                renderClockedOut();
+            }
+
+            // Start GPS based on device profile
+            if (trackingEnabled) {
+                if (deviceType === 'truck') {
+                    // Truck: always track when app is open
+                    startTracking();
+                } else if (hasActiveJobTimer) {
+                    // Personal: track only during active job timer
                     startTracking();
                 } else {
-                    // Clocked in but tracking not enabled in DB — still probe GPS for the icon
                     probeGPSStatus();
                 }
             } else {
-                renderClockedOut();
-                // Not clocked in — still probe GPS so icon shows red/green, not grey
                 probeGPSStatus();
             }
         })
         .catch(function(err) {
-            // API failed — still show clock-in button so crew can always clock in
             console.warn('Time clock API error:', err);
             updateTrackingDot('error', 'Unable to check status');
             renderClockedOut();
@@ -232,7 +253,10 @@
 
     function renderClockedOut() {
         stopTimer();
-        stopTracking();
+        // Truck devices keep tracking even when not clocked in
+        if (deviceType !== 'truck') {
+            stopTracking();
+        }
         widget.innerHTML =
             '<button class="mw-clock-btn mw-clock-in" id="btnClockIn" title="Clock In">' +
                 SVG_PLAY +
@@ -536,7 +560,10 @@
         var btn = document.getElementById('btnClockOut');
         if (btn) btn.disabled = true;
 
-        stopTracking();
+        // Truck devices keep tracking; personal devices stop
+        if (deviceType !== 'truck') {
+            stopTracking();
+        }
 
         getGPS(function(lat, lng) {
             fetch('/crm/api/time-clock.php', {
@@ -632,7 +659,9 @@
     // In native Capacitor, the background plugin handles this natively.
     document.addEventListener('visibilitychange', function() {
         if (window.MwNative) return; // Native plugin handles background GPS
-        if (document.visibilityState === 'visible' && trackingEnabled && clockInTime !== null) {
+        if (document.visibilityState !== 'visible' || !trackingEnabled) return;
+        // Truck: always restart. Personal: only if job timer is active.
+        if (deviceType === 'truck' || hasActiveJobTimer) {
             stopTracking();
             startTracking();
         }
@@ -640,7 +669,8 @@
 
     window.addEventListener('pageshow', function(event) {
         if (window.MwNative) return; // Native plugin handles background GPS
-        if (event.persisted && trackingEnabled && clockInTime !== null) {
+        if (!event.persisted || !trackingEnabled) return;
+        if (deviceType === 'truck' || hasActiveJobTimer) {
             stopTracking();
             startTracking();
         }
@@ -655,7 +685,7 @@
         window.addEventListener('online', function() { flushQueue(); });
     }
 
-    // Expose for use by my-schedule page
+    // Expose for use by schedule page and pill workflow
     window.MwTimeClock = {
         fetchStatus: fetchStatus,
         isActive: function() { return clockInTime !== null; },
@@ -663,10 +693,51 @@
             return gpsWatchId !== null ||
                    (window.MwNative && window.MwNative.geo && window.MwNative.geo.watchId !== null);
         },
+        getDeviceType: function() { return deviceType; },
         restartTracking: function() {
-            if (trackingEnabled && clockInTime !== null) {
+            if (trackingEnabled) {
                 stopTracking();
                 startTracking();
+            }
+        },
+        /**
+         * Called by pill workflow when a job timer starts.
+         * For personal devices, this is what activates GPS tracking.
+         */
+        notifyJobTimerStarted: function() {
+            hasActiveJobTimer = true;
+            if (trackingEnabled && deviceType === 'personal') {
+                startTracking();
+            }
+        },
+        /**
+         * Called by pill workflow when a job timer stops.
+         * For personal devices, this stops GPS tracking.
+         */
+        notifyJobTimerStopped: function() {
+            hasActiveJobTimer = false;
+            if (deviceType === 'personal') {
+                stopTracking();
+            }
+        },
+        /**
+         * Dynamically adjust GPS send interval.
+         * @param {string|number} mode - 'heightened', 'standard', or raw ms value
+         */
+        setTrackingInterval: function(mode) {
+            if (mode === 'heightened') {
+                TRACKING_INTERVAL_MS = GPS_INTERVAL_HEIGHTENED;
+            } else if (mode === 'standard') {
+                TRACKING_INTERVAL_MS = GPS_INTERVAL_STANDARD;
+            } else if (typeof mode === 'number' && mode > 0) {
+                TRACKING_INTERVAL_MS = mode;
+            } else {
+                TRACKING_INTERVAL_MS = GPS_INTERVAL_STANDARD;
+            }
+            // Restart interval if currently tracking
+            if (trackingInterval) {
+                clearInterval(trackingInterval);
+                trackingInterval = setInterval(sendPosition, TRACKING_INTERVAL_MS);
             }
         }
     };

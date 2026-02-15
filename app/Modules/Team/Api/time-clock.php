@@ -75,25 +75,36 @@ try {
         }
     }
 
-    // Get tracking flag from database (not in session)
-    $trackStmt = $db->prepare("SELECT location_tracking_enabled FROM users WHERE id = ?");
+    // Get tracking flag and device type from database (not in session)
+    $trackStmt = $db->prepare("SELECT location_tracking_enabled, IFNULL(device_type, 'personal') AS device_type FROM users WHERE id = ?");
     $trackStmt->execute([$user['id']]);
     $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
     $locationTrackingEnabled = $trackRow ? (bool)$trackRow['location_tracking_enabled'] : false;
+    $deviceType = $trackRow ? $trackRow['device_type'] : 'personal';
+
+    // GPS interval settings (configurable via Time Clock Settings page)
+    $gpsIntervalStandard = (int)getTimeClockSetting('gps_interval_standard_ms', '30000');
+    $gpsIntervalHeightened = (int)getTimeClockSetting('gps_interval_heightened_ms', '10000');
 
     switch ($action) {
         case 'status':
             $entry = getActiveClockEntry($user['id']);
             $activeJob = getActiveVisitTimer($user['id']);
 
+            $statusBase = [
+                'success' => true,
+                'location_tracking_enabled' => $locationTrackingEnabled,
+                'device_type' => $deviceType,
+                'gps_interval_standard_ms' => $gpsIntervalStandard,
+                'gps_interval_heightened_ms' => $gpsIntervalHeightened,
+            ];
+
             if ($entry) {
-                echo json_encode([
-                    'success' => true,
+                echo json_encode(array_merge($statusBase, [
                     'clocked_in' => true,
                     'entry_id' => (int)$entry['id'],
                     'clock_in' => $entry['clock_in'],
                     'elapsed_seconds' => max(0, (int)$entry['elapsed_seconds']),
-                    'location_tracking_enabled' => $locationTrackingEnabled,
                     'active_job' => $activeJob ? [
                         'id' => (int)$activeJob['id'],
                         'visit_id' => (int)$activeJob['visit_id'],
@@ -102,14 +113,12 @@ try {
                         'start_time' => $activeJob['start_time'],
                         'elapsed_seconds' => max(0, (int)$activeJob['elapsed_seconds']),
                     ] : null,
-                ]);
+                ]));
             } else {
-                echo json_encode([
-                    'success' => true,
+                echo json_encode(array_merge($statusBase, [
                     'clocked_in' => false,
-                    'location_tracking_enabled' => $locationTrackingEnabled,
                     'active_job' => null,
-                ]);
+                ]));
             }
             break;
 

@@ -44,6 +44,7 @@ try {
                     u.id as user_id,
                     u.full_name,
                     u.role,
+                    IFNULL(u.device_type, 'personal') AS device_type,
                     clh.latitude as lat,
                     clh.longitude as lng,
                     clh.accuracy_meters,
@@ -157,18 +158,23 @@ try {
             throw new Exception('Latitude and longitude required');
         }
 
-        // Verify user is clocked in
-        $clockEntry = getActiveClockEntry($user['id']);
-        if (!$clockEntry) {
-            throw new Exception('Not clocked in');
-        }
-
-        // Verify user has tracking enabled
-        $trackStmt = $db->prepare("SELECT location_tracking_enabled FROM users WHERE id = ?");
+        // Check user's tracking settings and device type
+        $trackStmt = $db->prepare("SELECT location_tracking_enabled, IFNULL(device_type, 'personal') AS device_type FROM users WHERE id = ?");
         $trackStmt->execute([$user['id']]);
         $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
         if (!$trackRow || !$trackRow['location_tracking_enabled']) {
             throw new Exception('Tracking not enabled');
+        }
+
+        $isTruck = ($trackRow['device_type'] === 'truck');
+
+        // Truck devices can report GPS without being clocked in.
+        // Personal devices must be clocked in.
+        if (!$isTruck) {
+            $clockEntry = getActiveClockEntry($user['id']);
+            if (!$clockEntry) {
+                throw new Exception('Not clocked in');
+            }
         }
 
         // Rate limit: reject if last entry < 10 seconds ago (use MySQL time to avoid timezone mismatch)
