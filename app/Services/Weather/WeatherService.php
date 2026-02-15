@@ -122,10 +122,29 @@ function getWeekForecastCached(string $city = 'Vancouver', string $province = 'B
         // Start with Open-Meteo as base (7 days)
         $forecast = $omForecast;
 
-        // Overlay EC data for the days it covers
+        // Overlay EC data for the days it covers, filling gaps from Open-Meteo
         foreach ($ecDaily as $date => $ecDay) {
-            if ($ecDay['temp_high'] !== null && $ecDay['temp_low'] !== null) {
-                $forecast[$date] = $ecDay;
+            $omDay = $forecast[$date] ?? [];
+
+            // Use EC values where available, fall back to OM for gaps
+            $merged = [
+                'temp_high'     => ($ecDay['temp_high'] !== null) ? $ecDay['temp_high'] : ($omDay['temp_high'] ?? null),
+                'temp_low'      => ($ecDay['temp_low'] !== null) ? $ecDay['temp_low'] : ($omDay['temp_low'] ?? null),
+                'overnight_low' => ($ecDay['overnight_low'] !== null) ? $ecDay['overnight_low'] : ($omDay['overnight_low'] ?? null),
+                'condition'     => $ecDay['condition'] ?? ($omDay['condition'] ?? 'Unknown'),
+                'precipitation' => max($ecDay['precipitation'] ?? 0, $omDay['precipitation'] ?? 0),
+                'icon'          => getWeatherIcon($ecDay['condition'] ?? ($omDay['condition'] ?? 'Unknown')),
+                'wind'          => max($ecDay['wind'] ?? 0, $omDay['wind'] ?? 0),
+                'source'        => 'ec',
+            ];
+
+            // Only include if we have at least a high or low
+            if ($merged['temp_high'] !== null || $merged['temp_low'] !== null) {
+                // Ensure neither is null
+                if ($merged['temp_high'] === null) $merged['temp_high'] = $merged['temp_low'];
+                if ($merged['temp_low'] === null) $merged['temp_low'] = $merged['temp_high'];
+                if ($merged['overnight_low'] === null) $merged['overnight_low'] = $merged['temp_low'];
+                $forecast[$date] = $merged;
             }
         }
 
@@ -381,19 +400,9 @@ function fetchEnvironmentCanadaData(string $city, string $province): array
             unset($day);
         }
 
-        // Fill in missing highs/lows from whatever we have
-        foreach ($result['daily'] as $date => &$day) {
-            if ($day['temp_high'] === null && $day['temp_low'] !== null) {
-                $day['temp_high'] = $day['temp_low']; // overnight-only period
-            }
-            if ($day['temp_low'] === null && $day['temp_high'] !== null) {
-                $day['temp_low'] = $day['temp_high'];
-            }
-            if ($day['overnight_low'] === null) {
-                $day['overnight_low'] = $day['temp_low'];
-            }
-        }
-        unset($day);
+        // Note: nulls are intentionally left for the merge logic in
+        // getWeekForecastCached() to fill from Open-Meteo where EC is partial
+        // (e.g., "Tonight" only has a low, no daytime high)
 
         // ------------------------------------------------------------------
         // Parse hourly forecast (EC provides ~24 hours)
