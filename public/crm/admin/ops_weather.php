@@ -116,19 +116,18 @@ $activePage = 'ops-weather';
             </div>
 
             <?php
-            // Merge dry/cloudy conditions (overcast, partly cloudy, clear, etc.)
-            // into one "Dry" bucket so the hourly detail table stays tight
+            // Merge dry/cloudy conditions into one label for cleaner display
             function opsGroupKey(string $cond): string {
                 $lower = strtolower($cond);
                 $dryConditions = ['clear', 'partly cloudy', 'overcast', 'a mix of sun and cloud', 'fog', 'mist'];
                 foreach ($dryConditions as $dry) {
                     if (strpos($lower, $dry) !== false) return 'Dry';
                 }
-                return $cond; // keep precip conditions as-is
+                return $cond;
             }
 
-            // Render expanded hourly detail panels for winter days
-            // Groups consecutive hours with the same ops-relevant condition into bands
+            // Render winter detail panels — Morning / Afternoon / Evening cards
+            // with total snow accumulation
             foreach ($winterHourly as $date => $hours):
               if (empty($hours)) continue;
               $day = $weekWeather[$date] ?? [];
@@ -138,7 +137,53 @@ $activePage = 'ops-weather';
               $overnightLow = $day['overnight_low'] ?? ($day['temp_low'] ?? 0);
               $high = $day['temp_high'] ?? 0;
 
-              // Find the freezing window (hours at or below 0)
+              // Define time periods
+              $periods = [
+                  'Overnight' => ['start' => 0,  'end' => 6,  'icon' => '🌙', 'label' => '12am–6am'],
+                  'Morning'   => ['start' => 6,  'end' => 12, 'icon' => '🌅', 'label' => '6am–12pm'],
+                  'Afternoon' => ['start' => 12, 'end' => 18, 'icon' => '☀️', 'label' => '12pm–6pm'],
+                  'Evening'   => ['start' => 18, 'end' => 24, 'icon' => '🌆', 'label' => '6pm–12am'],
+              ];
+
+              // Aggregate hourly data into periods
+              $periodData = [];
+              foreach ($periods as $name => $p) {
+                  $periodData[$name] = [
+                      'tempMin' => 999, 'tempMax' => -999,
+                      'popMax' => 0, 'mmTotal' => 0, 'snowTotal' => 0,
+                      'conditions' => [], 'hasData' => false, 'freezeHours' => 0,
+                  ];
+              }
+
+              $totalSnowCm = 0;
+              $totalPrecipMm = 0;
+              foreach ($hours as $h) {
+                  $hr = (int)substr($h['hour'], 11, 2);
+                  $snowCm = $h['snowfall_cm'] ?? 0;
+                  $totalSnowCm += $snowCm;
+                  $totalPrecipMm += ($h['precip_mm'] ?? 0);
+
+                  // Determine which period this hour falls into
+                  foreach ($periods as $name => $p) {
+                      if ($hr >= $p['start'] && $hr < $p['end']) {
+                          $pd = &$periodData[$name];
+                          $pd['hasData'] = true;
+                          $pd['tempMin'] = min($pd['tempMin'], $h['temp_c']);
+                          $pd['tempMax'] = max($pd['tempMax'], $h['temp_c']);
+                          $pd['popMax'] = max($pd['popMax'], $h['precip_chance_pct'] ?? 0);
+                          $pd['mmTotal'] += ($h['precip_mm'] ?? 0);
+                          $pd['snowTotal'] += $snowCm;
+                          if ($h['temp_c'] <= 0) $pd['freezeHours']++;
+                          $condKey = opsGroupKey($h['condition'] ?? 'Unknown');
+                          if (!isset($pd['conditions'][$condKey])) $pd['conditions'][$condKey] = 0;
+                          $pd['conditions'][$condKey]++;
+                          unset($pd);
+                          break;
+                      }
+                  }
+              }
+
+              // Find the freezing window
               $freezeStart = null;
               $freezeEnd = null;
               foreach ($hours as $h) {
@@ -148,122 +193,92 @@ $activePage = 'ops-weather';
                       $freezeEnd = $hr;
                   }
               }
-
-              $groups = [];
-              $currentGroup = null;
-              foreach ($hours as $h) {
-                  $hCond = $h['condition'] ?? 'Unknown';
-                  $groupKey = opsGroupKey($hCond);
-                  if ($currentGroup === null || $currentGroup['_groupKey'] !== $groupKey) {
-                      // Start a new group
-                      if ($currentGroup !== null) $groups[] = $currentGroup;
-                      $displayCond = ($groupKey === 'Dry') ? 'Dry' : $hCond;
-                      $displayIcon = ($groupKey === 'Dry') ? '☁️' : ($h['icon'] ?? getWeatherIcon($hCond));
-                      $currentGroup = [
-                          '_groupKey'  => $groupKey,
-                          'condition'  => $displayCond,
-                          'icon'       => $displayIcon,
-                          'startHour'  => substr($h['hour'], 11, 5),
-                          'endHour'    => substr($h['hour'], 11, 5),
-                          'count'      => 1,
-                          'tempMin'    => $h['temp_c'],
-                          'tempMax'    => $h['temp_c'],
-                          'popMax'     => $h['precip_chance_pct'] ?? 0,
-                          'mmMax'      => $h['precip_mm'] ?? 0,
-                          'mmTotal'    => $h['precip_mm'] ?? 0,
-                          'windMax'    => $h['wind_kph'] ?? 0,
-                      ];
-                  } else {
-                      // Extend current group
-                      $currentGroup['endHour'] = substr($h['hour'], 11, 5);
-                      $currentGroup['count']++;
-                      $currentGroup['tempMin'] = min($currentGroup['tempMin'], $h['temp_c']);
-                      $currentGroup['tempMax'] = max($currentGroup['tempMax'], $h['temp_c']);
-                      $currentGroup['popMax']  = max($currentGroup['popMax'], $h['precip_chance_pct'] ?? 0);
-                      $currentGroup['mmMax']   = max($currentGroup['mmMax'], $h['precip_mm'] ?? 0);
-                      $currentGroup['mmTotal'] += ($h['precip_mm'] ?? 0);
-                      $currentGroup['windMax'] = max($currentGroup['windMax'], $h['wind_kph'] ?? 0);
-                  }
-              }
-              if ($currentGroup !== null) $groups[] = $currentGroup;
             ?>
             <div class="mw-winter-detail" id="winterDetail-<?php echo $date; ?>" style="display:none;background:#e8f0fe;border:2px solid #42a5f5;border-top:none;border-radius:0 0 6px 6px;margin:-4px 0 8px 0;padding:12px;">
+              <!-- Header row -->
               <div class="d-flex justify-content-between align-items-center mb-2">
                 <div>
-                  <strong style="color:#1565c0;">❄️ <?php echo $dayLabel; ?> — Winter Detail</strong>
-                  <span class="ml-2" style="font-size:0.8rem;color:#555;"><?php echo htmlspecialchars($condDisplay); ?> · High <?php echo $high; ?>° / Overnight <?php echo $overnightLow; ?>°</span>
-                </div>
-                <div style="font-size:0.8rem;">
+                  <strong style="color:#1565c0;">❄️ <?php echo $dayLabel; ?></strong>
                   <?php if ($freezeStart !== null): ?>
-                  <span style="color:#c62828;font-weight:600;">Freezing: <?php echo $freezeStart; ?> – <?php echo $freezeEnd; ?></span>
+                  <span class="ml-2" style="font-size:0.8rem;color:#c62828;font-weight:600;">🧊 Freezing <?php echo $freezeStart; ?>–<?php echo $freezeEnd; ?></span>
                   <?php endif; ?>
-                  <button class="btn btn-sm btn-link p-0 ml-2" onclick="toggleWinterDetail('<?php echo $date; ?>')" style="color:#42a5f5;font-size:0.75rem;">collapse ▲</button>
+                </div>
+                <div class="d-flex align-items-center" style="gap:10px;">
+                  <?php if ($totalSnowCm > 0): ?>
+                  <span style="background:#fff;border:2px solid #42a5f5;border-radius:8px;padding:2px 10px;font-size:0.85rem;font-weight:700;color:#1565c0;">❄️ <?php echo round($totalSnowCm, 1); ?> cm snow</span>
+                  <?php endif; ?>
+                  <?php if ($totalPrecipMm > 0 && $totalSnowCm == 0): ?>
+                  <span style="background:#fff;border:2px solid #90caf9;border-radius:8px;padding:2px 10px;font-size:0.85rem;font-weight:600;color:#555;">💧 <?php echo round($totalPrecipMm, 1); ?> mm</span>
+                  <?php endif; ?>
+                  <button class="btn btn-sm btn-link p-0" onclick="toggleWinterDetail('<?php echo $date; ?>')" style="color:#42a5f5;font-size:0.75rem;">collapse ▲</button>
                 </div>
               </div>
-              <div style="overflow-x:auto;">
-                <table style="width:100%;font-size:0.8rem;border-collapse:collapse;min-width:600px;">
-                  <thead>
-                    <tr style="border-bottom:2px solid #90caf9;">
-                      <th style="padding:6px 8px;text-align:left;color:#1565c0;">Time</th>
-                      <th style="padding:6px 8px;text-align:left;color:#1565c0;">Condition</th>
-                      <th style="padding:6px 8px;text-align:center;color:#1565c0;">Temp</th>
-                      <th style="padding:6px 8px;text-align:center;color:#1565c0;">Precip</th>
-                      <th style="padding:6px 8px;text-align:center;color:#1565c0;">Accum</th>
-                      <th style="padding:6px 8px;text-align:left;color:#1565c0;">Risk</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <?php foreach ($groups as $g):
-                      $gCondLower = strtolower($g['condition']);
-                      $lowestTemp = $g['tempMin'];
 
-                      // Time range display
-                      $timeDisplay = ($g['count'] === 1)
-                          ? $g['startHour']
-                          : $g['startHour'] . ' – ' . $g['endHour'];
-                      $durationLabel = ($g['count'] === 1) ? '1 hr' : $g['count'] . ' hrs';
+              <!-- Period cards: Morning / Afternoon / Evening (+ Overnight if relevant) -->
+              <div class="d-flex flex-wrap" style="gap:8px;">
+                <?php foreach ($periods as $pName => $pDef):
+                  $pd = $periodData[$pName];
+                  if (!$pd['hasData']) continue;
 
-                      // Temp display: show range if it varies, single value if constant
-                      $tempDisplay = ($g['tempMin'] == $g['tempMax'])
-                          ? $g['tempMin'] . '°'
-                          : $g['tempMin'] . '° to ' . $g['tempMax'] . '°';
+                  // Skip overnight if nothing interesting
+                  if ($pName === 'Overnight' && $pd['freezeHours'] === 0 && $pd['snowTotal'] == 0 && $pd['mmTotal'] == 0) continue;
 
-                      // Precip display
-                      $precipDisplay = $g['popMax'] . '%';
-                      if ($g['mmMax'] > 0) $precipDisplay .= ' (up to ' . round($g['mmMax'], 1) . ' mm/hr)';
+                  // Dominant condition (most frequent)
+                  arsort($pd['conditions']);
+                  $dominantCond = array_key_first($pd['conditions']);
+                  $condLower = strtolower($dominantCond);
 
-                      // Accumulation over the band
-                      $accumDisplay = ($g['mmTotal'] > 0) ? round($g['mmTotal'], 1) . ' mm' : '—';
+                  // Pick icon for dominant condition
+                  $condIcon = '☁️';
+                  if ($dominantCond !== 'Dry') $condIcon = getWeatherIcon($dominantCond);
 
-                      // Risks
-                      $risks = [];
-                      if ($lowestTemp <= 0) $risks[] = '🧊 Freeze';
-                      if ($lowestTemp <= -5) $risks[] = '🥶 Severe';
-                      if (strpos($gCondLower, 'snow') !== false || strpos($gCondLower, 'rain/snow') !== false) $risks[] = '❄️ Snow';
-                      if (strpos($gCondLower, 'ice') !== false) $risks[] = '🧊 Ice';
-                      if (strpos($gCondLower, 'freezing') !== false) $risks[] = '🧊 Freezing';
-                      $riskStr = !empty($risks) ? implode(', ', $risks) : '—';
+                  // Card background based on severity
+                  $cardBg = '#fff';
+                  $cardBorder = '#bbdefb';
+                  if ($pd['tempMin'] <= -5) { $cardBg = '#ffcdd2'; $cardBorder = '#ef9a9a'; }
+                  elseif ($pd['tempMin'] <= 0) { $cardBg = '#e3f2fd'; $cardBorder = '#42a5f5'; }
+                  elseif ($pd['snowTotal'] > 0) { $cardBg = '#e1f5fe'; $cardBorder = '#4fc3f7'; }
 
-                      // Row color based on worst temp in band
-                      $rowBg = '';
-                      if ($lowestTemp <= -5) $rowBg = 'background:#ffcdd2;';
-                      elseif ($lowestTemp <= 0) $rowBg = 'background:#bbdefb;';
-                      elseif (strpos($gCondLower, 'snow') !== false || strpos($gCondLower, 'ice') !== false || strpos($gCondLower, 'rain/snow') !== false) $rowBg = 'background:#e1f5fe;';
-                    ?>
-                    <tr style="border-bottom:1px solid #bbdefb;<?php echo $rowBg; ?>">
-                      <td style="padding:6px 8px;font-weight:700;white-space:nowrap;">
-                        <?php echo $timeDisplay; ?>
-                        <span style="font-weight:400;color:#888;font-size:0.7rem;margin-left:4px;"><?php echo $durationLabel; ?></span>
-                      </td>
-                      <td style="padding:6px 8px;"><?php echo $g['icon']; ?> <?php echo htmlspecialchars($g['condition']); ?></td>
-                      <td style="padding:6px 8px;text-align:center;font-weight:600;<?php echo $lowestTemp <= 0 ? 'color:#c62828;' : 'color:#333;'; ?>"><?php echo $tempDisplay; ?></td>
-                      <td style="padding:6px 8px;text-align:center;"><?php echo $precipDisplay; ?></td>
-                      <td style="padding:6px 8px;text-align:center;"><?php echo $accumDisplay; ?></td>
-                      <td style="padding:6px 8px;font-size:0.75rem;"><?php echo $riskStr; ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                  </tbody>
-                </table>
+                  // Temp display
+                  $tempDisplay = ($pd['tempMin'] == $pd['tempMax'])
+                      ? round($pd['tempMin']) . '°'
+                      : round($pd['tempMin']) . '° to ' . round($pd['tempMax']) . '°';
+
+                  // Risks
+                  $risks = [];
+                  if ($pd['tempMin'] <= 0) $risks[] = '🧊';
+                  if ($pd['tempMin'] <= -5) $risks[] = '🥶';
+                  if (strpos($condLower, 'snow') !== false || strpos($condLower, 'rain/snow') !== false) $risks[] = '❄️';
+                  if (strpos($condLower, 'ice') !== false || strpos($condLower, 'freezing') !== false) $risks[] = '🧊';
+                ?>
+                <div style="flex:1;min-width:140px;max-width:200px;background:<?php echo $cardBg; ?>;border:2px solid <?php echo $cardBorder; ?>;border-radius:8px;padding:10px;text-align:center;">
+                  <!-- Period label -->
+                  <div style="font-size:0.7rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;"><?php echo $pDef['icon']; ?> <?php echo $pName; ?></div>
+                  <div style="font-size:0.65rem;color:#999;"><?php echo $pDef['label']; ?></div>
+
+                  <!-- Condition -->
+                  <div style="font-size:1.4rem;line-height:1.2;margin:6px 0 2px;"><?php echo $condIcon; ?></div>
+                  <div style="font-size:0.75rem;color:#444;font-weight:600;"><?php echo htmlspecialchars($dominantCond); ?></div>
+
+                  <!-- Temperature -->
+                  <div style="font-size:0.9rem;font-weight:700;margin:4px 0;<?php echo $pd['tempMin'] <= 0 ? 'color:#c62828;' : 'color:#333;'; ?>">
+                    <?php echo $tempDisplay; ?>
+                  </div>
+
+                  <!-- Precip & snow -->
+                  <?php if ($pd['popMax'] > 0): ?>
+                  <div style="font-size:0.7rem;color:#555;">💧 <?php echo $pd['popMax']; ?>%<?php if ($pd['mmTotal'] > 0): ?> · <?php echo round($pd['mmTotal'], 1); ?> mm<?php endif; ?></div>
+                  <?php endif; ?>
+                  <?php if ($pd['snowTotal'] > 0): ?>
+                  <div style="font-size:0.75rem;color:#1565c0;font-weight:700;">❄️ <?php echo round($pd['snowTotal'], 1); ?> cm</div>
+                  <?php endif; ?>
+
+                  <!-- Risk icons -->
+                  <?php if (!empty($risks)): ?>
+                  <div style="font-size:0.7rem;margin-top:3px;"><?php echo implode(' ', array_unique($risks)); ?></div>
+                  <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
               </div>
             </div>
             <?php endforeach; ?>

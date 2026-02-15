@@ -900,7 +900,7 @@ function fetchHourlyForecastFromAPI(float $lat, float $lon): array
 {
     $url = sprintf(
         'https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f'
-        . '&hourly=temperature_2m,precipitation_probability,precipitation,wind_speed_10m,weather_code'
+        . '&hourly=temperature_2m,precipitation_probability,precipitation,snowfall,wind_speed_10m,weather_code'
         . '&temperature_unit=celsius&wind_speed_unit=kmh&timezone=auto',
         $lat,
         $lon
@@ -928,6 +928,7 @@ function fetchHourlyForecastFromAPI(float $lat, float $lon): array
                 'temp_c'             => round((float)($hourly['temperature_2m'][$i] ?? 0), 1),
                 'precip_chance_pct'  => (int)($hourly['precipitation_probability'][$i] ?? 0),
                 'precip_mm'          => round((float)($hourly['precipitation'][$i] ?? 0), 2),
+                'snowfall_cm'        => round((float)($hourly['snowfall'][$i] ?? 0), 2),
                 'wind_kph'           => round((float)($hourly['wind_speed_10m'][$i] ?? 0), 1),
                 'condition'          => wmoCodeToCondition((int)($hourly['weather_code'][$i] ?? 0)),
                 'icon'               => getWeatherIcon(wmoCodeToCondition((int)($hourly['weather_code'][$i] ?? 0))),
@@ -1037,9 +1038,10 @@ function getHourlyForecastByCity(string $city = 'Vancouver', string $province = 
     foreach ($omHourly as $block) {
         $hour = $block['hour'];
         if (isset($ecByHour[$hour])) {
-            // Use EC data but keep Open-Meteo's precip_mm (EC doesn't provide it)
+            // Use EC data but keep Open-Meteo's precip_mm and snowfall_cm (EC doesn't provide these)
             $ecBlock = $ecByHour[$hour];
             $ecBlock['precip_mm'] = $block['precip_mm'];
+            $ecBlock['snowfall_cm'] = $block['snowfall_cm'] ?? 0;
             $merged[] = $ecBlock;
             unset($ecByHour[$hour]);
         } else {
