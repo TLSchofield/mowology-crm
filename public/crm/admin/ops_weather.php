@@ -173,7 +173,7 @@ $activePage = 'ops-weather';
               }
               if ($currentGroup !== null) $groups[] = $currentGroup;
             ?>
-            <div class="mw-winter-detail" id="winterDetail-<?php echo $date; ?>" style="background:#e8f0fe;border:2px solid #42a5f5;border-top:none;border-radius:0 0 6px 6px;margin:-4px 0 8px 0;padding:12px;">
+            <div class="mw-winter-detail" id="winterDetail-<?php echo $date; ?>" style="display:none;background:#e8f0fe;border:2px solid #42a5f5;border-top:none;border-radius:0 0 6px 6px;margin:-4px 0 8px 0;padding:12px;">
               <div class="d-flex justify-content-between align-items-center mb-2">
                 <div>
                   <strong style="color:#1565c0;">❄️ <?php echo $dayLabel; ?> — Winter Detail</strong>
