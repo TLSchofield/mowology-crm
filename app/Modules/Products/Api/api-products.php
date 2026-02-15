@@ -524,6 +524,14 @@ try {
         $stmt->execute([$data['id']]);
         echo json_encode(['success' => true, 'message' => 'Pricing rule deleted']);
 
+    } elseif ($action === 'delete-all-pricing-rules') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (empty($data['product_id'])) throw new Exception('Product ID is required');
+
+        $stmt = $db->prepare("DELETE FROM product_pricing_rules WHERE product_id = ?");
+        $stmt->execute([intval($data['product_id'])]);
+        echo json_encode(['success' => true, 'message' => 'All pricing rules deleted for product']);
+
     // ── Product Upsells ────────────────────────────────────
 
     } elseif ($action === 'get-upsells') {
@@ -604,6 +612,14 @@ try {
         $stmt = $db->prepare("DELETE FROM product_upsells WHERE id = ?");
         $stmt->execute([$data['id']]);
         echo json_encode(['success' => true, 'message' => 'Upsell deleted']);
+
+    } elseif ($action === 'delete-all-upsells') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (empty($data['product_id'])) throw new Exception('Product ID is required');
+
+        $stmt = $db->prepare("DELETE FROM product_upsells WHERE base_product_id = ?");
+        $stmt->execute([intval($data['product_id'])]);
+        echo json_encode(['success' => true, 'message' => 'All upsells deleted for product']);
 
     // ── Product Bundles ────────────────────────────────────
 

@@ -1071,8 +1071,8 @@ $activePage = 'products';
               .then(result => {
                 if (result.success) {
                   const productId = result.id || data.id;
-                  // Save pricing rules and upsells
-                  if (productId && (currentPricingRules.length > 0 || currentUpsells.length > 0)) {
+                  // Always save extras (handles deletions even when arrays are empty)
+                  if (productId) {
                     saveProductExtras(productId).then(() => {
                       $('#productModal').modal('hide');
                       loadProducts();
@@ -1570,27 +1570,46 @@ $activePage = 'products';
 
             // Save pricing rules and upsells after product save
             function saveProductExtras(productId) {
-              // Save pricing rules (delete + recreate)
-              const rulePromises = currentPricingRules.map(rule => {
-                rule.product_id = productId;
-                return fetch('api-products.php?action=save-pricing-rule', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(rule)
-                }).then(r => r.json());
+              // Delete all existing pricing rules first, then re-create remaining ones
+              const rulesChain = fetch('api-products.php?action=delete-all-pricing-rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product_id: productId })
+              })
+              .then(r => r.json())
+              .then(() => {
+                // Re-create each remaining rule (strip id so they insert fresh)
+                return Promise.all(currentPricingRules.map(rule => {
+                  const saveData = Object.assign({}, rule, { product_id: productId });
+                  delete saveData.id;
+                  return fetch('api-products.php?action=save-pricing-rule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(saveData)
+                  }).then(r => r.json());
+                }));
               });
 
-              // Save upsells
-              const upsellPromises = currentUpsells.map(up => {
-                up.base_product_id = productId;
-                return fetch('api-products.php?action=save-upsell', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(up)
-                }).then(r => r.json());
+              // Delete all existing upsells first, then re-create remaining ones
+              const upsellsChain = fetch('api-products.php?action=delete-all-upsells', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ product_id: productId })
+              })
+              .then(r => r.json())
+              .then(() => {
+                return Promise.all(currentUpsells.map(up => {
+                  const saveData = Object.assign({}, up, { base_product_id: productId });
+                  delete saveData.id;
+                  return fetch('api-products.php?action=save-upsell', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(saveData)
+                  }).then(r => r.json());
+                }));
               });
 
-              return Promise.all([...rulePromises, ...upsellPromises]);
+              return Promise.all([rulesChain, upsellsChain]);
             }
 
             // Utility: Escape HTML

@@ -379,6 +379,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             echo json_encode(['success' => false, 'error' => 'Failed to save coordinates']);
         }
         exit;
+
+    } elseif ($requestAction === 'unlink_property') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $propertyId = intval($jsonData['property_id'] ?? 0);
+        $currentContactId = intval($jsonData['current_contact_id'] ?? 0);
+        $newContactId = intval($jsonData['new_contact_id'] ?? 0);
+
+        if (!$propertyId || !$currentContactId) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Property ID and current contact ID are required']);
+            exit;
+        }
+
+        try {
+            // Verify property belongs to this contact
+            $checkStmt = $db->prepare("SELECT id FROM properties WHERE id = ? AND site_contact_id = ?");
+            $checkStmt->execute([$propertyId, $currentContactId]);
+            if (!$checkStmt->fetch()) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Property not found or not linked to this contact']);
+                exit;
+            }
+
+            if ($newContactId > 0) {
+                // Reassign to different contact
+                $db->prepare("UPDATE properties SET site_contact_id = ? WHERE id = ?")
+                   ->execute([$newContactId, $propertyId]);
+                echo json_encode(['success' => true, 'action' => 'reassigned']);
+            } else {
+                // Unlink (set to NULL)
+                $db->prepare("UPDATE properties SET site_contact_id = NULL WHERE id = ?")
+                   ->execute([$propertyId]);
+                echo json_encode(['success' => true, 'action' => 'unlinked']);
+            }
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Failed to update property']);
+        }
+        exit;
     }
 }
 
@@ -698,6 +742,14 @@ if ($action === 'view_contact' && $clientId) {
             // billing_contact_id may not exist yet
             $contactCompany = null;
         }
+
+        // Fetch other contacts for property reassignment dropdown
+        $otherContacts = [];
+        try {
+            $stmt = $db->prepare("SELECT id, first_name, last_name, email FROM contacts WHERE id != ? AND is_active = 1 ORDER BY first_name, last_name");
+            $stmt->execute([$clientId]);
+            $otherContacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) { /* ok */ }
 
         // Load Google Maps API (geometry for map display, places for address autocomplete)
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
@@ -1402,14 +1454,17 @@ $unconvertedRequests = $db->query("
                               </button>
                             </div>
                           </div>
-                          <div>
+                          <div class="d-flex align-items-center" onclick="event.stopPropagation();">
                             <?php if (floatval($prop['latitude'] ?? 0) == 0 || floatval($prop['longitude'] ?? 0) == 0): ?>
-                              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); geocodeProperty(<?php echo (int)$prop['id']; ?>, this)" title="Geocode this address">
+                              <button type="button" class="btn btn-sm btn-outline-secondary mr-1" onclick="geocodeProperty(<?php echo (int)$prop['id']; ?>, this)" title="Geocode this address">
                                 <i data-feather="crosshair" style="width: 12px; height: 12px;"></i>
                               </button>
                             <?php else: ?>
-                              <span class="text-success" title="Geocoded"><i data-feather="check-circle" style="width: 14px; height: 14px;"></i></span>
+                              <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" style="width: 14px; height: 14px;"></i></span>
                             <?php endif; ?>
+                            <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo (int)$prop['id']; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove or reassign this property">
+                              <i data-feather="x-circle" style="width: 14px; height: 14px;"></i>
+                            </button>
                           </div>
                         </div>
                       <?php endforeach; ?>
@@ -1542,6 +1597,49 @@ $unconvertedRequests = $db->query("
               </div>
             </div>
 
+            <!-- Unlink/Reassign Property Modal -->
+            <div class="modal fade" id="unlinkPropertyModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                  <div class="modal-header" style="background: #dc3545; color: #fff;">
+                    <h5 class="modal-title"><i data-feather="x-circle" style="width: 18px; height: 18px;"></i> Remove Property</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                      <span aria-hidden="true">&times;</span>
+                    </button>
+                  </div>
+                  <div class="modal-body">
+                    <p>Remove <strong id="unlinkPropAddress"></strong> from this contact?</p>
+                    <div class="form-group">
+                      <label class="d-block mb-2">
+                        <input type="radio" name="unlinkAction" value="unlink" checked> Unlink only <small class="text-muted">(property keeps its data but has no contact)</small>
+                      </label>
+                      <label class="d-block mb-2">
+                        <input type="radio" name="unlinkAction" value="reassign"> Reassign to another contact
+                      </label>
+                    </div>
+                    <div id="reassignContactRow" style="display: none;">
+                      <label>Select contact:</label>
+                      <select class="form-control" id="reassignContactSelect">
+                        <option value="">-- Choose a contact --</option>
+                        <?php foreach ($otherContacts as $oc): ?>
+                          <option value="<?php echo (int)$oc['id']; ?>">
+                            <?php echo h($oc['first_name'] . ' ' . $oc['last_name']); ?><?php echo !empty($oc['email']) ? ' (' . h($oc['email']) . ')' : ''; ?>
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                    </div>
+                    <input type="hidden" id="unlinkPropertyId" value="">
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="confirmUnlinkBtn" onclick="unlinkProperty()">
+                      <i data-feather="check"></i> Confirm
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <script>
             (function() {
               var CONTACT_ID = <?php echo (int)$viewContact['id']; ?>;
@@ -1609,6 +1707,70 @@ $unconvertedRequests = $db->query("
                 gmap.panTo(marker.getPosition());
                 gmap.setZoom(16);
                 google.maps.event.trigger(marker, 'click');
+              };
+
+              // ── Unlink / Reassign Property ───────────────────────
+              window.showUnlinkProperty = function(propertyId, address) {
+                document.getElementById('unlinkPropertyId').value = propertyId;
+                document.getElementById('unlinkPropAddress').textContent = address;
+                document.getElementById('reassignContactSelect').value = '';
+                document.querySelector('input[name="unlinkAction"][value="unlink"]').checked = true;
+                document.getElementById('reassignContactRow').style.display = 'none';
+                $('#unlinkPropertyModal').modal('show');
+              };
+
+              // Toggle reassign dropdown visibility
+              document.querySelectorAll('input[name="unlinkAction"]').forEach(function(radio) {
+                radio.addEventListener('change', function() {
+                  document.getElementById('reassignContactRow').style.display =
+                    this.value === 'reassign' ? 'block' : 'none';
+                });
+              });
+
+              window.unlinkProperty = function() {
+                var propertyId = parseInt(document.getElementById('unlinkPropertyId').value);
+                var action = document.querySelector('input[name="unlinkAction"]:checked').value;
+                var newContactId = 0;
+
+                if (action === 'reassign') {
+                  newContactId = parseInt(document.getElementById('reassignContactSelect').value);
+                  if (!newContactId) {
+                    alert('Please select a contact to reassign to.');
+                    return;
+                  }
+                }
+
+                var btn = document.getElementById('confirmUnlinkBtn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Working...';
+
+                fetch('clients_appstack.php?action=unlink_property', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    property_id: propertyId,
+                    current_contact_id: CONTACT_ID,
+                    new_contact_id: newContactId,
+                    csrf_token: CSRF_TOKEN
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    location.reload();
+                  } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    btn.disabled = false;
+                    btn.innerHTML = '<i data-feather="check"></i> Confirm';
+                    feather.replace();
+                  }
+                })
+                .catch(function() {
+                  alert('Network error. Please try again.');
+                  btn.disabled = false;
+                  btn.innerHTML = '<i data-feather="check"></i> Confirm';
+                  feather.replace();
+                });
               };
 
               // ── Add Property ────────────────────────────────────

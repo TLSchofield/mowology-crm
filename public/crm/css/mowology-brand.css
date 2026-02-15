@@ -3442,6 +3442,20 @@ a:hover {
   background: var(--mw-light);
 }
 
+.mw-property-unlink-btn {
+  background: none;
+  border: none;
+  color: #cbd5e0;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.2s ease;
+  line-height: 1;
+}
+.mw-property-unlink-btn:hover {
+  color: #dc3545;
+}
+
 .mw-contact-property-addr {
   font-weight: 600;
   font-size: 0.9rem;
