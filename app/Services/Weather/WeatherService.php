@@ -170,10 +170,10 @@ function fetchWeatherDataFromAPI(string $city, string $province): array
             $condition = wmoCodeToCondition($wmoCode);
 
             // Extract temperature, precipitation, wind
-            $tempHigh = (int)($daily['temperature_2m_max'][$i] ?? 12);
-            $tempLow = (int)($daily['temperature_2m_min'][$i] ?? 8);
-            $precipitation = (int)($daily['precipitation_sum'][$i] ?? 0);
-            $wind = (int)($daily['wind_speed_10m_max'][$i] ?? 0);
+            $tempHigh = (int)round((float)($daily['temperature_2m_max'][$i] ?? 12));
+            $tempLow = (int)round((float)($daily['temperature_2m_min'][$i] ?? 8));
+            $precipitation = (int)round((float)($daily['precipitation_sum'][$i] ?? 0));
+            $wind = (int)round((float)($daily['wind_speed_10m_max'][$i] ?? 0));
 
             // Clamp precipitation 0-100
             $precipitation = max(0, min(100, $precipitation));
