@@ -91,8 +91,10 @@ function getWeekForecast(string $city = 'Vancouver', string $province = 'BC'): a
 }
 
 /**
- * Get 7-day forecast from cache or fetch from API
- * Caches entire week as single object for 2 hours
+ * Get 7-day forecast from cache or fetch from API.
+ * Uses Environment Canada as primary source (matches Weather Network),
+ * with Open-Meteo filling in days 4-7 that EC doesn't cover.
+ * Caches the merged result for 1 hour.
  */
 function getWeekForecastCached(string $city = 'Vancouver', string $province = 'BC'): array
 {
@@ -107,12 +109,42 @@ function getWeekForecastCached(string $city = 'Vancouver', string $province = 'B
         }
     }
 
-    // Fetch from API
-    $forecast = fetchWeatherDataFromAPI($city, $province);
+    // Try Environment Canada first (primary — matches Weather Network)
+    $ecData = fetchEnvironmentCanadaData($city, $province);
+    $ecDaily = $ecData['daily'] ?? [];
 
-    // Cache for 2 hours
+    // Always fetch Open-Meteo for full 7-day coverage
+    $omForecast = fetchWeatherDataFromAPI($city, $province);
+
+    // Merge: EC data takes priority for days it covers, Open-Meteo fills the rest
+    $forecast = [];
+    if (!empty($ecDaily)) {
+        // Start with Open-Meteo as base (7 days)
+        $forecast = $omForecast;
+
+        // Overlay EC data for the days it covers
+        foreach ($ecDaily as $date => $ecDay) {
+            if ($ecDay['temp_high'] !== null && $ecDay['temp_low'] !== null) {
+                $forecast[$date] = $ecDay;
+            }
+        }
+
+        // Sort by date
+        ksort($forecast);
+    } else {
+        // EC failed — fall back to Open-Meteo only
+        $forecast = $omForecast;
+    }
+
+    // Cache for 1 hour (EC updates roughly hourly)
     if (!empty($forecast)) {
-        setWeatherCache($cacheKey, json_encode($forecast), 7200);
+        setWeatherCache($cacheKey, json_encode($forecast), 3600);
+    }
+
+    // Also cache EC hourly data separately if available
+    if (!empty($ecData['hourly'])) {
+        $hourlyCacheKey = "ec_hourly_" . strtolower($city) . "_" . strtolower($province);
+        setWeatherCache($hourlyCacheKey, json_encode($ecData['hourly']), 3600);
     }
 
     return $forecast;
@@ -193,6 +225,297 @@ function fetchWeatherDataFromAPI(string $city, string $province): array
         error_log("Weather API error: " . $e->getMessage());
         return [];
     }
+}
+
+// ============================================================================
+// ENVIRONMENT CANADA API (primary source — matches Weather Network)
+// ============================================================================
+
+/**
+ * Environment Canada city page identifiers.
+ * These map city/province pairs to the EC API identifier used in
+ * https://api.weather.gc.ca/collections/citypageweather-realtime/items?identifier=XX-NN
+ *
+ * Add more as needed from: https://dd.weather.gc.ca/today/citypage_weather/docs/site_list_en.csv
+ */
+function getEnvironmentCanadaIdentifier(string $city, string $province): ?string
+{
+    $map = [
+        'vancouver_bc'      => 'bc-74',
+        'burnaby_bc'        => 'bc-74',   // Same forecast zone
+        'richmond_bc'       => 'bc-74',
+        'surrey_bc'         => 'bc-74',
+        'north vancouver_bc'=> 'bc-74',
+        'victoria_bc'       => 'bc-85',
+        'kelowna_bc'        => 'bc-48',
+        'kamloops_bc'       => 'bc-45',
+    ];
+
+    $key = strtolower($city) . '_' . strtolower($province);
+    return $map[$key] ?? null;
+}
+
+/**
+ * Fetch daily forecast from Environment Canada's OGC API.
+ * Returns normalized forecast in the same format as fetchWeatherDataFromAPI().
+ *
+ * EC returns period-based forecasts (Tonight, Sunday, Sunday night, Monday, etc.)
+ * which we merge into daily entries keyed by date.
+ *
+ * @param string $city
+ * @param string $province
+ * @return array ['daily' => [...], 'hourly' => [...]] or empty on failure
+ */
+function fetchEnvironmentCanadaData(string $city, string $province): array
+{
+    $identifier = getEnvironmentCanadaIdentifier($city, $province);
+    if (!$identifier) {
+        return [];
+    }
+
+    $url = "https://api.weather.gc.ca/collections/citypageweather-realtime/items?f=json&lang=en-CA&identifier={$identifier}";
+
+    try {
+        $response = httpGetRequest($url, 15);
+        if (!$response) {
+            error_log("EC Weather API: Failed to fetch for {$identifier}");
+            return [];
+        }
+
+        $data = json_decode($response, true);
+        if (!isset($data['features'][0]['properties'])) {
+            error_log("EC Weather API: Invalid response structure");
+            return [];
+        }
+
+        $props = $data['features'][0]['properties'];
+        $result = ['daily' => [], 'hourly' => []];
+
+        // ------------------------------------------------------------------
+        // Parse daily forecast periods
+        // ------------------------------------------------------------------
+        $forecasts = $props['forecastGroup']['forecasts'] ?? [];
+        $today = date('Y-m-d');
+
+        foreach ($forecasts as $fc) {
+            $periodName = $fc['period']['textForecastName']['en'] ?? '';
+            $periodDesc = $fc['period']['value']['en'] ?? '';
+
+            // Determine the date this period refers to
+            $date = ecPeriodToDate($periodName, $periodDesc, $today);
+            if (!$date) continue;
+
+            // Is this a night/overnight period?
+            $isNight = ecIsNightPeriod($periodName, $periodDesc);
+
+            // Extract temperature
+            $temps = $fc['temperatures']['temperature'] ?? [];
+            $tempValue = null;
+            $tempClass = null;
+            foreach ($temps as $t) {
+                $tempValue = (int)($t['value']['en'] ?? 0);
+                $tempClass = $t['class']['en'] ?? '';
+            }
+
+            // Extract wind
+            $windPeriods = $fc['winds']['periods'] ?? [];
+            $windSpeed = 0;
+            if (!empty($windPeriods)) {
+                $windSpeed = (int)($windPeriods[0]['speed']['value']['en'] ?? 0);
+                $gust = (int)($windPeriods[0]['gust']['value']['en'] ?? 0);
+                if ($gust > $windSpeed) $windSpeed = $gust;
+            }
+
+            // Extract condition text
+            $conditionText = $fc['abbreviatedForecast']['textSummary']['en'] ?? '';
+            $condition = ecConditionNormalize($conditionText);
+
+            // Extract POP
+            $pop = (int)($fc['abbreviatedForecast']['pop']['value']['en'] ?? 0);
+
+            // Extract icon code
+            $iconCode = (int)($fc['abbreviatedForecast']['icon']['value'] ?? 0);
+
+            // Build or merge into daily entry
+            if (!isset($result['daily'][$date])) {
+                $result['daily'][$date] = [
+                    'temp_high' => null,
+                    'temp_low' => null,
+                    'overnight_low' => null,
+                    'condition' => $condition,
+                    'precipitation' => $pop,
+                    'icon' => getWeatherIcon($condition),
+                    'wind' => $windSpeed,
+                    'source' => 'ec',
+                ];
+            }
+
+            $day = &$result['daily'][$date];
+
+            if ($isNight) {
+                // Night period — this is the overnight low
+                if ($tempClass === 'low' || $tempValue !== null) {
+                    $day['overnight_low'] = $tempValue;
+                    // Also set temp_low if not yet set
+                    if ($day['temp_low'] === null || $tempValue < $day['temp_low']) {
+                        $day['temp_low'] = $tempValue;
+                    }
+                }
+                // Night wind may be higher
+                if ($windSpeed > $day['wind']) {
+                    $day['wind'] = $windSpeed;
+                }
+            } else {
+                // Day period — high temp and main condition
+                if ($tempClass === 'high' || $tempValue !== null) {
+                    $day['temp_high'] = $tempValue;
+                }
+                $day['condition'] = $condition;
+                $day['icon'] = getWeatherIcon($condition);
+                $day['precipitation'] = max($day['precipitation'], $pop);
+                if ($windSpeed > $day['wind']) {
+                    $day['wind'] = $windSpeed;
+                }
+            }
+
+            unset($day);
+        }
+
+        // Fill in missing highs/lows from whatever we have
+        foreach ($result['daily'] as $date => &$day) {
+            if ($day['temp_high'] === null && $day['temp_low'] !== null) {
+                $day['temp_high'] = $day['temp_low']; // overnight-only period
+            }
+            if ($day['temp_low'] === null && $day['temp_high'] !== null) {
+                $day['temp_low'] = $day['temp_high'];
+            }
+            if ($day['overnight_low'] === null) {
+                $day['overnight_low'] = $day['temp_low'];
+            }
+        }
+        unset($day);
+
+        // ------------------------------------------------------------------
+        // Parse hourly forecast (EC provides ~24 hours)
+        // ------------------------------------------------------------------
+        $hourlyForecasts = $props['hourlyForecastGroup']['hourlyForecasts'] ?? [];
+        foreach ($hourlyForecasts as $hr) {
+            $timestamp = $hr['timestamp'] ?? '';
+            if (!$timestamp) continue;
+
+            // EC timestamps are UTC — convert to local
+            $utcTime = new \DateTime($timestamp, new \DateTimeZone('UTC'));
+            $utcTime->setTimezone(new \DateTimeZone('America/Vancouver'));
+            $localHour = $utcTime->format('Y-m-d\TH:00');
+
+            $condition = $hr['condition']['en'] ?? 'Unknown';
+            $condition = ecConditionNormalize($condition);
+
+            $result['hourly'][] = [
+                'hour'              => $localHour,
+                'temp_c'            => round((float)($hr['temperature']['value']['en'] ?? 0), 1),
+                'precip_chance_pct' => (int)($hr['lop']['value']['en'] ?? 0),
+                'precip_mm'         => 0.0, // EC doesn't provide mm per hour in citypage
+                'wind_kph'          => round((float)($hr['wind']['speed']['value']['en'] ?? 0), 1),
+                'condition'         => $condition,
+                'icon'              => getWeatherIcon($condition),
+                'source'            => 'ec',
+            ];
+        }
+
+        return $result;
+    } catch (Throwable $e) {
+        error_log("EC Weather API error: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Map an EC forecast period name to a YYYY-MM-DD date.
+ * EC periods are like "Tonight", "Sunday", "Sunday night", "Monday", etc.
+ */
+function ecPeriodToDate(string $periodName, string $periodDesc, string $today): ?string
+{
+    $periodLower = strtolower($periodName);
+
+    // "Tonight" / "Today" = today
+    if (strpos($periodLower, 'tonight') !== false || strpos($periodLower, 'today') !== false) {
+        return $today;
+    }
+
+    // Day names: "Sunday", "Monday", "Sunday night", etc.
+    $dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    foreach ($dayNames as $dayName) {
+        if (strpos($periodLower, $dayName) !== false) {
+            // Find next occurrence of this day from today
+            $target = new \DateTime($today);
+            $targetDayNum = array_search($dayName, $dayNames);
+            $currentDayNum = (int)$target->format('w'); // 0=Sun, 1=Mon, ...
+
+            $diff = $targetDayNum - $currentDayNum;
+            if ($diff <= 0) $diff += 7;
+            // If today IS that day and this isn't a "night" period looking forward
+            if ($diff === 7 && strpos($periodLower, 'night') === false) {
+                $diff = 0; // Today is that day
+            }
+
+            $target->modify("+{$diff} days");
+            return $target->format('Y-m-d');
+        }
+    }
+
+    // "This afternoon" = today
+    if (strpos($periodLower, 'this afternoon') !== false) {
+        return $today;
+    }
+
+    return null;
+}
+
+/**
+ * Check if an EC forecast period is a night/overnight period.
+ */
+function ecIsNightPeriod(string $periodName, string $periodDesc): bool
+{
+    $lower = strtolower($periodName) . ' ' . strtolower($periodDesc);
+    return strpos($lower, 'night') !== false
+        || strpos($lower, 'tonight') !== false
+        || strpos($lower, 'overnight') !== false;
+}
+
+/**
+ * Normalize EC condition text to match our standard condition strings.
+ * EC uses phrases like "Chance of showers", "Mainly sunny", etc.
+ */
+function ecConditionNormalize(string $condition): string
+{
+    $lower = strtolower($condition);
+
+    if (strpos($lower, 'thunderstorm') !== false) return 'Thunderstorm';
+    if (strpos($lower, 'freezing rain') !== false) return 'Freezing Rain';
+    if (strpos($lower, 'freezing drizzle') !== false) return 'Freezing Rain';
+    if (strpos($lower, 'ice pellet') !== false) return 'Ice Pellets';
+    if (strpos($lower, 'snow') !== false && strpos($lower, 'shower') !== false) return 'Snow Showers';
+    if (strpos($lower, 'snow') !== false) return 'Snow';
+    if (strpos($lower, 'blizzard') !== false) return 'Snow';
+    if (strpos($lower, 'rain') !== false && strpos($lower, 'heavy') !== false) return 'Heavy Rain Showers';
+    if (strpos($lower, 'rain') !== false || strpos($lower, 'shower') !== false || strpos($lower, 'drizzle') !== false) return 'Rain';
+    if (strpos($lower, 'overcast') !== false) return 'Overcast';
+    if (strpos($lower, 'cloudy') !== false && strpos($lower, 'partly') !== false) return 'Partly Cloudy';
+    if (strpos($lower, 'cloudy') !== false && strpos($lower, 'mainly') !== false) return 'Partly Cloudy';
+    if (strpos($lower, 'cloudy') !== false) return 'Overcast';
+    if (strpos($lower, 'fog') !== false || strpos($lower, 'mist') !== false) return 'Fog';
+    if (strpos($lower, 'clear') !== false) return 'Clear';
+    if (strpos($lower, 'sunny') !== false && strpos($lower, 'mainly') !== false) return 'Partly Cloudy';
+    if (strpos($lower, 'sunny') !== false) return 'Clear';
+    if (strpos($lower, 'a few clouds') !== false) return 'Partly Cloudy';
+    if (strpos($lower, 'chance of') !== false) {
+        // "Chance of showers" etc — still counts as the precip type
+        if (strpos($lower, 'flurr') !== false || strpos($lower, 'snow') !== false) return 'Snow';
+        return 'Rain';
+    }
+
+    return ucfirst($condition);
 }
 
 /**
@@ -633,8 +956,10 @@ function getHourlyForecastWindow(float $lat, float $lon, string $date, string $t
 }
 
 /**
- * Get hourly forecast using city/province (geocodes first, then fetches).
- * Convenience wrapper for use outside lat/lng context.
+ * Get hourly forecast using city/province.
+ * Merges EC hourly data (first ~24hrs, more accurate for local conditions)
+ * with Open-Meteo hourly data (7-day coverage).
+ * EC hours replace Open-Meteo hours where both exist.
  *
  * @param string $city
  * @param string $province
@@ -646,20 +971,66 @@ function getHourlyForecastByCity(string $city = 'Vancouver', string $province = 
     if (!$coords) {
         return [];
     }
-    return getHourlyForecast($coords['latitude'], $coords['longitude']);
+
+    // Get full Open-Meteo hourly (7 days)
+    $omHourly = getHourlyForecast($coords['latitude'], $coords['longitude']);
+
+    // Try to get EC hourly (cached by getWeekForecastCached)
+    $ecCacheKey = "ec_hourly_" . strtolower($city) . "_" . strtolower($province);
+    $ecCached = getWeatherCache($ecCacheKey);
+    $ecHourly = [];
+    if ($ecCached !== null) {
+        $ecHourly = json_decode($ecCached, true) ?: [];
+    }
+
+    if (empty($ecHourly)) {
+        // No EC hourly available — ensure it's been fetched
+        // (getWeekForecast triggers EC fetch which caches hourly)
+        getWeekForecast($city, $province);
+        $ecCached = getWeatherCache($ecCacheKey);
+        if ($ecCached !== null) {
+            $ecHourly = json_decode($ecCached, true) ?: [];
+        }
+    }
+
+    if (empty($ecHourly)) {
+        return $omHourly;
+    }
+
+    // Index EC hourly by hour key
+    $ecByHour = [];
+    foreach ($ecHourly as $block) {
+        $ecByHour[$block['hour']] = $block;
+    }
+
+    // Merge: EC replaces Open-Meteo for hours it covers
+    $merged = [];
+    foreach ($omHourly as $block) {
+        $hour = $block['hour'];
+        if (isset($ecByHour[$hour])) {
+            // Use EC data but keep Open-Meteo's precip_mm (EC doesn't provide it)
+            $ecBlock = $ecByHour[$hour];
+            $ecBlock['precip_mm'] = $block['precip_mm'];
+            $merged[] = $ecBlock;
+            unset($ecByHour[$hour]);
+        } else {
+            $merged[] = $block;
+        }
+    }
+
+    return $merged;
 }
 
 /**
- * Get 7-day forecast enriched with overnight lows from hourly data.
- * For each day, computes the overnight low (6 PM that evening → 8 AM next morning)
- * which is what matters for salting decisions — you salt Saturday evening
- * because the overnight low Sat→Sun dips below zero.
- *
- * Returns same shape as getWeekForecast() but adds 'overnight_low' key per day.
+ * Get 7-day forecast enriched with overnight lows.
+ * For days sourced from Environment Canada, the overnight_low is already set
+ * from EC's night forecast periods (matches Weather Network exactly).
+ * For remaining days (Open-Meteo), computes overnight low from hourly data
+ * (6 PM that evening → 8 AM next morning).
  *
  * @param string $city
  * @param string $province
- * @return array Keyed by YYYY-MM-DD, each with extra 'overnight_low' field
+ * @return array Keyed by YYYY-MM-DD, each with 'overnight_low' field
  */
 function getWeekForecastWithOvernightLow(string $city = 'Vancouver', string $province = 'BC'): array
 {
@@ -668,11 +1039,28 @@ function getWeekForecastWithOvernightLow(string $city = 'Vancouver', string $pro
         return $daily;
     }
 
+    // Check which days already have overnight_low from EC
+    $needsHourly = false;
+    foreach ($daily as $date => $day) {
+        if (!isset($day['overnight_low']) || $day['overnight_low'] === null) {
+            $needsHourly = true;
+            break;
+        }
+    }
+
+    // If all days have overnight_low (from EC), we're done
+    if (!$needsHourly) {
+        return $daily;
+    }
+
+    // Fetch hourly data for days that need overnight low computed
     $hourly = getHourlyForecastByCity($city, $province);
     if (empty($hourly)) {
-        // Fallback: use daily temp_low as overnight_low
+        // Fallback: use daily temp_low for days missing overnight_low
         foreach ($daily as $date => &$day) {
-            $day['overnight_low'] = $day['temp_low'];
+            if (!isset($day['overnight_low']) || $day['overnight_low'] === null) {
+                $day['overnight_low'] = $day['temp_low'];
+            }
         }
         unset($day);
         return $daily;
@@ -684,9 +1072,14 @@ function getWeekForecastWithOvernightLow(string $city = 'Vancouver', string $pro
         $hourlyTemps[$block['hour']] = $block['temp_c'];
     }
 
-    // For each day, find the min temp from 6 PM that day → 8 AM next day
+    // For days without EC overnight_low, compute from hourly data
     $dates = array_keys($daily);
     foreach ($dates as $idx => $date) {
+        // Skip days that already have overnight_low from EC
+        if (isset($daily[$date]['overnight_low']) && $daily[$date]['overnight_low'] !== null) {
+            continue;
+        }
+
         $overnightMin = null;
 
         // Scan 18:00 that evening through 08:00 next morning
@@ -700,7 +1093,6 @@ function getWeekForecastWithOvernightLow(string $city = 'Vancouver', string $pro
             }
         }
 
-        // Next day 00:00 → 08:00
         $nextDate = date('Y-m-d', strtotime($date . ' +1 day'));
         for ($h = 0; $h <= 8; $h++) {
             $key = $nextDate . 'T' . sprintf('%02d', $h) . ':00';
@@ -712,7 +1104,6 @@ function getWeekForecastWithOvernightLow(string $city = 'Vancouver', string $pro
             }
         }
 
-        // Store rounded overnight low (or fall back to daily temp_low)
         $daily[$date]['overnight_low'] = $overnightMin !== null
             ? (int)round($overnightMin)
             : $daily[$date]['temp_low'];
