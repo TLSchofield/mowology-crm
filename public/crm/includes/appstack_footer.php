@@ -100,33 +100,62 @@
     // Skip PWA prompt inside native Capacitor app
     if (window.Capacitor && window.Capacitor.isNativePlatform()) return;
 
-    // Already running as installed app — do nothing
+    // Already running as installed app — hide sidebar install link too
     if (window.matchMedia('(display-mode: standalone)').matches) return;
     if (window.navigator.standalone === true) return;
-
-    // Don't show if user dismissed recently (24h cooldown)
-    var dismissed = localStorage.getItem('mw-pwa-dismissed');
-    if (dismissed && Date.now() - parseInt(dismissed, 10) < 86400000) return;
 
     var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
     var isAndroid = /Android/.test(navigator.userAgent);
     var deferredPrompt = null;
+    var sidebarItem = document.getElementById('mw-pwa-sidebar-item');
+    var sidebarLink = document.getElementById('mw-pwa-sidebar-link');
 
     // Android: capture the native install prompt
-    if (isAndroid) {
-      window.addEventListener('beforeinstallprompt', function(e) {
-        e.preventDefault();
-        deferredPrompt = e;
+    window.addEventListener('beforeinstallprompt', function(e) {
+      e.preventDefault();
+      deferredPrompt = e;
+
+      // Show sidebar install link
+      if (sidebarItem) sidebarItem.style.display = '';
+
+      // Show bottom banner if not recently dismissed
+      var dismissed = localStorage.getItem('mw-pwa-dismissed');
+      if (!dismissed || Date.now() - parseInt(dismissed, 10) >= 86400000) {
         showBanner('android');
+      }
+    });
+
+    // Sidebar "Install App" click triggers native prompt
+    if (sidebarLink) {
+      sidebarLink.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          deferredPrompt.userChoice.then(function(result) {
+            if (result.outcome === 'accepted' && sidebarItem) {
+              sidebarItem.style.display = 'none';
+            }
+            deferredPrompt = null;
+          });
+        } else if (isIOS) {
+          showBanner('ios');
+        }
       });
     }
 
-    // iOS: show custom instruction banner after short delay
+    // iOS: show sidebar link and banner after delay (no beforeinstallprompt on iOS)
     if (isIOS) {
-      setTimeout(function() { showBanner('ios'); }, 2000);
+      if (sidebarItem) sidebarItem.style.display = '';
+      var dismissed = localStorage.getItem('mw-pwa-dismissed');
+      if (!dismissed || Date.now() - parseInt(dismissed, 10) >= 86400000) {
+        setTimeout(function() { showBanner('ios'); }, 2000);
+      }
     }
 
     function showBanner(platform) {
+      // Don't duplicate if already showing
+      if (document.getElementById('mw-pwa-banner')) return;
+
       var banner = document.createElement('div');
       banner.id = 'mw-pwa-banner';
       banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;' +
@@ -166,7 +195,13 @@
         installBtn.style.cssText = 'background:#2D8659;color:#fff;border:none;padding:8px 18px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;';
         installBtn.addEventListener('click', function() {
           deferredPrompt.prompt();
-          deferredPrompt.userChoice.then(function() { banner.remove(); });
+          deferredPrompt.userChoice.then(function(result) {
+            banner.remove();
+            if (result.outcome === 'accepted' && sidebarItem) {
+              sidebarItem.style.display = 'none';
+            }
+            deferredPrompt = null;
+          });
         });
         actions.appendChild(installBtn);
       }
@@ -185,9 +220,12 @@
       banner.appendChild(actions);
 
       // Slide-up animation
-      var style = document.createElement('style');
-      style.textContent = '@keyframes mw-slide-up{from{transform:translateY(100%)}to{transform:translateY(0)}}';
-      document.head.appendChild(style);
+      if (!document.getElementById('mw-slide-up-style')) {
+        var style = document.createElement('style');
+        style.id = 'mw-slide-up-style';
+        style.textContent = '@keyframes mw-slide-up{from{transform:translateY(100%)}to{transform:translateY(0)}}';
+        document.head.appendChild(style);
+      }
 
       document.body.appendChild(banner);
     }

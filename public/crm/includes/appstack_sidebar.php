@@ -104,6 +104,13 @@ $navItems = [
                 </a>
             </li>
             <?php endif; ?>
+            <!-- Install App (hidden when already installed or not available) -->
+            <li class="sidebar-item" id="mw-pwa-sidebar-item" style="display:none;">
+                <a class="sidebar-link" href="#" id="mw-pwa-sidebar-link" onclick="return false;">
+                    <i class="align-middle" data-feather="download"></i>
+                    <span class="align-middle">Install App</span>
+                </a>
+            </li>
         </ul>
     </div>
 </nav>
