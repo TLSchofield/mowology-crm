@@ -39,6 +39,7 @@
   <script src="/crm/js/feather-helper.js"></script>
   <script src="/crm/js/app.js"></script>
   <script src="/crm/js/time-clock-widget.js?v=20260214h"></script>
+  <script src="/crm/js/capacitor-bridge.js?v=20260214"></script>
 
   <!-- Dropdown fix: app.js bundles jQuery+Bootstrap whose dropdown plugin fails without global Popper.
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->
@@ -82,7 +83,7 @@
 
   <!-- Service Worker Registration (PWA) -->
   <script>
-  if ('serviceWorker' in navigator) {
+  if ('serviceWorker' in navigator && !(window.Capacitor && window.Capacitor.isNativePlatform())) {
     window.addEventListener('load', function() {
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
         .then(function(reg) {
@@ -96,6 +97,9 @@
   <!-- PWA Install Prompt -->
   <script>
   (function(){
+    // Skip PWA prompt inside native Capacitor app
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) return;
+
     // Already running as installed app — do nothing
     if (window.matchMedia('(display-mode: standalone)').matches) return;
     if (window.navigator.standalone === true) return;

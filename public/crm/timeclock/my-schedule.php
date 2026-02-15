@@ -278,6 +278,22 @@ $activePage = 'timeclock';
     // ── GPS ──
 
     function initGPS() {
+        // ── Native Capacitor: background-aware GPS for proximity ──
+        if (window.MwNative && window.MwNative.geo) {
+            window.MwNative.geo.startBackgroundTracking(function(pos, error) {
+                if (error) {
+                    setGPSStatus('error', error.code || 'GPS error');
+                    return;
+                }
+                currentLat = pos.lat;
+                currentLng = pos.lng;
+                setGPSStatus('active', 'GPS active');
+                checkProximity();
+            });
+            return;
+        }
+
+        // ── Browser fallback ──
         if (!navigator.geolocation) {
             setGPSStatus('error', 'Not supported');
             return;
@@ -342,6 +358,15 @@ $activePage = 'timeclock';
     function toRad(deg) { return deg * Math.PI / 180; }
 
     function showGPSAlert(jobId, jobTitle) {
+        // Native notification (works even when app is backgrounded)
+        if (window.MwNative && window.MwNative.notifications) {
+            window.MwNative.notifications.notify(
+                'Near Job Site',
+                'You\'re near "' + jobTitle + '". Open app to start timer.',
+                parseInt(jobId, 10)
+            );
+        }
+
         var alert = document.getElementById('gpsAlert');
         var text = document.getElementById('gpsAlertText');
         text.textContent = 'You\'re near "' + jobTitle + '". Start timer?';
@@ -538,7 +563,11 @@ $activePage = 'timeclock';
                 });
             }
 
-            if (navigator.geolocation) {
+            if (window.MwNative && window.MwNative.geo) {
+                window.MwNative.geo.getCurrentPosition()
+                    .then(function(pos) { lat = pos.lat; lng = pos.lng; doClockIn(); })
+                    .catch(function() { doClockIn(); });
+            } else if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     function(pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; doClockIn(); },
                     function() { doClockIn(); },
@@ -583,7 +612,11 @@ $activePage = 'timeclock';
                 });
             }
 
-            if (navigator.geolocation) {
+            if (window.MwNative && window.MwNative.geo) {
+                window.MwNative.geo.getCurrentPosition()
+                    .then(function(pos) { lat = pos.lat; lng = pos.lng; doClockOut(); })
+                    .catch(function() { doClockOut(); });
+            } else if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
                     function(pos) { lat = pos.coords.latitude; lng = pos.coords.longitude; doClockOut(); },
                     function() { doClockOut(); },
@@ -602,6 +635,10 @@ $activePage = 'timeclock';
 <script>
 (function() {
     'use strict';
+
+    // In native Capacitor, the background GPS plugin in time-clock-widget.js
+    // handles tracking natively — no need for this browser-based backup.
+    if (window.MwNative && window.MwNative.geo) return;
 
     var SEND_INTERVAL = 30000; // 30 seconds
     var gpsWatchId = null;

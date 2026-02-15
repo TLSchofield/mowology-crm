@@ -301,16 +301,40 @@
     var gpsErrorToastShown = false;
 
     function startTracking() {
+        gpsErrorCount = 0;
+        gpsErrorToastShown = false;
+        updateTrackingDot('unknown', 'Acquiring GPS...');
+
+        // ── Native Capacitor: background-capable GPS ──
+        if (window.MwNative && window.MwNative.geo) {
+            window.MwNative.geo.startBackgroundTracking(function(pos, error) {
+                if (error) {
+                    gpsErrorCount++;
+                    updateTrackingDot('error', error.code || 'GPS error');
+                    if (!gpsErrorToastShown) {
+                        gpsErrorToastShown = true;
+                        showToast('GPS error: ' + (error.message || 'Unknown'), 'error');
+                    }
+                    return;
+                }
+                gpsErrorCount = 0;
+                latestPosition = pos;
+                updateTrackingDot('active', 'accuracy: ' + Math.round(pos.accuracy) + 'm');
+            });
+            // Server ping interval — native plugin delivers locations,
+            // but we still POST them to crew-location.php
+            sendPosition();
+            trackingInterval = setInterval(sendPosition, TRACKING_INTERVAL_MS);
+            return;
+        }
+
+        // ── Browser fallback: existing watchPosition code ──
         if (gpsWatchId !== null) return; // Already tracking
         if (!navigator.geolocation) {
             showToast('Location not supported on this browser', 'error');
             updateTrackingDot('error', 'Not supported');
             return;
         }
-
-        gpsErrorCount = 0;
-        gpsErrorToastShown = false;
-        updateTrackingDot('unknown', 'Acquiring GPS...');
 
         // Start high-accuracy continuous GPS watch
         gpsWatchId = navigator.geolocation.watchPosition(
@@ -361,6 +385,11 @@
     }
 
     function stopTracking() {
+        // Stop native background GPS
+        if (window.MwNative && window.MwNative.geo) {
+            window.MwNative.geo.stopBackgroundTracking();
+        }
+        // Stop browser GPS watch
         if (gpsWatchId !== null) {
             navigator.geolocation.clearWatch(gpsWatchId);
             gpsWatchId = null;
@@ -376,12 +405,29 @@
         }
     }
 
+    var GPS_QUEUE_KEY = 'mw-gps-queue';
+    var GPS_QUEUE_MAX = 500; // ~4 hours at 30s intervals
+
     function sendPosition() {
         if (!latestPosition) {
             console.warn('[MwTracking] No GPS fix yet, skipping ping');
             return;
         }
 
+        // Check if we're offline
+        var isOffline = (window.MwNative && !window.MwNative.network.isOnline) ||
+                        (!window.MwNative && typeof navigator.onLine !== 'undefined' && !navigator.onLine);
+
+        if (isOffline) {
+            queuePosition(latestPosition);
+            console.log('[MwTracking] Offline — queued GPS ping');
+            return;
+        }
+
+        // Flush any previously queued positions first
+        flushQueue();
+
+        // Send current position
         fetch('/crm/api/crew-location.php', {
             method: 'POST',
             credentials: 'same-origin',
@@ -404,7 +450,51 @@
             }
         })
         .catch(function(err) {
-            console.warn('[MwTracking] Send failed:', err);
+            console.warn('[MwTracking] Send failed, queueing:', err);
+            queuePosition(latestPosition);
+        });
+    }
+
+    function queuePosition(pos) {
+        try {
+            var queue = JSON.parse(localStorage.getItem(GPS_QUEUE_KEY) || '[]');
+            if (queue.length >= GPS_QUEUE_MAX) queue.shift(); // Drop oldest
+            queue.push({
+                lat: pos.lat,
+                lng: pos.lng,
+                accuracy: pos.accuracy,
+                speed: pos.speed,
+                heading: pos.heading,
+                queued_at: new Date().toISOString()
+            });
+            localStorage.setItem(GPS_QUEUE_KEY, JSON.stringify(queue));
+        } catch(e) {
+            console.warn('[MwTracking] Queue write failed:', e);
+        }
+    }
+
+    function flushQueue() {
+        var queue;
+        try {
+            queue = JSON.parse(localStorage.getItem(GPS_QUEUE_KEY) || '[]');
+        } catch(e) { return; }
+        if (queue.length === 0) return;
+
+        // Clear queue immediately (re-queue on failure)
+        localStorage.removeItem(GPS_QUEUE_KEY);
+        console.log('[MwTracking] Flushing ' + queue.length + ' queued GPS pings');
+
+        queue.forEach(function(pos, i) {
+            setTimeout(function() {
+                fetch('/crm/api/crew-location.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(pos)
+                }).catch(function() {
+                    queuePosition(pos); // Re-queue on failure
+                });
+            }, i * 200); // 200ms between each to avoid rate limiting
         });
     }
 
@@ -475,6 +565,14 @@
     // ── Helpers ──
 
     function getGPS(callback) {
+        // Native Capacitor: use native Geolocation plugin
+        if (window.MwNative && window.MwNative.geo) {
+            window.MwNative.geo.getCurrentPosition()
+                .then(function(pos) { callback(pos.lat, pos.lng); })
+                .catch(function() { callback(null, null); });
+            return;
+        }
+        // Browser fallback
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 function(pos) { callback(pos.coords.latitude, pos.coords.longitude); },
@@ -531,28 +629,40 @@
     // ── Mobile Resilience: Page Visibility API ──
     // Mobile Safari suspends JS when backgrounded or screen-locked.
     // When the tab comes back, restart GPS watch and send a ping immediately.
+    // In native Capacitor, the background plugin handles this natively.
     document.addEventListener('visibilitychange', function() {
+        if (window.MwNative) return; // Native plugin handles background GPS
         if (document.visibilityState === 'visible' && trackingEnabled && clockInTime !== null) {
-            // Restart GPS tracking if it was running
             stopTracking();
             startTracking();
         }
     });
 
-    // Also handle the 'pageshow' event which fires on iOS Safari when
-    // navigating back to a page from the bfcache
     window.addEventListener('pageshow', function(event) {
+        if (window.MwNative) return; // Native plugin handles background GPS
         if (event.persisted && trackingEnabled && clockInTime !== null) {
             stopTracking();
             startTracking();
         }
     });
 
+    // ── Offline Queue: auto-flush when back online ──
+    if (window.MwNative && window.MwNative.network) {
+        window.MwNative.network.onStatusChange(function(isOnline) {
+            if (isOnline) flushQueue();
+        });
+    } else {
+        window.addEventListener('online', function() { flushQueue(); });
+    }
+
     // Expose for use by my-schedule page
     window.MwTimeClock = {
         fetchStatus: fetchStatus,
         isActive: function() { return clockInTime !== null; },
-        isTracking: function() { return gpsWatchId !== null; },
+        isTracking: function() {
+            return gpsWatchId !== null ||
+                   (window.MwNative && window.MwNative.geo && window.MwNative.geo.watchId !== null);
+        },
         restartTracking: function() {
             if (trackingEnabled && clockInTime !== null) {
                 stopTracking();
