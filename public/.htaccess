@@ -4,6 +4,11 @@ Options -Indexes
 # Default documents (public site)
 DirectoryIndex index.php index.html
 
+# PWA manifest MIME type (required for Chrome install prompt)
+<IfModule mod_mime.c>
+    AddType application/manifest+json .webmanifest
+</IfModule>
+
 # Protect sensitive files
 <FilesMatch "^(config\.php|auth\.php|session_config\.php|secrets\.php)$">
     Order allow,deny
