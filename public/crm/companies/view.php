@@ -33,7 +33,7 @@ $companyProperties = getCompanyProperties($companyId);
 
 // Quotes
 $quotesStmt = $db->prepare("
-    SELECT q.id, q.quote_number, q.status, q.subtotal, q.total, q.created_at
+    SELECT q.id, q.quote_number, q.status, q.subtotal, q.total_amount, q.created_at
     FROM quotes q
     WHERE q.company_id = ?
     ORDER BY q.created_at DESC
@@ -366,7 +366,7 @@ $activePage = 'companies';
                                                 <tr>
                                                     <td><a href="/crm/quotes/view.php?id=<?= $q['id'] ?>"><?= htmlspecialchars($q['quote_number'] ?? '#' . $q['id']) ?></a></td>
                                                     <td><?= getStatusBadge($q['status'], 'quote') ?></td>
-                                                    <td><?= formatCurrency($q['total'] ?? $q['subtotal'] ?? 0) ?></td>
+                                                    <td><?= formatCurrency($q['total_amount'] ?? $q['subtotal'] ?? 0) ?></td>
                                                     <td><?= formatDate($q['created_at']) ?></td>
                                                     <td class="text-right">
                                                         <a href="/crm/quotes/view.php?id=<?= $q['id'] ?>" class="btn btn-sm btn-outline-primary">View</a>
