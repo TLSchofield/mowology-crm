@@ -84,6 +84,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                         <div id="routeLegendItems">
                             <!-- Rendered by JS -->
                         </div>
+                        <div class="mw-crew-legend-item" style="margin-top:4px;">
+                            <span style="display:inline-block;width:14px;height:14px;border-radius:2px;background:#666;color:#fff;font-size:9px;text-align:center;line-height:14px;font-weight:bold;margin-right:4px;vertical-align:middle;">5</span> Stop (&gt;5 min)
+                        </div>
                     </div>
                 </div>
             </div>
@@ -130,9 +133,12 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     // Route trail state
     var routePolylines = {}; // keyed by user_id
     var routeStartMarkers = {}; // keyed by user_id
+    var routeStopMarkers = []; // stop markers (>5 min in one spot)
     var routeData = []; // raw route data from API
     var routeVisible = {}; // user_id -> boolean (toggle per crew)
     var routesEnabled = false;
+    var STOP_MIN_MINUTES = 5; // minimum minutes to count as a stop
+    var STOP_RADIUS_METERS = 50; // max radius to count as same location
 
     // Distinct colors for crew route trails
     var ROUTE_COLORS = [
@@ -160,6 +166,11 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         fetchCrew();
         refreshTimer = setInterval(fetchCrew, REFRESH_MS);
         initRouteControls();
+
+        // Auto-enable routes on page load
+        var toggle = document.getElementById('routeToggle');
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event('change'));
     });
 
     function initMap() {
@@ -480,6 +491,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         });
         routeStartMarkers = {};
 
+        routeStopMarkers.forEach(function(m) { m.setMap(null); });
+        routeStopMarkers = [];
+
         routeData = [];
         document.getElementById('routeCrewFilters').innerHTML = '';
         document.getElementById('routeStatsContainer').innerHTML = '';
@@ -497,6 +511,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             routeStartMarkers[uid].setMap(null);
         });
         routeStartMarkers = {};
+
+        routeStopMarkers.forEach(function(m) { m.setMap(null); });
+        routeStopMarkers = [];
 
         routeData.forEach(function(route, index) {
             if (!routeVisible[route.user_id]) return;
@@ -550,7 +567,103 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             });
 
             routeStartMarkers[route.user_id] = startMarker;
+
+            // Detect and draw stop markers
+            var stops = detectStops(route.points);
+            stops.forEach(function(stop) {
+                var durationMin = Math.round(stop.duration / 60);
+                var stopSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">' +
+                    '<rect x="2" y="2" width="24" height="24" rx="4" fill="' + color + '" stroke="white" stroke-width="2"/>' +
+                    '<text x="14" y="18" text-anchor="middle" font-size="11" font-weight="bold" fill="white" font-family="Arial">' + durationMin + '</text>' +
+                    '</svg>';
+
+                var stopMarker = new google.maps.Marker({
+                    position: { lat: stop.lat, lng: stop.lng },
+                    map: gmap,
+                    icon: {
+                        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(stopSvg),
+                        scaledSize: new google.maps.Size(28, 28),
+                        anchor: new google.maps.Point(14, 14)
+                    },
+                    title: escapeHtml(route.full_name) + ' — Stopped ' + durationMin + ' min',
+                    zIndex: 700
+                });
+
+                var stopInfo = new google.maps.InfoWindow({
+                    content: '<div style="padding:6px;font-size:12px;">' +
+                        '<strong>' + escapeHtml(route.full_name) + '</strong><br>' +
+                        '<span style="color:' + color + ';">&#9632;</span> Stopped for <strong>' + durationMin + ' min</strong><br>' +
+                        formatTime(stop.startTime) + ' &mdash; ' + formatTime(stop.endTime) +
+                        '</div>'
+                });
+
+                stopMarker.addListener('click', function() {
+                    stopInfo.open(gmap, stopMarker);
+                });
+
+                routeStopMarkers.push(stopMarker);
+            });
         });
+    }
+
+    /**
+     * Detect stops: clusters of GPS points within STOP_RADIUS_METERS
+     * that span >= STOP_MIN_MINUTES. Returns array of {lat, lng, startTime, endTime, duration}.
+     */
+    function detectStops(points) {
+        if (points.length < 2) return [];
+        var stops = [];
+        var i = 0;
+
+        while (i < points.length) {
+            var anchorLat = points[i].lat;
+            var anchorLng = points[i].lng;
+            var j = i + 1;
+
+            // Expand cluster while points stay within radius of anchor
+            while (j < points.length) {
+                var dist = google.maps.geometry.spherical.computeDistanceBetween(
+                    new google.maps.LatLng(anchorLat, anchorLng),
+                    new google.maps.LatLng(points[j].lat, points[j].lng)
+                );
+                if (dist > STOP_RADIUS_METERS) break;
+                j++;
+            }
+
+            // j is now first point outside the cluster (or end of array)
+            var clusterStart = parseTimestamp(points[i].time);
+            var clusterEnd = parseTimestamp(points[j - 1].time);
+            var durationSec = (clusterEnd - clusterStart) / 1000;
+
+            if (durationSec >= STOP_MIN_MINUTES * 60) {
+                // Compute centroid of the cluster
+                var sumLat = 0, sumLng = 0, count = j - i;
+                for (var k = i; k < j; k++) {
+                    sumLat += points[k].lat;
+                    sumLng += points[k].lng;
+                }
+                stops.push({
+                    lat: sumLat / count,
+                    lng: sumLng / count,
+                    startTime: points[i].time,
+                    endTime: points[j - 1].time,
+                    duration: durationSec
+                });
+            }
+
+            // Move past this cluster
+            i = j;
+        }
+
+        return stops;
+    }
+
+    function parseTimestamp(ts) {
+        // "2026-02-14 10:48:35" → Date
+        var parts = ts.split(' ');
+        var d = parts[0].split('-');
+        var t = parts[1].split(':');
+        return new Date(d[0], d[1] - 1, d[2], t[0], t[1], t[2]);
     }
 
     function renderCrewFilters() {
@@ -623,6 +736,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             var firstTime = route.points[0].time;
             var lastTime = route.points[route.points.length - 1].time;
             var distance = calcRouteDistance(route.points);
+            var stops = detectStops(route.points);
+            var stopsText = stops.length === 0 ? 'no stops' :
+                stops.length + ' stop' + (stops.length > 1 ? 's' : '');
 
             html += '<div class="mw-route-stat-item">' +
                 '<div class="mw-route-stat-dot" style="background:' + color + ';"></div>' +
@@ -632,7 +748,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                         formatTime(firstTime) + ' &mdash; ' + formatTime(lastTime) +
                     '</div>' +
                     '<div class="mw-route-stat-detail">' +
-                        route.points.length + ' pings &middot; ~' + distance + ' km' +
+                        route.points.length + ' pings &middot; ~' + distance + ' km &middot; ' + stopsText +
                     '</div>' +
                 '</div>' +
                 '</div>';
