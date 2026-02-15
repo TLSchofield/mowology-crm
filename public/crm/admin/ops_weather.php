@@ -138,17 +138,32 @@ $activePage = 'ops-weather';
                   }
               }
 
-              // ── Group consecutive hours by condition ──
+              // ── Group consecutive hours by ops-relevant condition ──
+              // Merge dry/cloudy conditions (overcast, partly cloudy, clear, etc.)
+              // into one "Dry" bucket so the table stays tight
+              function opsGroupKey(string $cond): string {
+                  $lower = strtolower($cond);
+                  $dryConditions = ['clear', 'partly cloudy', 'overcast', 'a mix of sun and cloud', 'fog', 'mist'];
+                  foreach ($dryConditions as $dry) {
+                      if (strpos($lower, $dry) !== false) return 'Dry';
+                  }
+                  return $cond; // keep precip conditions as-is
+              }
+
               $groups = [];
               $currentGroup = null;
               foreach ($hours as $h) {
                   $hCond = $h['condition'] ?? 'Unknown';
-                  if ($currentGroup === null || $currentGroup['condition'] !== $hCond) {
+                  $groupKey = opsGroupKey($hCond);
+                  if ($currentGroup === null || $currentGroup['_groupKey'] !== $groupKey) {
                       // Start a new group
                       if ($currentGroup !== null) $groups[] = $currentGroup;
+                      $displayCond = ($groupKey === 'Dry') ? 'Dry' : $hCond;
+                      $displayIcon = ($groupKey === 'Dry') ? '☁️' : ($h['icon'] ?? getWeatherIcon($hCond));
                       $currentGroup = [
-                          'condition'  => $hCond,
-                          'icon'       => $h['icon'] ?? getWeatherIcon($hCond),
+                          '_groupKey'  => $groupKey,
+                          'condition'  => $displayCond,
+                          'icon'       => $displayIcon,
                           'startHour'  => substr($h['hour'], 11, 5),
                           'endHour'    => substr($h['hour'], 11, 5),
                           'count'      => 1,
