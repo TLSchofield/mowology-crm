@@ -117,6 +117,7 @@ $activePage = 'ops-weather';
 
             <?php
             // Render expanded hourly detail panels for winter days (auto-shown)
+            // Groups consecutive hours with the same condition into bands
             foreach ($winterHourly as $date => $hours):
               if (empty($hours)) continue;
               $day = $weekWeather[$date] ?? [];
@@ -125,7 +126,6 @@ $activePage = 'ops-weather';
               $condDisplay = ucfirst($day['condition'] ?? 'Unknown');
               $overnightLow = $day['overnight_low'] ?? ($day['temp_low'] ?? 0);
               $high = $day['temp_high'] ?? 0;
-              $wind = (int)($day['wind'] ?? 0);
 
               // Find the freezing window (hours at or below 0)
               $freezeStart = null;
@@ -137,6 +137,41 @@ $activePage = 'ops-weather';
                       $freezeEnd = $hr;
                   }
               }
+
+              // ── Group consecutive hours by condition ──
+              $groups = [];
+              $currentGroup = null;
+              foreach ($hours as $h) {
+                  $hCond = $h['condition'] ?? 'Unknown';
+                  if ($currentGroup === null || $currentGroup['condition'] !== $hCond) {
+                      // Start a new group
+                      if ($currentGroup !== null) $groups[] = $currentGroup;
+                      $currentGroup = [
+                          'condition'  => $hCond,
+                          'icon'       => $h['icon'] ?? getWeatherIcon($hCond),
+                          'startHour'  => substr($h['hour'], 11, 5),
+                          'endHour'    => substr($h['hour'], 11, 5),
+                          'count'      => 1,
+                          'tempMin'    => $h['temp_c'],
+                          'tempMax'    => $h['temp_c'],
+                          'popMax'     => $h['precip_chance_pct'] ?? 0,
+                          'mmMax'      => $h['precip_mm'] ?? 0,
+                          'mmTotal'    => $h['precip_mm'] ?? 0,
+                          'windMax'    => $h['wind_kph'] ?? 0,
+                      ];
+                  } else {
+                      // Extend current group
+                      $currentGroup['endHour'] = substr($h['hour'], 11, 5);
+                      $currentGroup['count']++;
+                      $currentGroup['tempMin'] = min($currentGroup['tempMin'], $h['temp_c']);
+                      $currentGroup['tempMax'] = max($currentGroup['tempMax'], $h['temp_c']);
+                      $currentGroup['popMax']  = max($currentGroup['popMax'], $h['precip_chance_pct'] ?? 0);
+                      $currentGroup['mmMax']   = max($currentGroup['mmMax'], $h['precip_mm'] ?? 0);
+                      $currentGroup['mmTotal'] += ($h['precip_mm'] ?? 0);
+                      $currentGroup['windMax'] = max($currentGroup['windMax'], $h['wind_kph'] ?? 0);
+                  }
+              }
+              if ($currentGroup !== null) $groups[] = $currentGroup;
             ?>
             <div class="mw-winter-detail" id="winterDetail-<?php echo $date; ?>" style="background:#e8f0fe;border:2px solid #42a5f5;border-top:none;border-radius:0 0 6px 6px;margin:-4px 0 8px 0;padding:12px;">
               <div class="d-flex justify-content-between align-items-center mb-2">
@@ -152,53 +187,71 @@ $activePage = 'ops-weather';
                 </div>
               </div>
               <div style="overflow-x:auto;">
-                <table style="width:100%;font-size:0.75rem;border-collapse:collapse;min-width:600px;">
+                <table style="width:100%;font-size:0.8rem;border-collapse:collapse;min-width:600px;">
                   <thead>
                     <tr style="border-bottom:2px solid #90caf9;">
-                      <th style="padding:4px 6px;text-align:left;color:#1565c0;">Hour</th>
-                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">Cond</th>
-                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">Temp</th>
-                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">Precip %</th>
-                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">mm/hr</th>
-                      <th style="padding:4px 6px;text-align:center;color:#1565c0;">Wind</th>
-                      <th style="padding:4px 6px;text-align:left;color:#1565c0;">Risk</th>
+                      <th style="padding:6px 8px;text-align:left;color:#1565c0;">Time</th>
+                      <th style="padding:6px 8px;text-align:left;color:#1565c0;">Condition</th>
+                      <th style="padding:6px 8px;text-align:center;color:#1565c0;">Temp</th>
+                      <th style="padding:6px 8px;text-align:center;color:#1565c0;">Precip</th>
+                      <th style="padding:6px 8px;text-align:center;color:#1565c0;">Accum</th>
+                      <th style="padding:6px 8px;text-align:center;color:#1565c0;">Wind</th>
+                      <th style="padding:6px 8px;text-align:left;color:#1565c0;">Risk</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <?php foreach ($hours as $h):
-                      $hour = substr($h['hour'], 11, 5);
-                      $temp = $h['temp_c'];
-                      $pop = $h['precip_chance_pct'] ?? 0;
-                      $mm = $h['precip_mm'] ?? 0;
-                      $wnd = $h['wind_kph'] ?? 0;
-                      $hCond = $h['condition'] ?? 'Unknown';
-                      $hIcon = $h['icon'] ?? getWeatherIcon($hCond);
+                    <?php foreach ($groups as $g):
+                      $gCondLower = strtolower($g['condition']);
+                      $lowestTemp = $g['tempMin'];
 
-                      // Determine risk level for this hour
+                      // Time range display
+                      $timeDisplay = ($g['count'] === 1)
+                          ? $g['startHour']
+                          : $g['startHour'] . ' – ' . $g['endHour'];
+                      $durationLabel = ($g['count'] === 1) ? '1 hr' : $g['count'] . ' hrs';
+
+                      // Temp display: show range if it varies, single value if constant
+                      $tempDisplay = ($g['tempMin'] == $g['tempMax'])
+                          ? $g['tempMin'] . '°'
+                          : $g['tempMin'] . '° to ' . $g['tempMax'] . '°';
+
+                      // Precip display
+                      $precipDisplay = $g['popMax'] . '%';
+                      if ($g['mmMax'] > 0) $precipDisplay .= ' (up to ' . round($g['mmMax'], 1) . ' mm/hr)';
+
+                      // Accumulation over the band
+                      $accumDisplay = ($g['mmTotal'] > 0) ? round($g['mmTotal'], 1) . ' mm' : '—';
+
+                      // Wind
+                      $windDisplay = round($g['windMax']) . ' km/h';
+
+                      // Risks
                       $risks = [];
-                      if ($temp <= 0) $risks[] = '🧊 Freeze';
-                      if ($temp <= -5) $risks[] = '🥶 Severe';
-                      $hCondLower = strtolower($hCond);
-                      if (strpos($hCondLower, 'snow') !== false) $risks[] = '❄️ Snow';
-                      if (strpos($hCondLower, 'ice') !== false) $risks[] = '🧊 Ice';
-                      if (strpos($hCondLower, 'freezing') !== false) $risks[] = '🧊 Freezing';
-                      if ($wnd > 40) $risks[] = '💨 High wind';
+                      if ($lowestTemp <= 0) $risks[] = '🧊 Freeze';
+                      if ($lowestTemp <= -5) $risks[] = '🥶 Severe';
+                      if (strpos($gCondLower, 'snow') !== false || strpos($gCondLower, 'rain/snow') !== false) $risks[] = '❄️ Snow';
+                      if (strpos($gCondLower, 'ice') !== false) $risks[] = '🧊 Ice';
+                      if (strpos($gCondLower, 'freezing') !== false) $risks[] = '🧊 Freezing';
+                      if ($g['windMax'] > 40) $risks[] = '💨 High wind';
                       $riskStr = !empty($risks) ? implode(', ', $risks) : '—';
 
-                      // Row color
+                      // Row color based on worst temp in band
                       $rowBg = '';
-                      if ($temp <= -5) $rowBg = 'background:#ffcdd2;'; // severe cold
-                      elseif ($temp <= 0) $rowBg = 'background:#bbdefb;'; // freezing
-                      elseif (strpos($hCondLower, 'snow') !== false || strpos($hCondLower, 'ice') !== false) $rowBg = 'background:#e1f5fe;';
+                      if ($lowestTemp <= -5) $rowBg = 'background:#ffcdd2;';
+                      elseif ($lowestTemp <= 0) $rowBg = 'background:#bbdefb;';
+                      elseif (strpos($gCondLower, 'snow') !== false || strpos($gCondLower, 'ice') !== false || strpos($gCondLower, 'rain/snow') !== false) $rowBg = 'background:#e1f5fe;';
                     ?>
                     <tr style="border-bottom:1px solid #bbdefb;<?php echo $rowBg; ?>">
-                      <td style="padding:3px 6px;font-weight:600;"><?php echo $hour; ?></td>
-                      <td style="padding:3px 6px;text-align:center;"><?php echo $hIcon; ?> <?php echo htmlspecialchars($hCond); ?></td>
-                      <td style="padding:3px 6px;text-align:center;font-weight:600;<?php echo $temp <= 0 ? 'color:#c62828;' : 'color:#333;'; ?>"><?php echo $temp; ?>°</td>
-                      <td style="padding:3px 6px;text-align:center;"><?php echo $pop; ?>%</td>
-                      <td style="padding:3px 6px;text-align:center;"><?php echo $mm; ?></td>
-                      <td style="padding:3px 6px;text-align:center;"><?php echo round($wnd); ?> km/h</td>
-                      <td style="padding:3px 6px;font-size:0.7rem;"><?php echo $riskStr; ?></td>
+                      <td style="padding:6px 8px;font-weight:700;white-space:nowrap;">
+                        <?php echo $timeDisplay; ?>
+                        <span style="font-weight:400;color:#888;font-size:0.7rem;margin-left:4px;"><?php echo $durationLabel; ?></span>
+                      </td>
+                      <td style="padding:6px 8px;"><?php echo $g['icon']; ?> <?php echo htmlspecialchars($g['condition']); ?></td>
+                      <td style="padding:6px 8px;text-align:center;font-weight:600;<?php echo $lowestTemp <= 0 ? 'color:#c62828;' : 'color:#333;'; ?>"><?php echo $tempDisplay; ?></td>
+                      <td style="padding:6px 8px;text-align:center;"><?php echo $precipDisplay; ?></td>
+                      <td style="padding:6px 8px;text-align:center;"><?php echo $accumDisplay; ?></td>
+                      <td style="padding:6px 8px;text-align:center;"><?php echo $windDisplay; ?></td>
+                      <td style="padding:6px 8px;font-size:0.75rem;"><?php echo $riskStr; ?></td>
                     </tr>
                     <?php endforeach; ?>
                   </tbody>
