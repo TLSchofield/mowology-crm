@@ -1,16 +1,21 @@
 <?php
 /**
  * /app/Services/Receipts/ReceiptOCR.php
- * Google Cloud Vision OCR Wrapper
+ * Google Cloud Vision OCR Wrapper — Service Account Auth (JWT/OAuth2)
  *
  * Calls the Vision API TEXT_DETECTION endpoint to extract text from a receipt image.
- * Uses file_get_contents() + base64 encoding (no Composer/SDK dependency).
+ * Authenticates using a Google Cloud Service Account JSON key file.
+ * No Composer/SDK dependency — pure PHP with openssl for JWT signing.
+ *
+ * Requires:
+ *   - GOOGLE_VISION_CREDENTIALS constant pointing to the service account JSON file path
+ *   - PHP openssl extension (standard on most hosts)
  *
  * Usage:
  *   require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
  *   $result = extractTextFromImage('/absolute/path/to/receipt.jpg');
  *   // Returns: ['success' => true, 'text' => 'RAW TEXT...', 'raw_response' => [...]]
- *   // Or:      ['success' => false, 'error' => 'Vision API key not configured']
+ *   // Or:      ['success' => false, 'error' => 'Vision credentials not configured']
  */
 
 declare(strict_types=1);
@@ -20,6 +25,11 @@ if (!defined('APP_ROOT')) {
 }
 
 /**
+ * In-memory token cache to avoid repeated auth calls within the same request.
+ */
+$_visionTokenCache = ['token' => null, 'expires' => 0];
+
+/**
  * Extract text from an image using Google Cloud Vision TEXT_DETECTION.
  *
  * @param string $filePath Absolute path to the image file
@@ -27,17 +37,28 @@ if (!defined('APP_ROOT')) {
  */
 function extractTextFromImage(string $filePath): array
 {
-    // Check API key
-    if (!defined('GOOGLE_VISION_API_KEY') || empty(GOOGLE_VISION_API_KEY)) {
+    // Check credentials path
+    if (!defined('GOOGLE_VISION_CREDENTIALS') || empty(GOOGLE_VISION_CREDENTIALS)) {
         return [
             'success'      => false,
             'text'         => null,
             'raw_response' => null,
-            'error'        => 'Vision API key not configured',
+            'error'        => 'Vision credentials not configured',
         ];
     }
 
-    // Validate file exists
+    // Validate credentials file exists
+    $credPath = GOOGLE_VISION_CREDENTIALS;
+    if (!file_exists($credPath) || !is_readable($credPath)) {
+        return [
+            'success'      => false,
+            'text'         => null,
+            'raw_response' => null,
+            'error'        => 'Vision credentials file not found: ' . $credPath,
+        ];
+    }
+
+    // Validate image file exists
     if (!file_exists($filePath) || !is_readable($filePath)) {
         return [
             'success'      => false,
@@ -46,6 +67,18 @@ function extractTextFromImage(string $filePath): array
             'error'        => 'Image file not found or not readable',
         ];
     }
+
+    // Get access token
+    $tokenResult = getVisionAccessToken($credPath);
+    if (!$tokenResult['success']) {
+        return [
+            'success'      => false,
+            'text'         => null,
+            'raw_response' => null,
+            'error'        => 'Auth failed: ' . $tokenResult['error'],
+        ];
+    }
+    $accessToken = $tokenResult['token'];
 
     // Read and encode the image
     $imageData = file_get_contents($filePath);
@@ -60,8 +93,8 @@ function extractTextFromImage(string $filePath): array
 
     $base64Image = base64_encode($imageData);
 
-    // Build the Vision API request
-    $apiUrl = 'https://vision.googleapis.com/v1/images:annotate?key=' . GOOGLE_VISION_API_KEY;
+    // Build the Vision API request (Bearer token auth, no API key in URL)
+    $apiUrl = 'https://vision.googleapis.com/v1/images:annotate';
 
     $requestBody = json_encode([
         'requests' => [
@@ -79,11 +112,12 @@ function extractTextFromImage(string $filePath): array
         ],
     ]);
 
-    // Make the API call
+    // Make the API call with Bearer token
     $context = stream_context_create([
         'http' => [
             'method'  => 'POST',
-            'header'  => "Content-Type: application/json\r\n",
+            'header'  => "Content-Type: application/json\r\n"
+                       . "Authorization: Bearer " . $accessToken . "\r\n",
             'content' => $requestBody,
             'timeout' => 30,
         ],
@@ -153,4 +187,120 @@ function extractTextFromImage(string $filePath): array
         'raw_response' => $decoded,
         'error'        => null,
     ];
+}
+
+
+/**
+ * Get a Google Cloud OAuth2 access token using a service account JSON key.
+ * Generates a JWT, signs it with the private key, exchanges it at Google's token endpoint.
+ * Caches the token in-memory for the duration of the PHP request.
+ *
+ * @param string $credPath Absolute path to the service account JSON file
+ * @return array ['success' => bool, 'token' => string|null, 'error' => string|null]
+ */
+function getVisionAccessToken(string $credPath): array
+{
+    global $_visionTokenCache;
+
+    // Return cached token if still valid (with 60s buffer)
+    if ($_visionTokenCache['token'] && $_visionTokenCache['expires'] > time() + 60) {
+        return ['success' => true, 'token' => $_visionTokenCache['token'], 'error' => null];
+    }
+
+    // Read the service account JSON
+    $jsonData = file_get_contents($credPath);
+    if ($jsonData === false) {
+        return ['success' => false, 'token' => null, 'error' => 'Cannot read credentials file'];
+    }
+
+    $cred = json_decode($jsonData, true);
+    if (!$cred) {
+        return ['success' => false, 'token' => null, 'error' => 'Invalid credentials JSON'];
+    }
+
+    $requiredKeys = ['client_email', 'private_key', 'token_uri'];
+    foreach ($requiredKeys as $key) {
+        if (empty($cred[$key])) {
+            return ['success' => false, 'token' => null, 'error' => 'Missing key in credentials: ' . $key];
+        }
+    }
+
+    // Build the JWT
+    $now = time();
+    $expiry = $now + 3600; // 1 hour
+
+    $header = [
+        'alg' => 'RS256',
+        'typ' => 'JWT',
+    ];
+
+    $claimSet = [
+        'iss'   => $cred['client_email'],
+        'scope' => 'https://www.googleapis.com/auth/cloud-vision',
+        'aud'   => $cred['token_uri'],
+        'iat'   => $now,
+        'exp'   => $expiry,
+    ];
+
+    $headerEncoded = base64UrlEncode(json_encode($header));
+    $claimEncoded  = base64UrlEncode(json_encode($claimSet));
+    $signatureInput = $headerEncoded . '.' . $claimEncoded;
+
+    // Sign with RSA SHA-256
+    $privateKey = openssl_pkey_get_private($cred['private_key']);
+    if ($privateKey === false) {
+        return ['success' => false, 'token' => null, 'error' => 'Invalid private key in credentials'];
+    }
+
+    $signature = '';
+    $signResult = openssl_sign($signatureInput, $signature, $privateKey, OPENSSL_ALGO_SHA256);
+
+    if (!$signResult) {
+        return ['success' => false, 'token' => null, 'error' => 'Failed to sign JWT'];
+    }
+
+    $jwt = $signatureInput . '.' . base64UrlEncode($signature);
+
+    // Exchange JWT for access token
+    $tokenUrl = $cred['token_uri'];
+    $postData = http_build_query([
+        'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        'assertion'  => $jwt,
+    ]);
+
+    $context = stream_context_create([
+        'http' => [
+            'method'  => 'POST',
+            'header'  => "Content-Type: application/x-www-form-urlencoded\r\n",
+            'content' => $postData,
+            'timeout' => 15,
+        ],
+    ]);
+
+    $tokenResponse = @file_get_contents($tokenUrl, false, $context);
+    if ($tokenResponse === false) {
+        $err = error_get_last();
+        return ['success' => false, 'token' => null, 'error' => 'Token exchange failed: ' . ($err['message'] ?? 'Unknown')];
+    }
+
+    $tokenData = json_decode($tokenResponse, true);
+    if (!$tokenData || empty($tokenData['access_token'])) {
+        $errMsg = $tokenData['error_description'] ?? $tokenData['error'] ?? 'No access_token in response';
+        return ['success' => false, 'token' => null, 'error' => 'Token exchange error: ' . $errMsg];
+    }
+
+    // Cache the token
+    $_visionTokenCache['token']   = $tokenData['access_token'];
+    $_visionTokenCache['expires'] = $now + ($tokenData['expires_in'] ?? 3600);
+
+    return ['success' => true, 'token' => $tokenData['access_token'], 'error' => null];
+}
+
+
+/**
+ * Base64 URL-safe encode (no padding, URL-safe alphabet).
+ */
+function base64UrlEncode(string $data): string
+{
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
 }
