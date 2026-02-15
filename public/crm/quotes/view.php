@@ -239,12 +239,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 WHERE id = ?
             ");
             $stmt->execute([
-                $approverName . ' (verbal approval by ' . $user['full_name'] . ')',
+                $approverName . ' (verbal approval by ' . $user['name'] . ')',
                 $_SERVER['REMOTE_ADDR'],
                 $quoteId
             ]);
 
-            logActivityExtended($user['id'], 'Quote approved (verbal)', "Approved on behalf of {$approverName} by {$user['full_name']}", null, null, $quoteId);
+            logActivityExtended($user['id'], 'Quote approved (verbal)', "Approved on behalf of {$approverName} by {$user['name']}", null, null, $quoteId);
 
             $quote['status'] = 'accepted';
             $message = "Quote approved (verbal confirmation from {$approverName}).";
