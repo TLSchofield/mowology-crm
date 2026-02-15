@@ -94,140 +94,74 @@
   }
   </script>
 
-  <!-- PWA Install Prompt -->
+  <!-- Mobile App Install Splash Screen -->
   <script>
   (function(){
-    // Skip PWA prompt inside native Capacitor app
+    // Skip if inside Capacitor native app
     if (window.Capacitor && window.Capacitor.isNativePlatform()) return;
 
-    // Already running as installed app — hide sidebar install link too
+    // Skip if already running as installed PWA
     if (window.matchMedia('(display-mode: standalone)').matches) return;
     if (window.navigator.standalone === true) return;
 
-    var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
+    // Only show on mobile/tablet devices
+    var isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry/i.test(navigator.userAgent);
+    if (!isMobile) return;
+
+    // Don't show if user dismissed recently (7 day cooldown)
+    var dismissed = localStorage.getItem('mw-install-splash-dismissed');
+    if (dismissed && Date.now() - parseInt(dismissed, 10) < 604800000) return;
+
     var isAndroid = /Android/.test(navigator.userAgent);
-    var deferredPrompt = null;
-    var sidebarItem = document.getElementById('mw-pwa-sidebar-item');
-    var sidebarLink = document.getElementById('mw-pwa-sidebar-link');
+    var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.MSStream;
 
-    // Android: capture the native install prompt
-    window.addEventListener('beforeinstallprompt', function(e) {
-      e.preventDefault();
-      deferredPrompt = e;
+    // Build the splash overlay
+    var overlay = document.createElement('div');
+    overlay.id = 'mw-install-splash';
+    overlay.className = 'mw-install-splash';
 
-      // Show sidebar install link
-      if (sidebarItem) sidebarItem.style.display = '';
+    var content = '<div class="mw-install-splash-inner">';
+    content += '<img src="/assets/favicon/android-chrome-512x512.png" alt="Mowology" class="mw-install-splash-icon">';
+    content += '<h1 class="mw-install-splash-title">Mowology Crew</h1>';
+    content += '<p class="mw-install-splash-desc">Install the app for the best experience — GPS tracking, notifications, and quick access from your home screen.</p>';
+    content += '<div class="mw-install-splash-actions">';
 
-      // Show bottom banner if not recently dismissed
-      var dismissed = localStorage.getItem('mw-pwa-dismissed');
-      if (!dismissed || Date.now() - parseInt(dismissed, 10) >= 86400000) {
-        showBanner('android');
-      }
+    if (isAndroid) {
+      content += '<a href="/crm/downloads/mowology-crew.apk" class="mw-install-splash-btn mw-install-splash-btn-primary" download>Download App</a>';
+    }
+
+    if (isIOS) {
+      content += '<div class="mw-install-splash-ios-hint">';
+      content += 'Tap <svg style="display:inline;vertical-align:middle;width:20px;height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 18v-9m0 0l-3 3m3-3l3 3"/></svg> then <strong>"Add to Home Screen"</strong>';
+      content += '</div>';
+    }
+
+    content += '<button type="button" class="mw-install-splash-btn mw-install-splash-btn-secondary" id="mw-install-splash-skip">Continue in Browser</button>';
+    content += '</div></div>';
+
+    overlay.innerHTML = content;
+    document.body.appendChild(overlay);
+
+    // Prevent scrolling behind the overlay
+    document.body.style.overflow = 'hidden';
+
+    // "Continue in Browser" dismisses with cooldown
+    document.getElementById('mw-install-splash-skip').addEventListener('click', function() {
+      overlay.remove();
+      document.body.style.overflow = '';
+      localStorage.setItem('mw-install-splash-dismissed', Date.now().toString());
     });
 
-    // Sidebar "Install App" click triggers native prompt
-    if (sidebarLink) {
-      sidebarLink.addEventListener('click', function(e) {
-        e.preventDefault();
-        if (deferredPrompt) {
-          deferredPrompt.prompt();
-          deferredPrompt.userChoice.then(function(result) {
-            if (result.outcome === 'accepted' && sidebarItem) {
-              sidebarItem.style.display = 'none';
-            }
-            deferredPrompt = null;
-          });
-        } else if (isIOS) {
-          showBanner('ios');
-        }
-      });
-    }
-
-    // iOS: show sidebar link and banner after delay (no beforeinstallprompt on iOS)
-    if (isIOS) {
-      if (sidebarItem) sidebarItem.style.display = '';
-      var dismissed = localStorage.getItem('mw-pwa-dismissed');
-      if (!dismissed || Date.now() - parseInt(dismissed, 10) >= 86400000) {
-        setTimeout(function() { showBanner('ios'); }, 2000);
+    // Sidebar install link — show it and wire it up
+    var sidebarItem = document.getElementById('mw-pwa-sidebar-item');
+    var sidebarLink = document.getElementById('mw-pwa-sidebar-link');
+    if (sidebarItem && isAndroid) {
+      sidebarItem.style.display = '';
+      if (sidebarLink) {
+        sidebarLink.setAttribute('href', '/crm/downloads/mowology-crew.apk');
+        sidebarLink.setAttribute('download', '');
+        sidebarLink.removeAttribute('onclick');
       }
-    }
-
-    function showBanner(platform) {
-      // Don't duplicate if already showing
-      if (document.getElementById('mw-pwa-banner')) return;
-
-      var banner = document.createElement('div');
-      banner.id = 'mw-pwa-banner';
-      banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:99999;' +
-        'background:#fff;border-top:3px solid #2D8659;padding:16px 20px;' +
-        'box-shadow:0 -4px 20px rgba(0,0,0,.15);display:flex;align-items:center;gap:14px;' +
-        'font-family:-apple-system,sans-serif;animation:mw-slide-up .3s ease;';
-
-      var icon = document.createElement('img');
-      icon.src = '/assets/favicon/android-chrome-192x192.png';
-      icon.style.cssText = 'width:48px;height:48px;border-radius:10px;flex-shrink:0;';
-
-      var text = document.createElement('div');
-      text.style.cssText = 'flex:1;min-width:0;';
-
-      var title = document.createElement('div');
-      title.style.cssText = 'font-weight:600;font-size:15px;color:#1A5F4A;margin-bottom:2px;';
-      title.textContent = 'Install Mowology';
-
-      var desc = document.createElement('div');
-      desc.style.cssText = 'font-size:13px;color:#666;line-height:1.3;';
-
-      if (platform === 'ios') {
-        desc.innerHTML = 'Tap <svg style="display:inline;vertical-align:middle;width:18px;height:18px;" viewBox="0 0 24 24" fill="none" stroke="#007AFF" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 18v-9m0 0l-3 3m3-3l3 3"/></svg> then <b>"Add to Home Screen"</b>';
-      } else {
-        desc.textContent = 'Add Mowology to your home screen for quick access';
-      }
-
-      text.appendChild(title);
-      text.appendChild(desc);
-
-      var actions = document.createElement('div');
-      actions.style.cssText = 'display:flex;flex-direction:column;gap:6px;flex-shrink:0;';
-
-      if (platform === 'android' && deferredPrompt) {
-        var installBtn = document.createElement('button');
-        installBtn.textContent = 'Install';
-        installBtn.style.cssText = 'background:#2D8659;color:#fff;border:none;padding:8px 18px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;';
-        installBtn.addEventListener('click', function() {
-          deferredPrompt.prompt();
-          deferredPrompt.userChoice.then(function(result) {
-            banner.remove();
-            if (result.outcome === 'accepted' && sidebarItem) {
-              sidebarItem.style.display = 'none';
-            }
-            deferredPrompt = null;
-          });
-        });
-        actions.appendChild(installBtn);
-      }
-
-      var closeBtn = document.createElement('button');
-      closeBtn.textContent = platform === 'ios' ? 'Got it' : 'Not now';
-      closeBtn.style.cssText = 'background:none;border:1px solid #ddd;padding:6px 14px;border-radius:6px;font-size:13px;color:#666;cursor:pointer;';
-      closeBtn.addEventListener('click', function() {
-        banner.remove();
-        localStorage.setItem('mw-pwa-dismissed', Date.now().toString());
-      });
-      actions.appendChild(closeBtn);
-
-      banner.appendChild(icon);
-      banner.appendChild(text);
-      banner.appendChild(actions);
-
-      // Slide-up animation
-      if (!document.getElementById('mw-slide-up-style')) {
-        var style = document.createElement('style');
-        style.id = 'mw-slide-up-style';
-        style.textContent = '@keyframes mw-slide-up{from{transform:translateY(100%)}to{transform:translateY(0)}}';
-        document.head.appendChild(style);
-      }
-
-      document.body.appendChild(banner);
     }
   })();
   </script>

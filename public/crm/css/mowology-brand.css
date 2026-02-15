@@ -8576,3 +8576,111 @@ textarea.font-monospace {
   background: #e2e8f0;
   color: #334155;
 }
+
+/* ── App Install Splash Screen ──────────────────────── */
+
+.mw-install-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: linear-gradient(160deg, var(--mw-forest) 0%, var(--mw-dark) 50%, var(--mw-green) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: mw-splash-fade-in 0.3s ease;
+}
+
+@keyframes mw-splash-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.mw-install-splash-inner {
+  text-align: center;
+  padding: 40px 28px;
+  max-width: 380px;
+  width: 100%;
+}
+
+.mw-install-splash-icon {
+  width: 100px;
+  height: 100px;
+  border-radius: 22px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  margin-bottom: 24px;
+}
+
+.mw-install-splash-title {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 12px;
+  letter-spacing: -0.5px;
+}
+
+.mw-install-splash-desc {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.5;
+  margin: 0 0 32px;
+}
+
+.mw-install-splash-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mw-install-splash-btn {
+  display: block;
+  width: 100%;
+  padding: 14px 24px;
+  border-radius: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mw-install-splash-btn:active {
+  transform: scale(0.97);
+}
+
+.mw-install-splash-btn-primary {
+  background: #fff;
+  color: var(--mw-forest);
+  border: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.mw-install-splash-btn-primary:hover {
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+  color: var(--mw-forest);
+  text-decoration: none;
+}
+
+.mw-install-splash-btn-secondary {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.mw-install-splash-btn-secondary:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.mw-install-splash-ios-hint {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 14px 18px;
+  line-height: 1.5;
+}

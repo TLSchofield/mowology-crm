@@ -1,0 +1,5 @@
+# Allow direct file downloads (APK, etc.)
+# Auth is handled by the referring page (CRM login required to see the link)
+<IfModule mod_mime.c>
+    AddType application/vnd.android.package-archive .apk
+</IfModule>
