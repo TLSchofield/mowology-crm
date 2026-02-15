@@ -55,7 +55,7 @@ $jobs = $jobsStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Invoices
 $invoicesStmt = $db->prepare("
-    SELECT i.id, i.invoice_number, i.status, i.total, i.balance_due, i.due_date, i.created_at
+    SELECT i.*
     FROM invoices i
     WHERE i.company_id = ?
     ORDER BY i.created_at DESC
@@ -443,7 +443,7 @@ $activePage = 'companies';
                                                 <tr>
                                                     <td><a href="/crm/invoices/view.php?id=<?= $inv['id'] ?>"><?= htmlspecialchars($inv['invoice_number'] ?? '#' . $inv['id']) ?></a></td>
                                                     <td><?= getStatusBadge($inv['status'], 'invoice') ?></td>
-                                                    <td><?= formatCurrency($inv['total'] ?? 0) ?></td>
+                                                    <td><?= formatCurrency($inv['total'] ?? $inv['total_amount'] ?? $inv['subtotal'] ?? 0) ?></td>
                                                     <td><?= formatCurrency($inv['balance_due'] ?? 0) ?></td>
                                                     <td><?= $inv['due_date'] ? formatDate($inv['due_date']) : '—' ?></td>
                                                     <td class="text-right">
