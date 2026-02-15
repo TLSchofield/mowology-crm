@@ -57,7 +57,7 @@ $activePage = 'ops-weather';
             <div class="card-header d-flex justify-content-between align-items-center">
               <div>
                 <h5 class="card-title mb-0"><i data-feather="cloud" style="width:18px;height:18px;"></i> 7-Day Forecast — Vancouver</h5>
-                <small class="text-muted">Source: Environment Canada · Days highlighted in blue trigger salt alerts</small>
+                <small class="text-muted">Source: Environment Canada · Days highlighted in <span style="color:#e85d04;">orange</span> trigger salt alerts</small>
               </div>
               <span class="badge badge-secondary" style="font-size:0.75rem;">Updated <?php echo date('g:ia'); ?></span>
             </div>
@@ -87,7 +87,7 @@ $activePage = 'ops-weather';
                   $hasHourly = isset($winterHourly[$date]) && !empty($winterHourly[$date]);
                 ?>
                 <div class="text-center flex-fill p-2 rounded <?php echo $isSaltDay ? 'salt-day-highlight' : ''; ?>"
-                     style="min-width:110px;<?php echo $isSaltDay ? 'background:#e3f2fd;border:2px solid #42a5f5;' : ($isToday ? 'background:#f0f9f4;border:2px solid var(--mw-green);' : 'background:#f8f9fa;border:2px solid transparent;'); ?><?php if ($hasHourly): ?>cursor:pointer;<?php endif; ?>"
+                     style="min-width:110px;<?php echo $isSaltDay ? 'background:#fff3e0;border:2px solid #e85d04;' : ($isToday ? 'background:#f0f9f4;border:2px solid var(--mw-green);' : 'background:#f8f9fa;border:2px solid transparent;'); ?><?php if ($hasHourly): ?>cursor:pointer;<?php endif; ?>"
                      data-date="<?php echo $date; ?>"
                      data-low="<?php echo $overnightLow; ?>"
                      data-condition="<?php echo htmlspecialchars($cond); ?>"
@@ -105,7 +105,7 @@ $activePage = 'ops-weather';
                   <div style="font-size:0.7rem;color:#666;">💧 <?php echo $precip; ?>%<?php if ($wind > 30): ?> · 💨 <?php echo $wind; ?><?php endif; ?></div>
                   <?php endif; ?>
                   <?php if ($isSaltDay): ?>
-                  <div style="font-size:0.7rem;color:#1565c0;font-weight:700;margin-top:2px;">🧂 SALT</div>
+                  <div style="font-size:0.7rem;color:#e85d04;font-weight:700;margin-top:2px;">🧂 SALT</div>
                   <?php endif; ?>
                   <?php if ($hasHourly): ?>
                   <div style="font-size:0.65rem;color:#42a5f5;margin-top:3px;">▼ hourly detail</div>
@@ -194,11 +194,11 @@ $activePage = 'ops-weather';
                   }
               }
             ?>
-            <div class="mw-winter-detail" id="winterDetail-<?php echo $date; ?>" style="display:none;background:#e8f0fe;border:2px solid #42a5f5;border-top:none;border-radius:0 0 6px 6px;margin:-4px 0 8px 0;padding:12px;">
+            <div class="mw-winter-detail" id="winterDetail-<?php echo $date; ?>" style="display:none;background:<?php echo $totalSnowCm > 0 ? '#fce4ec' : '#fff3e0'; ?>;border:2px solid <?php echo $totalSnowCm > 0 ? '#ef5350' : '#e85d04'; ?>;border-top:none;border-radius:0 0 6px 6px;margin:-4px 0 8px 0;padding:12px;">
               <!-- Header row -->
               <div class="d-flex justify-content-between align-items-center mb-2">
                 <div>
-                  <strong style="color:#1565c0;">❄️ <?php echo $dayLabel; ?></strong>
+                  <strong style="color:<?php echo $totalSnowCm > 0 ? '#c62828' : '#e85d04'; ?>;">❄️ <?php echo $dayLabel; ?></strong>
                   <?php if ($freezeStart !== null): ?>
                   <span style="background:#fff3e0;border:1.5px solid #e85d04;border-radius:6px;padding:2px 8px;font-size:0.75rem;color:#e85d04;font-weight:600;margin-left:8px;">🧂 Salt · freeze <?php echo $freezeStart; ?>–<?php echo $freezeEnd; ?></span>
                   <?php endif; ?>
@@ -209,7 +209,7 @@ $activePage = 'ops-weather';
                   <?php elseif ($totalPrecipMm > 0): ?>
                   <span style="background:#fff;border:2px solid #90caf9;border-radius:8px;padding:2px 10px;font-size:0.85rem;font-weight:600;color:#555;">💧 <?php echo round($totalPrecipMm, 1); ?> mm</span>
                   <?php endif; ?>
-                  <button class="btn btn-sm btn-link p-0" onclick="toggleWinterDetail('<?php echo $date; ?>')" style="color:#42a5f5;font-size:0.75rem;">collapse ▲</button>
+                  <button class="btn btn-sm btn-link p-0" onclick="toggleWinterDetail('<?php echo $date; ?>')" style="color:#999;font-size:0.75rem;">collapse ▲</button>
                 </div>
               </div>
 
@@ -231,13 +231,14 @@ $activePage = 'ops-weather';
                   $condIcon = '☁️';
                   if ($dominantCond !== 'Dry') $condIcon = getWeatherIcon($dominantCond);
 
-                  // Snow is the ops-critical event — red card for snow periods
+                  // Snow = red (crew needed), salt/freeze = orange (routine), rain = blue
                   $hasSnowInPeriod = $pd['snowTotal'] > 0
                       || strpos($condLower, 'snow') !== false
                       || strpos($condLower, 'rain/snow') !== false;
                   $cardBg = '#fff';
-                  $cardBorder = '#bbdefb';
+                  $cardBorder = '#ddd';
                   if ($hasSnowInPeriod) { $cardBg = '#ffcdd2'; $cardBorder = '#ef5350'; }
+                  elseif ($pd['freezeHours'] > 0) { $cardBg = '#fff3e0'; $cardBorder = '#e85d04'; }
                   elseif ($pd['mmTotal'] > 0) { $cardBg = '#e3f2fd'; $cardBorder = '#42a5f5'; }
 
                   // Temp display
@@ -1336,8 +1337,8 @@ $activePage = 'ops-weather';
               if (!isSaltDay && checkIce && cond.indexOf('ice') !== -1) isSaltDay = true;
 
               if (isSaltDay) {
-                card.style.background = '#e3f2fd';
-                card.style.border = '2px solid #42a5f5';
+                card.style.background = '#fff3e0';
+                card.style.border = '2px solid #e85d04';
                 card.classList.add('salt-day-highlight');
               } else if (isToday) {
                 card.style.background = '#f0f9f4';
