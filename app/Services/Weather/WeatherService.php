@@ -649,6 +649,78 @@ function getHourlyForecastByCity(string $city = 'Vancouver', string $province = 
     return getHourlyForecast($coords['latitude'], $coords['longitude']);
 }
 
+/**
+ * Get 7-day forecast enriched with overnight lows from hourly data.
+ * For each day, computes the overnight low (6 PM that evening → 8 AM next morning)
+ * which is what matters for salting decisions — you salt Saturday evening
+ * because the overnight low Sat→Sun dips below zero.
+ *
+ * Returns same shape as getWeekForecast() but adds 'overnight_low' key per day.
+ *
+ * @param string $city
+ * @param string $province
+ * @return array Keyed by YYYY-MM-DD, each with extra 'overnight_low' field
+ */
+function getWeekForecastWithOvernightLow(string $city = 'Vancouver', string $province = 'BC'): array
+{
+    $daily = getWeekForecast($city, $province);
+    if (empty($daily)) {
+        return $daily;
+    }
+
+    $hourly = getHourlyForecastByCity($city, $province);
+    if (empty($hourly)) {
+        // Fallback: use daily temp_low as overnight_low
+        foreach ($daily as $date => &$day) {
+            $day['overnight_low'] = $day['temp_low'];
+        }
+        unset($day);
+        return $daily;
+    }
+
+    // Index hourly temps by ISO hour string for quick lookup
+    $hourlyTemps = [];
+    foreach ($hourly as $block) {
+        $hourlyTemps[$block['hour']] = $block['temp_c'];
+    }
+
+    // For each day, find the min temp from 6 PM that day → 8 AM next day
+    $dates = array_keys($daily);
+    foreach ($dates as $idx => $date) {
+        $overnightMin = null;
+
+        // Scan 18:00 that evening through 08:00 next morning
+        for ($h = 18; $h <= 23; $h++) {
+            $key = $date . 'T' . sprintf('%02d', $h) . ':00';
+            if (isset($hourlyTemps[$key])) {
+                $temp = $hourlyTemps[$key];
+                if ($overnightMin === null || $temp < $overnightMin) {
+                    $overnightMin = $temp;
+                }
+            }
+        }
+
+        // Next day 00:00 → 08:00
+        $nextDate = date('Y-m-d', strtotime($date . ' +1 day'));
+        for ($h = 0; $h <= 8; $h++) {
+            $key = $nextDate . 'T' . sprintf('%02d', $h) . ':00';
+            if (isset($hourlyTemps[$key])) {
+                $temp = $hourlyTemps[$key];
+                if ($overnightMin === null || $temp < $overnightMin) {
+                    $overnightMin = $temp;
+                }
+            }
+        }
+
+        // Store rounded overnight low (or fall back to daily temp_low)
+        $daily[$date]['overnight_low'] = $overnightMin !== null
+            ? (int)round($overnightMin)
+            : $daily[$date]['temp_low'];
+    }
+
+    return $daily;
+}
+
 // ============================================================================
 // HTTP HELPERS
 // ============================================================================

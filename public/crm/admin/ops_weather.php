@@ -11,8 +11,8 @@ if (($user['role'] ?? '') !== 'admin') {
     exit;
 }
 
-// Fetch 7-day forecast for salt preview
-$weekWeather = getWeekForecast('Vancouver', 'BC');
+// Fetch 7-day forecast with overnight lows for salt preview
+$weekWeather = getWeekForecastWithOvernightLow('Vancouver', 'BC');
 
 $pageTitle = 'Ops Weather Constraints';
 $activePage = 'ops-weather';
@@ -216,14 +216,14 @@ $activePage = 'ops-weather';
                     <?php
                     $dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
                     foreach ($weekWeather as $date => $day):
-                      $low = $day['temp_low'] ?? 0;
                       $high = $day['temp_high'] ?? 0;
+                      $overnightLow = $day['overnight_low'] ?? ($day['temp_low'] ?? 0);
                       $cond = strtolower($day['condition'] ?? '');
                       $ts = strtotime($date);
                       $dayName = $dayNames[date('w', $ts)];
                       $monthDay = date('M j', $ts);
-                      // Default salt check: temp <= 0 or snow/ice conditions
-                      $isSaltDay = ($low <= 0)
+                      // Salt check uses overnight low (6pm→8am) — the temp you'd salt for
+                      $isSaltDay = ($overnightLow <= 0)
                         || strpos($cond, 'snow') !== false
                         || strpos($cond, 'ice') !== false
                         || strpos($cond, 'freezing') !== false;
@@ -231,7 +231,7 @@ $activePage = 'ops-weather';
                     <div class="text-center flex-fill p-2 rounded <?php echo $isSaltDay ? 'salt-day-highlight' : ''; ?>"
                          style="min-width:100px;<?php echo $isSaltDay ? 'background:#e3f2fd;border:2px solid #42a5f5;' : 'background:#f8f9fa;border:2px solid transparent;'; ?>"
                          data-date="<?php echo $date; ?>"
-                         data-low="<?php echo $low; ?>"
+                         data-low="<?php echo $overnightLow; ?>"
                          data-condition="<?php echo htmlspecialchars($cond); ?>">
                       <div style="font-size:0.75rem;color:#666;"><?php echo $dayName; ?></div>
                       <div style="font-weight:600;"><?php echo $monthDay; ?></div>
@@ -240,9 +240,12 @@ $activePage = 'ops-weather';
                       </div>
                       <div style="font-size:0.85rem;">
                         <span style="color:#1565c0;font-weight:600;"><?php echo $high; ?>°</span>
-                        <span style="color:#666;">/ <?php echo $low; ?>°</span>
+                        <span style="color:#666;">/ <?php echo $overnightLow; ?>°</span>
                       </div>
-                      <div style="font-size:0.75rem;color:#888;"><?php echo htmlspecialchars(ucfirst($day['condition'] ?? '')); ?></div>
+                      <div style="font-size:0.7rem;color:#999;"><?php echo htmlspecialchars(ucfirst($day['condition'] ?? '')); ?></div>
+                      <?php if ($overnightLow !== ($day['temp_low'] ?? 0)): ?>
+                      <div style="font-size:0.65rem;color:#888;" title="Overnight low from hourly data (6pm–8am)">overnight</div>
+                      <?php endif; ?>
                       <?php if ($isSaltDay): ?>
                       <div style="font-size:0.7rem;color:#1565c0;font-weight:600;margin-top:2px;">SALT</div>
                       <?php endif; ?>
