@@ -209,7 +209,6 @@ $activePage = 'ops-weather';
                       <th style="padding:6px 8px;text-align:center;color:#1565c0;">Temp</th>
                       <th style="padding:6px 8px;text-align:center;color:#1565c0;">Precip</th>
                       <th style="padding:6px 8px;text-align:center;color:#1565c0;">Accum</th>
-                      <th style="padding:6px 8px;text-align:center;color:#1565c0;">Wind</th>
                       <th style="padding:6px 8px;text-align:left;color:#1565c0;">Risk</th>
                     </tr>
                   </thead>
@@ -236,9 +235,6 @@ $activePage = 'ops-weather';
                       // Accumulation over the band
                       $accumDisplay = ($g['mmTotal'] > 0) ? round($g['mmTotal'], 1) . ' mm' : '—';
 
-                      // Wind
-                      $windDisplay = round($g['windMax']) . ' km/h';
-
                       // Risks
                       $risks = [];
                       if ($lowestTemp <= 0) $risks[] = '🧊 Freeze';
@@ -246,7 +242,6 @@ $activePage = 'ops-weather';
                       if (strpos($gCondLower, 'snow') !== false || strpos($gCondLower, 'rain/snow') !== false) $risks[] = '❄️ Snow';
                       if (strpos($gCondLower, 'ice') !== false) $risks[] = '🧊 Ice';
                       if (strpos($gCondLower, 'freezing') !== false) $risks[] = '🧊 Freezing';
-                      if ($g['windMax'] > 40) $risks[] = '💨 High wind';
                       $riskStr = !empty($risks) ? implode(', ', $risks) : '—';
 
                       // Row color based on worst temp in band
@@ -264,7 +259,6 @@ $activePage = 'ops-weather';
                       <td style="padding:6px 8px;text-align:center;font-weight:600;<?php echo $lowestTemp <= 0 ? 'color:#c62828;' : 'color:#333;'; ?>"><?php echo $tempDisplay; ?></td>
                       <td style="padding:6px 8px;text-align:center;"><?php echo $precipDisplay; ?></td>
                       <td style="padding:6px 8px;text-align:center;"><?php echo $accumDisplay; ?></td>
-                      <td style="padding:6px 8px;text-align:center;"><?php echo $windDisplay; ?></td>
                       <td style="padding:6px 8px;font-size:0.75rem;"><?php echo $riskStr; ?></td>
                     </tr>
                     <?php endforeach; ?>
