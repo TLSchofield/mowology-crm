@@ -200,14 +200,13 @@ $activePage = 'ops-weather';
                 <div>
                   <strong style="color:#1565c0;">❄️ <?php echo $dayLabel; ?></strong>
                   <?php if ($freezeStart !== null): ?>
-                  <span class="ml-2" style="font-size:0.8rem;color:#c62828;font-weight:600;">🧊 Freezing <?php echo $freezeStart; ?>–<?php echo $freezeEnd; ?></span>
+                  <span style="background:#fff3e0;border:1.5px solid #e85d04;border-radius:6px;padding:2px 8px;font-size:0.75rem;color:#e85d04;font-weight:600;margin-left:8px;">🧂 Salt · freeze <?php echo $freezeStart; ?>–<?php echo $freezeEnd; ?></span>
                   <?php endif; ?>
                 </div>
                 <div class="d-flex align-items-center" style="gap:10px;">
                   <?php if ($totalSnowCm > 0): ?>
-                  <span style="background:#fff;border:2px solid #42a5f5;border-radius:8px;padding:2px 10px;font-size:0.85rem;font-weight:700;color:#1565c0;">❄️ <?php echo round($totalSnowCm, 1); ?> cm snow</span>
-                  <?php endif; ?>
-                  <?php if ($totalPrecipMm > 0 && $totalSnowCm == 0): ?>
+                  <span style="background:#c62828;border:2px solid #b71c1c;border-radius:8px;padding:3px 12px;font-size:0.85rem;font-weight:700;color:#fff;">🚨 <?php echo round($totalSnowCm, 1); ?> cm snow — crew needed</span>
+                  <?php elseif ($totalPrecipMm > 0): ?>
                   <span style="background:#fff;border:2px solid #90caf9;border-radius:8px;padding:2px 10px;font-size:0.85rem;font-weight:600;color:#555;">💧 <?php echo round($totalPrecipMm, 1); ?> mm</span>
                   <?php endif; ?>
                   <button class="btn btn-sm btn-link p-0" onclick="toggleWinterDetail('<?php echo $date; ?>')" style="color:#42a5f5;font-size:0.75rem;">collapse ▲</button>
@@ -220,8 +219,8 @@ $activePage = 'ops-weather';
                   $pd = $periodData[$pName];
                   if (!$pd['hasData']) continue;
 
-                  // Skip overnight if nothing interesting
-                  if ($pName === 'Overnight' && $pd['freezeHours'] === 0 && $pd['snowTotal'] == 0 && $pd['mmTotal'] == 0) continue;
+                  // Skip overnight if no snow/precip (freeze alone is just salt, not interesting)
+                  if ($pName === 'Overnight' && $pd['snowTotal'] == 0 && $pd['mmTotal'] == 0) continue;
 
                   // Dominant condition (most frequent)
                   arsort($pd['conditions']);
@@ -232,24 +231,19 @@ $activePage = 'ops-weather';
                   $condIcon = '☁️';
                   if ($dominantCond !== 'Dry') $condIcon = getWeatherIcon($dominantCond);
 
-                  // Card background based on severity
+                  // Snow is the ops-critical event — red card for snow periods
+                  $hasSnowInPeriod = $pd['snowTotal'] > 0
+                      || strpos($condLower, 'snow') !== false
+                      || strpos($condLower, 'rain/snow') !== false;
                   $cardBg = '#fff';
                   $cardBorder = '#bbdefb';
-                  if ($pd['tempMin'] <= -5) { $cardBg = '#ffcdd2'; $cardBorder = '#ef9a9a'; }
-                  elseif ($pd['tempMin'] <= 0) { $cardBg = '#e3f2fd'; $cardBorder = '#42a5f5'; }
-                  elseif ($pd['snowTotal'] > 0) { $cardBg = '#e1f5fe'; $cardBorder = '#4fc3f7'; }
+                  if ($hasSnowInPeriod) { $cardBg = '#ffcdd2'; $cardBorder = '#ef5350'; }
+                  elseif ($pd['mmTotal'] > 0) { $cardBg = '#e3f2fd'; $cardBorder = '#42a5f5'; }
 
                   // Temp display
                   $tempDisplay = ($pd['tempMin'] == $pd['tempMax'])
                       ? round($pd['tempMin']) . '°'
                       : round($pd['tempMin']) . '° to ' . round($pd['tempMax']) . '°';
-
-                  // Risks
-                  $risks = [];
-                  if ($pd['tempMin'] <= 0) $risks[] = '🧊';
-                  if ($pd['tempMin'] <= -5) $risks[] = '🥶';
-                  if (strpos($condLower, 'snow') !== false || strpos($condLower, 'rain/snow') !== false) $risks[] = '❄️';
-                  if (strpos($condLower, 'ice') !== false || strpos($condLower, 'freezing') !== false) $risks[] = '🧊';
                 ?>
                 <div style="flex:1;min-width:140px;max-width:200px;background:<?php echo $cardBg; ?>;border:2px solid <?php echo $cardBorder; ?>;border-radius:8px;padding:10px;text-align:center;">
                   <!-- Period label -->
@@ -261,7 +255,7 @@ $activePage = 'ops-weather';
                   <div style="font-size:0.75rem;color:#444;font-weight:600;"><?php echo htmlspecialchars($dominantCond); ?></div>
 
                   <!-- Temperature -->
-                  <div style="font-size:0.9rem;font-weight:700;margin:4px 0;<?php echo $pd['tempMin'] <= 0 ? 'color:#c62828;' : 'color:#333;'; ?>">
+                  <div style="font-size:0.9rem;font-weight:700;margin:4px 0;color:#333;">
                     <?php echo $tempDisplay; ?>
                   </div>
 
@@ -270,12 +264,7 @@ $activePage = 'ops-weather';
                   <div style="font-size:0.7rem;color:#555;">💧 <?php echo $pd['popMax']; ?>%<?php if ($pd['mmTotal'] > 0): ?> · <?php echo round($pd['mmTotal'], 1); ?> mm<?php endif; ?></div>
                   <?php endif; ?>
                   <?php if ($pd['snowTotal'] > 0): ?>
-                  <div style="font-size:0.75rem;color:#1565c0;font-weight:700;">❄️ <?php echo round($pd['snowTotal'], 1); ?> cm</div>
-                  <?php endif; ?>
-
-                  <!-- Risk icons -->
-                  <?php if (!empty($risks)): ?>
-                  <div style="font-size:0.7rem;margin-top:3px;"><?php echo implode(' ', array_unique($risks)); ?></div>
+                  <div style="font-size:0.85rem;color:#c62828;font-weight:700;margin-top:2px;">❄️ <?php echo round($pd['snowTotal'], 1); ?> cm</div>
                   <?php endif; ?>
                 </div>
                 <?php endforeach; ?>
