@@ -116,8 +116,19 @@ $activePage = 'ops-weather';
             </div>
 
             <?php
-            // Render expanded hourly detail panels for winter days (auto-shown)
-            // Groups consecutive hours with the same condition into bands
+            // Merge dry/cloudy conditions (overcast, partly cloudy, clear, etc.)
+            // into one "Dry" bucket so the hourly detail table stays tight
+            function opsGroupKey(string $cond): string {
+                $lower = strtolower($cond);
+                $dryConditions = ['clear', 'partly cloudy', 'overcast', 'a mix of sun and cloud', 'fog', 'mist'];
+                foreach ($dryConditions as $dry) {
+                    if (strpos($lower, $dry) !== false) return 'Dry';
+                }
+                return $cond; // keep precip conditions as-is
+            }
+
+            // Render expanded hourly detail panels for winter days
+            // Groups consecutive hours with the same ops-relevant condition into bands
             foreach ($winterHourly as $date => $hours):
               if (empty($hours)) continue;
               $day = $weekWeather[$date] ?? [];
@@ -136,18 +147,6 @@ $activePage = 'ops-weather';
                       if ($freezeStart === null) $freezeStart = $hr;
                       $freezeEnd = $hr;
                   }
-              }
-
-              // ── Group consecutive hours by ops-relevant condition ──
-              // Merge dry/cloudy conditions (overcast, partly cloudy, clear, etc.)
-              // into one "Dry" bucket so the table stays tight
-              function opsGroupKey(string $cond): string {
-                  $lower = strtolower($cond);
-                  $dryConditions = ['clear', 'partly cloudy', 'overcast', 'a mix of sun and cloud', 'fog', 'mist'];
-                  foreach ($dryConditions as $dry) {
-                      if (strpos($lower, $dry) !== false) return 'Dry';
-                  }
-                  return $cond; // keep precip conditions as-is
               }
 
               $groups = [];
