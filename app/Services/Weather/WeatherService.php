@@ -504,11 +504,22 @@ function ecConditionNormalize(string $condition): string
     if (strpos($lower, 'freezing rain') !== false) return 'Freezing Rain';
     if (strpos($lower, 'freezing drizzle') !== false) return 'Freezing Rain';
     if (strpos($lower, 'ice pellet') !== false) return 'Ice Pellets';
-    if (strpos($lower, 'snow') !== false && strpos($lower, 'shower') !== false) return 'Snow Showers';
-    if (strpos($lower, 'snow') !== false) return 'Snow';
     if (strpos($lower, 'blizzard') !== false) return 'Snow';
+
+    // Mixed precip: EC often says "rain showers or flurries", "wet flurries", etc.
+    // These MUST be checked before the generic rain check so the snow component isn't lost
+    $hasFlurries = strpos($lower, 'flurr') !== false;
+    $hasSnow = strpos($lower, 'snow') !== false;
+    $hasRain = strpos($lower, 'rain') !== false || strpos($lower, 'shower') !== false || strpos($lower, 'drizzle') !== false;
+
+    if (($hasFlurries || $hasSnow) && $hasRain) return 'Rain/Snow Mix';
+    if (strpos($lower, 'wet flurr') !== false) return 'Rain/Snow Mix';
+    if ($hasSnow && strpos($lower, 'shower') !== false) return 'Snow Showers';
+    if ($hasSnow) return 'Snow';
+    if ($hasFlurries) return 'Snow';
+
     if (strpos($lower, 'rain') !== false && strpos($lower, 'heavy') !== false) return 'Heavy Rain Showers';
-    if (strpos($lower, 'rain') !== false || strpos($lower, 'shower') !== false || strpos($lower, 'drizzle') !== false) return 'Rain';
+    if ($hasRain) return 'Rain';
     if (strpos($lower, 'overcast') !== false) return 'Overcast';
     if (strpos($lower, 'cloudy') !== false && strpos($lower, 'partly') !== false) return 'Partly Cloudy';
     if (strpos($lower, 'cloudy') !== false && strpos($lower, 'mainly') !== false) return 'Partly Cloudy';
@@ -520,7 +531,7 @@ function ecConditionNormalize(string $condition): string
     if (strpos($lower, 'a few clouds') !== false) return 'Partly Cloudy';
     if (strpos($lower, 'chance of') !== false) {
         // "Chance of showers" etc — still counts as the precip type
-        if (strpos($lower, 'flurr') !== false || strpos($lower, 'snow') !== false) return 'Snow';
+        if ($hasFlurries || $hasSnow) return 'Snow';
         return 'Rain';
     }
 
@@ -738,10 +749,12 @@ function getWeatherIcon(string $condition): string
         'freezing rain'     => '🧊',
         'freezing drizzle'  => '🧊',
         'ice pellet'        => '🧊',
+        'rain/snow mix'     => '🌨️',
         'snow showers'      => '🌨️',
         'snow'              => '❄️',
         'snowing'           => '❄️',
         'blizzard'          => '❄️',
+        'flurr'             => '🌨️',
         'sleet'             => '🌨️',
         'heavy rain'        => '🌧️',
         'heavy rain showers'=> '🌧️',

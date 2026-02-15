@@ -24,7 +24,9 @@ if (!empty($hourlyData)) {
         $isWinter = ($overnightLow <= 0)
             || strpos($cond, 'snow') !== false
             || strpos($cond, 'ice') !== false
-            || strpos($cond, 'freezing') !== false;
+            || strpos($cond, 'freezing') !== false
+            || strpos($cond, 'flurr') !== false
+            || strpos($cond, 'rain/snow') !== false;
         if ($isWinter) {
             $winterHourly[$date] = [];
             foreach ($hourlyData as $block) {
@@ -79,7 +81,9 @@ $activePage = 'ops-weather';
                   $isSaltDay = ($overnightLow <= 0)
                     || strpos($cond, 'snow') !== false
                     || strpos($cond, 'ice') !== false
-                    || strpos($cond, 'freezing') !== false;
+                    || strpos($cond, 'freezing') !== false
+                    || strpos($cond, 'flurr') !== false
+                    || strpos($cond, 'rain/snow') !== false;
                   $hasHourly = isset($winterHourly[$date]) && !empty($winterHourly[$date]);
                 ?>
                 <div class="text-center flex-fill p-2 rounded <?php echo $isSaltDay ? 'salt-day-highlight' : ''; ?>"
