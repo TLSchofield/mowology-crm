@@ -38,7 +38,7 @@
 
   <script src="/crm/js/feather-helper.js"></script>
   <script src="/crm/js/app.js"></script>
-  <script src="/crm/js/time-clock-widget.js?v=20260214g"></script>
+  <script src="/crm/js/time-clock-widget.js?v=20260214h"></script>
 
   <!-- Dropdown fix: app.js bundles jQuery+Bootstrap whose dropdown plugin fails without global Popper.
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->

@@ -49,9 +49,14 @@
                 renderClockedIn(data.elapsed_seconds, data.active_job);
                 if (trackingEnabled) {
                     startTracking();
+                } else {
+                    // Clocked in but tracking not enabled in DB — still probe GPS for the icon
+                    probeGPSStatus();
                 }
             } else {
                 renderClockedOut();
+                // Not clocked in — still probe GPS so icon shows red/green, not grey
+                probeGPSStatus();
             }
         })
         .catch(function(err) {
@@ -170,6 +175,50 @@
                 }
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    }
+
+    // One-shot GPS probe — just checks if permission is granted/denied
+    // and updates the icon color. Does NOT start continuous tracking.
+    function probeGPSStatus() {
+        if (!navigator.geolocation) {
+            updateTrackingDot('error', 'Not supported');
+            return;
+        }
+        // Use Permissions API if available (instant, no prompt)
+        if (navigator.permissions && navigator.permissions.query) {
+            navigator.permissions.query({ name: 'geolocation' }).then(function(result) {
+                if (result.state === 'granted') {
+                    updateTrackingDot('active', 'Permission granted');
+                } else if (result.state === 'denied') {
+                    updateTrackingDot('error', 'Permission denied');
+                } else {
+                    // 'prompt' — user hasn't decided yet, show as not-active
+                    updateTrackingDot('error', 'Location not enabled');
+                }
+            }).catch(function() {
+                // Permissions API failed — fall back to a quick getCurrentPosition
+                quickGPSProbe();
+            });
+        } else {
+            // No Permissions API (older iOS) — do a quick GPS check
+            quickGPSProbe();
+        }
+    }
+
+    function quickGPSProbe() {
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {
+                updateTrackingDot('active', 'accuracy: ' + Math.round(pos.coords.accuracy) + 'm');
+            },
+            function(err) {
+                if (err.code === 1) {
+                    updateTrackingDot('error', 'Permission denied');
+                } else {
+                    updateTrackingDot('error', 'GPS unavailable');
+                }
+            },
+            { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
         );
     }
 
