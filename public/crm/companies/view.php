@@ -44,7 +44,7 @@ $quotes = $quotesStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Job Plans
 $jobsStmt = $db->prepare("
-    SELECT jp.id, jp.plan_number, jp.title, jp.status, jp.frequency, jp.created_at
+    SELECT jp.id, jp.plan_number, jp.title, jp.status, jp.recurrence_pattern, jp.created_at
     FROM job_plans jp
     WHERE jp.company_id = ?
     ORDER BY jp.created_at DESC
@@ -401,7 +401,7 @@ $activePage = 'companies';
                                                 <tr>
                                                     <td><a href="/crm/jobs/view.php?id=<?= $j['id'] ?>"><?= htmlspecialchars($j['plan_number'] ?? '#' . $j['id']) ?></a></td>
                                                     <td><?= htmlspecialchars($j['title'] ?? '—') ?></td>
-                                                    <td><?= htmlspecialchars(ucfirst($j['frequency'] ?? '—')) ?></td>
+                                                    <td><?= htmlspecialchars(ucfirst($j['recurrence_pattern'] ?? '—')) ?></td>
                                                     <td><?= getStatusBadge($j['status'] ?? 'draft', 'job') ?></td>
                                                     <td><?= formatDate($j['created_at']) ?></td>
                                                     <td class="text-right">
