@@ -53,14 +53,38 @@ if ($quoteId) {
     }
 }
 
-// Get properties for dropdown
-$properties = $db->query("
-    SELECT DISTINCT p.id, p.address, p.city, p.property_type, c.company_name, c.id as company_id
-    FROM properties p
-    LEFT JOIN company_properties cp ON p.id = cp.property_id
-    LEFT JOIN companies c ON cp.company_id = c.id
-    ORDER BY c.company_name, p.address
-")->fetchAll(PDO::FETCH_ASSOC);
+// Determine pre-selected contact for edit mode
+$prefilledContactId = 0;
+$prefilledContactName = '';
+$prefilledClientType = 'contact';
+$prefilledProperties = [];
+
+if ($quote && $quote['property_id']) {
+    // Editing existing quote — look up the contact from the property
+    $stmt = $db->prepare("
+        SELECT p.site_contact_id, ct.first_name, ct.last_name
+        FROM properties p
+        LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+        WHERE p.id = ?
+    ");
+    $stmt->execute([$quote['property_id']]);
+    $propContact = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($propContact && $propContact['site_contact_id']) {
+        $prefilledContactId = intval($propContact['site_contact_id']);
+        $prefilledContactName = trim($propContact['first_name'] . ' ' . $propContact['last_name']);
+        // Load that contact's properties
+        $stmt = $db->prepare("SELECT id, address, city, property_type, status FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
+        $stmt->execute([$prefilledContactId]);
+        $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+} elseif ($quoteRequest && $quoteRequest['contact_id']) {
+    // Creating from quote request — pre-fill the contact
+    $prefilledContactId = intval($quoteRequest['contact_id']);
+    $prefilledContactName = trim(($quoteRequest['first_name'] ?? '') . ' ' . ($quoteRequest['last_name'] ?? ''));
+    $stmt = $db->prepare("SELECT id, address, city, property_type, status FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
+    $stmt->execute([$prefilledContactId]);
+    $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // Get service templates
 $templates = getServiceTemplates();
@@ -274,20 +298,45 @@ $activePage = 'quotes';
 
                 <div class="mw-content-grid">
                     <div class="left-column">
-                        <!-- Property Selection -->
+                        <!-- Client & Property Selection -->
                         <div class="card">
                             <div class="card-header">
                                 <h5 class="card-title mb-0">Customer &amp; Property</h5>
                             </div>
                             <div class="card-body">
+                                <!-- Client Type Toggle -->
+                                <div class="mw-form-group">
+                                    <label class="form-label">Client Type</label>
+                                    <div class="mw-client-type-toggle">
+                                        <button type="button" class="mw-client-type-btn active" data-type="contact">Contact</button>
+                                        <button type="button" class="mw-client-type-btn" data-type="company">Company</button>
+                                    </div>
+                                </div>
+
+                                <!-- Client Search -->
+                                <div class="mw-form-group">
+                                    <label class="form-label">Search Client *</label>
+                                    <div class="mw-client-search-wrapper">
+                                        <input type="text" id="clientSearchInput" class="form-control"
+                                               placeholder="Type to search contacts..."
+                                               autocomplete="off"
+                                               value="<?php echo htmlspecialchars($prefilledContactName); ?>">
+                                        <input type="hidden" id="selectedClientId" value="<?php echo $prefilledContactId; ?>">
+                                        <input type="hidden" id="selectedClientType" value="<?php echo $prefilledClientType; ?>">
+                                        <div class="mw-client-search-results" id="clientSearchResults"></div>
+                                    </div>
+                                </div>
+
+                                <!-- Property Dropdown (populated after client selection) -->
                                 <div class="mw-form-group">
                                     <label class="form-label">Select Property *</label>
                                     <select name="property_id" id="propertySelect" class="form-control" required>
-                                        <option value="">Choose a property...</option>
-                                        <?php foreach ($properties as $prop): ?>
+                                        <option value="">Select a client first...</option>
+                                        <?php foreach ($prefilledProperties as $prop): ?>
                                             <option value="<?php echo $prop['id']; ?>"
-                                                <?php echo (($quote && $quote['property_id'] == $prop['id']) || ($prefilledPropertyId && $prefilledPropertyId == $prop['id'])) ? 'selected' : ''; ?>>
-                                                <?php echo htmlspecialchars($prop['company_name'] . ' - ' . $prop['address'] . ', ' . $prop['city']); ?>
+                                                <?php echo (($quote && $quote['property_id'] == $prop['id']) || ($prefilledPropertyId == $prop['id'])) ? 'selected' : ''; ?>>
+                                                <?php echo htmlspecialchars($prop['address'] . ', ' . $prop['city']); ?>
+                                                (<?php echo htmlspecialchars($prop['property_type'] ?? 'N/A'); ?>)
                                             </option>
                                         <?php endforeach; ?>
                                     </select>
@@ -573,24 +622,171 @@ $activePage = 'quotes';
 
         document.getElementById('addCustomLineBtn').addEventListener('click', () => addLine());
 
-        // Property selection summary
+        // Client search + property population
         const propertySelect = document.getElementById('propertySelect');
         const propertySummary = document.getElementById('propertySummary');
-        const properties = <?php echo json_encode($properties); ?>;
+        const clientSearchInput = document.getElementById('clientSearchInput');
+        const clientSearchResults = document.getElementById('clientSearchResults');
+        const selectedClientIdInput = document.getElementById('selectedClientId');
+        const selectedClientTypeInput = document.getElementById('selectedClientType');
+        let clientSearchTimeout = null;
+        let currentClientType = '<?php echo $prefilledClientType; ?>';
+        let loadedProperties = <?php echo json_encode($prefilledProperties); ?>;
 
+        // Client type toggle
+        document.querySelectorAll('.mw-client-type-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.mw-client-type-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                currentClientType = this.dataset.type;
+                selectedClientTypeInput.value = currentClientType;
+                clientSearchInput.placeholder = currentClientType === 'company'
+                    ? 'Type to search companies...'
+                    : 'Type to search contacts...';
+                // Clear current selection
+                clearClientSelection();
+            });
+        });
+
+        function clearClientSelection() {
+            clientSearchInput.value = '';
+            selectedClientIdInput.value = '';
+            propertySelect.innerHTML = '<option value="">Select a client first...</option>';
+            propertySummary.textContent = 'Select a client first';
+            loadedProperties = [];
+            document.getElementById('measurementPanel').style.display = 'none';
+        }
+
+        // Client search input
+        clientSearchInput.addEventListener('input', function() {
+            const q = this.value.trim();
+            clearTimeout(clientSearchTimeout);
+
+            if (q.length < 1) {
+                clientSearchResults.innerHTML = '';
+                clientSearchResults.style.display = 'none';
+                return;
+            }
+
+            clientSearchTimeout = setTimeout(() => {
+                fetch('../api/client-search.php?action=search&type=' + currentClientType + '&q=' + encodeURIComponent(q))
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success && data.results.length > 0) {
+                            clientSearchResults.innerHTML = data.results.map(r => `
+                                <div class="mw-client-result" data-id="${r.id}">
+                                    <div class="mw-client-result-name">${escapeHtml(r.label)}</div>
+                                    <div class="mw-client-result-meta">
+                                        ${escapeHtml(r.sublabel)}
+                                        ${r.property_count > 0 ? ' &middot; ' + r.property_count + ' propert' + (r.property_count === 1 ? 'y' : 'ies') : ''}
+                                    </div>
+                                </div>
+                            `).join('');
+                            clientSearchResults.style.display = 'block';
+
+                            // Attach click handlers
+                            clientSearchResults.querySelectorAll('.mw-client-result').forEach(el => {
+                                el.addEventListener('click', function() {
+                                    selectClient(parseInt(this.dataset.id), this.querySelector('.mw-client-result-name').textContent);
+                                });
+                            });
+                        } else {
+                            clientSearchResults.innerHTML = '<div class="mw-client-no-results">No results found</div>';
+                            clientSearchResults.style.display = 'block';
+                        }
+                    })
+                    .catch(() => {
+                        clientSearchResults.innerHTML = '<div class="mw-client-no-results">Error searching</div>';
+                        clientSearchResults.style.display = 'block';
+                    });
+            }, 250);
+        });
+
+        // Close dropdown on click outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.mw-client-search-wrapper')) {
+                clientSearchResults.style.display = 'none';
+            }
+        });
+
+        // Focus shows results again if populated
+        clientSearchInput.addEventListener('focus', function() {
+            if (clientSearchResults.innerHTML && !selectedClientIdInput.value) {
+                clientSearchResults.style.display = 'block';
+            }
+        });
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function selectClient(clientId, clientName) {
+            selectedClientIdInput.value = clientId;
+            clientSearchInput.value = clientName;
+            clientSearchResults.style.display = 'none';
+
+            // Load properties for this client
+            const paramKey = currentClientType === 'company' ? 'company_id' : 'contact_id';
+            fetch('../api/client-search.php?action=properties&' + paramKey + '=' + clientId)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        loadedProperties = data.properties;
+                        propertySelect.innerHTML = '<option value="">Choose a property...</option>';
+                        data.properties.forEach(p => {
+                            const opt = document.createElement('option');
+                            opt.value = p.id;
+                            opt.textContent = p.address + ', ' + p.city + ' (' + (p.property_type || 'N/A') + ')';
+                            propertySelect.appendChild(opt);
+                        });
+
+                        // Auto-select if only one property
+                        if (data.properties.length === 1) {
+                            propertySelect.value = data.properties[0].id;
+                            propertySelect.dispatchEvent(new Event('change'));
+                        }
+
+                        if (data.properties.length === 0) {
+                            propertySelect.innerHTML = '<option value="">No properties found for this client</option>';
+                        }
+                    }
+                });
+
+            // Update sidebar summary
+            propertySummary.innerHTML = '<strong>' + escapeHtml(clientName) + '</strong><br><span class="text-muted">Loading properties...</span>';
+        }
+
+        // Property selection updates summary + measurements
         propertySelect.addEventListener('change', function() {
-            const selected = properties.find(p => p.id == this.value);
+            const selected = loadedProperties.find(p => p.id == this.value);
+            const clientName = clientSearchInput.value;
             if (selected) {
                 propertySummary.innerHTML = `
-                    <strong>${selected.company_name}</strong><br>
-                    ${selected.address}<br>
-                    ${selected.city}<br>
-                    <span style="opacity: 0.7">${selected.property_type}</span>
+                    <strong>${escapeHtml(clientName)}</strong><br>
+                    ${escapeHtml(selected.address)}<br>
+                    ${escapeHtml(selected.city)}<br>
+                    <span style="opacity: 0.7">${escapeHtml(selected.property_type || '')}</span>
                 `;
-                // Fetch measurement data for the selected property
                 fetchMeasurements(this.value);
             } else {
-                propertySummary.textContent = 'Select a property to see details';
+                if (clientName) {
+                    propertySummary.innerHTML = '<strong>' + escapeHtml(clientName) + '</strong><br><span class="text-muted">Select a property</span>';
+                } else {
+                    propertySummary.textContent = 'Select a client first';
+                }
+                document.getElementById('measurementPanel').style.display = 'none';
+            }
+        });
+
+        // Allow clearing the client search to start over
+        clientSearchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Backspace' && selectedClientIdInput.value) {
+                // User is deleting — clear the selection so they can search again
+                selectedClientIdInput.value = '';
+                propertySelect.innerHTML = '<option value="">Select a client first...</option>';
+                loadedProperties = [];
                 document.getElementById('measurementPanel').style.display = 'none';
             }
         });
@@ -815,7 +1011,11 @@ $activePage = 'quotes';
             // Add empty line for new quotes
         }
         renderLineItems();
-        propertySelect.dispatchEvent(new Event('change'));
+
+        // If a client is pre-selected (edit mode / from request), trigger property change
+        if (selectedClientIdInput.value && propertySelect.value) {
+            propertySelect.dispatchEvent(new Event('change'));
+        }
 
         // Form submission
         document.getElementById('quoteForm').addEventListener('submit', function() {
