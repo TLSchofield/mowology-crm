@@ -295,6 +295,51 @@ $csrf_token = generateCSRFToken();
         .forgot-password-link:hover {
             color: var(--grass-green);
         }
+
+        .app-banner {
+            background: linear-gradient(135deg, var(--forest-dark) 0%, var(--forest-main) 100%);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 24px;
+            display: none;
+            align-items: center;
+            gap: 14px;
+            color: var(--snow-white);
+            text-decoration: none;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            border: 2px solid var(--lime-accent);
+        }
+        .app-banner:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        .app-banner-icon {
+            width: 44px;
+            height: 44px;
+            background: var(--lime-accent);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 22px;
+        }
+        .app-banner-text {
+            flex: 1;
+        }
+        .app-banner-title {
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+        .app-banner-desc {
+            font-size: 12px;
+            opacity: 0.85;
+        }
+        .app-banner-arrow {
+            font-size: 20px;
+            opacity: 0.7;
+        }
     </style>
 </head>
 <body>
@@ -307,7 +352,15 @@ $csrf_token = generateCSRFToken();
         <form class="login-form" method="POST" action="">
             <h2 class="form-title">Welcome Back</h2>
 
-            
+            <a href="/downloads/mowology-crew.apk" id="appBanner" class="app-banner">
+                <div class="app-banner-icon">📱</div>
+                <div class="app-banner-text">
+                    <div class="app-banner-title">Get the Mowology Crew App</div>
+                    <div class="app-banner-desc">Better GPS tracking &amp; offline support</div>
+                </div>
+                <div class="app-banner-arrow">→</div>
+            </a>
+
             <?php if ($error): ?>
                 <div class="error-message"><?php echo htmlspecialchars($error); ?></div>
             <?php endif; ?>
@@ -350,5 +403,17 @@ $csrf_token = generateCSRFToken();
             <p>Phase 1: Foundation Complete ✓<br>Secure authentication system active</p>
         </div>
     </div>
+<script>
+// Show Android app download banner — only on Android browsers (not inside Capacitor WebView)
+(function() {
+    var ua = navigator.userAgent || '';
+    var isAndroid = /Android/i.test(ua);
+    var isCapacitor = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+    if (isAndroid && !isCapacitor) {
+        var banner = document.getElementById('appBanner');
+        if (banner) banner.style.display = 'flex';
+    }
+})();
+</script>
 </body>
 </html>
