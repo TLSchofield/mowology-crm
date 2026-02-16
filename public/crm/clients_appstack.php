@@ -638,6 +638,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
             }
+        } elseif ($action === 'update_company') {
+            $companyId = intval($_POST['company_id'] ?? 0);
+            if ($companyId) {
+                $companyName = trim($_POST['company_name'] ?? '');
+                $companyType = $_POST['company_type'] ?? 'individual';
+                $billingEmail = trim($_POST['billing_email'] ?? '');
+                $billingPhone = trim($_POST['billing_phone'] ?? '');
+                $billingAddress = trim($_POST['billing_address'] ?? '');
+                $billingCity = trim($_POST['billing_city'] ?? 'Vancouver');
+                $billingProvince = trim($_POST['billing_province'] ?? 'BC');
+                $billingPostalCode = trim($_POST['billing_postal_code'] ?? '');
+                $accountStatus = $_POST['account_status'] ?? 'active';
+                $paymentTerms = $_POST['payment_terms'] ?? 'Net 30';
+                $paymentMethod = $_POST['payment_method'] ?? 'invoice';
+                $companyNotes = trim($_POST['notes'] ?? '');
+
+                if (empty($companyName)) {
+                    $message = 'Please enter a company name.';
+                    $messageType = 'error';
+                    $action = 'edit_company';
+                    $clientId = $companyId;
+                } else {
+                    try {
+                        $stmt = $db->prepare("
+                            UPDATE companies SET
+                                company_name = ?, company_type = ?, billing_email = ?,
+                                billing_phone = ?, billing_address = ?, billing_city = ?,
+                                billing_province = ?, billing_postal_code = ?,
+                                account_status = ?, payment_terms = ?, payment_method = ?,
+                                notes = ?
+                            WHERE id = ?
+                        ");
+                        $stmt->execute([
+                            $companyName, $companyType, $billingEmail,
+                            $billingPhone, $billingAddress, $billingCity,
+                            $billingProvince, $billingPostalCode,
+                            $accountStatus, $paymentTerms, $paymentMethod,
+                            $companyNotes, $companyId
+                        ]);
+                        $message = 'Company updated successfully!';
+                        $messageType = 'success';
+                        // Redirect to view
+                        $action = 'view_company';
+                        $clientId = $companyId;
+                    } catch (PDOException $e) {
+                        $errorHandler->logDatabaseError($e, '', [], 'Failed to update company.');
+                        $message = 'Failed to update company. Please try again.';
+                        $messageType = 'error';
+                        $action = 'edit_company';
+                        $clientId = $companyId;
+                    }
+                }
+            }
         }
     }
 }
@@ -645,9 +698,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Get client data if editing
 $client = null;
 if ($action === 'edit' && $clientId) {
+    // Legacy action — redirect to view_company
+    $action = 'view_company';
+}
+
+// Get company data if editing a company
+$editCompany = null;
+if ($action === 'edit_company' && $clientId) {
     $stmt = $db->prepare("SELECT * FROM companies WHERE id = ?");
     $stmt->execute([$clientId]);
-    $client = $stmt->fetch(PDO::FETCH_ASSOC);
+    $editCompany = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$editCompany) {
+        $message = 'Company not found.';
+        $messageType = 'error';
+        $action = null;
+    }
 }
 
 // Get contact data if editing a contact
@@ -755,6 +820,52 @@ if ($action === 'view_contact' && $clientId) {
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
         if ($apiKey) {
             $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places" defer></script>';
+        }
+    }
+}
+
+// Get company data if viewing a company (profile page)
+$viewCompany = null;
+$companyContacts = [];
+$companyProperties = [];
+if ($action === 'view_company' && $clientId) {
+    $stmt = $db->prepare("SELECT * FROM companies WHERE id = ?");
+    $stmt->execute([$clientId]);
+    $viewCompany = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$viewCompany) {
+        $message = 'Company not found.';
+        $messageType = 'error';
+        $action = null;
+    } else {
+        // Fetch contacts linked to this company (primary or billing)
+        $contactIds = array_unique(array_filter([
+            (int)($viewCompany['primary_contact_id'] ?? 0),
+            (int)($viewCompany['billing_contact_id'] ?? 0)
+        ]));
+        if (!empty($contactIds)) {
+            $cPlaceholders = implode(',', array_fill(0, count($contactIds), '?'));
+            $stmt = $db->prepare("
+                SELECT id, first_name, last_name, email, phone, mobile
+                FROM contacts
+                WHERE id IN ({$cPlaceholders})
+                ORDER BY first_name, last_name
+            ");
+            $stmt->execute(array_values($contactIds));
+            $companyContacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        // Fetch properties linked to those contacts
+        if (!empty($contactIds)) {
+            $stmt = $db->prepare("
+                SELECT p.id, p.property_name, p.address, p.city, p.province,
+                       p.postal_code, p.latitude, p.longitude, p.property_type,
+                       p.lot_size_sqft, p.status, p.site_contact_id
+                FROM properties p
+                WHERE p.site_contact_id IN ({$cPlaceholders})
+                ORDER BY p.address ASC
+            ");
+            $stmt->execute(array_values($contactIds));
+            $companyProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
     }
 }
@@ -879,7 +990,7 @@ $unconvertedRequests = $db->query("
 
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h1 class="h3 mb-0">Client Management</h1>
-            <?php if (!in_array($action, ['edit', 'new', 'view_contact', 'edit_contact'])): ?>
+            <?php if (!in_array($action, ['edit', 'new', 'view_contact', 'edit_contact', 'view_company', 'edit_company'])): ?>
               <button class="btn btn-primary" onclick="location.href='?action=new'">
                 <i data-feather="plus"></i> Add New Client
               </button>
@@ -1482,7 +1593,7 @@ $unconvertedRequests = $db->query("
                       <div class="mw-contact-company-link">
                         <div>
                           <div class="mw-contact-company-name">
-                            <a href="?action=edit&id=<?php echo (int)$contactCompany['id']; ?>">
+                            <a href="?action=view_company&id=<?php echo (int)$contactCompany['id']; ?>">
                               <?php echo h($contactCompany['company_name']); ?>
                             </a>
                           </div>
@@ -2061,6 +2172,375 @@ $unconvertedRequests = $db->query("
             })();
             </script>
 
+          <?php elseif ($action === 'edit_company' && $editCompany): ?>
+            <!-- Edit Company Form -->
+            <form method="POST" id="editCompanyForm">
+              <input type="hidden" name="csrf_token" value="<?php echo csrf_token(); ?>">
+              <input type="hidden" name="action" value="update_company">
+              <input type="hidden" name="company_id" value="<?php echo (int)$editCompany['id']; ?>">
+
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="briefcase"></i> Edit Company</h5>
+                </div>
+                <div class="card-body">
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Company Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="company_name" required
+                          value="<?php echo h($_POST['company_name'] ?? $editCompany['company_name'] ?? ''); ?>">
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Type</label>
+                        <?php $ct = $_POST['company_type'] ?? $editCompany['company_type'] ?? 'individual'; ?>
+                        <select class="form-control" name="company_type">
+                          <option value="individual" <?php echo $ct === 'individual' ? 'selected' : ''; ?>>Individual</option>
+                          <option value="business" <?php echo $ct === 'business' ? 'selected' : ''; ?>>Business</option>
+                          <option value="strata" <?php echo $ct === 'strata' ? 'selected' : ''; ?>>Strata</option>
+                          <option value="property_manager" <?php echo $ct === 'property_manager' ? 'selected' : ''; ?>>Property Manager</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Billing Email</label>
+                        <input type="email" class="form-control" name="billing_email"
+                          value="<?php echo h($_POST['billing_email'] ?? $editCompany['billing_email'] ?? ''); ?>">
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Billing Phone</label>
+                        <input type="tel" class="form-control" name="billing_phone"
+                          value="<?php echo h($_POST['billing_phone'] ?? $editCompany['billing_phone'] ?? ''); ?>">
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Account Status</label>
+                        <?php $as = $_POST['account_status'] ?? $editCompany['account_status'] ?? 'active'; ?>
+                        <select class="form-control" name="account_status">
+                          <option value="active" <?php echo $as === 'active' ? 'selected' : ''; ?>>Active</option>
+                          <option value="inactive" <?php echo $as === 'inactive' ? 'selected' : ''; ?>>Inactive</option>
+                          <option value="suspended" <?php echo $as === 'suspended' ? 'selected' : ''; ?>>Suspended</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="col-md-3">
+                      <div class="form-group">
+                        <label>Payment Terms</label>
+                        <?php $pt = $_POST['payment_terms'] ?? $editCompany['payment_terms'] ?? 'Net 30'; ?>
+                        <select class="form-control" name="payment_terms">
+                          <option value="Due on receipt" <?php echo $pt === 'Due on receipt' ? 'selected' : ''; ?>>Due on receipt</option>
+                          <option value="Net 15" <?php echo $pt === 'Net 15' ? 'selected' : ''; ?>>Net 15</option>
+                          <option value="Net 30" <?php echo $pt === 'Net 30' ? 'selected' : ''; ?>>Net 30</option>
+                          <option value="Net 60" <?php echo $pt === 'Net 60' ? 'selected' : ''; ?>>Net 60</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="col-md-3">
+                      <div class="form-group">
+                        <label>Payment Method</label>
+                        <?php $pm = $_POST['payment_method'] ?? $editCompany['payment_method'] ?? 'invoice'; ?>
+                        <select class="form-control" name="payment_method">
+                          <option value="invoice" <?php echo $pm === 'invoice' ? 'selected' : ''; ?>>Invoice</option>
+                          <option value="credit_card" <?php echo $pm === 'credit_card' ? 'selected' : ''; ?>>Credit Card</option>
+                          <option value="bank_transfer" <?php echo $pm === 'bank_transfer' ? 'selected' : ''; ?>>Bank Transfer</option>
+                          <option value="cheque" <?php echo $pm === 'cheque' ? 'selected' : ''; ?>>Cheque</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="file-text"></i> Billing Address</h5>
+                </div>
+                <div class="card-body">
+                  <div class="form-group">
+                    <label>Address</label>
+                    <input type="text" class="form-control" name="billing_address"
+                      value="<?php echo h($_POST['billing_address'] ?? $editCompany['billing_address'] ?? ''); ?>">
+                  </div>
+                  <div class="row">
+                    <div class="col-md-4">
+                      <div class="form-group">
+                        <label>City</label>
+                        <input type="text" class="form-control" name="billing_city"
+                          value="<?php echo h($_POST['billing_city'] ?? $editCompany['billing_city'] ?? 'Vancouver'); ?>">
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="form-group">
+                        <label>Province</label>
+                        <input type="text" class="form-control" name="billing_province" maxlength="2"
+                          value="<?php echo h($_POST['billing_province'] ?? $editCompany['billing_province'] ?? 'BC'); ?>">
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="form-group">
+                        <label>Postal Code</label>
+                        <input type="text" class="form-control" name="billing_postal_code"
+                          value="<?php echo h($_POST['billing_postal_code'] ?? $editCompany['billing_postal_code'] ?? ''); ?>">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card mb-3">
+                <div class="card-header">
+                  <h5 class="card-title mb-0"><i data-feather="file-text"></i> Notes</h5>
+                </div>
+                <div class="card-body">
+                  <div class="form-group mb-0">
+                    <textarea class="form-control" name="notes" rows="3"><?php echo h($_POST['notes'] ?? $editCompany['notes'] ?? ''); ?></textarea>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group mt-3">
+                <button type="submit" class="btn btn-primary btn-lg">
+                  <i data-feather="save"></i> Update Company
+                </button>
+                <a href="?action=view_company&id=<?php echo (int)$editCompany['id']; ?>" class="btn btn-secondary btn-lg ml-2">
+                  <i data-feather="x"></i> Cancel
+                </a>
+              </div>
+            </form>
+
+          <?php elseif ($action === 'view_company' && $viewCompany): ?>
+            <!-- View Company Profile -->
+            <?php
+              $primaryContact = null;
+              $primaryContactId = (int)($viewCompany['primary_contact_id'] ?? 0);
+              foreach ($companyContacts as $cc) {
+                  if ((int)$cc['id'] === $primaryContactId) { $primaryContact = $cc; break; }
+              }
+              $primaryName = $primaryContact
+                  ? trim(h($primaryContact['first_name'] . ' ' . ($primaryContact['last_name'] ?? '')))
+                  : '';
+            ?>
+
+            <!-- Header: Contact name prominent, company secondary -->
+            <div class="mw-contact-header">
+              <div>
+                <?php if ($primaryName): ?>
+                  <h3 class="mw-contact-name">
+                    <i data-feather="user" style="width: 24px; height: 24px;"></i>
+                    <?php echo $primaryName; ?>
+                  </h3>
+                  <div class="text-muted" style="font-size: 0.95rem;">
+                    <i data-feather="briefcase" style="width: 16px; height: 16px;"></i>
+                    <?php echo h($viewCompany['company_name']); ?>
+                    <span class="badge badge-light ml-1"><?php echo ucwords(str_replace('_', ' ', $viewCompany['company_type'] ?? 'individual')); ?></span>
+                  </div>
+                <?php else: ?>
+                  <h3 class="mw-contact-name">
+                    <i data-feather="briefcase" style="width: 24px; height: 24px;"></i>
+                    <?php echo h($viewCompany['company_name']); ?>
+                  </h3>
+                  <div class="text-muted" style="font-size: 0.95rem;">
+                    <span class="badge badge-light"><?php echo ucwords(str_replace('_', ' ', $viewCompany['company_type'] ?? 'individual')); ?></span>
+                    <span class="text-warning ml-2"><i data-feather="alert-circle" style="width: 14px; height: 14px;"></i> No contact linked</span>
+                  </div>
+                <?php endif; ?>
+                <?php
+                  $statusColor = ($viewCompany['account_status'] ?? 'active') === 'active' ? 'success' : (($viewCompany['account_status'] ?? '') === 'inactive' ? 'secondary' : 'danger');
+                ?>
+                <span class="badge badge-<?php echo $statusColor; ?> mt-1"><?php echo ucfirst(h($viewCompany['account_status'] ?? 'active')); ?></span>
+              </div>
+              <div class="mw-contact-actions">
+                <a href="?action=edit_company&id=<?php echo (int)$viewCompany['id']; ?>" class="btn btn-primary">
+                  <i data-feather="edit-2"></i> Edit
+                </a>
+                <a href="clients_appstack.php" class="btn btn-secondary">
+                  <i data-feather="arrow-left"></i> Back
+                </a>
+              </div>
+            </div>
+
+            <div class="row">
+              <!-- Left Column -->
+              <div class="col-lg-7">
+
+                <!-- Contacts Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="users"></i> Property Managers
+                      <span class="badge badge-primary ml-1"><?php echo count($companyContacts); ?></span>
+                    </h5>
+                  </div>
+                  <div class="card-body">
+                    <?php if (empty($companyContacts)): ?>
+                      <div class="text-center text-muted py-3">
+                        <i data-feather="user-plus" style="width: 32px; height: 32px;"></i>
+                        <p class="mt-2 mb-0">No contacts linked to this company yet.</p>
+                      </div>
+                    <?php else: ?>
+                      <?php foreach ($companyContacts as $cc):
+                          $ccName = trim(h($cc['first_name'] . ' ' . ($cc['last_name'] ?? '')));
+                          $isPrimary = ((int)$cc['id'] === $primaryContactId);
+                          $isBilling = ((int)$cc['id'] === (int)($viewCompany['billing_contact_id'] ?? 0));
+                      ?>
+                        <div class="d-flex align-items-center justify-content-between py-2 <?php echo $isPrimary ? '' : 'border-top'; ?>">
+                          <div>
+                            <a href="?action=view_contact&id=<?php echo (int)$cc['id']; ?>" class="font-weight-bold" style="color: var(--mw-green);">
+                              <?php echo $ccName; ?>
+                            </a>
+                            <?php if ($isPrimary): ?>
+                              <span class="badge badge-success ml-1" style="font-size: 0.65rem;">Primary</span>
+                            <?php endif; ?>
+                            <?php if ($isBilling && !$isPrimary): ?>
+                              <span class="badge badge-info ml-1" style="font-size: 0.65rem;">Billing</span>
+                            <?php endif; ?>
+                            <div class="text-muted" style="font-size: 0.85rem;">
+                              <?php if (!empty($cc['email'])): ?>
+                                <i data-feather="mail" style="width: 12px; height: 12px;"></i> <?php echo h($cc['email']); ?>
+                              <?php endif; ?>
+                              <?php if (!empty($cc['phone'])): ?>
+                                <span class="ml-2"><i data-feather="phone" style="width: 12px; height: 12px;"></i> <?php echo h($cc['phone']); ?></span>
+                              <?php endif; ?>
+                              <?php if (!empty($cc['mobile'])): ?>
+                                <span class="ml-2"><i data-feather="smartphone" style="width: 12px; height: 12px;"></i> <?php echo h($cc['mobile']); ?></span>
+                              <?php endif; ?>
+                            </div>
+                          </div>
+                          <a href="?action=view_contact&id=<?php echo (int)$cc['id']; ?>" class="btn btn-sm btn-outline-secondary">
+                            <i data-feather="eye" style="width: 14px; height: 14px;"></i>
+                          </a>
+                        </div>
+                      <?php endforeach; ?>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Properties Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="map-pin"></i> Properties
+                      <span class="badge badge-primary ml-1"><?php echo count($companyProperties); ?></span>
+                    </h5>
+                  </div>
+                  <div class="card-body">
+                    <?php if (empty($companyProperties)): ?>
+                      <div class="text-center text-muted py-3">
+                        <i data-feather="map" style="width: 32px; height: 32px;"></i>
+                        <p class="mt-2 mb-0">No properties linked via contacts.</p>
+                      </div>
+                    <?php else: ?>
+                      <?php foreach ($companyProperties as $prop): ?>
+                        <div class="mw-contact-property-item">
+                          <div style="flex: 1; min-width: 0;">
+                            <div class="mw-contact-property-addr">
+                              <i data-feather="home" style="width: 14px; height: 14px;"></i>
+                              <?php echo h($prop['address']); ?>
+                            </div>
+                            <div class="mw-contact-property-meta">
+                              <?php echo h($prop['city'] ?? ''); ?><?php echo !empty($prop['province']) ? ', ' . h($prop['province']) : ''; ?> <?php echo h($prop['postal_code'] ?? ''); ?>
+                              <?php if (!empty($prop['property_type'])): ?>
+                                &middot; <?php echo ucwords(str_replace('_', ' ', $prop['property_type'])); ?>
+                              <?php endif; ?>
+                            </div>
+                          </div>
+                          <span class="badge badge-<?php echo ($prop['status'] ?? 'active') === 'active' ? 'success' : 'secondary'; ?>">
+                            <?php echo ucfirst(h($prop['status'] ?? 'active')); ?>
+                          </span>
+                        </div>
+                      <?php endforeach; ?>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+              </div><!-- end left col -->
+
+              <!-- Right Column -->
+              <div class="col-lg-5">
+
+                <!-- Company Details Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="info"></i> Company Details</h5>
+                  </div>
+                  <div class="card-body">
+                    <div class="row mb-2">
+                      <div class="col-sm-4 text-muted">Company</div>
+                      <div class="col-sm-8"><strong><?php echo h($viewCompany['company_name']); ?></strong></div>
+                    </div>
+                    <div class="row mb-2">
+                      <div class="col-sm-4 text-muted">Type</div>
+                      <div class="col-sm-8"><?php echo ucwords(str_replace('_', ' ', $viewCompany['company_type'] ?? 'individual')); ?></div>
+                    </div>
+                    <div class="row mb-2">
+                      <div class="col-sm-4 text-muted">Status</div>
+                      <div class="col-sm-8">
+                        <span class="badge badge-<?php echo $statusColor; ?>"><?php echo ucfirst(h($viewCompany['account_status'] ?? 'active')); ?></span>
+                      </div>
+                    </div>
+                    <?php if (!empty($viewCompany['billing_email'])): ?>
+                    <div class="row mb-2">
+                      <div class="col-sm-4 text-muted">Billing Email</div>
+                      <div class="col-sm-8"><a href="mailto:<?php echo h($viewCompany['billing_email']); ?>"><?php echo h($viewCompany['billing_email']); ?></a></div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if (!empty($viewCompany['billing_phone'])): ?>
+                    <div class="row mb-2">
+                      <div class="col-sm-4 text-muted">Billing Phone</div>
+                      <div class="col-sm-8"><a href="tel:<?php echo h($viewCompany['billing_phone']); ?>"><?php echo h($viewCompany['billing_phone']); ?></a></div>
+                    </div>
+                    <?php endif; ?>
+                    <div class="row mb-2">
+                      <div class="col-sm-4 text-muted">Payment</div>
+                      <div class="col-sm-8"><?php echo h($viewCompany['payment_terms'] ?? 'Net 30'); ?> &middot; <?php echo ucwords(str_replace('_', ' ', $viewCompany['payment_method'] ?? 'invoice')); ?></div>
+                    </div>
+                    <?php if (!empty($viewCompany['notes'])): ?>
+                    <div class="row mb-2">
+                      <div class="col-sm-4 text-muted">Notes</div>
+                      <div class="col-sm-8"><span class="text-muted"><?php echo nl2br(h($viewCompany['notes'])); ?></span></div>
+                    </div>
+                    <?php endif; ?>
+                    <div class="row mb-0">
+                      <div class="col-sm-4 text-muted">Created</div>
+                      <div class="col-sm-8"><?php echo formatDate($viewCompany['created_at']); ?></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Billing Address Card -->
+                <?php
+                  $hasBillingAddr = !empty($viewCompany['billing_address']) || !empty($viewCompany['billing_city']);
+                ?>
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="file-text"></i> Billing Address</h5>
+                  </div>
+                  <div class="card-body">
+                    <?php if ($hasBillingAddr): ?>
+                      <div><?php echo h($viewCompany['billing_address'] ?? ''); ?></div>
+                      <div>
+                        <?php echo h($viewCompany['billing_city'] ?? ''); ?><?php echo !empty($viewCompany['billing_province']) ? ', ' . h($viewCompany['billing_province']) : ''; ?>
+                        <?php echo h($viewCompany['billing_postal_code'] ?? ''); ?>
+                      </div>
+                    <?php else: ?>
+                      <span class="text-muted">No billing address on file</span>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+              </div><!-- end right col -->
+            </div><!-- end row -->
+
           <?php else: ?>
             <!-- View Toggle -->
             <div class="mb-3 d-flex justify-content-between align-items-center">
@@ -2148,9 +2628,14 @@ $unconvertedRequests = $db->query("
                   <div class="mw-kanban-cards" data-stage="<?php echo h($stage['stage_key']); ?>">
                     <?php foreach ($stagesData[$stage['stage_key']]['companies'] ?? [] as $company): ?>
                       <div class="mw-kanban-card" draggable="true" data-company-id="<?php echo (int)$company['id']; ?>" data-company-name="<?php echo h($company['company_name']); ?>">
-                        <a href="?action=edit&id=<?php echo (int)$company['id']; ?>" class="mw-card-link">
+                        <a href="?action=view_company&id=<?php echo (int)$company['id']; ?>" class="mw-card-link">
                           <div class="mw-card-header">
-                            <strong><?php echo h($company['company_name']); ?></strong>
+                            <?php if (!empty($company['primary_contact_name'])): ?>
+                              <strong><?php echo h($company['primary_contact_name']); ?></strong>
+                              <small class="text-muted d-block"><?php echo h($company['company_name']); ?></small>
+                            <?php else: ?>
+                              <strong><?php echo h($company['company_name']); ?></strong>
+                            <?php endif; ?>
                           </div>
                           <div class="mw-card-body">
                             <small class="text-muted d-block">
@@ -2168,7 +2653,7 @@ $unconvertedRequests = $db->query("
                           </div>
                         </a>
                         <div class="mw-card-actions mt-2 pt-2 border-top">
-                          <a href="?action=edit&id=<?php echo (int)$company['id']; ?>" class="btn btn-sm btn-outline-primary" title="Edit">
+                          <a href="?action=view_company&id=<?php echo (int)$company['id']; ?>" class="btn btn-sm btn-outline-primary" title="View">
                             <i data-feather="edit-2"></i>
                           </a>
                         </div>
@@ -2254,7 +2739,7 @@ $unconvertedRequests = $db->query("
                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$c['id']; ?>">
                             </td>
                             <td>
-                              <a href="?action=edit&id=<?php echo (int)$c['id']; ?>" class="mw-client-name-link">
+                              <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="mw-client-name-link">
                                 <strong><?php echo h($c['company_name']); ?></strong>
                               </a>
                               <?php if ($c['source_type'] === 'prospect'): ?>
@@ -2287,8 +2772,8 @@ $unconvertedRequests = $db->query("
                               </small>
                             </td>
                             <td>
-                              <a href="?action=edit&id=<?php echo (int)$c['id']; ?>" class="btn btn-sm btn-primary">
-                                <i data-feather="edit"></i> Edit
+                              <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="btn btn-sm btn-primary">
+                                <i data-feather="eye"></i> View
                               </a>
                             </td>
                           </tr>

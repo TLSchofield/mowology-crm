@@ -709,7 +709,13 @@ function getCompaniesByLifecycleStage() {
 
     if (!$hasLifecycleCol) {
         // Column doesn't exist — return all companies under 'prospect'
-        $stmt = $db->query("SELECT c.* FROM companies c ORDER BY c.company_name ASC");
+        $stmt = $db->query("
+            SELECT c.*,
+                   TRIM(CONCAT(COALESCE(pc.first_name, ''), ' ', COALESCE(pc.last_name, ''))) AS primary_contact_name
+            FROM companies c
+            LEFT JOIN contacts pc ON c.primary_contact_id = pc.id
+            ORDER BY c.company_name ASC
+        ");
         $companies = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $grouped = [];
         foreach ($companies as $company) {
@@ -726,9 +732,11 @@ function getCompaniesByLifecycleStage() {
             SELECT c.*,
                    COALESCE(ls.stage_label, CONCAT(UPPER(LEFT(c.lifecycle_stage, 1)), SUBSTRING(c.lifecycle_stage, 2))) as stage_label,
                    COALESCE(ls.stage_color, '#6B7280') as stage_color,
-                   COALESCE(ls.stage_order, 999) as stage_order
+                   COALESCE(ls.stage_order, 999) as stage_order,
+                   TRIM(CONCAT(COALESCE(pc.first_name, ''), ' ', COALESCE(pc.last_name, ''))) AS primary_contact_name
             FROM companies c
             LEFT JOIN lifecycle_stages ls ON c.lifecycle_stage = ls.stage_key AND ls.is_active = 1
+            LEFT JOIN contacts pc ON c.primary_contact_id = pc.id
             ORDER BY stage_order ASC, c.company_name ASC
         ");
     } catch (Exception $e) {
@@ -738,8 +746,10 @@ function getCompaniesByLifecycleStage() {
             SELECT c.*,
                    CONCAT(UPPER(LEFT(c.lifecycle_stage, 1)), SUBSTRING(c.lifecycle_stage, 2)) as stage_label,
                    '#6B7280' as stage_color,
-                   999 as stage_order
+                   999 as stage_order,
+                   TRIM(CONCAT(COALESCE(pc.first_name, ''), ' ', COALESCE(pc.last_name, ''))) AS primary_contact_name
             FROM companies c
+            LEFT JOIN contacts pc ON c.primary_contact_id = pc.id
             ORDER BY c.company_name ASC
         ");
     }
