@@ -211,7 +211,7 @@ function reconstructLinesFromVisionResponse(array $rawResponse): array
  * Stops parsing at SUBTOTAL/TOTAL/TAX lines.
  *
  * @param array $lines OCR text split into lines
- * @return array Array of ['name' => string, 'amount' => string]
+ * @return array Array of ['name', 'amount', 'quantity', 'unit_price', 'sku_raw']
  */
 function extractLineItems(array $lines): array
 {
@@ -225,10 +225,9 @@ function extractLineItems(array $lines): array
 
     $lineCount = count($lines);
 
-    // Phase 1: Collect barcode item names and standalone prices in order
-    // Home Depot often batches: item1, item2, price1, price2
-    $pendingItems = [];  // Queue of item names waiting for prices
-    $skipLines = [];     // Track lines we've consumed
+    // Collect item names and context in order; prices are matched later
+    $pendingItems = [];    // Queue of item names waiting for prices
+    $pendingContext = [];   // Parallel queue: ['sku_raw' => ..., 'quantity' => ..., 'unit_price' => ...]
 
     for ($i = 0; $i < $lineCount; $i++) {
         $line = trim($lines[$i]);
@@ -236,8 +235,7 @@ function extractLineItems(array $lines): array
 
         $lineLower = strtolower($line);
 
-        // Stop at summary section — but only on exact keyword lines
-        // "SUBTOTAL" alone on a line = stop, but "SUBTOTAL 57.78" is also stop
+        // Stop at summary section
         $hitStop = false;
         foreach ($stopKeywords as $kw) {
             if (strpos($lineLower, $kw) !== false) {
@@ -245,7 +243,6 @@ function extractLineItems(array $lines): array
                 continue 2;
             }
         }
-        // Also stop on standalone "TOTAL" (not SUBTOTAL)
         if (preg_match('/^total\s*:?\s*$/i', $line)) {
             if ($inItemZone || !empty($pendingItems)) { $hitStop = true; }
         }
@@ -256,56 +253,103 @@ function extractLineItems(array $lines): array
         if (preg_match('/^\(\d{3}\)\s*\d{3}[\-\.]\d{4}/', $line)) continue;
         if (preg_match('/^\d+\s+(st|ave|blvd|rd|dr|way|street|avenue)\b/i', $line)) continue;
         if (preg_match('/^[\d\s]+\d{2}\/\d{2}\/\d{2,4}/', $line)) continue;
-        // Skip noise lines (EACH, MAX REFUND, etc.)
         if (preg_match('/^(?:EACH|MAX REFUND|REFUND VALUE)/i', $line)) continue;
 
+        // Pattern: "0.55 tonne @ $118.00/tonne" — qty + unit + unit_price on one line
+        if (preg_match('/^(\d+\.?\d*)\s*(tonne|kg|yard|cu\.?\s*yd|m3|litre|gal)s?\s*@\s*\$?(\d+\.?\d*)\s*\/\s*\w+/i', $line, $m)) {
+            // This is context for the most recent pending item or last added item
+            $qty = (float)$m[1];
+            $unitPrice = (float)$m[3];
+            if (!empty($items)) {
+                $last = count($items) - 1;
+                $items[$last]['quantity'] = $qty;
+                $items[$last]['unit_price'] = round($unitPrice, 2);
+            } elseif (!empty($pendingContext)) {
+                $lastCtx = count($pendingContext) - 1;
+                $pendingContext[$lastCtx]['quantity'] = $qty;
+                $pendingContext[$lastCtx]['unit_price'] = round($unitPrice, 2);
+            }
+            continue;
+        }
+
         // Pattern: Material code + description (landfill/waste style: "10 - Green Waste")
-        // Requires spaces around dash to avoid matching addresses (320-507) or phones (604-873-7000)
         if (preg_match('/^\d{1,4}\s+[-–]\s+(.+)$/i', $line, $m)) {
             $itemName = trim($m[1]);
-            // Check if price is on the same line
             if (preg_match('/^(.+?)\s+\$?(\d{1,6}\.\d{2})\s*$/', $itemName, $pm)) {
-                $items[] = ['name' => trim($pm[1]), 'amount' => $pm[2]];
+                $items[] = ['name' => trim($pm[1]), 'amount' => $pm[2], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
                 $inItemZone = true;
             } else {
                 $pendingItems[] = $itemName;
+                $pendingContext[] = ['sku_raw' => null, 'quantity' => 1, 'unit_price' => null];
                 $inItemZone = true;
             }
             continue;
         }
 
-        // Pattern: Canadian Tire style — "SKU ITEM NAME $" (alphanumeric SKU with dashes, trailing $)
-        // e.g., "053-0802-6 METH APC PG 828 $" or just "SIFTO RCKSLT 20 $"
-        if (preg_match('/^(?:\d{2,3}-\d{3,4}-\d\s+)?(.{3,}?)\s+\$\s*$/', $line, $m)) {
-            $itemName = trim($m[1]);
-            // Clean up: skip if it looks like a quantity line ("@ $") or header noise
+        // Pattern: Canadian Tire SKU line with qty prefix — "20X059-6986-0"
+        // Extract quantity from "NNX" prefix and store SKU
+        if (preg_match('/^(\d+)[A-Z](\d{2,4}-\d{3,4}-\d)\s*$/', $line, $m)) {
+            $skuQty = (int)$m[1];
+            $skuRaw = $line;
+            // Store context for the next pending item
+            $pendingItems[] = '__sku_context__';
+            $pendingContext[] = ['sku_raw' => $skuRaw, 'quantity' => $skuQty, 'unit_price' => null];
+            continue;
+        }
+
+        // Pattern: Canadian Tire style — "SKU ITEM NAME $" (trailing $)
+        if (preg_match('/^(?:(\d{2,3}-\d{3,4}-\d)\s+)?(.{3,}?)\s+\$\s*$/', $line, $m)) {
+            $skuRaw = !empty($m[1]) ? $m[1] : null;
+            $itemName = trim($m[2]);
             if (!preg_match('/^[@#]/', $itemName) && strlen($itemName) >= 3) {
-                $pendingItems[] = $itemName;
+                // Check if we have a pending SKU context to merge into
+                if (!empty($pendingItems) && end($pendingItems) === '__sku_context__') {
+                    $ctxIdx = count($pendingContext) - 1;
+                    $pendingItems[$ctxIdx] = $itemName;
+                    if ($skuRaw && !$pendingContext[$ctxIdx]['sku_raw']) {
+                        $pendingContext[$ctxIdx]['sku_raw'] = $skuRaw;
+                    }
+                } else {
+                    $pendingItems[] = $itemName;
+                    $pendingContext[] = ['sku_raw' => $skuRaw, 'quantity' => 1, 'unit_price' => null];
+                }
                 $inItemZone = true;
             }
             continue;
         }
 
-        // Pattern: Standalone Canadian Tire SKU line (no item name) — "042-0169-0" or "20X059-6986-0"
-        // Item name will be on the next line; skip the SKU line itself
-        if (preg_match('/^[\dA-Z]{2,4}-?\d{3,4}-\d\s*$/', $line)) {
+        // Pattern: Standalone Canadian Tire SKU line (no qty prefix) — "042-0169-0"
+        if (preg_match('/^(\d{2,3}-\d{3,4}-\d)\s*$/', $line, $m)) {
+            // Just store SKU context for next item
+            $pendingItems[] = '__sku_context__';
+            $pendingContext[] = ['sku_raw' => $m[1], 'quantity' => 1, 'unit_price' => null];
             continue;
         }
 
-        // Pattern: "@ $" or "8.290 ea." quantity/unit lines — skip (price is elsewhere)
-        if (preg_match('/^@\s*\$|^\d+\.\d+\s*ea\.?\s*$/i', $line)) {
+        // Pattern: "@ $N.NN" or "N.NNN ea." — unit price context for most recent pending item
+        if (preg_match('/^@\s*\$?\s*$/i', $line)) {
+            // Standalone "@ $" — skip, unit price is on next line
+            continue;
+        }
+        if (preg_match('/^(\d+\.?\d*)\s*ea\.?\s*$/i', $line, $m)) {
+            $unitPrice = (float)$m[1];
+            if (!empty($pendingContext)) {
+                $lastCtx = count($pendingContext) - 1;
+                $pendingContext[$lastCtx]['unit_price'] = round($unitPrice, 2);
+            }
             continue;
         }
 
         // Pattern: Barcode + item name (Home Depot style)
-        if (preg_match('/^\d{6,15}\s+(.+?)(?:\s*<[A-Z,]+>)?\s*$/', $line, $m)) {
-            $itemName = trim($m[1]);
-            // Check if price is inline with the name
+        if (preg_match('/^(\d{6,15})\s+(.+?)(?:\s*<[A-Z,]+>)?\s*$/', $line, $m)) {
+            $skuRaw = $m[1];
+            $itemName = trim($m[2]);
             if (preg_match('/^(.+?)\s+\$?(\d{1,6}\.\d{2})\s*$/', $itemName, $pm)) {
-                $items[] = ['name' => trim($pm[1]), 'amount' => $pm[2]];
+                $items[] = ['name' => trim($pm[1]), 'amount' => $pm[2], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => $skuRaw];
                 $inItemZone = true;
             } else {
                 $pendingItems[] = $itemName;
+                $pendingContext[] = ['sku_raw' => $skuRaw, 'quantity' => 1, 'unit_price' => null];
                 $inItemZone = true;
             }
             continue;
@@ -313,11 +357,10 @@ function extractLineItems(array $lines): array
 
         // Pattern: DEPOSIT line
         if (preg_match('/^DEPOSIT/i', $line)) {
-            // Check next line for deposit amount
             if ($i + 1 < $lineCount) {
                 $nextLine = trim($lines[$i + 1]);
                 if (preg_match('/^(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $nextLine, $pm)) {
-                    $items[] = ['name' => 'Deposit', 'amount' => $pm[1]];
+                    $items[] = ['name' => 'Deposit', 'amount' => $pm[1], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
                     $i++;
                 }
             }
@@ -326,10 +369,9 @@ function extractLineItems(array $lines): array
 
         // Pattern: Markdown/discount line
         if (preg_match('/^(?:RSN:|DISCOUNT|MARKDOWN|MKDN)/i', $line)) {
-            // Flush pending items with any collected prices first
             if (preg_match('/(-?\d{1,6}\.\d{2})/', $line, $m)) {
                 $amount = $m[1];
-                $items[] = ['name' => 'Discount', 'amount' => '-' . ltrim($amount, '-')];
+                $items[] = ['name' => 'Discount', 'amount' => '-' . ltrim($amount, '-'), 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
                 $inItemZone = true;
             }
             continue;
@@ -338,12 +380,25 @@ function extractLineItems(array $lines): array
         // Pattern: Standalone price line — assign to next pending item
         if (preg_match('/^-?\$?(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $line, $pm)) {
             $amount = $pm[1];
-            // Negative price (discount/markdown)
             if (strpos($line, '-') === 0) {
-                $items[] = ['name' => 'Discount', 'amount' => '-' . ltrim($amount, '-')];
+                $items[] = ['name' => 'Discount', 'amount' => '-' . ltrim($amount, '-'), 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
             } elseif (!empty($pendingItems)) {
                 $itemName = array_shift($pendingItems);
-                $items[] = ['name' => $itemName, 'amount' => $amount];
+                $ctx = array_shift($pendingContext);
+                // Skip __sku_context__ placeholders that never got an item name
+                while ($itemName === '__sku_context__' && !empty($pendingItems)) {
+                    $itemName = array_shift($pendingItems);
+                    $ctx = array_shift($pendingContext);
+                }
+                if ($itemName !== '__sku_context__') {
+                    $items[] = [
+                        'name' => $itemName,
+                        'amount' => $amount,
+                        'quantity' => $ctx['quantity'] ?? 1,
+                        'unit_price' => $ctx['unit_price'] ?? null,
+                        'sku_raw' => $ctx['sku_raw'] ?? null,
+                    ];
+                }
             }
             $inItemZone = true;
             continue;
@@ -358,7 +413,7 @@ function extractLineItems(array $lines): array
                 if (strpos($nameLower, $kw) !== false) { $isSummary = true; break; }
             }
             if (!$isSummary) {
-                $items[] = ['name' => $name, 'amount' => $m[2]];
+                $items[] = ['name' => $name, 'amount' => $m[2], 'quantity' => 1, 'unit_price' => null, 'sku_raw' => null];
                 $inItemZone = true;
                 continue;
             }
@@ -366,11 +421,31 @@ function extractLineItems(array $lines): array
 
         // Pattern: Qty x Name  Price
         if (preg_match('/^(\d+)\s*[xX\x{00D7}]\s*(.{3,}?)\s{2,}\$?(\d{1,6}\.\d{2})\s*$/u', $line, $m)) {
-            $items[] = ['name' => trim($m[1] . 'x ' . $m[2]), 'amount' => $m[3]];
+            $qty = (int)$m[1];
+            $name = trim($m[2]);
+            $amount = $m[3];
+            $unitPrice = $qty > 0 ? round((float)$amount / $qty, 2) : null;
+            $items[] = ['name' => $name, 'amount' => $amount, 'quantity' => $qty, 'unit_price' => $unitPrice, 'sku_raw' => null];
             $inItemZone = true;
             continue;
         }
     }
+
+    // Post-process: derive missing quantity or unit_price from the other
+    foreach ($items as &$item) {
+        $total = (float)($item['amount'] ?? 0);
+        $qty = (float)($item['quantity'] ?? 1);
+        $up = $item['unit_price'];
+
+        if ($up !== null && $up > 0 && $qty == 1 && $total > $up * 1.01) {
+            // unit_price known but qty=1 seems wrong — derive qty
+            $item['quantity'] = round($total / $up, 3);
+        } elseif ($qty > 1 && $up === null && $total > 0) {
+            // qty known but no unit_price — derive it
+            $item['unit_price'] = round($total / $qty, 2);
+        }
+    }
+    unset($item);
 
     return $items;
 }

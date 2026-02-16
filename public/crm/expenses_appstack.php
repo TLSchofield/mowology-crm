@@ -995,11 +995,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         // Line items in review panel
         var lineItems = (p.line_items || []);
+        window.currentReviewLineItems = lineItems;
         var rvLiSection = document.getElementById('rvLineItemsSection');
         if (lineItems.length > 0 && rvLiSection) {
             document.getElementById('rvLineItemsCount').textContent = lineItems.length;
             document.getElementById('rvLineItemsList').querySelector('table').innerHTML =
-                renderLineItemsTable(lineItems);
+                renderLineItemsTable(lineItems, false);
             document.getElementById('rvLineItemsList').style.display = 'block';
             rvLiSection.style.display = 'block';
         } else if (rvLiSection) {
@@ -1067,12 +1068,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var mLiList = document.getElementById('mobileLineItemsList');
             var mLiCount = document.getElementById('mobileLineItemsCount');
             var lineItems = (p.line_items || []);
+            window.currentMobileLineItems = lineItems;
             if (lineItems.length > 0 && mLiSection) {
                 mLiCount.textContent = lineItems.length;
                 mLiList.innerHTML = lineItems.map(function(item) {
-                    var amt = parseFloat(item.amount);
+                    var amt = parseFloat(item.amount || item.line_total || 0);
+                    var qty = parseFloat(item.quantity || 1);
+                    var qtyLabel = qty > 1 ? ' <small class="text-muted">x' + qty + '</small>' : '';
                     return '<div class="mw-mc-expense-line-item">' +
-                        '<span class="mw-mc-expense-line-item-name">' + esc(item.name) + '</span>' +
+                        '<span class="mw-mc-expense-line-item-name">' + esc(item.name) + qtyLabel + '</span>' +
                         '<span class="mw-mc-expense-line-item-amt' + (amt < 0 ? ' mw-mc-expense-line-item-neg' : '') + '">$' + amt.toFixed(2) + '</span>' +
                     '</div>';
                 }).join('');
@@ -1370,6 +1374,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         });
 
         // Clear line items
+        window.currentReviewLineItems = [];
         var rvLiSection = document.getElementById('rvLineItemsSection');
         if (rvLiSection) rvLiSection.style.display = 'none';
 
@@ -1382,6 +1387,18 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     window.saveAndSend = function() { saveReviewExpense(true); };
 
     async function saveReviewExpense(andSend) {
+        // Prepare line items for saving
+        var liPayload = (window.currentReviewLineItems || []).map(function(li) {
+            return {
+                name: li.name || 'Unknown',
+                quantity: li.quantity || 1,
+                unit_price: li.unit_price || null,
+                line_total: li.amount || li.line_total || 0,
+                sku_raw: li.sku_raw || null,
+                product_id: li.product_id || null,
+            };
+        });
+
         var data = {
             action: 'create',
             csrf_token: CSRF,
@@ -1403,6 +1420,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             raw_ocr_json: document.getElementById('intakeOcrText').value || null,
             ocr_parsed: document.getElementById('intakeOcrParsed').value || null,
             status: 'draft',
+            line_items: liPayload,
         };
 
         if (!data.total || parseFloat(data.total) <= 0) {
@@ -1656,12 +1674,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             }
 
             // Line items
-            var lineItems = e.parsed_line_items || [];
+            var lineItems = e.line_items || e.parsed_line_items || [];
+            var isStored = e.line_items_stored || false;
             var liSection = document.getElementById('expLineItemsSection');
             if (lineItems.length > 0) {
                 document.getElementById('expLineItemsCount').textContent = lineItems.length;
                 document.getElementById('expLineItemsList').querySelector('table').innerHTML =
-                    renderLineItemsTable(lineItems);
+                    renderLineItemsTable(lineItems, isStored);
                 document.getElementById('expLineItemsList').style.display = 'none';
                 liSection.style.display = 'block';
             } else {
@@ -2059,6 +2078,18 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var sendBtn = review.querySelector('.mw-mc-expense-send-btn');
         var activeBtn = andSend ? sendBtn : saveBtn;
 
+        // Prepare line items for saving
+        var liPayload = (window.currentMobileLineItems || []).map(function(li) {
+            return {
+                name: li.name || 'Unknown',
+                quantity: li.quantity || 1,
+                unit_price: li.unit_price || null,
+                line_total: li.amount || li.line_total || 0,
+                sku_raw: li.sku_raw || null,
+                product_id: li.product_id || null,
+            };
+        });
+
         var data = {
             action: 'create',
             csrf_token: CSRF,
@@ -2078,6 +2109,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             raw_ocr_json: review ? (review.dataset.ocrText || null) : null,
             ocr_parsed: review ? (review.dataset.ocrParsed || null) : null,
             status: 'draft',
+            line_items: liPayload,
         };
 
         if (!data.total || parseFloat(data.total) <= 0) {
@@ -2276,14 +2308,160 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (list) list.style.display = list.style.display === 'none' ? 'block' : 'none';
     };
 
-    function renderLineItemsTable(items) {
+    function renderLineItemsTable(items, stored) {
         if (!items || !items.length) return '';
-        return items.map(function(item) {
-            var amount = parseFloat(item.amount);
-            var amountClass = amount < 0 ? 'text-danger' : '';
-            return '<tr><td>' + esc(item.name) + '</td><td class="' + amountClass + '">$' + amount.toFixed(2) + '</td></tr>';
+        var hasQty = items.some(function(i) { return i.quantity && parseFloat(i.quantity) !== 1; });
+        var hasUp = items.some(function(i) { return i.unit_price && parseFloat(i.unit_price) > 0; });
+
+        var header = '<tr class="mw-li-header"><th>Item</th>';
+        if (hasQty) header += '<th class="text-center">Qty</th>';
+        if (hasUp) header += '<th class="text-end">Unit $</th>';
+        header += '<th class="text-end">Total</th>';
+        if (stored) header += '<th class="text-center">Product</th>';
+        header += '</tr>';
+
+        var rows = items.map(function(item, idx) {
+            var total = parseFloat(item.line_total || item.amount || 0);
+            var qty = parseFloat(item.quantity || 1);
+            var up = item.unit_price ? parseFloat(item.unit_price) : null;
+            var totalClass = total < 0 ? 'text-danger' : '';
+            var liId = item.id || '';
+
+            var row = '<tr data-li-id="' + liId + '">';
+            row += '<td>' + esc(item.name);
+            if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
+            row += '</td>';
+            if (hasQty) row += '<td class="text-center">' + (qty !== 1 ? qty : '') + '</td>';
+            if (hasUp) row += '<td class="text-end">' + (up ? '$' + up.toFixed(2) : '') + '</td>';
+            row += '<td class="text-end ' + totalClass + '">$' + total.toFixed(2) + '</td>';
+
+            if (stored) {
+                row += '<td class="text-center">';
+                if (item.product_id) {
+                    row += '<span class="badge bg-success mw-li-product-badge">' + esc(item.product_name || 'Linked') + '</span>';
+                    row += ' <button type="button" class="btn btn-link btn-sm p-0 mw-li-unlink" onclick="unlinkProduct(' + liId + ')" title="Unlink">&times;</button>';
+                } else if (liId) {
+                    row += '<button type="button" class="btn btn-outline-secondary btn-sm mw-li-link" onclick="showProductSearch(' + liId + ', this)">Link</button>';
+                }
+                row += '</td>';
+            }
+
+            row += '</tr>';
+            return row;
         }).join('');
+
+        return header + rows;
     }
+
+    // ── Product Linking ──────────────────────────────────────────
+    var activePopover = null;
+
+    window.showProductSearch = function(lineItemId, btn) {
+        closeProductPopover();
+        var pop = document.createElement('div');
+        pop.className = 'mw-product-search-popover';
+        pop.innerHTML = '<input type="text" class="form-control form-control-sm" placeholder="Search products..." autofocus>' +
+            '<div class="mw-product-search-results"></div>';
+        pop.dataset.liId = lineItemId;
+
+        // Position near the button
+        btn.parentNode.style.position = 'relative';
+        btn.parentNode.appendChild(pop);
+        activePopover = pop;
+
+        var input = pop.querySelector('input');
+        var results = pop.querySelector('.mw-product-search-results');
+        var debounce;
+
+        input.addEventListener('input', function() {
+            clearTimeout(debounce);
+            var q = this.value.trim();
+            if (q.length < 2) { results.innerHTML = ''; return; }
+            debounce = setTimeout(async function() {
+                try {
+                    var r = await fetch('/crm/products/api-products.php?action=list-products&search=' + encodeURIComponent(q));
+                    var d = await r.json();
+                    if (d.success && d.products && d.products.length) {
+                        results.innerHTML = d.products.slice(0, 8).map(function(p) {
+                            return '<div class="mw-product-search-item" data-pid="' + p.id + '">' +
+                                esc(p.name) +
+                                (p.sku ? ' <small class="text-muted">' + esc(p.sku) + '</small>' : '') +
+                                (p.track_inventory == 1 ? ' <small class="text-success">(tracked)</small>' : '') +
+                            '</div>';
+                        }).join('');
+                        results.querySelectorAll('.mw-product-search-item').forEach(function(el) {
+                            el.addEventListener('click', function() {
+                                linkProduct(lineItemId, parseInt(this.dataset.pid));
+                            });
+                        });
+                    } else {
+                        results.innerHTML = '<div class="text-muted small p-2">No products found</div>';
+                    }
+                } catch(e) { results.innerHTML = ''; }
+            }, 250);
+        });
+
+        input.focus();
+
+        // Close on outside click
+        setTimeout(function() {
+            document.addEventListener('click', closeOnOutsideClick);
+        }, 10);
+    };
+
+    function closeOnOutsideClick(e) {
+        if (activePopover && !activePopover.contains(e.target)) {
+            closeProductPopover();
+        }
+    }
+
+    function closeProductPopover() {
+        if (activePopover) {
+            activePopover.remove();
+            activePopover = null;
+        }
+        document.removeEventListener('click', closeOnOutsideClick);
+    }
+
+    async function linkProduct(lineItemId, productId) {
+        closeProductPopover();
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'link_product',
+                    csrf_token: CSRF,
+                    line_item_id: lineItemId,
+                    product_id: productId,
+                }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            // Refresh the edit modal to show updated link
+            var expId = document.getElementById('expenseId').value;
+            if (expId) editExpense(parseInt(expId));
+        } catch(e) { alert('Link failed: ' + e.message); }
+    }
+
+    window.unlinkProduct = async function(lineItemId) {
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'link_product',
+                    csrf_token: CSRF,
+                    line_item_id: lineItemId,
+                    product_id: null,
+                }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            var expId = document.getElementById('expenseId').value;
+            if (expId) editExpense(parseInt(expId));
+        } catch(e) { alert('Unlink failed: ' + e.message); }
+    };
 
     // ── Utility ──────────────────────────────────────────────────
     function esc(s) {

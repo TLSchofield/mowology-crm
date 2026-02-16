@@ -86,6 +86,11 @@ try {
             handleMergeReceipt($db, $input);
             break;
 
+        case 'link_product':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleLinkProduct($db, $input);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -208,13 +213,35 @@ function handleGet(PDO $db): void
     $logStmt->execute([$id]);
     $expense['send_history'] = $logStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Parse line items from raw OCR text if available
-    $expense['parsed_line_items'] = [];
-    if (!empty($expense['raw_ocr_json'])) {
-        require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
-        $parsed = parseReceiptText($expense['raw_ocr_json']);
-        $expense['parsed_line_items'] = $parsed['line_items'] ?? [];
+    // Load stored line items (with product details)
+    $liStmt = $db->prepare("
+        SELECT eli.*,
+               p.name AS product_name,
+               p.sku AS product_sku,
+               p.track_inventory
+        FROM expense_line_items eli
+        LEFT JOIN products p ON p.id = eli.product_id
+        WHERE eli.expense_id = ?
+        ORDER BY eli.sort_order, eli.id
+    ");
+    $liStmt->execute([$id]);
+    $storedItems = $liStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (!empty($storedItems)) {
+        $expense['line_items'] = $storedItems;
+        $expense['line_items_stored'] = true;
+    } else {
+        // Fallback: parse from raw OCR text
+        $expense['line_items'] = [];
+        if (!empty($expense['raw_ocr_json'])) {
+            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+            $parsed = parseReceiptText($expense['raw_ocr_json']);
+            $expense['line_items'] = $parsed['line_items'] ?? [];
+        }
+        $expense['line_items_stored'] = false;
     }
+    // Keep backward-compatible key
+    $expense['parsed_line_items'] = $expense['line_items'];
 
     echo json_encode(['success' => true, 'expense' => $expense]);
 }
@@ -268,6 +295,11 @@ function handleCreate(PDO $db, ?array $input, array $user): void
     ]);
 
     $expenseId = (int)$db->lastInsertId();
+
+    // Save line items if provided
+    if (!empty($input['line_items']) && is_array($input['line_items'])) {
+        saveLineItems($db, $expenseId, $input['line_items']);
+    }
 
     // Record OCR corrections for learning (only if receipt was OCR'd)
     if (!empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])) {
@@ -374,6 +406,18 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         $id,
     ]);
 
+    // Update line items if provided
+    if (isset($input['line_items']) && is_array($input['line_items'])) {
+        // Reverse inventory for old linked products
+        reverseLineItemInventory($db, $id);
+        // Delete old line items and insert new ones
+        $delStmt = $db->prepare("DELETE FROM expense_line_items WHERE expense_id = ?");
+        $delStmt->execute([$id]);
+        if (!empty($input['line_items'])) {
+            saveLineItems($db, $id, $input['line_items']);
+        }
+    }
+
     echo json_encode(['success' => true, 'message' => 'Expense updated']);
 }
 
@@ -386,6 +430,9 @@ function handleDelete(PDO $db, ?array $input): void
 
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Expense ID required');
+
+    // Reverse inventory for linked line items before CASCADE delete removes them
+    reverseLineItemInventory($db, $id);
 
     $stmt = $db->prepare("DELETE FROM expenses WHERE id = ?");
     $stmt->execute([$id]);
@@ -546,4 +593,138 @@ function handleMergeReceipt(PDO $db, ?array $input): void
         'success' => true,
         'message' => 'Receipt merged into expense #' . $targetId,
     ]);
+}
+
+
+/**
+ * Link (or unlink) a product to a specific expense line item.
+ * Lightweight AJAX endpoint — no full expense save needed.
+ */
+function handleLinkProduct(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $lineItemId = (int)($input['line_item_id'] ?? 0);
+    if (!$lineItemId) throw new Exception('Line item ID required');
+
+    $newProductId = isset($input['product_id']) && $input['product_id'] !== null && $input['product_id'] !== ''
+        ? (int)$input['product_id']
+        : null;
+
+    // Fetch current line item
+    $stmt = $db->prepare("SELECT id, product_id, quantity FROM expense_line_items WHERE id = ?");
+    $stmt->execute([$lineItemId]);
+    $li = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$li) throw new Exception('Line item not found');
+
+    $oldProductId = $li['product_id'] ? (int)$li['product_id'] : null;
+    $qty = (float)$li['quantity'];
+
+    // Reverse old product inventory
+    if ($oldProductId) {
+        updateProductInventory($db, $oldProductId, -$qty);
+    }
+
+    // Update the link
+    $upd = $db->prepare("UPDATE expense_line_items SET product_id = ? WHERE id = ?");
+    $upd->execute([$newProductId, $lineItemId]);
+
+    // Apply new product inventory
+    if ($newProductId) {
+        updateProductInventory($db, $newProductId, $qty);
+    }
+
+    // Return updated line item with product details
+    $result = $db->prepare("
+        SELECT eli.*, p.name AS product_name, p.sku AS product_sku, p.track_inventory
+        FROM expense_line_items eli
+        LEFT JOIN products p ON p.id = eli.product_id
+        WHERE eli.id = ?
+    ");
+    $result->execute([$lineItemId]);
+    $updated = $result->fetch(PDO::FETCH_ASSOC);
+
+    echo json_encode(['success' => true, 'line_item' => $updated]);
+}
+
+
+/**
+ * Save line items array for an expense. Also applies inventory adjustments
+ * for any items that already have a product_id set.
+ */
+function saveLineItems(PDO $db, int $expenseId, array $lineItems): void
+{
+    $stmt = $db->prepare("
+        INSERT INTO expense_line_items
+            (expense_id, product_id, name, quantity, unit_price, line_total, sku_raw, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ");
+
+    foreach ($lineItems as $idx => $li) {
+        $productId = !empty($li['product_id']) ? (int)$li['product_id'] : null;
+        $qty = (float)($li['quantity'] ?? 1);
+        $unitPrice = isset($li['unit_price']) && $li['unit_price'] !== null && $li['unit_price'] !== ''
+            ? (float)$li['unit_price']
+            : null;
+        $lineTotal = (float)($li['line_total'] ?? $li['amount'] ?? 0);
+        $name = $li['name'] ?? 'Unknown Item';
+        $skuRaw = $li['sku_raw'] ?? null;
+
+        $stmt->execute([
+            $expenseId,
+            $productId,
+            $name,
+            $qty,
+            $unitPrice,
+            $lineTotal,
+            $skuRaw,
+            $idx,
+        ]);
+
+        // Apply inventory adjustment for linked products
+        if ($productId) {
+            updateProductInventory($db, $productId, $qty);
+        }
+    }
+}
+
+
+/**
+ * Reverse inventory adjustments for all linked line items of an expense.
+ * Call this BEFORE deleting line items or the expense itself.
+ */
+function reverseLineItemInventory(PDO $db, int $expenseId): void
+{
+    $stmt = $db->prepare("
+        SELECT product_id, quantity
+        FROM expense_line_items
+        WHERE expense_id = ? AND product_id IS NOT NULL
+    ");
+    $stmt->execute([$expenseId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($rows as $row) {
+        updateProductInventory($db, (int)$row['product_id'], -(float)$row['quantity']);
+    }
+}
+
+
+/**
+ * Adjust current_stock on a product (only if track_inventory = 1).
+ * Positive delta = purchase adds stock; negative = reversal.
+ */
+function updateProductInventory(PDO $db, int $productId, float $qtyDelta): void
+{
+    if ($qtyDelta == 0) return;
+
+    $stmt = $db->prepare("
+        UPDATE products
+        SET current_stock = current_stock + ?
+        WHERE id = ? AND track_inventory = 1
+    ");
+    $stmt->execute([$qtyDelta, $productId]);
 }

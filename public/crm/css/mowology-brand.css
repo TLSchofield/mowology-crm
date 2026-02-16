@@ -8947,6 +8947,66 @@ textarea.font-monospace {
   text-align: right;
   white-space: nowrap;
 }
+.mw-line-items-table th {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: #999;
+  border-bottom: 1px solid #dee2e6;
+}
+.mw-li-header th {
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.mw-li-product-badge {
+  font-size: 0.7rem;
+  padding: 0.15em 0.45em;
+}
+.mw-li-link {
+  padding: 0 6px;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+.mw-li-unlink {
+  font-size: 0.85rem;
+  color: #dc3545;
+  text-decoration: none;
+  line-height: 1;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+.mw-li-unlink:hover {
+  color: #a71d2a;
+}
+
+/* Product search popover */
+.mw-product-search-popover {
+  position: absolute;
+  z-index: 1050;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  padding: 8px;
+  min-width: 240px;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+}
+.mw-product-search-results {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 6px;
+}
+.mw-product-search-item {
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+.mw-product-search-item:hover {
+  background: var(--mw-light);
+}
 
 /* ── Receipt Capture — Mobile Responsive ─────────── */
 
