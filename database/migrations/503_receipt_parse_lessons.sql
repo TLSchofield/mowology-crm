@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS receipt_parse_lessons (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    vendor_id INT UNSIGNED NULL,
+    vendor_id INT NULL,
     vendor_name VARCHAR(255) NULL COMMENT 'Vendor name at time of correction (for unmatched vendors)',
 
     -- What field was corrected
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS receipt_parse_lessons (
 -- Built from lessons after enough corrections accumulate
 CREATE TABLE IF NOT EXISTS vendor_parse_profiles (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    vendor_id INT UNSIGNED NOT NULL,
+    vendor_id INT NOT NULL,
 
     -- Learned patterns per field (JSON-like text for MySQL 5.7 compat)
     gst_label VARCHAR(100) NULL COMMENT 'e.g., "GST/HST" or "TAX"',
