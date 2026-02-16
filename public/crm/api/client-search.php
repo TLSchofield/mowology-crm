@@ -97,7 +97,8 @@ switch ($action) {
 
         if ($contactId) {
             $stmt = $db->prepare("
-                SELECT p.id, p.address, p.city, p.property_type, p.status
+                SELECT p.id, p.address, p.city, p.province, p.postal_code,
+                       p.property_type, p.status, p.latitude, p.longitude
                 FROM properties p
                 WHERE p.site_contact_id = ?
                   AND p.status = 'active'
@@ -106,7 +107,8 @@ switch ($action) {
             $stmt->execute([$contactId]);
         } elseif ($companyId) {
             $stmt = $db->prepare("
-                SELECT p.id, p.address, p.city, p.property_type, p.status
+                SELECT p.id, p.address, p.city, p.province, p.postal_code,
+                       p.property_type, p.status, p.latitude, p.longitude
                 FROM properties p
                 INNER JOIN company_properties cp ON p.id = cp.property_id
                 WHERE cp.company_id = ?

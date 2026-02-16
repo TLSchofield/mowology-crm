@@ -885,6 +885,14 @@ a:hover {
   text-align: center;
 }
 
+/* ── Property Location Map (Quote Create/Edit) ───────── */
+.mw-property-map-card { overflow: hidden; }
+.mw-quote-map {
+  width: 100%;
+  height: 220px;
+  background: #e9ecef;
+}
+
 .mw-back-link {
   color: var(--mw-dark);
   text-decoration: none;

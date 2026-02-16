@@ -73,7 +73,7 @@ if ($quote && $quote['property_id']) {
         $prefilledContactId = intval($propContact['site_contact_id']);
         $prefilledContactName = trim($propContact['first_name'] . ' ' . $propContact['last_name']);
         // Load that contact's properties
-        $stmt = $db->prepare("SELECT id, address, city, property_type, status FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
+        $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
         $stmt->execute([$prefilledContactId]);
         $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -81,7 +81,7 @@ if ($quote && $quote['property_id']) {
     // Creating from quote request — pre-fill the contact
     $prefilledContactId = intval($quoteRequest['contact_id']);
     $prefilledContactName = trim(($quoteRequest['first_name'] ?? '') . ' ' . ($quoteRequest['last_name'] ?? ''));
-    $stmt = $db->prepare("SELECT id, address, city, property_type, status FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
+    $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
     $stmt->execute([$prefilledContactId]);
     $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
@@ -249,6 +249,9 @@ $csrfToken = generateCSRFToken();
 
 $pageTitle = $quoteId ? 'Edit Quote' : ($quoteRequestId ? 'Create Quote from Request' : 'Create Quote');
 $activePage = 'quotes';
+
+$apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+$extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '" defer></script>' : '';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -463,6 +466,23 @@ $activePage = 'quotes';
                     </div>
 
                     <div class="right-column">
+                        <!-- Property Location Map -->
+                        <div class="card mw-property-map-card" id="propertyMapCard" style="display: none;">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">Property Location</h5>
+                                <span class="badge" id="geocodeStatusBadge"></span>
+                            </div>
+                            <div class="card-body p-0">
+                                <div id="propertyMap" class="mw-quote-map"></div>
+                                <div id="geocodeActions" class="p-3" style="display: none;">
+                                    <p class="text-muted small mb-2">This property hasn't been geocoded yet.</p>
+                                    <button type="button" class="btn btn-sm btn-outline-primary w-100" id="geocodeBtn" onclick="geocodeSelectedProperty()">
+                                        <i data-feather="crosshair" style="width:14px;height:14px;"></i> Geocode Address
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="card mw-sticky-summary">
                             <div class="card-header">
                                 <h5 class="card-title mb-0">Quote Summary</h5>
@@ -1021,6 +1041,157 @@ $activePage = 'quotes';
         document.getElementById('quoteForm').addEventListener('submit', function() {
             updateFormInput();
         });
+
+        // ── Property Location Map ──────────────────────────────
+        var propertyMap = null;
+        var propertyMarker = null;
+        var geocoder = null;
+        var CSRF_TOKEN = '<?php echo $csrfToken; ?>';
+
+        function showPropertyMap(property) {
+            var mapCard = document.getElementById('propertyMapCard');
+            var mapEl = document.getElementById('propertyMap');
+            var geocodeActions = document.getElementById('geocodeActions');
+            var badge = document.getElementById('geocodeStatusBadge');
+
+            if (!property) {
+                mapCard.style.display = 'none';
+                return;
+            }
+
+            mapCard.style.display = '';
+
+            var lat = parseFloat(property.latitude);
+            var lng = parseFloat(property.longitude);
+            var hasCoords = lat && lng && lat !== 0 && lng !== 0;
+
+            if (hasCoords) {
+                badge.textContent = 'Geocoded';
+                badge.className = 'badge badge-success';
+                geocodeActions.style.display = 'none';
+                mapEl.style.display = 'block';
+
+                var pos = { lat: lat, lng: lng };
+
+                if (!propertyMap) {
+                    propertyMap = new google.maps.Map(mapEl, {
+                        center: pos,
+                        zoom: 17,
+                        mapTypeId: 'hybrid',
+                        mapTypeControl: false,
+                        streetViewControl: false,
+                        fullscreenControl: true,
+                        zoomControl: true
+                    });
+                    propertyMarker = new google.maps.Marker({
+                        position: pos,
+                        map: propertyMap,
+                        title: property.address
+                    });
+                } else {
+                    propertyMap.setCenter(pos);
+                    propertyMap.setZoom(17);
+                    propertyMarker.setPosition(pos);
+                    propertyMarker.setTitle(property.address);
+                }
+
+                // Force map resize after card becomes visible
+                setTimeout(function() {
+                    google.maps.event.trigger(propertyMap, 'resize');
+                    propertyMap.setCenter(pos);
+                }, 100);
+
+            } else {
+                badge.textContent = 'Not Geocoded';
+                badge.className = 'badge badge-warning';
+                geocodeActions.style.display = '';
+                mapEl.style.display = 'none';
+                feather.replace();
+            }
+        }
+
+        function geocodeSelectedProperty() {
+            var propId = propertySelect.value;
+            var prop = loadedProperties.find(function(p) { return p.id == propId; });
+            if (!prop) return;
+
+            if (!geocoder) geocoder = new google.maps.Geocoder();
+
+            var btn = document.getElementById('geocodeBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:14px;height:14px;"></span> Geocoding...';
+
+            var parts = [prop.address, prop.city, prop.province, prop.postal_code, 'Canada'].filter(Boolean);
+            var address = parts.join(', ');
+
+            geocoder.geocode({ address: address }, function(results, status) {
+                if (status === 'OK' && results[0]) {
+                    var loc = results[0].geometry.location;
+                    var lat = loc.lat();
+                    var lng = loc.lng();
+
+                    // Save to DB
+                    fetch('../api/geocode-save.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            property_id: parseInt(propId),
+                            lat: lat,
+                            lng: lng,
+                            csrf_token: CSRF_TOKEN
+                        })
+                    })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            // Update local data so the map shows immediately
+                            prop.latitude = lat;
+                            prop.longitude = lng;
+                            showPropertyMap(prop);
+                        } else {
+                            alert('Failed to save coordinates: ' + (data.error || 'Unknown error'));
+                        }
+                        btn.disabled = false;
+                        btn.innerHTML = '<i data-feather="crosshair" style="width:14px;height:14px;"></i> Geocode Address';
+                        feather.replace();
+                    })
+                    .catch(function(err) {
+                        alert('Error saving: ' + err.message);
+                        btn.disabled = false;
+                        btn.innerHTML = '<i data-feather="crosshair" style="width:14px;height:14px;"></i> Geocode Address';
+                        feather.replace();
+                    });
+                } else {
+                    alert('Geocoding failed for "' + address + '": ' + status);
+                    btn.disabled = false;
+                    btn.innerHTML = '<i data-feather="crosshair" style="width:14px;height:14px;"></i> Geocode Address';
+                    feather.replace();
+                }
+            });
+        }
+
+        // Hook into property selection change to show/hide map
+        var origPropertyChangeHandler = propertySelect.onchange;
+        propertySelect.addEventListener('change', function() {
+            var selected = loadedProperties.find(function(p) { return p.id == this.value; }.bind(this));
+            showPropertyMap(selected || null);
+        });
+
+        // On page load, if a property is already selected, show the map
+        if (propertySelect.value) {
+            var initialProp = loadedProperties.find(function(p) { return p.id == propertySelect.value; });
+            if (initialProp) {
+                // Wait for Google Maps API to load
+                function initMapWhenReady() {
+                    if (typeof google !== 'undefined' && google.maps) {
+                        showPropertyMap(initialProp);
+                    } else {
+                        setTimeout(initMapWhenReady, 200);
+                    }
+                }
+                initMapWhenReady();
+            }
+        }
     </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
