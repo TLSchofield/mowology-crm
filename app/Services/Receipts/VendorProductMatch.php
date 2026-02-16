@@ -314,15 +314,27 @@ function pairMatchesWithAmounts(array $matches, array $lines, array $products): 
             $amount = $candidate['amount'];
 
             // Exact price match is very strong
+            $priceMatched = false;
             foreach ($knownPrices as $knownPrice) {
                 if (abs($amount - $knownPrice) < 0.01) {
                     $score += 100;
+                    $priceMatched = true;
                     break;
                 }
-                // Close to known price (within 10%) — could be price change
-                if ($knownPrice > 0 && abs($amount - $knownPrice) / $knownPrice < 0.10) {
-                    $score += 60;
+                // Close to known price (within 25%) — covers price changes over time
+                if ($knownPrice > 0 && abs($amount - $knownPrice) / $knownPrice < 0.25) {
+                    $score += 50;
+                    $priceMatched = true;
                     break;
+                }
+            }
+
+            // In the general price range for this vendor's products (reasonable amount)
+            if (!$priceMatched && !empty($knownPrices)) {
+                $minPrice = min($knownPrices) * 0.5;
+                $maxPrice = max($knownPrices) * 2.0;
+                if ($amount >= $minPrice && $amount <= $maxPrice) {
+                    $score += 20;
                 }
             }
 
@@ -340,7 +352,7 @@ function pairMatchesWithAmounts(array $matches, array $lines, array $products): 
             }
         }
 
-        if ($bestCandidate !== null && $bestScore >= 20) {
+        if ($bestCandidate !== null && $bestScore >= 15) {
             $match['amount'] = $bestCandidate['formatted'];
             $match['amount_confidence'] = min(95, $bestScore);
 
@@ -376,8 +388,30 @@ function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $produ
         return $parsed;
     }
 
-    // Strategy 1: Look for bare numbers near "TOTAL" label
     $lineCount = count($lines);
+
+    // Strategy 1 (highest priority): Calculate from matched product amounts
+    // Product-derived totals are more reliable than garbled bare numbers for handwritten receipts
+    if (!empty($productMatches)) {
+        $itemTotal = 0;
+        $hasAmount = false;
+        foreach ($productMatches as $pm) {
+            if (isset($pm['amount'])) {
+                $itemTotal += (float)$pm['amount'];
+                $hasAmount = true;
+            }
+        }
+        if ($hasAmount && $itemTotal > 0) {
+            $gst = round($itemTotal * 0.05, 2);
+            $parsed['subtotal'] = number_format($itemTotal, 2, '.', '');
+            $parsed['gst'] = number_format($gst, 2, '.', '');
+            $parsed['total'] = number_format($itemTotal + $gst, 2, '.', '');
+            $parsed['total_source'] = 'calculated_from_products';
+            return $parsed;
+        }
+    }
+
+    // Strategy 2: Look for bare numbers near "TOTAL" label
     for ($i = 0; $i < $lineCount; $i++) {
         $line = trim($lines[$i]);
         if (preg_match('/^TOTAL\s*:?\s*$/i', $line) && stripos($line, 'sub') === false) {
@@ -392,25 +426,7 @@ function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $produ
                         $withDecimal = substr($bare, 0, -2) . '.' . substr($bare, -2);
                         $candidate = (float)$withDecimal;
 
-                        // Validate: does it match sum of product amounts + 5% GST?
-                        if (!empty($productMatches)) {
-                            $itemTotal = 0;
-                            foreach ($productMatches as $pm) {
-                                if (isset($pm['amount'])) {
-                                    $itemTotal += (float)$pm['amount'];
-                                }
-                            }
-                            if ($itemTotal > 0) {
-                                $expectedTotal = $itemTotal * 1.05;
-                                if (abs($candidate - $expectedTotal) < 1.00) {
-                                    $parsed['total'] = number_format($candidate, 2, '.', '');
-                                    $parsed['total_source'] = 'vendor_product_match';
-                                    break 2;
-                                }
-                            }
-                        }
-
-                        // Fallback: if it's a reasonable amount (> $10), use it
+                        // Reasonable amount check
                         if ($candidate >= 10.00 && $candidate <= 5000.00) {
                             $parsed['total'] = number_format($candidate, 2, '.', '');
                             $parsed['total_source'] = 'bare_number_inferred';
@@ -422,7 +438,7 @@ function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $produ
         }
     }
 
-    // Strategy 2: Look for bare number near "GST" label
+    // Strategy 3: Look for bare number near "GST" label
     if ($parsed['gst'] === null) {
         for ($i = 0; $i < $lineCount; $i++) {
             $line = trim($lines[$i]);
@@ -465,26 +481,6 @@ function enhanceAmountsFromBareNumbers(array $parsed, array $lines, array $produ
                     }
                 }
             }
-        }
-    }
-
-    // Strategy 3: If we matched products with amounts but still no total,
-    // calculate total = sum of items * 1.05
-    if ($parsed['total'] === null && !empty($productMatches)) {
-        $itemTotal = 0;
-        $hasAmount = false;
-        foreach ($productMatches as $pm) {
-            if (isset($pm['amount'])) {
-                $itemTotal += (float)$pm['amount'];
-                $hasAmount = true;
-            }
-        }
-        if ($hasAmount && $itemTotal > 0) {
-            $gst = $itemTotal * 0.05;
-            $parsed['subtotal'] = number_format($itemTotal, 2, '.', '');
-            $parsed['gst'] = number_format($gst, 2, '.', '');
-            $parsed['total'] = number_format($itemTotal + $gst, 2, '.', '');
-            $parsed['total_source'] = 'calculated_from_products';
         }
     }
 

@@ -795,8 +795,10 @@ function extractDateFuzzyMonth(string $text): ?string
     }
 
     // Fuzzy match: Levenshtein distance <= 2
+    // Score = distance * 10 - prefix_match_length (lower is better)
+    // This way "Apan" → "apr" (prefix "ap"=2, dist 2, score 18) beats "jan" (prefix ""=0, dist 2, score 20)
     $bestMonth = null;
-    $bestDist = 3; // Max allowed distance
+    $bestScore = PHP_INT_MAX;
 
     foreach ($months as $num => $names) {
         foreach ($names as $name) {
@@ -804,8 +806,19 @@ function extractDateFuzzyMonth(string $text): ?string
             if (abs(strlen($wordLower) - strlen($name)) > 2) continue;
 
             $dist = levenshtein($wordLower, $name);
-            if ($dist < $bestDist) {
-                $bestDist = $dist;
+            if ($dist >= 3) continue; // Max allowed distance
+
+            // Count matching prefix characters
+            $prefixLen = 0;
+            $minLen = min(strlen($wordLower), strlen($name));
+            for ($c = 0; $c < $minLen; $c++) {
+                if ($wordLower[$c] === $name[$c]) $prefixLen++;
+                else break;
+            }
+
+            $score = $dist * 10 - $prefixLen;
+            if ($score < $bestScore) {
+                $bestScore = $score;
                 $bestMonth = $num;
             }
         }
