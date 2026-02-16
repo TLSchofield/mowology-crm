@@ -4330,7 +4330,7 @@ textarea.font-monospace {
   border-left: 3px solid var(--mw-green);
   border-radius: 4px;
   padding: 8px 10px;
-  cursor: grab;
+  cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
@@ -4423,6 +4423,33 @@ textarea.font-monospace {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Crew assignment modal */
+.mw-crew-modal-property {
+  font-size: 15px;
+  font-weight: 600;
+  color: #212529;
+}
+
+.mw-crew-modal-date {
+  font-size: 13px;
+  color: #6c757d;
+  margin-top: 2px;
+}
+
+#crewAssignModal .modal-header {
+  border-bottom: 2px solid var(--mw-green);
+}
+
+#crewAssignModal .btn-primary {
+  background-color: var(--mw-green);
+  border-color: var(--mw-green);
+}
+
+#crewAssignModal .btn-primary:hover {
+  background-color: var(--mw-dark);
+  border-color: var(--mw-dark);
 }
 
 /* ── Responsive ─────────────────────────────────────── */

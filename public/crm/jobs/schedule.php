@@ -397,7 +397,9 @@ if ($apiKey) {
                                        draggable="true"
                                        data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                        data-stop-date="<?php echo htmlspecialchars($stop['stop_date']); ?>"
-                                       data-route-order="<?php echo (int)$stop['route_order']; ?>">
+                                       data-route-order="<?php echo (int)$stop['route_order']; ?>"
+                                       data-crew-id="<?php echo (int)($stop['crew_id'] ?? 0); ?>"
+                                       data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? 'Unknown'); ?>">
 
                                       <?php
                                       // Determine arrival time display
@@ -453,6 +455,42 @@ if ($apiKey) {
                       <span><?php echo htmlspecialchars(getServiceLabelLocal($service)); ?></span>
                   </div>
               <?php endforeach; ?>
+          </div>
+
+          <!-- ═══ Crew Assignment Modal ═══ -->
+          <div class="modal fade" id="crewAssignModal" tabindex="-1" role="dialog" aria-labelledby="crewAssignModalLabel" aria-hidden="true">
+              <div class="modal-dialog modal-dialog-centered" role="document">
+                  <div class="modal-content">
+                      <div class="modal-header">
+                          <h5 class="modal-title" id="crewAssignModalLabel">Assign Crew</h5>
+                          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                              <span aria-hidden="true">&times;</span>
+                          </button>
+                      </div>
+                      <div class="modal-body">
+                          <input type="hidden" id="crewAssignStopId">
+                          <div class="mb-3">
+                              <div class="mw-crew-modal-property" id="crewAssignProperty"></div>
+                              <div class="mw-crew-modal-date" id="crewAssignDate"></div>
+                          </div>
+                          <div class="form-group mb-0">
+                              <label for="crewAssignSelect">Assigned Crew</label>
+                              <select class="form-control" id="crewAssignSelect">
+                                  <option value="">Unassigned</option>
+                                  <?php foreach ($staff as $member): ?>
+                                      <option value="<?php echo (int)$member['id']; ?>">
+                                          <?php echo htmlspecialchars($member['full_name']); ?>
+                                      </option>
+                                  <?php endforeach; ?>
+                              </select>
+                          </div>
+                      </div>
+                      <div class="modal-footer">
+                          <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                          <button type="button" class="btn btn-primary" id="crewAssignSave">Save</button>
+                      </div>
+                  </div>
+              </div>
           </div>
 
           <!-- Drag feedback toast -->
@@ -600,6 +638,107 @@ function applyCrewFilter(crewId) {
     }
     window.location.search = params.toString();
 }
+
+/**
+ * Crew assignment modal — open on stop card click (desktop only)
+ * Uses mousedown/mouseup distance to distinguish clicks from drags.
+ */
+(function() {
+    // Only attach on desktop where the calendar grid is visible
+    if (window.innerWidth <= 991) return;
+
+    var downX = 0, downY = 0;
+
+    document.querySelectorAll('.mw-stop-card').forEach(function(card) {
+        card.addEventListener('mousedown', function(e) {
+            downX = e.clientX;
+            downY = e.clientY;
+        });
+
+        card.addEventListener('mouseup', function(e) {
+            // If mouse moved more than 5px, it was a drag — don't open modal
+            var dx = Math.abs(e.clientX - downX);
+            var dy = Math.abs(e.clientY - downY);
+            if (dx > 5 || dy > 5) return;
+
+            var stopId = card.dataset.stopId;
+            var crewId = card.dataset.crewId || '';
+            var address = card.dataset.propertyAddress || 'Unknown';
+            var stopDate = card.dataset.stopDate || '';
+
+            // Format date for display
+            var dateDisplay = stopDate;
+            if (stopDate) {
+                var d = new Date(stopDate + 'T12:00:00');
+                dateDisplay = d.toLocaleDateString('en-US', {
+                    weekday: 'long', month: 'short', day: 'numeric'
+                });
+            }
+
+            document.getElementById('crewAssignStopId').value = stopId;
+            document.getElementById('crewAssignProperty').textContent = address;
+            document.getElementById('crewAssignDate').textContent = dateDisplay;
+            document.getElementById('crewAssignSelect').value = (crewId && crewId !== '0') ? crewId : '';
+
+            $('#crewAssignModal').modal('show');
+        });
+    });
+
+    // Save button handler
+    document.getElementById('crewAssignSave').addEventListener('click', function() {
+        var btn = this;
+        var stopId = document.getElementById('crewAssignStopId').value;
+        var crewId = document.getElementById('crewAssignSelect').value;
+
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        fetch('/crm/api/assign-crew.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                stop_id: parseInt(stopId, 10),
+                crew_id: crewId ? parseInt(crewId, 10) : null
+            })
+        })
+        .then(function(resp) {
+            if (!resp.ok) {
+                return resp.json().then(function(d) {
+                    throw new Error(d.error || 'Server error');
+                });
+            }
+            return resp.json();
+        })
+        .then(function(data) {
+            $('#crewAssignModal').modal('hide');
+            // Update the card's crew display without full reload
+            var card = document.querySelector('.mw-stop-card[data-stop-id="' + stopId + '"]');
+            if (card) {
+                card.dataset.crewId = crewId || '0';
+                var crewEl = card.querySelector('.mw-stop-crew');
+                if (data.crew_name && data.crew_name !== 'Unassigned') {
+                    if (crewEl) {
+                        crewEl.textContent = data.crew_name;
+                    } else {
+                        var newCrew = document.createElement('div');
+                        newCrew.className = 'mw-stop-crew';
+                        newCrew.textContent = data.crew_name;
+                        card.appendChild(newCrew);
+                    }
+                } else {
+                    if (crewEl) crewEl.remove();
+                }
+            }
+            btn.disabled = false;
+            btn.textContent = 'Save';
+        })
+        .catch(function(err) {
+            alert('Error: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Save';
+        });
+    });
+})();
 
 /**
  * Mobile card expand/collapse for compact cards
