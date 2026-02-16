@@ -110,6 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     // Update tracking overrides
     if ($action === 'update_tracking') {
         $trackingLevel = $_POST['tracking_level_override'] ?? 'inherit';
+        $autoClockIn = $_POST['auto_clock_in_override'] ?? 'inherit';
         $clockIn = $_POST['require_clock_in_override'] ?? 'inherit';
         $gps = $_POST['require_gps_override'] ?? 'inherit';
         $photos = $_POST['require_photos_override'] ?? 'inherit';
@@ -119,6 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $stmt = $db->prepare("
             UPDATE job_plans SET
                 tracking_level_override = ?,
+                auto_clock_in_override = ?,
                 require_clock_in_override = ?,
                 require_gps_override = ?,
                 require_photos_override = ?
@@ -126,6 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         ");
         $stmt->execute([
             ($trackingLevel !== 'inherit' && in_array($trackingLevel, $validLevels)) ? $trackingLevel : null,
+            $autoClockIn !== 'inherit' ? ($autoClockIn === '1' ? 1 : 0) : null,
             $clockIn !== 'inherit' ? ($clockIn === '1' ? 1 : 0) : null,
             $gps !== 'inherit' ? ($gps === '1' ? 1 : 0) : null,
             $photos !== 'inherit' ? ($photos === '1' ? 1 : 0) : null,
@@ -547,6 +550,7 @@ $activePage = 'jobs';
                         <div class="card-body">
                             <?php
                             $flags = [
+                                ['key' => 'auto_clock_in', 'label' => 'Auto Clock-In', 'icon' => 'zap', 'override_key' => 'auto_clock_in'],
                                 ['key' => 'require_clock_in', 'label' => 'Clock-In Required', 'icon' => 'clock', 'override_key' => 'clock_in'],
                                 ['key' => 'require_gps', 'label' => 'GPS Required', 'icon' => 'map-pin', 'override_key' => 'gps'],
                                 ['key' => 'require_photos', 'label' => 'Photos Required', 'icon' => 'camera', 'override_key' => 'photos'],
@@ -588,6 +592,7 @@ $activePage = 'jobs';
                                     // Current raw override values from the plan
                                     $rawOverrides = [
                                         'tracking_level_override' => $plan['tracking_level_override'] ?? null,
+                                        'auto_clock_in_override' => $plan['auto_clock_in_override'] ?? null,
                                         'require_clock_in_override' => $plan['require_clock_in_override'] ?? null,
                                         'require_gps_override' => $plan['require_gps_override'] ?? null,
                                         'require_photos_override' => $plan['require_photos_override'] ?? null,
@@ -601,6 +606,16 @@ $activePage = 'jobs';
                                             <option value="standard" <?php echo $rawOverrides['tracking_level_override'] === 'standard' ? 'selected' : ''; ?>>Standard</option>
                                             <option value="heightened" <?php echo $rawOverrides['tracking_level_override'] === 'heightened' ? 'selected' : ''; ?>>Heightened</option>
                                             <option value="custom" <?php echo $rawOverrides['tracking_level_override'] === 'custom' ? 'selected' : ''; ?>>Custom</option>
+                                        </select>
+                                    </div>
+
+                                    <?php $aciVal = $rawOverrides['auto_clock_in_override']; ?>
+                                    <div class="form-group">
+                                        <label>Auto Clock-In <small class="text-muted">(fixed-price / maintenance)</small></label>
+                                        <select class="form-control form-control-sm" name="auto_clock_in_override">
+                                            <option value="inherit" <?php echo $aciVal === null ? 'selected' : ''; ?>>Inherit from product</option>
+                                            <option value="1" <?php echo $aciVal !== null && (int)$aciVal === 1 ? 'selected' : ''; ?>>Enabled</option>
+                                            <option value="0" <?php echo $aciVal !== null && (int)$aciVal === 0 ? 'selected' : ''; ?>>Disabled</option>
                                         </select>
                                     </div>
 
