@@ -277,7 +277,13 @@ foreach ($mobileStops as $s) {
 
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214k" rel="stylesheet">';
+$apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260215a" rel="stylesheet">';
+if ($apiKey) {
+    $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
+        . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
+        . '&libraries=geometry" defer></script>';
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -540,28 +546,10 @@ $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214k" rel="stylesheet
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                       <span>Today</span>
                   </a>
-                  <?php
-                  // Route button — link to Google Maps with all upcoming stops as waypoints
-                  $routeStops = [];
-                  foreach ($mobileStops as $rs) {
-                      if (($rs['stop_status'] ?? 'scheduled') !== 'completed' && !empty($rs['property_address'])) {
-                          $routeStops[] = $rs['property_address'];
-                      }
-                  }
-                  $routeUrl = '#';
-                  if (!empty($routeStops)) {
-                      $dest = urlencode(array_pop($routeStops));
-                      $waypoints = '';
-                      if (!empty($routeStops)) {
-                          $waypoints = '&waypoints=' . implode('|', array_map('urlencode', $routeStops));
-                      }
-                      $routeUrl = "https://maps.google.com/maps/dir/?api=1&destination={$dest}{$waypoints}&travelmode=driving";
-                  }
-                  ?>
-                  <a href="<?php echo $routeUrl; ?>" target="_blank" rel="noopener" class="mw-mc-bottombar-btn">
+                  <button type="button" class="mw-mc-bottombar-btn" id="mwRouteBtn" onclick="MwRouteMap.toggle()">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
                       <span>Route</span>
-                  </a>
+                  </button>
                   <a href="index.php" class="mw-mc-bottombar-btn">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                       <span>List</span>
@@ -569,6 +557,35 @@ $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260214k" rel="stylesheet
               </div>
 
           </div><!-- /.mw-mc-container -->
+
+          <!-- ═══════════════════════════════════════════════
+               MOBILE: Map View (full-screen overlay, hidden by default)
+               ═══════════════════════════════════════════════ -->
+          <div class="mw-mv" id="mwMapView">
+
+              <!-- Map top bar -->
+              <div class="mw-mv-topbar">
+                  <button type="button" class="mw-mv-back" id="mwMapViewBack" aria-label="Back to schedule">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  </button>
+                  <div class="mw-mv-topbar-title" id="mwMapViewTitle">Route</div>
+                  <button type="button" class="mw-mv-external" id="mwMapViewExternal" title="Open in Google Maps" aria-label="Open in Google Maps">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  </button>
+              </div>
+
+              <!-- Google Map -->
+              <div class="mw-mv-map" id="mwMapViewMap"></div>
+
+              <!-- Swipeable card carousel at bottom -->
+              <div class="mw-mv-card-tray" id="mwMapViewTray">
+                  <div class="mw-mv-card-track" id="mwMapViewTrack">
+                      <!-- Cards are cloned here by JS -->
+                  </div>
+                  <div class="mw-mv-card-dots" id="mwMapViewDots"></div>
+              </div>
+
+          </div><!-- /.mw-mv -->
 
 <script>
 /**
@@ -767,7 +784,32 @@ var MW_SCHEDULE_STATE = {
     autoArrivalEnabled: <?php echo json_encode((bool)(int)getTimeClockSetting('auto_arrival_enabled', '1')); ?>,
     autoArrivalServiceTypes: <?php echo json_encode(array_filter(array_map('trim', explode(',', getTimeClockSetting('auto_arrival_service_types', ''))))); ?>
 };
+
+/**
+ * Route stop data for Map View — non-completed stops with coordinates.
+ */
+var MW_ROUTE_STOPS = <?php
+    $routeStopsJson = [];
+    foreach ($mobileStops as $idx => $rs) {
+        $status = $rs['stop_status'] ?? 'scheduled';
+        if ($status === 'completed' || $status === 'skipped') continue;
+        $routeStopsJson[] = [
+            'stopId'     => (int)$rs['stop_id'],
+            'lat'        => $rs['latitude'] ? (float)$rs['latitude'] : null,
+            'lng'        => $rs['longitude'] ? (float)$rs['longitude'] : null,
+            'address'    => $rs['property_address'] ?? '',
+            'routeOrder' => (int)($rs['route_order'] ?? 999),
+            'contactName'=> $rs['contact_name'] ?? '',
+            'serviceType'=> !empty($rs['visits']) ? ($rs['visits'][0]['service_type'] ?? '') : '',
+            'planTitle'  => !empty($rs['visits']) ? ($rs['visits'][0]['plan_title'] ?? '') : '',
+            'time'       => !empty($rs['estimated_arrival']) ? date('g:i A', strtotime($rs['estimated_arrival'])) : (!empty($rs['visits'][0]['scheduled_time_start']) ? date('g:i A', strtotime($rs['visits'][0]['scheduled_time_start'])) : ''),
+            'duration'   => !empty($rs['visits']) ? (int)($rs['visits'][0]['estimated_duration'] ?? 0) : 0,
+        ];
+    }
+    echo json_encode($routeStopsJson);
+?>;
 </script>
+<script src="../js/schedule-route-map.js?v=20260215a"></script>
 <script src="../js/schedule-pill-workflow.js?v=20260214h"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
