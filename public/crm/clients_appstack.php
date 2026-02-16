@@ -326,6 +326,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         }
         exit;
 
+    } elseif ($requestAction === 'add_property_to_company') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $companyId = intval($jsonData['company_id'] ?? 0);
+        $address = trim($jsonData['address'] ?? '');
+        $city = trim($jsonData['city'] ?? 'Vancouver');
+        $postalCode = trim($jsonData['postal_code'] ?? '');
+        $propertyName = trim($jsonData['property_name'] ?? '');
+
+        if (!$companyId || empty($address)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Company ID and address are required']);
+            exit;
+        }
+
+        try {
+            // Get the company's primary contact to link the property through
+            $compStmt = $db->prepare("SELECT primary_contact_id, billing_contact_id, company_name FROM companies WHERE id = ?");
+            $compStmt->execute([$companyId]);
+            $comp = $compStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$comp) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'error' => 'Company not found']);
+                exit;
+            }
+
+            $contactId = (int)($comp['primary_contact_id'] ?? 0) ?: (int)($comp['billing_contact_id'] ?? 0);
+            if (!$contactId) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Company has no linked contact. Add a contact first.']);
+                exit;
+            }
+
+            // Check if property with this address already exists
+            $checkStmt = $db->prepare("SELECT id, site_contact_id FROM properties WHERE address = ? LIMIT 1");
+            $checkStmt->execute([$address]);
+            $existingProp = $checkStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($existingProp) {
+                if (empty($existingProp['site_contact_id'])) {
+                    $db->prepare("UPDATE properties SET site_contact_id = ? WHERE id = ?")
+                       ->execute([$contactId, $existingProp['id']]);
+                }
+                echo json_encode(['success' => true, 'property_id' => (int)$existingProp['id'], 'linked_existing' => true]);
+            } else {
+                if (empty($propertyName)) {
+                    $propertyName = trim($comp['company_name']) . ' Property';
+                }
+
+                $stmt = $db->prepare("
+                    INSERT INTO properties (property_name, address, city, province, postal_code, site_contact_id, status)
+                    VALUES (?, ?, ?, 'BC', ?, ?, 'active')
+                ");
+                $stmt->execute([$propertyName, $address, $city, $postalCode, $contactId]);
+                $newPropId = (int)$db->lastInsertId();
+                echo json_encode(['success' => true, 'property_id' => $newPropId, 'linked_existing' => false]);
+            }
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Failed to add property']);
+        }
+        exit;
+
     } elseif ($requestAction === 'link_company_to_contact') {
         if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
             http_response_code(400);
@@ -866,6 +933,12 @@ if ($action === 'view_company' && $clientId) {
             ");
             $stmt->execute(array_values($contactIds));
             $companyProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        // Load Google Maps API for address autocomplete on add property modal
+        $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+        if ($apiKey && empty($extraHead)) {
+            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" defer></script>';
         }
     }
 }
@@ -2430,17 +2503,27 @@ $unconvertedRequests = $db->query("
 
                 <!-- Properties Card -->
                 <div class="card mb-3">
-                  <div class="card-header">
+                  <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0">
                       <i data-feather="map-pin"></i> Properties
                       <span class="badge badge-primary ml-1"><?php echo count($companyProperties); ?></span>
                     </h5>
+                    <?php if (!empty($companyContacts)): ?>
+                      <button type="button" class="btn btn-sm btn-success" data-toggle="modal" data-target="#addCompanyPropertyModal">
+                        <i data-feather="plus"></i> Add Property
+                      </button>
+                    <?php endif; ?>
                   </div>
                   <div class="card-body">
                     <?php if (empty($companyProperties)): ?>
                       <div class="text-center text-muted py-3">
                         <i data-feather="map" style="width: 32px; height: 32px;"></i>
-                        <p class="mt-2 mb-0">No properties linked via contacts.</p>
+                        <p class="mt-2 mb-0">No properties linked yet.</p>
+                        <?php if (empty($companyContacts)): ?>
+                          <small>Add a contact to this company first, then you can add properties.</small>
+                        <?php else: ?>
+                          <small>Add a property address to enable scheduling and quoting.</small>
+                        <?php endif; ?>
                       </div>
                     <?php else: ?>
                       <?php foreach ($companyProperties as $prop): ?>
@@ -2543,6 +2626,155 @@ $unconvertedRequests = $db->query("
 
               </div><!-- end right col -->
             </div><!-- end row -->
+
+            <!-- Add Property Modal (Company View) -->
+            <div class="modal fade" id="addCompanyPropertyModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                  <div class="modal-header" style="background: var(--mw-green); color: #fff;">
+                    <h5 class="modal-title"><i data-feather="plus-circle" style="width: 18px; height: 18px;"></i> Add Property</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                      <span aria-hidden="true">&times;</span>
+                    </button>
+                  </div>
+                  <form onsubmit="addPropertyToCompany(event)">
+                    <div class="modal-body">
+                      <div class="form-group">
+                        <label>Street Address <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="compPropAddress" required placeholder="Start typing an address..." autocomplete="off">
+                      </div>
+                      <div class="row">
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>City</label>
+                            <input type="text" class="form-control" id="compPropCity" value="Vancouver">
+                          </div>
+                        </div>
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>Postal Code</label>
+                            <input type="text" class="form-control" id="compPropPostalCode" placeholder="V5K 1A1">
+                          </div>
+                        </div>
+                      </div>
+                      <div class="form-group mb-0">
+                        <label>Property Name <small class="text-muted">(optional, auto-generated if blank)</small></label>
+                        <input type="text" class="form-control" id="compPropName" placeholder="e.g. Main Office">
+                      </div>
+                    </div>
+                    <div class="modal-footer">
+                      <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                      <button type="submit" class="btn btn-success" id="addCompPropBtn">
+                        <i data-feather="plus"></i> Add Property
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <script>
+              var COMPANY_ID = <?php echo (int)$viewCompany['id']; ?>;
+              var CSRF_TOKEN_CO = '<?php echo csrf_token(); ?>';
+
+              // Google Places autocomplete for company property modal
+              document.addEventListener('DOMContentLoaded', function() {
+                var addrInput = document.getElementById('compPropAddress');
+                if (addrInput && typeof google !== 'undefined' && google.maps && google.maps.places) {
+                  var autocomplete = new google.maps.places.Autocomplete(addrInput, {
+                    types: ['address'],
+                    componentRestrictions: { country: 'ca' }
+                  });
+                  autocomplete.addListener('place_changed', function() {
+                    var place = autocomplete.getPlace();
+                    if (place && place.address_components) {
+                      var city = '', postal = '';
+                      place.address_components.forEach(function(c) {
+                        if (c.types.indexOf('locality') !== -1) city = c.long_name;
+                        if (c.types.indexOf('postal_code') !== -1) postal = c.long_name;
+                      });
+                      if (city) document.getElementById('compPropCity').value = city;
+                      if (postal) document.getElementById('compPropPostalCode').value = postal;
+                    }
+                  });
+                  // Prevent form submit on Enter when selecting from autocomplete dropdown
+                  addrInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                      var pacContainer = document.querySelector('.pac-container');
+                      if (pacContainer && pacContainer.style.display !== 'none') {
+                        e.preventDefault();
+                      }
+                    }
+                  });
+                }
+              });
+
+              // Submit handler
+              window.addPropertyToCompany = function(event) {
+                event.preventDefault();
+                var address = document.getElementById('compPropAddress').value.trim();
+                if (!address) { alert('Please enter a street address'); return; }
+
+                var btn = document.getElementById('addCompPropBtn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Adding...';
+
+                fetch('clients_appstack.php?action=add_property_to_company', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    company_id: COMPANY_ID,
+                    address: address,
+                    city: document.getElementById('compPropCity').value.trim() || 'Vancouver',
+                    postal_code: document.getElementById('compPropPostalCode').value.trim(),
+                    property_name: document.getElementById('compPropName').value.trim(),
+                    csrf_token: CSRF_TOKEN_CO
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    // Geocode then reload
+                    if (typeof google !== 'undefined' && google.maps) {
+                      var geocoder = new google.maps.Geocoder();
+                      var addr = document.getElementById('compPropAddress').value.trim();
+                      var city = document.getElementById('compPropCity').value.trim();
+                      var fullAddr = [addr, city, 'BC', 'Canada'].filter(Boolean).join(', ');
+                      geocoder.geocode({ address: fullAddr }, function(results, status) {
+                        if (status === 'OK' && results[0]) {
+                          var loc = results[0].geometry.location;
+                          fetch('clients_appstack.php?action=save_property_coords', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              property_id: data.property_id,
+                              lat: loc.lat(),
+                              lng: loc.lng(),
+                              csrf_token: CSRF_TOKEN_CO
+                            })
+                          }).finally(function() { location.reload(); });
+                        } else {
+                          location.reload();
+                        }
+                      });
+                    } else {
+                      location.reload();
+                    }
+                  } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    btn.disabled = false;
+                    btn.innerHTML = '<i data-feather="plus"></i> Add Property';
+                    feather.replace();
+                  }
+                })
+                .catch(function(err) {
+                  alert('Error: ' + err.message);
+                  btn.disabled = false;
+                  btn.innerHTML = '<i data-feather="plus"></i> Add Property';
+                  feather.replace();
+                });
+              };
+            </script>
 
           <?php else: ?>
             <!-- Search Bar -->
