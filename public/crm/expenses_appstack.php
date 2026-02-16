@@ -70,6 +70,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             <div class="col-md-7">
                 <input type="hidden" id="intakeMediaId">
                 <input type="hidden" id="intakeOcrText">
+                <input type="hidden" id="intakeOcrParsed">
 
                 <div class="row g-2">
                     <div class="col-6">
@@ -921,6 +922,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Store media ID and OCR text
         document.getElementById('intakeMediaId').value = data.media_id;
         document.getElementById('intakeOcrText').value = data.ocr_text || '';
+        document.getElementById('intakeOcrParsed').value = data.parsed ? JSON.stringify(data.parsed) : '';
 
         // OCR status badge
         var statusEl = document.getElementById('ocrStatusBadge');
@@ -1077,6 +1079,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             // Store media/ocr refs for mobile save
             mobileReview.dataset.mediaId = data.media_id || '';
             mobileReview.dataset.ocrText = data.ocr_text || '';
+            mobileReview.dataset.ocrParsed = data.parsed ? JSON.stringify(data.parsed) : '';
 
             // Scroll to top of review
             var scrollArea = document.getElementById('mobileExpenseScrollArea');
@@ -1211,6 +1214,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Clear review form
         document.getElementById('intakeMediaId').value = '';
         document.getElementById('intakeOcrText').value = '';
+        document.getElementById('intakeOcrParsed').value = '';
         document.getElementById('rvVendorSearch').value = '';
         document.getElementById('rvVendorId').value = '';
         document.getElementById('rvDate').value = '';
@@ -1262,6 +1266,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             receipt_lat: currentGpsLat,
             receipt_lng: currentGpsLng,
             raw_ocr_json: document.getElementById('intakeOcrText').value || null,
+            ocr_parsed: document.getElementById('intakeOcrParsed').value || null,
             status: 'draft',
         };
 
@@ -1807,6 +1812,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             review.style.display = 'block';
             review.dataset.mediaId = '';
             review.dataset.ocrText = '';
+            review.dataset.ocrParsed = '';
         }
         // Hide image section for manual entry
         var imgWrap = document.getElementById('mobileReceiptWrap');
@@ -1914,6 +1920,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             receipt_lat: currentGpsLat,
             receipt_lng: currentGpsLng,
             raw_ocr_json: review ? (review.dataset.ocrText || null) : null,
+            ocr_parsed: review ? (review.dataset.ocrParsed || null) : null,
             status: 'draft',
         };
 

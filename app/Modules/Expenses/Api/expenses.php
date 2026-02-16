@@ -232,7 +232,7 @@ function handleCreate(PDO $db, ?array $input, array $user): void
 
     $stmt = $db->prepare("
         INSERT INTO expenses
-            (expense_date, vendor_id, vendor_name_raw, description, amount, tax_amount, total,
+            (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, total,
              accounting_category, gbp_category, payment_method, receipt_media_id,
              receipt_lat, receipt_lng, match_confidence, raw_ocr_json,
              job_id, property_id, contact_id, notes, status, created_by)
@@ -244,7 +244,7 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         $input['vendor_name_raw'] ?? null,
         $input['description'] ?? null,
         (float)($input['amount'] ?? 0),
-        (float)($input['tax_amount'] ?? 0),
+        (float)($input['gst_amount'] ?? 0),
         $total,
         $input['accounting_category'] ?? null,
         $input['gbp_category'] ?? null,
@@ -264,6 +264,26 @@ function handleCreate(PDO $db, ?array $input, array $user): void
 
     $expenseId = (int)$db->lastInsertId();
 
+    // Record OCR corrections for learning (only if receipt was OCR'd)
+    if (!empty($input['raw_ocr_json']) && !empty($input['ocr_parsed'])) {
+        try {
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+            $ocrParsed = is_string($input['ocr_parsed']) ? json_decode($input['ocr_parsed'], true) : $input['ocr_parsed'];
+            if (is_array($ocrParsed)) {
+                recordCorrections(
+                    !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
+                    $input['vendor_name_raw'] ?? null,
+                    $ocrParsed,
+                    $input,
+                    $input['raw_ocr_json']
+                );
+            }
+        } catch (Throwable $e) {
+            // Learning is non-critical — log and continue
+            error_log('Receipt learning error: ' . $e->getMessage());
+        }
+    }
+
     // Auto-send if enabled
     if (!empty($input['auto_send'])) {
         require_once APP_ROOT . '/Services/Receipts/ReceiptService.php';
@@ -273,6 +293,8 @@ function handleCreate(PDO $db, ?array $input, array $user): void
                 'expense_id'         => $expenseId,
                 'media_id'           => (int)$input['receipt_media_id'],
                 'vendor'             => $input['vendor_name_raw'] ?? 'Unknown',
+                'subtotal'           => (string)($input['amount'] ?? '0.00'),
+                'gst_amount'         => (string)($input['gst_amount'] ?? '0.00'),
                 'total'              => (string)$total,
                 'date'               => $expenseDate,
                 'job_id'             => $input['job_id'] ?? null,
@@ -312,7 +334,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
             vendor_name_raw = ?,
             description = ?,
             amount = ?,
-            tax_amount = ?,
+            gst_amount = ?,
             total = ?,
             accounting_category = ?,
             gbp_category = ?,
@@ -332,7 +354,7 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         $input['vendor_name_raw'] ?? null,
         $input['description'] ?? null,
         (float)($input['amount'] ?? 0),
-        (float)($input['tax_amount'] ?? 0),
+        (float)($input['gst_amount'] ?? 0),
         (float)($input['total'] ?? 0),
         $input['accounting_category'] ?? null,
         $input['gbp_category'] ?? null,

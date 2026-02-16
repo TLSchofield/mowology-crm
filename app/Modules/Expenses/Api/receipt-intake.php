@@ -39,6 +39,7 @@ try {
     require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
     require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
     require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+    require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -157,6 +158,11 @@ try {
         $rawResponse = $ocrResult['raw_response'] ?? null;
         $parsed = parseReceiptText($ocrText, $rawResponse);
         $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId);
+
+        // Apply learned vendor-specific patterns to enhance parsed results
+        if (!empty($suggestions['vendor_id'])) {
+            $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
+        }
     }
 
     // Return everything to the client
