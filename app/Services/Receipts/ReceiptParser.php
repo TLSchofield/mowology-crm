@@ -690,6 +690,12 @@ function extractDate(string $text): ?string
         }
     }
 
+    // Fuzzy month name match for handwritten receipts (e.g., "Apan 21/25" → April 21/25)
+    $fuzzyDate = extractDateFuzzyMonth($text);
+    if ($fuzzyDate !== null) {
+        return $fuzzyDate;
+    }
+
     return null;
 }
 
@@ -734,4 +740,80 @@ function extractPaymentInfo(string $text): array
     }
 
     return $result;
+}
+
+
+/**
+ * Fuzzy month name extraction for handwritten dates.
+ *
+ * Handwritten dates often OCR with garbled month names:
+ *   "Apan 21/25" → April 21/25
+ *   "Jne 15/25"  → June 15/25
+ *   "Fab 3/26"   → Feb 3/26
+ *
+ * Uses Levenshtein distance against known month names.
+ *
+ * @param string $text Raw OCR text
+ * @return string|null Date in YYYY-MM-DD format, or null
+ */
+function extractDateFuzzyMonth(string $text): ?string
+{
+    $months = [
+        1  => ['january', 'jan'],
+        2  => ['february', 'feb'],
+        3  => ['march', 'mar'],
+        4  => ['april', 'apr'],
+        5  => ['may'],
+        6  => ['june', 'jun'],
+        7  => ['july', 'jul'],
+        8  => ['august', 'aug'],
+        9  => ['september', 'sep', 'sept'],
+        10 => ['october', 'oct'],
+        11 => ['november', 'nov'],
+        12 => ['december', 'dec'],
+    ];
+
+    // Look for pattern: "word DD/YY" or "word DD, YY" or "word DD/YYYY"
+    if (!preg_match('/([A-Za-z]{3,9})\s+(\d{1,2})\s*[\/,\-]\s*(\d{2,4})/i', $text, $m)) {
+        return null;
+    }
+
+    $wordLower = strtolower($m[1]);
+    $day = (int)$m[2];
+    $year = (int)$m[3];
+    if ($year < 100) $year += 2000;
+
+    // Try exact match first
+    foreach ($months as $num => $names) {
+        foreach ($names as $name) {
+            if ($wordLower === $name) {
+                if ($day >= 1 && $day <= 31 && checkdate($num, $day, $year)) {
+                    return sprintf('%04d-%02d-%02d', $year, $num, $day);
+                }
+            }
+        }
+    }
+
+    // Fuzzy match: Levenshtein distance <= 2
+    $bestMonth = null;
+    $bestDist = 3; // Max allowed distance
+
+    foreach ($months as $num => $names) {
+        foreach ($names as $name) {
+            // Only compare against names of similar length
+            if (abs(strlen($wordLower) - strlen($name)) > 2) continue;
+
+            $dist = levenshtein($wordLower, $name);
+            if ($dist < $bestDist) {
+                $bestDist = $dist;
+                $bestMonth = $num;
+            }
+        }
+    }
+
+    if ($bestMonth !== null && $day >= 1 && $day <= 31 && checkdate($bestMonth, $day, $year)) {
+        return sprintf('%04d-%02d-%02d', $year, $bestMonth, $day);
+    }
+
+    return null;
 }

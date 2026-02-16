@@ -40,6 +40,7 @@ try {
     require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
     require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
     require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+    require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -162,6 +163,9 @@ try {
         // Apply learned vendor-specific patterns to enhance parsed results
         if (!empty($suggestions['vendor_id'])) {
             $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
+
+            // Match OCR text against vendor's known product catalog
+            $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
         }
     }
 
