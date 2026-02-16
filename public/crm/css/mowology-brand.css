@@ -8425,6 +8425,73 @@ textarea.font-monospace {
   box-shadow: 0 0 4px rgba(220, 53, 69, 0.4);
 }
 
+/* Duplicate receipt warning */
+.mw-duplicate-warning {
+  background: #fff9e6;
+  border: 1px solid #ffc107;
+  border-left: 4px solid #ffc107;
+  border-radius: 6px;
+  padding: 0;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+.mw-duplicate-warning-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(255, 193, 7, 0.12);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #856404;
+}
+.mw-duplicate-warning-header span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mw-duplicate-warning-dismiss {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  line-height: 1;
+  color: #856404;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.6;
+}
+.mw-duplicate-warning-dismiss:hover {
+  opacity: 1;
+}
+.mw-duplicate-warning-body {
+  padding: 8px 12px;
+}
+.mw-duplicate-warning-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.8rem;
+}
+.mw-duplicate-warning-item + .mw-duplicate-warning-item {
+  border-top: 1px solid rgba(255, 193, 7, 0.25);
+  padding-top: 8px;
+}
+.mw-duplicate-warning-detail {
+  color: #5a4e00;
+}
+.mw-duplicate-warning-detail .badge {
+  font-size: 0.65rem;
+  vertical-align: middle;
+}
+.mw-duplicate-warning-view {
+  white-space: nowrap;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+}
+
 /* Receipt lightbox overlay */
 .mw-receipt-lightbox {
   position: fixed;

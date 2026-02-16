@@ -77,6 +77,10 @@ try {
             handleStats($db);
             break;
 
+        case 'check_duplicates':
+            handleCheckDuplicates($db);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -198,6 +202,14 @@ function handleGet(PDO $db): void
     ");
     $logStmt->execute([$id]);
     $expense['send_history'] = $logStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Parse line items from raw OCR text if available
+    $expense['parsed_line_items'] = [];
+    if (!empty($expense['raw_ocr_json'])) {
+        require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+        $parsed = parseReceiptText($expense['raw_ocr_json']);
+        $expense['parsed_line_items'] = $parsed['line_items'] ?? [];
+    }
 
     echo json_encode(['success' => true, 'expense' => $expense]);
 }
@@ -403,4 +415,70 @@ function handleStats(PDO $db): void
     $stats['categories'] = $catStmt->fetchAll(PDO::FETCH_ASSOC);
 
     echo json_encode(['success' => true, 'stats' => $stats]);
+}
+
+
+function handleCheckDuplicates(PDO $db): void
+{
+    // Accept both GET and POST (GET for quick checks from frontend)
+    $vendorName = $_GET['vendor_name'] ?? null;
+    $vendorId   = !empty($_GET['vendor_id']) ? (int)$_GET['vendor_id'] : null;
+    $total      = isset($_GET['total']) ? (float)$_GET['total'] : null;
+    $date       = $_GET['expense_date'] ?? null;
+    $excludeId  = !empty($_GET['exclude_id']) ? (int)$_GET['exclude_id'] : null;
+
+    if ($total === null || $total <= 0 || empty($date)) {
+        echo json_encode(['success' => true, 'has_duplicates' => false, 'duplicates' => []]);
+        return;
+    }
+
+    // Build query: match total exactly, date within +/- 3 days
+    $where = ['ABS(e.total - ?) < 0.01', 'e.expense_date BETWEEN DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY)'];
+    $params = [$total, $date, $date];
+
+    // Exclude self (for edit mode)
+    if ($excludeId) {
+        $where[] = 'e.id != ?';
+        $params[] = $excludeId;
+    }
+
+    // Vendor matching (optional but strengthens signal)
+    $vendorClause = [];
+    if ($vendorId) {
+        $vendorClause[] = 'e.vendor_id = ?';
+        $params[] = $vendorId;
+    }
+    if ($vendorName && strlen(trim($vendorName)) >= 2) {
+        $vendorClause[] = 'e.vendor_name_raw LIKE ?';
+        $params[] = '%' . trim($vendorName) . '%';
+    }
+
+    // If we have vendor info, require vendor OR name match alongside total+date
+    // If no vendor info, just match on total+date (weaker but still useful)
+    if (!empty($vendorClause)) {
+        $where[] = '(' . implode(' OR ', $vendorClause) . ')';
+    }
+
+    $whereClause = implode(' AND ', $where);
+
+    $stmt = $db->prepare("
+        SELECT e.id, e.expense_date, e.total, e.status,
+               e.vendor_name_raw,
+               v.name AS vendor_name,
+               ma.file_path AS receipt_path
+        FROM expenses e
+        LEFT JOIN vendors v ON v.id = e.vendor_id
+        LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
+        WHERE {$whereClause}
+        ORDER BY e.expense_date DESC
+        LIMIT 5
+    ");
+    $stmt->execute($params);
+    $duplicates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode([
+        'success'        => true,
+        'has_duplicates'  => count($duplicates) > 0,
+        'duplicates'      => $duplicates,
+    ]);
 }

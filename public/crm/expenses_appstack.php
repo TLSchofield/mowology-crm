@@ -151,6 +151,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                 </div>
 
+                <!-- Duplicate Warning (hidden until detected) -->
+                <div class="mw-duplicate-warning" id="rvDuplicateWarning" style="display:none;">
+                    <div class="mw-duplicate-warning-header">
+                        <span><i data-feather="alert-triangle" style="width:16px;height:16px;"></i> Possible Duplicate</span>
+                        <button type="button" class="mw-duplicate-warning-dismiss" onclick="dismissDuplicateWarning('rv')" title="Dismiss">&times;</button>
+                    </div>
+                    <div class="mw-duplicate-warning-body" id="rvDuplicateList"></div>
+                </div>
+
                 <div class="mt-3 d-flex gap-2">
                     <button type="button" class="btn btn-primary flex-grow-1" onclick="saveFromReview()">
                         <i data-feather="save" style="width:16px;height:16px;"></i> Save Expense
@@ -1034,6 +1043,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var scrollArea = document.getElementById('mobileExpenseScrollArea');
             if (scrollArea) scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
         }
+
+        // ── Check for duplicate receipts at upload time ──
+        var dupTotal = p.total ? parseFloat(p.total) : null;
+        var dupDate  = p.date || new Date().toISOString().slice(0, 10);
+        var dupVendorName = s.vendor_name || p.vendor_hint || null;
+        var dupVendorId   = s.vendor_id || null;
+        if (dupTotal && dupTotal > 0) {
+            checkDuplicates(dupVendorName, dupVendorId, dupTotal, dupDate, null, 'rv');
+        }
     }
 
     function setConfidence(dotId, confidence) {
@@ -1049,6 +1067,95 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         } else if (confidence > 0) {
             dot.classList.add('mw-conf-low');
             dot.title = 'Low confidence (' + confidence + '%)';
+        }
+    }
+
+    // ── Duplicate Detection ─────────────────────────────────────
+    // Returns a promise that resolves to { has_duplicates, duplicates }
+    async function checkDuplicates(vendorName, vendorId, total, date, excludeId, prefix) {
+        try {
+            var params = new URLSearchParams({ action: 'check_duplicates' });
+            if (vendorName) params.set('vendor_name', vendorName);
+            if (vendorId) params.set('vendor_id', vendorId);
+            if (total) params.set('total', total);
+            if (date) params.set('expense_date', date);
+            if (excludeId) params.set('exclude_id', excludeId);
+
+            var r = await fetch('/crm/api/expenses.php?' + params);
+            var d = await r.json();
+            if (d.success && d.has_duplicates) {
+                renderDuplicateWarning(d.duplicates, prefix);
+                return d;
+            } else {
+                hideDuplicateWarning(prefix);
+                return { has_duplicates: false, duplicates: [] };
+            }
+        } catch(e) {
+            console.error('checkDuplicates', e);
+            return { has_duplicates: false, duplicates: [] };
+        }
+    }
+
+    function renderDuplicateWarning(duplicates, prefix) {
+        var warningEl = document.getElementById(prefix + 'DuplicateWarning');
+        var listEl = document.getElementById(prefix + 'DuplicateList');
+        if (!warningEl || !listEl) return;
+
+        listEl.innerHTML = duplicates.map(function(d) {
+            var vendorDisplay = d.vendor_name || d.vendor_name_raw || 'Unknown vendor';
+            return '<div class="mw-duplicate-warning-item">' +
+                '<span class="mw-duplicate-warning-detail">' +
+                    '<strong>' + esc(vendorDisplay) + '</strong> — $' + parseFloat(d.total).toFixed(2) +
+                    ' on ' + d.expense_date +
+                    ' <span class="badge bg-' + (d.status === 'forwarded' ? 'success' : d.status === 'approved' ? 'primary' : 'secondary') + '">' + d.status + '</span>' +
+                '</span>' +
+                '<button type="button" class="btn btn-sm btn-outline-primary mw-duplicate-warning-view" onclick="editExpense(' + d.id + ')" title="View this expense">' +
+                    '<i data-feather="external-link" style="width:12px;height:12px;"></i> View' +
+                '</button>' +
+            '</div>';
+        }).join('');
+
+        warningEl.style.display = 'block';
+        if (window.feather) feather.replace();
+    }
+
+    function hideDuplicateWarning(prefix) {
+        var warningEl = document.getElementById(prefix + 'DuplicateWarning');
+        if (warningEl) warningEl.style.display = 'none';
+    }
+
+    window.dismissDuplicateWarning = function(prefix) {
+        hideDuplicateWarning(prefix);
+    };
+
+    // Prompt-based duplicate check for save time — returns true if OK to proceed
+    async function confirmDuplicateCheck(vendorName, vendorId, total, date, excludeId) {
+        try {
+            var params = new URLSearchParams({ action: 'check_duplicates' });
+            if (vendorName) params.set('vendor_name', vendorName);
+            if (vendorId) params.set('vendor_id', vendorId);
+            if (total) params.set('total', total);
+            if (date) params.set('expense_date', date);
+            if (excludeId) params.set('exclude_id', excludeId);
+
+            var r = await fetch('/crm/api/expenses.php?' + params);
+            var d = await r.json();
+
+            if (d.success && d.has_duplicates && d.duplicates.length > 0) {
+                var dup = d.duplicates[0];
+                var vendorDisplay = dup.vendor_name || dup.vendor_name_raw || 'Unknown';
+                var msg = 'Possible duplicate detected!\n\n' +
+                    'Existing expense: ' + vendorDisplay + ' — $' + parseFloat(dup.total).toFixed(2) + ' on ' + dup.expense_date + ' (' + dup.status + ')';
+                if (d.duplicates.length > 1) {
+                    msg += '\n+ ' + (d.duplicates.length - 1) + ' more similar expense(s)';
+                }
+                msg += '\n\nSave anyway?';
+                return confirm(msg);
+            }
+            return true; // No duplicates, proceed
+        } catch(e) {
+            console.error('confirmDuplicateCheck', e);
+            return true; // On error, allow save
         }
     }
 
@@ -1087,6 +1194,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Clear line items
         var rvLiSection = document.getElementById('rvLineItemsSection');
         if (rvLiSection) rvLiSection.style.display = 'none';
+
+        // Clear duplicate warning
+        hideDuplicateWarning('rv');
     };
 
     // ── Save from Review Panel ────────────────────────────────────
@@ -1120,6 +1230,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             alert('Please enter a total amount');
             return;
         }
+
+        // Duplicate check at save time
+        var okToSave = await confirmDuplicateCheck(
+            data.vendor_name_raw, data.vendor_id, data.total, data.expense_date, null
+        );
+        if (!okToSave) return;
 
         try {
             var r = await fetch('/crm/api/expenses.php', {
@@ -1766,6 +1882,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             mobileToast('Please enter a total amount', true);
             return;
         }
+
+        // Duplicate check at save time
+        var okToSave = await confirmDuplicateCheck(
+            data.vendor_name_raw, data.vendor_id, data.total, data.expense_date, null
+        );
+        if (!okToSave) return;
 
         // Disable buttons and show loading
         if (activeBtn) { activeBtn.disabled = true; activeBtn.classList.add('mw-mc-expense-btn-loading'); }
