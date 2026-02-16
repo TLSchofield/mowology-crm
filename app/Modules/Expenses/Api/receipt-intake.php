@@ -150,11 +150,12 @@ try {
     $ocrAvailable = $ocrResult['success'];
     $ocrText = $ocrResult['text'] ?? '';
 
-    // Parse extracted text
+    // Parse extracted text (pass raw Vision response for position-aware line items)
     $parsed = [];
     $suggestions = [];
     if ($ocrAvailable && !empty($ocrText)) {
-        $parsed = parseReceiptText($ocrText);
+        $rawResponse = $ocrResult['raw_response'] ?? null;
+        $parsed = parseReceiptText($ocrText, $rawResponse);
         $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId);
     }
 

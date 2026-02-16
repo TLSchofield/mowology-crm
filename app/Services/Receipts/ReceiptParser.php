@@ -25,10 +25,11 @@ if (!defined('APP_ROOT')) {
 /**
  * Parse raw OCR text and extract structured receipt fields.
  *
- * @param string $ocrText Raw text from OCR
+ * @param string     $ocrText     Raw text from OCR
+ * @param array|null $rawResponse Full Vision API response (for position-aware line items)
  * @return array Parsed fields with values (null if not found)
  */
-function parseReceiptText(string $ocrText): array
+function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
 {
     $result = [
         'total'          => null,
@@ -66,8 +67,16 @@ function parseReceiptText(string $ocrText): array
     $result['card_last4']     = $paymentInfo['card_last4'];
     $result['payment_method'] = $paymentInfo['payment_method'];
 
-    // Line items
-    $result['line_items'] = extractLineItems($lines);
+    // Line items — prefer position-aware extraction if Vision response available
+    $positionLines = null;
+    if ($rawResponse !== null) {
+        $positionLines = reconstructLinesFromVisionResponse($rawResponse);
+    }
+    if (!empty($positionLines)) {
+        $result['line_items'] = extractLineItems($positionLines);
+    } else {
+        $result['line_items'] = extractLineItems($lines);
+    }
 
     // If we found subtotal and GST but no total, calculate it
     if ($result['total'] === null && $result['subtotal'] !== null && $result['gst'] !== null) {
@@ -84,6 +93,104 @@ function parseReceiptText(string $ocrText): array
         $total = (float)$result['total'];
         $result['gst'] = number_format($total / 1.05 * 0.05, 2, '.', '');
         $result['gst_estimated'] = true;
+    }
+
+    return $result;
+}
+
+
+/**
+ * Reconstruct visual lines from Vision API bounding box data.
+ *
+ * The Vision API DOCUMENT_TEXT_DETECTION returns words with x/y coordinates.
+ * This function groups words that share the same vertical position into lines,
+ * then sorts words left-to-right within each line. This preserves the physical
+ * receipt layout where item names and prices are on the same horizontal row.
+ *
+ * @param array $rawResponse Full Vision API response
+ * @return array Array of line strings (sorted top-to-bottom)
+ */
+function reconstructLinesFromVisionResponse(array $rawResponse): array
+{
+    $textAnnotations = $rawResponse['responses'][0]['textAnnotations'] ?? [];
+
+    // First element is the full text block — skip it; elements 1+ are individual words
+    if (count($textAnnotations) < 2) {
+        return [];
+    }
+
+    // Collect words with their Y-center position
+    $words = [];
+    for ($i = 1; $i < count($textAnnotations); $i++) {
+        $ann = $textAnnotations[$i];
+        $text = $ann['description'] ?? '';
+        $vertices = $ann['boundingPoly']['vertices'] ?? [];
+
+        if (empty($text) || count($vertices) < 4) continue;
+
+        // Use the average Y of top-left and top-right as the word's vertical position
+        $topY = (($vertices[0]['y'] ?? 0) + ($vertices[1]['y'] ?? 0)) / 2;
+        // Use the average Y of all 4 corners for more stability
+        $centerY = (($vertices[0]['y'] ?? 0) + ($vertices[1]['y'] ?? 0)
+                  + ($vertices[2]['y'] ?? 0) + ($vertices[3]['y'] ?? 0)) / 4;
+        // X position for left-to-right sorting
+        $leftX = $vertices[0]['x'] ?? 0;
+        // Word height for line grouping threshold
+        $height = abs(($vertices[2]['y'] ?? 0) - ($vertices[0]['y'] ?? 0));
+
+        $words[] = [
+            'text'    => $text,
+            'centerY' => $centerY,
+            'topY'    => $topY,
+            'leftX'   => $leftX,
+            'height'  => max($height, 1),
+        ];
+    }
+
+    if (empty($words)) {
+        return [];
+    }
+
+    // Sort words by Y position (top to bottom)
+    usort($words, function ($a, $b) {
+        return $a['centerY'] <=> $b['centerY'];
+    });
+
+    // Group words into lines: words within half-height of each other are on the same line
+    $lines = [];
+    $currentLine = [$words[0]];
+    $lineY = $words[0]['centerY'];
+    // Use median word height as the grouping threshold
+    $heights = array_column($words, 'height');
+    sort($heights);
+    $medianHeight = $heights[(int)(count($heights) / 2)] ?? 10;
+    $threshold = $medianHeight * 0.5;
+
+    for ($i = 1; $i < count($words); $i++) {
+        $word = $words[$i];
+        if (abs($word['centerY'] - $lineY) <= $threshold) {
+            // Same line
+            $currentLine[] = $word;
+        } else {
+            // New line — flush current
+            $lines[] = $currentLine;
+            $currentLine = [$word];
+            $lineY = $word['centerY'];
+        }
+    }
+    $lines[] = $currentLine; // Don't forget last line
+
+    // Sort words within each line left-to-right, then join into strings
+    $result = [];
+    foreach ($lines as $lineWords) {
+        usort($lineWords, function ($a, $b) {
+            return $a['leftX'] <=> $b['leftX'];
+        });
+        $lineText = implode(' ', array_column($lineWords, 'text'));
+        $trimmed = trim($lineText);
+        if ($trimmed !== '') {
+            $result[] = $trimmed;
+        }
     }
 
     return $result;
