@@ -1372,11 +1372,12 @@ function getRecentPlansOnProperty(int $propertyId, int $limit = 5): array {
 function resolveTrackingRequirementsForPlan(int $planId): array {
     $db = getDB();
     $defaults = [
+        'auto_clock_in' => false,
         'require_clock_in' => false,
         'require_gps' => false,
         'require_photos' => false,
         'tracking_level' => 'standard',
-        'source' => ['clock_in' => 'default', 'gps' => 'default', 'photos' => 'default']
+        'source' => ['auto_clock_in' => 'default', 'clock_in' => 'default', 'gps' => 'default', 'photos' => 'default']
     ];
 
     // Check if tracking columns exist
@@ -1389,12 +1390,20 @@ function resolveTrackingRequirementsForPlan(int $planId): array {
         return $defaults;
     }
 
+    // Check if auto_clock_in_override column exists on job_plans
+    $hasAutoClockInOverride = false;
+    try {
+        $aciCheck = $db->query("SHOW COLUMNS FROM job_plans LIKE 'auto_clock_in_override'");
+        $hasAutoClockInOverride = ($aciCheck->rowCount() > 0);
+    } catch (Exception $e) { /* ignore */ }
+
     // Get plan override columns
-    $stmt = $db->prepare("
-        SELECT tracking_level_override, require_clock_in_override,
-               require_gps_override, require_photos_override
-        FROM job_plans WHERE id = ?
-    ");
+    $planCols = "tracking_level_override, require_clock_in_override,
+               require_gps_override, require_photos_override";
+    if ($hasAutoClockInOverride) {
+        $planCols .= ", auto_clock_in_override";
+    }
+    $stmt = $db->prepare("SELECT {$planCols} FROM job_plans WHERE id = ?");
     $stmt->execute([$planId]);
     $plan = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1406,15 +1415,26 @@ function resolveTrackingRequirementsForPlan(int $planId): array {
     $pClockIn = 0;
     $pGps = 0;
     $pPhotos = 0;
+    $pAutoClockIn = 0;
     $pLevel = 'standard';
 
     try {
         $checkProd = $db->query("SHOW COLUMNS FROM products LIKE 'tracking_level'");
         if ($checkProd->rowCount() > 0) {
+            // Check if auto_clock_in column exists on products
+            $hasAutoClockInProd = false;
+            try {
+                $aciProdCheck = $db->query("SHOW COLUMNS FROM products LIKE 'auto_clock_in'");
+                $hasAutoClockInProd = ($aciProdCheck->rowCount() > 0);
+            } catch (Exception $e) { /* ignore */ }
+
+            $autoClockInCol = $hasAutoClockInProd ? "MAX(p.auto_clock_in) AS auto_clock_in," : "";
+
             $prodStmt = $db->prepare("
                 SELECT MAX(p.require_clock_in) AS require_clock_in,
                        MAX(p.require_gps) AS require_gps,
                        MAX(p.require_photos) AS require_photos,
+                       {$autoClockInCol}
                        MAX(CASE WHEN p.tracking_level = 'heightened' THEN 2
                                 WHEN p.tracking_level = 'custom' THEN 1
                                 ELSE 0 END) AS level_rank
@@ -1430,6 +1450,7 @@ function resolveTrackingRequirementsForPlan(int $planId): array {
                 $pClockIn = (int)$prod['require_clock_in'];
                 $pGps = (int)$prod['require_gps'];
                 $pPhotos = (int)$prod['require_photos'];
+                $pAutoClockIn = $hasAutoClockInProd ? (int)($prod['auto_clock_in'] ?? 0) : 0;
                 $pLevel = $prod['level_rank'] == 2 ? 'heightened' :
                           ($prod['level_rank'] == 1 ? 'custom' : 'standard');
             }
@@ -1438,8 +1459,14 @@ function resolveTrackingRequirementsForPlan(int $planId): array {
         // Products table may not have tracking columns yet
     }
 
+    // Resolve auto_clock_in: plan override wins if not NULL, else product default
+    $planAutoClockIn = $hasAutoClockInOverride ? ($plan['auto_clock_in_override'] ?? null) : null;
+
     // Resolve: plan override wins if not NULL, else product default
     return [
+        'auto_clock_in' => $planAutoClockIn !== null
+            ? (bool)(int)$planAutoClockIn
+            : (bool)$pAutoClockIn,
         'require_clock_in' => $plan['require_clock_in_override'] !== null
             ? (bool)(int)$plan['require_clock_in_override']
             : (bool)$pClockIn,
@@ -1453,6 +1480,7 @@ function resolveTrackingRequirementsForPlan(int $planId): array {
             ? $plan['tracking_level_override']
             : $pLevel,
         'source' => [
+            'auto_clock_in' => $planAutoClockIn !== null ? 'plan' : 'product',
             'clock_in' => $plan['require_clock_in_override'] !== null ? 'plan' : 'product',
             'gps' => $plan['require_gps_override'] !== null ? 'plan' : 'product',
             'photos' => $plan['require_photos_override'] !== null ? 'plan' : 'product',
@@ -1472,11 +1500,12 @@ function resolveTrackingRequirements(int $visitId): array {
 
     if (!$row || !$row['plan_id']) {
         return [
+            'auto_clock_in' => false,
             'require_clock_in' => false,
             'require_gps' => false,
             'require_photos' => false,
             'tracking_level' => 'standard',
-            'source' => ['clock_in' => 'default', 'gps' => 'default', 'photos' => 'default']
+            'source' => ['auto_clock_in' => 'default', 'clock_in' => 'default', 'gps' => 'default', 'photos' => 'default']
         ];
     }
 

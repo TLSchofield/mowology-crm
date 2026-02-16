@@ -517,6 +517,19 @@ $activePage = 'products';
                         Set default tracking requirements for this service. These can be overridden on individual job plans.
                       </p>
 
+                      <!-- Auto Clock-In (fixed-price services) -->
+                      <div class="mw-tracking-flag-card mb-3" style="border-left: 3px solid var(--mw-green); background: var(--mw-light);">
+                        <label class="mw-product-checkbox-label">
+                          <input type="checkbox" name="auto_clock_in" id="autoClockIn">
+                          <strong>Auto Clock-In</strong>
+                        </label>
+                        <small class="form-text text-muted">
+                          Automatically start the timer when crew arrives on-site (GPS proximity).
+                          Best for fixed-price services like lawn mowing, snow removal, and salting where the price doesn't change based on time.
+                          Also applies to maintenance contract plans that use this service.
+                        </small>
+                      </div>
+
                       <div class="form-group">
                         <label>Tracking Level</label>
                         <select class="form-control" name="tracking_level" id="trackingLevel">
@@ -1014,6 +1027,7 @@ $activePage = 'products';
               form.elements['weather_policy'].value = product.weather_policy || 'ANY';
 
               // Tracking flags
+              form.elements['auto_clock_in'].checked = product.auto_clock_in == 1;
               var tLevel = product.tracking_level || 'standard';
               form.elements['tracking_level'].value = tLevel;
               form.elements['require_clock_in'].checked = product.require_clock_in == 1;
@@ -1058,6 +1072,7 @@ $activePage = 'products';
               data.active = form.elements['active'] && form.elements['active'].checked ? 1 : 0;
 
               // Tracking flags
+              data.auto_clock_in = form.elements['auto_clock_in'] && form.elements['auto_clock_in'].checked ? 1 : 0;
               data.require_clock_in = form.elements['require_clock_in'] && form.elements['require_clock_in'].checked ? 1 : 0;
               data.require_gps = form.elements['require_gps'] && form.elements['require_gps'].checked ? 1 : 0;
               data.require_photos = form.elements['require_photos'] && form.elements['require_photos'].checked ? 1 : 0;

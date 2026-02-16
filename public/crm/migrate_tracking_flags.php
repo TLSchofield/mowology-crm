@@ -63,6 +63,13 @@ try {
         $results[] = '⏭️ products.require_photos already exists';
     }
 
+    if (!colExists($db, 'products', 'auto_clock_in')) {
+        $db->exec("ALTER TABLE `products` ADD COLUMN `auto_clock_in` TINYINT(1) NOT NULL DEFAULT 0");
+        $results[] = '✅ Added products.auto_clock_in';
+    } else {
+        $results[] = '⏭️ products.auto_clock_in already exists';
+    }
+
     // ── Job Plans table: nullable override columns ───────────────────
 
     if (!colExists($db, 'job_plans', 'tracking_level_override')) {
@@ -91,6 +98,13 @@ try {
         $results[] = '✅ Added job_plans.require_photos_override';
     } else {
         $results[] = '⏭️ job_plans.require_photos_override already exists';
+    }
+
+    if (!colExists($db, 'job_plans', 'auto_clock_in_override')) {
+        $db->exec("ALTER TABLE `job_plans` ADD COLUMN `auto_clock_in_override` TINYINT(1) DEFAULT NULL");
+        $results[] = '✅ Added job_plans.auto_clock_in_override';
+    } else {
+        $results[] = '⏭️ job_plans.auto_clock_in_override already exists';
     }
 
 } catch (Exception $e) {

@@ -62,6 +62,7 @@
                 pill: pill,
                 serviceLabel: serviceLabel,
                 serviceType: serviceType,
+                autoClockIn: pill.dataset.autoClockIn === '1',
                 trackingLevel: null,
                 requirePhotos: false,
                 entryId: null,
@@ -132,13 +133,16 @@
 
     /**
      * Auto-start timer when crew arrives at a single-visit stop.
-     * Skips if: multiple visits on card, timer already running, visit not scheduled,
-     * or service type not in auto-arrival allowed list.
+     * Skips if: multiple visits on card, timer already running, visit not scheduled.
+     *
+     * A visit qualifies for auto-clock-in if EITHER:
+     *   1. The visit has autoClockIn=true (per-product/plan flag), OR
+     *   2. The global autoArrivalServiceTypes list includes this service type
      */
     function autoClockInSingleVisit(card) {
         if (!card) return;
 
-        // Check if auto-arrival is enabled (set by MW_SCHEDULE_STATE)
+        // Check if auto-arrival is enabled globally (set by MW_SCHEDULE_STATE)
         if (!state.autoArrivalEnabled) {
             console.log('[PillWorkflow] Auto-clock-in skipped: auto-arrival disabled');
             return;
@@ -167,16 +171,23 @@
         }
 
         var visitId = scheduledVisitIds[0];
-        var serviceType = visits[visitId].serviceType || '';
+        var v = visits[visitId];
+        var serviceType = v.serviceType || '';
 
-        // Check if this service type is allowed for auto-arrival
+        // Check if this visit qualifies for auto-clock-in:
+        // 1. Per-product/plan auto_clock_in flag (set in Edit Product or plan override)
+        // 2. Global service type allowlist (legacy Time Clock Settings)
+        var hasPerVisitFlag = v.autoClockIn === true;
         var allowedTypes = state.autoArrivalServiceTypes || [];
-        if (allowedTypes.length > 0 && allowedTypes.indexOf(serviceType) === -1) {
-            console.log('[PillWorkflow] Auto-clock-in skipped: ' + serviceType + ' not in allowed types [' + allowedTypes.join(',') + ']');
+        var inGlobalList = allowedTypes.length > 0 && allowedTypes.indexOf(serviceType) !== -1;
+
+        if (!hasPerVisitFlag && !inGlobalList) {
+            console.log('[PillWorkflow] Auto-clock-in skipped: ' + serviceType + ' not flagged (autoClockIn=' + v.autoClockIn + ', globalList=[' + allowedTypes.join(',') + '])');
             return;
         }
 
-        console.log('[PillWorkflow] Auto-clock-in: single visit ' + visitId + ' (' + visits[visitId].serviceLabel + ', type: ' + serviceType + ')');
+        var reason = hasPerVisitFlag ? 'product/plan flag' : 'global service type list';
+        console.log('[PillWorkflow] Auto-clock-in: visit ' + visitId + ' (' + v.serviceLabel + ') via ' + reason);
         clockIn(visitId);
     }
 

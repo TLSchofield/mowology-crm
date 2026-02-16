@@ -161,9 +161,12 @@ try {
 
         // Check if tracking flag columns exist (tracking flags migration)
         $hasTrackingFlags = false;
+        $hasAutoClockIn = false;
         try {
             $tfCheck = $db->query("SHOW COLUMNS FROM products LIKE 'tracking_level'");
             $hasTrackingFlags = ($tfCheck->rowCount() > 0);
+            $aciCheck = $db->query("SHOW COLUMNS FROM products LIKE 'auto_clock_in'");
+            $hasAutoClockIn = ($aciCheck->rowCount() > 0);
         } catch (Exception $e) {
             // Ignore
         }
@@ -237,6 +240,12 @@ try {
                 $params[] = !empty($data['require_photos']) ? 1 : 0;
             }
 
+            if ($hasAutoClockIn) {
+                $columns .= ", auto_clock_in";
+                $placeholders .= ", ?";
+                $params[] = !empty($data['auto_clock_in']) ? 1 : 0;
+            }
+
             $stmt = $db->prepare("INSERT INTO products ({$columns}) VALUES ({$placeholders})");
             $stmt->execute($params);
 
@@ -298,6 +307,11 @@ try {
                 $params[] = !empty($data['require_clock_in']) ? 1 : 0;
                 $params[] = !empty($data['require_gps']) ? 1 : 0;
                 $params[] = !empty($data['require_photos']) ? 1 : 0;
+            }
+
+            if ($hasAutoClockIn) {
+                $setClauses .= ", auto_clock_in = ?";
+                $params[] = !empty($data['auto_clock_in']) ? 1 : 0;
             }
 
             $params[] = $data['id'];

@@ -252,6 +252,21 @@ foreach ($mobileStops as &$mStop) {
 }
 unset($mStop);
 
+// ─── Resolve auto_clock_in per visit (plan override → product default) ──
+$planAutoClockInCache = []; // planId => bool
+foreach ($mobileStops as &$mStop) {
+    foreach (($mStop['visits'] ?? []) as &$v) {
+        $planId = (int)($v['plan_id'] ?? 0);
+        if ($planId && !isset($planAutoClockInCache[$planId])) {
+            $trackingReqs = resolveTrackingRequirementsForPlan($planId);
+            $planAutoClockInCache[$planId] = !empty($trackingReqs['auto_clock_in']);
+        }
+        $v['auto_clock_in'] = $planId ? ($planAutoClockInCache[$planId] ?? false) : false;
+    }
+    unset($v);
+}
+unset($mStop);
+
 // Determine which is the active stop (first non-completed stop, or first one)
 $activeIndex = 0;
 foreach ($mobileStops as $idx => $stop) {

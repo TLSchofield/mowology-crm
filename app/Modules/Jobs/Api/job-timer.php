@@ -87,6 +87,7 @@ try {
                 'visit_id' => $visitId,
                 'start_time' => date('Y-m-d H:i:s'),
                 'auto_started' => $autoStarted,
+                'auto_clock_in' => (bool)($trackingReqs['auto_clock_in'] ?? false),
                 'tracking_level' => $trackingReqs['tracking_level'] ?? 'standard',
                 'require_photos' => (bool)($trackingReqs['require_photos'] ?? false),
                 'require_gps' => (bool)($trackingReqs['require_gps'] ?? false),
