@@ -510,6 +510,27 @@ $activePage = 'products';
                       </div>
                     </div>
 
+                    <!-- Schedule Rollover -->
+                    <div class="mw-product-form-section">
+                      <h4>Schedule Rollover</h4>
+                      <p class="text-muted mb-2" style="font-size: 0.85rem;">If a recurring visit isn't completed, should it automatically move to the next day? Visits roll forward up to a max number of days, then get auto-skipped.</p>
+                      <div class="mw-tracking-flag-card mb-3" style="border-left: 3px solid var(--mw-green); background: var(--mw-light);">
+                        <label class="mw-product-checkbox-label">
+                          <input type="checkbox" name="auto_rollover" id="autoRollover" checked>
+                          <strong>Auto-Rollover</strong>
+                        </label>
+                        <small class="form-text text-muted">
+                          Incomplete recurring visits for this service will automatically move to the next day.
+                          Disable for services like snow removal or salting that are date-specific.
+                        </small>
+                      </div>
+                      <div class="form-group">
+                        <label>Max Rollover Days</label>
+                        <input type="number" class="form-control" name="max_rollover_days" id="maxRolloverDays" min="1" max="14" placeholder="Use global default (3)">
+                        <small class="form-text text-muted">Leave blank to use the global default. After this many days, the visit is auto-skipped instead of rolling forward.</small>
+                      </div>
+                    </div>
+
                     <!-- Tracking & Compliance -->
                     <div class="mw-product-form-section" id="trackingSection">
                       <h4>Tracking &amp; Compliance</h4>
@@ -1026,6 +1047,10 @@ $activePage = 'products';
               // Weather policy
               form.elements['weather_policy'].value = product.weather_policy || 'ANY';
 
+              // Schedule rollover
+              form.elements['auto_rollover'].checked = product.auto_rollover != 0;
+              form.elements['max_rollover_days'].value = product.max_rollover_days || '';
+
               // Tracking flags
               form.elements['auto_clock_in'].checked = product.auto_clock_in == 1;
               var tLevel = product.tracking_level || 'standard';
@@ -1070,6 +1095,10 @@ $activePage = 'products';
               data.track_inventory = form.elements['track_inventory'] && form.elements['track_inventory'].checked ? 1 : 0;
               data.featured = form.elements['featured'] && form.elements['featured'].checked ? 1 : 0;
               data.active = form.elements['active'] && form.elements['active'].checked ? 1 : 0;
+
+              // Schedule rollover
+              data.auto_rollover = form.elements['auto_rollover'] && form.elements['auto_rollover'].checked ? 1 : 0;
+              data.max_rollover_days = form.elements['max_rollover_days'].value || null;
 
               // Tracking flags
               data.auto_clock_in = form.elements['auto_clock_in'] && form.elements['auto_clock_in'].checked ? 1 : 0;

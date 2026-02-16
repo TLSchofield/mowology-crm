@@ -159,6 +159,15 @@ try {
             // Ignore
         }
 
+        // Check if rollover columns exist (migration 502)
+        $hasRollover = false;
+        try {
+            $roCheck = $db->query("SHOW COLUMNS FROM products LIKE 'auto_rollover'");
+            $hasRollover = ($roCheck->rowCount() > 0);
+        } catch (Exception $e) {
+            // Ignore
+        }
+
         // Check if tracking flag columns exist (tracking flags migration)
         $hasTrackingFlags = false;
         $hasAutoClockIn = false;
@@ -246,6 +255,13 @@ try {
                 $params[] = !empty($data['auto_clock_in']) ? 1 : 0;
             }
 
+            if ($hasRollover) {
+                $columns .= ", auto_rollover, max_rollover_days";
+                $placeholders .= ", ?, ?";
+                $params[] = isset($data['auto_rollover']) ? (int)$data['auto_rollover'] : 1;
+                $params[] = !empty($data['max_rollover_days']) ? (int)$data['max_rollover_days'] : null;
+            }
+
             $stmt = $db->prepare("INSERT INTO products ({$columns}) VALUES ({$placeholders})");
             $stmt->execute($params);
 
@@ -312,6 +328,12 @@ try {
             if ($hasAutoClockIn) {
                 $setClauses .= ", auto_clock_in = ?";
                 $params[] = !empty($data['auto_clock_in']) ? 1 : 0;
+            }
+
+            if ($hasRollover) {
+                $setClauses .= ", auto_rollover = ?, max_rollover_days = ?";
+                $params[] = isset($data['auto_rollover']) ? (int)$data['auto_rollover'] : 1;
+                $params[] = !empty($data['max_rollover_days']) ? (int)$data['max_rollover_days'] : null;
             }
 
             $params[] = $data['id'];
