@@ -258,7 +258,8 @@ function extractLineItems(array $lines): array
         if (preg_match('/^(?:EACH|MAX REFUND|REFUND VALUE)/i', $line)) continue;
 
         // Pattern: Material code + description (landfill/waste style: "10 - Green Waste")
-        if (preg_match('/^\d{1,4}\s*[-–]\s*(.+)$/i', $line, $m)) {
+        // Requires spaces around dash to avoid matching addresses (320-507) or phones (604-873-7000)
+        if (preg_match('/^\d{1,4}\s+[-–]\s+(.+)$/i', $line, $m)) {
             $itemName = trim($m[1]);
             // Check if price is on the same line
             if (preg_match('/^(.+?)\s+\$?(\d{1,6}\.\d{2})\s*$/', $itemName, $pm)) {
