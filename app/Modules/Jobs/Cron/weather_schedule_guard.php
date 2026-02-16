@@ -181,6 +181,16 @@ try {
             $timeStart . ' - ' . $timeEnd);
         if ($cardPath) {
             updateWeatherCardPath($visitId, $cardPath);
+            // Register in unified media system (if available)
+            if (function_exists('registerWeatherCardAsMedia')) {
+                registerWeatherCardAsMedia(
+                    $cardPath,
+                    'job_visit',
+                    $visitId,
+                    "Weather card for {$visit['visit_number']} on {$visit['scheduled_date']}",
+                    0
+                );
+            }
         }
 
         // Log evaluation
@@ -399,6 +409,23 @@ function runSaltAlerts(PDO $db): array
         $saltResults['trigger_temp'] = $triggerTemp;
         $saltResults['forecast'] = $forecastSummary;
 
+        // Generate salt forecast card PNG and register in media system (if available)
+        if (function_exists('generateSaltForecastCard')) {
+            $saltDayDates = array_keys($saltDays);
+            $saltCardPath = generateSaltForecastCard($forecastSummary, $triggerTemp, $saltDayDates);
+            if ($saltCardPath && function_exists('registerWeatherCardAsMedia')) {
+                $saltMediaId = registerWeatherCardAsMedia(
+                    $saltCardPath,
+                    'salt_forecast',
+                    0,
+                    'Salt forecast snapshot ' . date('Y-m-d') . ' — ' . count($saltDayDates) . ' salt day(s) flagged',
+                    0
+                );
+                $saltResults['forecast_card'] = $saltCardPath;
+                $saltResults['forecast_card_media_id'] = $saltMediaId;
+            }
+        }
+
         if (empty($saltDays)) {
             $saltResults['salt_days'] = 0;
             return $saltResults;
@@ -422,22 +449,33 @@ function runSaltAlerts(PDO $db): array
 
         $today = new DateTime();
 
+        // Alert windows: any enabled window means we send for ALL salt days
+        // in the 7-day forecast. The toggle controls whether alerts fire at all,
+        // not which specific days. The timing label describes urgency.
+        $anyAlertEnabled = $alert24hr || $alert48hr || $alert7day;
+
         foreach ($saltDays as $date => $day) {
             $forecastDate = new DateTime($date);
             $daysOut = (int)$today->diff($forecastDate)->days;
 
-            // Determine which alert window applies
-            $timing = null;
-            if ($daysOut <= 1 && $alert24hr) {
-                $timing = '24hr';
-            } elseif ($daysOut <= 2 && $alert48hr) {
-                $timing = '48hr';
-            } elseif ($daysOut <= 7 && $alert7day) {
-                $timing = '7day';
+            // Skip if no alert windows enabled at all
+            if (!$anyAlertEnabled) {
+                continue;
             }
 
-            if (!$timing) {
-                continue; // No alert window matches
+            // Skip past days (shouldn't happen, but guard)
+            if ($daysOut < 0) {
+                continue;
+            }
+
+            // Label the timing based on actual days out (for SMS message context)
+            $timing = null;
+            if ($daysOut <= 1) {
+                $timing = '24hr';
+            } elseif ($daysOut <= 2) {
+                $timing = '48hr';
+            } else {
+                $timing = '7day';
             }
 
             // Dedup: check if salt alert already sent for this specific forecast date

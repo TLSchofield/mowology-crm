@@ -391,6 +391,26 @@ try {
 
         echo json_encode(['success' => true, 'message' => "Seeded {$inserted} BC statutory holidays for {$year}", 'count' => $inserted]);
 
+    } elseif ($action === 'clear-salt-dedup') {
+        // Clear today's salt alert dedup entries so alerts can be re-sent
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            throw new Exception('POST method required');
+        }
+
+        $stmt = $db->prepare("
+            DELETE FROM weather_action_log
+            WHERE action_type = 'SALT_ALERT'
+              AND action_date = CURDATE()
+        ");
+        $stmt->execute();
+        $deleted = $stmt->rowCount();
+
+        echo json_encode([
+            'success' => true,
+            'message' => "Cleared {$deleted} salt alert dedup entries for today",
+            'deleted' => $deleted,
+        ]);
+
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action ?? ''));
     }
