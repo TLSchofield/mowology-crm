@@ -22,6 +22,12 @@
   --mw-orange: #e85d04;
 }
 
+/* ── Google Places Autocomplete ─────────────────────── */
+/* Ensure dropdown renders above Bootstrap modals (z-index 1050) */
+.pac-container {
+  z-index: 1060 !important;
+}
+
 /* ── Sidebar ─────────────────────────────────────────── */
 
 .sidebar {
