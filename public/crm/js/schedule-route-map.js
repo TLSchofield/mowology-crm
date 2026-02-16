@@ -226,18 +226,15 @@ var MwRouteMap = (function() {
         var target = stops[targetIdx];
         if (!target) target = stops[0];
 
-        // Determine origin
+        // Determine origin: GPS position preferred, address fallback
         var origin;
-        if (userLat && userLng) {
+        var hasGPS = !!(userLat && userLng);
+        if (hasGPS) {
             origin = new google.maps.LatLng(userLat, userLng);
             addUserMarker(userLat, userLng);
-        } else {
-            // No GPS — use map center as a fallback, skip directions, just show markers
-            showMarkersOnly(stops, targetIdx);
-            return;
         }
 
-        // Destination = the currently focused stop
+        // Destination = the currently focused stop (prefer lat/lng, fallback to address)
         var destination;
         if (target.lat && target.lng) {
             destination = new google.maps.LatLng(target.lat, target.lng);
@@ -248,16 +245,47 @@ var MwRouteMap = (function() {
             return;
         }
 
-        // If only going to one stop, simple A→B directions
+        // If no GPS, try to use another stop as origin for multi-stop routes,
+        // otherwise just show the destination on the map with no route line
+        if (!hasGPS) {
+            if (stops.length > 1 && targetIdx > 0) {
+                // Use previous stop as origin
+                var prevStop = stops[targetIdx - 1];
+                origin = (prevStop.lat && prevStop.lng)
+                    ? new google.maps.LatLng(prevStop.lat, prevStop.lng)
+                    : prevStop.address;
+            } else {
+                // Single stop, no GPS — just show the stop on the map
+                showMarkersOnly(stops, targetIdx);
+                return;
+            }
+        }
+
+        // Build directions request
         var request = {
             origin: origin,
             destination: destination,
             travelMode: google.maps.TravelMode.DRIVING
         };
 
-        // If showing full route (Route button), add all stops as waypoints
-        // For single-card tap, just show directions to that one stop
-        // We always show directions to the focused stop from user location
+        // For multi-stop routes from Route button, add intermediate waypoints
+        if (hasGPS && stops.length > 1) {
+            var waypoints = [];
+            for (var w = 0; w < stops.length; w++) {
+                if (w === targetIdx) continue; // skip focused stop (it's destination)
+                var ws = stops[w];
+                var loc = (ws.lat && ws.lng)
+                    ? new google.maps.LatLng(ws.lat, ws.lng)
+                    : ws.address;
+                if (loc) {
+                    waypoints.push({ location: loc, stopover: true });
+                }
+            }
+            if (waypoints.length > 0) {
+                request.waypoints = waypoints;
+                request.optimizeWaypoints = true;
+            }
+        }
 
         directionsService.route(request, function(result, status) {
             viewEl.classList.remove('mw-mv-loading');
@@ -276,10 +304,20 @@ var MwRouteMap = (function() {
                 }
 
                 // Update title with ETA
-                var leg = result.routes[0].legs[0];
-                if (leg) {
-                    titleEl.textContent = leg.duration.text + ' \u00b7 ' + leg.distance.text;
+                var legs = result.routes[0].legs;
+                var totalDuration = 0;
+                var totalDistance = 0;
+                for (var l = 0; l < legs.length; l++) {
+                    totalDuration += legs[l].duration.value;
+                    totalDistance += legs[l].distance.value;
                 }
+                var durationText = totalDuration < 3600
+                    ? Math.round(totalDuration / 60) + ' min'
+                    : Math.floor(totalDuration / 3600) + ' hr ' + Math.round((totalDuration % 3600) / 60) + ' min';
+                var distanceText = totalDistance < 1000
+                    ? totalDistance + ' m'
+                    : (totalDistance / 1000).toFixed(1) + ' km';
+                titleEl.textContent = durationText + ' \u00b7 ' + distanceText;
 
                 // Fit map to route bounds
                 var bounds = result.routes[0].bounds;
@@ -287,6 +325,7 @@ var MwRouteMap = (function() {
                     map.fitBounds(bounds, { top: 20, right: 20, bottom: 20, left: 20 });
                 }
             } else {
+                console.warn('[RouteMap] Directions failed: ' + status);
                 // Fallback: show markers without route line
                 showMarkersOnly(stops, targetIdx);
             }
