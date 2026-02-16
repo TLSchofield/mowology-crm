@@ -8736,17 +8736,113 @@ textarea.font-monospace {
   border-top: 1px solid rgba(255, 193, 7, 0.25);
   padding-top: 8px;
 }
-.mw-duplicate-warning-detail {
-  color: #5a4e00;
-}
 .mw-duplicate-warning-detail .badge {
   font-size: 0.65rem;
   vertical-align: middle;
+}
+.mw-duplicate-warning-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 .mw-duplicate-warning-view {
   white-space: nowrap;
   font-size: 0.72rem;
   padding: 2px 8px;
+}
+.mw-duplicate-merge-btn {
+  white-space: nowrap;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+}
+.mw-dup-receipt-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border: 1px solid #e0e0e0;
+}
+.mw-duplicate-warning-detail {
+  color: #5a4e00;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+/* Receipt picker overlay (merge duplicates) */
+.mw-receipt-picker-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: mw-lb-fade-in 0.15s ease;
+}
+.mw-receipt-picker {
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px;
+  max-width: 360px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+.mw-receipt-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 0.88rem;
+}
+.mw-receipt-picker-close {
+  background: none;
+  border: none;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 0;
+}
+.mw-receipt-picker-close:hover { opacity: 1; }
+.mw-receipt-picker-options {
+  display: flex;
+  gap: 10px;
+}
+.mw-receipt-picker-option {
+  flex: 1;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.mw-receipt-picker-option:hover {
+  border-color: var(--mw-green);
+}
+.mw-receipt-picker-option.mw-receipt-selected {
+  border-color: var(--mw-green);
+  box-shadow: 0 0 0 2px rgba(45, 134, 89, 0.25);
+}
+.mw-receipt-picker-option img {
+  width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+.mw-receipt-picker-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #555;
+}
+.mw-receipt-picker-option.mw-receipt-selected .mw-receipt-picker-label {
+  color: var(--mw-green);
 }
 
 /* Receipt lightbox overlay */

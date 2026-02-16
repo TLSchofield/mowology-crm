@@ -1145,15 +1145,24 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         listEl.innerHTML = duplicates.map(function(d) {
             var vendorDisplay = d.vendor_name || d.vendor_name_raw || 'Unknown vendor';
+            var receiptThumb = d.receipt_path
+                ? '<img src="' + esc(d.receipt_path) + '" class="mw-dup-receipt-thumb">'
+                : '';
             return '<div class="mw-duplicate-warning-item">' +
                 '<span class="mw-duplicate-warning-detail">' +
+                    receiptThumb +
                     '<strong>' + esc(vendorDisplay) + '</strong> — $' + parseFloat(d.total).toFixed(2) +
                     ' on ' + d.expense_date +
                     ' <span class="badge bg-' + (d.status === 'forwarded' ? 'success' : d.status === 'approved' ? 'primary' : 'secondary') + '">' + d.status + '</span>' +
                 '</span>' +
-                '<button type="button" class="btn btn-sm btn-outline-primary mw-duplicate-warning-view" onclick="editExpense(' + d.id + ')" title="View this expense">' +
-                    '<i data-feather="external-link" style="width:12px;height:12px;"></i> View' +
-                '</button>' +
+                '<span class="mw-duplicate-warning-actions">' +
+                    '<button type="button" class="btn btn-sm btn-outline-success mw-duplicate-merge-btn" onclick="mergeIntoExisting(' + d.id + ', \'' + esc(d.receipt_path || '') + '\')" title="Merge new receipt into this expense">' +
+                        '<i data-feather="git-merge" style="width:12px;height:12px;"></i> Merge' +
+                    '</button>' +
+                    '<button type="button" class="btn btn-sm btn-outline-primary mw-duplicate-warning-view" onclick="editExpense(' + d.id + ')" title="View this expense">' +
+                        '<i data-feather="external-link" style="width:12px;height:12px;"></i> View' +
+                    '</button>' +
+                '</span>' +
             '</div>';
         }).join('');
 
@@ -1169,6 +1178,127 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     window.dismissDuplicateWarning = function(prefix) {
         hideDuplicateWarning(prefix);
     };
+
+    // ── Merge Into Existing ─────────────────────────────────────
+    window.mergeIntoExisting = function(targetId, targetReceiptPath) {
+        var newMediaId = document.getElementById('intakeMediaId').value;
+        var newReceiptPath = '';
+
+        // Get the new receipt path from the preview image
+        var previewImg = document.getElementById('receiptPreviewImg');
+        if (previewImg && previewImg.src && !previewImg.src.includes('data:')) {
+            newReceiptPath = previewImg.src;
+        }
+
+        // If no media from intake, check mobile
+        if (!newMediaId) {
+            var mobileReview = document.getElementById('mobileExpenseReview');
+            if (mobileReview) newMediaId = mobileReview.dataset.mediaId || '';
+        }
+
+        var bothHaveReceipts = newMediaId && targetReceiptPath;
+
+        if (bothHaveReceipts) {
+            // Show receipt picker
+            showReceiptPicker(targetId, targetReceiptPath, newMediaId, newReceiptPath);
+        } else {
+            // Only one (or no) receipt — just merge, keep whichever exists
+            var keepReceipt = newMediaId ? 'source' : 'target';
+            executeMerge(targetId, newMediaId, keepReceipt);
+        }
+    };
+
+    function showReceiptPicker(targetId, targetReceiptPath, newMediaId, newReceiptPath) {
+        // Remove any existing picker
+        var existing = document.getElementById('receiptPickerOverlay');
+        if (existing) existing.remove();
+
+        // Get new receipt from preview/file reader (may be data: URL from FileReader)
+        var previewImg = document.getElementById('receiptPreviewImg');
+        var newSrc = newReceiptPath;
+        if (!newSrc && previewImg && previewImg.src) {
+            newSrc = previewImg.src;
+        }
+
+        var overlay = document.createElement('div');
+        overlay.id = 'receiptPickerOverlay';
+        overlay.className = 'mw-receipt-picker-overlay';
+        overlay.innerHTML =
+            '<div class="mw-receipt-picker">' +
+                '<div class="mw-receipt-picker-header">' +
+                    '<strong>Which receipt do you want to keep?</strong>' +
+                    '<button type="button" onclick="closeReceiptPicker()" class="mw-receipt-picker-close">&times;</button>' +
+                '</div>' +
+                '<div class="mw-receipt-picker-options">' +
+                    '<div class="mw-receipt-picker-option mw-receipt-selected" data-choice="target" onclick="selectReceipt(this)">' +
+                        '<img src="' + esc(targetReceiptPath) + '" alt="Existing receipt">' +
+                        '<span class="mw-receipt-picker-label">Existing</span>' +
+                    '</div>' +
+                    '<div class="mw-receipt-picker-option" data-choice="source" onclick="selectReceipt(this)">' +
+                        '<img src="' + esc(newSrc) + '" alt="New receipt">' +
+                        '<span class="mw-receipt-picker-label">New scan</span>' +
+                    '</div>' +
+                '</div>' +
+                '<button type="button" class="btn btn-success btn-sm w-100 mt-2" onclick="confirmReceiptMerge(' + targetId + ', \'' + newMediaId + '\')">' +
+                    '<i data-feather="check" style="width:14px;height:14px;"></i> Merge' +
+                '</button>' +
+            '</div>';
+
+        document.body.appendChild(overlay);
+        if (window.feather) feather.replace();
+    }
+
+    window.selectReceipt = function(el) {
+        var picker = el.closest('.mw-receipt-picker');
+        picker.querySelectorAll('.mw-receipt-picker-option').forEach(function(o) {
+            o.classList.remove('mw-receipt-selected');
+        });
+        el.classList.add('mw-receipt-selected');
+    };
+
+    window.closeReceiptPicker = function() {
+        var overlay = document.getElementById('receiptPickerOverlay');
+        if (overlay) overlay.remove();
+    };
+
+    window.confirmReceiptMerge = function(targetId, newMediaId) {
+        var selected = document.querySelector('.mw-receipt-picker-option.mw-receipt-selected');
+        var keepReceipt = selected ? selected.dataset.choice : 'target';
+        closeReceiptPicker();
+        executeMerge(targetId, newMediaId, keepReceipt);
+    };
+
+    async function executeMerge(targetId, sourceMediaId, keepReceipt) {
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'merge_receipt',
+                    csrf_token: CSRF,
+                    target_id: targetId,
+                    source_media_id: sourceMediaId || null,
+                    keep_receipt: keepReceipt,
+                }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+
+            // Success — reset capture and refresh list
+            resetCapture();
+            loadExpenses(currentPage);
+            loadStats();
+
+            // Show toast/alert
+            if (typeof mobileToast === 'function' && window.innerWidth < 768) {
+                mobileToast('Merged into existing expense');
+            } else {
+                alert('Receipt merged into existing expense');
+            }
+        } catch(e) {
+            alert('Merge failed: ' + e.message);
+        }
+    }
 
     // Prompt-based duplicate check for save time — returns true if OK to proceed
     async function confirmDuplicateCheck(vendorName, vendorId, total, date, excludeId) {

@@ -81,6 +81,11 @@ try {
             handleCheckDuplicates($db);
             break;
 
+        case 'merge_receipt':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleMergeReceipt($db, $input);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -502,5 +507,43 @@ function handleCheckDuplicates(PDO $db): void
         'success'        => true,
         'has_duplicates'  => count($duplicates) > 0,
         'duplicates'      => $duplicates,
+    ]);
+}
+
+
+/**
+ * Merge a newly scanned receipt into an existing expense.
+ * The "source" hasn't been saved yet — it's just an intake result.
+ * If the user picks the new receipt, we update the target's receipt_media_id.
+ */
+function handleMergeReceipt(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $targetId = (int)($input['target_id'] ?? 0);
+    if (!$targetId) throw new Exception('Target expense ID required');
+
+    // Verify target exists
+    $stmt = $db->prepare("SELECT id, receipt_media_id FROM expenses WHERE id = ?");
+    $stmt->execute([$targetId]);
+    $target = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$target) throw new Exception('Target expense not found');
+
+    $keepReceipt = $input['keep_receipt'] ?? 'target';
+    $sourceMediaId = !empty($input['source_media_id']) ? (int)$input['source_media_id'] : null;
+
+    // If user chose the new receipt, update the target
+    if ($keepReceipt === 'source' && $sourceMediaId) {
+        $stmt = $db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?");
+        $stmt->execute([$sourceMediaId, $targetId]);
+    }
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Receipt merged into expense #' . $targetId,
     ]);
 }
