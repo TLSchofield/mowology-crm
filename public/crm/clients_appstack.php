@@ -492,6 +492,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
             echo json_encode(['success' => false, 'error' => 'Failed to update property']);
         }
         exit;
+
+    } elseif ($requestAction === 'add_client_note') {
+        if (!verifyCSRFToken($jsonData['csrf_token'] ?? '')) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $noteContactId = intval($jsonData['contact_id'] ?? 0);
+        $noteType = trim($jsonData['note_type'] ?? 'general');
+        $noteContent = trim($jsonData['content'] ?? '');
+
+        if (!$noteContactId || !$noteContent) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Contact ID and content are required']);
+            exit;
+        }
+
+        $validTypes = ['general', 'customer_request', 'issue', 'follow_up', 'internal'];
+        if (!in_array($noteType, $validTypes)) $noteType = 'general';
+
+        try {
+            if (function_exists('addClientNote')) {
+                $result = addClientNote($noteContactId, $noteContent, $noteType, $user['id']);
+                echo json_encode(['success' => true]);
+            } else {
+                // Fallback: direct insert
+                $stmt = $db->prepare("INSERT INTO client_notes (contact_id, note_type, content, created_by, created_at) VALUES (?, ?, ?, ?, NOW())");
+                $stmt->execute([$noteContactId, $noteType, $noteContent, $user['id']]);
+                echo json_encode(['success' => true]);
+            }
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => 'Failed to save note']);
+        }
+        exit;
     }
 }
 
@@ -884,6 +920,184 @@ if ($action === 'view_contact' && $clientId) {
             $stmt->execute([$clientId]);
             $otherContacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) { /* ok */ }
+
+        // ── Quotes for this contact's properties ──
+        $contactQuotes = [];
+        try {
+            $stmt = $db->prepare("
+                SELECT q.id, q.quote_number, q.title, q.status, q.total_amount,
+                       q.created_at, q.sent_at, q.accepted_at, p.address AS property_address
+                FROM quotes q
+                JOIN properties p ON q.property_id = p.id
+                WHERE p.site_contact_id = ?
+                ORDER BY q.created_at DESC
+            ");
+            $stmt->execute([$clientId]);
+            $contactQuotes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) { $contactQuotes = []; }
+
+        // ── Job Plans for this contact's properties ──
+        $contactPlans = [];
+        try {
+            $stmt = $db->prepare("
+                SELECT jp.id, jp.plan_number, jp.title, jp.service_type, jp.status,
+                       jp.is_recurring, jp.recurrence_pattern, jp.price_per_visit,
+                       p.address AS property_address,
+                       (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id) AS visit_count,
+                       (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'completed') AS completed_count,
+                       (SELECT MAX(jv.scheduled_date) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'completed') AS last_visit_date
+                FROM job_plans jp
+                JOIN properties p ON jp.property_id = p.id
+                WHERE p.site_contact_id = ?
+                ORDER BY FIELD(jp.status, 'active', 'paused', 'completed', 'cancelled'), jp.created_at DESC
+            ");
+            $stmt->execute([$clientId]);
+            $contactPlans = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) { $contactPlans = []; }
+
+        // ── Recent Visits (last 10) ──
+        $contactVisits = [];
+        try {
+            $stmt = $db->prepare("
+                SELECT jv.id, jv.visit_number, jv.scheduled_date, jv.status,
+                       jv.actual_amount, jv.completed_at,
+                       jp.id AS plan_id, jp.plan_number, jp.title AS plan_title,
+                       jp.service_type, p.address AS property_address
+                FROM job_visits jv
+                JOIN job_plans jp ON jv.plan_id = jp.id
+                JOIN properties p ON jp.property_id = p.id
+                WHERE p.site_contact_id = ?
+                ORDER BY jv.scheduled_date DESC
+                LIMIT 10
+            ");
+            $stmt->execute([$clientId]);
+            $contactVisits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) { $contactVisits = []; }
+
+        // ── Invoices linked to this contact's properties ──
+        $contactInvoices = [];
+        try {
+            $propIds = array_column($contactProperties, 'id');
+            if (!empty($propIds)) {
+                $planIds = array_column($contactPlans, 'id');
+                // Build WHERE: invoice.property_id in contact's properties OR invoice.plan_id in contact's plans
+                $conditions = [];
+                $params = [];
+                $pPlaceholders = implode(',', array_fill(0, count($propIds), '?'));
+                $conditions[] = "i.property_id IN ({$pPlaceholders})";
+                $params = array_merge($params, $propIds);
+                if (!empty($planIds)) {
+                    $jpPlaceholders = implode(',', array_fill(0, count($planIds), '?'));
+                    $conditions[] = "i.plan_id IN ({$jpPlaceholders})";
+                    $params = array_merge($params, $planIds);
+                }
+                $whereClause = implode(' OR ', $conditions);
+                $stmt = $db->prepare("
+                    SELECT i.id, i.invoice_number, i.status, i.total, i.balance_due,
+                           i.issue_date, i.due_date, i.amount_paid
+                    FROM invoices i
+                    WHERE {$whereClause}
+                    ORDER BY i.created_at DESC
+                ");
+                $stmt->execute($params);
+                $contactInvoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+        } catch (Exception $e) { $contactInvoices = []; }
+
+        // ── Financial Summary ──
+        $totalRevenue = 0;
+        $totalOutstanding = 0;
+        $totalInvoiced = 0;
+        $totalPaid = 0;
+        foreach ($contactInvoices as $inv) {
+            $totalInvoiced += floatval($inv['total'] ?? 0);
+            $totalPaid += floatval($inv['amount_paid'] ?? 0);
+            if (in_array($inv['status'], ['sent', 'viewed', 'partial', 'overdue'])) {
+                $totalOutstanding += floatval($inv['balance_due'] ?? 0);
+            }
+        }
+        $totalRevenue = $totalPaid;
+        $activePlanCount = 0;
+        $completedVisitCount = 0;
+        foreach ($contactPlans as $pl) {
+            if ($pl['status'] === 'active') $activePlanCount++;
+            $completedVisitCount += intval($pl['completed_count'] ?? 0);
+        }
+        $totalQuoted = 0;
+        foreach ($contactQuotes as $q) {
+            if ($q['status'] === 'accepted') $totalQuoted += floatval($q['total_amount'] ?? 0);
+        }
+
+        // ── Expenses against this contact's jobs/properties ──
+        $totalExpenses = 0;
+        try {
+            $expParams = [];
+            $expConditions = [];
+            if (!empty($propIds)) {
+                $expConditions[] = "e.property_id IN (" . implode(',', array_fill(0, count($propIds), '?')) . ")";
+                $expParams = array_merge($expParams, $propIds);
+            }
+            $planIdsForExp = array_column($contactPlans, 'id');
+            if (!empty($planIdsForExp)) {
+                $expConditions[] = "e.job_id IN (" . implode(',', array_fill(0, count($planIdsForExp), '?')) . ")";
+                $expParams = array_merge($expParams, $planIdsForExp);
+            }
+            if (!empty($expConditions)) {
+                $stmt = $db->prepare("SELECT COALESCE(SUM(e.total), 0) FROM expenses e WHERE " . implode(' OR ', $expConditions));
+                $stmt->execute($expParams);
+                $totalExpenses = floatval($stmt->fetchColumn());
+            }
+        } catch (Exception $e) { $totalExpenses = 0; }
+
+        // ── Activity Log (last 20) ──
+        $contactActivity = [];
+        try {
+            $actParams = [$clientId];
+            $actConditions = ['al.contact_id = ?'];
+            if (!empty($propIds)) {
+                $actConditions[] = "al.property_id IN (" . implode(',', array_fill(0, count($propIds), '?')) . ")";
+                $actParams = array_merge($actParams, $propIds);
+            }
+            $quoteIds = array_column($contactQuotes, 'id');
+            if (!empty($quoteIds)) {
+                $actConditions[] = "al.quote_id IN (" . implode(',', array_fill(0, count($quoteIds), '?')) . ")";
+                $actParams = array_merge($actParams, $quoteIds);
+            }
+            $allPlanIds = array_column($contactPlans, 'id');
+            if (!empty($allPlanIds)) {
+                $actConditions[] = "al.plan_id IN (" . implode(',', array_fill(0, count($allPlanIds), '?')) . ")";
+                $actParams = array_merge($actParams, $allPlanIds);
+            }
+            $stmt = $db->prepare("
+                SELECT al.action, al.details, al.created_at, u.full_name
+                FROM activity_log al
+                LEFT JOIN users u ON al.user_id = u.id
+                WHERE " . implode(' OR ', $actConditions) . "
+                ORDER BY al.created_at DESC
+                LIMIT 20
+            ");
+            $stmt->execute($actParams);
+            $contactActivity = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) { $contactActivity = []; }
+
+        // ── Client Notes ──
+        $contactNotes = [];
+        try {
+            if (function_exists('getClientNotes')) {
+                $contactNotes = getClientNotes($clientId);
+            }
+        } catch (Exception $e) { $contactNotes = []; }
+
+        // ── Data Health Checks ──
+        $dataHealth = [];
+        if (empty($viewContact['email'])) $dataHealth[] = ['level' => 'warn', 'icon' => 'mail', 'text' => 'No email address'];
+        if (empty($viewContact['phone']) && empty($viewContact['mobile'])) $dataHealth[] = ['level' => 'critical', 'icon' => 'phone', 'text' => 'No phone number'];
+        if (empty($contactProperties)) $dataHealth[] = ['level' => 'critical', 'icon' => 'map-pin', 'text' => 'No properties linked'];
+        if (empty($contactQuotes)) $dataHealth[] = ['level' => 'info', 'icon' => 'file-text', 'text' => 'No quotes created yet'];
+        if ($activePlanCount === 0) $dataHealth[] = ['level' => 'info', 'icon' => 'clipboard', 'text' => 'No active job plans'];
+        if ($ungeocodedCount > 0) $dataHealth[] = ['level' => 'warn', 'icon' => 'crosshair', 'text' => $ungeocodedCount . ' propert' . ($ungeocodedCount === 1 ? 'y' : 'ies') . ' not geocoded'];
+        if (empty($contactNotes)) $dataHealth[] = ['level' => 'info', 'icon' => 'message-circle', 'text' => 'No client notes'];
+        if ($totalOutstanding > 0) $dataHealth[] = ['level' => 'warn', 'icon' => 'alert-circle', 'text' => formatCurrency($totalOutstanding) . ' outstanding'];
 
         // Load Google Maps API (geometry for map display, places for address autocomplete)
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
@@ -1659,6 +1873,26 @@ $unconvertedRequests = $db->query("
                   </div>
                 </div>
 
+                <!-- Financial Summary -->
+                <div class="mw-client-stats-grid mb-3">
+                  <div class="mw-stat-card paid">
+                    <h4>Revenue</h4>
+                    <div class="value"><?php echo formatCurrency($totalRevenue); ?></div>
+                  </div>
+                  <div class="mw-stat-card <?php echo $totalOutstanding > 0 ? 'outstanding' : 'sent'; ?>">
+                    <h4>Outstanding</h4>
+                    <div class="value"><?php echo formatCurrency($totalOutstanding); ?></div>
+                  </div>
+                  <div class="mw-stat-card sent">
+                    <h4>Active Plans</h4>
+                    <div class="value"><?php echo $activePlanCount; ?></div>
+                  </div>
+                  <div class="mw-stat-card paid">
+                    <h4>Visits Done</h4>
+                    <div class="value"><?php echo $completedVisitCount; ?></div>
+                  </div>
+                </div>
+
                 <!-- Properties Card -->
                 <div class="card mb-3">
                   <div class="card-header d-flex justify-content-between align-items-center">
@@ -1718,6 +1952,235 @@ $unconvertedRequests = $db->query("
                               <i data-feather="x-circle" style="width: 14px; height: 14px;"></i>
                             </button>
                           </div>
+                        </div>
+                      <?php endforeach; ?>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Quotes Card -->
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="file-text"></i> Quotes
+                      <?php if (!empty($contactQuotes)): ?>
+                        <span class="badge badge-primary ml-1"><?php echo count($contactQuotes); ?></span>
+                      <?php endif; ?>
+                    </h5>
+                    <?php if (!empty($contactProperties)): ?>
+                      <a href="quotes/create.php?contact_id=<?php echo (int)$clientId; ?>" class="btn btn-sm btn-success">
+                        <i data-feather="plus"></i> New Quote
+                      </a>
+                    <?php endif; ?>
+                  </div>
+                  <div class="card-body p-0">
+                    <?php if (empty($contactQuotes)): ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="file-text" style="width: 32px; height: 32px; opacity: 0.4;"></i>
+                        <p class="mt-2 mb-0 small">No quotes yet</p>
+                      </div>
+                    <?php else: ?>
+                      <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 mw-client-compact-table">
+                          <thead>
+                            <tr><th>Quote</th><th>Status</th><th class="text-right">Amount</th><th>Date</th></tr>
+                          </thead>
+                          <tbody>
+                            <?php foreach ($contactQuotes as $q): ?>
+                              <tr onclick="window.location='quotes/view.php?id=<?php echo (int)$q['id']; ?>'" style="cursor:pointer;">
+                                <td>
+                                  <strong><?php echo h($q['quote_number']); ?></strong>
+                                  <?php if (!empty($q['title'])): ?>
+                                    <br><small class="text-muted"><?php echo h($q['title']); ?></small>
+                                  <?php endif; ?>
+                                </td>
+                                <td><?php echo getStatusBadge($q['status'], 'quote'); ?></td>
+                                <td class="text-right"><?php echo formatCurrency($q['total_amount'] ?? 0); ?></td>
+                                <td class="text-muted small"><?php echo formatDate($q['created_at']); ?></td>
+                              </tr>
+                            <?php endforeach; ?>
+                          </tbody>
+                        </table>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Job Plans Card -->
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="clipboard"></i> Job Plans
+                      <?php if (!empty($contactPlans)): ?>
+                        <span class="badge badge-primary ml-1"><?php echo count($contactPlans); ?></span>
+                      <?php endif; ?>
+                    </h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <?php if (empty($contactPlans)): ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="clipboard" style="width: 32px; height: 32px; opacity: 0.4;"></i>
+                        <p class="mt-2 mb-0 small">No job plans yet</p>
+                      </div>
+                    <?php else: ?>
+                      <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 mw-client-compact-table">
+                          <thead>
+                            <tr><th>Plan</th><th>Status</th><th>Visits</th><th class="text-right">$/Visit</th></tr>
+                          </thead>
+                          <tbody>
+                            <?php foreach ($contactPlans as $pl): ?>
+                              <tr onclick="window.location='jobs/view.php?id=<?php echo (int)$pl['id']; ?>'" style="cursor:pointer;">
+                                <td>
+                                  <strong><?php echo h($pl['plan_number']); ?></strong>
+                                  <br><small class="text-muted">
+                                    <?php echo h(ucwords(str_replace('_', ' ', $pl['service_type'] ?? ''))); ?>
+                                    <?php if ($pl['is_recurring']): ?>
+                                      &middot; <?php echo ucfirst($pl['recurrence_pattern'] ?? 'recurring'); ?>
+                                    <?php endif; ?>
+                                  </small>
+                                </td>
+                                <td><?php echo getStatusBadge($pl['status'], 'plan'); ?></td>
+                                <td>
+                                  <span class="<?php echo $pl['completed_count'] > 0 ? 'text-success' : 'text-muted'; ?>">
+                                    <?php echo (int)$pl['completed_count']; ?>/<?php echo (int)$pl['visit_count']; ?>
+                                  </span>
+                                  <?php if (!empty($pl['last_visit_date'])): ?>
+                                    <br><small class="text-muted">Last: <?php echo formatDate($pl['last_visit_date']); ?></small>
+                                  <?php endif; ?>
+                                </td>
+                                <td class="text-right"><?php echo formatCurrency($pl['price_per_visit'] ?? 0); ?></td>
+                              </tr>
+                            <?php endforeach; ?>
+                          </tbody>
+                        </table>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Recent Visits Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="calendar"></i> Recent Visits</h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <?php if (empty($contactVisits)): ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="calendar" style="width: 32px; height: 32px; opacity: 0.4;"></i>
+                        <p class="mt-2 mb-0 small">No visits scheduled yet</p>
+                      </div>
+                    <?php else: ?>
+                      <div class="mw-client-visit-list">
+                        <?php foreach ($contactVisits as $v): ?>
+                          <a href="jobs/view.php?id=<?php echo (int)$v['plan_id']; ?>" class="mw-client-visit-item">
+                            <div class="mw-client-visit-date">
+                              <div class="mw-client-visit-day"><?php echo date('j', strtotime($v['scheduled_date'])); ?></div>
+                              <div class="mw-client-visit-month"><?php echo date('M', strtotime($v['scheduled_date'])); ?></div>
+                            </div>
+                            <div class="mw-client-visit-info">
+                              <div><?php echo h(ucwords(str_replace('_', ' ', $v['service_type'] ?? $v['plan_title'] ?? ''))); ?></div>
+                              <small class="text-muted"><?php echo h($v['property_address'] ?? ''); ?></small>
+                            </div>
+                            <div class="mw-client-visit-status">
+                              <?php echo getStatusBadge($v['status'], 'visit'); ?>
+                              <?php if (floatval($v['actual_amount'] ?? 0) > 0): ?>
+                                <div class="small text-muted mt-1"><?php echo formatCurrency($v['actual_amount']); ?></div>
+                              <?php endif; ?>
+                            </div>
+                          </a>
+                        <?php endforeach; ?>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Invoices Card -->
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="dollar-sign"></i> Invoices
+                      <?php if (!empty($contactInvoices)): ?>
+                        <span class="badge badge-primary ml-1"><?php echo count($contactInvoices); ?></span>
+                      <?php endif; ?>
+                    </h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <?php if (empty($contactInvoices)): ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="dollar-sign" style="width: 32px; height: 32px; opacity: 0.4;"></i>
+                        <p class="mt-2 mb-0 small">No invoices yet</p>
+                      </div>
+                    <?php else: ?>
+                      <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 mw-client-compact-table">
+                          <thead>
+                            <tr><th>Invoice</th><th>Status</th><th class="text-right">Total</th><th class="text-right">Paid</th><th class="text-right">Balance</th></tr>
+                          </thead>
+                          <tbody>
+                            <?php foreach ($contactInvoices as $inv): ?>
+                              <tr onclick="window.location='invoices/view.php?id=<?php echo (int)$inv['id']; ?>'" style="cursor:pointer;">
+                                <td>
+                                  <strong><?php echo h($inv['invoice_number']); ?></strong>
+                                  <?php if (!empty($inv['issue_date'])): ?>
+                                    <br><small class="text-muted"><?php echo formatDate($inv['issue_date']); ?></small>
+                                  <?php endif; ?>
+                                </td>
+                                <td><?php echo getStatusBadge($inv['status'], 'invoice'); ?></td>
+                                <td class="text-right"><?php echo formatCurrency($inv['total'] ?? 0); ?></td>
+                                <td class="text-right"><?php echo formatCurrency($inv['amount_paid'] ?? 0); ?></td>
+                                <td class="text-right <?php echo floatval($inv['balance_due'] ?? 0) > 0 ? 'text-danger font-weight-bold' : 'text-success'; ?>">
+                                  <?php echo formatCurrency($inv['balance_due'] ?? 0); ?>
+                                </td>
+                              </tr>
+                            <?php endforeach; ?>
+                          </tbody>
+                        </table>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Client Notes Card -->
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0"><i data-feather="message-circle"></i> Notes</h5>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.getElementById('addNoteForm').style.display = document.getElementById('addNoteForm').style.display === 'none' ? 'block' : 'none'">
+                      <i data-feather="plus"></i> Add Note
+                    </button>
+                  </div>
+                  <div class="card-body">
+                    <!-- Add Note Form (hidden by default) -->
+                    <div id="addNoteForm" style="display: none;" class="mb-3 p-3 bg-light rounded">
+                      <div class="form-group mb-2">
+                        <select class="form-control form-control-sm" id="noteType">
+                          <option value="general">General</option>
+                          <option value="customer_request">Customer Request</option>
+                          <option value="issue">Issue</option>
+                          <option value="follow_up">Follow-up</option>
+                          <option value="internal">Internal</option>
+                        </select>
+                      </div>
+                      <div class="form-group mb-2">
+                        <textarea class="form-control form-control-sm" id="noteContent" rows="3" placeholder="Write a note..."></textarea>
+                      </div>
+                      <button type="button" class="btn btn-sm btn-primary" onclick="addClientNote()">Save Note</button>
+                    </div>
+                    <?php if (empty($contactNotes)): ?>
+                      <p class="text-muted small mb-0">No notes yet.</p>
+                    <?php else: ?>
+                      <?php foreach ($contactNotes as $note): ?>
+                        <div class="mw-note-item mb-2">
+                          <div class="mw-note-header">
+                            <span class="mw-note-type mw-note-type-<?php echo h(str_replace('_', '-', $note['note_type'] ?? 'general')); ?>">
+                              <?php echo ucfirst(str_replace('_', ' ', $note['note_type'] ?? 'general')); ?>
+                            </span>
+                            <span class="text-muted small">
+                              <?php echo h($note['created_by_name'] ?? $note['full_name'] ?? 'System'); ?>
+                              &mdash; <?php echo timeAgo($note['created_at']); ?>
+                            </span>
+                          </div>
+                          <div class="mw-note-content"><?php echo nl2br(h($note['content'])); ?></div>
                         </div>
                       <?php endforeach; ?>
                     <?php endif; ?>
@@ -1799,6 +2262,88 @@ $unconvertedRequests = $db->query("
                     <?php endif; ?>
                   </div>
                 </div>
+
+                <!-- Data Health Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="activity"></i> Data Health</h5>
+                  </div>
+                  <div class="card-body py-2">
+                    <?php if (empty($dataHealth)): ?>
+                      <div class="text-center py-3">
+                        <i data-feather="check-circle" style="width: 28px; height: 28px; color: var(--mw-green);"></i>
+                        <p class="mb-0 mt-2 small text-success font-weight-bold">All good! Profile is complete.</p>
+                      </div>
+                    <?php else: ?>
+                      <?php foreach ($dataHealth as $dh): ?>
+                        <div class="mw-data-health-item mw-data-health-<?php echo $dh['level']; ?>">
+                          <i data-feather="<?php echo h($dh['icon']); ?>"></i>
+                          <span><?php echo h($dh['text']); ?></span>
+                        </div>
+                      <?php endforeach; ?>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Profitability Card -->
+                <?php if ($totalRevenue > 0 || $totalExpenses > 0): ?>
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="trending-up"></i> Profitability</h5>
+                  </div>
+                  <div class="card-body py-2">
+                    <?php $profit = $totalRevenue - $totalExpenses; $margin = $totalRevenue > 0 ? ($profit / $totalRevenue) * 100 : 0; ?>
+                    <div class="mw-detail-row">
+                      <span class="mw-detail-label">Revenue</span>
+                      <span class="font-weight-bold text-success"><?php echo formatCurrency($totalRevenue); ?></span>
+                    </div>
+                    <div class="mw-detail-row">
+                      <span class="mw-detail-label">Expenses</span>
+                      <span class="font-weight-bold text-danger"><?php echo formatCurrency($totalExpenses); ?></span>
+                    </div>
+                    <div class="mw-detail-row" style="border-top: 2px solid #dee2e6;">
+                      <span class="mw-detail-label font-weight-bold">Profit</span>
+                      <span class="font-weight-bold <?php echo $profit >= 0 ? 'text-success' : 'text-danger'; ?>">
+                        <?php echo formatCurrency($profit); ?>
+                        <small class="text-muted">(<?php echo number_format($margin, 0); ?>%)</small>
+                      </span>
+                    </div>
+                    <?php if ($totalQuoted > 0 && $totalQuoted != $totalRevenue): ?>
+                    <div class="mw-detail-row">
+                      <span class="mw-detail-label">Quoted (Accepted)</span>
+                      <span class="text-muted"><?php echo formatCurrency($totalQuoted); ?></span>
+                    </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+                <?php endif; ?>
+
+                <!-- Activity Timeline Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="clock"></i> Activity</h5>
+                  </div>
+                  <div class="card-body py-2">
+                    <?php if (empty($contactActivity)): ?>
+                      <p class="text-muted small mb-0 text-center py-3">No activity recorded yet.</p>
+                    <?php else: ?>
+                      <ul class="mw-activity-list">
+                        <?php foreach ($contactActivity as $act): ?>
+                          <li class="mw-activity-item">
+                            <div><?php echo h($act['action']); ?></div>
+                            <?php if (!empty($act['details'])): ?>
+                              <div class="small text-muted"><?php echo h($act['details']); ?></div>
+                            <?php endif; ?>
+                            <div class="mw-activity-time">
+                              <?php echo h($act['full_name'] ?? 'System'); ?> &mdash; <?php echo timeAgo($act['created_at']); ?>
+                            </div>
+                          </li>
+                        <?php endforeach; ?>
+                      </ul>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
               </div><!-- end right col -->
             </div><!-- end row -->
 
@@ -2291,6 +2836,30 @@ $unconvertedRequests = $db->query("
                   activeTagPicker = null;
                 }
               });
+
+              // ── Add Client Note ──────────────────────────────────
+              function addClientNote() {
+                var noteType = document.getElementById('noteType').value;
+                var noteContent = document.getElementById('noteContent').value.trim();
+                if (!noteContent) { alert('Please enter a note.'); return; }
+
+                fetch('clients_appstack.php?action=add_client_note', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contact_id: CONTACT_ID,
+                    note_type: noteType,
+                    content: noteContent,
+                    csrf_token: CSRF_TOKEN
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) location.reload();
+                  else alert('Error: ' + (data.error || 'Unknown error'));
+                })
+                .catch(function(err) { alert('Error: ' + err.message); });
+              }
 
               // ── Init ────────────────────────────────────────────
               document.addEventListener('DOMContentLoaded', function() {
