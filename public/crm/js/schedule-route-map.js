@@ -19,8 +19,7 @@
 var MwRouteMap = (function() {
     'use strict';
 
-    // Only run on mobile
-    if (window.innerWidth > 991) return { toggle: function(){}, openToStop: function(){} };
+    // Map View works at all screen sizes (mobile, tablet, desktop)
 
     // ── State ──
     var map = null;

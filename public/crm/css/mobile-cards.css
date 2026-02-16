@@ -1094,267 +1094,309 @@
     }
 
     /* ════════════════════════════════════════════════════
-       MAP VIEW — Full-screen route overlay
+       EXPENSES — Mobile Receipt Snapper
        ════════════════════════════════════════════════════ */
 
-    .mw-mv {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 1060;
+    /* Hide desktop expense elements on mobile (prevents background scroll/interaction) */
+    #receiptCaptureCard,
+    #receiptReviewPanel,
+    #expenseStats {
+        display: none !important;
+    }
+
+    /* ── Capture Area ── */
+    .mw-mc-expense-capture {
+        display: flex;
         flex-direction: column;
-        background: #1a1a1a;
-    }
-
-    .mw-mv.mw-mv-visible {
-        display: flex;
-    }
-
-    /* ── Map View Top Bar ── */
-    .mw-mv-topbar {
-        flex-shrink: 0;
-        display: flex;
         align-items: center;
         gap: 12px;
-        padding: 10px 14px;
-        padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
-        background: var(--mc-card-bg, #fff);
-        border-bottom: 1px solid #ebe8e2;
-        z-index: 12;
+        padding: 24px 16px;
+        background: var(--mc-card-bg);
+        border-radius: var(--mc-radius-xl);
+        box-shadow: var(--mc-shadow-soft);
+        margin-bottom: 16px;
     }
 
-    .mw-mv-back {
+    .mw-mc-expense-snap-btn {
         display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        border: none;
-        border-radius: 50%;
-        background: transparent;
-        color: #333;
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .mw-mv-back:active {
-        background: #f0f0f0;
-    }
-
-    .mw-mv-topbar-title {
-        flex: 1;
-        font-size: 0.95rem;
-        font-weight: 600;
-        color: #333;
-        text-align: center;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .mw-mv-external {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        border: none;
-        border-radius: 50%;
-        background: transparent;
-        color: var(--mw-green, #2D8659);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .mw-mv-external:active {
-        background: #f0f0f0;
-    }
-
-    /* ── Google Map Container ── */
-    .mw-mv-map {
-        flex: 1;
-        min-height: 0;
-    }
-
-    /* Loading spinner overlay */
-    .mw-mv.mw-mv-loading .mw-mv-map::after {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        width: 36px;
-        height: 36px;
-        border: 3px solid rgba(255, 255, 255, 0.2);
-        border-top-color: var(--mw-green, #2D8659);
-        border-radius: 50%;
-        animation: mw-mv-spin 0.8s linear infinite;
-        z-index: 5;
-    }
-
-    .mw-mv-map {
-        position: relative;
-    }
-
-    @keyframes mw-mv-spin {
-        to { transform: translate(-50%, -50%) rotate(360deg); }
-    }
-
-    /* ── Card Tray (bottom carousel) ── */
-    .mw-mv-card-tray {
-        flex-shrink: 0;
-        position: relative;
-        background: var(--mc-bg-app, #F6F4EF);
-        padding: 14px 0 8px 0;
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
-        overflow: hidden;
-        border-top-left-radius: 18px;
-        border-top-right-radius: 18px;
-        box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.12);
-        z-index: 11;
-    }
-
-    .mw-mv-card-track {
-        display: flex;
-        gap: 12px;
-        padding: 0 16px;
-        will-change: transform;
-    }
-
-    /* ── Individual Card ── */
-    .mw-mv-card {
-        flex-shrink: 0;
-        width: calc(100vw - 48px);
-        display: flex;
-        flex-direction: row;
-        background: var(--mc-card-bg, #fff);
-        border-radius: var(--mc-radius-md, 12px);
-        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
-        overflow: hidden;
-        opacity: 0.5;
-        transform: scale(0.95);
-        transition: opacity 0.3s ease, transform 0.3s ease;
-        -webkit-tap-highlight-color: transparent;
-    }
-
-    .mw-mv-card.mw-mv-card-active {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    .mw-mv-card-accent {
-        width: 5px;
-        flex-shrink: 0;
-    }
-
-    .mw-mv-card-body {
-        flex: 1;
-        min-width: 0;
-        padding: 14px 14px 12px 12px;
-    }
-
-    .mw-mv-card-row1 {
-        display: flex;
+        flex-direction: column;
         align-items: center;
         gap: 8px;
-        margin-bottom: 6px;
-    }
-
-    .mw-mv-card-number {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 22px;
-        height: 22px;
+        padding: 24px 32px;
         background: var(--mw-green, #2D8659);
         color: #fff;
-        font-size: 0.72rem;
+        border: none;
+        border-radius: var(--mc-radius-md);
+        font-size: 1rem;
         font-weight: 700;
-        border-radius: 50%;
-        flex-shrink: 0;
+        cursor: pointer;
+        width: 100%;
+        -webkit-tap-highlight-color: transparent;
+        transition: background 0.15s ease, transform 0.1s ease;
     }
 
-    .mw-mv-card-service {
-        flex: 1;
-        font-size: 0.92rem;
-        font-weight: 600;
-        color: #212529;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+    .mw-mc-expense-snap-btn:active {
+        background: var(--mw-dark, #1A5F4A);
+        transform: scale(0.97);
     }
 
-    .mw-mv-card-time {
-        font-size: 0.78rem;
-        font-weight: 600;
-        color: #9e9e9e;
-        flex-shrink: 0;
-    }
-
-    .mw-mv-card-address {
-        display: flex;
+    .mw-mc-expense-gallery-btn {
+        display: inline-flex;
         align-items: center;
-        gap: 5px;
+        gap: 6px;
+        padding: 10px 20px;
+        background: #f8f7f4;
+        border: 1px solid #e8e5de;
+        border-radius: var(--mc-radius-md);
+        color: #555;
         font-size: 0.82rem;
-        color: #666;
-        margin-bottom: 4px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        font-weight: 600;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
     }
 
-    .mw-mv-card-address svg {
-        flex-shrink: 0;
+    /* ── Analyze Spinner (mobile) ── */
+    .mw-mc-expense-spinner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 40px 16px;
+        background: var(--mc-card-bg);
+        border-radius: var(--mc-radius-xl);
+        box-shadow: var(--mc-shadow-soft);
+        margin-bottom: 16px;
         color: #9e9e9e;
+        font-size: 0.9rem;
     }
 
-    .mw-mv-card-client {
+    .mw-mc-expense-spinner .spinner-dot {
+        width: 36px;
+        height: 36px;
+        border: 3px solid #e8e5de;
+        border-top-color: var(--mw-green, #2D8659);
+        border-radius: 50%;
+        animation: mwSpin 0.8s linear infinite;
+    }
+
+    @keyframes mwSpin {
+        to { transform: rotate(360deg); }
+    }
+
+    /* ── Review Panel (mobile) ── */
+    .mw-mc-expense-review {
+        background: var(--mc-card-bg);
+        border-radius: var(--mc-radius-xl);
+        box-shadow: var(--mc-shadow-soft);
+        overflow: hidden;
+        margin-bottom: 16px;
+    }
+
+    .mw-mc-expense-review-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 14px 16px;
+        border-bottom: 1px solid #ebe8e2;
+        font-size: 0.95rem;
+        font-weight: 600;
+    }
+
+    .mw-mc-expense-review-cancel {
+        border: none;
+        background: transparent;
+        color: #9e9e9e;
+        cursor: pointer;
+        padding: 4px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-expense-review-img-wrap {
+        padding: 12px 16px;
+        text-align: center;
+        background: #f8f9fa;
+    }
+
+    .mw-mc-expense-review-img-wrap img {
+        max-width: 100%;
+        max-height: 200px;
+        object-fit: contain;
+        border-radius: 8px;
+    }
+
+    .mw-mc-expense-review-form {
+        padding: 12px 16px 16px;
+    }
+
+    .mw-mc-expense-field {
+        margin-bottom: 10px;
+    }
+
+    .mw-mc-expense-field label {
+        display: block;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #9e9e9e;
+        margin-bottom: 3px;
+    }
+
+    .mw-mc-expense-field input,
+    .mw-mc-expense-field select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #e0ddd6;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: #fafaf8;
+        color: #333;
+        -webkit-appearance: none;
+    }
+
+    .mw-mc-expense-field input:focus,
+    .mw-mc-expense-field select:focus {
+        outline: none;
+        border-color: var(--mw-green, #2D8659);
+        box-shadow: 0 0 0 2px rgba(45, 134, 89, 0.15);
+    }
+
+    .mw-mc-expense-field-row {
+        display: flex;
+        gap: 8px;
+    }
+
+    .mw-mc-expense-field-row .mw-mc-expense-field {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .mw-mc-expense-save-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+    }
+
+    .mw-mc-expense-save-btn {
+        flex: 1;
         display: flex;
         align-items: center;
-        gap: 5px;
-        font-size: 0.78rem;
-        color: #888;
-        margin-bottom: 2px;
-    }
-
-    .mw-mv-card-client svg {
-        flex-shrink: 0;
-        color: #bbb;
-    }
-
-    .mw-mv-card-dur {
-        display: inline-block;
-        font-size: 0.72rem;
-        font-weight: 500;
-        color: #9e9e9e;
-        background: #f5f5f5;
-        padding: 1px 7px;
-        border-radius: 12px;
-        margin-top: 4px;
-    }
-
-    /* ── Dot indicators ── */
-    .mw-mv-card-dots {
-        display: flex;
         justify-content: center;
         gap: 6px;
-        padding: 10px 0 2px 0;
-    }
-
-    .mw-mv-dot {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: #d1d5db;
-        transition: background 0.2s ease, transform 0.2s ease;
-    }
-
-    .mw-mv-dot.mw-mv-dot-active {
+        padding: 12px;
         background: var(--mw-green, #2D8659);
-        transform: scale(1.3);
+        color: #fff;
+        border: none;
+        border-radius: var(--mc-radius-md);
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        min-height: 44px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-expense-save-btn:active {
+        background: var(--mw-dark, #1A5F4A);
+    }
+
+    .mw-mc-expense-send-btn {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 12px 16px;
+        background: #22c55e;
+        color: #fff;
+        border: none;
+        border-radius: var(--mc-radius-md);
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        min-height: 44px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-expense-send-btn:active {
+        background: #16a34a;
+    }
+
+    /* ── Expense List Items (mobile) ── */
+    .mw-mc-expense-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 14px 16px;
+        background: var(--mc-card-bg);
+        border-radius: var(--mc-radius-md);
+        box-shadow: var(--mc-shadow-soft);
+        margin-bottom: 8px;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: transform 0.15s ease;
+    }
+
+    .mw-mc-expense-item:active {
+        transform: translateY(-1px);
+    }
+
+    .mw-mc-expense-item-left {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .mw-mc-expense-item-vendor {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #333;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .mw-mc-expense-item-date {
+        font-size: 0.75rem;
+        color: #9e9e9e;
+        margin-top: 2px;
+    }
+
+    .mw-mc-expense-item-right {
+        flex-shrink: 0;
+        text-align: right;
+        padding-left: 12px;
+    }
+
+    .mw-mc-expense-item-amount {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .mw-mc-expense-item-status {
+        display: inline-block;
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-top: 3px;
+    }
+
+    .mw-mc-expense-item-status-draft {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+
+    .mw-mc-expense-item-status-approved {
+        background: #dbeafe;
+        color: #2563eb;
+    }
+
+    .mw-mc-expense-item-status-forwarded {
+        background: #dcfce7;
+        color: #16a34a;
     }
 
     /* ════════════════════════════════════════════════════
@@ -1369,13 +1411,285 @@
         .mw-mc-bottombar {
             padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
         }
+    }
+}
 
-        .mw-mv-topbar {
-            padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
-        }
+/* ════════════════════════════════════════════════════════
+   MAP VIEW — Full-screen route overlay
+   Works at ALL screen sizes (phone, tablet, desktop)
+   ════════════════════════════════════════════════════════ */
 
-        .mw-mv-card-tray {
-            padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
-        }
+.mw-mv {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1060;
+    flex-direction: column;
+    background: #1a1a1a;
+}
+
+.mw-mv.mw-mv-visible {
+    display: flex;
+}
+
+/* ── Map View Top Bar ── */
+.mw-mv-topbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+    background: var(--mc-card-bg, #fff);
+    border-bottom: 1px solid #ebe8e2;
+    z-index: 12;
+}
+
+.mw-mv-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #333;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mv-back:active {
+    background: #f0f0f0;
+}
+
+.mw-mv-topbar-title {
+    flex: 1;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #333;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mw-mv-external {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--mw-green, #2D8659);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mv-external:active {
+    background: #f0f0f0;
+}
+
+/* ── Google Map Container ── */
+.mw-mv-map {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}
+
+/* Loading spinner overlay */
+.mw-mv.mw-mv-loading .mw-mv-map::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--mw-green, #2D8659);
+    border-radius: 50%;
+    animation: mw-mv-spin 0.8s linear infinite;
+    z-index: 5;
+}
+
+@keyframes mw-mv-spin {
+    to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* ── Card Tray (bottom carousel) ── */
+.mw-mv-card-tray {
+    flex-shrink: 0;
+    position: relative;
+    background: var(--mc-bg-app, #F6F4EF);
+    padding: 14px 0 8px 0;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    overflow: hidden;
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.12);
+    z-index: 11;
+}
+
+.mw-mv-card-track {
+    display: flex;
+    gap: 12px;
+    padding: 0 16px;
+    will-change: transform;
+}
+
+/* ── Individual Card ── */
+.mw-mv-card {
+    flex-shrink: 0;
+    width: calc(100vw - 48px);
+    display: flex;
+    flex-direction: row;
+    background: var(--mc-card-bg, #fff);
+    border-radius: var(--mc-radius-md, 12px);
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+    opacity: 0.5;
+    transform: scale(0.95);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mv-card.mw-mv-card-active {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.mw-mv-card-accent {
+    width: 5px;
+    flex-shrink: 0;
+}
+
+.mw-mv-card-body {
+    flex: 1;
+    min-width: 0;
+    padding: 14px 14px 12px 12px;
+}
+
+.mw-mv-card-row1 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.mw-mv-card-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.mw-mv-card-service {
+    flex: 1;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: #212529;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mw-mv-card-time {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #9e9e9e;
+    flex-shrink: 0;
+}
+
+.mw-mv-card-address {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.82rem;
+    color: #666;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mw-mv-card-address svg {
+    flex-shrink: 0;
+    color: #9e9e9e;
+}
+
+.mw-mv-card-client {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.78rem;
+    color: #888;
+    margin-bottom: 2px;
+}
+
+.mw-mv-card-client svg {
+    flex-shrink: 0;
+    color: #bbb;
+}
+
+.mw-mv-card-dur {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: #9e9e9e;
+    background: #f5f5f5;
+    padding: 1px 7px;
+    border-radius: 12px;
+    margin-top: 4px;
+}
+
+/* ── Dot indicators ── */
+.mw-mv-card-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 0 2px 0;
+}
+
+.mw-mv-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #d1d5db;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.mw-mv-dot.mw-mv-dot-active {
+    background: var(--mw-green, #2D8659);
+    transform: scale(1.3);
+}
+
+/* ── Map View on larger screens: limit card width ── */
+@media (min-width: 768px) {
+    .mw-mv-card {
+        width: 360px;
+    }
+}
+
+/* ── Map View PWA standalone tweaks ── */
+@media (display-mode: standalone) {
+    .mw-mv-topbar {
+        padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+    }
+
+    .mw-mv-card-tray {
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
     }
 }
