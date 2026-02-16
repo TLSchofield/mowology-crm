@@ -216,58 +216,90 @@ var MwRouteMap = (function() {
 
         var hasGPS = !!(userLat && userLng);
 
-        // Build destination (address string works for DirectionsService even without lat/lng)
-        var destination;
-        if (target.lat && target.lng) {
-            destination = new google.maps.LatLng(target.lat, target.lng);
-        } else if (target.address) {
-            destination = target.address;
-        } else {
-            viewEl.classList.remove('mw-mv-loading');
-            titleEl.textContent = 'No address';
+        // ── Single stop ──
+        if (stops.length === 1) {
+            if (hasGPS) {
+                // Route from user to the one stop
+                addUserMarker(userLat, userLng);
+                var dest = (target.lat && target.lng)
+                    ? new google.maps.LatLng(target.lat, target.lng)
+                    : target.address;
+                if (!dest) { geocodeAndShow(target, 0); return; }
+
+                titleEl.textContent = 'Calculating route...';
+                directionsService.route({
+                    origin: new google.maps.LatLng(userLat, userLng),
+                    destination: dest,
+                    travelMode: google.maps.TravelMode.DRIVING
+                }, function(result, status) {
+                    viewEl.classList.remove('mw-mv-loading');
+                    if (status === google.maps.DirectionsStatus.OK) {
+                        directionsRenderer.setDirections(result);
+                        var leg = result.routes[0].legs[0];
+                        placeMarkerAt(leg.end_location, target, 0, true);
+                        titleEl.textContent = leg.duration.text + ' \u00b7 ' + leg.distance.text;
+                        map.fitBounds(result.routes[0].bounds, { top: 20, right: 20, bottom: 20, left: 20 });
+                    } else {
+                        console.warn('[RouteMap] Single-stop directions failed:', status);
+                        geocodeAndShow(target, 0);
+                    }
+                });
+            } else {
+                // No GPS, one stop — just show it on the map
+                geocodeAndShow(target, 0);
+            }
             return;
         }
 
-        // Build origin
-        var origin;
+        // ── Multiple stops: build optimized route ──
+        // Origin: user GPS, or first stop
+        // Destination: last stop (or focused stop)
+        // Waypoints: everything in between, optimized
+
+        var origin, originIsStop = false;
         if (hasGPS) {
             origin = new google.maps.LatLng(userLat, userLng);
             addUserMarker(userLat, userLng);
-        } else if (stops.length > 1 && targetIdx > 0) {
-            var prev = stops[targetIdx - 1];
-            origin = (prev.lat && prev.lng)
-                ? new google.maps.LatLng(prev.lat, prev.lng)
-                : prev.address;
         } else {
-            // No GPS, single stop — geocode the address to at least show it on the map
-            geocodeAndShow(target, targetIdx);
-            return;
+            // No GPS — use first stop as origin
+            var first = stops[0];
+            origin = (first.lat && first.lng)
+                ? new google.maps.LatLng(first.lat, first.lng)
+                : first.address;
+            originIsStop = true;
+            if (!origin) { geocodeAndShow(target, targetIdx); return; }
         }
 
-        // Build request
+        // Destination: last stop
+        var last = stops[stops.length - 1];
+        var destination = (last.lat && last.lng)
+            ? new google.maps.LatLng(last.lat, last.lng)
+            : last.address;
+        if (!destination) { geocodeAndShow(target, targetIdx); return; }
+
+        // Waypoints: all stops that aren't origin or destination
+        var waypoints = [];
+        var startIdx = originIsStop ? 1 : 0; // skip first stop if it's the origin
+        var endIdx = stops.length - 1; // skip last stop (it's destination)
+        for (var w = startIdx; w < endIdx; w++) {
+            var ws = stops[w];
+            var loc = (ws.lat && ws.lng)
+                ? new google.maps.LatLng(ws.lat, ws.lng)
+                : ws.address;
+            if (loc) {
+                waypoints.push({ location: loc, stopover: true });
+            }
+        }
+
         var request = {
             origin: origin,
             destination: destination,
             travelMode: google.maps.TravelMode.DRIVING
         };
 
-        // Multi-stop waypoint optimization
-        if (hasGPS && stops.length > 1) {
-            var waypoints = [];
-            for (var w = 0; w < stops.length; w++) {
-                if (w === targetIdx) continue;
-                var ws = stops[w];
-                var loc = (ws.lat && ws.lng)
-                    ? new google.maps.LatLng(ws.lat, ws.lng)
-                    : ws.address;
-                if (loc) {
-                    waypoints.push({ location: loc, stopover: true });
-                }
-            }
-            if (waypoints.length > 0) {
-                request.waypoints = waypoints;
-                request.optimizeWaypoints = true;
-            }
+        if (waypoints.length > 0) {
+            request.waypoints = waypoints;
+            request.optimizeWaypoints = true;
         }
 
         titleEl.textContent = 'Calculating route...';
@@ -278,11 +310,32 @@ var MwRouteMap = (function() {
             if (status === google.maps.DirectionsStatus.OK) {
                 directionsRenderer.setDirections(result);
 
-                // Place markers using the route legs (these have resolved lat/lng even for address-only stops)
+                // Place markers at each leg endpoint
                 var legs = result.routes[0].legs;
-                placeRouteMarkers(stops, targetIdx, legs, hasGPS);
 
-                // ETA display
+                // First leg start = origin (user or first stop)
+                if (originIsStop) {
+                    placeMarkerAt(legs[0].start_location, stops[0], 0, targetIdx === 0);
+                }
+
+                // Each leg end = a stop
+                var waypointOrder = result.routes[0].waypoint_order || [];
+                for (var li = 0; li < legs.length; li++) {
+                    var stopIdx;
+                    if (li < legs.length - 1) {
+                        // This leg ends at a waypoint
+                        var origWpIdx = waypointOrder.length > 0 ? waypointOrder[li] : li;
+                        stopIdx = origWpIdx + (originIsStop ? 1 : 0);
+                    } else {
+                        // Last leg ends at destination (last stop)
+                        stopIdx = stops.length - 1;
+                    }
+                    if (stopIdx >= 0 && stopIdx < stops.length) {
+                        placeMarkerAt(legs[li].end_location, stops[stopIdx], stopIdx, stopIdx === targetIdx);
+                    }
+                }
+
+                // ETA: show total for all legs, or just to the focused stop
                 var totalDuration = 0;
                 var totalDistance = 0;
                 for (var l = 0; l < legs.length; l++) {
@@ -304,7 +357,6 @@ var MwRouteMap = (function() {
                 }
             } else {
                 console.warn('[RouteMap] Directions failed:', status);
-                // Fallback: try to geocode and show the destination at least
                 geocodeAndShow(target, targetIdx);
             }
         });
@@ -358,50 +410,6 @@ var MwRouteMap = (function() {
     // ═══════════════════════════════════════════════════
     //  MARKERS
     // ═══════════════════════════════════════════════════
-
-    /**
-     * Place markers using the resolved positions from DirectionsService legs.
-     * This works even when stops only have addresses (no lat/lng) because the
-     * Directions API resolves addresses to coordinates in its response.
-     */
-    function placeRouteMarkers(stops, targetIdx, legs, hasGPS) {
-        // legs[0].start_location = origin
-        // legs[0].end_location = first waypoint or destination
-        // legs[n].end_location = next waypoint or final destination
-
-        // Collect all resolved positions from the route
-        // If origin is user GPS, the stop positions start at legs[0].end_location
-        // If origin is a stop, positions start at legs[0].start_location
-
-        if (hasGPS) {
-            // Origin is user GPS → first stop is at legs[0].end_location
-            // But with waypoints, order may be optimized
-            // Simplest: place marker at the destination end of the last leg
-            var lastLeg = legs[legs.length - 1];
-            placeMarkerAt(lastLeg.end_location, stops[targetIdx], targetIdx, true);
-
-            // Place other stops at intermediate leg endpoints
-            // This is approximate when waypoints are reordered, but gives good placement
-            for (var i = 0; i < stops.length; i++) {
-                if (i === targetIdx) continue;
-                if (stops[i].lat && stops[i].lng) {
-                    placeMarkerAt(
-                        new google.maps.LatLng(stops[i].lat, stops[i].lng),
-                        stops[i], i, false
-                    );
-                } else if (legs.length > 1 && i < legs.length) {
-                    // Use leg endpoint as approximate position
-                    placeMarkerAt(legs[i].end_location, stops[i], i, false);
-                }
-            }
-        } else {
-            // Origin is a stop, destination is the target
-            placeMarkerAt(legs[legs.length - 1].end_location, stops[targetIdx], targetIdx, true);
-            if (legs.length > 0) {
-                placeMarkerAt(legs[0].start_location, stops[targetIdx > 0 ? targetIdx - 1 : 0], targetIdx > 0 ? targetIdx - 1 : 0, false);
-            }
-        }
-    }
 
     function placeMarkerAt(position, stop, index, isActive) {
         var color = isActive ? (serviceColors[stop.serviceType] || '#2D8659') : '#9CA3AF';
