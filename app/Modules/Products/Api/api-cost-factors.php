@@ -231,6 +231,8 @@ try {
         if (!isset($settings['estimated_monthly_revenue'])) $settings['estimated_monthly_revenue'] = 18000;
         if (!isset($settings['estimated_jobs_per_month'])) $settings['estimated_jobs_per_month'] = 40;
         if (!isset($settings['overhead_mode'])) $settings['overhead_mode'] = 0;
+        if (!isset($settings['overhead_apply_mode'])) $settings['overhead_apply_mode'] = 0; // 0=percentage, 1=per_hour
+        if (!isset($settings['estimated_billable_hours'])) $settings['estimated_billable_hours'] = 160;
 
         echo json_encode(['success' => true, 'settings' => $settings]);
 
@@ -238,7 +240,7 @@ try {
     } elseif ($action === 'save-overhead') {
         $data = json_decode(file_get_contents('php://input'), true);
 
-        $validKeys = ['overhead_percent', 'profit_margin', 'gst_rate', 'estimated_monthly_revenue', 'estimated_jobs_per_month', 'overhead_mode'];
+        $validKeys = ['overhead_percent', 'profit_margin', 'gst_rate', 'estimated_monthly_revenue', 'estimated_jobs_per_month', 'overhead_mode', 'overhead_apply_mode', 'estimated_billable_hours'];
         $saved = 0;
 
         foreach ($validKeys as $key) {
@@ -254,7 +256,9 @@ try {
                     'gst_rate' => 'GST tax rate',
                     'estimated_monthly_revenue' => 'Estimated monthly billable revenue',
                     'estimated_jobs_per_month' => 'Estimated number of jobs per month',
-                    'overhead_mode' => 'Overhead calculation mode (0=auto from items, 1=manual)'
+                    'overhead_mode' => 'Overhead calculation mode (0=auto from items, 1=manual)',
+                    'overhead_apply_mode' => 'Overhead application mode (0=percentage of costs, 1=per billable hour)',
+                    'estimated_billable_hours' => 'Estimated billable hours per month'
                 ];
                 $stmt->execute([
                     $key,

@@ -1763,6 +1763,18 @@ a:hover {
   margin-top: 4px;
 }
 
+.mw-oh-stat-card.mw-oh-stat-active {
+  border-color: var(--mw-green);
+  border-width: 2px;
+  box-shadow: 0 0 0 1px var(--mw-green, #2D8659) inset;
+}
+.mw-oh-stat-card.mw-oh-stat-active .label::after {
+  content: " \2713 ACTIVE";
+  color: var(--mw-green);
+  font-size: 9px;
+  font-weight: 700;
+}
+
 /* Category header rows in the items table */
 .mw-oh-category-header {
   background: #f8f9fa !important;

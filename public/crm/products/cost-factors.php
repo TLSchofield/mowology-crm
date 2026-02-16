@@ -119,9 +119,9 @@ $csrfToken = generateCSRFToken();
                   <div class="sub">Of estimated monthly revenue</div>
                 </div>
                 <div class="mw-oh-stat-card">
-                  <div class="label">Breakeven Revenue</div>
-                  <div class="value" id="ohBreakeven">$0</div>
-                  <div class="sub">Min revenue to cover overhead</div>
+                  <div class="label">Overhead $/hr</div>
+                  <div class="value" id="ohPerHour">$0</div>
+                  <div class="sub">Per billable hour</div>
                 </div>
                 <div class="mw-oh-stat-card">
                   <div class="label">Per-Job Overhead</div>
@@ -142,6 +142,16 @@ $csrfToken = generateCSRFToken();
                     </div>
                     <div class="collapse show" id="settingsCollapse">
                       <div class="card-body">
+                        <!-- Overhead Application Mode -->
+                        <div class="mb-3">
+                          <label class="d-block mb-1"><strong>How should overhead be applied to product costings?</strong></label>
+                          <div class="btn-group btn-group-sm" role="group" id="ohApplyModeGroup">
+                            <button type="button" class="btn btn-outline-primary active" data-mode="0" onclick="setApplyMode(0)">% of Costs</button>
+                            <button type="button" class="btn btn-outline-primary" data-mode="1" onclick="setApplyMode(1)">$ per Hour</button>
+                          </div>
+                          <small class="text-muted d-block mt-1" id="applyModeHint">Overhead added as a percentage of direct costs (labor + equipment + materials)</small>
+                        </div>
+
                         <!-- Manual Override Toggle -->
                         <div class="mw-oh-mode-toggle">
                           <div class="custom-control custom-switch">
@@ -161,10 +171,17 @@ $csrfToken = generateCSRFToken();
                               </div>
                             </div>
                           </div>
-                          <div class="col-md-3">
+                          <div class="col-md-2">
                             <div class="form-group">
                               <label>Est. Jobs / Month</label>
                               <input type="number" class="form-control oh-setting-input" id="estJobs" value="40" step="1" min="1">
+                            </div>
+                          </div>
+                          <div class="col-md-2">
+                            <div class="form-group">
+                              <label>Billable Hrs / Month</label>
+                              <input type="number" class="form-control oh-setting-input" id="estBillableHours" value="160" step="1" min="1">
+                              <small class="form-text text-muted">For $/hr calc</small>
                             </div>
                           </div>
                           <div class="col-md-2">
@@ -179,7 +196,7 @@ $csrfToken = generateCSRFToken();
                               <input type="number" class="form-control oh-setting-input" id="profitMargin" value="35" step="0.5" min="0" max="100">
                             </div>
                           </div>
-                          <div class="col-md-2">
+                          <div class="col-md-1">
                             <div class="form-group">
                               <label>GST %</label>
                               <input type="number" class="form-control oh-setting-input" id="gstRate" value="5" step="0.1" min="0" max="20">
@@ -258,7 +275,7 @@ $csrfToken = generateCSRFToken();
 
                   <!-- Pricing Example -->
                   <div class="mw-calc-box" id="overheadPreview">
-                    <h4>Pricing per $100 Job Cost</h4>
+                    <h4 id="ohPreviewTitle">Pricing per $100 Job Cost</h4>
                     <div class="mw-calc-row">
                       <span>Base Cost</span>
                       <span>$100.00</span>
@@ -627,7 +644,7 @@ const API = 'api-cost-factors.php';
 // State
 let allFactors = [];
 let overheadItems = [];
-let overheadSettings = { overhead_percent: 20, profit_margin: 35, gst_rate: 5, estimated_monthly_revenue: 18000, estimated_jobs_per_month: 40, overhead_mode: 0 };
+let overheadSettings = { overhead_percent: 20, profit_margin: 35, gst_rate: 5, estimated_monthly_revenue: 18000, estimated_jobs_per_month: 40, overhead_mode: 0, overhead_apply_mode: 0, estimated_billable_hours: 160 };
 
 // ── Init ──────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
@@ -677,10 +694,14 @@ function loadAllData() {
             document.getElementById('estRevenue').value = overheadSettings.estimated_monthly_revenue || 18000;
             document.getElementById('estJobs').value = overheadSettings.estimated_jobs_per_month || 40;
             document.getElementById('overheadPercent').value = overheadSettings.overhead_percent || 20;
+            document.getElementById('estBillableHours').value = overheadSettings.estimated_billable_hours || 160;
             // Restore manual mode
             var manualMode = overheadSettings.overhead_mode == 1;
             document.getElementById('ohManualMode').checked = manualMode;
             document.getElementById('manualOhGroup').style.display = manualMode ? 'block' : 'none';
+            // Restore apply mode
+            var applyMode = parseInt(overheadSettings.overhead_apply_mode) || 0;
+            setApplyMode(applyMode, true);
         }
 
         if (ohItemsResult.success) {
@@ -938,6 +959,21 @@ function normalizeToMonthly(amount, frequency) {
     return amount * (FREQ_MULTIPLIER[frequency] || 1);
 }
 
+function setApplyMode(mode, skipRecalc) {
+    overheadSettings.overhead_apply_mode = mode;
+    var btns = document.querySelectorAll('#ohApplyModeGroup .btn');
+    btns.forEach(function(btn) {
+        btn.classList.toggle('active', parseInt(btn.getAttribute('data-mode')) === mode);
+    });
+    var hint = document.getElementById('applyModeHint');
+    if (mode === 1) {
+        hint.textContent = 'Overhead added as a flat $/hr rate based on total overhead \u00f7 billable hours per month';
+    } else {
+        hint.textContent = 'Overhead added as a percentage of direct costs (labor + equipment + materials)';
+    }
+    if (!skipRecalc) recalcOverhead();
+}
+
 function recalcOverhead() {
     var manualMode = document.getElementById('ohManualMode').checked;
     var revenue = parseFloat(document.getElementById('estRevenue').value) || 1;
@@ -965,17 +1001,27 @@ function recalcOverhead() {
     }
 
     var perJob = jobsPerMonth > 0 ? totalMonthly / jobsPerMonth : 0;
+    var billableHours = parseFloat(document.getElementById('estBillableHours').value) || 160;
+    var perHour = billableHours > 0 ? totalMonthly / billableHours : 0;
 
     // Update stat cards
     document.getElementById('ohTotalMonthly').textContent = '$' + Math.round(totalMonthly).toLocaleString();
     var pctEl = document.getElementById('ohAutoPercent');
     pctEl.textContent = ohPct.toFixed(1) + '%';
     pctEl.className = 'value' + (ohPct > 40 ? ' danger' : (ohPct > 25 ? ' warning' : ''));
-    document.getElementById('ohBreakeven').textContent = '$' + Math.round(totalMonthly).toLocaleString();
+    var perHourEl = document.getElementById('ohPerHour');
+    perHourEl.textContent = '$' + perHour.toFixed(2);
     document.getElementById('ohPerJob').textContent = '$' + perJob.toFixed(2);
+
+    // Highlight the active mode stat card
+    var applyMode = parseInt(overheadSettings.overhead_apply_mode) || 0;
+    pctEl.parentElement.classList.toggle('mw-oh-stat-active', applyMode === 0);
+    perHourEl.parentElement.classList.toggle('mw-oh-stat-active', applyMode === 1);
 
     // Update global state for calculator
     overheadSettings.overhead_percent = ohPct;
+    overheadSettings.overhead_per_hour = perHour;
+    overheadSettings.estimated_billable_hours = billableHours;
     overheadSettings.profit_margin = pm;
     overheadSettings.gst_rate = gst;
 
@@ -1001,7 +1047,7 @@ function recalcOverhead() {
     // Update pricing example
     updateOverheadPreview(ohPct, pm, gst);
 
-    return { totalMonthly: totalMonthly, percent: ohPct, byCategory: byCategory };
+    return { totalMonthly: totalMonthly, percent: ohPct, perHour: perHour, byCategory: byCategory };
 }
 
 function updateCategoryBreakdown(byCategory, total) {
@@ -1027,15 +1073,25 @@ function updateOverheadPreview(oh, pm, gst) {
     if (pm === undefined) pm = overheadSettings.profit_margin || 0;
     if (gst === undefined) gst = overheadSettings.gst_rate || 0;
     var base = 100;
+    var applyMode = parseInt(overheadSettings.overhead_apply_mode) || 0;
+    var perHour = overheadSettings.overhead_per_hour || 0;
 
-    var overhead = base * (oh / 100);
+    var overhead;
+    if (applyMode === 1) {
+        // Per-hour mode: assume 2 labor hours for a $100 job example
+        var exampleHours = 2;
+        overhead = perHour * exampleHours;
+        document.getElementById('ohOverheadLabel').textContent = '+ Overhead ($' + perHour.toFixed(2) + '/hr x ' + exampleHours + 'h)';
+    } else {
+        overhead = base * (oh / 100);
+        document.getElementById('ohOverheadLabel').textContent = '+ Overhead (' + oh + '%)';
+    }
     var totalCost = base + overhead;
     var profit = totalCost * (pm / 100);
     var selling = totalCost + profit;
     var tax = selling * (gst / 100);
     var final_ = selling + tax;
 
-    document.getElementById('ohOverheadLabel').textContent = '+ Overhead (' + oh + '%)';
     document.getElementById('ohOverheadVal').textContent = '$' + overhead.toFixed(2);
     document.getElementById('ohTotalCost').textContent = '$' + totalCost.toFixed(2);
     document.getElementById('ohProfitLabel').textContent = '+ Profit (' + pm + '%)';
@@ -1056,7 +1112,9 @@ function saveOverheadSettings() {
         gst_rate: parseFloat(document.getElementById('gstRate').value) || 0,
         estimated_monthly_revenue: parseFloat(document.getElementById('estRevenue').value) || 0,
         estimated_jobs_per_month: parseFloat(document.getElementById('estJobs').value) || 0,
-        overhead_mode: manualMode ? 1 : 0
+        estimated_billable_hours: parseFloat(document.getElementById('estBillableHours').value) || 160,
+        overhead_mode: manualMode ? 1 : 0,
+        overhead_apply_mode: parseInt(overheadSettings.overhead_apply_mode) || 0
     };
 
     fetch(API + '?action=save-overhead', {
@@ -1265,8 +1323,16 @@ function runCalculator() {
     var oh = overheadSettings.overhead_percent || 20;
     var pm = overheadSettings.profit_margin || 35;
     var gst = overheadSettings.gst_rate || 5;
+    var applyMode = parseInt(overheadSettings.overhead_apply_mode) || 0;
+    var ohPerHr = overheadSettings.overhead_per_hour || 0;
 
-    var overheadCost = subtotal * (oh / 100);
+    var overheadCost;
+    var totalLaborHours = (laborHours * crewSize) + travelHours;
+    if (applyMode === 1) {
+        overheadCost = ohPerHr * totalLaborHours;
+    } else {
+        overheadCost = subtotal * (oh / 100);
+    }
     var totalCost = subtotal + overheadCost;
     var profit = totalCost * (pm / 100);
     var preTax = totalCost + profit;
@@ -1285,7 +1351,11 @@ function runCalculator() {
     document.getElementById('calcTravelCost').textContent = '$' + travelCost.toFixed(2);
     document.getElementById('calcMatCost').textContent = '$' + materialsCost.toFixed(2);
     document.getElementById('calcSubtotal').textContent = '$' + subtotal.toFixed(2);
-    document.getElementById('calcOverheadLabel').textContent = '+ Overhead (' + oh + '%)';
+    if (applyMode === 1) {
+        document.getElementById('calcOverheadLabel').textContent = '+ Overhead ($' + ohPerHr.toFixed(2) + '/hr x ' + totalLaborHours.toFixed(1) + 'h)';
+    } else {
+        document.getElementById('calcOverheadLabel').textContent = '+ Overhead (' + oh + '%)';
+    }
     document.getElementById('calcOverheadCost').textContent = '$' + overheadCost.toFixed(2);
     document.getElementById('calcTotalCost').textContent = '$' + totalCost.toFixed(2);
 
