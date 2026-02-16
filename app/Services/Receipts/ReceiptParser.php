@@ -272,6 +272,29 @@ function extractLineItems(array $lines): array
             continue;
         }
 
+        // Pattern: Canadian Tire style — "SKU ITEM NAME $" (alphanumeric SKU with dashes, trailing $)
+        // e.g., "053-0802-6 METH APC PG 828 $" or just "SIFTO RCKSLT 20 $"
+        if (preg_match('/^(?:\d{2,3}-\d{3,4}-\d\s+)?(.{3,}?)\s+\$\s*$/', $line, $m)) {
+            $itemName = trim($m[1]);
+            // Clean up: skip if it looks like a quantity line ("@ $") or header noise
+            if (!preg_match('/^[@#]/', $itemName) && strlen($itemName) >= 3) {
+                $pendingItems[] = $itemName;
+                $inItemZone = true;
+            }
+            continue;
+        }
+
+        // Pattern: Standalone Canadian Tire SKU line (no item name) — "042-0169-0" or "20X059-6986-0"
+        // Item name will be on the next line; skip the SKU line itself
+        if (preg_match('/^[\dA-Z]{2,4}-?\d{3,4}-\d\s*$/', $line)) {
+            continue;
+        }
+
+        // Pattern: "@ $" or "8.290 ea." quantity/unit lines — skip (price is elsewhere)
+        if (preg_match('/^@\s*\$|^\d+\.\d+\s*ea\.?\s*$/i', $line)) {
+            continue;
+        }
+
         // Pattern: Barcode + item name (Home Depot style)
         if (preg_match('/^\d{6,15}\s+(.+?)(?:\s*<[A-Z,]+>)?\s*$/', $line, $m)) {
             $itemName = trim($m[1]);
@@ -421,16 +444,24 @@ function extractTotal(string $text, array $lines): ?string
         return number_format($maxAmount, 2, '.', '');
     }
 
-    // Split-line fallback: "TOTAL\n$64.26" — look for standalone TOTAL line
+    // Split-line fallback: "TOTAL\n$64.26" or "Total Fee:\n$65.00" — look for standalone TOTAL line
     // Must NOT match SUBTOTAL (check exact word boundary)
     $lineCount = count($lines);
     for ($i = 0; $i < $lineCount - 1; $i++) {
         $line = trim($lines[$i]);
-        if (preg_match('/^(?:TOTAL|AMOUNT\s*DUE|BALANCE\s*DUE|GRAND\s*TOTAL)\s*:?\s*$/i', $line) &&
-            stripos($line, 'sub') === false) {
+        if (preg_match('/^(?:TOTAL(?:\s+\w+)?|AMOUNT\s*DUE|BALANCE\s*DUE|GRAND\s*TOTAL)\s*:?\s*$/i', $line) &&
+            stripos($line, 'sub') === false &&
+            stripos($line, 'tendered') === false) {
             $nextLine = trim($lines[$i + 1]);
             if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
                 return str_replace(',', '.', $m[1]);
+            }
+            // Handle three-line: "TOTAL\n$\n202.46"
+            if ($nextLine === '$' && $i + 2 < $lineCount) {
+                $amountLine = trim($lines[$i + 2]);
+                if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $amountLine, $m)) {
+                    return str_replace(',', '.', $m[1]);
+                }
             }
         }
     }
@@ -464,7 +495,7 @@ function extractGST(string $text): ?string
         }
     }
 
-    // Split-line fallback: "GST/HST\n2.88" or "GST\n$3.45"
+    // Split-line fallback: "GST/HST\n2.88" or "GST\n$3.45" or "GST 5%\n$\n9.04"
     if (!$found) {
         $lines = preg_split('/\r?\n/', $text);
         $lineCount = count($lines);
@@ -476,6 +507,14 @@ function extractGST(string $text): ?string
                 if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
                     $totalGst += (float)str_replace(',', '.', $m[1]);
                     $found = true;
+                }
+                // Handle three-line: "GST 5%\n$\n9.04"
+                elseif ($nextLine === '$' && $i + 2 < $lineCount) {
+                    $amountLine = trim($lines[$i + 2]);
+                    if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $amountLine, $m)) {
+                        $totalGst += (float)str_replace(',', '.', $m[1]);
+                        $found = true;
+                    }
                 }
             }
         }
@@ -496,7 +535,7 @@ function extractSubtotal(string $text): ?string
         return str_replace(',', '.', $m[1]);
     }
 
-    // Split-line fallback: "SUBTOTAL\n57.78"
+    // Split-line fallback: "SUBTOTAL\n57.78" or "SUBTOTAL\n$\n180.77"
     $lines = preg_split('/\r?\n/', $text);
     $lineCount = count($lines);
     for ($i = 0; $i < $lineCount - 1; $i++) {
@@ -505,6 +544,13 @@ function extractSubtotal(string $text): ?string
             $nextLine = trim($lines[$i + 1]);
             if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
                 return str_replace(',', '.', $m[1]);
+            }
+            // Handle three-line: "SUBTOTAL\n$\n180.77" (standalone $ between label and amount)
+            if ($nextLine === '$' && $i + 2 < $lineCount) {
+                $amountLine = trim($lines[$i + 2]);
+                if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $amountLine, $m)) {
+                    return str_replace(',', '.', $m[1]);
+                }
             }
         }
     }
