@@ -793,7 +793,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <textarea class="form-control" id="vendorNotes" rows="2"></textarea>
                 </div>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer d-flex">
+                <?php if ($canEdit): ?>
+                <button type="button" class="btn btn-outline-danger me-auto" id="vendorDeleteBtn" style="display:none;" onclick="deleteVendor(document.getElementById('vendorId').value, document.getElementById('vendorName').value)">
+                    <i data-feather="trash-2" style="width:14px;height:14px;"></i> Delete
+                </button>
+                <?php endif; ?>
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" onclick="saveVendor()">Save Vendor</button>
             </div>
@@ -1785,6 +1790,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var editBtn = CAN_EDIT
                 ? '<button class="btn btn-sm btn-outline-primary" onclick="editVendor(' + v.id + ')" title="Edit"><i data-feather="edit-2" style="width:14px;height:14px;"></i></button>'
                 : '';
+            var deleteBtn = CAN_EDIT
+                ? ' <button class="btn btn-sm btn-outline-danger" onclick="deleteVendor(' + v.id + ', \'' + esc(v.name).replace(/'/g, "\\'") + '\')" title="Delete"><i data-feather="trash-2" style="width:14px;height:14px;"></i></button>'
+                : '';
 
             return '<tr>' +
                 '<td><strong>' + esc(v.name) + '</strong></td>' +
@@ -1793,7 +1801,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 '<td>' + esc(v.default_gbp_category || '—') + '</td>' +
                 '<td>' + (v.location_count || 0) + '</td>' +
                 '<td>$' + parseFloat(v.total_spent || 0).toFixed(2) + '</td>' +
-                '<td>' + editBtn + '</td>' +
+                '<td class="text-nowrap">' + editBtn + deleteBtn + '</td>' +
             '</tr>';
         }).join('');
 
@@ -1810,6 +1818,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vendorPhone').value = data?.phone || '';
         document.getElementById('vendorWebsite').value = data?.website || '';
         document.getElementById('vendorNotes').value = data?.notes || '';
+        var delBtn = document.getElementById('vendorDeleteBtn');
+        if (delBtn) delBtn.style.display = data?.id ? '' : 'none';
         $('#vendorModal').modal('show');
     };
 
@@ -1845,6 +1855,22 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             });
             var d = await r.json();
             if (!d.success) throw new Error(d.error);
+            $('#vendorModal').modal('hide');
+            loadVendors();
+        } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    window.deleteVendor = async function(id, name) {
+        if (!confirm('Delete vendor "' + name + '"?\n\nIf this vendor has expenses, it will be deactivated instead of deleted.')) return;
+        try {
+            var r = await fetch('/crm/api/vendors.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', id: id, csrf_token: CSRF }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            alert(d.message);
             $('#vendorModal').modal('hide');
             loadVendors();
         } catch(e) { alert('Error: ' + e.message); }
