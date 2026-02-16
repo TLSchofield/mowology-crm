@@ -937,10 +937,73 @@ if ($action === 'view_company' && $clientId) {
             $companyProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
 
-        // Load Google Maps API for address autocomplete on add property modal
+        // Fetch tags for company properties (same pattern as contact view)
+        $companyPropertyTagMap = [];
+        $companyAvailableTags = [];
+        if (!empty($companyProperties)) {
+            $compPropIds = array_column($companyProperties, 'id');
+            $ctPlaceholders = implode(',', array_fill(0, count($compPropIds), '?'));
+            try {
+                $tagStmt = $db->prepare("
+                    SELECT et.entity_id AS property_id, et.id AS entity_tag_id,
+                           t.id AS tag_id, t.tag_key, t.tag_label, t.tag_group,
+                           t.tag_color, t.icon, t.has_value, et.tag_value
+                    FROM entity_tags et
+                    JOIN tags t ON t.id = et.tag_id
+                    WHERE et.entity_type = 'property'
+                      AND et.entity_id IN ({$ctPlaceholders})
+                      AND t.is_active = 1
+                    ORDER BY t.sort_order ASC, t.tag_label ASC
+                ");
+                $tagStmt->execute(array_values($compPropIds));
+                $allCompTags = $tagStmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($allCompTags as $tRow) {
+                    $companyPropertyTagMap[(int)$tRow['property_id']][] = $tRow;
+                }
+
+                $availStmt = $db->query("
+                    SELECT id AS tag_id, tag_key, tag_label, tag_group,
+                           tag_color, icon, has_value, sort_order
+                    FROM tags
+                    WHERE is_active = 1
+                      AND tag_group IN ('property_access', 'property_warning')
+                    ORDER BY sort_order ASC, tag_label ASC
+                ");
+                $companyAvailableTags = $availStmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Exception $e) {
+                // Tags tables may not exist yet
+            }
+        }
+
+        // Geocoded/ungeocoded counts for map display
+        $compGeocodedCount = 0;
+        $compUngeocodedCount = 0;
+        foreach ($companyProperties as $cp) {
+            if (floatval($cp['latitude'] ?? 0) != 0 && floatval($cp['longitude'] ?? 0) != 0) {
+                $compGeocodedCount++;
+            } else {
+                $compUngeocodedCount++;
+            }
+        }
+
+        // Fetch all active contacts for unlink/reassign modal
+        $companyOtherContacts = [];
+        try {
+            $stmt = $db->prepare("SELECT id, first_name, last_name, email FROM contacts WHERE is_active = 1 ORDER BY first_name, last_name");
+            $stmt->execute();
+            $companyOtherContacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) { /* ok */ }
+
+        // Build a contact name lookup for showing property owners
+        $companyContactNameMap = [];
+        foreach ($companyContacts as $cc) {
+            $companyContactNameMap[(int)$cc['id']] = trim(($cc['first_name'] ?? '') . ' ' . ($cc['last_name'] ?? ''));
+        }
+
+        // Load Google Maps API for address autocomplete + map display
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
         if ($apiKey && empty($extraHead)) {
-            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" defer></script>';
+            $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places" defer></script>';
         }
     }
 }
@@ -2528,8 +2591,11 @@ $unconvertedRequests = $db->query("
                         <?php endif; ?>
                       </div>
                     <?php else: ?>
-                      <?php foreach ($companyProperties as $prop): ?>
-                        <div class="mw-contact-property-item">
+                      <?php foreach ($companyProperties as $prop):
+                          $compPropTags = $companyPropertyTagMap[(int)$prop['id']] ?? [];
+                          $ownerName = $companyContactNameMap[(int)($prop['site_contact_id'] ?? 0)] ?? '';
+                      ?>
+                        <div class="mw-contact-property-item" onclick="focusCompanyProperty(<?php echo (int)$prop['id']; ?>)">
                           <div style="flex: 1; min-width: 0;">
                             <div class="mw-contact-property-addr">
                               <i data-feather="home" style="width: 14px; height: 14px;"></i>
@@ -2540,11 +2606,35 @@ $unconvertedRequests = $db->query("
                               <?php if (!empty($prop['property_type'])): ?>
                                 &middot; <?php echo ucwords(str_replace('_', ' ', $prop['property_type'])); ?>
                               <?php endif; ?>
+                              <?php if ($ownerName): ?>
+                                &middot; <i data-feather="user" style="width: 11px; height: 11px;"></i> <?php echo h($ownerName); ?>
+                              <?php endif; ?>
+                            </div>
+                            <!-- Property Tags -->
+                            <div class="mw-property-tags-row" id="compPropTags_<?php echo (int)$prop['id']; ?>" onclick="event.stopPropagation();">
+                              <?php foreach ($compPropTags as $pTag): ?>
+                                <span class="mw-property-tag" style="--tag-color: <?php echo h($pTag['tag_color']); ?>">
+                                  <?php echo h($pTag['has_value'] && !empty($pTag['tag_value']) ? $pTag['tag_label'] . ': ' . $pTag['tag_value'] : $pTag['tag_label']); ?>
+                                  <button type="button" class="mw-property-tag-remove" onclick="removeCompanyPropertyTag(<?php echo (int)$prop['id']; ?>, <?php echo (int)$pTag['entity_tag_id']; ?>, this)" title="Remove tag">&times;</button>
+                                </span>
+                              <?php endforeach; ?>
+                              <button type="button" class="mw-property-tag-add-btn" onclick="showCompanyTagPicker(<?php echo (int)$prop['id']; ?>, this)" title="Add tag">
+                                <i data-feather="plus" style="width: 10px; height: 10px;"></i>
+                              </button>
                             </div>
                           </div>
-                          <span class="badge badge-<?php echo ($prop['status'] ?? 'active') === 'active' ? 'success' : 'secondary'; ?>">
-                            <?php echo ucfirst(h($prop['status'] ?? 'active')); ?>
-                          </span>
+                          <div class="d-flex align-items-center" onclick="event.stopPropagation();">
+                            <?php if (floatval($prop['latitude'] ?? 0) == 0 || floatval($prop['longitude'] ?? 0) == 0): ?>
+                              <button type="button" class="btn btn-sm btn-outline-secondary mr-1" onclick="geocodeCompanyProperty(<?php echo (int)$prop['id']; ?>, this)" title="Geocode this address">
+                                <i data-feather="crosshair" style="width: 12px; height: 12px;"></i>
+                              </button>
+                            <?php else: ?>
+                              <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" style="width: 14px; height: 14px;"></i></span>
+                            <?php endif; ?>
+                            <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkCompanyProperty(<?php echo (int)$prop['id']; ?>, '<?php echo addslashes(h($prop['address'])); ?>', <?php echo (int)($prop['site_contact_id'] ?? 0); ?>)" title="Remove or reassign this property">
+                              <i data-feather="x-circle" style="width: 14px; height: 14px;"></i>
+                            </button>
+                          </div>
                         </div>
                       <?php endforeach; ?>
                     <?php endif; ?>
@@ -2602,6 +2692,39 @@ $unconvertedRequests = $db->query("
                       <div class="col-sm-4 text-muted">Created</div>
                       <div class="col-sm-8"><?php echo formatDate($viewCompany['created_at']); ?></div>
                     </div>
+                  </div>
+                </div>
+
+                <!-- Property Map Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="map"></i> Property Map</h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <?php if (!empty($companyProperties) && $compGeocodedCount > 0): ?>
+                      <div id="companyMapContainer" class="mw-contact-map-container"></div>
+                      <?php if ($compUngeocodedCount > 0): ?>
+                        <div class="text-center py-2 border-top">
+                          <small class="text-muted"><?php echo $compUngeocodedCount; ?> propert<?php echo $compUngeocodedCount === 1 ? 'y' : 'ies'; ?> not yet geocoded</small>
+                          <button type="button" class="btn btn-sm btn-outline-secondary ml-2" onclick="geocodeAllCompanyProperties()">
+                            <i data-feather="crosshair" style="width: 12px; height: 12px;"></i> Geocode All
+                          </button>
+                        </div>
+                      <?php endif; ?>
+                    <?php elseif (!empty($companyProperties)): ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="map" style="width: 32px; height: 32px;"></i>
+                        <p class="mt-2 mb-0">Properties not yet geocoded.</p>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="geocodeAllCompanyProperties()">
+                          <i data-feather="crosshair" style="width: 12px; height: 12px;"></i> Geocode All
+                        </button>
+                      </div>
+                    <?php else: ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="map" style="width: 32px; height: 32px;"></i>
+                        <p class="mt-2 mb-0">Add properties to see them on the map.</p>
+                      </div>
+                    <?php endif; ?>
                   </div>
                 </div>
 
@@ -2678,18 +2801,75 @@ $unconvertedRequests = $db->query("
               </div>
             </div>
 
+            <!-- Unlink/Reassign Property Modal (Company View) -->
+            <div class="modal fade" id="unlinkCompanyPropertyModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                  <div class="modal-header" style="background: #dc3545; color: #fff;">
+                    <h5 class="modal-title"><i data-feather="x-circle" style="width: 18px; height: 18px;"></i> Remove Property</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                      <span aria-hidden="true">&times;</span>
+                    </button>
+                  </div>
+                  <div class="modal-body">
+                    <p>Remove <strong id="unlinkCompPropAddress"></strong> from this company?</p>
+                    <div class="form-group">
+                      <label class="d-block mb-2">
+                        <input type="radio" name="unlinkCompAction" value="unlink" checked> Unlink only <small class="text-muted">(property keeps its data but has no contact)</small>
+                      </label>
+                      <label class="d-block mb-2">
+                        <input type="radio" name="unlinkCompAction" value="reassign"> Reassign to another contact
+                      </label>
+                    </div>
+                    <div id="reassignCompContactRow" style="display: none;">
+                      <label>Select contact:</label>
+                      <select class="form-control" id="reassignCompContactSelect">
+                        <option value="">-- Choose a contact --</option>
+                        <?php foreach ($companyOtherContacts as $oc): ?>
+                          <option value="<?php echo (int)$oc['id']; ?>">
+                            <?php echo h($oc['first_name'] . ' ' . $oc['last_name']); ?><?php echo !empty($oc['email']) ? ' (' . h($oc['email']) . ')' : ''; ?>
+                          </option>
+                        <?php endforeach; ?>
+                      </select>
+                    </div>
+                    <input type="hidden" id="unlinkCompPropertyId" value="">
+                    <input type="hidden" id="unlinkCompCurrentContactId" value="">
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="confirmUnlinkCompBtn" onclick="unlinkCompanyProperty()">
+                      <i data-feather="check"></i> Confirm
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <script>
+            (function() {
               var COMPANY_ID = <?php echo (int)$viewCompany['id']; ?>;
               var CSRF_TOKEN_CO = '<?php echo csrf_token(); ?>';
+              var companyPropertiesData = <?php echo json_encode($companyProperties); ?>;
+              var companyAvailableTags = <?php echo json_encode($companyAvailableTags); ?>;
+              var compGmap = null;
+              var compMarkers = {};
+              var compActiveTagPicker = null;
 
-              // Google Places autocomplete for company property modal — uses shared function
+              // ── Utility ─────────────────────────────────────────────
+              function escHtmlCo(str) {
+                var div = document.createElement('div');
+                div.appendChild(document.createTextNode(str || ''));
+                return div.innerHTML;
+              }
+
+              // ── Google Places autocomplete ──────────────────────────
               document.addEventListener('DOMContentLoaded', function() {
                 if (typeof initAddressAutocomplete === 'function') {
                   initAddressAutocomplete('compPropAddress', 'compPropCity', 'compPropPostalCode', null, 'compPropLat', 'compPropLng');
                 }
               });
 
-              // Submit handler
+              // ── Add Property ────────────────────────────────────────
               window.addPropertyToCompany = function(event) {
                 event.preventDefault();
                 var address = document.getElementById('compPropAddress').value.trim();
@@ -2731,6 +2911,338 @@ $unconvertedRequests = $db->query("
                   feather.replace();
                 });
               };
+
+              // ── Map ─────────────────────────────────────────────────
+              function initCompanyMap() {
+                var mapEl = document.getElementById('companyMapContainer');
+                if (!mapEl) return;
+                if (typeof google === 'undefined' || typeof google.maps === 'undefined') return;
+
+                var bounds = new google.maps.LatLngBounds();
+                var hasMarkers = false;
+
+                compGmap = new google.maps.Map(mapEl, {
+                  zoom: 12,
+                  center: { lat: 49.2827, lng: -123.1207 },
+                  mapTypeId: google.maps.MapTypeId.ROADMAP,
+                  mapTypeControl: false,
+                  streetViewControl: false
+                });
+
+                companyPropertiesData.forEach(function(prop) {
+                  var lat = parseFloat(prop.latitude);
+                  var lng = parseFloat(prop.longitude);
+                  if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
+
+                  var pos = { lat: lat, lng: lng };
+                  var marker = new google.maps.Marker({
+                    position: pos,
+                    map: compGmap,
+                    title: prop.address
+                  });
+
+                  var infoContent = '<div style="max-width: 250px;">' +
+                    '<strong>' + escHtmlCo(prop.address) + '</strong><br>' +
+                    '<small>' + escHtmlCo((prop.city || '') + (prop.province ? ', ' + prop.province : '') + ' ' + (prop.postal_code || '')) + '</small>' +
+                    '</div>';
+                  var infoWindow = new google.maps.InfoWindow({ content: infoContent });
+                  marker.addListener('click', function() { infoWindow.open(compGmap, marker); });
+
+                  compMarkers[prop.id] = marker;
+                  bounds.extend(pos);
+                  hasMarkers = true;
+                });
+
+                if (hasMarkers) {
+                  compGmap.fitBounds(bounds);
+                  if (Object.keys(compMarkers).length === 1) {
+                    google.maps.event.addListenerOnce(compGmap, 'bounds_changed', function() {
+                      compGmap.setZoom(15);
+                    });
+                  }
+                }
+              }
+
+              window.focusCompanyProperty = function(propertyId) {
+                if (!compGmap || !compMarkers[propertyId]) return;
+                var marker = compMarkers[propertyId];
+                compGmap.panTo(marker.getPosition());
+                compGmap.setZoom(16);
+                google.maps.event.trigger(marker, 'click');
+              };
+
+              // Init map on DOMContentLoaded
+              document.addEventListener('DOMContentLoaded', function() {
+                if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+                  initCompanyMap();
+                } else {
+                  var attempts = 0;
+                  var interval = setInterval(function() {
+                    attempts++;
+                    if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+                      clearInterval(interval);
+                      initCompanyMap();
+                    }
+                    if (attempts > 50) clearInterval(interval);
+                  }, 200);
+                }
+              });
+
+              // ── Geocoding ───────────────────────────────────────────
+              var compGeocoder = null;
+
+              function geocodeCompanyPropertyAjax(propertyId) {
+                if (!compGeocoder) compGeocoder = new google.maps.Geocoder();
+                var prop = companyPropertiesData.find(function(p) { return p.id == propertyId; });
+                if (!prop) return Promise.reject(new Error('Property not found'));
+
+                var parts = [prop.address, prop.city, prop.province, prop.postal_code, 'Canada'].filter(Boolean);
+                var address = parts.join(', ');
+
+                return new Promise(function(resolve, reject) {
+                  compGeocoder.geocode({ address: address }, function(results, status) {
+                    if (status === 'OK' && results[0]) {
+                      var loc = results[0].geometry.location;
+                      fetch('clients_appstack.php?action=save_property_coords', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          property_id: propertyId,
+                          lat: loc.lat(),
+                          lng: loc.lng(),
+                          csrf_token: CSRF_TOKEN_CO
+                        })
+                      })
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) { resolve(data); })
+                      .catch(function(err) { reject(err); });
+                    } else {
+                      resolve({ success: false, error: 'Geocode failed: ' + status });
+                    }
+                  });
+                });
+              }
+
+              window.geocodeCompanyProperty = function(propertyId, btn) {
+                if (btn) {
+                  btn.disabled = true;
+                  btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:12px;height:12px;"></span>';
+                }
+                geocodeCompanyPropertyAjax(propertyId)
+                  .then(function(data) {
+                    if (data.success) {
+                      location.reload();
+                    } else {
+                      alert('Geocoding failed: ' + (data.error || 'Unknown error'));
+                      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" style="width:12px;height:12px;"></i>'; feather.replace(); }
+                    }
+                  })
+                  .catch(function(err) {
+                    alert('Error: ' + err.message);
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" style="width:12px;height:12px;"></i>'; feather.replace(); }
+                  });
+              };
+
+              window.geocodeAllCompanyProperties = function() {
+                var toGeocode = companyPropertiesData.filter(function(p) { return !parseFloat(p.latitude) || !parseFloat(p.longitude); });
+                if (toGeocode.length === 0) return;
+
+                var chain = Promise.resolve();
+                toGeocode.forEach(function(p) {
+                  chain = chain.then(function() {
+                    return geocodeCompanyPropertyAjax(p.id);
+                  }).then(function() {
+                    return new Promise(function(resolve) { setTimeout(resolve, 300); });
+                  });
+                });
+                chain.then(function() { location.reload(); });
+              };
+
+              // ── Property Tags ───────────────────────────────────────
+              window.showCompanyTagPicker = function(propertyId, btn) {
+                if (compActiveTagPicker) {
+                  compActiveTagPicker.remove();
+                  compActiveTagPicker = null;
+                }
+
+                var picker = document.createElement('div');
+                picker.className = 'mw-tag-picker-dropdown';
+                picker.onclick = function(e) { e.stopPropagation(); };
+
+                var html = '<div class="mw-tag-picker-inner">';
+                html += '<select class="mw-tag-picker-select" id="compTagSelect_' + propertyId + '" onchange="onCompanyTagSelectChange(' + propertyId + ')">';
+                html += '<option value="">Select tag…</option>';
+                for (var i = 0; i < companyAvailableTags.length; i++) {
+                  html += '<option value="' + companyAvailableTags[i].tag_id + '" data-has-value="' + companyAvailableTags[i].has_value + '">' +
+                          escHtmlCo(companyAvailableTags[i].tag_label) + '</option>';
+                }
+                html += '</select>';
+                html += '<input type="text" class="mw-tag-picker-value" id="compTagValue_' + propertyId + '" placeholder="Value…" style="display:none;">';
+                html += '<button type="button" class="mw-tag-picker-save" onclick="applyCompanyPropertyTag(' + propertyId + ')">Save</button>';
+                html += '<button type="button" class="mw-tag-picker-cancel" onclick="closeCompanyTagPicker()">&times;</button>';
+                html += '</div>';
+
+                picker.innerHTML = html;
+                var tagsRow = document.getElementById('compPropTags_' + propertyId);
+                tagsRow.appendChild(picker);
+                compActiveTagPicker = picker;
+              };
+
+              window.onCompanyTagSelectChange = function(propertyId) {
+                var sel = document.getElementById('compTagSelect_' + propertyId);
+                var valInput = document.getElementById('compTagValue_' + propertyId);
+                var opt = sel.options[sel.selectedIndex];
+                if (opt && opt.getAttribute('data-has-value') === '1') {
+                  valInput.style.display = '';
+                  valInput.focus();
+                } else {
+                  valInput.style.display = 'none';
+                  valInput.value = '';
+                }
+              };
+
+              window.closeCompanyTagPicker = function() {
+                if (compActiveTagPicker) {
+                  compActiveTagPicker.remove();
+                  compActiveTagPicker = null;
+                }
+              };
+
+              window.applyCompanyPropertyTag = function(propertyId) {
+                var sel = document.getElementById('compTagSelect_' + propertyId);
+                var valInput = document.getElementById('compTagValue_' + propertyId);
+                var tagId = parseInt(sel.value);
+                if (!tagId) { alert('Please select a tag'); return; }
+
+                var tagValue = valInput.value.trim() || null;
+
+                fetch('/crm/api/tags.php', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'apply',
+                    entity_type: 'property',
+                    entity_id: propertyId,
+                    tag_id: tagId,
+                    tag_value: tagValue,
+                    csrf_token: CSRF_TOKEN_CO
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    location.reload();
+                  } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                  }
+                })
+                .catch(function(err) { alert('Error: ' + err.message); });
+              };
+
+              window.removeCompanyPropertyTag = function(propertyId, entityTagId, btn) {
+                if (!confirm('Remove this tag?')) return;
+                btn.disabled = true;
+
+                fetch('/crm/api/tags.php', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    action: 'remove',
+                    entity_tag_id: entityTagId,
+                    csrf_token: CSRF_TOKEN_CO
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    var tagBadge = btn.parentElement;
+                    tagBadge.remove();
+                  } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    btn.disabled = false;
+                  }
+                })
+                .catch(function(err) {
+                  alert('Error: ' + err.message);
+                  btn.disabled = false;
+                });
+              };
+
+              // Close tag picker on outside click
+              document.addEventListener('click', function() {
+                if (compActiveTagPicker) {
+                  compActiveTagPicker.remove();
+                  compActiveTagPicker = null;
+                }
+              });
+
+              // ── Unlink / Reassign Property ──────────────────────────
+              window.showUnlinkCompanyProperty = function(propertyId, address, currentContactId) {
+                document.getElementById('unlinkCompPropertyId').value = propertyId;
+                document.getElementById('unlinkCompCurrentContactId').value = currentContactId;
+                document.getElementById('unlinkCompPropAddress').textContent = address;
+                document.getElementById('reassignCompContactSelect').value = '';
+                document.querySelector('input[name="unlinkCompAction"][value="unlink"]').checked = true;
+                document.getElementById('reassignCompContactRow').style.display = 'none';
+                $('#unlinkCompanyPropertyModal').modal('show');
+              };
+
+              // Toggle reassign dropdown visibility
+              document.querySelectorAll('input[name="unlinkCompAction"]').forEach(function(radio) {
+                radio.addEventListener('change', function() {
+                  document.getElementById('reassignCompContactRow').style.display =
+                    this.value === 'reassign' ? 'block' : 'none';
+                });
+              });
+
+              window.unlinkCompanyProperty = function() {
+                var propertyId = parseInt(document.getElementById('unlinkCompPropertyId').value);
+                var currentContactId = parseInt(document.getElementById('unlinkCompCurrentContactId').value);
+                var action = document.querySelector('input[name="unlinkCompAction"]:checked').value;
+                var newContactId = 0;
+
+                if (action === 'reassign') {
+                  newContactId = parseInt(document.getElementById('reassignCompContactSelect').value);
+                  if (!newContactId) {
+                    alert('Please select a contact to reassign to.');
+                    return;
+                  }
+                }
+
+                var btn = document.getElementById('confirmUnlinkCompBtn');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Working...';
+
+                fetch('clients_appstack.php?action=unlink_property', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    property_id: propertyId,
+                    current_contact_id: currentContactId,
+                    new_contact_id: newContactId,
+                    csrf_token: CSRF_TOKEN_CO
+                  })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                  if (data.success) {
+                    location.reload();
+                  } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    btn.disabled = false;
+                    btn.innerHTML = '<i data-feather="check"></i> Confirm';
+                    feather.replace();
+                  }
+                })
+                .catch(function() {
+                  alert('Network error. Please try again.');
+                  btn.disabled = false;
+                  btn.innerHTML = '<i data-feather="check"></i> Confirm';
+                  feather.replace();
+                });
+              };
+
+            })();
             </script>
 
           <?php else: ?>
