@@ -224,12 +224,12 @@ $stopTags = $stop['tags'] ?? [];
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
         <div class="mw-mc-actions">
-            <a class="mw-mc-action-btn mw-mc-btn-route"
-               href="https://maps.google.com/?daddr=<?php echo urlencode($stop['property_address'] ?? ''); ?>"
-               target="_blank" rel="noopener">
+            <button type="button" class="mw-mc-action-btn mw-mc-btn-route"
+                    data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                    data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
                 <span>Route</span>
-            </a>
+            </button>
         </div>
         <?php endif; ?>
     </div>
@@ -275,12 +275,12 @@ $stopTags = $stop['tags'] ?? [];
             </div>
 
             <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-                <a class="mw-mc-compact-route"
-                   href="https://maps.google.com/?daddr=<?php echo urlencode($stop['property_address'] ?? ''); ?>"
-                   target="_blank" rel="noopener"
-                   onclick="event.stopPropagation();">
+                <button type="button" class="mw-mc-compact-route"
+                        data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                        data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
+                        onclick="event.stopPropagation(); if(typeof MwRouteMap!=='undefined') MwRouteMap.openToStop(<?php echo (int)$stop['stop_id']; ?>);">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2L4.5 20.3l.7.7L12 18l6.8 3 .7-.7z"/></svg>
-                </a>
+                </button>
             <?php endif; ?>
         </div>
 
@@ -326,12 +326,12 @@ $stopTags = $stop['tags'] ?? [];
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
         <div class="mw-mc-actions">
-            <a class="mw-mc-action-btn mw-mc-btn-route"
-               href="https://maps.google.com/?daddr=<?php echo urlencode($stop['property_address'] ?? ''); ?>"
-               target="_blank" rel="noopener">
+            <button type="button" class="mw-mc-action-btn mw-mc-btn-route"
+                    data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                    data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
                 <span>Route</span>
-            </a>
+            </button>
         </div>
         <?php endif; ?>
     </div>

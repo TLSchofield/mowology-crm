@@ -447,10 +447,13 @@
         color: #555;
         font-size: 0.72rem;
         font-weight: 600;
+        font-family: inherit;
         text-decoration: none;
         cursor: pointer;
         transition: background 0.15s ease, transform 0.15s ease;
         -webkit-tap-highlight-color: transparent;
+        -webkit-appearance: none;
+        appearance: none;
         text-align: center;
         line-height: 1;
     }
@@ -570,6 +573,11 @@
         color: #1565C0;
         text-decoration: none;
         -webkit-tap-highlight-color: transparent;
+        cursor: pointer;
+        padding: 0;
+        font: inherit;
+        -webkit-appearance: none;
+        appearance: none;
     }
 
     .mw-mc-compact-route:active {

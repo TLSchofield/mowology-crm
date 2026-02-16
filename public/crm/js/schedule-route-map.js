@@ -34,6 +34,7 @@ var MwRouteMap = (function() {
     var userLat = null;
     var userLng = null;
     var optimizedStops = null; // Reordered stops after route optimization
+    var targetStopId = null;   // Stop to focus on after optimization
 
     // ── DOM refs ──
     var viewEl, mapEl, trackEl, dotsEl, titleEl, backBtn, externalBtn, trayEl;
@@ -161,6 +162,7 @@ var MwRouteMap = (function() {
                 break;
             }
         }
+        targetStopId = stopId;
         open(idx);
     }
 
@@ -429,36 +431,44 @@ var MwRouteMap = (function() {
                 // Destination last
                 orderedStopIndices.push(destIdx);
 
-                // Store optimized order for external maps
+                // Store optimized order for external maps and rebuild carousel
                 optimizedStops = orderedStopIndices.map(function(i) { return stops[i]; });
 
-                // Place markers along the route with correct numbering
-                var markerNum = 1;
-
-                // Origin stop marker (if origin is a stop)
-                if (!originIsUserGPS) {
-                    placeMarkerAt(legs[0].start_location, stops[0], 0, currentIndex === 0);
-                    markerNum++;
+                // Rebuild carousel with optimized stop order
+                // Find the target stop in the optimized order (if user tapped a specific card)
+                currentIndex = 0;
+                if (targetStopId) {
+                    for (var ti = 0; ti < optimizedStops.length; ti++) {
+                        if (optimizedStops[ti].stopId === targetStopId) {
+                            currentIndex = ti;
+                            break;
+                        }
+                    }
+                    targetStopId = null;
                 }
+                buildCarousel(optimizedStops);
+                updateDots(optimizedStops.length, currentIndex);
 
-                // Each leg ends at a stop
-                for (var li = 0; li < legs.length; li++) {
-                    var stopOrigIdx;
-                    if (li < waypointOrder.length) {
-                        stopOrigIdx = waypointStopIndices[waypointOrder[li]];
-                    } else if (li < waypointStopIndices.length && waypointOrder.length === 0) {
-                        stopOrigIdx = waypointStopIndices[li];
+                // Place markers for each optimized stop
+                // Use leg endpoints for accurate on-road marker positions
+                var legIdx = 0;
+                for (var oi = 0; oi < optimizedStops.length; oi++) {
+                    var os = optimizedStops[oi];
+                    var markerPos;
+
+                    if (oi === 0 && !originIsUserGPS) {
+                        // First stop is the origin (start of first leg)
+                        markerPos = legs[0].start_location;
                     } else {
-                        stopOrigIdx = destIdx;
+                        // Each subsequent stop = end of a leg
+                        markerPos = legs[legIdx] ? legs[legIdx].end_location : null;
+                        legIdx++;
                     }
 
-                    if (stopOrigIdx >= 0 && stopOrigIdx < stops.length) {
-                        placeMarkerAt(
-                            legs[li].end_location,
-                            stops[stopOrigIdx],
-                            stopOrigIdx,
-                            stopOrigIdx === currentIndex
-                        );
+                    if (markerPos) {
+                        placeMarkerAt(markerPos, os, oi, oi === currentIndex);
+                    } else if (os.lat && os.lng) {
+                        placeMarkerAt(new google.maps.LatLng(os.lat, os.lng), os, oi, oi === currentIndex);
                     }
                 }
 
@@ -749,7 +759,7 @@ var MwRouteMap = (function() {
     }
 
     function goToCard(idx) {
-        var stops = getStops();
+        var stops = optimizedStops || getStops();
         if (idx < 0 || idx >= stops.length) return;
         currentIndex = idx;
         positionTrack(idx, true);
@@ -775,9 +785,19 @@ var MwRouteMap = (function() {
         var isDragging = false;
         var startTranslate = 0;
         var threshold = 50;
+        var ignoreSwipe = false;
 
         trayEl.addEventListener('touchstart', function(e) {
             if (e.touches.length !== 1) return;
+
+            // Don't intercept touches on the Go button
+            var target = e.target;
+            if (target.closest && target.closest('.mw-mv-card-go')) {
+                ignoreSwipe = true;
+                return;
+            }
+            ignoreSwipe = false;
+
             startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
             isDragging = false;
@@ -792,6 +812,7 @@ var MwRouteMap = (function() {
         }, { passive: true });
 
         trayEl.addEventListener('touchmove', function(e) {
+            if (ignoreSwipe) return;
             if (e.touches.length !== 1) return;
             var dx = e.touches[0].clientX - startX;
             var dy = e.touches[0].clientY - startY;
@@ -812,13 +833,17 @@ var MwRouteMap = (function() {
         }, { passive: false });
 
         trayEl.addEventListener('touchend', function(e) {
+            if (ignoreSwipe) {
+                ignoreSwipe = false;
+                return;
+            }
             if (!isDragging) return;
             isDragging = false;
 
             var endX = e.changedTouches[0].clientX;
             var dx = endX - startX;
 
-            if (dx < -threshold && currentIndex < getStops().length - 1) {
+            if (dx < -threshold && currentIndex < (optimizedStops || getStops()).length - 1) {
                 goToCard(currentIndex + 1);
             } else if (dx > threshold && currentIndex > 0) {
                 goToCard(currentIndex - 1);
@@ -833,14 +858,17 @@ var MwRouteMap = (function() {
     // ═══════════════════════════════════════════════════
 
     function wireCardTaps() {
+        // Wire all route buttons (active card buttons + compact expanded buttons)
         document.querySelectorAll('.mw-mc-btn-route').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
 
-                var card = btn.closest('.mw-mc-card');
-                if (!card) return;
-                var stopId = parseInt(card.dataset.stopId, 10);
+                var stopId = parseInt(btn.dataset.stopId, 10);
+                if (!stopId) {
+                    var card = btn.closest('.mw-mc-card');
+                    if (card) stopId = parseInt(card.dataset.stopId, 10);
+                }
                 if (stopId) {
                     openToStop(stopId);
                 }
