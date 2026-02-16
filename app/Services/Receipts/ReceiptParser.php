@@ -67,14 +67,16 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
     $result['card_last4']     = $paymentInfo['card_last4'];
     $result['payment_method'] = $paymentInfo['payment_method'];
 
-    // Line items — prefer position-aware extraction if Vision response available
+    // Line items — try position-aware extraction first, fall back to raw text lines
     $positionLines = null;
     if ($rawResponse !== null) {
         $positionLines = reconstructLinesFromVisionResponse($rawResponse);
     }
     if (!empty($positionLines)) {
         $result['line_items'] = extractLineItems($positionLines);
-    } else {
+    }
+    // Fallback: if position-aware extraction found no items, try raw text lines
+    if (empty($result['line_items'])) {
         $result['line_items'] = extractLineItems($lines);
     }
 
