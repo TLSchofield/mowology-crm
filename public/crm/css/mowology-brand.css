@@ -1700,6 +1700,170 @@ a:hover {
   margin-top: 0.5rem;
 }
 
+/* ── Overhead Breakdown ─────────────────────────── */
+
+.mw-oh-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 992px) {
+  .mw-oh-stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 576px) {
+  .mw-oh-stats-row { grid-template-columns: 1fr; }
+}
+
+.mw-oh-stat-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.25rem;
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.mw-oh-stat-card .label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6c757d;
+  margin-bottom: 0.5rem;
+}
+
+.mw-oh-stat-card .value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--mw-green);
+}
+
+.mw-oh-stat-card .value.warning { color: #F59E0B; }
+.mw-oh-stat-card .value.danger  { color: #DC2626; }
+
+.mw-oh-stat-card .sub {
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 4px;
+}
+
+/* Category header rows in the items table */
+.mw-oh-category-header {
+  background: #f8f9fa !important;
+}
+
+.mw-oh-category-header td {
+  border-left: 3px solid #6c757d;
+  font-weight: 600;
+}
+
+.mw-oh-cat-fixed td     { border-left-color: #3B82F6 !important; }
+.mw-oh-cat-variable td  { border-left-color: #F59E0B !important; }
+.mw-oh-cat-vehicle td   { border-left-color: #8B5CF6 !important; }
+.mw-oh-cat-insurance td { border-left-color: #EF4444 !important; }
+.mw-oh-cat-admin td     { border-left-color: #10B981 !important; }
+
+/* Category badges */
+.mw-badge-oh-fixed     { background: #dbeafe; color: #1e40af; }
+.mw-badge-oh-variable  { background: #fef3c7; color: #92400e; }
+.mw-badge-oh-vehicle   { background: #e9d5ff; color: #6b21a8; }
+.mw-badge-oh-insurance { background: #fee2e2; color: #991b1b; }
+.mw-badge-oh-admin     { background: #d1fae5; color: #065f46; }
+
+/* Category breakdown bars */
+.mw-oh-cat-breakdown { margin-top: 1rem; }
+
+.mw-oh-cat-bar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 13px;
+}
+
+.mw-oh-cat-bar .cat-label {
+  width: 80px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.mw-oh-cat-bar .bar-track {
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  background: #e5e7eb;
+  margin: 0 10px;
+  overflow: hidden;
+}
+
+.mw-oh-cat-bar .bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.3s ease;
+}
+
+.mw-oh-cat-bar .bar-fill.cat-fixed     { background: #3B82F6; }
+.mw-oh-cat-bar .bar-fill.cat-variable  { background: #F59E0B; }
+.mw-oh-cat-bar .bar-fill.cat-vehicle   { background: #8B5CF6; }
+.mw-oh-cat-bar .bar-fill.cat-insurance { background: #EF4444; }
+.mw-oh-cat-bar .bar-fill.cat-admin     { background: #10B981; }
+
+.mw-oh-cat-bar .cat-amount {
+  width: 100px;
+  text-align: right;
+  color: #6c757d;
+}
+
+/* Mini P&L box */
+.mw-oh-pl-box {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.25rem;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.mw-oh-pl-box h5 {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6c757d;
+  margin-bottom: 0.75rem;
+}
+
+.mw-oh-pl-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 0;
+  font-size: 14px;
+}
+
+.mw-oh-pl-row.total {
+  border-top: 2px solid var(--mw-green);
+  font-weight: 700;
+  font-size: 15px;
+  padding-top: 0.6rem;
+  margin-top: 0.4rem;
+}
+
+.mw-oh-pl-row .negative { color: #DC2626; }
+.mw-oh-pl-row .positive { color: var(--mw-green); }
+
+/* Settings toggle */
+.mw-oh-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 1rem;
+  font-size: 14px;
+}
+
+.mw-oh-mode-toggle .custom-switch {
+  padding-left: 2.5rem;
+}
+
 /* Map placeholder */
 .mw-map-placeholder {
   height: 200px;

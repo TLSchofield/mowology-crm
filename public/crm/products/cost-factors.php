@@ -105,41 +105,160 @@ $csrfToken = generateCSRFToken();
 
             <!-- OVERHEAD TAB -->
             <div class="tab-pane fade" id="overhead" role="tabpanel">
-              <div class="card">
-                <div class="card-header">
-                  <h5 class="card-title mb-0">Overhead &amp; Profit Margins</h5>
+
+              <!-- A. Summary Dashboard -->
+              <div class="mw-oh-stats-row" id="ohStatsRow">
+                <div class="mw-oh-stat-card">
+                  <div class="label">Total Monthly Overhead</div>
+                  <div class="value" id="ohTotalMonthly">$0</div>
+                  <div class="sub">All expenses normalized to monthly</div>
                 </div>
-                <div class="card-body">
-                  <div class="alert alert-warning">
-                    These percentages affect all calculated product costs. Changes will update all products using cost calculation.
+                <div class="mw-oh-stat-card">
+                  <div class="label">Overhead %</div>
+                  <div class="value" id="ohAutoPercent">0%</div>
+                  <div class="sub">Of estimated monthly revenue</div>
+                </div>
+                <div class="mw-oh-stat-card">
+                  <div class="label">Breakeven Revenue</div>
+                  <div class="value" id="ohBreakeven">$0</div>
+                  <div class="sub">Min revenue to cover overhead</div>
+                </div>
+                <div class="mw-oh-stat-card">
+                  <div class="label">Per-Job Overhead</div>
+                  <div class="value" id="ohPerJob">$0</div>
+                  <div class="sub">Overhead allocated per job</div>
+                </div>
+              </div>
+
+              <div class="row">
+                <!-- Left Column: Settings + Items Table -->
+                <div class="col-lg-8">
+
+                  <!-- B. Revenue & Margin Settings -->
+                  <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center" style="cursor:pointer" data-toggle="collapse" data-target="#settingsCollapse">
+                      <h5 class="card-title mb-0">Revenue &amp; Margin Settings</h5>
+                      <i data-feather="chevron-down" style="width:18px;height:18px"></i>
+                    </div>
+                    <div class="collapse show" id="settingsCollapse">
+                      <div class="card-body">
+                        <!-- Manual Override Toggle -->
+                        <div class="mw-oh-mode-toggle">
+                          <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="ohManualMode">
+                            <label class="custom-control-label" for="ohManualMode">Manual overhead % override</label>
+                          </div>
+                          <small class="text-muted">(Auto-calculates from your expenses by default)</small>
+                        </div>
+
+                        <div class="row">
+                          <div class="col-md-3">
+                            <div class="form-group">
+                              <label>Est. Monthly Revenue</label>
+                              <div class="input-group">
+                                <div class="input-group-prepend"><span class="input-group-text">$</span></div>
+                                <input type="number" class="form-control oh-setting-input" id="estRevenue" value="18000" step="500" min="0">
+                              </div>
+                            </div>
+                          </div>
+                          <div class="col-md-3">
+                            <div class="form-group">
+                              <label>Est. Jobs / Month</label>
+                              <input type="number" class="form-control oh-setting-input" id="estJobs" value="40" step="1" min="1">
+                            </div>
+                          </div>
+                          <div class="col-md-2">
+                            <div class="form-group" id="manualOhGroup" style="display:none">
+                              <label>Overhead %</label>
+                              <input type="number" class="form-control oh-setting-input" id="overheadPercent" value="20" step="0.5" min="0" max="100">
+                            </div>
+                          </div>
+                          <div class="col-md-2">
+                            <div class="form-group">
+                              <label>Profit Margin %</label>
+                              <input type="number" class="form-control oh-setting-input" id="profitMargin" value="35" step="0.5" min="0" max="100">
+                            </div>
+                          </div>
+                          <div class="col-md-2">
+                            <div class="form-group">
+                              <label>GST %</label>
+                              <input type="number" class="form-control oh-setting-input" id="gstRate" value="5" step="0.1" min="0" max="20">
+                            </div>
+                          </div>
+                        </div>
+                        <button class="btn btn-primary btn-sm" onclick="saveOverheadSettings()">Save Settings</button>
+                      </div>
+                    </div>
                   </div>
 
-                  <div class="row mt-3">
-                    <div class="col-md-4">
-                      <div class="form-group">
-                        <label>General Overhead %</label>
-                        <input type="number" class="form-control" id="overheadPercent" value="20" step="0.5" min="0" max="100">
-                        <small class="form-text text-muted">Insurance, office, utilities, etc.</small>
-                      </div>
+                  <!-- C. Itemized Overhead Expenses -->
+                  <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                      <h5 class="card-title mb-0">Overhead Expenses</h5>
+                      <button class="btn btn-primary btn-sm" onclick="openOhItemModal()">+ Add Expense</button>
                     </div>
-                    <div class="col-md-4">
-                      <div class="form-group">
-                        <label>Target Profit Margin %</label>
-                        <input type="number" class="form-control" id="profitMargin" value="35" step="0.5" min="0" max="100">
-                        <small class="form-text text-muted">Applied on top of cost + overhead</small>
-                      </div>
-                    </div>
-                    <div class="col-md-4">
-                      <div class="form-group">
-                        <label>GST Rate %</label>
-                        <input type="number" class="form-control" id="gstRate" value="5" step="0.1" min="0" max="20">
-                        <small class="form-text text-muted">Applied to final selling price</small>
+                    <div class="card-body p-0">
+                      <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                          <thead>
+                            <tr>
+                              <th>Item</th>
+                              <th>Amount</th>
+                              <th>Frequency</th>
+                              <th>Monthly</th>
+                              <th>Status</th>
+                              <th>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody id="overheadItemsBody">
+                            <tr><td colspan="6" class="text-center text-muted py-4">Loading...</td></tr>
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   </div>
 
-                  <div class="mw-calc-box mt-4" id="overheadPreview">
-                    <h4>Pricing Example</h4>
+                </div><!-- /col-lg-8 -->
+
+                <!-- Right Column: Financial Summary -->
+                <div class="col-lg-4">
+
+                  <!-- Mini P&L -->
+                  <div class="mw-oh-pl-box">
+                    <h5>Monthly P&amp;L Estimate</h5>
+                    <div class="mw-oh-pl-row">
+                      <span>Revenue</span>
+                      <span class="positive" id="plRevenue">$18,000</span>
+                    </div>
+                    <div class="mw-oh-pl-row">
+                      <span>- Est. Direct Costs</span>
+                      <span class="negative" id="plDirectCosts">-$0</span>
+                    </div>
+                    <div class="mw-oh-pl-row">
+                      <span>- Overhead</span>
+                      <span class="negative" id="plOverhead">-$0</span>
+                    </div>
+                    <div class="mw-oh-pl-row total">
+                      <span>Est. Net Profit</span>
+                      <span id="plProfit">$0</span>
+                    </div>
+                    <div class="mw-oh-pl-row">
+                      <span>Net Margin</span>
+                      <span id="plMargin">0%</span>
+                    </div>
+                  </div>
+
+                  <!-- Category Breakdown -->
+                  <div class="mw-oh-pl-box">
+                    <h5>Overhead by Category</h5>
+                    <div id="ohCategoryBreakdown" class="mw-oh-cat-breakdown">
+                      <div class="text-muted text-center py-2" style="font-size:13px">Loading...</div>
+                    </div>
+                  </div>
+
+                  <!-- Pricing Example -->
+                  <div class="mw-calc-box" id="overheadPreview">
+                    <h4>Pricing per $100 Job Cost</h4>
                     <div class="mw-calc-row">
                       <span>Base Cost</span>
                       <span>$100.00</span>
@@ -153,11 +272,11 @@ $csrfToken = generateCSRFToken();
                       <span id="ohTotalCost">$120.00</span>
                     </div>
                     <div class="mw-calc-row">
-                      <span id="ohProfitLabel">+ Profit (35% of $120)</span>
+                      <span id="ohProfitLabel">+ Profit (35%)</span>
                       <span id="ohProfitVal">$42.00</span>
                     </div>
                     <div class="mw-calc-row">
-                      <span>= Selling Price (before tax)</span>
+                      <span>= Selling Price</span>
                       <span id="ohSellingPrice">$162.00</span>
                     </div>
                     <div class="mw-calc-row">
@@ -165,16 +284,13 @@ $csrfToken = generateCSRFToken();
                       <span id="ohGstVal">$8.10</span>
                     </div>
                     <div class="mw-calc-row">
-                      <span><strong>Final Customer Price</strong></span>
+                      <span><strong>Customer Pays</strong></span>
                       <span><strong id="ohFinalPrice">$170.10</strong></span>
                     </div>
                   </div>
 
-                  <div class="mt-3">
-                    <button class="btn btn-primary" onclick="saveOverhead()">Save Changes</button>
-                  </div>
-                </div>
-              </div>
+                </div><!-- /col-lg-4 -->
+              </div><!-- /row -->
             </div>
 
             <!-- MATERIALS TAB -->
@@ -433,22 +549,101 @@ $csrfToken = generateCSRFToken();
             </div>
           </div>
 
+          <!-- Overhead Item Modal -->
+          <div class="modal fade" id="ohItemModal" tabindex="-1" role="dialog" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title" id="ohItemModalLabel">Add Overhead Expense</h5>
+                  <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body">
+                  <input type="hidden" id="ohItemId">
+
+                  <div class="form-group">
+                    <label>Category *</label>
+                    <select class="form-control" id="ohItemCategory">
+                      <option value="fixed">Fixed Costs</option>
+                      <option value="vehicle">Vehicle Costs</option>
+                      <option value="insurance">Insurance</option>
+                      <option value="admin">Admin &amp; Office</option>
+                      <option value="variable">Variable Costs</option>
+                    </select>
+                  </div>
+
+                  <div class="form-group">
+                    <label>Item Name *</label>
+                    <input type="text" class="form-control" id="ohItemName" placeholder="e.g., Vehicle Insurance">
+                  </div>
+
+                  <div class="row">
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Amount *</label>
+                        <div class="input-group">
+                          <div class="input-group-prepend"><span class="input-group-text">$</span></div>
+                          <input type="number" class="form-control" id="ohItemAmount" step="0.01" min="0">
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="form-group">
+                        <label>Frequency *</label>
+                        <select class="form-control" id="ohItemFrequency">
+                          <option value="weekly">Weekly</option>
+                          <option value="monthly" selected>Monthly</option>
+                          <option value="quarterly">Quarterly</option>
+                          <option value="annual">Annual</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="form-group">
+                    <label>Notes</label>
+                    <textarea class="form-control" id="ohItemNotes" rows="2" placeholder="Optional notes"></textarea>
+                  </div>
+
+                  <div class="form-group">
+                    <div class="custom-control custom-checkbox">
+                      <input type="checkbox" class="custom-control-input" id="ohItemActive" checked>
+                      <label class="custom-control-label" for="ohItemActive">Active</label>
+                    </div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                  <button type="button" class="btn btn-danger mr-auto" id="ohDeleteBtn" style="display:none" onclick="deleteOhItem()">Delete</button>
+                  <button type="button" class="btn btn-primary" onclick="saveOhItem()">Save</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
 <script>
 const CSRF = '<?php echo htmlspecialchars($csrfToken); ?>';
 const API = 'api-cost-factors.php';
 
 // State
 let allFactors = [];
-let overheadSettings = { overhead_percent: 20, profit_margin: 35, gst_rate: 5 };
+let overheadItems = [];
+let overheadSettings = { overhead_percent: 20, profit_margin: 35, gst_rate: 5, estimated_monthly_revenue: 18000, estimated_jobs_per_month: 40, overhead_mode: 0 };
 
 // ── Init ──────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
     loadAllData();
 
-    // Live-update overhead preview
-    document.getElementById('overheadPercent').addEventListener('input', updateOverheadPreview);
-    document.getElementById('profitMargin').addEventListener('input', updateOverheadPreview);
-    document.getElementById('gstRate').addEventListener('input', updateOverheadPreview);
+    // Live-update on setting changes
+    document.querySelectorAll('.oh-setting-input').forEach(function(el) {
+        el.addEventListener('input', recalcOverhead);
+    });
+
+    // Manual mode toggle
+    document.getElementById('ohManualMode').addEventListener('change', function() {
+        var manual = this.checked;
+        document.getElementById('manualOhGroup').style.display = manual ? 'block' : 'none';
+        recalcOverhead();
+    });
 
     // Auto-calculate on input change
     document.querySelectorAll('.calc-input').forEach(function(el) {
@@ -459,15 +654,16 @@ document.addEventListener('DOMContentLoaded', function() {
 function loadAllData() {
     Promise.all([
         fetch(API + '?action=list&inactive=1').then(function(r) { return r.json(); }),
-        fetch(API + '?action=get-overhead').then(function(r) { return r.json(); })
+        fetch(API + '?action=get-overhead').then(function(r) { return r.json(); }),
+        fetch(API + '?action=list-overhead-items&inactive=1').then(function(r) { return r.json(); })
     ]).then(function(results) {
         var factorsResult = results[0];
         var overheadResult = results[1];
+        var ohItemsResult = results[2];
 
         if (factorsResult.success) {
             allFactors = factorsResult.factors;
             if (allFactors.length === 0) {
-                // Seed defaults on first load
                 seedDefaults();
                 return;
             }
@@ -476,12 +672,27 @@ function loadAllData() {
 
         if (overheadResult.success) {
             overheadSettings = overheadResult.settings;
-            document.getElementById('overheadPercent').value = overheadSettings.overhead_percent;
             document.getElementById('profitMargin').value = overheadSettings.profit_margin;
             document.getElementById('gstRate').value = overheadSettings.gst_rate;
-            updateOverheadPreview();
+            document.getElementById('estRevenue').value = overheadSettings.estimated_monthly_revenue || 18000;
+            document.getElementById('estJobs').value = overheadSettings.estimated_jobs_per_month || 40;
+            document.getElementById('overheadPercent').value = overheadSettings.overhead_percent || 20;
+            // Restore manual mode
+            var manualMode = overheadSettings.overhead_mode == 1;
+            document.getElementById('ohManualMode').checked = manualMode;
+            document.getElementById('manualOhGroup').style.display = manualMode ? 'block' : 'none';
         }
 
+        if (ohItemsResult.success) {
+            overheadItems = ohItemsResult.items;
+            if (overheadItems.length === 0) {
+                seedOverheadDefaults();
+                return;
+            }
+            renderOverheadItemsTable();
+        }
+
+        recalcOverhead();
         populateCalculatorDropdowns();
     }).catch(function(err) {
         showAlert('Error loading data: ' + err.message, 'danger');
@@ -497,7 +708,22 @@ function seedDefaults() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.success) {
-            showAlert('Default cost factors have been created. You can edit them to match your actual rates.', 'success');
+            showAlert('Default cost factors created. Edit them to match your actual rates.', 'success');
+            loadAllData();
+        }
+    });
+}
+
+function seedOverheadDefaults() {
+    fetch(API + '?action=seed-overhead-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csrf_token: CSRF })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            showAlert('Default overhead expenses created. Update amounts to match your actual costs.', 'success');
             loadAllData();
         }
     });
@@ -702,11 +928,104 @@ function deleteFactor() {
     .catch(function(err) { alert('Network error: ' + err.message); });
 }
 
-// ── Overhead Settings ─────────────────────────────────────
-function updateOverheadPreview() {
-    var oh = parseFloat(document.getElementById('overheadPercent').value) || 0;
+// ── Overhead System ───────────────────────────────────────
+
+var FREQ_MULTIPLIER = { weekly: 4.333, monthly: 1, quarterly: 1/3, annual: 1/12 };
+var CAT_LABELS = { fixed: 'Fixed Costs', variable: 'Variable Costs', vehicle: 'Vehicle Costs', insurance: 'Insurance', admin: 'Admin & Office' };
+var CAT_COLORS = { fixed: '#3B82F6', variable: '#F59E0B', vehicle: '#8B5CF6', insurance: '#EF4444', admin: '#10B981' };
+
+function normalizeToMonthly(amount, frequency) {
+    return amount * (FREQ_MULTIPLIER[frequency] || 1);
+}
+
+function recalcOverhead() {
+    var manualMode = document.getElementById('ohManualMode').checked;
+    var revenue = parseFloat(document.getElementById('estRevenue').value) || 1;
+    var jobsPerMonth = parseFloat(document.getElementById('estJobs').value) || 1;
     var pm = parseFloat(document.getElementById('profitMargin').value) || 0;
     var gst = parseFloat(document.getElementById('gstRate').value) || 0;
+
+    // Sum active items by category
+    var totalMonthly = 0;
+    var byCategory = { fixed: 0, variable: 0, vehicle: 0, insurance: 0, admin: 0 };
+    overheadItems.forEach(function(item) {
+        if (item.is_active !== '1' && item.is_active !== 1) return;
+        var monthly = normalizeToMonthly(parseFloat(item.amount) || 0, item.frequency);
+        totalMonthly += monthly;
+        byCategory[item.category] = (byCategory[item.category] || 0) + monthly;
+    });
+
+    // Compute overhead %
+    var ohPct;
+    if (manualMode) {
+        ohPct = parseFloat(document.getElementById('overheadPercent').value) || 0;
+    } else {
+        ohPct = revenue > 0 ? (totalMonthly / revenue) * 100 : 0;
+        ohPct = Math.round(ohPct * 10) / 10;
+    }
+
+    var perJob = jobsPerMonth > 0 ? totalMonthly / jobsPerMonth : 0;
+
+    // Update stat cards
+    document.getElementById('ohTotalMonthly').textContent = '$' + Math.round(totalMonthly).toLocaleString();
+    var pctEl = document.getElementById('ohAutoPercent');
+    pctEl.textContent = ohPct.toFixed(1) + '%';
+    pctEl.className = 'value' + (ohPct > 40 ? ' danger' : (ohPct > 25 ? ' warning' : ''));
+    document.getElementById('ohBreakeven').textContent = '$' + Math.round(totalMonthly).toLocaleString();
+    document.getElementById('ohPerJob').textContent = '$' + perJob.toFixed(2);
+
+    // Update global state for calculator
+    overheadSettings.overhead_percent = ohPct;
+    overheadSettings.profit_margin = pm;
+    overheadSettings.gst_rate = gst;
+
+    // Update mini P&L
+    var directCostRatio = 1 / (1 + (ohPct / 100) + (pm / 100));
+    var estDirectCosts = revenue * directCostRatio;
+    var estProfit = revenue - estDirectCosts - totalMonthly;
+    var netMargin = revenue > 0 ? (estProfit / revenue) * 100 : 0;
+
+    document.getElementById('plRevenue').textContent = '$' + Math.round(revenue).toLocaleString();
+    document.getElementById('plDirectCosts').textContent = '-$' + Math.round(estDirectCosts).toLocaleString();
+    document.getElementById('plOverhead').textContent = '-$' + Math.round(totalMonthly).toLocaleString();
+    var profitEl = document.getElementById('plProfit');
+    profitEl.textContent = (estProfit >= 0 ? '$' : '-$') + Math.abs(Math.round(estProfit)).toLocaleString();
+    profitEl.className = estProfit >= 0 ? 'positive' : 'negative';
+    var marginEl = document.getElementById('plMargin');
+    marginEl.textContent = netMargin.toFixed(1) + '%';
+    marginEl.className = netMargin >= 0 ? 'positive' : 'negative';
+
+    // Update category breakdown
+    updateCategoryBreakdown(byCategory, totalMonthly);
+
+    // Update pricing example
+    updateOverheadPreview(ohPct, pm, gst);
+
+    return { totalMonthly: totalMonthly, percent: ohPct, byCategory: byCategory };
+}
+
+function updateCategoryBreakdown(byCategory, total) {
+    var container = document.getElementById('ohCategoryBreakdown');
+    if (total === 0) {
+        container.innerHTML = '<div class="text-muted text-center py-2" style="font-size:13px">No overhead items yet</div>';
+        return;
+    }
+    var cats = ['fixed', 'vehicle', 'insurance', 'admin', 'variable'];
+    container.innerHTML = cats.map(function(cat) {
+        var amt = byCategory[cat] || 0;
+        var pct = total > 0 ? (amt / total) * 100 : 0;
+        return '<div class="mw-oh-cat-bar">' +
+            '<span class="cat-label">' + CAT_LABELS[cat].split(' ')[0] + '</span>' +
+            '<div class="bar-track"><div class="bar-fill cat-' + cat + '" style="width:' + pct.toFixed(0) + '%"></div></div>' +
+            '<span class="cat-amount">$' + Math.round(amt).toLocaleString() + ' (' + pct.toFixed(0) + '%)</span>' +
+            '</div>';
+    }).join('');
+}
+
+function updateOverheadPreview(oh, pm, gst) {
+    if (oh === undefined) oh = overheadSettings.overhead_percent || 0;
+    if (pm === undefined) pm = overheadSettings.profit_margin || 0;
+    if (gst === undefined) gst = overheadSettings.gst_rate || 0;
     var base = 100;
 
     var overhead = base * (oh / 100);
@@ -719,7 +1038,7 @@ function updateOverheadPreview() {
     document.getElementById('ohOverheadLabel').textContent = '+ Overhead (' + oh + '%)';
     document.getElementById('ohOverheadVal').textContent = '$' + overhead.toFixed(2);
     document.getElementById('ohTotalCost').textContent = '$' + totalCost.toFixed(2);
-    document.getElementById('ohProfitLabel').textContent = '+ Profit (' + pm + '% of $' + totalCost.toFixed(0) + ')';
+    document.getElementById('ohProfitLabel').textContent = '+ Profit (' + pm + '%)';
     document.getElementById('ohProfitVal').textContent = '$' + profit.toFixed(2);
     document.getElementById('ohSellingPrice').textContent = '$' + selling.toFixed(2);
     document.getElementById('ohGstLabel').textContent = '+ GST (' + gst + '%)';
@@ -727,12 +1046,17 @@ function updateOverheadPreview() {
     document.getElementById('ohFinalPrice').textContent = '$' + final_.toFixed(2);
 }
 
-function saveOverhead() {
+function saveOverheadSettings() {
+    var calc = recalcOverhead();
+    var manualMode = document.getElementById('ohManualMode').checked;
     var payload = {
         csrf_token: CSRF,
-        overhead_percent: parseFloat(document.getElementById('overheadPercent').value) || 0,
+        overhead_percent: calc.percent,
         profit_margin: parseFloat(document.getElementById('profitMargin').value) || 0,
-        gst_rate: parseFloat(document.getElementById('gstRate').value) || 0
+        gst_rate: parseFloat(document.getElementById('gstRate').value) || 0,
+        estimated_monthly_revenue: parseFloat(document.getElementById('estRevenue').value) || 0,
+        estimated_jobs_per_month: parseFloat(document.getElementById('estJobs').value) || 0,
+        overhead_mode: manualMode ? 1 : 0
     };
 
     fetch(API + '?action=save-overhead', {
@@ -743,12 +1067,155 @@ function saveOverhead() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (data.success) {
-            overheadSettings = {
-                overhead_percent: payload.overhead_percent,
-                profit_margin: payload.profit_margin,
-                gst_rate: payload.gst_rate
-            };
-            showAlert('Overhead settings saved', 'success');
+            showAlert('Settings saved successfully', 'success');
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(function(err) { alert('Network error: ' + err.message); });
+}
+
+// ── Overhead Items Table ──────────────────────────────────
+
+function renderOverheadItemsTable() {
+    var tbody = document.getElementById('overheadItemsBody');
+    var cats = ['fixed', 'vehicle', 'insurance', 'admin', 'variable'];
+    var html = '';
+
+    cats.forEach(function(cat) {
+        var items = overheadItems.filter(function(i) { return i.category === cat; });
+        if (items.length === 0) return;
+
+        var catTotal = items.reduce(function(sum, i) {
+            return sum + ((i.is_active === '1' || i.is_active === 1) ? normalizeToMonthly(parseFloat(i.amount) || 0, i.frequency) : 0);
+        }, 0);
+
+        html += '<tr class="mw-oh-category-header mw-oh-cat-' + cat + '">' +
+            '<td colspan="4"><strong>' + esc(CAT_LABELS[cat]) + '</strong></td>' +
+            '<td class="text-right"><strong>$' + Math.round(catTotal).toLocaleString() + '/mo</strong></td>' +
+            '<td></td></tr>';
+
+        items.forEach(function(item) {
+            var monthly = normalizeToMonthly(parseFloat(item.amount) || 0, item.frequency);
+            var freqLabel = item.frequency.charAt(0).toUpperCase() + item.frequency.slice(1);
+            var active = item.is_active === '1' || item.is_active === 1;
+
+            html += '<tr' + (!active ? ' class="text-muted"' : '') + '>' +
+                '<td>' + esc(item.item_name) + (item.notes ? '<br><small class="text-muted">' + esc(item.notes) + '</small>' : '') + '</td>' +
+                '<td>$' + parseFloat(item.amount).toFixed(2) + '</td>' +
+                '<td>' + freqLabel + '</td>' +
+                '<td>$' + monthly.toFixed(2) + '</td>' +
+                '<td>' + (active ? '<span class="badge mw-badge-active">Active</span>' : '<span class="badge badge-secondary">Inactive</span>') + '</td>' +
+                '<td><button class="btn btn-secondary btn-sm" onclick="editOhItem(' + item.id + ')">Edit</button></td>' +
+                '</tr>';
+        });
+    });
+
+    if (html === '') {
+        html = '<tr><td colspan="6" class="text-center text-muted py-4">No overhead items. Click "+ Add Expense" to get started.</td></tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+// ── Overhead Item Modal ───────────────────────────────────
+
+function openOhItemModal() {
+    document.getElementById('ohItemId').value = '';
+    document.getElementById('ohItemCategory').value = 'fixed';
+    document.getElementById('ohItemName').value = '';
+    document.getElementById('ohItemAmount').value = '';
+    document.getElementById('ohItemFrequency').value = 'monthly';
+    document.getElementById('ohItemNotes').value = '';
+    document.getElementById('ohItemActive').checked = true;
+    document.getElementById('ohDeleteBtn').style.display = 'none';
+    document.getElementById('ohItemModalLabel').textContent = 'Add Overhead Expense';
+    $('#ohItemModal').modal('show');
+}
+
+function editOhItem(id) {
+    var item = overheadItems.find(function(i) { return parseInt(i.id) === parseInt(id); });
+    if (!item) return;
+
+    document.getElementById('ohItemId').value = item.id;
+    document.getElementById('ohItemCategory').value = item.category;
+    document.getElementById('ohItemName').value = item.item_name;
+    document.getElementById('ohItemAmount').value = item.amount;
+    document.getElementById('ohItemFrequency').value = item.frequency;
+    document.getElementById('ohItemNotes').value = item.notes || '';
+    document.getElementById('ohItemActive').checked = item.is_active === '1' || item.is_active === 1;
+    document.getElementById('ohDeleteBtn').style.display = 'inline-block';
+    document.getElementById('ohItemModalLabel').textContent = 'Edit Overhead Expense';
+    $('#ohItemModal').modal('show');
+}
+
+function saveOhItem() {
+    var name = document.getElementById('ohItemName').value.trim();
+    var amount = document.getElementById('ohItemAmount').value;
+    if (!name) { alert('Item name is required'); return; }
+    if (!amount || parseFloat(amount) < 0) { alert('Valid amount is required'); return; }
+
+    var payload = {
+        csrf_token: CSRF,
+        id: document.getElementById('ohItemId').value || null,
+        category: document.getElementById('ohItemCategory').value,
+        item_name: name,
+        amount: parseFloat(amount),
+        frequency: document.getElementById('ohItemFrequency').value,
+        notes: document.getElementById('ohItemNotes').value || null,
+        is_active: document.getElementById('ohItemActive').checked ? 1 : 0
+    };
+
+    fetch(API + '?action=save-overhead-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            $('#ohItemModal').modal('hide');
+            showAlert(data.message, 'success');
+            // Reload overhead items
+            fetch(API + '?action=list-overhead-items&inactive=1')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.success) {
+                        overheadItems = d.items;
+                        renderOverheadItemsTable();
+                        recalcOverhead();
+                    }
+                });
+        } else {
+            alert('Error: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(function(err) { alert('Network error: ' + err.message); });
+}
+
+function deleteOhItem() {
+    var id = document.getElementById('ohItemId').value;
+    var name = document.getElementById('ohItemName').value;
+    if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
+
+    fetch(API + '?action=delete-overhead-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csrf_token: CSRF, id: parseInt(id) })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            $('#ohItemModal').modal('hide');
+            showAlert('Overhead item deleted', 'success');
+            fetch(API + '?action=list-overhead-items&inactive=1')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (d.success) {
+                        overheadItems = d.items;
+                        renderOverheadItemsTable();
+                        recalcOverhead();
+                    }
+                });
         } else {
             alert('Error: ' + (data.error || 'Unknown error'));
         }

@@ -62,6 +62,25 @@ try {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
     ");
 
+    // Ensure overhead_items table exists
+    $db->exec("
+        CREATE TABLE IF NOT EXISTS `overhead_items` (
+            `id` int NOT NULL AUTO_INCREMENT,
+            `category` enum('fixed','variable','vehicle','insurance','admin') NOT NULL,
+            `item_name` varchar(100) NOT NULL,
+            `amount` decimal(10,2) NOT NULL,
+            `frequency` enum('weekly','monthly','quarterly','annual') NOT NULL DEFAULT 'monthly',
+            `notes` text,
+            `is_active` tinyint(1) NOT NULL DEFAULT 1,
+            `sort_order` int NOT NULL DEFAULT 0,
+            `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+            `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (`id`),
+            KEY `idx_category` (`category`),
+            KEY `idx_active` (`is_active`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+    ");
+
     // Check if rate_with_burden column exists, add if missing
     $cols = $db->query("SHOW COLUMNS FROM cost_factors LIKE 'rate_with_burden'")->rowCount();
     if ($cols === 0) {
@@ -209,6 +228,9 @@ try {
         if (!isset($settings['overhead_percent'])) $settings['overhead_percent'] = 20;
         if (!isset($settings['profit_margin'])) $settings['profit_margin'] = 35;
         if (!isset($settings['gst_rate'])) $settings['gst_rate'] = 5;
+        if (!isset($settings['estimated_monthly_revenue'])) $settings['estimated_monthly_revenue'] = 18000;
+        if (!isset($settings['estimated_jobs_per_month'])) $settings['estimated_jobs_per_month'] = 40;
+        if (!isset($settings['overhead_mode'])) $settings['overhead_mode'] = 0;
 
         echo json_encode(['success' => true, 'settings' => $settings]);
 
@@ -216,7 +238,7 @@ try {
     } elseif ($action === 'save-overhead') {
         $data = json_decode(file_get_contents('php://input'), true);
 
-        $validKeys = ['overhead_percent', 'profit_margin', 'gst_rate'];
+        $validKeys = ['overhead_percent', 'profit_margin', 'gst_rate', 'estimated_monthly_revenue', 'estimated_jobs_per_month', 'overhead_mode'];
         $saved = 0;
 
         foreach ($validKeys as $key) {
@@ -227,9 +249,12 @@ try {
                     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
                 ");
                 $descriptions = [
-                    'overhead_percent' => 'General overhead percentage (insurance, office, utilities)',
+                    'overhead_percent' => 'General overhead percentage (auto-calculated or manual)',
                     'profit_margin' => 'Target profit margin percentage',
-                    'gst_rate' => 'GST tax rate'
+                    'gst_rate' => 'GST tax rate',
+                    'estimated_monthly_revenue' => 'Estimated monthly billable revenue',
+                    'estimated_jobs_per_month' => 'Estimated number of jobs per month',
+                    'overhead_mode' => 'Overhead calculation mode (0=auto from items, 1=manual)'
                 ];
                 $stmt->execute([
                     $key,
@@ -292,6 +317,137 @@ try {
         }
 
         echo json_encode(['success' => true, 'message' => 'Default cost factors seeded', 'count' => count($defaults)]);
+
+    // ── List overhead items ────────────────────────────────────
+    } elseif ($action === 'list-overhead-items') {
+        $includeInactive = isset($_GET['inactive']) && $_GET['inactive'] === '1';
+        $sql = "SELECT * FROM overhead_items";
+        if (!$includeInactive) {
+            $sql .= " WHERE is_active = 1";
+        }
+        $sql .= " ORDER BY category, sort_order, item_name";
+        $stmt = $db->query($sql);
+        echo json_encode(['success' => true, 'items' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+
+    // ── Save overhead item ──────────────────────────────────────
+    } elseif ($action === 'save-overhead-item') {
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        if (empty($data['item_name']) || !isset($data['amount'])) {
+            throw new Exception('Item name and amount are required');
+        }
+
+        $validCategories = ['fixed', 'variable', 'vehicle', 'insurance', 'admin'];
+        if (empty($data['category']) || !in_array($data['category'], $validCategories)) {
+            throw new Exception('Valid category is required');
+        }
+
+        $validFrequencies = ['weekly', 'monthly', 'quarterly', 'annual'];
+        $frequency = (isset($data['frequency']) && in_array($data['frequency'], $validFrequencies))
+            ? $data['frequency'] : 'monthly';
+
+        if (!empty($data['id'])) {
+            // Update
+            $stmt = $db->prepare("
+                UPDATE overhead_items SET
+                    category = ?, item_name = ?, amount = ?, frequency = ?,
+                    notes = ?, is_active = ?, sort_order = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $data['category'],
+                trim($data['item_name']),
+                floatval($data['amount']),
+                $frequency,
+                $data['notes'] ?? null,
+                isset($data['is_active']) ? intval($data['is_active']) : 1,
+                intval($data['sort_order'] ?? 0),
+                intval($data['id'])
+            ]);
+            echo json_encode(['success' => true, 'message' => 'Overhead item updated']);
+        } else {
+            // Create
+            $stmt = $db->prepare("
+                INSERT INTO overhead_items (category, item_name, amount, frequency, notes, is_active, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $data['category'],
+                trim($data['item_name']),
+                floatval($data['amount']),
+                $frequency,
+                $data['notes'] ?? null,
+                isset($data['is_active']) ? intval($data['is_active']) : 1,
+                intval($data['sort_order'] ?? 0)
+            ]);
+            echo json_encode([
+                'success' => true,
+                'id' => $db->lastInsertId(),
+                'message' => 'Overhead item created'
+            ]);
+        }
+
+    // ── Delete overhead item ────────────────────────────────────
+    } elseif ($action === 'delete-overhead-item') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (empty($data['id'])) throw new Exception('Item ID is required');
+
+        $stmt = $db->prepare("DELETE FROM overhead_items WHERE id = ?");
+        $stmt->execute([intval($data['id'])]);
+        echo json_encode(['success' => true, 'message' => 'Overhead item deleted']);
+
+    // ── Seed default overhead items ─────────────────────────────
+    } elseif ($action === 'seed-overhead-items') {
+        $count = $db->query("SELECT COUNT(*) FROM overhead_items")->fetchColumn();
+        if ($count > 0) {
+            echo json_encode(['success' => true, 'message' => 'Overhead items already seeded', 'count' => intval($count)]);
+            exit;
+        }
+
+        $defaults = [
+            ['fixed', 'Office/Storage Rent', 800.00, 'monthly', 'Shared storage unit + small office'],
+            ['fixed', 'Phone Plan', 85.00, 'monthly', 'Business phone plan'],
+            ['fixed', 'Internet', 75.00, 'monthly', 'Office internet service'],
+            ['fixed', 'Software Subscriptions', 150.00, 'monthly', 'CRM, accounting, scheduling tools'],
+            ['fixed', 'Business License', 250.00, 'annual', 'Municipal business license renewal'],
+            ['vehicle', 'Truck Payment', 650.00, 'monthly', 'Work truck financing'],
+            ['vehicle', 'Fuel Budget', 600.00, 'monthly', 'Estimated monthly fuel for all vehicles'],
+            ['vehicle', 'Vehicle Maintenance', 300.00, 'monthly', 'Oil changes, tires, repairs reserve'],
+            ['vehicle', 'Vehicle Registration', 180.00, 'annual', 'Annual registration & inspection'],
+            ['insurance', 'General Liability', 3600.00, 'annual', 'Commercial general liability policy'],
+            ['insurance', 'Vehicle Insurance', 2400.00, 'annual', 'Commercial auto policy'],
+            ['insurance', 'WCB/WorkSafeBC', 400.00, 'monthly', 'Workers compensation premiums'],
+            ['insurance', 'Equipment Insurance', 1200.00, 'annual', 'Inland marine / equipment floater'],
+            ['admin', 'Accounting/Bookkeeping', 200.00, 'monthly', 'Monthly bookkeeper'],
+            ['admin', 'Bank Fees', 25.00, 'monthly', 'Business account + merchant fees'],
+            ['admin', 'Marketing/Advertising', 300.00, 'monthly', 'Google Ads, flyers, signage'],
+            ['variable', 'Uniforms/PPE', 200.00, 'quarterly', 'Crew shirts, safety gear replacement'],
+            ['variable', 'Training/Certifications', 500.00, 'annual', 'Pesticide cert, first aid, etc.'],
+        ];
+
+        $stmt = $db->prepare("
+            INSERT INTO overhead_items (category, item_name, amount, frequency, notes, is_active)
+            VALUES (?, ?, ?, ?, ?, 1)
+        ");
+        foreach ($defaults as $row) {
+            $stmt->execute($row);
+        }
+
+        // Also seed revenue assumptions
+        $revDefaults = [
+            ['estimated_monthly_revenue', 18000, 'Estimated monthly billable revenue'],
+            ['estimated_jobs_per_month', 40, 'Estimated number of jobs per month'],
+        ];
+        $rsStmt = $db->prepare("
+            INSERT INTO overhead_settings (setting_key, setting_value, description)
+            VALUES (?, ?, ?)
+            ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
+        ");
+        foreach ($revDefaults as $row) {
+            $rsStmt->execute($row);
+        }
+
+        echo json_encode(['success' => true, 'message' => 'Default overhead items seeded', 'count' => count($defaults)]);
 
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action ?? ''));
