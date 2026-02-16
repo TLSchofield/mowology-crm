@@ -13,7 +13,7 @@ $pageTitle = 'Expenses';
 $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
-           . '<link href="/crm/css/mobile-cards.css?v=20260215a" rel="stylesheet">';
+           . '<link href="/crm/css/mobile-cards.css?v=20260215b" rel="stylesheet">';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -137,6 +137,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="col-12">
                         <label class="form-label small mb-0">Notes</label>
                         <textarea class="form-control form-control-sm" id="rvNotes" rows="1"></textarea>
+                    </div>
+                </div>
+
+                <!-- Line Items from OCR -->
+                <div class="mw-line-items-section" id="rvLineItemsSection" style="display:none;">
+                    <button type="button" class="mw-line-items-toggle" onclick="toggleLineItems('rv')">
+                        <i data-feather="list" style="width:12px;height:12px;"></i>
+                        <span id="rvLineItemsCount">0</span> items detected
+                    </button>
+                    <div id="rvLineItemsList" style="display:none;">
+                        <table class="mw-line-items-table w-100"></table>
                     </div>
                 </div>
 
@@ -350,11 +361,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <div class="mw-mc-topbar">
         <div class="mw-mc-topbar-left">
             <div class="mw-mc-topbar-day">Receipts</div>
-            <div class="mw-mc-topbar-date"><?php echo date('M j'); ?></div>
+            <div class="mw-mc-topbar-date"><?php echo date('M j, Y'); ?></div>
         </div>
         <div class="mw-mc-topbar-center"></div>
         <div class="mw-mc-topbar-right">
-            <span class="mw-mc-topbar-weather" id="mobileDraftBadge"></span>
+            <div class="mw-mc-expense-month-pill" id="mobileMonthTotal">
+                <span class="mw-mc-expense-month-label">This month</span>
+                <span class="mw-mc-expense-month-value" id="mobileStatTotal">$0</span>
+            </div>
         </div>
     </div>
 
@@ -362,55 +376,97 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <div class="mw-mc-scroll-area" id="mobileExpenseScrollArea">
 
         <?php if ($canEdit): ?>
-        <!-- Receipt Capture -->
+        <!-- Receipt Capture Hero -->
         <div class="mw-mc-expense-capture" id="mobileCaptureArea">
-            <button type="button" class="mw-mc-expense-snap-btn" onclick="triggerCamera()">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                <span>Snap Receipt</span>
-            </button>
-            <button type="button" class="mw-mc-expense-gallery-btn" onclick="document.getElementById('receiptGalleryInput').click()">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                <span>Gallery</span>
-            </button>
+            <div class="mw-mc-expense-capture-inner">
+                <button type="button" class="mw-mc-expense-snap-btn" onclick="triggerCamera()">
+                    <div class="mw-mc-expense-snap-icon">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                    </div>
+                    <div class="mw-mc-expense-snap-text">
+                        <span class="mw-mc-expense-snap-title">Snap Receipt</span>
+                        <span class="mw-mc-expense-snap-sub">Take a photo or choose from gallery</span>
+                    </div>
+                </button>
+                <div class="mw-mc-expense-capture-actions">
+                    <button type="button" class="mw-mc-expense-action-chip" onclick="triggerCamera()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        Camera
+                    </button>
+                    <button type="button" class="mw-mc-expense-action-chip" onclick="document.getElementById('receiptGalleryInput').click()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                        Gallery
+                    </button>
+                    <button type="button" class="mw-mc-expense-action-chip" onclick="mobileManualEntry()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        Manual
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Analyzing Spinner (hidden by default) -->
         <div class="mw-mc-expense-spinner" id="mobileAnalyzeSpinner" style="display:none;">
-            <div class="spinner-dot"></div>
-            <span>Analyzing receipt...</span>
+            <div class="mw-mc-expense-spinner-ring">
+                <div class="spinner-dot"></div>
+            </div>
+            <div class="mw-mc-expense-spinner-text">
+                <span class="mw-mc-expense-spinner-title">Analyzing receipt...</span>
+                <span class="mw-mc-expense-spinner-sub">Reading text and matching vendor</span>
+            </div>
         </div>
 
         <!-- Mobile Review Panel (hidden until receipt captured) -->
         <div class="mw-mc-expense-review" id="mobileReviewPanel" style="display:none;">
             <div class="mw-mc-expense-review-header">
-                <span>Review Receipt</span>
+                <div class="mw-mc-expense-review-header-left">
+                    <span class="mw-mc-expense-review-title">Review Receipt</span>
+                    <span class="mw-mc-expense-review-badge" id="mobileOcrBadge"></span>
+                </div>
                 <button type="button" class="mw-mc-expense-review-cancel" onclick="mobileResetReview()">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
             </div>
-            <div class="mw-mc-expense-review-img-wrap">
+
+            <!-- Collapsible Receipt Image -->
+            <div class="mw-mc-expense-review-img-wrap" id="mobileReceiptWrap" onclick="toggleMobileReceiptExpand()">
                 <img id="mobileReceiptImg" src="" alt="Receipt">
-            </div>
-            <div class="mw-mc-expense-review-form">
-                <div class="mw-mc-expense-field">
-                    <label>Vendor</label>
-                    <input type="text" id="mobileRvVendor" placeholder="Vendor name..." autocomplete="off">
-                    <input type="hidden" id="mobileRvVendorId">
+                <div class="mw-mc-expense-review-img-hint">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                    <span>Tap to expand</span>
                 </div>
+            </div>
+
+            <div class="mw-mc-expense-review-form">
+                <!-- Top row: Total prominently displayed -->
+                <div class="mw-mc-expense-total-hero">
+                    <label>Total</label>
+                    <div class="mw-mc-expense-total-input-wrap">
+                        <span class="mw-mc-expense-currency">$</span>
+                        <input type="number" id="mobileRvTotal" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
+                        <span class="mw-mc-expense-conf-dot" id="mobileConfTotal"></span>
+                    </div>
+                </div>
+
+                <!-- Amount / Tax in a compact row -->
                 <div class="mw-mc-expense-field-row">
                     <div class="mw-mc-expense-field">
-                        <label>Amount</label>
-                        <input type="number" id="mobileRvAmount" step="0.01" min="0" inputmode="decimal">
+                        <label>Subtotal</label>
+                        <input type="number" id="mobileRvAmount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
                     </div>
-                    <div class="mw-mc-expense-field">
+                    <div class="mw-mc-expense-field mw-mc-expense-field-narrow">
                         <label>Tax</label>
-                        <input type="number" id="mobileRvTax" step="0.01" min="0" value="0" inputmode="decimal">
-                    </div>
-                    <div class="mw-mc-expense-field">
-                        <label>Total</label>
-                        <input type="number" id="mobileRvTotal" step="0.01" min="0" inputmode="decimal">
+                        <input type="number" id="mobileRvTax" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
                     </div>
                 </div>
+
+                <div class="mw-mc-expense-field">
+                    <label>Vendor <span class="mw-mc-expense-conf-dot" id="mobileConfVendor"></span></label>
+                    <input type="text" id="mobileRvVendor" placeholder="Start typing vendor name..." autocomplete="off">
+                    <input type="hidden" id="mobileRvVendorId">
+                    <div class="mw-mc-expense-vendor-dropdown" id="mobileVendorDropdown"></div>
+                </div>
+
                 <div class="mw-mc-expense-field-row">
                     <div class="mw-mc-expense-field">
                         <label>Date</label>
@@ -421,31 +477,50 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <select id="mobileRvCategory"></select>
                     </div>
                 </div>
-                <div class="mw-mc-expense-field">
-                    <label>Payment</label>
-                    <select id="mobileRvPayment">
-                        <option value="">Select...</option>
-                        <option value="company_card">Company Card</option>
-                        <option value="credit_card">Credit Card</option>
-                        <option value="debit">Debit</option>
-                        <option value="cash">Cash</option>
-                        <option value="etransfer">E-Transfer</option>
-                        <option value="cheque">Cheque</option>
-                    </select>
+
+                <div class="mw-mc-expense-field-row">
+                    <div class="mw-mc-expense-field">
+                        <label>Payment</label>
+                        <select id="mobileRvPayment">
+                            <option value="">Select...</option>
+                            <option value="company_card">Company Card</option>
+                            <option value="credit_card">Credit Card</option>
+                            <option value="debit">Debit</option>
+                            <option value="cash">Cash</option>
+                            <option value="etransfer">E-Transfer</option>
+                            <option value="cheque">Cheque</option>
+                        </select>
+                    </div>
+                    <div class="mw-mc-expense-field">
+                        <label>Job #</label>
+                        <input type="number" id="mobileRvJobId" placeholder="Optional" inputmode="numeric">
+                    </div>
                 </div>
+
                 <div class="mw-mc-expense-field">
                     <label>Description</label>
                     <input type="text" id="mobileRvDescription" placeholder="What was this for?">
                 </div>
+
+                <!-- Line Items (if OCR detected) -->
+                <div class="mw-mc-expense-line-items" id="mobileLineItemsSection" style="display:none;">
+                    <button type="button" class="mw-mc-expense-line-items-toggle" onclick="toggleMobileLineItems()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                        <span id="mobileLineItemsCount">0</span> items detected
+                        <svg class="mw-mc-expense-chevron" id="mobileLineItemsChevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="mw-mc-expense-line-items-list" id="mobileLineItemsList" style="display:none;"></div>
+                </div>
+
                 <div class="mw-mc-expense-save-row">
                     <button type="button" class="mw-mc-expense-save-btn" onclick="mobileSaveExpense(false)">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                         Save
                     </button>
                     <?php if ($canSend): ?>
                     <button type="button" class="mw-mc-expense-send-btn" onclick="mobileSaveExpense(true)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                        Save &amp; Send
+                        Send
                     </button>
                     <?php endif; ?>
                 </div>
@@ -453,11 +528,31 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         </div>
         <?php endif; ?>
 
+        <!-- Quick Stats Row -->
+        <div class="mw-mc-expense-quick-stats" id="mobileQuickStats">
+            <div class="mw-mc-expense-stat">
+                <span class="mw-mc-expense-stat-value" id="mobileStatCount">0</span>
+                <span class="mw-mc-expense-stat-label">Receipts</span>
+            </div>
+            <div class="mw-mc-expense-stat-divider"></div>
+            <div class="mw-mc-expense-stat">
+                <span class="mw-mc-expense-stat-value" id="mobileStatDrafts">0</span>
+                <span class="mw-mc-expense-stat-label">Drafts</span>
+            </div>
+            <div class="mw-mc-expense-stat-divider"></div>
+            <div class="mw-mc-expense-stat">
+                <span class="mw-mc-expense-stat-value" id="mobileStatSent">0</span>
+                <span class="mw-mc-expense-stat-label">Sent</span>
+            </div>
+        </div>
+
         <!-- Recent Expenses -->
         <div class="mw-mc-section-label" id="mobileExpenseListLabel">Recent Expenses</div>
         <div id="mobileExpenseList">
             <div class="mw-mc-empty">
-                <div class="mw-mc-empty-icon">&#128722;</div>
+                <div class="mw-mc-empty-icon">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                </div>
                 <div class="mw-mc-empty-text">Loading...</div>
             </div>
         </div>
@@ -467,17 +562,25 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <!-- Fixed Bottom Bar -->
     <div class="mw-mc-bottombar">
         <a href="/crm/jobs/schedule.php" class="mw-mc-bottombar-btn">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             <span>Schedule</span>
         </a>
-        <button type="button" class="mw-mc-bottombar-btn mw-mc-bottombar-btn-active" onclick="mobileScrollToCapture()">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <button type="button" class="mw-mc-bottombar-btn mw-mc-fab-snap" onclick="mobileScrollToCapture()">
+            <div class="mw-mc-fab-snap-inner">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </div>
             <span>Snap</span>
         </button>
         <button type="button" class="mw-mc-bottombar-btn" onclick="mobileScrollToExpenses()">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             <span>History</span>
         </button>
+    </div>
+
+    <!-- Mobile Success Toast (hidden) -->
+    <div class="mw-mc-expense-toast" id="mobileExpenseToast">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        <span id="mobileExpenseToastText">Saved!</span>
     </div>
 
 </div><!-- /.mw-mc-container -->
@@ -493,75 +596,96 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
             <div class="modal-body">
                 <input type="hidden" id="expenseId">
-                <div class="row g-3">
-                    <div class="col-md-4">
-                        <label class="form-label">Date <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" id="expDate" required>
+                <div class="row">
+                    <!-- Left: Receipt Image (shown only when image exists) -->
+                    <div class="col-md-4" id="expReceiptCol" style="display:none;">
+                        <div class="mw-modal-receipt-preview" onclick="openLightbox(this.querySelector('img')?.src)">
+                            <img id="expReceiptImg" src="" alt="Receipt">
+                        </div>
+                        <!-- Line Items -->
+                        <div class="mw-line-items-section" id="expLineItemsSection" style="display:none;">
+                            <button type="button" class="mw-line-items-toggle" onclick="toggleLineItems('exp')">
+                                <i data-feather="list" style="width:12px;height:12px;"></i>
+                                <span id="expLineItemsCount">0</span> items detected
+                            </button>
+                            <div id="expLineItemsList" style="display:none;">
+                                <table class="mw-line-items-table w-100"></table>
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Vendor</label>
-                        <input type="text" class="form-control" id="expVendorSearch" placeholder="Search vendors..." autocomplete="off">
-                        <input type="hidden" id="expVendorId">
-                        <div class="dropdown-menu w-100" id="vendorDropdown" style="max-height:200px;overflow-y:auto;"></div>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Payment Method</label>
-                        <select class="form-select" id="expPayment">
-                            <option value="">Select...</option>
-                            <option value="company_card">Company Card</option>
-                            <option value="credit_card">Credit Card</option>
-                            <option value="debit">Debit</option>
-                            <option value="cash">Cash</option>
-                            <option value="etransfer">E-Transfer</option>
-                            <option value="cheque">Cheque</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Amount (pre-tax)</label>
-                        <input type="number" class="form-control" id="expAmount" step="0.01" min="0">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Tax</label>
-                        <input type="number" class="form-control" id="expTax" step="0.01" min="0" value="0">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Total <span class="text-danger">*</span></label>
-                        <input type="number" class="form-control" id="expTotal" step="0.01" min="0" required>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Accounting Category</label>
-                        <select class="form-select" id="expAcctCategory"></select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">GBP Category</label>
-                        <select class="form-select" id="expGbpCategory"></select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Job #</label>
-                        <input type="number" class="form-control" id="expJobId" placeholder="Job ID (optional)">
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Status</label>
-                        <select class="form-select" id="expStatus">
-                            <option value="draft">Draft</option>
-                            <option value="approved">Approved</option>
-                        </select>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label">Description</label>
-                        <textarea class="form-control" id="expDescription" rows="2"></textarea>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label">Notes</label>
-                        <textarea class="form-control" id="expNotes" rows="2"></textarea>
-                    </div>
+                    <!-- Right: Form Fields -->
+                    <div id="expFormCol">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Date <span class="text-danger">*</span></label>
+                                <input type="date" class="form-control" id="expDate" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Vendor</label>
+                                <input type="text" class="form-control" id="expVendorSearch" placeholder="Search vendors..." autocomplete="off">
+                                <input type="hidden" id="expVendorId">
+                                <div class="dropdown-menu w-100" id="vendorDropdown" style="max-height:200px;overflow-y:auto;"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Payment Method</label>
+                                <select class="form-select" id="expPayment">
+                                    <option value="">Select...</option>
+                                    <option value="company_card">Company Card</option>
+                                    <option value="credit_card">Credit Card</option>
+                                    <option value="debit">Debit</option>
+                                    <option value="cash">Cash</option>
+                                    <option value="etransfer">E-Transfer</option>
+                                    <option value="cheque">Cheque</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Amount (pre-tax)</label>
+                                <input type="number" class="form-control" id="expAmount" step="0.01" min="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Tax</label>
+                                <input type="number" class="form-control" id="expTax" step="0.01" min="0" value="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Total <span class="text-danger">*</span></label>
+                                <input type="number" class="form-control" id="expTotal" step="0.01" min="0" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Accounting Category</label>
+                                <select class="form-select" id="expAcctCategory"></select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">GBP Category</label>
+                                <select class="form-select" id="expGbpCategory"></select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Job #</label>
+                                <input type="number" class="form-control" id="expJobId" placeholder="Job ID (optional)">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Status</label>
+                                <select class="form-select" id="expStatus">
+                                    <option value="draft">Draft</option>
+                                    <option value="approved">Approved</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Description</label>
+                                <textarea class="form-control" id="expDescription" rows="2"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Notes</label>
+                                <textarea class="form-control" id="expNotes" rows="2"></textarea>
+                            </div>
 
-                    <!-- Smart Match Confidence -->
-                    <div class="col-12" id="matchConfidenceRow" style="display:none;">
-                        <div class="alert alert-info py-2 mb-0">
-                            <strong>Smart Match:</strong>
-                            <span id="matchConfidenceText"></span>
-                            <span class="badge bg-primary ms-2" id="matchConfidenceBadge"></span>
+                            <!-- Smart Match Confidence -->
+                            <div class="col-12" id="matchConfidenceRow" style="display:none;">
+                                <div class="alert alert-info py-2 mb-0">
+                                    <strong>Smart Match:</strong>
+                                    <span id="matchConfidenceText"></span>
+                                    <span class="badge bg-primary ms-2" id="matchConfidenceBadge"></span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -814,6 +938,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('rvJobId').value = s.suggested_job_id;
         }
 
+        // Line items in review panel
+        var lineItems = (p.line_items || []);
+        var rvLiSection = document.getElementById('rvLineItemsSection');
+        if (lineItems.length > 0 && rvLiSection) {
+            document.getElementById('rvLineItemsCount').textContent = lineItems.length;
+            document.getElementById('rvLineItemsList').querySelector('table').innerHTML =
+                renderLineItemsTable(lineItems);
+            document.getElementById('rvLineItemsList').style.display = 'block';
+            rvLiSection.style.display = 'block';
+        } else if (rvLiSection) {
+            rvLiSection.style.display = 'none';
+        }
+
         if (window.feather) feather.replace();
 
         // ── Mobile: populate mobile review panel ──
@@ -826,12 +963,26 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             mobileReview.style.display = 'block';
 
             // Show image preview in mobile panel
+            var imgWrap = document.getElementById('mobileReceiptWrap');
+            if (imgWrap) imgWrap.style.display = 'block';
             var mobileReader = new FileReader();
             mobileReader.onload = function(ev) {
                 var mImg = document.getElementById('mobileReceiptImg');
                 if (mImg) mImg.src = ev.target.result;
             };
             mobileReader.readAsDataURL(file);
+
+            // OCR badge
+            var ocrBadge = document.getElementById('mobileOcrBadge');
+            if (ocrBadge) {
+                if (data.ocr_available && data.ocr_text) {
+                    ocrBadge.innerHTML = '<span class="mw-mc-expense-badge-ocr">AI detected</span>';
+                } else if (data.ocr_available) {
+                    ocrBadge.innerHTML = '<span class="mw-mc-expense-badge-warn">No text found</span>';
+                } else {
+                    ocrBadge.innerHTML = '<span class="mw-mc-expense-badge-manual">Manual</span>';
+                }
+            }
 
             // Copy parsed values into mobile form fields
             var setMobileVal = function(id, val) { var el = document.getElementById(id); if (el && val) el.value = val; };
@@ -844,9 +995,44 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             setMobileVal('mobileRvCategory', s.accounting_category || '');
             setMobileVal('mobileRvPayment', p.payment_method || '');
 
+            // Mobile confidence dots
+            var setMobileConf = function(dotId, confidence) {
+                var dot = document.getElementById(dotId);
+                if (!dot) return;
+                dot.className = 'mw-mc-expense-conf-dot';
+                if (confidence >= 70) dot.classList.add('mw-mc-conf-high');
+                else if (confidence >= 40) dot.classList.add('mw-mc-conf-medium');
+                else if (confidence > 0) dot.classList.add('mw-mc-conf-low');
+            };
+            setMobileConf('mobileConfTotal', p.total ? 70 : 0);
+            setMobileConf('mobileConfVendor', s.vendor_confidence || (p.vendor_hint ? 30 : 0));
+
+            // Mobile line items
+            var mLiSection = document.getElementById('mobileLineItemsSection');
+            var mLiList = document.getElementById('mobileLineItemsList');
+            var mLiCount = document.getElementById('mobileLineItemsCount');
+            var lineItems = (p.line_items || []);
+            if (lineItems.length > 0 && mLiSection) {
+                mLiCount.textContent = lineItems.length;
+                mLiList.innerHTML = lineItems.map(function(item) {
+                    var amt = parseFloat(item.amount);
+                    return '<div class="mw-mc-expense-line-item">' +
+                        '<span class="mw-mc-expense-line-item-name">' + esc(item.name) + '</span>' +
+                        '<span class="mw-mc-expense-line-item-amt' + (amt < 0 ? ' mw-mc-expense-line-item-neg' : '') + '">$' + amt.toFixed(2) + '</span>' +
+                    '</div>';
+                }).join('');
+                mLiSection.style.display = 'block';
+            } else if (mLiSection) {
+                mLiSection.style.display = 'none';
+            }
+
             // Store media/ocr refs for mobile save
             mobileReview.dataset.mediaId = data.media_id || '';
             mobileReview.dataset.ocrText = data.ocr_text || '';
+
+            // Scroll to top of review
+            var scrollArea = document.getElementById('mobileExpenseScrollArea');
+            if (scrollArea) scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
         }
     }
 
@@ -897,6 +1083,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var el = document.getElementById(id);
             if (el) { el.className = 'mw-confidence-dot'; el.title = ''; }
         });
+
+        // Clear line items
+        var rvLiSection = document.getElementById('rvLineItemsSection');
+        if (rvLiSection) rvLiSection.style.display = 'none';
     };
 
     // ── Save from Review Panel ────────────────────────────────────
@@ -1045,9 +1235,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 forwarded: 'bg-success',
             }[e.status] || 'bg-secondary';
 
-            var receiptIcon = e.receipt_media_id
-                ? '<span class="text-success" title="Receipt attached"><i data-feather="image" style="width:14px;height:14px;"></i></span>'
-                : '<span class="text-muted" title="No receipt"><i data-feather="image" style="width:14px;height:14px;opacity:0.3"></i></span>';
+            var receiptIcon = e.receipt_path
+                ? '<img src="' + esc(e.receipt_path) + '" class="mw-receipt-thumb" title="Click to view receipt" onclick="event.stopPropagation();openLightbox(\'' + esc(e.receipt_path) + '\')">'
+                : '<span class="mw-receipt-no-img" title="No receipt"><i data-feather="image" style="width:14px;height:14px;opacity:0.3"></i></span>';
 
             var actions = '';
             if (CAN_SEND && e.receipt_media_id && !e.forwarded_to_accounting) {
@@ -1109,6 +1299,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 document.getElementById('statForwarded').textContent = d.stats.forwarded_count;
                 document.getElementById('statDrafts').textContent = d.stats.draft_count;
                 document.getElementById('expenseStats').style.display = 'flex';
+                updateMobileStats(d.stats);
             }
         } catch(e) { console.error('loadStats', e); }
     }
@@ -1157,6 +1348,31 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('expDescription').value = e.description || '';
             document.getElementById('expNotes').value = e.notes || '';
 
+            // Receipt image
+            var receiptCol = document.getElementById('expReceiptCol');
+            var formCol = document.getElementById('expFormCol');
+            if (e.receipt_path) {
+                document.getElementById('expReceiptImg').src = e.receipt_path;
+                receiptCol.style.display = 'block';
+                formCol.className = 'col-md-8';
+            } else {
+                receiptCol.style.display = 'none';
+                formCol.className = 'col-12';
+            }
+
+            // Line items
+            var lineItems = e.parsed_line_items || [];
+            var liSection = document.getElementById('expLineItemsSection');
+            if (lineItems.length > 0) {
+                document.getElementById('expLineItemsCount').textContent = lineItems.length;
+                document.getElementById('expLineItemsList').querySelector('table').innerHTML =
+                    renderLineItemsTable(lineItems);
+                document.getElementById('expLineItemsList').style.display = 'none';
+                liSection.style.display = 'block';
+            } else {
+                liSection.style.display = 'none';
+            }
+
             if (e.match_confidence > 0) {
                 document.getElementById('matchConfidenceRow').style.display = 'block';
                 document.getElementById('matchConfidenceBadge').textContent = e.match_confidence + '%';
@@ -1164,6 +1380,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 document.getElementById('matchConfidenceRow').style.display = 'none';
             }
 
+            if (window.feather) feather.replace();
             $('#expenseModal').modal('show');
         } catch(e) { alert('Error: ' + e.message); }
     };
@@ -1382,7 +1599,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     // ── Mobile Expense Helpers ─────────────────────────────────
     window.mobileScrollToCapture = function() {
         var area = document.getElementById('mobileExpenseScrollArea');
-        if (area) area.scrollTop = 0;
+        if (area) area.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     window.mobileScrollToExpenses = function() {
@@ -1394,23 +1611,137 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var cap = document.getElementById('mobileCaptureArea');
         var review = document.getElementById('mobileReviewPanel');
         var spinner = document.getElementById('mobileAnalyzeSpinner');
-        if (cap) cap.style.display = 'flex';
-        if (review) review.style.display = 'none';
-        if (spinner) spinner.style.display = 'none';
+        if (review) { review.classList.add('mw-mc-expense-review-exit'); }
+        setTimeout(function() {
+            if (cap) cap.style.display = 'flex';
+            if (review) { review.style.display = 'none'; review.classList.remove('mw-mc-expense-review-exit'); }
+            if (spinner) spinner.style.display = 'none';
+        }, 200);
 
         // Clear mobile form fields
         ['mobileRvVendor','mobileRvVendorId','mobileRvAmount','mobileRvTax','mobileRvTotal',
-         'mobileRvDate','mobileRvCategory','mobileRvPayment','mobileRvDescription'].forEach(function(id) {
+         'mobileRvDate','mobileRvCategory','mobileRvPayment','mobileRvDescription','mobileRvJobId'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.value = '';
         });
+
+        // Clear confidence dots
+        ['mobileConfTotal','mobileConfVendor'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.className = 'mw-mc-expense-conf-dot';
+        });
+
+        // Hide line items
+        var liSection = document.getElementById('mobileLineItemsSection');
+        if (liSection) liSection.style.display = 'none';
+
+        // Reset receipt image expand
+        var imgWrap = document.getElementById('mobileReceiptWrap');
+        if (imgWrap) imgWrap.classList.remove('mw-mc-expense-review-img-expanded');
 
         // Also reset desktop capture area
         resetCapture();
     };
 
+    // Manual entry — show review panel without a photo
+    window.mobileManualEntry = function() {
+        var cap = document.getElementById('mobileCaptureArea');
+        var review = document.getElementById('mobileReviewPanel');
+        if (cap) cap.style.display = 'none';
+        if (review) {
+            review.style.display = 'block';
+            review.dataset.mediaId = '';
+            review.dataset.ocrText = '';
+        }
+        // Hide image section for manual entry
+        var imgWrap = document.getElementById('mobileReceiptWrap');
+        if (imgWrap) imgWrap.style.display = 'none';
+        // Set OCR badge
+        var badge = document.getElementById('mobileOcrBadge');
+        if (badge) badge.innerHTML = '<span class="mw-mc-expense-badge-manual">Manual entry</span>';
+        // Set today's date
+        var dateEl = document.getElementById('mobileRvDate');
+        if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
+        // Focus total
+        setTimeout(function() {
+            var totalEl = document.getElementById('mobileRvTotal');
+            if (totalEl) totalEl.focus();
+        }, 300);
+    };
+
+    // Toggle receipt image expand/collapse
+    window.toggleMobileReceiptExpand = function() {
+        var wrap = document.getElementById('mobileReceiptWrap');
+        if (wrap) wrap.classList.toggle('mw-mc-expense-review-img-expanded');
+    };
+
+    // Toggle mobile line items
+    window.toggleMobileLineItems = function() {
+        var list = document.getElementById('mobileLineItemsList');
+        var chevron = document.getElementById('mobileLineItemsChevron');
+        if (list) {
+            var isOpen = list.style.display !== 'none';
+            list.style.display = isOpen ? 'none' : 'block';
+            if (chevron) chevron.style.transform = isOpen ? '' : 'rotate(180deg)';
+        }
+    };
+
+    // Mobile vendor autocomplete
+    (function() {
+        var input = document.getElementById('mobileRvVendor');
+        var dropdown = document.getElementById('mobileVendorDropdown');
+        var hiddenId = 'mobileRvVendorId';
+        if (!input || !dropdown) return;
+
+        var debounce;
+        input.addEventListener('input', function() {
+            clearTimeout(debounce);
+            var q = this.value.trim();
+            document.getElementById(hiddenId).value = '';
+            if (q.length < 2) { dropdown.style.display = 'none'; return; }
+            debounce = setTimeout(async function() {
+                try {
+                    var r = await fetch('/crm/api/vendors.php?action=search&q=' + encodeURIComponent(q));
+                    var d = await r.json();
+                    if (d.success && d.vendors.length) {
+                        dropdown.innerHTML = d.vendors.map(function(v) {
+                            return '<div class="mw-mc-expense-vendor-option" data-vid="' + v.id + '" data-vname="' + esc(v.name) + '" data-vacct="' + esc(v.default_accounting_category||'') + '">' +
+                                '<span class="mw-mc-expense-vendor-option-name">' + esc(v.name) + '</span>' +
+                                (v.default_accounting_category ? '<span class="mw-mc-expense-vendor-option-cat">' + esc(v.default_accounting_category) + '</span>' : '') +
+                            '</div>';
+                        }).join('');
+                        dropdown.querySelectorAll('.mw-mc-expense-vendor-option').forEach(function(opt) {
+                            opt.addEventListener('click', function() {
+                                document.getElementById(hiddenId).value = this.dataset.vid;
+                                input.value = this.dataset.vname;
+                                dropdown.style.display = 'none';
+                                if (this.dataset.vacct) {
+                                    var catEl = document.getElementById('mobileRvCategory');
+                                    if (catEl) catEl.value = this.dataset.vacct;
+                                }
+                            });
+                        });
+                        dropdown.style.display = 'block';
+                    } else {
+                        dropdown.style.display = 'none';
+                    }
+                } catch(e) { dropdown.style.display = 'none'; }
+            }, 250);
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+    })();
+
     window.mobileSaveExpense = async function(andSend) {
         var review = document.getElementById('mobileReviewPanel');
+        var saveBtn = review.querySelector('.mw-mc-expense-save-btn');
+        var sendBtn = review.querySelector('.mw-mc-expense-send-btn');
+        var activeBtn = andSend ? sendBtn : saveBtn;
+
         var data = {
             action: 'create',
             csrf_token: CSRF,
@@ -1422,6 +1753,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             tax_amount: document.getElementById('mobileRvTax').value,
             total: document.getElementById('mobileRvTotal').value,
             accounting_category: document.getElementById('mobileRvCategory').value,
+            job_id: document.getElementById('mobileRvJobId')?.value || null,
             description: document.getElementById('mobileRvDescription').value,
             receipt_media_id: review ? (review.dataset.mediaId || null) : null,
             receipt_lat: currentGpsLat,
@@ -1431,9 +1763,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         };
 
         if (!data.total || parseFloat(data.total) <= 0) {
-            alert('Please enter a total amount');
+            mobileToast('Please enter a total amount', true);
             return;
         }
+
+        // Disable buttons and show loading
+        if (activeBtn) { activeBtn.disabled = true; activeBtn.classList.add('mw-mc-expense-btn-loading'); }
 
         try {
             var r = await fetch('/crm/api/expenses.php', {
@@ -1452,16 +1787,22 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 });
                 var sd = await sr.json();
                 if (!sd.success) {
-                    alert('Saved, but send failed: ' + (sd.error || sd.message));
+                    mobileToast('Saved, but send failed', true);
                 }
             }
 
-            mobileResetReview();
-            loadExpenses(1);
-            loadStats();
-            if (andSend) loadSendLog();
             mobileToast(andSend ? 'Saved & sent!' : 'Expense saved!');
-        } catch(e) { alert('Error: ' + e.message); }
+            setTimeout(function() {
+                mobileResetReview();
+                loadExpenses(1);
+                loadStats();
+                if (andSend) loadSendLog();
+            }, 600);
+        } catch(e) {
+            mobileToast('Error: ' + e.message, true);
+        } finally {
+            if (activeBtn) { activeBtn.disabled = false; activeBtn.classList.remove('mw-mc-expense-btn-loading'); }
+        }
     };
 
     function renderMobileExpenses(expenses) {
@@ -1470,36 +1811,82 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         if (!expenses || !expenses.length) {
             list.innerHTML = '<div class="mw-mc-empty">' +
-                '<div class="mw-mc-empty-icon">&#128722;</div>' +
+                '<div class="mw-mc-empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>' +
                 '<div class="mw-mc-empty-text">No expenses yet</div>' +
                 '<div class="mw-mc-empty-sub">Snap a receipt to get started</div>' +
                 '</div>';
             return;
         }
 
-        list.innerHTML = expenses.slice(0, 25).map(function(e) {
-            var vendorName = e.vendor_name || e.vendor_name_raw || 'Unknown';
-            var statusClass = {
-                draft: 'mw-mc-expense-item-status-draft',
-                approved: 'mw-mc-expense-item-status-approved',
-                forwarded: 'mw-mc-expense-item-status-forwarded'
-            }[e.status] || 'mw-mc-expense-item-status-draft';
+        // Group by date
+        var grouped = {};
+        expenses.slice(0, 30).forEach(function(e) {
+            var d = e.expense_date || 'Unknown';
+            if (!grouped[d]) grouped[d] = [];
+            grouped[d].push(e);
+        });
 
-            return '<div class="mw-mc-expense-item" onclick="editExpense(' + e.id + ')">' +
-                '<div class="mw-mc-expense-item-left">' +
-                    '<div class="mw-mc-expense-item-vendor">' + esc(vendorName) + '</div>' +
-                    '<div class="mw-mc-expense-item-date">' + e.expense_date +
-                        (e.accounting_category ? ' &middot; ' + esc(e.accounting_category) : '') + '</div>' +
-                '</div>' +
-                '<div class="mw-mc-expense-item-right">' +
-                    '<div class="mw-mc-expense-item-amount">$' + parseFloat(e.total).toFixed(2) + '</div>' +
-                    '<span class="mw-mc-expense-item-status ' + statusClass + '">' + e.status + '</span>' +
-                '</div>' +
-            '</div>';
-        }).join('');
+        var html = '';
+        Object.keys(grouped).forEach(function(date) {
+            // Format date label
+            var dateObj = new Date(date + 'T12:00:00');
+            var today = new Date();
+            var yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            var dateLabel = date;
+            if (dateObj.toDateString() === today.toDateString()) dateLabel = 'Today';
+            else if (dateObj.toDateString() === yesterday.toDateString()) dateLabel = 'Yesterday';
+            else dateLabel = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+            // Sum for this date group
+            var dayTotal = grouped[date].reduce(function(sum, e) { return sum + parseFloat(e.total || 0); }, 0);
+
+            html += '<div class="mw-mc-expense-date-group">' +
+                '<div class="mw-mc-expense-date-header">' +
+                    '<span class="mw-mc-expense-date-label">' + dateLabel + '</span>' +
+                    '<span class="mw-mc-expense-date-total">$' + dayTotal.toFixed(2) + '</span>' +
+                '</div>';
+
+            grouped[date].forEach(function(e) {
+                var vendorName = e.vendor_name || e.vendor_name_raw || 'Unknown';
+                var statusIcon = '';
+                if (e.status === 'forwarded' || e.forwarded_to_accounting) {
+                    statusIcon = '<span class="mw-mc-expense-item-sent" title="Sent to accounting"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></span>';
+                } else if (e.status === 'approved') {
+                    statusIcon = '<span class="mw-mc-expense-item-approved" title="Approved"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="16 10 11 16 8 13"/></svg></span>';
+                }
+
+                var thumbHtml = '';
+                if (e.receipt_path) {
+                    thumbHtml = '<div class="mw-mc-expense-item-thumb"><img src="' + esc(e.receipt_path) + '" alt="" loading="lazy"></div>';
+                } else {
+                    thumbHtml = '<div class="mw-mc-expense-item-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>';
+                }
+
+                var catLabel = e.accounting_category ? '<span class="mw-mc-expense-item-cat">' + esc(e.accounting_category) + '</span>' : '';
+
+                html += '<div class="mw-mc-expense-item" onclick="editExpense(' + e.id + ')">' +
+                    thumbHtml +
+                    '<div class="mw-mc-expense-item-left">' +
+                        '<div class="mw-mc-expense-item-vendor">' + esc(vendorName) + '</div>' +
+                        '<div class="mw-mc-expense-item-meta">' + catLabel +
+                            (e.job_id ? '<span class="mw-mc-expense-item-job">Job #' + e.job_id + '</span>' : '') +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="mw-mc-expense-item-right">' +
+                        '<div class="mw-mc-expense-item-amount">$' + parseFloat(e.total).toFixed(2) + '</div>' +
+                        statusIcon +
+                    '</div>' +
+                '</div>';
+            });
+
+            html += '</div>';
+        });
+
+        list.innerHTML = html;
     }
 
-    // Mobile auto-calc total
+    // Mobile auto-calc total (amount + tax = total)
     (function() {
         var mAmtEl = document.getElementById('mobileRvAmount');
         var mTaxEl = document.getElementById('mobileRvTax');
@@ -1515,12 +1902,63 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         }
     })();
 
-    function mobileToast(msg) {
-        var t = document.createElement('div');
-        t.style.cssText = 'position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:8px;font-size:0.85rem;z-index:9999;transition:opacity 0.3s;';
-        t.textContent = msg;
-        document.body.appendChild(t);
-        setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { t.remove(); }, 300); }, 2500);
+    function mobileToast(msg, isError) {
+        var toast = document.getElementById('mobileExpenseToast');
+        var textEl = document.getElementById('mobileExpenseToastText');
+        if (!toast || !textEl) return;
+        textEl.textContent = msg;
+        toast.className = 'mw-mc-expense-toast mw-mc-expense-toast-show' + (isError ? ' mw-mc-expense-toast-error' : '');
+        clearTimeout(toast._hideTimer);
+        toast._hideTimer = setTimeout(function() {
+            toast.classList.remove('mw-mc-expense-toast-show');
+        }, 2800);
+    }
+
+    // Update mobile stats from the stats API
+    function updateMobileStats(stats) {
+        var el;
+        el = document.getElementById('mobileStatTotal');
+        if (el && stats.total_amount !== undefined) el.textContent = '$' + parseFloat(stats.total_amount).toFixed(0);
+        el = document.getElementById('mobileStatCount');
+        if (el && stats.total_count !== undefined) el.textContent = stats.total_count;
+        el = document.getElementById('mobileStatDrafts');
+        if (el && stats.draft_count !== undefined) el.textContent = stats.draft_count;
+        el = document.getElementById('mobileStatSent');
+        if (el && stats.forwarded_count !== undefined) el.textContent = stats.forwarded_count;
+    }
+
+    // ── Lightbox ─────────────────────────────────────────────────
+    window.openLightbox = function(src) {
+        if (!src) return;
+        var overlay = document.createElement('div');
+        overlay.className = 'mw-receipt-lightbox';
+        overlay.innerHTML = '<span class="mw-receipt-lightbox-close">&times;</span>' +
+            '<img src="' + src + '" alt="Receipt">';
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay || e.target.classList.contains('mw-receipt-lightbox-close')) {
+                overlay.remove();
+            }
+        });
+        document.body.appendChild(overlay);
+        var escHandler = function(e) {
+            if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+        };
+        document.addEventListener('keydown', escHandler);
+    };
+
+    // ── Line Items ──────────────────────────────────────────────
+    window.toggleLineItems = function(prefix) {
+        var list = document.getElementById(prefix + 'LineItemsList');
+        if (list) list.style.display = list.style.display === 'none' ? 'block' : 'none';
+    };
+
+    function renderLineItemsTable(items) {
+        if (!items || !items.length) return '';
+        return items.map(function(item) {
+            var amount = parseFloat(item.amount);
+            var amountClass = amount < 0 ? 'text-danger' : '';
+            return '<tr><td>' + esc(item.name) + '</td><td class="' + amountClass + '">$' + amount.toFixed(2) + '</td></tr>';
+        }).join('');
     }
 
     // ── Utility ──────────────────────────────────────────────────
