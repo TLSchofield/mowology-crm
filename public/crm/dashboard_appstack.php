@@ -80,12 +80,16 @@ try {
         LIMIT 6
     ")->fetchAll();
 
+    // Work queue items
+    $workQueueItems = getWorkQueueItems();
+
 } catch(PDOException $e) {
     $errorHandler->logDatabaseError($e, '', [], 'Unable to load dashboard data. Please refresh the page.');
     $stats = [];
     $totalClients = 0;
     $recentActivity = [];
     $quoteRequests = [];
+    $workQueueItems = [];
 }
 
 $pageTitle = 'Dashboard';
@@ -318,56 +322,116 @@ $activePage = 'dashboard';
             </div>
 
             <div class="col-12 col-lg-6">
-              <div class="card">
-                <div class="card-header">
-                  <h5 class="card-title mb-0">Build Progress</h5>
+              <div class="card mw-wq-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h5 class="card-title mb-0">Work Queue</h5>
+                  <?php if (!empty($workQueueItems)): ?>
+                    <span class="mw-wq-total-badge"><?php echo count($workQueueItems); ?> item<?php echo count($workQueueItems) > 1 ? 's' : ''; ?></span>
+                  <?php endif; ?>
                 </div>
                 <div class="card-body">
-                  <div class="mb-3">
-                    <div class="d-flex justify-content-between mb-1">
-                      <span>Phase 1: Secure Login System</span>
-                      <span class="text-success">100%</span>
+                  <?php if (empty($workQueueItems)): ?>
+                    <div class="text-center text-muted py-4">
+                      <i data-feather="check-circle" style="width: 36px; height: 36px; color: var(--mw-green);"></i>
+                      <p class="mt-2 mb-0">All clear — nothing needs attention</p>
                     </div>
-                    <div class="progress" style="height: 8px;">
-                      <div class="progress-bar bg-success" role="progressbar" style="width: 100%"></div>
+                  <?php else: ?>
+                    <?php
+                      $categoryLabels = [
+                          'critical' => 'Critical',
+                          'data_quality' => 'Data Quality',
+                          'operations' => 'Operations',
+                          'marketing' => 'Marketing',
+                      ];
+                    ?>
+                    <!-- Summary chips -->
+                    <div class="mw-wq-chips" id="wqChips">
+                      <?php
+                        $categoryCounts = [];
+                        foreach ($workQueueItems as $item) {
+                            $cat = $item['category'];
+                            $categoryCounts[$cat] = ($categoryCounts[$cat] ?? 0) + 1;
+                        }
+                        foreach ($categoryCounts as $cat => $cnt):
+                      ?>
+                        <button type="button" class="mw-wq-chip mw-wq-chip-<?php echo h($cat); ?>" onclick="wqFilterCategory('<?php echo h($cat); ?>')" title="Show <?php echo h($categoryLabels[$cat] ?? $cat); ?> items">
+                          <?php echo h($categoryLabels[$cat] ?? $cat); ?> <span class="mw-wq-chip-count"><?php echo $cnt; ?></span>
+                        </button>
+                      <?php endforeach; ?>
+                      <button type="button" class="mw-wq-chip mw-wq-chip-all active" onclick="wqFilterCategory('all')" title="Show all items">
+                        All
+                      </button>
                     </div>
-                  </div>
-                  <div class="mb-3">
-                    <div class="d-flex justify-content-between mb-1">
-                      <span>Phase 2: Client Management</span>
-                      <span class="text-muted">0%</span>
+
+                    <!-- Single card display with navigation -->
+                    <div class="mw-wq-carousel" id="wqCarousel">
+                      <?php foreach ($workQueueItems as $idx => $item): ?>
+                        <div class="mw-wq-item mw-wq-cat-<?php echo h($item['category']); ?>" data-category="<?php echo h($item['category']); ?>" <?php if ($idx > 0) echo 'style="display:none;"'; ?>>
+                          <div class="mw-wq-item-icon mw-wq-icon-<?php echo h($item['category']); ?>">
+                            <i data-feather="<?php echo h($item['icon']); ?>"></i>
+                          </div>
+                          <div class="mw-wq-item-content">
+                            <div class="mw-wq-item-title"><?php echo h($item['title']); ?></div>
+                            <div class="mw-wq-item-desc"><?php echo h($item['description']); ?></div>
+                          </div>
+                          <a href="<?php echo h($item['link']); ?>" class="mw-wq-item-action" title="View">
+                            <i data-feather="arrow-right"></i>
+                          </a>
+                        </div>
+                      <?php endforeach; ?>
                     </div>
-                    <div class="progress" style="height: 8px;">
-                      <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+
+                    <!-- Navigation -->
+                    <div class="mw-wq-nav">
+                      <button type="button" class="mw-wq-nav-btn" onclick="wqNav(-1)" id="wqPrev" disabled>
+                        <i data-feather="chevron-left"></i>
+                      </button>
+                      <span class="mw-wq-counter" id="wqCounter">1 / <?php echo count($workQueueItems); ?></span>
+                      <button type="button" class="mw-wq-nav-btn" onclick="wqNav(1)" id="wqNext" <?php if (count($workQueueItems) <= 1) echo 'disabled'; ?>>
+                        <i data-feather="chevron-right"></i>
+                      </button>
                     </div>
-                  </div>
-                  <div class="mb-3">
-                    <div class="d-flex justify-content-between mb-1">
-                      <span>Phase 3: Lead Capture Form</span>
-                      <span class="text-muted">0%</span>
-                    </div>
-                    <div class="progress" style="height: 8px;">
-                      <div class="progress-bar" role="progressbar" style="width: 0%"></div>
-                    </div>
-                  </div>
-                  <div class="mb-3">
-                    <div class="d-flex justify-content-between mb-1">
-                      <span>Phase 4: Territory Map</span>
-                      <span class="text-muted">0%</span>
-                    </div>
-                    <div class="progress" style="height: 8px;">
-                      <div class="progress-bar" role="progressbar" style="width: 0%"></div>
-                    </div>
-                  </div>
-                  <div>
-                    <div class="d-flex justify-content-between mb-1">
-                      <span>Phase 5: Property Measurement</span>
-                      <span class="text-muted">0%</span>
-                    </div>
-                    <div class="progress" style="height: 8px;">
-                      <div class="progress-bar" role="progressbar" style="width: 0%"></div>
-                    </div>
-                  </div>
+
+                    <script>
+                    (function() {
+                      var allItems = <?php echo json_encode(array_map(function($i) { return $i['category']; }, $workQueueItems)); ?>;
+                      var filteredIndices = allItems.map(function(_, i) { return i; });
+                      var currentPos = 0;
+
+                      function showItem() {
+                        var els = document.querySelectorAll('#wqCarousel .mw-wq-item');
+                        els.forEach(function(el) { el.style.display = 'none'; });
+                        if (filteredIndices.length > 0) {
+                          els[filteredIndices[currentPos]].style.display = '';
+                        }
+                        document.getElementById('wqCounter').textContent = (filteredIndices.length > 0 ? (currentPos + 1) : 0) + ' / ' + filteredIndices.length;
+                        document.getElementById('wqPrev').disabled = currentPos <= 0;
+                        document.getElementById('wqNext').disabled = currentPos >= filteredIndices.length - 1;
+                        if (typeof feather !== 'undefined') feather.replace();
+                      }
+
+                      window.wqNav = function(dir) {
+                        currentPos = Math.max(0, Math.min(filteredIndices.length - 1, currentPos + dir));
+                        showItem();
+                      };
+
+                      window.wqFilterCategory = function(cat) {
+                        // Update chip active state
+                        document.querySelectorAll('.mw-wq-chip').forEach(function(c) { c.classList.remove('active'); });
+                        if (cat === 'all') {
+                          document.querySelector('.mw-wq-chip-all').classList.add('active');
+                          filteredIndices = allItems.map(function(_, i) { return i; });
+                        } else {
+                          document.querySelector('.mw-wq-chip-' + cat).classList.add('active');
+                          filteredIndices = [];
+                          allItems.forEach(function(c, i) { if (c === cat) filteredIndices.push(i); });
+                        }
+                        currentPos = 0;
+                        showItem();
+                      };
+                    })();
+                    </script>
+                  <?php endif; ?>
                 </div>
               </div>
             </div>

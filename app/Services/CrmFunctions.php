@@ -1805,3 +1805,288 @@ function getCompanyProperties($companyId) {
     }
 }
 
+// ── Work Queue ───────────────────────────────────────────────────────────────
+
+/**
+ * Get all work queue items across the system.
+ * Each item is a live query result — items disappear when the underlying issue is resolved.
+ *
+ * Categories: critical, data_quality, operations, marketing
+ * Each item: [category, icon, title, description, count, link, priority]
+ *
+ * @return array of work queue items sorted by priority
+ */
+function getWorkQueueItems() {
+    $db = getDB();
+    $items = [];
+
+    // ── CRITICAL SYSTEMS ─────────────────────────────────────────────────
+
+    // Overdue invoices
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt, SUM(balance_due) as total
+            FROM invoices
+            WHERE status = 'overdue'
+            AND balance_due > 0
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'critical',
+                'icon' => 'alert-triangle',
+                'title' => $row['cnt'] . ' Overdue Invoice' . ($row['cnt'] > 1 ? 's' : ''),
+                'description' => formatCurrency($row['total']) . ' outstanding past due date',
+                'count' => (int)$row['cnt'],
+                'link' => 'invoices/list.php?status=overdue',
+                'priority' => 1,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Stuck visits (scheduled in the past, not completed/cancelled/skipped)
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM job_visits
+            WHERE scheduled_date < CURDATE()
+            AND status IN ('scheduled', 'in_progress')
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'critical',
+                'icon' => 'alert-circle',
+                'title' => $row['cnt'] . ' Stuck Visit' . ($row['cnt'] > 1 ? 's' : ''),
+                'description' => 'Past-date visits still marked scheduled or in progress',
+                'count' => (int)$row['cnt'],
+                'link' => 'schedule_appstack.php',
+                'priority' => 2,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Stale plans (active plans with no visits scheduled in next 30 days)
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM job_plans jp
+            WHERE jp.status = 'active'
+            AND NOT EXISTS (
+                SELECT 1 FROM job_visits jv
+                WHERE jv.plan_id = jp.id
+                AND jv.scheduled_date >= CURDATE()
+                AND jv.scheduled_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+                AND jv.status NOT IN ('cancelled', 'skipped')
+            )
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'critical',
+                'icon' => 'clock',
+                'title' => $row['cnt'] . ' Stale Plan' . ($row['cnt'] > 1 ? 's' : ''),
+                'description' => 'Active plans with no upcoming visits in next 30 days',
+                'count' => (int)$row['cnt'],
+                'link' => 'jobs/plans.php',
+                'priority' => 3,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // ── DATA QUALITY ─────────────────────────────────────────────────────
+
+    // Properties missing geocoding
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM properties
+            WHERE is_active = 1
+            AND (latitude IS NULL OR latitude = 0 OR longitude IS NULL OR longitude = 0)
+            AND address IS NOT NULL AND address != ''
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'data_quality',
+                'icon' => 'map-pin',
+                'title' => $row['cnt'] . ' Propert' . ($row['cnt'] > 1 ? 'ies' : 'y') . ' Need Geocoding',
+                'description' => 'Properties with addresses but no lat/lng coordinates',
+                'count' => (int)$row['cnt'],
+                'link' => 'map_appstack.php',
+                'priority' => 10,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Contacts missing email
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM contacts
+            WHERE is_active = 1
+            AND (email IS NULL OR email = '')
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'data_quality',
+                'icon' => 'mail',
+                'title' => $row['cnt'] . ' Contact' . ($row['cnt'] > 1 ? 's' : '') . ' Missing Email',
+                'description' => 'Active contacts with no email address on file',
+                'count' => (int)$row['cnt'],
+                'link' => 'clients_appstack.php',
+                'priority' => 11,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Contacts missing phone
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM contacts
+            WHERE is_active = 1
+            AND (phone IS NULL OR phone = '')
+            AND (mobile IS NULL OR mobile = '')
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'data_quality',
+                'icon' => 'phone',
+                'title' => $row['cnt'] . ' Contact' . ($row['cnt'] > 1 ? 's' : '') . ' Missing Phone',
+                'description' => 'Active contacts with no phone or mobile number',
+                'count' => (int)$row['cnt'],
+                'link' => 'clients_appstack.php',
+                'priority' => 12,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Duplicate contacts
+    try {
+        $dupes = findDuplicateContacts();
+        $dupeCount = count($dupes);
+        if ($dupeCount > 0) {
+            $items[] = [
+                'category' => 'data_quality',
+                'icon' => 'users',
+                'title' => $dupeCount . ' Potential Duplicate' . ($dupeCount > 1 ? 's' : ''),
+                'description' => 'Contacts that may be duplicates based on name, email, or phone',
+                'count' => $dupeCount,
+                'link' => 'clients_appstack.php',
+                'priority' => 13,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // ── OPERATIONS ───────────────────────────────────────────────────────
+
+    // New quote requests waiting
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM quote_requests
+            WHERE status IN ('new', 'reviewing')
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'operations',
+                'icon' => 'inbox',
+                'title' => $row['cnt'] . ' Quote Request' . ($row['cnt'] > 1 ? 's' : '') . ' Pending',
+                'description' => 'New or in-review quote requests awaiting action',
+                'count' => (int)$row['cnt'],
+                'link' => 'products/quote-requests.php',
+                'priority' => 20,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Draft quotes (created but not sent)
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM quotes
+            WHERE status = 'draft'
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'operations',
+                'icon' => 'edit',
+                'title' => $row['cnt'] . ' Draft Quote' . ($row['cnt'] > 1 ? 's' : ''),
+                'description' => 'Quotes created but not yet sent to clients',
+                'count' => (int)$row['cnt'],
+                'link' => 'quotes/list.php?status=draft',
+                'priority' => 21,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Stale sent quotes (sent > 14 days ago, no response)
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM quotes
+            WHERE status = 'sent'
+            AND sent_at < DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'operations',
+                'icon' => 'send',
+                'title' => $row['cnt'] . ' Stale Quote' . ($row['cnt'] > 1 ? 's' : ''),
+                'description' => 'Sent over 14 days ago with no client response',
+                'count' => (int)$row['cnt'],
+                'link' => 'quotes/list.php?status=sent',
+                'priority' => 22,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Unsent invoices (draft invoices)
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM invoices
+            WHERE status = 'draft'
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'operations',
+                'icon' => 'file-text',
+                'title' => $row['cnt'] . ' Draft Invoice' . ($row['cnt'] > 1 ? 's' : ''),
+                'description' => 'Invoices ready to be sent to clients',
+                'count' => (int)$row['cnt'],
+                'link' => 'invoices/list.php?status=draft',
+                'priority' => 23,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // ── MARKETING ────────────────────────────────────────────────────────
+
+    // Contacts without marketing consent
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt
+            FROM contacts
+            WHERE is_active = 1
+            AND receive_marketing = 0
+            AND email IS NOT NULL AND email != ''
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category' => 'marketing',
+                'icon' => 'bell-off',
+                'title' => $row['cnt'] . ' Contact' . ($row['cnt'] > 1 ? 's' : '') . ' — No Marketing Consent',
+                'description' => 'Active contacts with email but no marketing opt-in',
+                'count' => (int)$row['cnt'],
+                'link' => 'clients_appstack.php',
+                'priority' => 30,
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Sort by priority
+    usort($items, function($a, $b) {
+        return $a['priority'] - $b['priority'];
+    });
+
+    return $items;
+}
+
