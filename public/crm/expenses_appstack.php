@@ -91,10 +91,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <input type="number" class="form-control form-control-sm" id="rvAmount" step="0.01" min="0">
                     </div>
                     <div class="col-4">
-                        <label class="form-label small mb-0">Tax
-                            <span class="mw-confidence-dot" id="confTax" title=""></span>
+                        <label class="form-label small mb-0">GST
+                            <span class="mw-confidence-dot" id="confGst" title=""></span>
                         </label>
-                        <input type="number" class="form-control form-control-sm" id="rvTax" step="0.01" min="0" value="0">
+                        <input type="number" class="form-control form-control-sm" id="rvGst" step="0.01" min="0" value="0">
                     </div>
                     <div class="col-4">
                         <label class="form-label small mb-0">Total
@@ -464,8 +464,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <input type="number" id="mobileRvAmount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
                     </div>
                     <div class="mw-mc-expense-field mw-mc-expense-field-narrow">
-                        <label>Tax</label>
-                        <input type="number" id="mobileRvTax" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                        <label>GST</label>
+                        <input type="number" id="mobileRvGst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
                     </div>
                 </div>
 
@@ -574,7 +574,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             <span>Schedule</span>
         </a>
-        <button type="button" class="mw-mc-bottombar-btn mw-mc-fab-snap" onclick="mobileScrollToCapture()">
+        <button type="button" class="mw-mc-bottombar-btn mw-mc-fab-snap" onclick="triggerCamera()">
             <div class="mw-mc-fab-snap-inner">
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
             </div>
@@ -597,17 +597,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
 <!-- ═══════ EDIT EXPENSE MODAL (for editing existing) ═══════════════ -->
 <div class="modal fade" id="expenseModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="expenseModalTitle">Edit Expense</h5>
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content mw-expense-modal">
+            <div class="modal-header border-0 pb-0">
+                <div>
+                    <h5 class="modal-title fw-bold mb-0" id="expenseModalTitle">Edit Expense</h5>
+                    <small class="text-muted" id="expenseModalSubtitle"></small>
+                </div>
                 <button type="button" class="btn-close" data-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body pt-3">
                 <input type="hidden" id="expenseId">
                 <div class="row">
                     <!-- Left: Receipt Image (shown only when image exists) -->
-                    <div class="col-md-4" id="expReceiptCol" style="display:none;">
+                    <div class="col-lg-4" id="expReceiptCol" style="display:none;">
                         <div class="mw-modal-receipt-preview" onclick="openLightbox(this.querySelector('img')?.src)">
                             <img id="expReceiptImg" src="" alt="Receipt">
                         </div>
@@ -624,85 +627,121 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                     <!-- Right: Form Fields -->
                     <div id="expFormCol">
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label">Date <span class="text-danger">*</span></label>
-                                <input type="date" class="form-control" id="expDate" required>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Vendor</label>
-                                <input type="text" class="form-control" id="expVendorSearch" placeholder="Search vendors..." autocomplete="off">
-                                <input type="hidden" id="expVendorId">
-                                <div class="dropdown-menu w-100" id="vendorDropdown" style="max-height:200px;overflow-y:auto;"></div>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Payment Method</label>
-                                <select class="form-select" id="expPayment">
-                                    <option value="">Select...</option>
-                                    <option value="company_card">Company Card</option>
-                                    <option value="credit_card">Credit Card</option>
-                                    <option value="debit">Debit</option>
-                                    <option value="cash">Cash</option>
-                                    <option value="etransfer">E-Transfer</option>
-                                    <option value="cheque">Cheque</option>
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Amount (pre-tax)</label>
-                                <input type="number" class="form-control" id="expAmount" step="0.01" min="0">
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Tax</label>
-                                <input type="number" class="form-control" id="expTax" step="0.01" min="0" value="0">
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Total <span class="text-danger">*</span></label>
-                                <input type="number" class="form-control" id="expTotal" step="0.01" min="0" required>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Accounting Category</label>
-                                <select class="form-select" id="expAcctCategory"></select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">GBP Category</label>
-                                <select class="form-select" id="expGbpCategory"></select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Job #</label>
-                                <input type="number" class="form-control" id="expJobId" placeholder="Job ID (optional)">
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Status</label>
-                                <select class="form-select" id="expStatus">
-                                    <option value="draft">Draft</option>
-                                    <option value="approved">Approved</option>
-                                </select>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Description</label>
-                                <textarea class="form-control" id="expDescription" rows="2"></textarea>
-                            </div>
-                            <div class="col-12">
-                                <label class="form-label">Notes</label>
-                                <textarea class="form-control" id="expNotes" rows="2"></textarea>
-                            </div>
-
-                            <!-- Smart Match Confidence -->
-                            <div class="col-12" id="matchConfidenceRow" style="display:none;">
-                                <div class="alert alert-info py-2 mb-0">
-                                    <strong>Smart Match:</strong>
-                                    <span id="matchConfidenceText"></span>
-                                    <span class="badge bg-primary ms-2" id="matchConfidenceBadge"></span>
+                        <!-- Section: Purchase Details -->
+                        <div class="mw-expense-form-section">
+                            <h6 class="mw-expense-form-section-title"><i data-feather="shopping-bag"></i> Purchase Details</h6>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">Date <span class="text-danger">*</span></label>
+                                    <input type="date" class="form-control" id="expDate" required>
                                 </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Vendor</label>
+                                    <input type="text" class="form-control" id="expVendorSearch" placeholder="Search vendors..." autocomplete="off">
+                                    <input type="hidden" id="expVendorId">
+                                    <div class="dropdown-menu w-100" id="vendorDropdown" style="max-height:200px;overflow-y:auto;"></div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Payment Method</label>
+                                    <select class="form-select" id="expPayment">
+                                        <option value="">Select...</option>
+                                        <option value="company_card">Company Card</option>
+                                        <option value="credit_card">Credit Card</option>
+                                        <option value="debit">Debit</option>
+                                        <option value="cash">Cash</option>
+                                        <option value="etransfer">E-Transfer</option>
+                                        <option value="cheque">Cheque</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Section: Amounts -->
+                        <div class="mw-expense-form-section">
+                            <h6 class="mw-expense-form-section-title"><i data-feather="dollar-sign"></i> Amounts</h6>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label">Subtotal</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" class="form-control" id="expAmount" step="0.01" min="0" placeholder="0.00">
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">GST (5%)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" class="form-control" id="expGst" step="0.01" min="0" value="0" placeholder="0.00">
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label fw-bold">Total <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" class="form-control fw-bold" id="expTotal" step="0.01" min="0" required placeholder="0.00">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Section: Classification -->
+                        <div class="mw-expense-form-section">
+                            <h6 class="mw-expense-form-section-title"><i data-feather="tag"></i> Classification</h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Accounting Category</label>
+                                    <select class="form-select" id="expAcctCategory"></select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">GBP Category</label>
+                                    <select class="form-select" id="expGbpCategory"></select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Job #</label>
+                                    <input type="number" class="form-control" id="expJobId" placeholder="Optional">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Status</label>
+                                    <select class="form-select" id="expStatus">
+                                        <option value="draft">Draft</option>
+                                        <option value="approved">Approved</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Section: Notes -->
+                        <div class="mw-expense-form-section mb-0">
+                            <h6 class="mw-expense-form-section-title"><i data-feather="file-text"></i> Notes</h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Description</label>
+                                    <textarea class="form-control" id="expDescription" rows="2" placeholder="What was purchased..."></textarea>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Internal Notes</label>
+                                    <textarea class="form-control" id="expNotes" rows="2" placeholder="Additional notes..."></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Smart Match Confidence -->
+                        <div id="matchConfidenceRow" style="display:none; margin-top: 1rem;">
+                            <div class="alert alert-info py-2 mb-0">
+                                <strong>Smart Match:</strong>
+                                <span id="matchConfidenceText"></span>
+                                <span class="badge bg-primary ms-2" id="matchConfidenceBadge"></span>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancel</button>
                 <?php if ($canEdit): ?>
-                <button type="button" class="btn btn-primary" onclick="saveExpense()">Save Expense</button>
+                <button type="button" class="btn btn-primary px-4" onclick="saveExpense()">
+                    <i data-feather="save" style="width:16px;height:16px;margin-right:4px;"></i> Save Expense
+                </button>
                 <?php endif; ?>
             </div>
         </div>
@@ -787,9 +826,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         // Auto-calc totals
         document.getElementById('expAmount')?.addEventListener('input', function() { calcTotalFor('exp'); });
-        document.getElementById('expTax')?.addEventListener('input', function() { calcTotalFor('exp'); });
+        document.getElementById('expGst')?.addEventListener('input', function() { calcTotalFor('exp'); });
         document.getElementById('rvAmount')?.addEventListener('input', function() { calcTotalFor('rv'); });
-        document.getElementById('rvTax')?.addEventListener('input', function() { calcTotalFor('rv'); });
+        document.getElementById('rvGst')?.addEventListener('input', function() { calcTotalFor('rv'); });
 
         // File inputs
         var fileInput = document.getElementById('receiptFileInput');
@@ -821,8 +860,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     function calcTotalFor(prefix) {
         var amt = parseFloat(document.getElementById(prefix + 'Amount').value) || 0;
-        var tax = parseFloat(document.getElementById(prefix + 'Tax').value) || 0;
-        document.getElementById(prefix + 'Total').value = (amt + tax).toFixed(2);
+        var gst = parseFloat(document.getElementById(prefix + 'Gst').value) || 0;
+        document.getElementById(prefix + 'Total').value = (amt + gst).toFixed(2);
     }
 
     // ── Camera / Photo Capture ────────────────────────────────────
@@ -916,15 +955,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('rvTotal').value = p.total;
             setConfidence('confTotal', 70);
         }
-        if (p.tax) {
-            document.getElementById('rvTax').value = p.tax;
-            setConfidence('confTax', 60);
+        if (p.gst) {
+            document.getElementById('rvGst').value = p.gst;
+            setConfidence('confGst', 60);
         }
         if (p.subtotal) {
             document.getElementById('rvAmount').value = p.subtotal;
-        } else if (p.total && p.tax) {
+        } else if (p.total && p.gst) {
             document.getElementById('rvAmount').value =
-                (parseFloat(p.total) - parseFloat(p.tax)).toFixed(2);
+                (parseFloat(p.total) - parseFloat(p.gst)).toFixed(2);
         }
 
         // Categories
@@ -999,8 +1038,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             setMobileVal('mobileRvVendorId', s.vendor_id || '');
             setMobileVal('mobileRvDate', p.date || new Date().toISOString().slice(0, 10));
             setMobileVal('mobileRvTotal', p.total || '');
-            setMobileVal('mobileRvTax', p.tax || '0');
-            setMobileVal('mobileRvAmount', p.subtotal || (p.total && p.tax ? (parseFloat(p.total) - parseFloat(p.tax)).toFixed(2) : ''));
+            setMobileVal('mobileRvGst', p.gst || '0');
+            setMobileVal('mobileRvAmount', p.subtotal || (p.total && p.gst ? (parseFloat(p.total) - parseFloat(p.gst)).toFixed(2) : ''));
             setMobileVal('mobileRvCategory', s.accounting_category || '');
             setMobileVal('mobileRvPayment', p.payment_method || '');
 
@@ -1176,7 +1215,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('rvVendorId').value = '';
         document.getElementById('rvDate').value = '';
         document.getElementById('rvAmount').value = '';
-        document.getElementById('rvTax').value = '0';
+        document.getElementById('rvGst').value = '0';
         document.getElementById('rvTotal').value = '';
         document.getElementById('rvAcctCategory').value = '';
         document.getElementById('rvGbpCategory').value = '';
@@ -1186,7 +1225,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('rvNotes').value = '';
 
         // Clear confidence dots
-        ['confVendor','confDate','confTax','confTotal','confCategory','confPayment'].forEach(function(id) {
+        ['confVendor','confDate','confGst','confTotal','confCategory','confPayment'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) { el.className = 'mw-confidence-dot'; el.title = ''; }
         });
@@ -1212,7 +1251,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             vendor_name_raw: document.getElementById('rvVendorSearch').value,
             payment_method: document.getElementById('rvPayment').value,
             amount: document.getElementById('rvAmount').value,
-            tax_amount: document.getElementById('rvTax').value,
+            gst_amount: document.getElementById('rvGst').value,
             total: document.getElementById('rvTotal').value,
             accounting_category: document.getElementById('rvAcctCategory').value,
             gbp_category: document.getElementById('rvGbpCategory').value,
@@ -1455,7 +1494,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('expVendorId').value = e.vendor_id || '';
             document.getElementById('expPayment').value = e.payment_method || '';
             document.getElementById('expAmount').value = e.amount;
-            document.getElementById('expTax').value = e.tax_amount;
+            document.getElementById('expGst').value = e.gst_amount;
             document.getElementById('expTotal').value = e.total;
             document.getElementById('expAcctCategory').value = e.accounting_category || '';
             document.getElementById('expGbpCategory').value = e.gbp_category || '';
@@ -1511,7 +1550,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             vendor_name_raw: document.getElementById('expVendorSearch').value,
             payment_method: document.getElementById('expPayment').value,
             amount: document.getElementById('expAmount').value,
-            tax_amount: document.getElementById('expTax').value,
+            gst_amount: document.getElementById('expGst').value,
             total: document.getElementById('expTotal').value,
             accounting_category: document.getElementById('expAcctCategory').value,
             gbp_category: document.getElementById('expGbpCategory').value,
@@ -1735,7 +1774,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         }, 200);
 
         // Clear mobile form fields
-        ['mobileRvVendor','mobileRvVendorId','mobileRvAmount','mobileRvTax','mobileRvTotal',
+        ['mobileRvVendor','mobileRvVendorId','mobileRvAmount','mobileRvGst','mobileRvTotal',
          'mobileRvDate','mobileRvCategory','mobileRvPayment','mobileRvDescription','mobileRvJobId'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.value = '';
@@ -1866,7 +1905,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             vendor_name_raw: document.getElementById('mobileRvVendor').value,
             payment_method: document.getElementById('mobileRvPayment').value,
             amount: document.getElementById('mobileRvAmount').value,
-            tax_amount: document.getElementById('mobileRvTax').value,
+            gst_amount: document.getElementById('mobileRvGst').value,
             total: document.getElementById('mobileRvTotal').value,
             accounting_category: document.getElementById('mobileRvCategory').value,
             job_id: document.getElementById('mobileRvJobId')?.value || null,
@@ -2008,19 +2047,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         list.innerHTML = html;
     }
 
-    // Mobile auto-calc total (amount + tax = total)
+    // Mobile auto-calc total (amount + gst = total)
     (function() {
         var mAmtEl = document.getElementById('mobileRvAmount');
-        var mTaxEl = document.getElementById('mobileRvTax');
-        if (mAmtEl && mTaxEl) {
+        var mGstEl = document.getElementById('mobileRvGst');
+        if (mAmtEl && mGstEl) {
             function mCalc() {
                 var amt = parseFloat(mAmtEl.value) || 0;
-                var tax = parseFloat(mTaxEl.value) || 0;
+                var gst = parseFloat(mGstEl.value) || 0;
                 var totalEl = document.getElementById('mobileRvTotal');
-                if (totalEl) totalEl.value = (amt + tax).toFixed(2);
+                if (totalEl) totalEl.value = (amt + gst).toFixed(2);
             }
             mAmtEl.addEventListener('input', mCalc);
-            mTaxEl.addEventListener('input', mCalc);
+            mGstEl.addEventListener('input', mCalc);
         }
     })();
 
