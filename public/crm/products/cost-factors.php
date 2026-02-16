@@ -1311,9 +1311,14 @@ function esc(str) {
 
 function showAlert(msg, type) {
     var el = document.getElementById('pageAlert');
+    if (!el) return;
     el.className = 'alert alert-' + type + ' alert-dismissible fade show mb-3';
-    el.innerHTML = msg + '<button type="button" class="close" data-dismiss="alert">&times;</button>';
-    setTimeout(function() { $(el).alert('close'); }, 5000);
+    el.innerHTML = msg + '<button type="button" class="close" onclick="this.parentElement.className=\'alert d-none mb-3\'">&times;</button>';
+    clearTimeout(window._alertTimer);
+    window._alertTimer = setTimeout(function() {
+        var a = document.getElementById('pageAlert');
+        if (a) a.className = 'alert d-none mb-3';
+    }, 5000);
 }
 
 function fmt(n) {
