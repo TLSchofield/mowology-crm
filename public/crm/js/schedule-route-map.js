@@ -641,9 +641,14 @@ var MwRouteMap = (function() {
         trackEl.innerHTML = '';
         dotsEl.innerHTML = '';
 
+        // Set card width from tray for precise centering (avoids 100vw mismatch on mobile)
+        var trayW = trayEl.offsetWidth;
+        var cardW = Math.min(Math.max(trayW - 48, 200), 360);
+
         stops.forEach(function(stop, idx) {
             var card = document.createElement('div');
             card.className = 'mw-mv-card';
+            card.style.width = cardW + 'px';
             if (idx === currentIndex) card.classList.add('mw-mv-card-active');
             card.dataset.index = idx;
 
@@ -663,6 +668,11 @@ var MwRouteMap = (function() {
             // Show just street from full address (strip city/province/country)
             var displayAddress = stop.address ? stop.address.split(',')[0] : '';
 
+            // Navigation arrow icon (same as the external link concept but for single stop)
+            var goBtn = '<button type="button" class="mw-mv-card-go" data-address="' + escAttr(stop.address) + '" aria-label="Navigate to this stop">' +
+                '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>' +
+                '</button>';
+
             card.innerHTML =
                 '<div class="mw-mv-card-accent" style="background:' + color + '"></div>' +
                 '<div class="mw-mv-card-body">' +
@@ -679,10 +689,24 @@ var MwRouteMap = (function() {
                         '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
                         escHtml(stop.contactName) +
                     '</div>' : '') +
-                    (durStr ? '<span class="mw-mv-card-dur">' + escHtml(durStr) + '</span>' : '') +
+                    '<div class="mw-mv-card-bottom">' +
+                        (durStr ? '<span class="mw-mv-card-dur">' + escHtml(durStr) + '</span>' : '<span></span>') +
+                        goBtn +
+                    '</div>' +
                 '</div>';
 
             trackEl.appendChild(card);
+        });
+
+        // Wire up Go buttons
+        trackEl.querySelectorAll('.mw-mv-card-go').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var addr = this.getAttribute('data-address');
+                if (addr) {
+                    window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr) + '&travelmode=driving', '_blank');
+                }
+            });
         });
 
         positionTrack(currentIndex, false);
@@ -870,6 +894,11 @@ var MwRouteMap = (function() {
         var div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
+    }
+
+    function escAttr(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     // ═══════════════════════════════════════════════════

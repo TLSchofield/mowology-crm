@@ -153,11 +153,25 @@
 
     if (isAndroid) {
       content += '<a href="/crm/downloads/mowology-crew.apk" class="mw-install-splash-btn mw-install-splash-btn-primary" download>Download App</a>';
+      content += '<button type="button" class="mw-install-splash-btn mw-install-splash-btn-outline" id="mw-install-splash-pwa">Add to Home Screen</button>';
     }
 
     if (isIOS) {
       content += '<div class="mw-install-splash-ios-hint">';
-      content += 'Tap <svg style="display:inline;vertical-align:middle;width:20px;height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 18v-9m0 0l-3 3m3-3l3 3"/></svg> then <strong>"Add to Home Screen"</strong>';
+      content += '<div class="mw-install-splash-ios-steps">';
+      content += '<div class="mw-install-splash-ios-step">';
+      content += '<span class="mw-install-splash-ios-step-num">1</span>';
+      content += 'Tap <svg style="display:inline;vertical-align:middle;width:22px;height:22px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg> <strong>Share</strong>';
+      content += '</div>';
+      content += '<div class="mw-install-splash-ios-step">';
+      content += '<span class="mw-install-splash-ios-step-num">2</span>';
+      content += 'Scroll down, tap <strong>"Add to Home Screen"</strong>';
+      content += '</div>';
+      content += '<div class="mw-install-splash-ios-step">';
+      content += '<span class="mw-install-splash-ios-step-num">3</span>';
+      content += 'Tap <strong>"Add"</strong> to install';
+      content += '</div>';
+      content += '</div>';
       content += '</div>';
     }
 
@@ -176,7 +190,37 @@
       document.body.style.overflow = '';
       localStorage.setItem('mw-install-splash-dismissed', Date.now().toString());
     });
+
+    // Android "Add to Home Screen" — trigger the native PWA install prompt
+    var pwaBtn = document.getElementById('mw-install-splash-pwa');
+    if (pwaBtn) {
+      pwaBtn.addEventListener('click', function() {
+        if (window._mwInstallPrompt) {
+          window._mwInstallPrompt.prompt();
+          window._mwInstallPrompt.userChoice.then(function(result) {
+            if (result.outcome === 'accepted') {
+              overlay.remove();
+              document.body.style.overflow = '';
+            }
+            window._mwInstallPrompt = null;
+          });
+        } else {
+          // No deferred prompt available — show Chrome instructions
+          pwaBtn.textContent = 'Use Chrome menu \u2192 "Add to Home Screen"';
+          pwaBtn.disabled = true;
+          pwaBtn.style.opacity = '0.7';
+        }
+      });
+    }
   })();
+  </script>
+
+  <!-- Capture Android PWA beforeinstallprompt for deferred use -->
+  <script>
+  window.addEventListener('beforeinstallprompt', function(e) {
+    e.preventDefault();
+    window._mwInstallPrompt = e;
+  });
   </script>
 
   <!-- Debug Panel (development tool) -->

@@ -25,7 +25,7 @@ $extraHead = $extraHead ?? '';
 <head>
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover">
   <meta name="description" content="Mowology CRM - Client Management System">
 
   <!-- PWA / Mobile App -->
@@ -43,6 +43,36 @@ $extraHead = $extraHead ?? '';
   <link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon/favicon-16x16.png">
   <link rel="manifest" href="/assets/favicon/site.webmanifest">
 
+  <!-- iOS Splash Screens (generated via /crm/pwa-splash.php) -->
+  <!-- iPhone 15 Pro Max, 16 Plus (430x932) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1290&h=2796" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)">
+  <!-- iPhone 15 Pro, 15, 14 Pro (393x852) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1179&h=2556" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)">
+  <!-- iPhone 14 Plus, 13 Pro Max (428x926) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1284&h=2778" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)">
+  <!-- iPhone 14, 13, 13 Pro, 12, 12 Pro (390x844) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1170&h=2532" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)">
+  <!-- iPhone 13 mini, 12 mini (375x812) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1125&h=2436" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)">
+  <!-- iPhone 11 Pro Max, XS Max (414x896 @3x) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1242&h=2688" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)">
+  <!-- iPhone 11, XR (414x896 @2x) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=828&h=1792" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)">
+  <!-- iPhone X, XS, 11 Pro (375x812) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1125&h=2436" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)">
+  <!-- iPhone 8 Plus (414x736) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1242&h=2208" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3)">
+  <!-- iPhone SE, 8 (375x667) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=750&h=1334" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)">
+  <!-- iPad Pro 12.9" (1024x1366) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=2048&h=2732" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)">
+  <!-- iPad Pro 11" (834x1194) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1668&h=2388" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)">
+  <!-- iPad Air, iPad 10.2" (820x1180 / 810x1080) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1640&h=2360" media="(device-width: 820px) and (device-height: 1180px) and (-webkit-device-pixel-ratio: 2)">
+  <!-- iPad Mini (768x1024) -->
+  <link rel="apple-touch-startup-image" href="/crm/pwa-splash.php?w=1536&h=2048" media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)">
+
   <!-- Fonts (matches public website) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -52,7 +82,7 @@ $extraHead = $extraHead ?? '';
   <link href="/crm/css/classic.css" rel="stylesheet">
 
   <!-- Mowology brand override -->
-  <link href="/crm/css/mowology-brand.css?v=20260214n" rel="stylesheet">
+  <link href="/crm/css/mowology-brand.css?v=20260215a" rel="stylesheet">
 
   <!-- Feather Icons (required for CRM UI) -->
   <script src="https://unpkg.com/feather-icons"></script>
