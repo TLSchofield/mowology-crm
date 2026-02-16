@@ -338,6 +338,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
         $city = trim($jsonData['city'] ?? 'Vancouver');
         $postalCode = trim($jsonData['postal_code'] ?? '');
         $propertyName = trim($jsonData['property_name'] ?? '');
+        $lat = isset($jsonData['latitude']) && $jsonData['latitude'] !== '' ? floatval($jsonData['latitude']) : null;
+        $lng = isset($jsonData['longitude']) && $jsonData['longitude'] !== '' ? floatval($jsonData['longitude']) : null;
 
         if (!$companyId || empty($address)) {
             http_response_code(400);
@@ -380,10 +382,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_SERVER['CONTENT_TYPE'] === 'appli
                 }
 
                 $stmt = $db->prepare("
-                    INSERT INTO properties (property_name, address, city, province, postal_code, site_contact_id, status)
-                    VALUES (?, ?, ?, 'BC', ?, ?, 'active')
+                    INSERT INTO properties (property_name, address, city, province, postal_code, latitude, longitude, site_contact_id, status)
+                    VALUES (?, ?, ?, 'BC', ?, ?, ?, ?, 'active')
                 ");
-                $stmt->execute([$propertyName, $address, $city, $postalCode, $contactId]);
+                $stmt->execute([$propertyName, $address, $city, $postalCode, $lat, $lng, $contactId]);
                 $newPropId = (int)$db->lastInsertId();
                 echo json_encode(['success' => true, 'property_id' => $newPropId, 'linked_existing' => false]);
             }
@@ -2642,6 +2644,7 @@ $unconvertedRequests = $db->query("
                       <div class="form-group">
                         <label>Street Address <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="compPropAddress" required placeholder="Start typing an address..." autocomplete="off">
+                        <div id="compPropAddressDupeWarning" class="alert alert-warning mt-2 small" style="display:none;"></div>
                       </div>
                       <div class="row">
                         <div class="col-md-6">
@@ -2657,6 +2660,8 @@ $unconvertedRequests = $db->query("
                           </div>
                         </div>
                       </div>
+                      <input type="hidden" id="compPropLat">
+                      <input type="hidden" id="compPropLng">
                       <div class="form-group mb-0">
                         <label>Property Name <small class="text-muted">(optional, auto-generated if blank)</small></label>
                         <input type="text" class="form-control" id="compPropName" placeholder="e.g. Main Office">
@@ -2677,35 +2682,10 @@ $unconvertedRequests = $db->query("
               var COMPANY_ID = <?php echo (int)$viewCompany['id']; ?>;
               var CSRF_TOKEN_CO = '<?php echo csrf_token(); ?>';
 
-              // Google Places autocomplete for company property modal
+              // Google Places autocomplete for company property modal — uses shared function
               document.addEventListener('DOMContentLoaded', function() {
-                var addrInput = document.getElementById('compPropAddress');
-                if (addrInput && typeof google !== 'undefined' && google.maps && google.maps.places) {
-                  var autocomplete = new google.maps.places.Autocomplete(addrInput, {
-                    types: ['address'],
-                    componentRestrictions: { country: 'ca' }
-                  });
-                  autocomplete.addListener('place_changed', function() {
-                    var place = autocomplete.getPlace();
-                    if (place && place.address_components) {
-                      var city = '', postal = '';
-                      place.address_components.forEach(function(c) {
-                        if (c.types.indexOf('locality') !== -1) city = c.long_name;
-                        if (c.types.indexOf('postal_code') !== -1) postal = c.long_name;
-                      });
-                      if (city) document.getElementById('compPropCity').value = city;
-                      if (postal) document.getElementById('compPropPostalCode').value = postal;
-                    }
-                  });
-                  // Prevent form submit on Enter when selecting from autocomplete dropdown
-                  addrInput.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter') {
-                      var pacContainer = document.querySelector('.pac-container');
-                      if (pacContainer && pacContainer.style.display !== 'none') {
-                        e.preventDefault();
-                      }
-                    }
-                  });
+                if (typeof initAddressAutocomplete === 'function') {
+                  initAddressAutocomplete('compPropAddress', 'compPropCity', 'compPropPostalCode', null, 'compPropLat', 'compPropLng');
                 }
               });
 
@@ -2728,38 +2708,15 @@ $unconvertedRequests = $db->query("
                     city: document.getElementById('compPropCity').value.trim() || 'Vancouver',
                     postal_code: document.getElementById('compPropPostalCode').value.trim(),
                     property_name: document.getElementById('compPropName').value.trim(),
+                    latitude: document.getElementById('compPropLat').value || '',
+                    longitude: document.getElementById('compPropLng').value || '',
                     csrf_token: CSRF_TOKEN_CO
                   })
                 })
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                   if (data.success) {
-                    // Geocode then reload
-                    if (typeof google !== 'undefined' && google.maps) {
-                      var geocoder = new google.maps.Geocoder();
-                      var addr = document.getElementById('compPropAddress').value.trim();
-                      var city = document.getElementById('compPropCity').value.trim();
-                      var fullAddr = [addr, city, 'BC', 'Canada'].filter(Boolean).join(', ');
-                      geocoder.geocode({ address: fullAddr }, function(results, status) {
-                        if (status === 'OK' && results[0]) {
-                          var loc = results[0].geometry.location;
-                          fetch('clients_appstack.php?action=save_property_coords', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              property_id: data.property_id,
-                              lat: loc.lat(),
-                              lng: loc.lng(),
-                              csrf_token: CSRF_TOKEN_CO
-                            })
-                          }).finally(function() { location.reload(); });
-                        } else {
-                          location.reload();
-                        }
-                      });
-                    } else {
-                      location.reload();
-                    }
+                    location.reload();
                   } else {
                     alert('Error: ' + (data.error || 'Unknown error'));
                     btn.disabled = false;
@@ -3555,7 +3512,7 @@ $unconvertedRequests = $db->query("
                   if (lngEl) lngEl.value = place.geometry.location.lng();
                 }
                 // Check for duplicate property address after selection
-                if (inputId === 'propertyAddress' || inputId === 'propAddress') {
+                if (inputId === 'propertyAddress' || inputId === 'propAddress' || inputId === 'compPropAddress') {
                   checkDuplicatePropertyAddress(input.value.trim(), inputId);
                 }
               });
@@ -3567,7 +3524,8 @@ $unconvertedRequests = $db->query("
               fetch('api/check-address.php?address=' + encodeURIComponent(address))
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                  var warningId = sourceInputId === 'propAddress' ? 'propAddressDupeWarning' : 'propertyAddressDupeWarning';
+                  var warningId = sourceInputId === 'propAddress' ? 'propAddressDupeWarning' :
+                                  sourceInputId === 'compPropAddress' ? 'compPropAddressDupeWarning' : 'propertyAddressDupeWarning';
                   var warningEl = document.getElementById(warningId);
                   if (!warningEl) return;
                   if (data.exists) {
