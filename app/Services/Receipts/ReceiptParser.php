@@ -257,6 +257,20 @@ function extractLineItems(array $lines): array
         // Skip noise lines (EACH, MAX REFUND, etc.)
         if (preg_match('/^(?:EACH|MAX REFUND|REFUND VALUE)/i', $line)) continue;
 
+        // Pattern: Material code + description (landfill/waste style: "10 - Green Waste")
+        if (preg_match('/^\d{1,4}\s*[-–]\s*(.+)$/i', $line, $m)) {
+            $itemName = trim($m[1]);
+            // Check if price is on the same line
+            if (preg_match('/^(.+?)\s+\$?(\d{1,6}\.\d{2})\s*$/', $itemName, $pm)) {
+                $items[] = ['name' => trim($pm[1]), 'amount' => $pm[2]];
+                $inItemZone = true;
+            } else {
+                $pendingItems[] = $itemName;
+                $inItemZone = true;
+            }
+            continue;
+        }
+
         // Pattern: Barcode + item name (Home Depot style)
         if (preg_match('/^\d{6,15}\s+(.+?)(?:\s*<[A-Z,]+>)?\s*$/', $line, $m)) {
             $itemName = trim($m[1]);
