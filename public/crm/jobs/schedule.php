@@ -293,7 +293,7 @@ foreach ($mobileStops as $s) {
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260215b" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260216a" rel="stylesheet">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -963,7 +963,7 @@ var MW_ROUTE_STOPS = <?php
     echo json_encode($routeStopsJson);
 ?>;
 </script>
-<script src="../js/schedule-route-map.js?v=20260215c"></script>
+<script src="../js/schedule-route-map.js?v=20260216a"></script>
 <script src="../js/schedule-pill-workflow.js?v=20260214h"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

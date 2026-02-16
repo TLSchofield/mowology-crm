@@ -35,6 +35,7 @@ var MwRouteMap = (function() {
     var userLng = null;
     var optimizedStops = null; // Reordered stops after route optimization
     var targetStopId = null;   // Stop to focus on after optimization
+    var singleRouteMode = false; // true when showing GPS→single stop route
 
     // ── DOM refs ──
     var viewEl, mapEl, trackEl, dotsEl, titleEl, backBtn, externalBtn, trayEl;
@@ -534,6 +535,112 @@ var MwRouteMap = (function() {
         titleEl.textContent = stops.length + ' stops';
     }
 
+    // ═══════════════════════════════════════════════════
+    //  SINGLE-STOP IN-APP ROUTE (Go button)
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * Draw a route from user GPS to a specific stop on the in-app map.
+     * Shows ETA/distance in the title bar and a "All stops" pill to go back.
+     */
+    function routeToStop(idx) {
+        var stops = optimizedStops || getStops();
+        if (idx < 0 || idx >= stops.length) return;
+
+        var target = stops[idx];
+        singleRouteMode = true;
+
+        // Get fresh GPS then draw route
+        getGPS(function() {
+            if (!userLat || !userLng) {
+                // No GPS — just center on the stop
+                clearMarkers();
+                if (target.lat && target.lng) {
+                    var pos = new google.maps.LatLng(target.lat, target.lng);
+                    placeMarkerAt(pos, target, idx, true);
+                    map.setCenter(pos);
+                    map.setZoom(15);
+                }
+                showSingleRouteTitle(target.address ? target.address.split(',')[0] : 'Stop ' + (idx + 1), null, null, stops.length > 1);
+                return;
+            }
+
+            clearMarkers();
+            addUserMarker(userLat, userLng);
+
+            var dest = (target.lat && target.lng)
+                ? new google.maps.LatLng(target.lat, target.lng)
+                : target.address;
+
+            if (!dest) {
+                showSingleRouteTitle('No location data', null, null, stops.length > 1);
+                return;
+            }
+
+            titleEl.textContent = 'Calculating route...';
+
+            directionsService.route({
+                origin: new google.maps.LatLng(userLat, userLng),
+                destination: dest,
+                travelMode: google.maps.TravelMode.DRIVING
+            }, function(result, status) {
+                if (status === google.maps.DirectionsStatus.OK) {
+                    directionsRenderer.setDirections(result);
+                    var leg = result.routes[0].legs[0];
+                    placeMarkerAt(leg.end_location, target, idx, true);
+                    map.fitBounds(result.routes[0].bounds, { top: 60, right: 40, bottom: 200, left: 40 });
+                    showSingleRouteTitle(
+                        leg.duration.text + ' \u00b7 ' + leg.distance.text,
+                        target.address,
+                        idx,
+                        stops.length > 1
+                    );
+                } else {
+                    // Fallback: show marker without route line
+                    if (target.lat && target.lng) {
+                        var pos = new google.maps.LatLng(target.lat, target.lng);
+                        placeMarkerAt(pos, target, idx, true);
+                        map.setCenter(pos);
+                        map.setZoom(14);
+                    }
+                    showSingleRouteTitle(target.address ? target.address.split(',')[0] : 'Stop ' + (idx + 1), null, null, stops.length > 1);
+                }
+            });
+        });
+    }
+
+    /**
+     * Update title bar for single-stop route mode.
+     * Shows ETA info and a "All stops" pill to return to full route.
+     */
+    function showSingleRouteTitle(text, address, stopIdx, showBackPill) {
+        var html = '<span class="mw-mv-route-info">' + escHtml(text) + '</span>';
+        if (showBackPill) {
+            html = '<button type="button" class="mw-mv-back-pill" id="mwMvBackToAll">' +
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>' +
+                'All stops</button>' + html;
+        }
+        titleEl.innerHTML = html;
+
+        // Wire the back pill
+        var backPill = document.getElementById('mwMvBackToAll');
+        if (backPill) {
+            backPill.addEventListener('click', function() {
+                returnToFullRoute();
+            });
+        }
+    }
+
+    /**
+     * Return from single-stop route to the full multi-stop route view.
+     */
+    function returnToFullRoute() {
+        singleRouteMode = false;
+        titleEl.innerHTML = '';
+        titleEl.textContent = 'Calculating route...';
+        computeFullRoute();
+    }
+
     /**
      * Fallback when no route can be drawn for a single stop:
      * Geocode the stop address and center the map on it with a marker.
@@ -708,14 +815,13 @@ var MwRouteMap = (function() {
             trackEl.appendChild(card);
         });
 
-        // Wire up Go buttons
+        // Wire up Go buttons — route to this stop in-app
         trackEl.querySelectorAll('.mw-mv-card-go').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                var addr = this.getAttribute('data-address');
-                if (addr) {
-                    window.open('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr) + '&travelmode=driving', '_blank');
-                }
+                var card = btn.closest('.mw-mv-card');
+                var idx = card ? parseInt(card.dataset.index, 10) : currentIndex;
+                routeToStop(idx);
             });
         });
 
@@ -884,15 +990,22 @@ var MwRouteMap = (function() {
         var stops = optimizedStops || getStops();
         if (!stops.length) return;
 
-        // Build a multi-stop Google Maps directions URL
-        // Format: /maps/dir/?api=1&origin=...&destination=...&waypoints=...|...
         var url;
-        if (stops.length === 1) {
+
+        // In single-route mode, open directions to just the current stop
+        if (singleRouteMode) {
+            var target = stops[currentIndex];
+            if (target) {
+                url = 'https://www.google.com/maps/dir/?api=1'
+                    + '&destination=' + encodeURIComponent(target.address)
+                    + '&travelmode=driving';
+            }
+        } else if (stops.length === 1) {
             url = 'https://www.google.com/maps/dir/?api=1'
                 + '&destination=' + encodeURIComponent(stops[0].address)
                 + '&travelmode=driving';
         } else {
-            // Destination = last stop
+            // Full multi-stop route
             var dest = stops[stops.length - 1];
             var waypointAddrs = [];
             for (var i = 0; i < stops.length - 1; i++) {
@@ -904,7 +1017,7 @@ var MwRouteMap = (function() {
                 + '&travelmode=driving';
         }
 
-        window.open(url, '_blank');
+        if (url) window.open(url, '_blank');
     }
 
     // ═══════════════════════════════════════════════════
