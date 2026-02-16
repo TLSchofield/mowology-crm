@@ -279,7 +279,7 @@ $stopTags = $stop['tags'] ?? [];
                    href="https://maps.google.com/?daddr=<?php echo urlencode($stop['property_address'] ?? ''); ?>"
                    target="_blank" rel="noopener"
                    onclick="event.stopPropagation();">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2L4.5 20.3l.7.7L12 18l6.8 3 .7-.7z"/></svg>
                 </a>
             <?php endif; ?>
         </div>

@@ -7,7 +7,7 @@
  * optimizeWaypoints for full route optimization.
  *
  * Entry points:
- *   MwRouteMap.toggle()       — opens map view with next upcoming stop
+ *   MwRouteMap.toggle()       — opens map view, sorts by proximity, shows closest first
  *   MwRouteMap.openToStop(id) — opens map view focused on a specific stop
  *
  * Depends on:
@@ -33,6 +33,7 @@ var MwRouteMap = (function() {
     var currentIndex = 0;
     var userLat = null;
     var userLng = null;
+    var optimizedStops = null; // Reordered stops after route optimization
 
     // ── DOM refs ──
     var viewEl, mapEl, trackEl, dotsEl, titleEl, backBtn, externalBtn, trayEl;
@@ -76,8 +77,43 @@ var MwRouteMap = (function() {
     function toggle() {
         if (isOpen) {
             close();
+            return;
+        }
+
+        var stops = getStops();
+        if (stops.length === 0) return;
+
+        // Show the view immediately with a loading state
+        isOpen = true;
+        optimizedStops = null;
+        viewEl.classList.add('mw-mv-visible', 'mw-mv-loading');
+        document.body.style.overflow = 'hidden';
+        titleEl.textContent = 'Getting location...';
+
+        // Wait for Google Maps API
+        function onMapsReady() {
+            if (!mapInitialized) initMap();
+            else google.maps.event.trigger(map, 'resize');
+
+            // Get GPS, then sort by proximity and compute route
+            getGPS(function() {
+                var closestIdx = findClosestStop(stops);
+                currentIndex = closestIdx;
+                buildCarousel(stops);
+                updateDots(stops.length, currentIndex);
+                computeFullRoute();
+            });
+        }
+
+        if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
+            var check = setInterval(function() {
+                if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
+                    clearInterval(check);
+                    onMapsReady();
+                }
+            }, 200);
         } else {
-            open(0);
+            onMapsReady();
         }
     }
 
@@ -89,6 +125,7 @@ var MwRouteMap = (function() {
 
         currentIndex = stopIndex;
         isOpen = true;
+        optimizedStops = null;
 
         buildCarousel(stops);
         updateDots(stops.length, currentIndex);
@@ -102,7 +139,7 @@ var MwRouteMap = (function() {
                     if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
                         clearInterval(check);
                         initMap();
-                        getGPSAndRoute(currentIndex);
+                        getGPS(function() { computeFullRoute(); });
                     }
                 }, 200);
                 return;
@@ -112,7 +149,7 @@ var MwRouteMap = (function() {
             google.maps.event.trigger(map, 'resize');
         }
 
-        getGPSAndRoute(currentIndex);
+        getGPS(function() { computeFullRoute(); });
     }
 
     function openToStop(stopId) {
@@ -169,21 +206,19 @@ var MwRouteMap = (function() {
     }
 
     // ═══════════════════════════════════════════════════
-    //  GPS + ROUTE COMPUTATION
+    //  GPS HELPERS
     // ═══════════════════════════════════════════════════
 
-    function getGPSAndRoute(targetIdx) {
-        viewEl.classList.add('mw-mv-loading');
-        titleEl.textContent = 'Getting location...';
-
-        // If we already have GPS cached, use it
+    /**
+     * Get GPS position, then call callback. Caches result.
+     */
+    function getGPS(callback) {
         if (userLat && userLng) {
-            computeRoute(targetIdx);
+            callback();
             return;
         }
-
         if (!navigator.geolocation) {
-            computeRoute(targetIdx);
+            callback();
             return;
         }
 
@@ -191,17 +226,61 @@ var MwRouteMap = (function() {
             function(pos) {
                 userLat = pos.coords.latitude;
                 userLng = pos.coords.longitude;
-                computeRoute(targetIdx);
+                callback();
             },
             function(err) {
                 console.warn('[RouteMap] GPS error:', err.message || err.code);
-                computeRoute(targetIdx);
+                callback();
             },
             { enableHighAccuracy: true, timeout: 10000, maximumAge: 120000 }
         );
     }
 
-    function computeRoute(targetIdx) {
+    /**
+     * Haversine distance in meters between two lat/lng pairs.
+     */
+    function haversine(lat1, lng1, lat2, lng2) {
+        var R = 6371000;
+        var toRad = Math.PI / 180;
+        var dLat = (lat2 - lat1) * toRad;
+        var dLng = (lng2 - lng1) * toRad;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    /**
+     * Find the index of the closest stop to the user's GPS position.
+     * Falls back to 0 if no GPS.
+     */
+    function findClosestStop(stops) {
+        if (!userLat || !userLng || !stops.length) return 0;
+
+        var closestIdx = 0;
+        var closestDist = Infinity;
+        for (var i = 0; i < stops.length; i++) {
+            if (stops[i].lat && stops[i].lng) {
+                var dist = haversine(userLat, userLng, stops[i].lat, stops[i].lng);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestIdx = i;
+                }
+            }
+        }
+        return closestIdx;
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  ROUTE COMPUTATION
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * Compute the full optimized route from user GPS through all stops.
+     * Uses optimizeWaypoints so Google picks the best order.
+     * Carousel card for currentIndex is highlighted.
+     */
+    function computeFullRoute() {
         var stops = getStops();
         if (!stops.length || !map) {
             viewEl.classList.remove('mw-mv-loading');
@@ -210,15 +289,12 @@ var MwRouteMap = (function() {
 
         clearMarkers();
 
-        var target = stops[targetIdx];
-        if (!target) target = stops[0];
-
         var hasGPS = !!(userLat && userLng);
 
         // ── Single stop ──
         if (stops.length === 1) {
+            var target = stops[0];
             if (hasGPS) {
-                // Route from user to the one stop
                 addUserMarker(userLat, userLng);
                 var dest = (target.lat && target.lng)
                     ? new google.maps.LatLng(target.lat, target.lng)
@@ -237,56 +313,74 @@ var MwRouteMap = (function() {
                         var leg = result.routes[0].legs[0];
                         placeMarkerAt(leg.end_location, target, 0, true);
                         titleEl.textContent = leg.duration.text + ' \u00b7 ' + leg.distance.text;
-                        map.fitBounds(result.routes[0].bounds, { top: 20, right: 20, bottom: 20, left: 20 });
+                        map.fitBounds(result.routes[0].bounds, { top: 60, right: 40, bottom: 200, left: 40 });
                     } else {
                         console.warn('[RouteMap] Single-stop directions failed:', status);
                         geocodeAndShow(target, 0);
                     }
                 });
             } else {
-                // No GPS, one stop — just show it on the map
                 geocodeAndShow(target, 0);
             }
             return;
         }
 
-        // ── Multiple stops: build optimized route ──
-        // Origin: user GPS, or first stop
-        // Destination: last stop (or focused stop)
-        // Waypoints: everything in between, optimized
+        // ── Multiple stops ──
+        // Origin: user GPS or first stop
+        // Destination: last stop in the array
+        // Waypoints: all remaining stops, with optimizeWaypoints = true
+        // Google will reorder the waypoints for the best route
 
-        var origin, originIsStop = false;
+        var origin;
+        var originIsUserGPS = false;
         if (hasGPS) {
             origin = new google.maps.LatLng(userLat, userLng);
             addUserMarker(userLat, userLng);
+            originIsUserGPS = true;
         } else {
             // No GPS — use first stop as origin
             var first = stops[0];
             origin = (first.lat && first.lng)
                 ? new google.maps.LatLng(first.lat, first.lng)
                 : first.address;
-            originIsStop = true;
-            if (!origin) { geocodeAndShow(target, targetIdx); return; }
+            if (!origin) { geocodeAndShow(stops[0], 0); return; }
         }
 
-        // Destination: last stop
-        var last = stops[stops.length - 1];
-        var destination = (last.lat && last.lng)
-            ? new google.maps.LatLng(last.lat, last.lng)
-            : last.address;
-        if (!destination) { geocodeAndShow(target, targetIdx); return; }
+        // Find the farthest stop from origin to use as destination
+        // (with GPS: farthest from user; without GPS: use last stop)
+        var destIdx = stops.length - 1;
+        if (originIsUserGPS) {
+            var maxDist = -1;
+            for (var d = 0; d < stops.length; d++) {
+                if (stops[d].lat && stops[d].lng) {
+                    var dist = haversine(userLat, userLng, stops[d].lat, stops[d].lng);
+                    if (dist > maxDist) {
+                        maxDist = dist;
+                        destIdx = d;
+                    }
+                }
+            }
+        }
 
-        // Waypoints: all stops that aren't origin or destination
+        var destStop = stops[destIdx];
+        var destination = (destStop.lat && destStop.lng)
+            ? new google.maps.LatLng(destStop.lat, destStop.lng)
+            : destStop.address;
+        if (!destination) { geocodeAndShow(stops[0], 0); return; }
+
+        // Waypoints: all stops except the destination (and origin if it's a stop)
         var waypoints = [];
-        var startIdx = originIsStop ? 1 : 0; // skip first stop if it's the origin
-        var endIdx = stops.length - 1; // skip last stop (it's destination)
-        for (var w = startIdx; w < endIdx; w++) {
+        var waypointStopIndices = []; // track which stop index each waypoint refers to
+        for (var w = 0; w < stops.length; w++) {
+            if (w === destIdx) continue; // skip destination
+            if (!originIsUserGPS && w === 0) continue; // skip origin stop
             var ws = stops[w];
             var loc = (ws.lat && ws.lng)
                 ? new google.maps.LatLng(ws.lat, ws.lng)
                 : ws.address;
             if (loc) {
                 waypoints.push({ location: loc, stopover: true });
+                waypointStopIndices.push(w);
             }
         }
 
@@ -309,32 +403,66 @@ var MwRouteMap = (function() {
             if (status === google.maps.DirectionsStatus.OK) {
                 directionsRenderer.setDirections(result);
 
-                // Place markers at each leg endpoint
                 var legs = result.routes[0].legs;
-
-                // First leg start = origin (user or first stop)
-                if (originIsStop) {
-                    placeMarkerAt(legs[0].start_location, stops[0], 0, targetIdx === 0);
-                }
-
-                // Each leg end = a stop
                 var waypointOrder = result.routes[0].waypoint_order || [];
-                for (var li = 0; li < legs.length; li++) {
-                    var stopIdx;
-                    if (li < legs.length - 1) {
-                        // This leg ends at a waypoint
-                        var origWpIdx = waypointOrder.length > 0 ? waypointOrder[li] : li;
-                        stopIdx = origWpIdx + (originIsStop ? 1 : 0);
-                    } else {
-                        // Last leg ends at destination (last stop)
-                        stopIdx = stops.length - 1;
-                    }
-                    if (stopIdx >= 0 && stopIdx < stops.length) {
-                        placeMarkerAt(legs[li].end_location, stops[stopIdx], stopIdx, stopIdx === targetIdx);
+
+                // Build the optimized stop order for numbering
+                // Leg 0 end = first waypoint (reordered), ..., last leg end = destination
+                var orderedStopIndices = [];
+
+                // If origin is a stop (no GPS), include it first
+                if (!originIsUserGPS) {
+                    orderedStopIndices.push(0);
+                }
+
+                // Waypoints in optimized order
+                for (var oi = 0; oi < waypointOrder.length; oi++) {
+                    orderedStopIndices.push(waypointStopIndices[waypointOrder[oi]]);
+                }
+                // If no optimization happened (single waypoint), use original order
+                if (waypointOrder.length === 0 && waypointStopIndices.length > 0) {
+                    for (var si = 0; si < waypointStopIndices.length; si++) {
+                        orderedStopIndices.push(waypointStopIndices[si]);
                     }
                 }
 
-                // ETA: show total for all legs, or just to the focused stop
+                // Destination last
+                orderedStopIndices.push(destIdx);
+
+                // Store optimized order for external maps
+                optimizedStops = orderedStopIndices.map(function(i) { return stops[i]; });
+
+                // Place markers along the route with correct numbering
+                var markerNum = 1;
+
+                // Origin stop marker (if origin is a stop)
+                if (!originIsUserGPS) {
+                    placeMarkerAt(legs[0].start_location, stops[0], 0, currentIndex === 0);
+                    markerNum++;
+                }
+
+                // Each leg ends at a stop
+                for (var li = 0; li < legs.length; li++) {
+                    var stopOrigIdx;
+                    if (li < waypointOrder.length) {
+                        stopOrigIdx = waypointStopIndices[waypointOrder[li]];
+                    } else if (li < waypointStopIndices.length && waypointOrder.length === 0) {
+                        stopOrigIdx = waypointStopIndices[li];
+                    } else {
+                        stopOrigIdx = destIdx;
+                    }
+
+                    if (stopOrigIdx >= 0 && stopOrigIdx < stops.length) {
+                        placeMarkerAt(
+                            legs[li].end_location,
+                            stops[stopOrigIdx],
+                            stopOrigIdx,
+                            stopOrigIdx === currentIndex
+                        );
+                    }
+                }
+
+                // Calculate totals
                 var totalDuration = 0;
                 var totalDistance = 0;
                 for (var l = 0; l < legs.length; l++) {
@@ -347,22 +475,57 @@ var MwRouteMap = (function() {
                 var distanceText = totalDistance < 1000
                     ? totalDistance + ' m'
                     : (totalDistance / 1000).toFixed(1) + ' km';
-                titleEl.textContent = durationText + ' \u00b7 ' + distanceText;
+                titleEl.textContent = stops.length + ' stops \u00b7 ' + durationText + ' \u00b7 ' + distanceText;
 
-                // Fit to route bounds
+                // Fit to route bounds with padding for the card tray
                 var bounds = result.routes[0].bounds;
                 if (bounds) {
-                    map.fitBounds(bounds, { top: 20, right: 20, bottom: 20, left: 20 });
+                    map.fitBounds(bounds, { top: 60, right: 40, bottom: 200, left: 40 });
                 }
             } else {
                 console.warn('[RouteMap] Directions failed:', status);
-                geocodeAndShow(target, targetIdx);
+                // Fallback: show all stops as markers without a route line
+                showAllStopsNoRoute(stops);
             }
         });
     }
 
     /**
-     * Fallback when no route can be drawn:
+     * Fallback: show all stop markers without a route line.
+     */
+    function showAllStopsNoRoute(stops) {
+        viewEl.classList.remove('mw-mv-loading');
+        if (directionsRenderer) {
+            directionsRenderer.setMap(null);
+            directionsRenderer.setMap(map);
+        }
+
+        var bounds = new google.maps.LatLngBounds();
+        var hasAny = false;
+
+        if (userLat && userLng) {
+            addUserMarker(userLat, userLng);
+            bounds.extend(new google.maps.LatLng(userLat, userLng));
+            hasAny = true;
+        }
+
+        stops.forEach(function(stop, idx) {
+            if (stop.lat && stop.lng) {
+                var pos = new google.maps.LatLng(stop.lat, stop.lng);
+                placeMarkerAt(pos, stop, idx, idx === currentIndex);
+                bounds.extend(pos);
+                hasAny = true;
+            }
+        });
+
+        if (hasAny) {
+            map.fitBounds(bounds, { top: 60, right: 40, bottom: 200, left: 40 });
+        }
+        titleEl.textContent = stops.length + ' stops';
+    }
+
+    /**
+     * Fallback when no route can be drawn for a single stop:
      * Geocode the stop address and center the map on it with a marker.
      */
     function geocodeAndShow(stop, index) {
@@ -398,7 +561,7 @@ var MwRouteMap = (function() {
                 placeMarkerAt(pos, stop, index, true);
                 map.setCenter(pos);
                 map.setZoom(15);
-                titleEl.textContent = stop.address.split(',')[0]; // Show street only
+                titleEl.textContent = stop.address.split(',')[0];
             } else {
                 console.warn('[RouteMap] Geocode failed:', status);
                 titleEl.textContent = 'Could not find address';
@@ -567,7 +730,15 @@ var MwRouteMap = (function() {
         currentIndex = idx;
         positionTrack(idx, true);
         updateDots(stops.length, idx);
-        computeRoute(idx);
+
+        // Re-highlight markers without recomputing entire route
+        clearMarkers();
+        if (userLat && userLng) addUserMarker(userLat, userLng);
+        stops.forEach(function(stop, i) {
+            if (stop.lat && stop.lng) {
+                placeMarkerAt(new google.maps.LatLng(stop.lat, stop.lng), stop, i, i === idx);
+            }
+        });
     }
 
     // ═══════════════════════════════════════════════════
@@ -658,13 +829,28 @@ var MwRouteMap = (function() {
     // ═══════════════════════════════════════════════════
 
     function openExternal() {
-        var stops = getStops();
+        var stops = optimizedStops || getStops();
         if (!stops.length) return;
 
-        var target = stops[currentIndex] || stops[0];
-        var url = 'https://maps.google.com/maps/dir/?api=1'
-            + '&destination=' + encodeURIComponent(target.address)
-            + '&travelmode=driving';
+        // Build a multi-stop Google Maps directions URL
+        // Format: /maps/dir/?api=1&origin=...&destination=...&waypoints=...|...
+        var url;
+        if (stops.length === 1) {
+            url = 'https://www.google.com/maps/dir/?api=1'
+                + '&destination=' + encodeURIComponent(stops[0].address)
+                + '&travelmode=driving';
+        } else {
+            // Destination = last stop
+            var dest = stops[stops.length - 1];
+            var waypointAddrs = [];
+            for (var i = 0; i < stops.length - 1; i++) {
+                waypointAddrs.push(stops[i].address);
+            }
+            url = 'https://www.google.com/maps/dir/?api=1'
+                + '&destination=' + encodeURIComponent(dest.address)
+                + '&waypoints=' + encodeURIComponent(waypointAddrs.join('|'))
+                + '&travelmode=driving';
+        }
 
         window.open(url, '_blank');
     }

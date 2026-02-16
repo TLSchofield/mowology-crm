@@ -963,7 +963,7 @@ var MW_ROUTE_STOPS = <?php
     echo json_encode($routeStopsJson);
 ?>;
 </script>
-<script src="../js/schedule-route-map.js?v=20260215a"></script>
+<script src="../js/schedule-route-map.js?v=20260215b"></script>
 <script src="../js/schedule-pill-workflow.js?v=20260214h"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
