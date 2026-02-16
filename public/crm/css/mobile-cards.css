@@ -1595,7 +1595,7 @@
 .mw-mv-card-track {
     display: flex;
     gap: 12px;
-    padding: 0 16px;
+    padding: 0;
     will-change: transform;
 }
 
