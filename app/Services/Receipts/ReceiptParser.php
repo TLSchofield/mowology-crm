@@ -4,13 +4,13 @@
  * Receipt Text Parser
  *
  * Extracts structured fields from raw OCR text using regex patterns.
- * Designed for Canadian receipts (GST 5%, PST, CAD dollar format).
+ * Designed for Canadian receipts (GST 5%, CAD dollar format).
  *
  * Usage:
  *   require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
  *   $parsed = parseReceiptText($ocrText);
  *   // Returns: [
- *   //   'total' => '145.67', 'tax' => '6.93', 'subtotal' => '138.74',
+ *   //   'total' => '145.67', 'gst' => '6.93', 'subtotal' => '138.74',
  *   //   'date' => '2026-02-13', 'vendor_hint' => 'HOME DEPOT',
  *   //   'card_last4' => '1234', 'payment_method' => 'credit_card',
  *   // ]
@@ -32,12 +32,13 @@ function parseReceiptText(string $ocrText): array
 {
     $result = [
         'total'          => null,
-        'tax'            => null,
+        'gst'            => null,
         'subtotal'       => null,
         'date'           => null,
         'vendor_hint'    => null,
         'card_last4'     => null,
         'payment_method' => null,
+        'line_items'     => [],
     ];
 
     $lines = preg_split('/\r?\n/', $ocrText);
@@ -51,8 +52,8 @@ function parseReceiptText(string $ocrText): array
     // Total
     $result['total'] = extractTotal($ocrText, $lines);
 
-    // Tax (GST, PST, HST)
-    $result['tax'] = extractTax($ocrText);
+    // GST (5% — BC standard; also catches generic "TAX" labels)
+    $result['gst'] = extractGST($ocrText);
 
     // Subtotal
     $result['subtotal'] = extractSubtotal($ocrText);
@@ -65,18 +66,168 @@ function parseReceiptText(string $ocrText): array
     $result['card_last4']     = $paymentInfo['card_last4'];
     $result['payment_method'] = $paymentInfo['payment_method'];
 
-    // If we found subtotal and tax but no total, calculate it
-    if ($result['total'] === null && $result['subtotal'] !== null && $result['tax'] !== null) {
+    // Line items
+    $result['line_items'] = extractLineItems($lines);
+
+    // If we found subtotal and GST but no total, calculate it
+    if ($result['total'] === null && $result['subtotal'] !== null && $result['gst'] !== null) {
         $result['total'] = number_format(
-            (float)$result['subtotal'] + (float)$result['tax'],
+            (float)$result['subtotal'] + (float)$result['gst'],
             2,
             '.',
             ''
         );
     }
 
+    // If we have total but no GST, estimate GST at 5% (BC standard)
+    if ($result['gst'] === null && $result['total'] !== null) {
+        $total = (float)$result['total'];
+        $result['gst'] = number_format($total / 1.05 * 0.05, 2, '.', '');
+        $result['gst_estimated'] = true;
+    }
+
     return $result;
 }
+
+
+/**
+ * Extract line items from receipt OCR text.
+ *
+ * Handles multiple receipt formats:
+ *  - Home Depot batched: multiple "{barcode} {name} <A>" lines, then prices in order
+ *  - Home Depot paired: "{barcode} {name} <A>\n{price}"
+ *  - Generic inline: "{name}    $XX.XX" or "{name}  XX.XX"
+ *  - Tabular: "{qty} x {name}  XX.XX"
+ *
+ * Stops parsing at SUBTOTAL/TOTAL/TAX lines.
+ *
+ * @param array $lines OCR text split into lines
+ * @return array Array of ['name' => string, 'amount' => string]
+ */
+function extractLineItems(array $lines): array
+{
+    $items = [];
+    $inItemZone = false;
+    $stopKeywords = ['subtotal', 'sub total', 'gst', 'pst', 'hst', 'tax',
+                     'amount due', 'balance due', 'change', 'tender', 'visa', 'mastercard',
+                     'debit', 'interac', 'cash', 'approved', 'contactless', 'aid ',
+                     'auth code', 'seq:', 'return policy', 'survey', 'scan me',
+                     'pro xtra', 'receipt po'];
+
+    $lineCount = count($lines);
+
+    // Phase 1: Collect barcode item names and standalone prices in order
+    // Home Depot often batches: item1, item2, price1, price2
+    $pendingItems = [];  // Queue of item names waiting for prices
+    $skipLines = [];     // Track lines we've consumed
+
+    for ($i = 0; $i < $lineCount; $i++) {
+        $line = trim($lines[$i]);
+        if ($line === '') continue;
+
+        $lineLower = strtolower($line);
+
+        // Stop at summary section — but only on exact keyword lines
+        // "SUBTOTAL" alone on a line = stop, but "SUBTOTAL 57.78" is also stop
+        $hitStop = false;
+        foreach ($stopKeywords as $kw) {
+            if (strpos($lineLower, $kw) !== false) {
+                if ($inItemZone || !empty($pendingItems)) { $hitStop = true; break; }
+                continue 2;
+            }
+        }
+        // Also stop on standalone "TOTAL" (not SUBTOTAL)
+        if (preg_match('/^total\s*:?\s*$/i', $line)) {
+            if ($inItemZone || !empty($pendingItems)) { $hitStop = true; }
+        }
+        if ($hitStop) break;
+
+        // Skip header lines
+        if (preg_match('/(?:store\s*mgr|cashier|sale\s|how\s+doers|get\s+more)/i', $line)) continue;
+        if (preg_match('/^\(\d{3}\)\s*\d{3}[\-\.]\d{4}/', $line)) continue;
+        if (preg_match('/^\d+\s+(st|ave|blvd|rd|dr|way|street|avenue)\b/i', $line)) continue;
+        if (preg_match('/^[\d\s]+\d{2}\/\d{2}\/\d{2,4}/', $line)) continue;
+        // Skip noise lines (EACH, MAX REFUND, etc.)
+        if (preg_match('/^(?:EACH|MAX REFUND|REFUND VALUE)/i', $line)) continue;
+
+        // Pattern: Barcode + item name (Home Depot style)
+        if (preg_match('/^\d{6,15}\s+(.+?)(?:\s*<[A-Z,]+>)?\s*$/', $line, $m)) {
+            $itemName = trim($m[1]);
+            // Check if price is inline with the name
+            if (preg_match('/^(.+?)\s+\$?(\d{1,6}\.\d{2})\s*$/', $itemName, $pm)) {
+                $items[] = ['name' => trim($pm[1]), 'amount' => $pm[2]];
+                $inItemZone = true;
+            } else {
+                $pendingItems[] = $itemName;
+                $inItemZone = true;
+            }
+            continue;
+        }
+
+        // Pattern: DEPOSIT line
+        if (preg_match('/^DEPOSIT/i', $line)) {
+            // Check next line for deposit amount
+            if ($i + 1 < $lineCount) {
+                $nextLine = trim($lines[$i + 1]);
+                if (preg_match('/^(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $nextLine, $pm)) {
+                    $items[] = ['name' => 'Deposit', 'amount' => $pm[1]];
+                    $i++;
+                }
+            }
+            continue;
+        }
+
+        // Pattern: Markdown/discount line
+        if (preg_match('/^(?:RSN:|DISCOUNT|MARKDOWN|MKDN)/i', $line)) {
+            // Flush pending items with any collected prices first
+            if (preg_match('/(-?\d{1,6}\.\d{2})/', $line, $m)) {
+                $amount = $m[1];
+                $items[] = ['name' => 'Discount', 'amount' => '-' . ltrim($amount, '-')];
+                $inItemZone = true;
+            }
+            continue;
+        }
+
+        // Pattern: Standalone price line — assign to next pending item
+        if (preg_match('/^-?\$?(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $line, $pm)) {
+            $amount = $pm[1];
+            // Negative price (discount/markdown)
+            if (strpos($line, '-') === 0) {
+                $items[] = ['name' => 'Discount', 'amount' => '-' . ltrim($amount, '-')];
+            } elseif (!empty($pendingItems)) {
+                $itemName = array_shift($pendingItems);
+                $items[] = ['name' => $itemName, 'amount' => $amount];
+            }
+            $inItemZone = true;
+            continue;
+        }
+
+        // Pattern: Generic inline — "Item Name   $XX.XX"
+        if (preg_match('/^(.{3,}?)\s{2,}\$?(\d{1,6}\.\d{2})\s*$/', $line, $m)) {
+            $name = trim($m[1]);
+            $nameLower = strtolower($name);
+            $isSummary = false;
+            foreach (['subtotal', 'total', 'gst', 'pst', 'hst', 'tax', 'deposit', 'change', 'tender'] as $kw) {
+                if (strpos($nameLower, $kw) !== false) { $isSummary = true; break; }
+            }
+            if (!$isSummary) {
+                $items[] = ['name' => $name, 'amount' => $m[2]];
+                $inItemZone = true;
+                continue;
+            }
+        }
+
+        // Pattern: Qty x Name  Price
+        if (preg_match('/^(\d+)\s*[xX\x{00D7}]\s*(.{3,}?)\s{2,}\$?(\d{1,6}\.\d{2})\s*$/u', $line, $m)) {
+            $items[] = ['name' => trim($m[1] . 'x ' . $m[2]), 'amount' => $m[3]];
+            $inItemZone = true;
+            continue;
+        }
+    }
+
+    return $items;
+}
+
 
 /**
  * Extract vendor hint from first meaningful lines.
@@ -113,19 +264,18 @@ function extractVendorHint(array $lines): ?string
 /**
  * Extract total amount from OCR text.
  * Looks for patterns like "TOTAL $145.67", "TOTAL: 145.67", "AMOUNT DUE: $145.67"
+ * Also handles split-line: "TOTAL\n$64.26"
  */
 function extractTotal(string $text, array $lines): ?string
 {
-    // Pattern: TOTAL, AMOUNT DUE, BALANCE DUE, etc. followed by dollar amount
+    // Pattern: TOTAL, AMOUNT DUE, BALANCE DUE, etc. followed by dollar amount (same line)
     $totalPatterns = [
         '/(?:TOTAL\s*(?:DUE)?|AMOUNT\s*DUE|BALANCE\s*DUE|GRAND\s*TOTAL|PURCHASE\s*TOTAL)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
-        // "TOTAL" at start of line, value at end
         '/^.*TOTAL[^$\d]*\$?\s*(\d{1,6}[.,]\d{2})\s*$/im',
     ];
 
     foreach ($totalPatterns as $pattern) {
         if (preg_match_all($pattern, $text, $matches)) {
-            // Take the last match (usually the grand total appears after subtotals)
             $amount = end($matches[1]);
             $amount = str_replace(',', '.', $amount);
             return $amount;
@@ -149,43 +299,94 @@ function extractTotal(string $text, array $lines): ?string
         return number_format($maxAmount, 2, '.', '');
     }
 
-    return null;
-}
-
-/**
- * Extract tax amount (GST, PST, HST, TAX).
- */
-function extractTax(string $text): ?string
-{
-    $taxPatterns = [
-        // GST 5%, PST, HST
-        '/(?:GST|PST|HST|TAX)\s*(?:\d+%?)?\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
-    ];
-
-    $totalTax = 0;
-    $found = false;
-
-    foreach ($taxPatterns as $pattern) {
-        if (preg_match_all($pattern, $text, $matches)) {
-            foreach ($matches[1] as $amount) {
-                $totalTax += (float)str_replace(',', '.', $amount);
-                $found = true;
+    // Split-line fallback: "TOTAL\n$64.26" — look for standalone TOTAL line
+    // Must NOT match SUBTOTAL (check exact word boundary)
+    $lineCount = count($lines);
+    for ($i = 0; $i < $lineCount - 1; $i++) {
+        $line = trim($lines[$i]);
+        if (preg_match('/^(?:TOTAL|AMOUNT\s*DUE|BALANCE\s*DUE|GRAND\s*TOTAL)\s*:?\s*$/i', $line) &&
+            stripos($line, 'sub') === false) {
+            $nextLine = trim($lines[$i + 1]);
+            if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
+                return str_replace(',', '.', $m[1]);
             }
         }
     }
 
-    return $found ? number_format($totalTax, 2, '.', '') : null;
+    return null;
+}
+
+/**
+ * Extract GST amount from receipt text.
+ * Matches GST specifically, plus generic "TAX" labels (assumed GST for BC).
+ * Handles both same-line ("GST $3.45") and split-line ("GST/HST\n2.88") formats.
+ */
+function extractGST(string $text): ?string
+{
+    // Same-line patterns
+    $gstPatterns = [
+        '/GST\s*(?:\/HST)?\s*(?:\d+%?)?\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
+        '/(?<!\w)TAX\s*(?:\d+%?)?\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
+    ];
+
+    $totalGst = 0;
+    $found = false;
+
+    foreach ($gstPatterns as $pattern) {
+        if (preg_match_all($pattern, $text, $matches)) {
+            foreach ($matches[1] as $amount) {
+                $totalGst += (float)str_replace(',', '.', $amount);
+                $found = true;
+            }
+            break;
+        }
+    }
+
+    // Split-line fallback: "GST/HST\n2.88" or "GST\n$3.45"
+    if (!$found) {
+        $lines = preg_split('/\r?\n/', $text);
+        $lineCount = count($lines);
+        for ($i = 0; $i < $lineCount - 1; $i++) {
+            $line = trim($lines[$i]);
+            if (preg_match('/^GST(?:\s*\/\s*HST)?(?:\s*\d+%?)?\s*:?\s*$/i', $line) ||
+                preg_match('/^TAX\s*:?\s*$/i', $line)) {
+                $nextLine = trim($lines[$i + 1]);
+                if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
+                    $totalGst += (float)str_replace(',', '.', $m[1]);
+                    $found = true;
+                }
+            }
+        }
+    }
+
+    return $found ? number_format($totalGst, 2, '.', '') : null;
 }
 
 /**
  * Extract subtotal amount.
+ * Handles both same-line ("SUBTOTAL $57.78") and split-line ("SUBTOTAL\n57.78") formats.
  */
 function extractSubtotal(string $text): ?string
 {
+    // Same-line pattern
     $pattern = '/(?:SUB\s*TOTAL|SUBTOTAL)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i';
     if (preg_match($pattern, $text, $m)) {
         return str_replace(',', '.', $m[1]);
     }
+
+    // Split-line fallback: "SUBTOTAL\n57.78"
+    $lines = preg_split('/\r?\n/', $text);
+    $lineCount = count($lines);
+    for ($i = 0; $i < $lineCount - 1; $i++) {
+        $line = trim($lines[$i]);
+        if (preg_match('/^(?:SUB\s*TOTAL|SUBTOTAL)\s*:?\s*$/i', $line)) {
+            $nextLine = trim($lines[$i + 1]);
+            if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
+                return str_replace(',', '.', $m[1]);
+            }
+        }
+    }
+
     return null;
 }
 
