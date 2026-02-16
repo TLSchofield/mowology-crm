@@ -25,8 +25,7 @@ $db = getDB();
 $results = [];
 
 function colExists(PDO $db, string $table, string $col): bool {
-    $stmt = $db->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
-    $stmt->execute([$col]);
+    $stmt = $db->query("SHOW COLUMNS FROM `{$table}` LIKE '{$col}'");
     return $stmt->rowCount() > 0;
 }
 
