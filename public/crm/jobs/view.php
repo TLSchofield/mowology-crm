@@ -155,6 +155,118 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $message = 'Note content is required.';
         $messageType = 'error';
     }
+
+    // Edit plan details
+    if ($action === 'edit_plan') {
+        $isRecurring = ($_POST['plan_type'] ?? 'one_time') === 'recurring' ? 1 : 0;
+        $recurrencePattern = $isRecurring ? ($_POST['recurrence_pattern'] ?? 'weekly') : null;
+        $recurrenceInterval = $isRecurring ? max(1, intval($_POST['recurrence_interval'] ?? 1)) : 1;
+        $recurrenceIntervalUnit = $isRecurring ? ($_POST['recurrence_interval_unit'] ?? 'weeks') : 'weeks';
+        $recurrenceDow = $isRecurring && isset($_POST['recurrence_day_of_week']) && $_POST['recurrence_day_of_week'] !== ''
+            ? intval($_POST['recurrence_day_of_week']) : null;
+
+        // Map presets
+        if ($recurrencePattern === 'daily') {
+            $recurrencePattern = 'custom';
+            $recurrenceInterval = 1;
+            $recurrenceIntervalUnit = 'days';
+        } elseif ($recurrencePattern === 'biweekly') {
+            $recurrenceInterval = 2;
+            $recurrenceIntervalUnit = 'weeks';
+        }
+
+        $planData = [
+            'title'                    => trim($_POST['edit_title'] ?? ''),
+            'description'              => trim($_POST['edit_description'] ?? ''),
+            'service_type'             => $_POST['edit_service_type'] ?? 'landscaping',
+            'pricing_model'            => $_POST['edit_pricing_model'] ?? 'per_visit',
+            'price_per_visit'          => floatval($_POST['edit_price_per_visit'] ?? 0) ?: null,
+            'estimated_duration_minutes' => intval($_POST['edit_duration'] ?? 60),
+            'default_crew_id'          => !empty($_POST['edit_crew_id']) ? intval($_POST['edit_crew_id']) : null,
+            'default_time_start'       => !empty($_POST['edit_time_start']) ? $_POST['edit_time_start'] : null,
+            'default_time_end'         => !empty($_POST['edit_time_end']) ? $_POST['edit_time_end'] : null,
+            'plan_start_date'          => $_POST['edit_start_date'] ?? date('Y-m-d'),
+            'plan_end_date'            => !empty($_POST['edit_end_date']) ? $_POST['edit_end_date'] : null,
+            'is_recurring'             => $isRecurring,
+            'recurrence_pattern'       => $recurrencePattern,
+            'recurrence_interval'      => $recurrenceInterval,
+            'recurrence_interval_unit' => $recurrenceIntervalUnit,
+            'recurrence_day_of_week'   => $recurrenceDow,
+            'horizon_days'             => intval($_POST['edit_horizon_days'] ?? 28),
+        ];
+
+        $result = updateJobPlan($planId, $planData, (int)$user['id']);
+
+        if ($result['success']) {
+            $suffix = $result['visits_regenerated'] ? '&visits_regenerated=1' : '';
+            header("Location: view.php?id={$planId}&plan_updated=1{$suffix}");
+            exit;
+        }
+        $message = implode(' ', $result['errors']);
+        $messageType = 'error';
+    }
+
+    // Update line items
+    if ($action === 'update_line_items') {
+        $formItems = [];
+        if (!empty($_POST['items']) && is_array($_POST['items'])) {
+            foreach ($_POST['items'] as $item) {
+                if (empty($item['service_type'])) continue;
+                $formItems[] = [
+                    'service_type' => $item['service_type'],
+                    'description'  => $item['description'] ?? '',
+                    'quantity'     => floatval($item['quantity'] ?? 1),
+                    'unit_type'    => $item['unit_type'] ?? 'visit',
+                    'unit_price'   => floatval($item['unit_price'] ?? 0),
+                    'line_total'   => floatval($item['line_total'] ?? 0),
+                ];
+            }
+        }
+
+        if (replacePlanLineItems($planId, $formItems)) {
+            header("Location: view.php?id={$planId}&items_updated=1");
+            exit;
+        }
+        $message = 'Could not update line items.';
+        $messageType = 'error';
+    }
+
+    // Edit visit
+    if ($action === 'edit_visit') {
+        $visitId = intval($_POST['edit_visit_id'] ?? 0);
+        $newDate = $_POST['visit_date'] ?? '';
+        $newTimeStart = !empty($_POST['visit_time_start']) ? $_POST['visit_time_start'] : null;
+        $newTimeEnd = !empty($_POST['visit_time_end']) ? $_POST['visit_time_end'] : null;
+        $newCrewId = !empty($_POST['visit_crew_id']) ? intval($_POST['visit_crew_id']) : null;
+
+        if ($visitId && $newDate) {
+            $moved = moveVisit($visitId, $newDate, $newTimeStart, $user['id']);
+
+            // Also update time end and crew
+            $updates = [];
+            $updateParams = [];
+            if ($newTimeEnd !== null) {
+                $updates[] = "scheduled_time_end = ?";
+                $updateParams[] = $newTimeEnd;
+            }
+            if ($newCrewId !== null) {
+                $updates[] = "assigned_crew_id = ?";
+                $updateParams[] = $newCrewId;
+            } elseif (isset($_POST['visit_crew_id']) && $_POST['visit_crew_id'] === '') {
+                $updates[] = "assigned_crew_id = NULL";
+            }
+            if (!empty($updates)) {
+                $updateParams[] = $visitId;
+                $stmt = $db->prepare("UPDATE job_visits SET " . implode(', ', $updates) . " WHERE id = ?");
+                $stmt->execute($updateParams);
+            }
+
+            header("Location: view.php?id={$planId}&visit_updated=1");
+            exit;
+        }
+        $message = 'Could not update visit.';
+        $messageType = 'error';
+    }
 }
 
 // ── Load Plan Data ───────────────────────────────────────────────────
@@ -202,6 +314,13 @@ if (isset($_GET['visit_completed'])) { $message = 'Visit completed!'; $messageTy
 if (isset($_GET['visit_skipped'])) { $message = 'Visit skipped.'; $messageType = 'success'; }
 if (isset($_GET['visit_weather'])) { $message = 'Visit marked as weather delay.'; $messageType = 'success'; }
 if (isset($_GET['note_added'])) { $message = 'Note added!'; $messageType = 'success'; }
+if (isset($_GET['plan_updated'])) {
+    $message = 'Plan updated successfully!';
+    if (isset($_GET['visits_regenerated'])) $message .= ' Future visits have been regenerated.';
+    $messageType = 'success';
+}
+if (isset($_GET['items_updated'])) { $message = 'Line items updated!'; $messageType = 'success'; }
+if (isset($_GET['visit_updated'])) { $message = 'Visit updated!'; $messageType = 'success'; }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -297,6 +416,11 @@ $activePage = 'jobs';
                     </div>
                 </div>
                 <div class="mw-header-actions">
+                    <?php if (in_array($plan['status'], ['active', 'paused'])): ?>
+                        <button type="button" class="btn btn-outline-primary" onclick="showModal('editPlanModal')">
+                            <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit Plan
+                        </button>
+                    <?php endif; ?>
                     <?php if ($plan['status'] === 'active'): ?>
                         <button type="button" class="btn btn-warning" onclick="showModal('pauseModal')">
                             Pause Plan
@@ -789,11 +913,16 @@ $activePage = 'jobs';
             <!-- ══════════════════════════════════════════════════════
                  Services Included (Plan Line Items)
                  ══════════════════════════════════════════════════════ -->
-            <?php if (!empty($planLineItems)): ?>
             <div class="card mb-4">
-                <div class="card-header">
+                <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0">Services Included</h5>
+                    <?php if (in_array($plan['status'], ['active', 'paused'])): ?>
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="showModal('editItemsModal')">
+                            <i data-feather="edit-2" style="width:12px;height:12px;"></i> Edit Items
+                        </button>
+                    <?php endif; ?>
                 </div>
+                <?php if (!empty($planLineItems)): ?>
                 <div class="card-body p-0">
                     <table class="mw-plan-items-table">
                         <thead>
@@ -831,8 +960,12 @@ $activePage = 'jobs';
                         From quote <a href="../quotes/view.php?id=<?php echo (int)$plan['quote_id']; ?>"><?php echo htmlspecialchars($plan['quote_number'] ?? ''); ?></a>
                     </div>
                 <?php endif; ?>
+                <?php else: ?>
+                <div class="card-body text-center text-muted py-3">
+                    <p class="mb-0 small">No line items. Click "Edit Items" to add services.</p>
+                </div>
+                <?php endif; ?>
             </div>
-            <?php endif; ?>
 
             <!-- ══════════════════════════════════════════════════════
                  SECTION 3: Visits List
@@ -931,6 +1064,11 @@ $activePage = 'jobs';
                                             </td>
                                             <td class="text-right">
                                                 <?php if ($visit['status'] === 'scheduled'): ?>
+                                                    <button type="button" class="btn btn-sm btn-outline-primary"
+                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>', '<?php echo $visit['assigned_crew_id'] ?? ''; ?>')"
+                                                            title="Edit visit">
+                                                        <i data-feather="edit-2" style="width: 12px; height: 12px;"></i>
+                                                    </button>
                                                     <form method="POST" style="display: inline;">
                                                         <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                                                         <input type="hidden" name="visit_id" value="<?php echo (int)$visit['id']; ?>">
@@ -1154,6 +1292,283 @@ $activePage = 'jobs';
     </div>
 
 
+    <!-- Edit Plan Modal -->
+    <?php if (in_array($plan['status'], ['active', 'paused'])): ?>
+    <div class="mw-modal-overlay" id="editPlanModal">
+        <div class="mw-modal mw-modal-wide">
+            <h3 class="mw-modal-title">Edit Plan <?php echo htmlspecialchars($plan['plan_number']); ?></h3>
+            <form method="POST" id="editPlanForm">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="action" value="edit_plan">
+
+                <div class="mw-form-row">
+                    <div class="mw-form-group" style="flex:2;">
+                        <label class="form-label">Plan Title *</label>
+                        <input type="text" name="edit_title" class="form-control" required
+                               value="<?php echo htmlspecialchars($plan['title'] ?? ''); ?>">
+                    </div>
+                    <div class="mw-form-group">
+                        <label class="form-label">Service Type</label>
+                        <select name="edit_service_type" class="form-control">
+                            <?php
+                            $serviceTypes = ['landscaping'=>'Landscaping','lawn_care'=>'Lawn Care','snow_removal'=>'Snow Removal','hedge_trimming'=>'Hedge Trimming','garden_maintenance'=>'Garden Maintenance','seasonal_cleanup'=>'Seasonal Cleanup'];
+                            foreach ($serviceTypes as $val => $label):
+                            ?>
+                                <option value="<?php echo $val; ?>" <?php echo $plan['service_type'] === $val ? 'selected' : ''; ?>><?php echo $label; ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mw-form-group">
+                    <label class="form-label">Description</label>
+                    <textarea name="edit_description" class="form-control" rows="3"><?php echo htmlspecialchars($plan['description'] ?? ''); ?></textarea>
+                </div>
+
+                <hr class="my-3">
+                <h6>Scheduling</h6>
+
+                <div class="mw-form-row">
+                    <div class="mw-form-group">
+                        <label class="form-label">Plan Type</label>
+                        <select name="plan_type" id="editPlanType" class="form-control" onchange="toggleEditRecurring()">
+                            <option value="one_time" <?php echo !$plan['is_recurring'] ? 'selected' : ''; ?>>One-Time</option>
+                            <option value="recurring" <?php echo $plan['is_recurring'] ? 'selected' : ''; ?>>Recurring</option>
+                        </select>
+                    </div>
+                    <div class="mw-form-group">
+                        <label class="form-label">Start Date</label>
+                        <input type="date" name="edit_start_date" class="form-control"
+                               value="<?php echo $plan['plan_start_date'] ?? ''; ?>">
+                    </div>
+                    <div class="mw-form-group">
+                        <label class="form-label">End Date</label>
+                        <input type="date" name="edit_end_date" class="form-control"
+                               value="<?php echo $plan['plan_end_date'] ?? ''; ?>">
+                        <small class="text-muted">Blank = ongoing</small>
+                    </div>
+                </div>
+
+                <div class="mw-form-row">
+                    <div class="mw-form-group">
+                        <label class="form-label">Default Start Time</label>
+                        <input type="time" name="edit_time_start" class="form-control"
+                               value="<?php echo $plan['default_time_start'] ?? ''; ?>">
+                    </div>
+                    <div class="mw-form-group">
+                        <label class="form-label">Default End Time</label>
+                        <input type="time" name="edit_time_end" class="form-control"
+                               value="<?php echo $plan['default_time_end'] ?? ''; ?>">
+                    </div>
+                    <div class="mw-form-group">
+                        <label class="form-label">Duration (min)</label>
+                        <input type="number" name="edit_duration" class="form-control"
+                               value="<?php echo (int)$plan['estimated_duration_minutes']; ?>" min="15" step="15">
+                    </div>
+                </div>
+
+                <div class="mw-form-row">
+                    <div class="mw-form-group">
+                        <label class="form-label">Default Crew</label>
+                        <select name="edit_crew_id" class="form-control">
+                            <option value="">Unassigned</option>
+                            <?php foreach ($staff as $s): ?>
+                                <option value="<?php echo $s['id']; ?>" <?php echo ($plan['default_crew_id'] == $s['id']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($s['full_name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="mw-form-group">
+                        <label class="form-label">Horizon Days</label>
+                        <input type="number" name="edit_horizon_days" class="form-control"
+                               value="<?php echo (int)$plan['horizon_days']; ?>" min="7" max="90">
+                    </div>
+                </div>
+
+                <?php
+                // Determine the display recurrence pattern for the select
+                $editRecPattern = $plan['recurrence_pattern'] ?? 'weekly';
+                $editIsCustom = false;
+                if ($editRecPattern === 'custom' && (int)($plan['recurrence_interval'] ?? 1) === 1
+                    && ($plan['recurrence_interval_unit'] ?? 'weeks') === 'days') {
+                    $editRecPattern = 'daily';
+                } elseif ($editRecPattern === 'weekly' && (int)($plan['recurrence_interval'] ?? 1) === 2) {
+                    $editRecPattern = 'biweekly';
+                } elseif ($editRecPattern === 'custom') {
+                    $editIsCustom = true;
+                }
+                ?>
+
+                <div id="editRecurringOptions" style="<?php echo $plan['is_recurring'] ? '' : 'display:none;'; ?>">
+                    <h6 class="mt-3">Recurrence</h6>
+                    <div class="mw-form-row">
+                        <div class="mw-form-group">
+                            <label class="form-label">Pattern</label>
+                            <select name="recurrence_pattern" id="editRecurrencePattern" class="form-control" onchange="toggleEditCustomInterval()">
+                                <option value="daily" <?php echo $editRecPattern === 'daily' ? 'selected' : ''; ?>>Daily</option>
+                                <option value="weekly" <?php echo $editRecPattern === 'weekly' ? 'selected' : ''; ?>>Weekly</option>
+                                <option value="biweekly" <?php echo $editRecPattern === 'biweekly' ? 'selected' : ''; ?>>Every 2 Weeks</option>
+                                <option value="monthly" <?php echo $editRecPattern === 'monthly' ? 'selected' : ''; ?>>Monthly</option>
+                                <option value="custom" <?php echo $editIsCustom ? 'selected' : ''; ?>>Custom...</option>
+                            </select>
+                        </div>
+                        <div class="mw-form-group">
+                            <label class="form-label">Day of Week</label>
+                            <select name="recurrence_day_of_week" class="form-control">
+                                <option value="">Same as start date</option>
+                                <?php
+                                $days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+                                foreach ($days as $i => $dayName): ?>
+                                    <option value="<?php echo $i; ?>" <?php echo ((int)($plan['recurrence_day_of_week'] ?? -1)) === $i ? 'selected' : ''; ?>><?php echo $dayName; ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mw-form-row" id="editCustomIntervalRow" style="<?php echo $editIsCustom ? '' : 'display:none;'; ?>">
+                        <div class="mw-form-group">
+                            <label class="form-label">Repeat Every</label>
+                            <input type="number" name="recurrence_interval" class="form-control"
+                                   value="<?php echo (int)($plan['recurrence_interval'] ?? 1); ?>" min="1" max="365">
+                        </div>
+                        <div class="mw-form-group">
+                            <label class="form-label">Unit</label>
+                            <select name="recurrence_interval_unit" class="form-control">
+                                <option value="days" <?php echo ($plan['recurrence_interval_unit'] ?? '') === 'days' ? 'selected' : ''; ?>>Days</option>
+                                <option value="weeks" <?php echo ($plan['recurrence_interval_unit'] ?? 'weeks') === 'weeks' ? 'selected' : ''; ?>>Weeks</option>
+                                <option value="months" <?php echo ($plan['recurrence_interval_unit'] ?? '') === 'months' ? 'selected' : ''; ?>>Months</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <small class="text-muted"><i data-feather="alert-triangle" style="width:12px;height:12px;color:#F59E0B;"></i> Changing recurrence settings will cancel and regenerate future visits.</small>
+                    </div>
+                </div>
+
+                <hr class="my-3">
+                <h6>Pricing</h6>
+
+                <div class="mw-form-row">
+                    <div class="mw-form-group">
+                        <label class="form-label">Pricing Model</label>
+                        <select name="edit_pricing_model" class="form-control">
+                            <?php
+                            $pricingModels = ['per_visit'=>'Per Visit','monthly_flat'=>'Monthly Flat Rate','seasonal'=>'Seasonal','custom'=>'Custom'];
+                            foreach ($pricingModels as $val => $label):
+                            ?>
+                                <option value="<?php echo $val; ?>" <?php echo ($plan['pricing_model'] ?? 'per_visit') === $val ? 'selected' : ''; ?>><?php echo $label; ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="mw-form-group">
+                        <label class="form-label">Price Per Visit ($)</label>
+                        <input type="number" name="edit_price_per_visit" class="form-control" step="0.01" min="0"
+                               value="<?php echo $plan['price_per_visit'] ?? ''; ?>">
+                    </div>
+                </div>
+
+                <div class="mw-modal-actions">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('editPlanModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Line Items Modal -->
+    <div class="mw-modal-overlay" id="editItemsModal">
+        <div class="mw-modal mw-modal-wide">
+            <h3 class="mw-modal-title">Edit Services — <?php echo htmlspecialchars($plan['plan_number']); ?></h3>
+            <form method="POST" id="editItemsForm">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="action" value="update_line_items">
+
+                <table class="mw-line-items-table" id="editItemsTable">
+                    <thead>
+                        <tr>
+                            <th>Service</th>
+                            <th>Description</th>
+                            <th style="width:70px;">Qty</th>
+                            <th class="text-right" style="width:90px;">Price</th>
+                            <th class="text-right" style="width:90px;">Total</th>
+                            <th style="width:40px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="editItemsBody">
+                        <?php foreach ($planLineItems as $idx => $pli): ?>
+                        <tr>
+                            <td><input type="text" name="items[<?php echo $idx; ?>][service_type]" class="form-control form-control-sm" value="<?php echo htmlspecialchars($pli['service_type']); ?>" required></td>
+                            <td><input type="text" name="items[<?php echo $idx; ?>][description]" class="form-control form-control-sm" value="<?php echo htmlspecialchars($pli['description'] ?? ''); ?>"></td>
+                            <td><input type="number" name="items[<?php echo $idx; ?>][quantity]" class="form-control form-control-sm mw-ei-qty" value="<?php echo floatval($pli['quantity']); ?>" min="0.01" step="0.01" onchange="recalcEditItemRow(this)"></td>
+                            <td><input type="number" name="items[<?php echo $idx; ?>][unit_price]" class="form-control form-control-sm mw-ei-price text-right" value="<?php echo floatval($pli['unit_price']); ?>" min="0" step="0.01" onchange="recalcEditItemRow(this)">
+                                <input type="hidden" name="items[<?php echo $idx; ?>][unit_type]" value="<?php echo htmlspecialchars($pli['unit_type'] ?? 'visit'); ?>"></td>
+                            <td class="text-right"><span class="mw-ei-row-total"><?php echo formatCurrency($pli['line_total']); ?></span>
+                                <input type="hidden" name="items[<?php echo $idx; ?>][line_total]" class="mw-ei-total-input" value="<?php echo floatval($pli['line_total']); ?>"></td>
+                            <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeEditItemRow(this)" title="Remove">&times;</button></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="4" class="text-right"><strong>Per Visit Total</strong></td>
+                            <td class="text-right"><strong id="editItemsTotal"><?php echo formatCurrency(array_sum(array_column($planLineItems, 'line_total'))); ?></strong></td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addEditItem()">
+                    <i data-feather="plus" style="width:14px;height:14px;"></i> Add Item
+                </button>
+
+                <div class="mw-modal-actions mt-3">
+                    <button type="submit" class="btn btn-primary">Save Items</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('editItemsModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Visit Modal -->
+    <div class="mw-modal-overlay" id="editVisitModal">
+        <div class="mw-modal">
+            <h3 class="mw-modal-title">Edit Visit <span id="editVisitNumber"></span></h3>
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="action" value="edit_visit">
+                <input type="hidden" name="edit_visit_id" id="editVisitId" value="">
+
+                <div class="form-group">
+                    <label class="form-label">Date</label>
+                    <input type="date" name="visit_date" id="editVisitDate" class="form-control" required>
+                </div>
+                <div class="mw-form-row">
+                    <div class="form-group">
+                        <label class="form-label">Start Time</label>
+                        <input type="time" name="visit_time_start" id="editVisitTimeStart" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">End Time</label>
+                        <input type="time" name="visit_time_end" id="editVisitTimeEnd" class="form-control">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Crew</label>
+                    <select name="visit_crew_id" id="editVisitCrew" class="form-control">
+                        <option value="">Unassigned</option>
+                        <?php foreach ($staff as $s): ?>
+                            <option value="<?php echo $s['id']; ?>"><?php echo htmlspecialchars($s['full_name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="mw-modal-actions">
+                    <button type="submit" class="btn btn-primary">Save Visit</button>
+                    <button type="button" class="btn btn-secondary" onclick="hideModal('editVisitModal')">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- ══════════════════════════════════════════════════════
          JAVASCRIPT
          ══════════════════════════════════════════════════════ -->
@@ -1256,6 +1671,75 @@ $activePage = 'jobs';
                 });
             });
         });
+
+        // ── Edit Plan modal toggles ─────────────────────────
+        function toggleEditRecurring() {
+            var planType = document.getElementById('editPlanType');
+            var opts = document.getElementById('editRecurringOptions');
+            if (!planType || !opts) return;
+            opts.style.display = (planType.value === 'recurring') ? '' : 'none';
+        }
+
+        function toggleEditCustomInterval() {
+            var pattern = document.getElementById('editRecurrencePattern');
+            var customRow = document.getElementById('editCustomIntervalRow');
+            if (!pattern || !customRow) return;
+            customRow.style.display = (pattern.value === 'custom') ? '' : 'none';
+        }
+
+        // ── Edit Visit modal ────────────────────────────────
+        function openEditVisitModal(visitId, visitNumber, date, timeStart, timeEnd, crewId) {
+            document.getElementById('editVisitId').value = visitId;
+            document.getElementById('editVisitNumber').textContent = visitNumber;
+            document.getElementById('editVisitDate').value = date;
+            document.getElementById('editVisitTimeStart').value = timeStart || '';
+            document.getElementById('editVisitTimeEnd').value = timeEnd || '';
+            var crewSelect = document.getElementById('editVisitCrew');
+            crewSelect.value = crewId || '';
+            showModal('editVisitModal');
+        }
+
+        // ── Edit Line Items ─────────────────────────────────
+        var editItemIndex = <?php echo count($planLineItems); ?>;
+
+        function addEditItem() {
+            var body = document.getElementById('editItemsBody');
+            var idx = editItemIndex++;
+            var tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td><input type="text" name="items[' + idx + '][service_type]" class="form-control form-control-sm" placeholder="Service type" required></td>' +
+                '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm" placeholder="Description"></td>' +
+                '<td><input type="number" name="items[' + idx + '][quantity]" class="form-control form-control-sm mw-ei-qty" value="1" min="0.01" step="0.01" onchange="recalcEditItemRow(this)"></td>' +
+                '<td><input type="number" name="items[' + idx + '][unit_price]" class="form-control form-control-sm mw-ei-price text-right" value="0" min="0" step="0.01" onchange="recalcEditItemRow(this)">' +
+                    '<input type="hidden" name="items[' + idx + '][unit_type]" value="visit"></td>' +
+                '<td class="text-right"><span class="mw-ei-row-total">$0.00</span>' +
+                    '<input type="hidden" name="items[' + idx + '][line_total]" class="mw-ei-total-input" value="0"></td>' +
+                '<td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeEditItemRow(this)" title="Remove">&times;</button></td>';
+            body.appendChild(tr);
+        }
+
+        function recalcEditItemRow(input) {
+            var tr = input.closest('tr');
+            var qty = parseFloat(tr.querySelector('.mw-ei-qty').value) || 0;
+            var price = parseFloat(tr.querySelector('.mw-ei-price').value) || 0;
+            var total = qty * price;
+            tr.querySelector('.mw-ei-row-total').textContent = '$' + total.toFixed(2);
+            tr.querySelector('.mw-ei-total-input').value = total.toFixed(2);
+            updateEditItemTotals();
+        }
+
+        function removeEditItemRow(btn) {
+            btn.closest('tr').remove();
+            updateEditItemTotals();
+        }
+
+        function updateEditItemTotals() {
+            var inputs = document.querySelectorAll('#editItemsBody .mw-ei-total-input');
+            var sum = 0;
+            inputs.forEach(function(inp) { sum += parseFloat(inp.value) || 0; });
+            var totalEl = document.getElementById('editItemsTotal');
+            if (totalEl) totalEl.textContent = '$' + sum.toFixed(2);
+        }
     </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
