@@ -203,11 +203,13 @@ $stopTags = $stop['tags'] ?? [];
                     <?php foreach ($stop['visits'] as $v):
                         $pillColor = $jobTypeColors[$v['service_type'] ?? ''] ?? '#455A64';
                         $pillStatus = $v['visit_status'] ?? 'scheduled';
+                        $autoClockIn = !empty($v['auto_clock_in']) ? '1' : '0';
                     ?>
                         <span class="mw-mc-service-pill mw-mc-pill-interactive mw-mc-pill-<?php echo ($pillStatus === 'completed') ? 'done' : (($pillStatus === 'in_progress') ? 'active' : 'scheduled'); ?>"
                               data-visit-id="<?php echo (int)($v['visit_id'] ?? 0); ?>"
                               data-visit-status="<?php echo htmlspecialchars($pillStatus); ?>"
                               data-service-type="<?php echo htmlspecialchars($v['service_type'] ?? ''); ?>"
+                              data-auto-clock-in="<?php echo $autoClockIn; ?>"
                               style="--pill-color: <?php echo $pillColor; ?>; border-left-color: <?php echo $pillColor; ?>">
                             <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $v['service_type'] ?? ''))); ?>
                         </span>
@@ -252,29 +254,48 @@ $stopTags = $stop['tags'] ?? [];
     <div class="mw-mc-accent" style="background: <?php echo $accentColor; ?>"></div>
 
     <div class="mw-mc-card-body">
-        <!-- Line 1: Time + Job Name -->
-        <div class="mw-mc-compact-line1">
-            <?php if ($timeDisplay): ?>
-                <span class="mw-mc-compact-time"><?php echo htmlspecialchars($timeDisplay); ?></span>
-            <?php endif; ?>
-            <span class="mw-mc-compact-title"><?php echo htmlspecialchars($primaryPlanTitle ?: $serviceLabelsStr); ?></span>
-            <?php if ($badge): ?>
-                <span class="mw-mc-badge <?php echo $badge['class']; ?>"><?php echo $badge['label']; ?></span>
+        <div class="mw-mc-compact-main">
+            <div class="mw-mc-compact-info">
+                <!-- Line 1: Time + Client Name (ALL CAPS) -->
+                <div class="mw-mc-compact-line1">
+                    <?php if ($timeDisplay): ?>
+                        <span class="mw-mc-compact-time"><?php echo htmlspecialchars($timeDisplay); ?></span>
+                    <?php endif; ?>
+                    <?php if ($clientName): ?>
+                        <span class="mw-mc-compact-client"><?php echo strtoupper($clientName); ?></span>
+                    <?php else: ?>
+                        <span class="mw-mc-compact-title"><?php echo htmlspecialchars($primaryPlanTitle ?: $serviceLabelsStr); ?></span>
+                    <?php endif; ?>
+                    <?php if ($badge): ?>
+                        <span class="mw-mc-badge <?php echo $badge['class']; ?>"><?php echo $badge['label']; ?></span>
+                    <?php endif; ?>
+                </div>
+                <!-- Line 2: Street address -->
+                <div class="mw-mc-compact-line2"><?php echo $fullAddress; ?></div>
+            </div>
+
+            <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+                <a class="mw-mc-compact-route"
+                   href="https://maps.google.com/?daddr=<?php echo urlencode($stop['property_address'] ?? ''); ?>"
+                   target="_blank" rel="noopener"
+                   onclick="event.stopPropagation();">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                </a>
             <?php endif; ?>
         </div>
-        <!-- Line 2: Street name -->
-        <div class="mw-mc-compact-line2"><?php echo $fullAddress; ?></div>
 
         <?php if (!empty($stop['visits'])): ?>
             <div class="mw-mc-services" style="padding-top: 6px;">
                 <?php foreach ($stop['visits'] as $v):
                     $pillColor = $jobTypeColors[$v['service_type'] ?? ''] ?? '#455A64';
                     $pillStatus = $v['visit_status'] ?? 'scheduled';
+                    $autoClockIn = !empty($v['auto_clock_in']) ? '1' : '0';
                 ?>
                     <span class="mw-mc-service-pill mw-mc-pill-interactive mw-mc-pill-<?php echo ($pillStatus === 'completed') ? 'done' : (($pillStatus === 'in_progress') ? 'active' : 'scheduled'); ?>"
                           data-visit-id="<?php echo (int)($v['visit_id'] ?? 0); ?>"
                           data-visit-status="<?php echo htmlspecialchars($pillStatus); ?>"
                           data-service-type="<?php echo htmlspecialchars($v['service_type'] ?? ''); ?>"
+                          data-auto-clock-in="<?php echo $autoClockIn; ?>"
                           style="--pill-color: <?php echo $pillColor; ?>; border-left-color: <?php echo $pillColor; ?>">
                         <?php echo htmlspecialchars(ucfirst(str_replace('_', ' ', $v['service_type'] ?? ''))); ?>
                     </span>

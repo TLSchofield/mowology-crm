@@ -533,6 +533,50 @@
         min-width: 0;
     }
 
+    .mw-mc-compact-client {
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .mw-mc-compact-main {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .mw-mc-compact-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .mw-mc-compact-route {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        background: #EBF2FA;
+        border: 1px solid #D4E2F1;
+        border-radius: 12px;
+        color: #1565C0;
+        text-decoration: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-compact-route:active {
+        background: #D4E2F1;
+        transform: scale(0.95);
+    }
+
     .mw-mc-compact-line2 {
         font-size: 0.78rem;
         color: #9e9e9e;
@@ -606,12 +650,24 @@
         overflow: visible;
     }
 
+    .mw-mc-card-hero .mw-mc-compact-client {
+        font-size: 1.1rem;
+        font-weight: 700;
+        white-space: normal;
+        overflow: visible;
+    }
+
     .mw-mc-card-hero .mw-mc-compact-line2 {
         font-size: 0.9rem;
         color: #6c757d;
         margin-top: 4px;
         white-space: normal;
         overflow: visible;
+    }
+
+    /* Hide compact route button on hero — crew is already on-site */
+    .mw-mc-card-hero .mw-mc-compact-route {
+        display: none;
     }
 
     .mw-mc-card-hero .mw-mc-services {
