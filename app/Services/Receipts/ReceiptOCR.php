@@ -3,7 +3,7 @@
  * /app/Services/Receipts/ReceiptOCR.php
  * Google Cloud Vision OCR Wrapper — Service Account Auth (JWT/OAuth2)
  *
- * Calls the Vision API TEXT_DETECTION endpoint to extract text from a receipt image.
+ * Calls the Vision API DOCUMENT_TEXT_DETECTION endpoint to extract text from a receipt image.
  * Authenticates using a Google Cloud Service Account JSON key file.
  * No Composer/SDK dependency — pure PHP with openssl for JWT signing.
  *
@@ -104,9 +104,12 @@ function extractTextFromImage(string $filePath): array
                 ],
                 'features' => [
                     [
-                        'type'       => 'TEXT_DETECTION',
+                        'type'       => 'DOCUMENT_TEXT_DETECTION',
                         'maxResults' => 1,
                     ],
+                ],
+                'imageContext' => [
+                    'languageHints' => ['en'],
                 ],
             ],
         ],
