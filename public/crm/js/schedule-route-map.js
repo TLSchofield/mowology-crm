@@ -24,19 +24,18 @@ var MwRouteMap = (function() {
 
     // ── State ──
     var map = null;
+    var geocoder = null;
     var directionsService = null;
     var directionsRenderer = null;
     var userMarker = null;
     var stopMarkers = [];
     var isOpen = false;
     var mapInitialized = false;
-    var currentIndex = 0;        // active card in carousel
-    var optimizedRoute = null;   // cached DirectionsResult
-    var optimizedOrder = null;   // waypoint_order from Google
+    var currentIndex = 0;
     var userLat = null;
     var userLng = null;
 
-    // ── DOM refs (cached on init) ──
+    // ── DOM refs ──
     var viewEl, mapEl, trackEl, dotsEl, titleEl, backBtn, externalBtn, trayEl;
 
     // ── Service type colors ──
@@ -65,16 +64,9 @@ var MwRouteMap = (function() {
 
         if (!viewEl || !mapEl) return;
 
-        // Back button
         backBtn.addEventListener('click', close);
-
-        // External link button
         externalBtn.addEventListener('click', openExternal);
-
-        // Wire up card taps in the schedule scroll area to open map view
         wireCardTaps();
-
-        // Setup touch swipe on the card track
         setupSwipe();
     }
 
@@ -86,7 +78,7 @@ var MwRouteMap = (function() {
         if (isOpen) {
             close();
         } else {
-            open(0); // open to first (next upcoming) stop
+            open(0);
         }
     }
 
@@ -99,18 +91,14 @@ var MwRouteMap = (function() {
         currentIndex = stopIndex;
         isOpen = true;
 
-        // Build carousel cards
         buildCarousel(stops);
         updateDots(stops.length, currentIndex);
 
-        // Show the view
         viewEl.classList.add('mw-mv-visible');
         document.body.style.overflow = 'hidden';
 
-        // Initialize map (lazy, first open only)
         if (!mapInitialized) {
             if (typeof google === 'undefined' || typeof google.maps === 'undefined') {
-                // Maps API not loaded yet — wait
                 var check = setInterval(function() {
                     if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
                         clearInterval(check);
@@ -153,7 +141,7 @@ var MwRouteMap = (function() {
     function initMap() {
         map = new google.maps.Map(mapEl, {
             zoom: 13,
-            center: { lat: 49.2827, lng: -123.1207 }, // Vancouver default
+            center: { lat: 49.2827, lng: -123.1207 },
             disableDefaultUI: true,
             zoomControl: true,
             zoomControlOptions: {
@@ -166,6 +154,7 @@ var MwRouteMap = (function() {
             ]
         });
 
+        geocoder = new google.maps.Geocoder();
         directionsService = new google.maps.DirectionsService();
         directionsRenderer = new google.maps.DirectionsRenderer({
             map: map,
@@ -186,15 +175,15 @@ var MwRouteMap = (function() {
 
     function getGPSAndRoute(targetIdx) {
         viewEl.classList.add('mw-mv-loading');
+        titleEl.textContent = 'Getting location...';
 
+        // If we already have GPS cached, use it
         if (userLat && userLng) {
             computeRoute(targetIdx);
             return;
         }
 
         if (!navigator.geolocation) {
-            userLat = null;
-            userLng = null;
             computeRoute(targetIdx);
             return;
         }
@@ -205,12 +194,11 @@ var MwRouteMap = (function() {
                 userLng = pos.coords.longitude;
                 computeRoute(targetIdx);
             },
-            function() {
-                userLat = null;
-                userLng = null;
+            function(err) {
+                console.warn('[RouteMap] GPS error:', err.message || err.code);
                 computeRoute(targetIdx);
             },
-            { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 }
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 120000 }
         );
     }
 
@@ -226,53 +214,48 @@ var MwRouteMap = (function() {
         var target = stops[targetIdx];
         if (!target) target = stops[0];
 
-        // Determine origin: GPS position preferred, address fallback
-        var origin;
         var hasGPS = !!(userLat && userLng);
-        if (hasGPS) {
-            origin = new google.maps.LatLng(userLat, userLng);
-            addUserMarker(userLat, userLng);
-        }
 
-        // Destination = the currently focused stop (prefer lat/lng, fallback to address)
+        // Build destination (address string works for DirectionsService even without lat/lng)
         var destination;
         if (target.lat && target.lng) {
             destination = new google.maps.LatLng(target.lat, target.lng);
         } else if (target.address) {
             destination = target.address;
         } else {
-            showMarkersOnly(stops, targetIdx);
+            viewEl.classList.remove('mw-mv-loading');
+            titleEl.textContent = 'No address';
             return;
         }
 
-        // If no GPS, try to use another stop as origin for multi-stop routes,
-        // otherwise just show the destination on the map with no route line
-        if (!hasGPS) {
-            if (stops.length > 1 && targetIdx > 0) {
-                // Use previous stop as origin
-                var prevStop = stops[targetIdx - 1];
-                origin = (prevStop.lat && prevStop.lng)
-                    ? new google.maps.LatLng(prevStop.lat, prevStop.lng)
-                    : prevStop.address;
-            } else {
-                // Single stop, no GPS — just show the stop on the map
-                showMarkersOnly(stops, targetIdx);
-                return;
-            }
+        // Build origin
+        var origin;
+        if (hasGPS) {
+            origin = new google.maps.LatLng(userLat, userLng);
+            addUserMarker(userLat, userLng);
+        } else if (stops.length > 1 && targetIdx > 0) {
+            var prev = stops[targetIdx - 1];
+            origin = (prev.lat && prev.lng)
+                ? new google.maps.LatLng(prev.lat, prev.lng)
+                : prev.address;
+        } else {
+            // No GPS, single stop — geocode the address to at least show it on the map
+            geocodeAndShow(target, targetIdx);
+            return;
         }
 
-        // Build directions request
+        // Build request
         var request = {
             origin: origin,
             destination: destination,
             travelMode: google.maps.TravelMode.DRIVING
         };
 
-        // For multi-stop routes from Route button, add intermediate waypoints
+        // Multi-stop waypoint optimization
         if (hasGPS && stops.length > 1) {
             var waypoints = [];
             for (var w = 0; w < stops.length; w++) {
-                if (w === targetIdx) continue; // skip focused stop (it's destination)
+                if (w === targetIdx) continue;
                 var ws = stops[w];
                 var loc = (ws.lat && ws.lng)
                     ? new google.maps.LatLng(ws.lat, ws.lng)
@@ -287,24 +270,19 @@ var MwRouteMap = (function() {
             }
         }
 
+        titleEl.textContent = 'Calculating route...';
+
         directionsService.route(request, function(result, status) {
             viewEl.classList.remove('mw-mv-loading');
 
             if (status === google.maps.DirectionsStatus.OK) {
                 directionsRenderer.setDirections(result);
 
-                // Add destination marker
-                addStopMarker(target, targetIdx, true);
-
-                // Add faded markers for other stops
-                for (var i = 0; i < stops.length; i++) {
-                    if (i !== targetIdx) {
-                        addStopMarker(stops[i], i, false);
-                    }
-                }
-
-                // Update title with ETA
+                // Place markers using the route legs (these have resolved lat/lng even for address-only stops)
                 var legs = result.routes[0].legs;
+                placeRouteMarkers(stops, targetIdx, legs, hasGPS);
+
+                // ETA display
                 var totalDuration = 0;
                 var totalDistance = 0;
                 for (var l = 0; l < legs.length; l++) {
@@ -319,63 +297,118 @@ var MwRouteMap = (function() {
                     : (totalDistance / 1000).toFixed(1) + ' km';
                 titleEl.textContent = durationText + ' \u00b7 ' + distanceText;
 
-                // Fit map to route bounds
+                // Fit to route bounds
                 var bounds = result.routes[0].bounds;
                 if (bounds) {
                     map.fitBounds(bounds, { top: 20, right: 20, bottom: 20, left: 20 });
                 }
             } else {
-                console.warn('[RouteMap] Directions failed: ' + status);
-                // Fallback: show markers without route line
-                showMarkersOnly(stops, targetIdx);
+                console.warn('[RouteMap] Directions failed:', status);
+                // Fallback: try to geocode and show the destination at least
+                geocodeAndShow(target, targetIdx);
             }
         });
     }
 
-    function showMarkersOnly(stops, activeIdx) {
+    /**
+     * Fallback when no route can be drawn:
+     * Geocode the stop address and center the map on it with a marker.
+     */
+    function geocodeAndShow(stop, index) {
         viewEl.classList.remove('mw-mv-loading');
 
+        // Clear any stale route line
         if (directionsRenderer) {
             directionsRenderer.setMap(null);
             directionsRenderer.setMap(map);
         }
 
-        var bounds = new google.maps.LatLngBounds();
-        var hasPoints = false;
-
-        if (userLat && userLng) {
-            addUserMarker(userLat, userLng);
-            bounds.extend(new google.maps.LatLng(userLat, userLng));
-            hasPoints = true;
+        // If we have coordinates, use them directly
+        if (stop.lat && stop.lng) {
+            var pos = new google.maps.LatLng(stop.lat, stop.lng);
+            placeMarkerAt(pos, stop, index, true);
+            map.setCenter(pos);
+            map.setZoom(15);
+            titleEl.textContent = stop.address || 'Stop ' + (index + 1);
+            return;
         }
 
-        for (var i = 0; i < stops.length; i++) {
-            if (stops[i].lat && stops[i].lng) {
-                addStopMarker(stops[i], i, i === activeIdx);
-                bounds.extend(new google.maps.LatLng(stops[i].lat, stops[i].lng));
-                hasPoints = true;
+        // Geocode the address string
+        if (!stop.address || !geocoder) {
+            titleEl.textContent = 'No location data';
+            return;
+        }
+
+        titleEl.textContent = 'Finding address...';
+
+        geocoder.geocode({ address: stop.address }, function(results, status) {
+            if (status === google.maps.GeocoderStatus.OK && results[0]) {
+                var pos = results[0].geometry.location;
+                placeMarkerAt(pos, stop, index, true);
+                map.setCenter(pos);
+                map.setZoom(15);
+                titleEl.textContent = stop.address.split(',')[0]; // Show street only
+            } else {
+                console.warn('[RouteMap] Geocode failed:', status);
+                titleEl.textContent = 'Could not find address';
             }
-        }
-
-        if (hasPoints) {
-            map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 });
-        }
-
-        titleEl.textContent = 'Route';
+        });
     }
 
     // ═══════════════════════════════════════════════════
     //  MARKERS
     // ═══════════════════════════════════════════════════
 
-    function addStopMarker(stop, index, isActive) {
-        if (!stop.lat || !stop.lng) return;
+    /**
+     * Place markers using the resolved positions from DirectionsService legs.
+     * This works even when stops only have addresses (no lat/lng) because the
+     * Directions API resolves addresses to coordinates in its response.
+     */
+    function placeRouteMarkers(stops, targetIdx, legs, hasGPS) {
+        // legs[0].start_location = origin
+        // legs[0].end_location = first waypoint or destination
+        // legs[n].end_location = next waypoint or final destination
 
+        // Collect all resolved positions from the route
+        // If origin is user GPS, the stop positions start at legs[0].end_location
+        // If origin is a stop, positions start at legs[0].start_location
+
+        if (hasGPS) {
+            // Origin is user GPS → first stop is at legs[0].end_location
+            // But with waypoints, order may be optimized
+            // Simplest: place marker at the destination end of the last leg
+            var lastLeg = legs[legs.length - 1];
+            placeMarkerAt(lastLeg.end_location, stops[targetIdx], targetIdx, true);
+
+            // Place other stops at intermediate leg endpoints
+            // This is approximate when waypoints are reordered, but gives good placement
+            for (var i = 0; i < stops.length; i++) {
+                if (i === targetIdx) continue;
+                if (stops[i].lat && stops[i].lng) {
+                    placeMarkerAt(
+                        new google.maps.LatLng(stops[i].lat, stops[i].lng),
+                        stops[i], i, false
+                    );
+                } else if (legs.length > 1 && i < legs.length) {
+                    // Use leg endpoint as approximate position
+                    placeMarkerAt(legs[i].end_location, stops[i], i, false);
+                }
+            }
+        } else {
+            // Origin is a stop, destination is the target
+            placeMarkerAt(legs[legs.length - 1].end_location, stops[targetIdx], targetIdx, true);
+            if (legs.length > 0) {
+                placeMarkerAt(legs[0].start_location, stops[targetIdx > 0 ? targetIdx - 1 : 0], targetIdx > 0 ? targetIdx - 1 : 0, false);
+            }
+        }
+    }
+
+    function placeMarkerAt(position, stop, index, isActive) {
         var color = isActive ? (serviceColors[stop.serviceType] || '#2D8659') : '#9CA3AF';
         var scale = isActive ? 16 : 12;
 
         var marker = new google.maps.Marker({
-            position: { lat: stop.lat, lng: stop.lng },
+            position: position,
             map: map,
             label: {
                 text: String(index + 1),
@@ -424,7 +457,6 @@ var MwRouteMap = (function() {
             userMarker.setMap(null);
             userMarker = null;
         }
-        // Clear previous directions
         if (directionsRenderer && map) {
             directionsRenderer.setMap(null);
             directionsRenderer.setMap(map);
@@ -447,7 +479,6 @@ var MwRouteMap = (function() {
 
             var color = serviceColors[stop.serviceType] || '#455A64';
 
-            // Duration display
             var durStr = '';
             if (stop.duration > 0) {
                 if (stop.duration >= 60) {
@@ -457,8 +488,10 @@ var MwRouteMap = (function() {
                 }
             }
 
-            // Service label
             var serviceLabel = stop.planTitle || (stop.serviceType ? stop.serviceType.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); }) : 'Service');
+
+            // Show just street from full address (strip city/province/country)
+            var displayAddress = stop.address ? stop.address.split(',')[0] : '';
 
             card.innerHTML =
                 '<div class="mw-mv-card-accent" style="background:' + color + '"></div>' +
@@ -470,7 +503,7 @@ var MwRouteMap = (function() {
                     '</div>' +
                     '<div class="mw-mv-card-address">' +
                         '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>' +
-                        escHtml(stop.address) +
+                        escHtml(displayAddress) +
                     '</div>' +
                     (stop.contactName ? '<div class="mw-mv-card-client">' +
                         '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
@@ -482,7 +515,6 @@ var MwRouteMap = (function() {
             trackEl.appendChild(card);
         });
 
-        // Position track to current card
         positionTrack(currentIndex, false);
     }
 
@@ -499,8 +531,6 @@ var MwRouteMap = (function() {
     }
 
     function positionTrack(idx, animate) {
-        // Each card is ~calc(100% - 32px) wide with 16px gap
-        // We want the active card centered
         var cards = trackEl.querySelectorAll('.mw-mv-card');
         if (!cards.length) return;
 
@@ -511,7 +541,6 @@ var MwRouteMap = (function() {
         var center = (trayWidth - cardWidth) / 2;
         var translate = center - offset;
 
-        // Clamp so we don't scroll past edges
         var maxTranslate = center;
         var minTranslate = trayWidth - (cards.length * (cardWidth + gap) - gap) - (trayWidth - cardWidth) / 2;
         if (cards.length === 1) minTranslate = center;
@@ -520,7 +549,6 @@ var MwRouteMap = (function() {
         trackEl.style.transition = animate ? 'transform 0.3s ease' : 'none';
         trackEl.style.transform = 'translateX(' + translate + 'px)';
 
-        // Update active states
         cards.forEach(function(c, i) {
             c.classList.toggle('mw-mv-card-active', i === idx);
         });
@@ -552,7 +580,6 @@ var MwRouteMap = (function() {
             startY = e.touches[0].clientY;
             isDragging = false;
 
-            // Get current transform
             var matrix = window.getComputedStyle(trackEl).transform;
             if (matrix && matrix !== 'none') {
                 var values = matrix.match(/matrix\((.+)\)/);
@@ -567,12 +594,11 @@ var MwRouteMap = (function() {
             var dx = e.touches[0].clientX - startX;
             var dy = e.touches[0].clientY - startY;
 
-            // Only start dragging if horizontal movement dominates
             if (!isDragging) {
                 if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
                     isDragging = true;
                 } else if (Math.abs(dy) > Math.abs(dx)) {
-                    return; // vertical scroll, ignore
+                    return;
                 }
             }
 
@@ -605,13 +631,11 @@ var MwRouteMap = (function() {
     // ═══════════════════════════════════════════════════
 
     function wireCardTaps() {
-        // Wire the individual "Route" buttons inside each card's expanded detail
         document.querySelectorAll('.mw-mc-btn-route').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
 
-                // Find the parent card and its stop ID
                 var card = btn.closest('.mw-mc-card');
                 if (!card) return;
                 var stopId = parseInt(card.dataset.stopId, 10);
