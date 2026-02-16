@@ -2417,11 +2417,5 @@
     height: 100%;
     border-radius: 3px;
     min-width: 2px;
-    background: linear-gradient(
-        to right,
-        #DC2626 0%, #DC2626 20%,
-        #F59E0B 20%, #F59E0B 40%,
-        var(--mw-green, #2D8659) 40%, var(--mw-green, #2D8659) 100%
-    );
-    background-size: 100vw 100%;
+    /* Color set via inline style from PHP based on margin value */
 }

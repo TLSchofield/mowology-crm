@@ -224,7 +224,7 @@ $stopTags = $stop['tags'] ?? [];
             <?php $stopProfitMargin = $stop['profit_margin'] ?? null; ?>
             <?php if ($stopProfitMargin !== null): ?>
                 <div class="mw-mc-profit-bar" title="Est. margin: <?php echo (int)$stopProfitMargin; ?>%">
-                    <div class="mw-mc-profit-fill" style="width: <?php echo max(0, min(100, $stopProfitMargin)); ?>%" data-margin="<?php echo (int)$stopProfitMargin; ?>"></div>
+                    <div class="mw-mc-profit-fill" style="width: <?php echo max(0, min(100, $stopProfitMargin)); ?>%; background: <?php echo function_exists('profitBarColor') ? profitBarColor((int)$stopProfitMargin) : '#2D8659'; ?>" data-margin="<?php echo (int)$stopProfitMargin; ?>"></div>
                 </div>
             <?php endif; ?>
         </div>
@@ -317,7 +317,7 @@ $stopTags = $stop['tags'] ?? [];
         <?php $compactProfitMargin = $stop['profit_margin'] ?? null; ?>
         <?php if ($compactProfitMargin !== null): ?>
             <div class="mw-mc-profit-bar" title="Est. margin: <?php echo (int)$compactProfitMargin; ?>%">
-                <div class="mw-mc-profit-fill" style="width: <?php echo max(0, min(100, $compactProfitMargin)); ?>%" data-margin="<?php echo (int)$compactProfitMargin; ?>"></div>
+                <div class="mw-mc-profit-fill" style="width: <?php echo max(0, min(100, $compactProfitMargin)); ?>%; background: <?php echo function_exists('profitBarColor') ? profitBarColor((int)$compactProfitMargin) : '#2D8659'; ?>" data-margin="<?php echo (int)$compactProfitMargin; ?>"></div>
             </div>
         <?php endif; ?>
     </div>

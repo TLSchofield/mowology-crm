@@ -126,6 +126,13 @@ function getServiceLabelLocal(string $type): string {
     return $serviceLabels[$type] ?? ucfirst(str_replace('_', ' ', $type));
 }
 
+// ─── Profit bar color helper ────────────────────────────────────────
+function profitBarColor(int $margin): string {
+    if ($margin < 20) return '#DC2626';      // red
+    if ($margin < 40) return '#F59E0B';      // gold/amber
+    return '#2D8659';                         // green
+}
+
 // ─── Stop status CSS class ──────────────────────────────────────────
 function stopStatusClass(string $status): string {
     switch ($status) {
@@ -499,7 +506,7 @@ if ($apiKey) {
                                       ?>
                                       <?php if ($stopHasProfit && $stopMargin !== null): ?>
                                           <div class="mw-profit-bar" title="Est. margin: <?php echo $stopMargin; ?>%">
-                                              <div class="mw-profit-bar-fill" style="width: <?php echo max(0, min(100, $stopMargin)); ?>%" data-margin="<?php echo $stopMargin; ?>"></div>
+                                              <div class="mw-profit-bar-fill" style="width: <?php echo max(0, min(100, $stopMargin)); ?>%; background: <?php echo profitBarColor($stopMargin); ?>" data-margin="<?php echo $stopMargin; ?>"></div>
                                           </div>
                                       <?php elseif (!empty($stop['visits'])): ?>
                                           <div class="mw-profit-bar mw-profit-bar-empty" title="No profitability data yet"></div>
