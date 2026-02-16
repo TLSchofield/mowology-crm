@@ -896,9 +896,12 @@ $clients = $db->query("
         c.created_at,
         IF(qr.id IS NOT NULL, 'prospect', 'client') as source_type,
         qr.urgency,
-        qr.status as qr_status
+        qr.status as qr_status,
+        TRIM(CONCAT(COALESCE(pc.first_name, ''), ' ', COALESCE(pc.last_name, ''))) AS primary_contact_name,
+        pc.phone as primary_contact_phone
     FROM companies c
     LEFT JOIN quote_requests qr ON c.id = qr.company_id AND qr.status IN ('new', 'reviewing')
+    LEFT JOIN contacts pc ON c.primary_contact_id = pc.id
     ORDER BY c.company_name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -2542,6 +2545,22 @@ $unconvertedRequests = $db->query("
             </div><!-- end row -->
 
           <?php else: ?>
+            <!-- Search Bar -->
+            <div class="mb-3">
+              <div class="input-group" style="max-width: 400px;">
+                <div class="input-group-prepend">
+                  <span class="input-group-text"><i data-feather="search" style="width: 16px; height: 16px;"></i></span>
+                </div>
+                <input type="text" class="form-control" id="mw-client-search" placeholder="Search clients by name, company, email, phone..." autocomplete="off">
+                <div class="input-group-append" id="mw-search-clear" style="display: none;">
+                  <button class="btn btn-outline-secondary" type="button" onclick="clearClientSearch()">
+                    <i data-feather="x" style="width: 16px; height: 16px;"></i>
+                  </button>
+                </div>
+              </div>
+              <small class="text-muted mt-1 d-none" id="mw-search-count"></small>
+            </div>
+
             <!-- View Toggle -->
             <div class="mb-3 d-flex justify-content-between align-items-center">
               <div class="btn-group" role="group">
@@ -2718,32 +2737,42 @@ $unconvertedRequests = $db->query("
                   <!-- Clients & Prospects Table -->
                   <?php if (!empty($clients)): ?>
                     <div class="table-responsive mb-4">
-                      <table class="table table-hover">
+                      <table class="table table-hover" id="mw-clients-table">
                         <thead>
                           <tr>
                             <th class="mw-bulk-checkbox-cell">
                               <input type="checkbox" class="mw-bulk-checkbox" id="mw-clients-select-all" title="Select all">
                             </th>
-                            <th>Name</th>
+                            <th>Contact</th>
+                            <th>Company</th>
                             <th>Type</th>
                             <th>Email</th>
+                            <th>Phone</th>
                             <th>Status</th>
-                            <th>Created</th>
                             <th>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
                           <?php foreach ($clients as $c): ?>
-                          <tr <?php echo $c['source_type'] === 'prospect' ? 'style="background: #fef3c7; opacity: 0.9;"' : ''; ?>>
+                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($c['primary_contact_name'] ?? '') . ' ' . $c['company_name'] . ' ' . ($c['billing_email'] ?? '') . ' ' . ($c['primary_contact_phone'] ?? '')))); ?>" <?php echo $c['source_type'] === 'prospect' ? 'style="background: #fef3c7; opacity: 0.9;"' : ''; ?>>
                             <td class="mw-bulk-checkbox-cell">
                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$c['id']; ?>">
                             </td>
                             <td>
                               <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="mw-client-name-link">
-                                <strong><?php echo h($c['company_name']); ?></strong>
+                                <?php if (!empty(trim($c['primary_contact_name'] ?? ''))): ?>
+                                  <strong><?php echo h($c['primary_contact_name']); ?></strong>
+                                <?php else: ?>
+                                  <span class="text-muted">—</span>
+                                <?php endif; ?>
+                              </a>
+                            </td>
+                            <td>
+                              <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="mw-client-name-link">
+                                <?php echo h($c['company_name']); ?>
                               </a>
                               <?php if ($c['source_type'] === 'prospect'): ?>
-                                <br><small class="text-warning">🔵 Prospect</small>
+                                <br><small class="text-warning">Prospect</small>
                               <?php endif; ?>
                             </td>
                             <td>
@@ -2752,6 +2781,7 @@ $unconvertedRequests = $db->query("
                               </span>
                             </td>
                             <td><?php echo h($c['billing_email'] ?? '—'); ?></td>
+                            <td><?php echo h($c['primary_contact_phone'] ?? '—'); ?></td>
                             <td>
                               <?php
                                 if ($c['source_type'] === 'prospect') {
@@ -2767,11 +2797,6 @@ $unconvertedRequests = $db->query("
                               </span>
                             </td>
                             <td>
-                              <small class="text-muted">
-                                <?php echo formatDate($c['created_at']); ?>
-                              </small>
-                            </td>
-                            <td>
                               <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="btn btn-sm btn-primary">
                                 <i data-feather="eye"></i> View
                               </a>
@@ -2785,14 +2810,14 @@ $unconvertedRequests = $db->query("
 
                   <!-- Standalone Contacts (not linked to a company) -->
                   <?php if (!empty($standaloneContacts)): ?>
-                    <h6 class="mb-2 mt-2">
+                    <h6 class="mb-2 mt-2" id="mw-standalone-header">
                       <i data-feather="user" style="width: 18px; height: 18px; display: inline; margin-right: 4px;"></i>
                       Standalone Contacts
                       <span class="badge badge-secondary ml-1"><?php echo count($standaloneContacts); ?></span>
                     </h6>
-                    <p class="text-muted small mb-2">Contacts not yet linked to a company.</p>
+                    <p class="text-muted small mb-2" id="mw-standalone-desc">Contacts not yet linked to a company.</p>
                     <div class="table-responsive mb-4">
-                      <table class="table table-sm table-hover">
+                      <table class="table table-sm table-hover" id="mw-standalone-table">
                         <thead>
                           <tr>
                             <th>Name</th>
@@ -2804,7 +2829,7 @@ $unconvertedRequests = $db->query("
                         </thead>
                         <tbody>
                           <?php foreach ($standaloneContacts as $ct): ?>
-                          <tr>
+                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? '') . ' ' . ($ct['email'] ?? '') . ' ' . ($ct['phone'] ?? '')))); ?>">
                             <td>
                               <a href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>" class="mw-client-name-link">
                                 <strong><?php echo h(trim($ct['first_name'] . ' ' . ($ct['last_name'] ?? ''))); ?></strong>
@@ -3327,10 +3352,78 @@ $unconvertedRequests = $db->query("
                 .catch(function() {});
             }
 
+            // Client search functionality
+            function setupClientSearch() {
+              var searchInput = document.getElementById('mw-client-search');
+              var searchClear = document.getElementById('mw-search-clear');
+              var searchCount = document.getElementById('mw-search-count');
+              if (!searchInput) return;
+
+              searchInput.addEventListener('input', function() {
+                var query = this.value.toLowerCase().trim();
+                searchClear.style.display = query ? 'flex' : 'none';
+
+                // Filter list view rows
+                var rows = document.querySelectorAll('.mw-client-row');
+                var visible = 0;
+                rows.forEach(function(row) {
+                  var data = row.getAttribute('data-search') || '';
+                  var match = !query || data.indexOf(query) !== -1;
+                  row.style.display = match ? '' : 'none';
+                  if (match) visible++;
+                });
+
+                // Filter kanban cards
+                var cards = document.querySelectorAll('.mw-kanban-card');
+                cards.forEach(function(card) {
+                  var name = (card.getAttribute('data-company-name') || '').toLowerCase();
+                  var text = (card.textContent || '').toLowerCase();
+                  var match = !query || name.indexOf(query) !== -1 || text.indexOf(query) !== -1;
+                  card.style.display = match ? '' : 'none';
+                });
+
+                // Update kanban column counts
+                document.querySelectorAll('.mw-kanban-column').forEach(function(col) {
+                  var visibleCards = col.querySelectorAll('.mw-kanban-card:not([style*="display: none"])').length;
+                  var badge = col.querySelector('.mw-kanban-header .badge');
+                  if (badge) badge.textContent = visibleCards;
+                });
+
+                // Show/hide standalone section header when filtered
+                var standaloneHeader = document.getElementById('mw-standalone-header');
+                var standaloneDesc = document.getElementById('mw-standalone-desc');
+                var standaloneTable = document.getElementById('mw-standalone-table');
+                if (standaloneTable) {
+                  var standaloneVisible = standaloneTable.querySelectorAll('.mw-client-row:not([style*="display: none"])').length;
+                  var showStandalone = !query || standaloneVisible > 0;
+                  if (standaloneHeader) standaloneHeader.style.display = showStandalone ? '' : 'none';
+                  if (standaloneDesc) standaloneDesc.style.display = showStandalone ? '' : 'none';
+                }
+
+                // Show result count
+                if (query) {
+                  searchCount.textContent = visible + ' result' + (visible !== 1 ? 's' : '') + ' found';
+                  searchCount.classList.remove('d-none');
+                } else {
+                  searchCount.classList.add('d-none');
+                }
+              });
+            }
+
+            function clearClientSearch() {
+              var input = document.getElementById('mw-client-search');
+              if (input) {
+                input.value = '';
+                input.dispatchEvent(new Event('input'));
+                input.focus();
+              }
+            }
+
             // Company toggle and mode switching
             document.addEventListener('DOMContentLoaded', function() {
               setupKanbanDragDrop();
               setupViewToggle();
+              setupClientSearch();
 
               // Initialize address autocomplete for create form
               initAddressAutocomplete('propertyAddress', 'propertyCity', 'propertyPostalCode', null, 'propertyLatitude', 'propertyLongitude');
