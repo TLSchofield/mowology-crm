@@ -2400,3 +2400,28 @@
         padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
     }
 }
+
+
+/* ══════════════════════════════════════════════════════
+   Profitability Bar (Mobile Cards)
+   ══════════════════════════════════════════════════════ */
+.mw-mc-profit-bar {
+    height: 5px;
+    background: #E5E7EB;
+    border-radius: 3px;
+    margin: 8px 0 2px 0;
+    overflow: hidden;
+}
+
+.mw-mc-profit-fill {
+    height: 100%;
+    border-radius: 3px;
+    min-width: 2px;
+    background: linear-gradient(
+        to right,
+        #DC2626 0%, #DC2626 20%,
+        #F59E0B 20%, #F59E0B 40%,
+        var(--mw-green, #2D8659) 40%, var(--mw-green, #2D8659) 100%
+    );
+    background-size: 100vw 100%;
+}

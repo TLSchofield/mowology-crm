@@ -166,6 +166,9 @@ if (!$plan) {
     exit;
 }
 
+// Profitability data
+$profitability = getPlanProfitability($planId);
+
 // Get visits
 $visits = getPlanVisits($planId, null, 200, 0);
 
@@ -361,6 +364,143 @@ $activePage = 'jobs';
                     </div>
                 </div>
             </div>
+
+            <!-- ══════════════════════════════════════════════════════
+                 SECTION 2b: Profitability Dashboard
+                 ══════════════════════════════════════════════════════ -->
+
+            <?php if ($profitability['has_data']): ?>
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        Profitability
+                        <?php if ($profitability['labor_estimated']): ?>
+                            <span class="badge badge-warning ml-2" title="Labor cost estimated from plan duration, not actual time tracking">Estimated</span>
+                        <?php endif; ?>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <!-- LEFT: SVG Gauge -->
+                        <div class="col-lg-5 text-center">
+                            <div class="mw-gauge-container">
+                                <svg viewBox="0 0 200 130" class="mw-gauge-svg" data-margin="<?php echo $profitability['margin_pct']; ?>">
+                                    <defs>
+                                        <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                            <stop offset="0%" stop-color="#DC2626"/>
+                                            <stop offset="35%" stop-color="#F59E0B"/>
+                                            <stop offset="65%" stop-color="#2D8659"/>
+                                            <stop offset="100%" stop-color="#16A34A"/>
+                                        </linearGradient>
+                                    </defs>
+                                    <!-- Background track -->
+                                    <path d="M 20 105 A 80 80 0 0 1 180 105" fill="none" stroke="#E5E7EB" stroke-width="14" stroke-linecap="round"/>
+                                    <!-- Colored fill arc (animated via JS) -->
+                                    <path d="M 20 105 A 80 80 0 0 1 180 105" fill="none" stroke="url(#gaugeGradient)" stroke-width="14" stroke-linecap="round" class="mw-gauge-arc"/>
+                                    <!-- Tick marks -->
+                                    <line x1="20" y1="105" x2="20" y2="115" stroke="#D1D5DB" stroke-width="1"/>
+                                    <line x1="60" y1="38" x2="57" y2="48" stroke="#D1D5DB" stroke-width="1"/>
+                                    <line x1="100" y1="25" x2="100" y2="35" stroke="#D1D5DB" stroke-width="1"/>
+                                    <line x1="140" y1="38" x2="143" y2="48" stroke="#D1D5DB" stroke-width="1"/>
+                                    <line x1="180" y1="105" x2="180" y2="115" stroke="#D1D5DB" stroke-width="1"/>
+                                    <!-- Needle -->
+                                    <line x1="100" y1="105" x2="100" y2="35" stroke="#1F2937" stroke-width="2.5" stroke-linecap="round" class="mw-gauge-needle"/>
+                                    <!-- Center dot -->
+                                    <circle cx="100" cy="105" r="5" fill="#1F2937"/>
+                                    <circle cx="100" cy="105" r="2.5" fill="#fff"/>
+                                    <!-- Scale labels -->
+                                    <text x="15" y="125" font-size="8" fill="#9CA3AF" text-anchor="middle">0%</text>
+                                    <text x="60" y="52" font-size="8" fill="#9CA3AF" text-anchor="middle">25%</text>
+                                    <text x="100" y="18" font-size="8" fill="#9CA3AF" text-anchor="middle">50%</text>
+                                    <text x="140" y="52" font-size="8" fill="#9CA3AF" text-anchor="middle">75%</text>
+                                    <text x="185" y="125" font-size="8" fill="#9CA3AF" text-anchor="middle">100%</text>
+                                </svg>
+                                <div class="mw-gauge-value">
+                                    <span class="mw-gauge-number"><?php echo $profitability['margin_pct']; ?></span>
+                                    <span class="mw-gauge-unit">%</span>
+                                </div>
+                                <div class="mw-gauge-label">Profit Margin</div>
+                                <div class="mw-gauge-sublabel">
+                                    <?php if ($profitability['margin_pct'] >= 40): ?>
+                                        <span style="color: var(--mw-green);">Exceeding Target</span>
+                                    <?php elseif ($profitability['margin_pct'] >= 20): ?>
+                                        <span style="color: #F59E0B;">On Target</span>
+                                    <?php elseif ($profitability['margin_pct'] >= 0): ?>
+                                        <span style="color: #DC2626;">Below Target</span>
+                                    <?php else: ?>
+                                        <span style="color: #DC2626;">Losing Money</span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT: Cost Breakdown -->
+                        <div class="col-lg-7">
+                            <div class="mw-profit-breakdown">
+                                <?php
+                                $breakdownItems = [
+                                    ['label' => 'Revenue',  'amount' => $profitability['revenue'],      'color' => 'var(--mw-green)', 'icon' => 'dollar-sign', 'positive' => true],
+                                    ['label' => 'Labor',    'amount' => $profitability['labor_cost'],    'color' => '#3B82F6',         'icon' => 'clock',        'positive' => false],
+                                    ['label' => 'Expenses', 'amount' => $profitability['expense_cost'],  'color' => '#F59E0B',         'icon' => 'shopping-cart', 'positive' => false],
+                                    ['label' => 'Overhead', 'amount' => $profitability['overhead_cost'], 'color' => '#8B5CF6',         'icon' => 'briefcase',    'positive' => false],
+                                ];
+                                $maxAmount = max(1, max(array_column($breakdownItems, 'amount')));
+                                ?>
+
+                                <?php foreach ($breakdownItems as $item): ?>
+                                <div class="mw-profit-row">
+                                    <div class="mw-profit-row-label">
+                                        <i data-feather="<?php echo $item['icon']; ?>" style="width:14px;height:14px;color:<?php echo $item['color']; ?>"></i>
+                                        <span><?php echo $item['label']; ?></span>
+                                    </div>
+                                    <div class="mw-profit-row-bar">
+                                        <div class="mw-profit-row-fill" style="width: <?php echo round(($item['amount'] / $maxAmount) * 100, 1); ?>%; background: <?php echo $item['color']; ?>"></div>
+                                    </div>
+                                    <div class="mw-profit-row-amount">
+                                        <?php echo formatCurrency($item['amount']); ?>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+
+                                <hr class="my-2">
+
+                                <div class="mw-profit-row mw-profit-row-total">
+                                    <div class="mw-profit-row-label">
+                                        <i data-feather="<?php echo $profitability['profit'] >= 0 ? 'trending-up' : 'trending-down'; ?>" style="width:14px;height:14px;color:<?php echo $profitability['profit'] >= 0 ? 'var(--mw-green)' : '#DC2626'; ?>"></i>
+                                        <strong>Net Profit</strong>
+                                    </div>
+                                    <div class="mw-profit-row-bar"></div>
+                                    <div class="mw-profit-row-amount" style="color: <?php echo $profitability['profit'] >= 0 ? 'var(--mw-green)' : '#DC2626'; ?>">
+                                        <strong><?php echo formatCurrency($profitability['profit']); ?></strong>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mt-3 text-muted small">
+                                <?php if ($profitability['labor_estimated']): ?>
+                                    <i data-feather="info" style="width:12px;height:12px;"></i>
+                                    Labor estimated from plan duration (<?php echo (int)$plan['estimated_duration_minutes']; ?> min/visit &times; <?php echo $profitability['completed_visits']; ?> visits). Use job timers for actual tracking.
+                                <?php else: ?>
+                                    <i data-feather="check-circle" style="width:12px;height:12px;color:var(--mw-green);"></i>
+                                    Based on <?php echo round($profitability['labor_minutes']); ?> min tracked across <?php echo $profitability['completed_visits']; ?> completed visit<?php echo $profitability['completed_visits'] !== 1 ? 's' : ''; ?>.
+                                <?php endif; ?>
+                                <?php if ($profitability['expense_cost'] > 0): ?>
+                                    <br><i data-feather="alert-circle" style="width:12px;height:12px;color:#F59E0B;"></i>
+                                    Expenses shown are for the entire property, not specific to this plan.
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <?php else: ?>
+            <div class="card mb-4">
+                <div class="card-body text-center text-muted py-4">
+                    <i data-feather="bar-chart-2" style="width:24px;height:24px;"></i>
+                    <p class="mb-0 mt-2">Profitability data will appear after visits are completed.</p>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <!-- ══════════════════════════════════════════════════════
                  Plan Details (Two-Column Grid)
@@ -1018,6 +1158,42 @@ $activePage = 'jobs';
          JAVASCRIPT
          ══════════════════════════════════════════════════════ -->
     <script>
+        // ── Profitability Gauge Animation ────────────────────
+        (function() {
+            var gauge = document.querySelector('.mw-gauge-svg');
+            if (!gauge) return;
+
+            var margin = parseFloat(gauge.getAttribute('data-margin')) || 0;
+            var arc = gauge.querySelector('.mw-gauge-arc');
+            var needle = gauge.querySelector('.mw-gauge-needle');
+            if (!arc || !needle) return;
+
+            // Arc total length for a semi-circle with radius 80
+            var totalLength = Math.PI * 80; // ~251.3
+
+            // Set initial state
+            arc.style.strokeDasharray = totalLength;
+            arc.style.strokeDashoffset = totalLength;
+
+            // Clamp to 0-100 range for display
+            var clamped = Math.max(0, Math.min(100, margin));
+            var normalized = clamped / 100;
+
+            var targetOffset = totalLength * (1 - normalized);
+            // Needle: -90° (left, 0%) to +90° (right, 100%)
+            var targetAngle = -90 + (normalized * 180);
+
+            // Animate after a brief delay
+            setTimeout(function() {
+                arc.style.transition = 'stroke-dashoffset 1.4s cubic-bezier(0.4, 0, 0.2, 1)';
+                arc.style.strokeDashoffset = targetOffset;
+
+                needle.style.transition = 'transform 1.4s cubic-bezier(0.4, 0, 0.2, 1)';
+                needle.style.transformOrigin = '100px 105px';
+                needle.style.transform = 'rotate(' + targetAngle + 'deg)';
+            }, 400);
+        })();
+
         // ── Modal helpers ─────────────────────────────────────
         function showModal(id) {
             document.getElementById(id).classList.add('show');

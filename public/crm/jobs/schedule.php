@@ -75,6 +75,20 @@ for ($i = 0; $i < 7; $i++) {
 // ─── Calendar stop data ─────────────────────────────────────────────
 $calendarData = getCalendarStops($startDate, $endDate, $crewFilter);
 
+// ─── Profitability batch data for all plans this week ───────────────
+$allPlanIds = [];
+foreach ($calendarData as $dateStops) {
+    foreach ($dateStops as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) {
+            if (!empty($v['plan_id'])) {
+                $allPlanIds[] = (int)$v['plan_id'];
+            }
+        }
+    }
+}
+$allPlanIds = array_values(array_unique($allPlanIds));
+$profitabilityMap = !empty($allPlanIds) ? getStopProfitabilityBatch($allPlanIds) : [];
+
 // ─── Holiday lookup for calendar display ────────────────────────────
 $weekHolidays = [];
 try {
@@ -252,6 +266,19 @@ foreach ($mobileStops as &$mStop) {
 }
 unset($mStop);
 
+// Merge profitability into mobile stops
+foreach ($mobileStops as &$mStop) {
+    $margins = [];
+    foreach (($mStop['visits'] ?? []) as $v) {
+        $pid = (int)($v['plan_id'] ?? 0);
+        if ($pid && isset($profitabilityMap[$pid]) && $profitabilityMap[$pid]['has_data']) {
+            $margins[] = $profitabilityMap[$pid]['margin_pct'];
+        }
+    }
+    $mStop['profit_margin'] = !empty($margins) ? (int)round(array_sum($margins) / count($margins)) : null;
+}
+unset($mStop);
+
 // ─── Resolve auto_clock_in per visit (plan override → product default) ──
 $planAutoClockInCache = []; // planId => bool
 foreach ($mobileStops as &$mStop) {
@@ -293,7 +320,7 @@ foreach ($mobileStops as $s) {
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260216a" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260216b" rel="stylesheet">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -450,6 +477,32 @@ if ($apiKey) {
 
                                       <?php if (!empty($stop['crew_name'])): ?>
                                           <div class="mw-stop-crew"><?php echo htmlspecialchars($stop['crew_name']); ?></div>
+                                      <?php endif; ?>
+
+                                      <?php
+                                      // Profitability bar
+                                      $stopMargin = null;
+                                      $stopHasProfit = false;
+                                      if (!empty($stop['visits'])) {
+                                          $margins = [];
+                                          foreach ($stop['visits'] as $sv) {
+                                              $pid = (int)($sv['plan_id'] ?? 0);
+                                              if ($pid && isset($profitabilityMap[$pid]) && $profitabilityMap[$pid]['has_data']) {
+                                                  $margins[] = $profitabilityMap[$pid]['margin_pct'];
+                                                  $stopHasProfit = true;
+                                              }
+                                          }
+                                          if (!empty($margins)) {
+                                              $stopMargin = (int)round(array_sum($margins) / count($margins));
+                                          }
+                                      }
+                                      ?>
+                                      <?php if ($stopHasProfit && $stopMargin !== null): ?>
+                                          <div class="mw-profit-bar" title="Est. margin: <?php echo $stopMargin; ?>%">
+                                              <div class="mw-profit-bar-fill" style="width: <?php echo max(0, min(100, $stopMargin)); ?>%" data-margin="<?php echo $stopMargin; ?>"></div>
+                                          </div>
+                                      <?php elseif (!empty($stop['visits'])): ?>
+                                          <div class="mw-profit-bar mw-profit-bar-empty" title="No profitability data yet"></div>
                                       <?php endif; ?>
                                   </div>
                               <?php endforeach; ?>
