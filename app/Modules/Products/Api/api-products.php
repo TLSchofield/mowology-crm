@@ -442,18 +442,81 @@ try {
             throw new Exception('Maximum 100 products can be deleted at once');
         }
 
+        // Check for products referenced elsewhere — archive those instead of deleting
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $protectedIds = [];
+
+        // Check upsells (as the upsell target)
+        $stmt = $db->prepare("SELECT DISTINCT upsell_product_id FROM product_upsells WHERE upsell_product_id IN ({$placeholders})");
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $pid) {
+            $protectedIds[(int)$pid] = true;
+        }
+
+        // Check bundle items
+        $stmt = $db->prepare("SELECT DISTINCT product_id FROM product_bundle_items WHERE product_id IN ({$placeholders})");
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $pid) {
+            $protectedIds[(int)$pid] = true;
+        }
+
+        // Check quote line items
+        $stmt = $db->prepare("SELECT DISTINCT product_id FROM quote_line_items WHERE product_id IN ({$placeholders})");
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $pid) {
+            $protectedIds[(int)$pid] = true;
+        }
+
+        // Check plan line items
+        try {
+            $stmt = $db->prepare("SELECT DISTINCT product_id FROM plan_line_items WHERE product_id IN ({$placeholders})");
+            $stmt->execute($ids);
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $pid) {
+                $protectedIds[(int)$pid] = true;
+            }
+        } catch (Exception $e) {
+            // plan_line_items may not exist yet
+        }
+
+        $deletableIds = array_values(array_filter($ids, function($id) use ($protectedIds) {
+            return !isset($protectedIds[$id]);
+        }));
+        $archiveIds = array_values(array_filter($ids, function($id) use ($protectedIds) {
+            return isset($protectedIds[$id]);
+        }));
+
         $db->beginTransaction();
         try {
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $stmt = $db->prepare("DELETE FROM products WHERE id IN ({$placeholders})");
-            $stmt->execute($ids);
-            $deleted = $stmt->rowCount();
+            $deleted = 0;
+            $archived = 0;
+
+            if (!empty($deletableIds)) {
+                $delPlaceholders = implode(',', array_fill(0, count($deletableIds), '?'));
+                $stmt = $db->prepare("DELETE FROM products WHERE id IN ({$delPlaceholders})");
+                $stmt->execute($deletableIds);
+                $deleted = $stmt->rowCount();
+            }
+
+            if (!empty($archiveIds)) {
+                $archPlaceholders = implode(',', array_fill(0, count($archiveIds), '?'));
+                $archParams = array_merge([$user['id']], $archiveIds);
+                $stmt = $db->prepare("UPDATE products SET is_archived = 1, archived_at = NOW(), archived_by = ? WHERE id IN ({$archPlaceholders})");
+                $stmt->execute($archParams);
+                $archived = $stmt->rowCount();
+            }
+
             $db->commit();
+
+            $msg = $deleted . ' product(s) deleted';
+            if ($archived > 0) {
+                $msg .= ', ' . $archived . ' product(s) archived instead (referenced in quotes, plans, upsells, or bundles)';
+            }
 
             echo json_encode([
                 'success' => true,
                 'deleted_count' => $deleted,
-                'message' => $deleted . ' product(s) deleted'
+                'archived_count' => $archived,
+                'message' => $msg
             ]);
         } catch (Exception $e) {
             $db->rollBack();
