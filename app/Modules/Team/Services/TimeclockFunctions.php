@@ -342,7 +342,35 @@ function recalculateTimesheetTotals($userId, $weekStart) {
 }
 
 /**
- * Get today's jobs for a specific user
+ * Get ALL jobs for a given date (all crews), for GPS proximity detection.
+ * Any crew member near any property should be able to clock in, not just assigned crew.
+ */
+function getAllJobsForDate($date) {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT jv.id, jv.visit_number as job_number, jv.status, jv.scheduled_date,
+               jv.scheduled_time_start, jv.scheduled_time_end, jv.assigned_crew_id,
+               jp.title, jp.service_type, jp.estimated_duration_minutes,
+               p.address as property_address, p.city as property_city,
+               p.latitude as property_lat, p.longitude as property_lng,
+               c.company_name
+        FROM job_visits jv
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN company_properties cprop ON jp.property_id = cprop.property_id AND cprop.is_primary = 1
+        LEFT JOIN companies c ON cprop.company_id = c.id
+        WHERE jv.scheduled_date = ?
+          AND jv.status IN ('scheduled', 'in_progress')
+        ORDER BY jv.scheduled_time_start ASC
+    ");
+    $stmt->execute([$date]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Get today's jobs for a specific user.
+ * Includes assigned jobs + any non-assigned jobs where the user has an active timer
+ * (e.g., they clocked in via GPS proximity at another crew's property).
  */
 function getUserJobsForDate($userId, $date) {
     $db = getDB();
@@ -362,12 +390,15 @@ function getUserJobsForDate($userId, $date) {
         LEFT JOIN companies c ON cprop.company_id = c.id
         LEFT JOIN job_time_entries jte ON jte.visit_id = jv.id
             AND jte.user_id = ? AND jte.status = 'active' AND jte.end_time IS NULL
-        WHERE jv.assigned_crew_id = ?
-          AND jv.scheduled_date = ?
+        WHERE jv.scheduled_date = ?
           AND jv.status IN ('scheduled', 'in_progress', 'completed')
+          AND (
+              jv.assigned_crew_id = ?
+              OR jte.id IS NOT NULL
+          )
         ORDER BY jv.scheduled_time_start ASC
     ");
-    $stmt->execute([$userId, $userId, $date]);
+    $stmt->execute([$userId, $date, $userId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 

@@ -53,6 +53,17 @@ $serviceColors = [
 // GPS proximity setting
 $gpsProximityMeters = (int)getTimeClockSetting('gps_proximity_meters', '150');
 
+// All jobs for today (any crew) — used for GPS proximity so ANY crew near a property can clock in
+$allJobsToday = $isToday ? getAllJobsForDate($viewDate) : [];
+// Filter out jobs already in the user's assigned list and completed ones
+$proximityJobs = [];
+$assignedJobIds = array_column($jobs, 'id');
+foreach ($allJobsToday as $aj) {
+    if (!in_array($aj['id'], $assignedJobIds) && !empty($aj['property_lat']) && !empty($aj['property_lng'])) {
+        $proximityJobs[] = $aj;
+    }
+}
+
 $pageTitle = 'My Schedule';
 $activePage = 'timeclock';
 ?>
@@ -248,6 +259,18 @@ $activePage = 'timeclock';
     <?php endif; ?>
 </div>
 
+<!-- Hidden proximity data: jobs from OTHER crews that this user can also clock into if nearby -->
+<?php foreach ($proximityJobs as $pj): ?>
+<div class="mw-proximity-job" style="display:none;"
+     data-job-id="<?php echo (int)$pj['id']; ?>"
+     data-lat="<?php echo htmlspecialchars($pj['property_lat']); ?>"
+     data-lng="<?php echo htmlspecialchars($pj['property_lng']); ?>"
+     data-title="<?php echo htmlspecialchars($pj['title'] ?? $pj['job_number']); ?>"
+     data-address="<?php echo htmlspecialchars($pj['property_address'] ?? ''); ?>"
+     data-status="<?php echo htmlspecialchars($pj['status']); ?>">
+</div>
+<?php endforeach; ?>
+
 <!-- GPS Proximity Alert (hidden by default, shown by JS) -->
 <div class="mw-gps-alert" id="gpsAlert" style="display:none;">
     <span class="mw-gps-alert-text" id="gpsAlertText"></span>
@@ -328,6 +351,7 @@ $activePage = 'timeclock';
     function checkProximity() {
         if (currentLat === null || currentLng === null) return;
 
+        // Check assigned jobs (visible cards)
         var cards = document.querySelectorAll('.mw-tc-card[data-status="scheduled"]');
         cards.forEach(function(card) {
             var jobId = card.getAttribute('data-job-id');
@@ -339,7 +363,25 @@ $activePage = 'timeclock';
             var distance = haversineDistance(currentLat, currentLng, lat, lng);
             if (distance <= GPS_PROXIMITY_METERS) {
                 alertedJobs[jobId] = true;
-                showGPSAlert(jobId, card.querySelector('.mw-tc-card-title').textContent.trim());
+                showGPSAlert(jobId, card.querySelector('.mw-tc-card-title').textContent.trim(), false);
+            }
+        });
+
+        // Check OTHER crews' jobs (hidden proximity data) — any crew near a property can clock in
+        var proximityJobs = document.querySelectorAll('.mw-proximity-job[data-status="scheduled"]');
+        proximityJobs.forEach(function(el) {
+            var jobId = el.getAttribute('data-job-id');
+            var lat = parseFloat(el.getAttribute('data-lat'));
+            var lng = parseFloat(el.getAttribute('data-lng'));
+
+            if (isNaN(lat) || isNaN(lng) || alertedJobs[jobId]) return;
+
+            var distance = haversineDistance(currentLat, currentLng, lat, lng);
+            if (distance <= GPS_PROXIMITY_METERS) {
+                alertedJobs[jobId] = true;
+                var title = el.getAttribute('data-title');
+                var address = el.getAttribute('data-address');
+                showGPSAlert(jobId, title + (address ? ' (' + address + ')' : ''), true);
             }
         });
     }
@@ -357,19 +399,18 @@ $activePage = 'timeclock';
 
     function toRad(deg) { return deg * Math.PI / 180; }
 
-    function showGPSAlert(jobId, jobTitle) {
+    function showGPSAlert(jobId, jobTitle, isOtherCrew) {
         // Native notification (works even when app is backgrounded)
+        var notifTitle = isOtherCrew ? 'Near Job Site (Other Crew)' : 'Near Job Site';
+        var notifMsg = 'You\'re near "' + jobTitle + '". Open app to start timer.';
         if (window.MwNative && window.MwNative.notifications) {
-            window.MwNative.notifications.notify(
-                'Near Job Site',
-                'You\'re near "' + jobTitle + '". Open app to start timer.',
-                parseInt(jobId, 10)
-            );
+            window.MwNative.notifications.notify(notifTitle, notifMsg, parseInt(jobId, 10));
         }
 
         var alert = document.getElementById('gpsAlert');
         var text = document.getElementById('gpsAlertText');
-        text.textContent = 'You\'re near "' + jobTitle + '". Start timer?';
+        var prefix = isOtherCrew ? 'Nearby job (not assigned to you): ' : '';
+        text.textContent = prefix + 'You\'re near "' + jobTitle + '". Start timer?';
         alert.style.display = 'flex';
 
         document.getElementById('gpsAlertYes').onclick = function() {
