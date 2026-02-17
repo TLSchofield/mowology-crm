@@ -5413,6 +5413,46 @@ textarea.font-monospace {
   border-color: var(--mw-dark);
 }
 
+/* Crew checklist (multi-select) */
+.mw-crew-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 4px 0;
+}
+
+.mw-crew-check-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin: 0;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-weight: 400;
+}
+
+.mw-crew-check-item:hover {
+  background: var(--mw-light);
+}
+
+.mw-crew-check-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--mw-green);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mw-crew-check-name {
+  font-size: 14px;
+  color: #212529;
+}
+
 /* ── Responsive ─────────────────────────────────────── */
 @media (max-width: 1200px) {
   .mw-calendar-header,

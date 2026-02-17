@@ -856,7 +856,9 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     $params = [$startDate, $endDate];
 
     if ($crewId !== null) {
-        $sql .= " AND cs.crew_id = ?";
+        // Filter: show stops where this crew is assigned (lead or additional)
+        $sql .= " AND (cs.crew_id = ? OR cs.id IN (SELECT stop_id FROM calendar_stop_crew WHERE user_id = ?))";
+        $params[] = $crewId;
         $params[] = $crewId;
     }
 
@@ -866,6 +868,33 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Collect all stop IDs to batch-load crew assignments from junction table
+    $stopIds = [];
+    foreach ($rows as $row) {
+        $stopIds[(int)$row['stop_id']] = true;
+    }
+    $stopIds = array_keys($stopIds);
+
+    // Load multi-crew assignments from junction table
+    $crewByStop = []; // stop_id => [ ['id' => ..., 'name' => ...], ... ]
+    if (!empty($stopIds)) {
+        $placeholders = implode(',', array_fill(0, count($stopIds), '?'));
+        $crewStmt = $db->prepare("
+            SELECT csc.stop_id, csc.user_id, u2.full_name
+            FROM calendar_stop_crew csc
+            JOIN users u2 ON csc.user_id = u2.id
+            WHERE csc.stop_id IN ({$placeholders})
+            ORDER BY csc.id
+        ");
+        $crewStmt->execute($stopIds);
+        foreach ($crewStmt->fetchAll(PDO::FETCH_ASSOC) as $cr) {
+            $crewByStop[(int)$cr['stop_id']][] = [
+                'id'   => (int)$cr['user_id'],
+                'name' => $cr['full_name'],
+            ];
+        }
+    }
+
     // Group by date → stop_id → visits
     $result = [];
     foreach ($rows as $row) {
@@ -873,12 +902,19 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         $stopId = $row['stop_id'];
 
         if (!isset($result[$date][$stopId])) {
+            // Multi-crew data from junction table (with fallback to single crew_id)
+            $stopCrewList = $crewByStop[(int)$stopId] ?? [];
+            $crewIdsArr = !empty($stopCrewList) ? array_column($stopCrewList, 'id') : ($row['crew_id'] ? [(int)$row['crew_id']] : []);
+            $crewNamesArr = !empty($stopCrewList) ? array_column($stopCrewList, 'name') : ($row['crew_name'] ? [$row['crew_name']] : []);
+
             $result[$date][$stopId] = [
                 'stop_id'       => (int)$stopId,
                 'stop_date'     => $date,
                 'route_order'   => (int)$row['route_order'],
                 'crew_id'       => $row['crew_id'] ? (int)$row['crew_id'] : null,
                 'crew_name'     => $row['crew_name'],
+                'crew_ids'      => $crewIdsArr,
+                'crew_names'    => $crewNamesArr,
                 'estimated_arrival'   => $row['estimated_arrival'],
                 'estimated_departure' => $row['estimated_departure'],
                 'stop_status'   => $row['stop_status'],

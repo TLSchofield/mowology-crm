@@ -1,10 +1,12 @@
 <?php
 /**
  * Assign Crew to Calendar Stop API
- * Updates the crew_id on a calendar stop and its linked scheduled visits.
+ * Supports multi-crew assignment via the calendar_stop_crew junction table.
+ * The first crew_id in the array becomes the "lead" crew on calendar_stops.crew_id.
  *
- * POST JSON: { stop_id, crew_id }
- * crew_id can be null to unassign.
+ * POST JSON: { stop_id, crew_ids: [1, 2, 3] }
+ * Also accepts legacy format: { stop_id, crew_id } (single crew)
+ * crew_ids can be empty array or [null] to unassign all.
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -35,9 +37,22 @@ try {
     }
 
     $stopId = (int)$input['stop_id'];
-    $crewId = isset($input['crew_id']) && $input['crew_id'] !== '' && $input['crew_id'] !== null
-        ? (int)$input['crew_id']
-        : null;
+
+    // Accept crew_ids array (new) or crew_id (legacy)
+    $crewIds = [];
+    if (isset($input['crew_ids']) && is_array($input['crew_ids'])) {
+        foreach ($input['crew_ids'] as $id) {
+            if ($id !== null && $id !== '' && $id !== 0 && $id !== '0') {
+                $crewIds[] = (int)$id;
+            }
+        }
+        $crewIds = array_values(array_unique($crewIds));
+    } elseif (isset($input['crew_id']) && $input['crew_id'] !== '' && $input['crew_id'] !== null) {
+        $crewIds = [(int)$input['crew_id']];
+    }
+
+    // Lead crew = first in list (used for calendar_stops.crew_id, filtering, ordering)
+    $leadCrewId = !empty($crewIds) ? $crewIds[0] : null;
 
     $db = getDB();
 
@@ -50,60 +65,87 @@ try {
         throw new Exception('Stop not found');
     }
 
-    // Validate crew exists if provided
-    $crewName = 'Unassigned';
-    if ($crewId !== null) {
-        $cStmt = $db->prepare("SELECT id, full_name FROM users WHERE id = ? AND is_active = 1");
-        $cStmt->execute([$crewId]);
-        $crewUser = $cStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$crewUser) {
-            throw new Exception('Crew member not found or inactive');
+    // Validate all crew members exist and are active
+    $crewNames = [];
+    if (!empty($crewIds)) {
+        $placeholders = implode(',', array_fill(0, count($crewIds), '?'));
+        $cStmt = $db->prepare("SELECT id, full_name FROM users WHERE id IN ({$placeholders}) AND is_active = 1");
+        $cStmt->execute($crewIds);
+        $foundUsers = $cStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $foundIds = array_column($foundUsers, 'id');
+        foreach ($crewIds as $cid) {
+            if (!in_array($cid, $foundIds)) {
+                throw new Exception("Crew member #{$cid} not found or inactive");
+            }
         }
-        $crewName = $crewUser['full_name'];
+
+        // Build names in the same order as crewIds
+        $userMap = [];
+        foreach ($foundUsers as $u) {
+            $userMap[(int)$u['id']] = $u['full_name'];
+        }
+        foreach ($crewIds as $cid) {
+            $crewNames[] = $userMap[$cid];
+        }
     }
 
-    // Check for duplicate stop (same property, date, and new crew)
+    $crewDisplay = !empty($crewNames) ? implode(', ', $crewNames) : 'Unassigned';
+
+    // Check for duplicate stop (same property, date, and new lead crew)
     $dupStmt = $db->prepare("
         SELECT id FROM calendar_stops
         WHERE property_id = ? AND stop_date = ? AND crew_id <=> ? AND id != ?
     ");
-    $dupStmt->execute([$stop['property_id'], $stop['stop_date'], $crewId, $stopId]);
+    $dupStmt->execute([$stop['property_id'], $stop['stop_date'], $leadCrewId, $stopId]);
     if ($dupStmt->fetch()) {
         throw new Exception('A stop already exists for this property, date, and crew');
     }
 
     $db->beginTransaction();
 
-    // Update the stop's crew
+    // Update the stop's lead crew
     $stmt = $db->prepare("UPDATE calendar_stops SET crew_id = ?, updated_at = NOW() WHERE id = ?");
-    $stmt->execute([$crewId, $stopId]);
+    $stmt->execute([$leadCrewId, $stopId]);
 
-    // Update linked scheduled visits
+    // Update linked scheduled visits (lead crew for backwards compat)
     $stmt = $db->prepare("
         UPDATE job_visits
         SET assigned_crew_id = ?, updated_at = NOW()
         WHERE stop_id = ? AND status IN ('scheduled', 'in_progress')
     ");
-    $stmt->execute([$crewId, $stopId]);
+    $stmt->execute([$leadCrewId, $stopId]);
+
+    // Sync junction table: delete old, insert new
+    $delStmt = $db->prepare("DELETE FROM calendar_stop_crew WHERE stop_id = ?");
+    $delStmt->execute([$stopId]);
+
+    if (!empty($crewIds)) {
+        $insStmt = $db->prepare("INSERT INTO calendar_stop_crew (stop_id, user_id) VALUES (?, ?)");
+        foreach ($crewIds as $cid) {
+            $insStmt->execute([$stopId, $cid]);
+        }
+    }
 
     $db->commit();
 
     // Log activity
-    $oldCrewId = $stop['crew_id'];
     logActivityExtended(
         $user['id'],
         'Crew reassigned',
-        "Stop #{$stopId} crew changed to {$crewName}",
+        "Stop #{$stopId} crew changed to {$crewDisplay}",
         null, null, null, null, null, null
     );
 
     http_response_code(200);
     echo json_encode([
-        'success'   => true,
-        'message'   => 'Crew updated successfully',
-        'stop_id'   => $stopId,
-        'crew_id'   => $crewId,
-        'crew_name' => $crewName
+        'success'    => true,
+        'message'    => 'Crew updated successfully',
+        'stop_id'    => $stopId,
+        'crew_ids'   => $crewIds,
+        'crew_names' => $crewNames,
+        'crew_id'    => $leadCrewId,
+        'crew_name'  => $crewDisplay
     ]);
 
 } catch (Exception $e) {

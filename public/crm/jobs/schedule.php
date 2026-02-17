@@ -442,12 +442,18 @@ if ($apiKey) {
                               <div class="mw-day-empty">No stops</div>
                           <?php else: ?>
                               <?php foreach ($dayStops as $stop): ?>
+                                  <?php
+                                      // Build crew IDs list from junction data (falls back to single crew_id)
+                                      $crewIds = !empty($stop['crew_ids']) ? $stop['crew_ids'] : ($stop['crew_id'] ? [(int)$stop['crew_id']] : []);
+                                      $crewIdsStr = implode(',', $crewIds);
+                                  ?>
                                   <div class="mw-stop-card <?php echo stopStatusClass($stop['stop_status']); ?>"
                                        draggable="true"
                                        data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                                        data-stop-date="<?php echo htmlspecialchars($stop['stop_date']); ?>"
                                        data-route-order="<?php echo (int)$stop['route_order']; ?>"
                                        data-crew-id="<?php echo (int)($stop['crew_id'] ?? 0); ?>"
+                                       data-crew-ids="<?php echo htmlspecialchars($crewIdsStr); ?>"
                                        data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? 'Unknown'); ?>">
 
                                       <?php
@@ -492,8 +498,12 @@ if ($apiKey) {
                                           </div>
                                       <?php endif; ?>
 
-                                      <?php if (!empty($stop['crew_name'])): ?>
-                                          <div class="mw-stop-crew"><?php echo htmlspecialchars($stop['crew_name']); ?></div>
+                                      <?php
+                                      // Display crew names (multi-crew from junction table, fallback to single)
+                                      $crewNames = !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []);
+                                      if (!empty($crewNames)):
+                                      ?>
+                                          <div class="mw-stop-crew"><?php echo htmlspecialchars(implode(', ', $crewNames)); ?></div>
                                       <?php endif; ?>
 
                                       <?php
@@ -559,15 +569,16 @@ if ($apiKey) {
                               <div class="mw-crew-modal-date" id="crewAssignDate"></div>
                           </div>
                           <div class="form-group mb-0">
-                              <label for="crewAssignSelect">Assigned Crew</label>
-                              <select class="form-control" id="crewAssignSelect">
-                                  <option value="">Unassigned</option>
+                              <label>Assigned Crew</label>
+                              <div class="mw-crew-checklist" id="crewAssignChecklist">
                                   <?php foreach ($staff as $member): ?>
-                                      <option value="<?php echo (int)$member['id']; ?>">
-                                          <?php echo htmlspecialchars($member['full_name']); ?>
-                                      </option>
+                                      <label class="mw-crew-check-item">
+                                          <input type="checkbox" value="<?php echo (int)$member['id']; ?>"
+                                                 data-name="<?php echo htmlspecialchars($member['full_name']); ?>">
+                                          <span class="mw-crew-check-name"><?php echo htmlspecialchars($member['full_name']); ?></span>
+                                      </label>
                                   <?php endforeach; ?>
-                              </select>
+                              </div>
                           </div>
                       </div>
                       <div class="modal-footer">
@@ -727,6 +738,7 @@ function applyCrewFilter(crewId) {
 /**
  * Crew assignment modal — open on stop card click (desktop only)
  * Uses mousedown/mouseup distance to distinguish clicks from drags.
+ * Supports multi-crew selection via checkboxes.
  */
 (function() {
     // Only attach on desktop where the calendar grid is visible
@@ -747,7 +759,7 @@ function applyCrewFilter(crewId) {
             if (dx > 5 || dy > 5) return;
 
             var stopId = card.dataset.stopId;
-            var crewId = card.dataset.crewId || '';
+            var crewIds = (card.dataset.crewIds || '').split(',').filter(function(v) { return v !== ''; });
             var address = card.dataset.propertyAddress || 'Unknown';
             var stopDate = card.dataset.stopDate || '';
 
@@ -763,7 +775,12 @@ function applyCrewFilter(crewId) {
             document.getElementById('crewAssignStopId').value = stopId;
             document.getElementById('crewAssignProperty').textContent = address;
             document.getElementById('crewAssignDate').textContent = dateDisplay;
-            document.getElementById('crewAssignSelect').value = (crewId && crewId !== '0') ? crewId : '';
+
+            // Check the right checkboxes
+            var checklist = document.getElementById('crewAssignChecklist');
+            checklist.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+                cb.checked = crewIds.indexOf(cb.value) !== -1;
+            });
 
             $('#crewAssignModal').modal('show');
         });
@@ -773,7 +790,12 @@ function applyCrewFilter(crewId) {
     document.getElementById('crewAssignSave').addEventListener('click', function() {
         var btn = this;
         var stopId = document.getElementById('crewAssignStopId').value;
-        var crewId = document.getElementById('crewAssignSelect').value;
+
+        // Gather checked crew IDs
+        var crewIds = [];
+        document.querySelectorAll('#crewAssignChecklist input[type="checkbox"]:checked').forEach(function(cb) {
+            crewIds.push(parseInt(cb.value, 10));
+        });
 
         btn.disabled = true;
         btn.textContent = 'Saving...';
@@ -783,7 +805,7 @@ function applyCrewFilter(crewId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 stop_id: parseInt(stopId, 10),
-                crew_id: crewId ? parseInt(crewId, 10) : null
+                crew_ids: crewIds
             })
         })
         .then(function(resp) {
@@ -799,15 +821,20 @@ function applyCrewFilter(crewId) {
             // Update the card's crew display without full reload
             var card = document.querySelector('.mw-stop-card[data-stop-id="' + stopId + '"]');
             if (card) {
-                card.dataset.crewId = crewId || '0';
+                var returnedIds = data.crew_ids || [];
+                var returnedNames = data.crew_names || [];
+                card.dataset.crewId = returnedIds.length > 0 ? returnedIds[0] : '0';
+                card.dataset.crewIds = returnedIds.join(',');
+
                 var crewEl = card.querySelector('.mw-stop-crew');
-                if (data.crew_name && data.crew_name !== 'Unassigned') {
+                if (returnedNames.length > 0) {
+                    var displayText = returnedNames.join(', ');
                     if (crewEl) {
-                        crewEl.textContent = data.crew_name;
+                        crewEl.textContent = displayText;
                     } else {
                         var newCrew = document.createElement('div');
                         newCrew.className = 'mw-stop-crew';
-                        newCrew.textContent = data.crew_name;
+                        newCrew.textContent = displayText;
                         card.appendChild(newCrew);
                     }
                 } else {
