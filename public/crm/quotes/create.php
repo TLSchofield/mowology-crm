@@ -186,16 +186,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $quoteNumber = generateQuoteNumber();
                     $accessToken = generateAccessToken();
 
+                    // Look up company_id for the selected property (same as edit path)
+                    $propertyStmt = $db->prepare("
+                        SELECT c.id as company_id
+                        FROM properties p
+                        LEFT JOIN company_properties cp ON p.id = cp.property_id AND cp.is_primary = 1
+                        LEFT JOIN companies c ON cp.company_id = c.id
+                        WHERE p.id = ?
+                        LIMIT 1
+                    ");
+                    $propertyStmt->execute([$propertyId]);
+                    $propertyData = $propertyStmt->fetch(PDO::FETCH_ASSOC);
+                    $companyId = $propertyData['company_id'] ?? null;
+
                     $stmt = $db->prepare("
                         INSERT INTO quotes (
-                            quote_number, property_id, title, service_type, amount,
+                            quote_number, property_id, company_id, title, service_type, amount,
                             subtotal, tax_rate, tax_amount, valid_until, terms,
                             notes_customer, notes_internal, description, access_token,
                             token_expires_at, created_by, status
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), ?, 'draft')
                     ");
                     $stmt->execute([
-                        $quoteNumber, $propertyId, $title, $serviceType, $totals['total'],
+                        $quoteNumber, $propertyId, $companyId, $title, $serviceType, $totals['total'],
                         $totals['subtotal'], $totals['tax_rate'], $totals['tax_amount'],
                         $validUntil ?: null, $terms, $notesCustomer, $notesInternal,
                         $description, $accessToken, $user['id']

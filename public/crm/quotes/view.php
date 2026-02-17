@@ -24,6 +24,7 @@ if (!$quoteId) {
 $db = getDB();
 
 // Get quote with related data - also check quote_requests for original contact info
+// Contact resolution priority: quote_request contact → company primary contact → property site contact
 $stmt = $db->prepare("
     SELECT
         q.*,
@@ -31,6 +32,7 @@ $stmt = $db->prepare("
         p.city as property_city,
         p.postal_code as property_postal,
         p.property_type,
+        p.site_contact_id,
         c.company_name,
         c.billing_email,
         c.billing_phone,
@@ -44,6 +46,11 @@ $stmt = $db->prepare("
         qrc.last_name as qr_last_name,
         qrc.email as qr_email,
         qrc.phone as qr_phone,
+        pc.id as prop_contact_id,
+        pc.first_name as prop_contact_first,
+        pc.last_name as prop_contact_last,
+        pc.email as prop_contact_email,
+        pc.phone as prop_contact_phone,
         u.full_name as created_by_name
     FROM quotes q
     LEFT JOIN properties p ON q.property_id = p.id
@@ -52,6 +59,7 @@ $stmt = $db->prepare("
     LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
     LEFT JOIN quote_requests qr ON qr.quote_id = q.id
     LEFT JOIN contacts qrc ON qr.contact_id = qrc.id
+    LEFT JOIN contacts pc ON p.site_contact_id = pc.id
     LEFT JOIN users u ON q.created_by = u.id
     WHERE q.id = ?
 ");
@@ -99,16 +107,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     $action = $_POST['action'] ?? '';
 
     if ($action === 'send') {
-        // Resolve customer contact info (quote request contact → company contact → billing)
-        $customerEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['billing_email'] ?? null;
-        $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['billing_phone'] ?? null;
+        // Resolve customer contact info (quote request contact → company contact → property contact → billing)
+        $customerEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['prop_contact_email'] ?? $quote['billing_email'] ?? null;
+        $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['prop_contact_phone'] ?? $quote['billing_phone'] ?? null;
         $customerConsentsToSms = false;
 
-        // Check SMS consent via contacts table (quote request contact → company primary contact)
+        // Check SMS consent via contacts table (quote request contact → company primary contact → property contact)
         if (!empty($quote['qr_contact_id'])) {
             $customerConsentsToSms = hasSmConsent((int)$quote['qr_contact_id']);
         } elseif (!empty($quote['contact_id'])) {
             $customerConsentsToSms = hasSmConsent((int)$quote['contact_id']);
+        } elseif (!empty($quote['prop_contact_id'])) {
+            $customerConsentsToSms = hasSmConsent((int)$quote['prop_contact_id']);
         }
 
         if (!$customerEmail && !$customerPhone) {
@@ -129,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             }
 
             // Build customer name and quote URL
-            $customerName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? '')) ?: ($quote['company_name'] ?? 'Valued Customer');
+            $customerName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? $quote['prop_contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? $quote['prop_contact_last'] ?? '')) ?: ($quote['company_name'] ?? 'Valued Customer');
             $quoteUrl = "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token'];
 
             // --- SEND EMAIL ---
@@ -223,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // Admin approves quote on behalf of customer (verbal confirmation)
         $approverName = trim($_POST['approver_name'] ?? '');
         if (empty($approverName)) {
-            $approverName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? ''));
+            $approverName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? $quote['prop_contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? $quote['prop_contact_last'] ?? ''));
         }
         if (empty($approverName)) {
             $approverName = 'Customer (verbal)';
@@ -382,8 +392,8 @@ $activePage = 'quotes';
               $showDebug = isset($_GET['debug']) || isset($_GET['_debug']);
 
               // Check for issues that warrant showing debug info
-              $debugEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['billing_email'] ?? null;
-              $debugPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['billing_phone'] ?? null;
+              $debugEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['prop_contact_email'] ?? $quote['billing_email'] ?? null;
+              $debugPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['prop_contact_phone'] ?? $quote['billing_phone'] ?? null;
               $hasEmailIssue = empty($debugEmail);
               $hasPhoneIssue = empty($debugPhone);
               $hasContactId = !empty($quote['qr_contact_id']);
@@ -415,6 +425,7 @@ $activePage = 'quotes';
                           <td>
                               qr_email: <?php echo htmlspecialchars($quote['qr_email'] ?? '-'); ?><br>
                               contact_email: <?php echo htmlspecialchars($quote['contact_email'] ?? '-'); ?><br>
+                              prop_contact_email: <?php echo htmlspecialchars($quote['prop_contact_email'] ?? '-'); ?><br>
                               billing_email: <?php echo htmlspecialchars($quote['billing_email'] ?? '-'); ?>
                           </td>
                       </tr>
@@ -429,6 +440,7 @@ $activePage = 'quotes';
                           <td>
                               qr_phone: <?php echo htmlspecialchars($quote['qr_phone'] ?? '-'); ?><br>
                               contact_phone: <?php echo htmlspecialchars($quote['contact_phone'] ?? '-'); ?><br>
+                              prop_contact_phone: <?php echo htmlspecialchars($quote['prop_contact_phone'] ?? '-'); ?><br>
                               billing_phone: <?php echo htmlspecialchars($quote['billing_phone'] ?? '-'); ?>
                           </td>
                       </tr>
@@ -453,8 +465,8 @@ $activePage = 'quotes';
               <div id="sms-debug" class="card-body" style="display: none; font-size: 13px;">
                   <?php
                       // Determine which contact ID is used for SMS consent (same fallback as send logic)
-                      $smsContactId = !empty($quote['qr_contact_id']) ? $quote['qr_contact_id'] : ($quote['contact_id'] ?? null);
-                      $smsContactSource = !empty($quote['qr_contact_id']) ? 'quote request' : (!empty($quote['contact_id']) ? 'primary contact' : 'none');
+                      $smsContactId = !empty($quote['qr_contact_id']) ? $quote['qr_contact_id'] : (!empty($quote['contact_id']) ? $quote['contact_id'] : ($quote['prop_contact_id'] ?? null));
+                      $smsContactSource = !empty($quote['qr_contact_id']) ? 'quote request' : (!empty($quote['contact_id']) ? 'primary contact' : (!empty($quote['prop_contact_id']) ? 'property contact' : 'none'));
                   ?>
                   <table style="width: 100%;">
                       <tr>
@@ -591,7 +603,7 @@ $activePage = 'quotes';
                       <div class="card-header d-flex justify-content-between align-items-center">
                           <h5 class="card-title mb-0">Customer Information</h5>
                           <?php
-                              $editContactId = $quote['qr_contact_id'] ?? $quote['contact_id'] ?? null;
+                              $editContactId = $quote['qr_contact_id'] ?? $quote['contact_id'] ?? $quote['prop_contact_id'] ?? null;
                           ?>
                           <?php if ($editContactId): ?>
                               <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showContactEditModal()">
@@ -604,7 +616,10 @@ $activePage = 'quotes';
                               // For commercial properties, show company. For residential, show contact name as primary
                               $isResidential = $quote['property_type'] === 'residential';
 
-                              // Prefer quote_request contact info if available (from original request)
+                              // Contact resolution priority:
+                              // 1. Quote request contact (from original request)
+                              // 2. Company primary contact
+                              // 3. Property site contact (from properties.site_contact_id)
                               $contactName = trim(($quote['qr_first_name'] ?? '') . ' ' . ($quote['qr_last_name'] ?? ''));
                               $contactEmail = $quote['qr_email'] ?? null;
                               $contactPhone = $quote['qr_phone'] ?? null;
@@ -614,6 +629,13 @@ $activePage = 'quotes';
                                   $contactName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
                                   $contactEmail = $quote['contact_email'] ?? null;
                                   $contactPhone = $quote['contact_phone'] ?? null;
+                              }
+
+                              // Fall back to property site contact
+                              if (!$contactName) {
+                                  $contactName = trim(($quote['prop_contact_first'] ?? '') . ' ' . ($quote['prop_contact_last'] ?? ''));
+                                  $contactEmail = $quote['prop_contact_email'] ?? null;
+                                  $contactPhone = $quote['prop_contact_phone'] ?? null;
                               }
 
                               // Final fallback
@@ -906,7 +928,7 @@ $activePage = 'quotes';
                               <div class="form-group">
                                   <label for="approverName">Customer Name</label>
                                   <input type="text" class="form-control" id="approverName" name="approver_name"
-                                         value="<?php echo htmlspecialchars(trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? ''))); ?>"
+                                         value="<?php echo htmlspecialchars(trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? $quote['prop_contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? $quote['prop_contact_last'] ?? ''))); ?>"
                                          placeholder="Name of person who gave verbal approval">
                               </div>
                           </div>
@@ -924,7 +946,7 @@ $activePage = 'quotes';
 
           <!-- Edit Contact Modal -->
           <?php
-              $editContactId = $quote['qr_contact_id'] ?? $quote['contact_id'] ?? null;
+              $editContactId = $quote['qr_contact_id'] ?? $quote['contact_id'] ?? $quote['prop_contact_id'] ?? null;
               if ($editContactId):
                   // Fetch current contact data for the edit form
                   $editStmt = $db->prepare("SELECT id, first_name, last_name, email, phone FROM contacts WHERE id = ?");
