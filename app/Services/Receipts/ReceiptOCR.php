@@ -48,14 +48,25 @@ function extractTextFromImage(string $filePath): array
     }
 
     // Validate credentials file exists
+    // On cPanel shared hosting, open_basedir may restrict access to paths outside public_html.
+    // The configured path may point to /home/user/app_config/... but PHP can only reach
+    // /home/user/public_html/app_config/... — try the basename under PUBLIC_ROOT as a fallback.
     $credPath = GOOGLE_VISION_CREDENTIALS;
     if (!file_exists($credPath) || !is_readable($credPath)) {
-        return [
-            'success'      => false,
-            'text'         => null,
-            'raw_response' => null,
-            'error'        => 'Vision credentials file not found: ' . $credPath,
-        ];
+        // Fallback: try the same filename under PUBLIC_ROOT/app_config/
+        $basename = basename($credPath);
+        $altPath = (defined('PUBLIC_ROOT') ? PUBLIC_ROOT : $_SERVER['DOCUMENT_ROOT'])
+                 . '/app_config/' . $basename;
+        if (file_exists($altPath) && is_readable($altPath)) {
+            $credPath = $altPath;
+        } else {
+            return [
+                'success'      => false,
+                'text'         => null,
+                'raw_response' => null,
+                'error'        => 'Vision credentials file not found: ' . GOOGLE_VISION_CREDENTIALS,
+            ];
+        }
     }
 
     // Validate image file exists

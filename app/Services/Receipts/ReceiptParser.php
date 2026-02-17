@@ -509,7 +509,7 @@ function extractVendorHint(array $lines): ?string
         if (preg_match('/^\d{3}[\-\.]\d{3}[\-\.]\d{4}/', $candidate)) continue;
         if (preg_match('/^\d+\s+(st|ave|blvd|rd|dr|hwy|street|avenue)/i', $candidate)) continue;
         // Skip common receipt header boilerplate that isn't vendor names
-        if (preg_match('/^(TRANSACTION\s+RECORD|CUSTOMER\s+COPY|MERCHANT\s+COPY|RECEIPT|DUPLICATE|REPRINT)/i', $candidate)) continue;
+        if (preg_match('/^(TRANSACTION\s+RECORD|CUSTOMER\s+COPY|MERCHANT\s+COPY|RECEIPT|DUPLICATE|REPRINT|WELCOME|THANK\s+YOU)/i', $candidate)) continue;
 
         return $candidate;
     }
