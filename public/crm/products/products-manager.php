@@ -1452,6 +1452,7 @@ $activePage = 'products';
                       <label class="small">Frequency</label>
                       <select class="form-control form-control-sm" onchange="currentPricingRules[${idx}].default_frequency=this.value">
                         <option value="one_off" ${rule.default_frequency==='one_off'?'selected':''}>One-off</option>
+                        <option value="daily" ${rule.default_frequency==='daily'?'selected':''}>Daily</option>
                         <option value="7_day" ${rule.default_frequency==='7_day'?'selected':''}>Weekly</option>
                         <option value="14_day" ${rule.default_frequency==='14_day'?'selected':''}>Bi-weekly</option>
                         <option value="21_day" ${rule.default_frequency==='21_day'?'selected':''}>Every 3 wks</option>

@@ -940,6 +940,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             container.innerHTML = '';
 
             const frequencyLabels = {
+                'daily': 'Daily',
                 '7_day': '7-day',
                 '14_day': '14-day',
                 '21_day': '21-day',

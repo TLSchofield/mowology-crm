@@ -1447,7 +1447,7 @@ Work to be completed weather permitting.</textarea>
         container.innerHTML = '';
 
         var frequencyLabels = {
-            '7_day': '7-day', '14_day': '14-day', '21_day': '21-day',
+            'daily': 'Daily', '7_day': '7-day', '14_day': '14-day', '21_day': '21-day',
             'monthly': 'Monthly', 'seasonal': 'Seasonal', 'one_off': 'One-off'
         };
 

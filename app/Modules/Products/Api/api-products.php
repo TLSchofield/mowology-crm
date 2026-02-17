@@ -499,7 +499,7 @@ try {
             throw new Exception('Invalid pricing model');
         }
 
-        $validFreqs = ['one_off', '7_day', '14_day', '21_day', 'monthly', 'seasonal'];
+        $validFreqs = ['one_off', 'daily', '7_day', '14_day', '21_day', 'monthly', 'seasonal'];
         $freq = (isset($data['default_frequency']) && in_array($data['default_frequency'], $validFreqs))
             ? $data['default_frequency'] : 'one_off';
 
