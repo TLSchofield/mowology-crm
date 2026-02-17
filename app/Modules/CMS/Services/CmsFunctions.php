@@ -152,7 +152,8 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
 
     // Auto-generate canonical if not provided
     if (!$cannonicalUrl) {
-        $cannonicalUrl = SITE_URL . '/' . trim($slug, '/');
+        $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $cannonicalUrl = $siteUrl . '/' . trim($slug, '/');
     }
 
     if ($pageId) {
