@@ -287,6 +287,67 @@ function extractLineItems(array $lines): array
         if (preg_match('/^[\d\s]+\d{2}\/\d{2}\/\d{2,4}/', $line)) continue;
         if (preg_match('/^(?:EACH|MAX REFUND|REFUND VALUE)/i', $line)) continue;
 
+        // Pattern: Canadian retail "Qty: 1 Base Price: $42.99" or "Qty: 2 Price: $19.99"
+        // Extracts quantity and unit price, assigns to most recent pending item
+        if (preg_match('/^Qty:\s*(\d+)\s+(?:Base\s+)?Price:\s*\$?(\d{1,6}\.\d{2})/i', $line, $m)) {
+            $qty = (int)$m[1];
+            $unitPrice = (float)$m[2];
+            $lineTotal = round($qty * $unitPrice, 2);
+
+            $itemName = null;
+            $skuRaw = null;
+
+            // Try pending items first
+            if (!empty($pendingItems)) {
+                $itemName = array_shift($pendingItems);
+                $ctx = array_shift($pendingContext);
+                while ($itemName === '__sku_context__' && !empty($pendingItems)) {
+                    $skuRaw = $ctx['sku_raw'] ?? null;
+                    $itemName = array_shift($pendingItems);
+                    $ctx = array_shift($pendingContext);
+                }
+                if ($itemName === '__sku_context__') {
+                    $skuRaw = $ctx['sku_raw'] ?? null;
+                    $itemName = null;
+                } else {
+                    $skuRaw = $ctx['sku_raw'] ?? $skuRaw;
+                }
+            }
+
+            // If no pending item, look backwards for item name and barcode
+            if (!$itemName) {
+                for ($j = $i - 1; $j >= max(0, $i - 4); $j--) {
+                    $prevLine = trim($lines[$j]);
+                    // Skip attribute lines like "Clr: ...", "Sz: ..."
+                    if (preg_match('/^(?:Clr|Colour|Color|Sz|Size|Style)\s*:/i', $prevLine)) continue;
+                    // Standalone barcode
+                    if (preg_match('/^\d{8,15}$/', $prevLine)) {
+                        $skuRaw = $prevLine;
+                        continue;
+                    }
+                    // Item name: line with 3+ alpha chars, not a header/address
+                    if (strlen($prevLine) >= 3 && preg_match('/[A-Za-z]{3,}/', $prevLine)
+                        && !preg_match('/^(?:SALE|Date:|Cashier:)/i', $prevLine)
+                        && !preg_match('/^\d+\s+(st|ave|blvd|rd|dr)/i', $prevLine)) {
+                        $itemName = $prevLine;
+                        break;
+                    }
+                }
+            }
+
+            if ($itemName) {
+                $items[] = [
+                    'name' => $itemName,
+                    'amount' => number_format($lineTotal, 2, '.', ''),
+                    'quantity' => $qty,
+                    'unit_price' => round($unitPrice, 2),
+                    'sku_raw' => $skuRaw,
+                ];
+                $inItemZone = true;
+            }
+            continue;
+        }
+
         // Pattern: "0.55 tonne @ $118.00/tonne" — qty + unit + unit_price on one line
         if (preg_match('/^(\d+\.?\d*)\s*(tonne|kg|yard|cu\.?\s*yd|m3|litre|gal)s?\s*@\s*\$?(\d+\.?\d*)\s*\/\s*\w+/i', $line, $m)) {
             // This is context for the most recent pending item or last added item
@@ -526,9 +587,10 @@ function extractTotal(string $text, array $lines): ?string
 {
     // Pattern: TOTAL, AMOUNT DUE, BALANCE DUE, etc. followed by dollar amount (same line)
     // IMPORTANT: negative lookbehind (?<!SUB) prevents matching "SUBTOTAL" as "TOTAL"
+    // Use [^\S\n] (horizontal whitespace only) to prevent matching across line boundaries
     $totalPatterns = [
-        '/(?<!SUB)TOTAL\s*(?:DUE)?\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
-        '/(?:AMOUNT\s*DUE|BALANCE\s*DUE|GRAND\s*TOTAL|PURCHASE\s*TOTAL)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
+        '/(?<!SUB)TOTAL[^\S\n]*(?:DUE)?[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})/i',
+        '/(?:AMOUNT\s*DUE|BALANCE\s*DUE|GRAND\s*TOTAL|PURCHASE\s*TOTAL)[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})/i',
         '/^.*(?<!SUB)TOTAL[^$\d\n]*\$?\s*(\d{1,6}[.,]\d{2})\s*$/im',
     ];
 
@@ -589,12 +651,14 @@ function extractTotal(string $text, array $lines): ?string
  */
 function extractGST(string $text): ?string
 {
-    // Same-line patterns
+    // Same-line patterns — use [^\S\n] (horizontal whitespace) to prevent cross-line matching
+    // e.g., "GST 5.000%" on its own line must NOT match "5.00" as a dollar amount
     $gstPatterns = [
-        '/GST\s*(?:\/HST)?\s*(?:\d+%?)?\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
+        '/GST[^\S\n]*(?:\/HST)?[^\S\n]*(?:[\d.]+%)?[^\S\n]*:?[^\S\n]*\$[^\S\n]*(\d{1,6}[.,]\d{2})/i',
+        '/GST[^\S\n]*(?:\/HST)?[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*%)/i',
         // Gas station / fuel receipts: "GST INCLUDED $ 0.95", "GST INCL $0.95", "HST INCLUDED $2.60"
-        '/(?:GST|HST)\s*(?:INCLUDED|INCL\.?)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
-        '/(?<!\w)TAX\s*(?:\d+%?)?\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
+        '/(?:GST|HST)[^\S\n]*(?:INCLUDED|INCL\.?)[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})/i',
+        '/(?<!\w)TAX[^\S\n]*(?:[\d.]+%)?[^\S\n]*:?[^\S\n]*\$?[^\S\n]*(\d{1,6}[.,]\d{2})(?!\d*%)/i',
     ];
 
     $totalGst = 0;
@@ -745,16 +809,25 @@ function extractPaymentInfo(string $text): array
     $result = ['card_last4' => null, 'payment_method' => null];
 
     // Card last 4 digits: ****1234, XXXX1234, *1234, ending in 1234
+    // Must NOT match cashier/employee IDs like "Cashier: *****8388 Saziya"
     $cardPatterns = [
         '/(?:\*{2,4}|X{2,4})\s*(\d{4})/i',
         '/ending\s+(?:in\s+)?(\d{4})/i',
         '/card\s*#?\s*\*+(\d{4})/i',
     ];
 
+    // Split into lines and skip cashier/employee lines
+    $cardLines = preg_split('/\r?\n/', $text);
     foreach ($cardPatterns as $pattern) {
-        if (preg_match($pattern, $text, $m)) {
-            $result['card_last4'] = $m[1];
-            break;
+        foreach ($cardLines as $cardLine) {
+            // Skip lines that are cashier/employee IDs
+            if (preg_match('/^(?:Cashier|Employee|Clerk|Server|Associate)\s*:/i', trim($cardLine))) {
+                continue;
+            }
+            if (preg_match($pattern, $cardLine, $m)) {
+                $result['card_last4'] = $m[1];
+                break 2;
+            }
         }
     }
 
@@ -905,17 +978,24 @@ function extractColumnSeparatedAmounts(array $lines): array
         $line = trim($lines[$i]);
 
         // Skip lines that already have amounts on them (handled by same-line extractors)
+        // But DON'T skip tax labels with percentage rates like "GST 5.000%" or "PST 7.000%"
         if (preg_match('/\d{1,6}[.,]\d{2}/', $line) && preg_match('/[A-Z]{3,}/i', $line)) {
-            continue;
+            // Check if the digits are just a tax percentage rate (e.g., "5.000%", "7.000%")
+            $lineWithoutPct = preg_replace('/\d+\.?\d*\s*%/', '', $line);
+            if (preg_match('/\d{1,6}[.,]\d{2}/', $lineWithoutPct)) {
+                // Still has a dollar amount after removing percentages — skip (same-line handler)
+                continue;
+            }
+            // Otherwise the digits were just a percentage — fall through to label detection
         }
 
         if (preg_match('/^(?:SUB[\s\-]*TOTAL|SUBTOTAL)\s*:?\s*$/i', $line)) {
             $labels[$i] = 'subtotal';
             $labelOrder[] = 'subtotal';
-        } elseif (preg_match('/^PST\s*(?:\d+%?)?\s*:?\s*$/i', $line)) {
+        } elseif (preg_match('/^PST\s*(?:[\d.]+%?)?\s*:?\s*$/i', $line)) {
             $labels[$i] = 'pst';
             $labelOrder[] = 'pst';
-        } elseif (preg_match('/^GST\s*(?:\/\s*HST)?\s*(?:\d+%?)?\s*:?\s*$/i', $line)) {
+        } elseif (preg_match('/^GST\s*(?:\/\s*HST)?\s*(?:[\d.]+%?)?\s*:?\s*$/i', $line)) {
             $labels[$i] = 'gst';
             $labelOrder[] = 'gst';
         } elseif (preg_match('/^(?:TOTAL|TOTAL\s*DUE|GRAND\s*TOTAL)\s*:?\s*$/i', $line) &&
@@ -938,13 +1018,23 @@ function extractColumnSeparatedAmounts(array $lines): array
     $paymentStart = findPaymentSectionStart($lines, $lastLabelLine);
 
     // ── Phase 3: Collect dollar amounts, stopping at payment boundary ─
+    // Amount regex allows trailing letter codes like "GP", "CAD" (e.g., "$42.99 GP")
+    $amountRegex = '/^\$?\s*(\d{1,6}[.,]\d{2})(?:\s+[A-Z]{1,4})?\s*$/i';
     $amounts = [];
     $scanEnd = $paymentStart ?? count($lines);
+    $prevAmount = null;
 
     for ($i = $lastLabelLine + 1; $i < $scanEnd; $i++) {
         $line = trim($lines[$i]);
-        if (preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $line, $m)) {
-            $amounts[] = str_replace(',', '.', $m[1]);
+        if (preg_match($amountRegex, $line, $m)) {
+            $val = str_replace(',', '.', $m[1]);
+            // Skip consecutive duplicates (e.g., "$42.99 GP" then "$42.99" on next line)
+            if ($val !== $prevAmount) {
+                $amounts[] = $val;
+            }
+            $prevAmount = $val;
+        } else {
+            $prevAmount = null;
         }
     }
 
@@ -955,7 +1045,7 @@ function extractColumnSeparatedAmounts(array $lines): array
         $prevAmount = null;
         for ($i = $lastLabelLine + 1; $i < count($lines); $i++) {
             $line = trim($lines[$i]);
-            if (preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $line, $m)) {
+            if (preg_match($amountRegex, $line, $m)) {
                 $val = str_replace(',', '.', $m[1]);
                 // Skip consecutive duplicates (card section repeats)
                 if ($val !== $prevAmount) {
@@ -974,7 +1064,7 @@ function extractColumnSeparatedAmounts(array $lines): array
         $prevAmount = null;
         for ($i = count($lines) - 1; $i > $lastLabelLine; $i--) {
             $line = trim($lines[$i]);
-            if (preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $line, $m)) {
+            if (preg_match($amountRegex, $line, $m)) {
                 $val = str_replace(',', '.', $m[1]);
                 if ($val !== $prevAmount) {
                     array_unshift($amounts, $val);
