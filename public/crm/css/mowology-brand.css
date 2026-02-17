@@ -3787,19 +3787,19 @@ a:hover {
 /* Property Quick Actions */
 .mw-property-quick-actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   padding-left: 20px;
-  margin-top: 5px;
+  margin-top: 6px;
 }
 
 .mw-prop-action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.7rem;
-  font-weight: 500;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
   text-decoration: none;
   border: 1px solid #dee2e6;
   color: #555;
@@ -3817,13 +3817,84 @@ a:hover {
 
 .mw-prop-action-primary {
   border-color: var(--mw-green);
-  color: var(--mw-green);
-  background: var(--mw-light);
+  color: #fff;
+  background: var(--mw-green);
 }
 
 .mw-prop-action-primary:hover {
-  background: var(--mw-green);
+  background: var(--mw-dark);
+  border-color: var(--mw-dark);
   color: #fff;
+}
+
+/* Measurements Card (right column) */
+.mw-measurements-property {
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.mw-measurements-property:last-child {
+  border-bottom: none;
+}
+
+.mw-measurements-property-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.mw-measurements-property-addr {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: #333;
+}
+
+.mw-measurements-date {
+  font-size: 0.7rem;
+  color: #999;
+}
+
+.mw-measurements-group {
+  margin-bottom: 6px;
+  padding-left: 4px;
+}
+
+.mw-measurements-group-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #888;
+  letter-spacing: 0.03em;
+  margin-bottom: 2px;
+}
+
+.mw-measurements-area {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+}
+
+.mw-measurements-area-name {
+  color: #555;
+}
+
+.mw-measurements-area-value {
+  font-weight: 600;
+  color: #333;
+  font-variant-numeric: tabular-nums;
+}
+
+.mw-measurements-group-total {
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--mw-green);
+  text-align: right;
+  border-top: 1px dashed #ddd;
+  margin-top: 2px;
 }
 
 .mw-contact-company-link {

@@ -901,6 +901,25 @@ if ($action === 'view_contact' && $clientId) {
             } catch (Exception $e) {
                 // Tags tables may not exist yet
             }
+
+            // Fetch individual measurement areas per property
+            $propertyMeasurements = [];
+            try {
+                $mStmt = $db->prepare("
+                    SELECT property_id, measurement_name, measurement_type,
+                           measurement_group_key, area_sqft, linear_ft, perimeter_ft
+                    FROM property_measurements
+                    WHERE property_id IN ({$tPlaceholders})
+                    ORDER BY measurement_group_key ASC, measurement_name ASC
+                ");
+                $mStmt->execute(array_values($propIds));
+                $allMeasurements = $mStmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($allMeasurements as $mRow) {
+                    $propertyMeasurements[(int)$mRow['property_id']][] = $mRow;
+                }
+            } catch (Exception $e) {
+                // property_measurements table may not exist yet
+            }
         }
 
         // Check if contact is linked to a company (as primary or billing contact)
@@ -2307,6 +2326,86 @@ $unconvertedRequests = $db->query("
                           </button>
                         <?php endif; ?>
                       </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Measurements Card -->
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="maximize-2"></i> Measurements</h5>
+                  </div>
+                  <div class="card-body py-2">
+                    <?php
+                      $hasAnyMeasurements = false;
+                      foreach ($contactProperties as $mp) {
+                          if ((int)($mp['measurement_count'] ?? 0) > 0) { $hasAnyMeasurements = true; break; }
+                      }
+                    ?>
+                    <?php if (!$hasAnyMeasurements): ?>
+                      <div class="text-center py-3">
+                        <i data-feather="maximize-2" style="width: 28px; height: 28px; color: #ccc;"></i>
+                        <p class="mb-0 mt-2 small text-muted">No properties measured yet.</p>
+                        <p class="mb-0 small text-muted">Use "Quote &amp; Measure" on a property to start.</p>
+                      </div>
+                    <?php else: ?>
+                      <?php foreach ($contactProperties as $mp):
+                        $mAreas = $propertyMeasurements[(int)$mp['id']] ?? [];
+                        $mCount = (int)($mp['measurement_count'] ?? 0);
+                        if ($mCount === 0) continue;
+                        $mLawn = floatval($mp['total_lawn_sqft'] ?? 0);
+                        $mHard = floatval($mp['total_hard_surface_sqft'] ?? 0);
+                        $mHedge = floatval($mp['total_hedge_linear_ft'] ?? 0);
+                        $mOther = floatval($mp['total_other_sqft'] ?? 0);
+                        $mDate = $mp['measurements_updated_at'] ?? null;
+                      ?>
+                        <div class="mw-measurements-property">
+                          <div class="mw-measurements-property-header">
+                            <span class="mw-measurements-property-addr"><?php echo h($mp['address']); ?></span>
+                            <?php if ($mDate): ?>
+                              <span class="mw-measurements-date"><?php echo h(timeAgo($mDate)); ?></span>
+                            <?php endif; ?>
+                          </div>
+                          <?php
+                            // Group areas by type
+                            $grouped = [];
+                            foreach ($mAreas as $area) {
+                                $gKey = $area['measurement_group_key'] ?: 'other';
+                                $grouped[$gKey][] = $area;
+                            }
+                            $groupLabels = ['lawn_area' => 'Lawn', 'hard_surface' => 'Hard Surface', 'hedge_linear' => 'Hedge', 'other_area' => 'Other'];
+                          ?>
+                          <?php foreach ($grouped as $gKey => $areas): ?>
+                            <div class="mw-measurements-group">
+                              <div class="mw-measurements-group-label"><?php echo h($groupLabels[$gKey] ?? ucfirst($gKey)); ?></div>
+                              <?php foreach ($areas as $area): ?>
+                                <div class="mw-measurements-area">
+                                  <span class="mw-measurements-area-name"><?php echo h($area['measurement_name']); ?></span>
+                                  <span class="mw-measurements-area-value">
+                                    <?php if ($area['area_sqft'] > 0): ?>
+                                      <?php echo number_format($area['area_sqft']); ?> sq ft
+                                    <?php elseif ($area['linear_ft'] > 0): ?>
+                                      <?php echo number_format($area['linear_ft']); ?> lin ft
+                                    <?php endif; ?>
+                                  </span>
+                                </div>
+                              <?php endforeach; ?>
+                              <div class="mw-measurements-group-total">
+                                Total:
+                                <?php
+                                  $gTotal = 0;
+                                  $gUnit = 'sq ft';
+                                  foreach ($areas as $a) {
+                                      if ($a['linear_ft'] > 0) { $gTotal += $a['linear_ft']; $gUnit = 'lin ft'; }
+                                      else { $gTotal += $a['area_sqft']; }
+                                  }
+                                  echo number_format($gTotal) . ' ' . $gUnit;
+                                ?>
+                              </div>
+                            </div>
+                          <?php endforeach; ?>
+                        </div>
+                      <?php endforeach; ?>
                     <?php endif; ?>
                   </div>
                 </div>
