@@ -108,11 +108,25 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
         );
     }
 
+    // If we have total and GST but no subtotal, calculate subtotal = total - GST - PST
+    if ($result['subtotal'] === null && $result['total'] !== null && $result['gst'] !== null) {
+        $result['subtotal'] = number_format(
+            (float)$result['total'] - (float)$result['gst'] - (float)($result['pst'] ?? 0),
+            2,
+            '.',
+            ''
+        );
+    }
+
     // If we have total but no GST, estimate GST at 5% (BC standard)
     if ($result['gst'] === null && $result['total'] !== null) {
         $total = (float)$result['total'];
         $result['gst'] = number_format($total / 1.05 * 0.05, 2, '.', '');
         $result['gst_estimated'] = true;
+        // Also calculate subtotal from the estimated GST
+        if ($result['subtotal'] === null) {
+            $result['subtotal'] = number_format($total / 1.05, 2, '.', '');
+        }
     }
 
     return $result;
@@ -494,6 +508,8 @@ function extractVendorHint(array $lines): ?string
         // Skip lines with dates, phone numbers, addresses
         if (preg_match('/^\d{3}[\-\.]\d{3}[\-\.]\d{4}/', $candidate)) continue;
         if (preg_match('/^\d+\s+(st|ave|blvd|rd|dr|hwy|street|avenue)/i', $candidate)) continue;
+        // Skip common receipt header boilerplate that isn't vendor names
+        if (preg_match('/^(TRANSACTION\s+RECORD|CUSTOMER\s+COPY|MERCHANT\s+COPY|RECEIPT|DUPLICATE|REPRINT)/i', $candidate)) continue;
 
         return $candidate;
     }
@@ -576,6 +592,8 @@ function extractGST(string $text): ?string
     // Same-line patterns
     $gstPatterns = [
         '/GST\s*(?:\/HST)?\s*(?:\d+%?)?\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
+        // Gas station / fuel receipts: "GST INCLUDED $ 0.95", "GST INCL $0.95", "HST INCLUDED $2.60"
+        '/(?:GST|HST)\s*(?:INCLUDED|INCL\.?)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
         '/(?<!\w)TAX\s*(?:\d+%?)?\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
     ];
 
