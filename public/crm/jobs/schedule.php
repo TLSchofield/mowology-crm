@@ -460,15 +460,25 @@ if ($apiKey) {
                                       }
                                       ?>
 
-                                      <?php if ($arrivalDisplay): ?>
-                                          <div class="mw-stop-time"><?php echo htmlspecialchars($arrivalDisplay); ?></div>
+                                      <?php
+                                      // Client display: property_name, company_name, or contact_name
+                                      $clientDisplay = $stop['property_name'] ?? '';
+                                      if (!$clientDisplay) $clientDisplay = $stop['company_name'] ?? '';
+                                      if (!$clientDisplay) $clientDisplay = $stop['contact_name'] ?? '';
+                                      ?>
+
+                                      <?php if ($arrivalDisplay || $clientDisplay): ?>
+                                          <div class="mw-stop-time-client">
+                                              <?php if ($arrivalDisplay): ?>
+                                                  <span class="mw-stop-time"><?php echo htmlspecialchars($arrivalDisplay); ?></span>
+                                              <?php endif; ?>
+                                              <?php if ($clientDisplay): ?>
+                                                  <span class="mw-stop-client-name"><?php echo htmlspecialchars($clientDisplay); ?></span>
+                                              <?php endif; ?>
+                                          </div>
                                       <?php endif; ?>
 
                                       <div class="mw-stop-property"><?php echo htmlspecialchars($stop['property_address'] ?? 'Unknown'); ?></div>
-
-                                      <?php if (!empty($stop['company_name'])): ?>
-                                          <div class="mw-stop-client"><?php echo htmlspecialchars($stop['company_name']); ?></div>
-                                      <?php endif; ?>
 
                                       <?php if (!empty($stop['visits'])): ?>
                                           <div class="mw-stop-visits">

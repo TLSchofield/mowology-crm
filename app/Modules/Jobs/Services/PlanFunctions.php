@@ -254,15 +254,20 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
         if (function_exists('createROIAttribution')) {
             $leadEventId = !empty($quote['lead_event_id']) ? (int)$quote['lead_event_id'] : null;
 
-            $quoteStmt = $db->prepare("
-                SELECT source FROM quote_requests
-                WHERE id IN (SELECT quote_request_id FROM quotes WHERE id = ?)
-                LIMIT 1
-            ");
-            $quoteStmt->execute([$quoteId]);
-            $quoteSource = $quoteStmt->fetchColumn();
+            $quoteSource = 'website';
+            try {
+                $quoteStmt = $db->prepare("
+                    SELECT source FROM quote_requests
+                    WHERE id IN (SELECT quote_request_id FROM quotes WHERE id = ?)
+                    LIMIT 1
+                ");
+                $quoteStmt->execute([$quoteId]);
+                $quoteSource = $quoteStmt->fetchColumn() ?: 'website';
+            } catch (PDOException $e) {
+                // quote_request_id column may not exist on production
+            }
 
-            createROIAttribution($result['plan_id'], $leadEventId, $quoteSource ?: 'website', $planData['estimated_amount']);
+            createROIAttribution($result['plan_id'], $leadEventId, $quoteSource, $planData['estimated_amount']);
         }
 
         // Log conversion
@@ -821,7 +826,9 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             p.city AS property_city,
             p.latitude,
             p.longitude,
+            p.property_name,
             co.company_name,
+            CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
             u.full_name AS crew_name,
             jv.id AS visit_id,
             jv.visit_number,
@@ -840,6 +847,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         JOIN properties p ON cs.property_id = p.id
         LEFT JOIN company_properties cp ON p.id = cp.property_id
         LEFT JOIN companies co ON cp.company_id = co.id
+        LEFT JOIN contacts ct ON p.site_contact_id = ct.id
         LEFT JOIN users u ON cs.crew_id = u.id
         LEFT JOIN job_visits jv ON jv.stop_id = cs.id AND jv.status NOT IN ('cancelled')
         LEFT JOIN job_plans jp ON jv.plan_id = jp.id
@@ -880,6 +888,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'latitude'      => $row['latitude'],
                 'longitude'     => $row['longitude'],
                 'company_name'  => $row['company_name'],
+                'contact_name'  => $row['contact_name'],
+                'property_name' => $row['property_name'],
                 'visits'        => [],
             ];
         }

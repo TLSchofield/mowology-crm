@@ -168,9 +168,11 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var STOP_RADIUS_METERS = 50; // max radius to count as same location
 
     // Job overlay state
-    var jobMarkers = []; // array of { marker, infoWindow, stopData }
+    var jobOverlays = []; // array of JobCardOverlay instances
+    var jobMarkers = []; // kept for sidebar click→infoWindow compat
     var jobsEnabled = false;
     var jobsData = []; // raw stops from API
+    var JobCardOverlay = null; // custom OverlayView class (init after maps loads)
 
     var SERVICE_COLORS = {
         lawn_care: '#7FD858',
@@ -901,9 +903,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     }
 
     function clearJobMarkers() {
-        jobMarkers.forEach(function(entry) {
-            entry.marker.setMap(null);
+        jobOverlays.forEach(function(overlay) {
+            overlay.setMap(null);
         });
+        jobOverlays = [];
         jobMarkers = [];
         jobsData = [];
         document.getElementById('jobsListContainer').innerHTML =
@@ -912,63 +915,129 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         document.getElementById('jobsCounter').textContent = '';
     }
 
-    // Material Design teardrop pin — same icon style as Territory Map
-    var MD_PIN_PATH = 'M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z';
+    // ── JobCardOverlay — territory map style mini cards on the map ──
 
-    function createJobIcon(color) {
-        return {
-            path: MD_PIN_PATH,
-            fillColor: color,
-            fillOpacity: 0.9,
-            scale: 1.3,
-            strokeColor: '#fff',
-            strokeWeight: 2,
-            anchor: new google.maps.Point(12, 24)
+    function initJobCardOverlayClass() {
+        if (JobCardOverlay) return;
+        JobCardOverlay = function(position, html, map, onClick) {
+            this.position = position;
+            this.html = html;
+            this.div = null;
+            this.onClick = onClick;
+            this.setMap(map);
+        };
+        JobCardOverlay.prototype = new google.maps.OverlayView();
+
+        JobCardOverlay.prototype.onAdd = function() {
+            this.div = document.createElement('div');
+            this.div.style.position = 'absolute';
+            this.div.style.transform = 'translate(-50%, -100%)'; // anchor bottom-center
+            this.div.style.pointerEvents = 'auto';
+            this.div.style.zIndex = '50';
+            this.div.innerHTML = this.html;
+            if (this.onClick) {
+                var self = this;
+                this.div.addEventListener('click', function() { self.onClick(); });
+            }
+            this.getPanes().overlayMouseTarget.appendChild(this.div);
+        };
+
+        JobCardOverlay.prototype.draw = function() {
+            if (!this.div) return;
+            var proj = this.getProjection();
+            if (!proj) return;
+            var pos = proj.fromLatLngToDivPixel(this.position);
+            if (pos) {
+                this.div.style.left = pos.x + 'px';
+                this.div.style.top = pos.y + 'px';
+            }
+        };
+
+        JobCardOverlay.prototype.onRemove = function() {
+            if (this.div && this.div.parentNode) {
+                this.div.parentNode.removeChild(this.div);
+                this.div = null;
+            }
         };
     }
 
+    function buildJobCardHtml(stop) {
+        var primaryService = (stop.visits && stop.visits.length > 0)
+            ? stop.visits[0].service_type : '';
+        var color = SERVICE_COLORS[primaryService] || '#2D8659';
+
+        // Time display
+        var time = '';
+        if (stop.estimated_arrival) {
+            time = formatTimeShort(stop.estimated_arrival);
+        } else if (stop.visits && stop.visits.length && stop.visits[0].scheduled_time_start) {
+            time = formatTimeShort(stop.visits[0].scheduled_time_start);
+        }
+
+        // Truncate address
+        var addr = stop.property_address || 'Unknown';
+        if (addr.length > 28) addr = addr.substring(0, 26) + '…';
+
+        // Service pills
+        var pills = '';
+        if (stop.visits && stop.visits.length) {
+            stop.visits.forEach(function(v) {
+                var sColor = SERVICE_COLORS[v.service_type] || '#6B7280';
+                var sLabel = SERVICE_LABELS[v.service_type] || v.service_type;
+                pills += '<span class="mw-job-card-pill" style="border-left-color:' + sColor + ';">' +
+                    escapeHtml(sLabel) + '</span>';
+            });
+        }
+
+        // Status
+        var statusClass = '';
+        if (stop.stop_status === 'in_progress') statusClass = ' mw-job-card-active';
+        else if (stop.stop_status === 'completed') statusClass = ' mw-job-card-done';
+
+        return '<div class="mw-job-map-card' + statusClass + '" style="border-left-color:' + color + ';">' +
+            (time ? '<div class="mw-job-card-time">' + escapeHtml(time) + '</div>' : '') +
+            '<div class="mw-job-card-addr">' + escapeHtml(addr) + '</div>' +
+            (pills ? '<div class="mw-job-card-pills">' + pills + '</div>' : '') +
+            (stop.crew_name ? '<div class="mw-job-card-crew">' + escapeHtml(stop.crew_name) + '</div>' : '') +
+            '</div>';
+    }
+
     function drawJobMarkers() {
-        // Clear existing
-        jobMarkers.forEach(function(entry) { entry.marker.setMap(null); });
+        // Clear existing overlays
+        jobOverlays.forEach(function(overlay) { overlay.setMap(null); });
+        jobOverlays = [];
         jobMarkers = [];
+
+        initJobCardOverlayClass();
 
         var bounds = new google.maps.LatLngBounds();
         var hasJobCoords = false;
 
-        jobsData.forEach(function(stop) {
+        jobsData.forEach(function(stop, idx) {
             if (!stop.latitude || !stop.longitude) return;
 
-            // Determine primary service color
-            var primaryService = (stop.visits && stop.visits.length > 0)
-                ? stop.visits[0].service_type : '';
-            var color = SERVICE_COLORS[primaryService] || '#2D8659';
-
-            var pos = { lat: stop.latitude, lng: stop.longitude };
+            var pos = new google.maps.LatLng(stop.latitude, stop.longitude);
             bounds.extend(pos);
             hasJobCoords = true;
 
-            var marker = new google.maps.Marker({
-                position: pos,
-                map: gmap,
-                icon: createJobIcon(color),
-                title: stop.property_address || 'Job site',
-                zIndex: 800
-            });
+            var cardHtml = buildJobCardHtml(stop);
 
+            // Create info window for detail on click
             var infoWindow = new google.maps.InfoWindow({
-                content: buildJobInfoContent(stop)
+                content: buildJobInfoContent(stop),
+                position: pos
             });
 
-            marker.addListener('click', function() {
-                infoWindow.open(gmap, marker);
+            var overlay = new JobCardOverlay(pos, cardHtml, gmap, function() {
+                infoWindow.open(gmap);
             });
 
-            jobMarkers.push({ marker: marker, infoWindow: infoWindow, stopData: stop });
+            jobOverlays.push(overlay);
+            jobMarkers.push({ infoWindow: infoWindow, stopData: stop });
         });
 
-        // Auto-zoom: fit bounds to show all job markers + crew positions
+        // Auto-zoom: fit bounds to show all job cards + crew positions
         if (hasJobCoords) {
-            // Also include live crew positions in the bounds
             Object.keys(crewMarkers).forEach(function(uid) {
                 var pos = crewMarkers[uid].marker.getPosition();
                 if (pos) bounds.extend(pos);

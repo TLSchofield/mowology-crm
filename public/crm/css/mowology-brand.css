@@ -5302,12 +5302,38 @@ textarea.font-monospace {
 }
 
 /* Stop card inner elements */
+.mw-stop-time-client {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 2px;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .mw-stop-time {
   font-size: 10px;
   font-weight: 700;
   color: var(--mw-green);
-  margin-bottom: 2px;
-  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.mw-stop-client-name {
+  font-size: 10px;
+  font-weight: 600;
+  color: #495057;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.mw-stop-time + .mw-stop-client-name::before {
+  content: "\00b7";
+  margin-right: 4px;
+  color: #adb5bd;
+  font-weight: 700;
 }
 
 .mw-stop-property {
@@ -5444,6 +5470,10 @@ textarea.font-monospace {
   }
 
   .mw-stop-time {
+    font-size: 9px;
+  }
+
+  .mw-stop-client-name {
     font-size: 9px;
   }
 
@@ -7815,6 +7845,78 @@ textarea.font-monospace {
 .mw-crew-list-meta {
   font-size: 0.75rem;
   color: #888;
+}
+
+/* ── Job Mini Cards on Crew Map (territory map style) ── */
+
+.mw-job-map-card {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 6px;
+  padding: 4px 8px 5px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+  min-width: 80px;
+  max-width: 160px;
+  border-left: 3px solid var(--mw-green);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.mw-job-map-card:hover {
+  transform: scale(1.08);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.24);
+  background: #fff;
+  z-index: 200 !important;
+}
+
+.mw-job-map-card.mw-job-card-active {
+  border-left-color: var(--mw-orange);
+  background: rgba(255, 250, 240, 0.95);
+}
+
+.mw-job-map-card.mw-job-card-done {
+  opacity: 0.55;
+  border-left-color: var(--mw-green);
+}
+
+.mw-job-card-time {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--mw-green);
+  letter-spacing: 0.2px;
+}
+
+.mw-job-card-addr {
+  font-size: 11px;
+  font-weight: 600;
+  color: #1a202c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-job-card-pills {
+  display: flex;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.mw-job-card-pill {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: #f3f4f6;
+  color: #444;
+  border-left: 2px solid #ccc;
+}
+
+.mw-job-card-crew {
+  font-size: 8px;
+  color: #94a3b8;
+  margin-top: 1px;
 }
 
 /* ── Day Jobs Panel on Crew Map ─────────────────────── */
