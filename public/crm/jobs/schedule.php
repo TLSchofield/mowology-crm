@@ -36,16 +36,34 @@ if ($activeTimer) {
 // ─── Generate visits on-demand (6 weeks out) ────────────────────────
 generateVisits(null, 42);
 
-// ─── Date navigation ────────────────────────────────────────────────
-$startDate = isset($_GET['start']) ? $_GET['start'] : date('Y-m-d', strtotime('monday this week'));
-// Validate date format
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)) {
-    $startDate = date('Y-m-d', strtotime('monday this week'));
-}
-$endDate = date('Y-m-d', strtotime($startDate . ' +6 days'));
+// ─── View mode (week or day) ─────────────────────────────────────────
+$view = (isset($_GET['view']) && $_GET['view'] === 'day') ? 'day' : 'week';
 
-$prevWeek = date('Y-m-d', strtotime($startDate . ' -7 days'));
-$nextWeek = date('Y-m-d', strtotime($startDate . ' +7 days'));
+// ─── Date navigation ────────────────────────────────────────────────
+if ($view === 'day') {
+    $dayDate = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dayDate)) {
+        $dayDate = date('Y-m-d');
+    }
+    $startDate = $dayDate;
+    $endDate = $dayDate;
+    $prevDay = date('Y-m-d', strtotime($dayDate . ' -1 day'));
+    $nextDay = date('Y-m-d', strtotime($dayDate . ' +1 day'));
+    $weekStart = date('Y-m-d', strtotime('monday this week', strtotime($dayDate)));
+    // Still compute week nav for the toggle
+    $prevWeek = date('Y-m-d', strtotime($weekStart . ' -7 days'));
+    $nextWeek = date('Y-m-d', strtotime($weekStart . ' +7 days'));
+} else {
+    $startDate = isset($_GET['start']) ? $_GET['start'] : date('Y-m-d', strtotime('monday this week'));
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate)) {
+        $startDate = date('Y-m-d', strtotime('monday this week'));
+    }
+    $endDate = date('Y-m-d', strtotime($startDate . ' +6 days'));
+    $prevWeek = date('Y-m-d', strtotime($startDate . ' -7 days'));
+    $nextWeek = date('Y-m-d', strtotime($startDate . ' +7 days'));
+    $dayDate = null;
+    $weekStart = $startDate;
+}
 
 // ─── Staff / Crew filter ────────────────────────────────────────────
 $crewFilter = isset($_GET['crew']) && $_GET['crew'] !== '' ? (int)$_GET['crew'] : null;
@@ -101,6 +119,70 @@ try {
     $weekHolidays = getActiveHolidays($startDate, $endDate);
 } catch (Exception $e) {
     // Table may not exist yet — continue without holiday display
+}
+
+// ─── Day view: separate assigned vs unassigned stops ─────────────────
+$assignedStops = [];
+$unassignedStops = [];
+$dayContactMap = [];
+$dayViewMapStops = [];
+
+if ($view === 'day') {
+    $dayStops = $calendarData[$dayDate] ?? [];
+
+    // Sort by estimated arrival then route order
+    uasort($dayStops, function ($a, $b) {
+        $aTime = $a['estimated_arrival'] ?? ($a['visits'][0]['scheduled_time_start'] ?? '23:59:59');
+        $bTime = $b['estimated_arrival'] ?? ($b['visits'][0]['scheduled_time_start'] ?? '23:59:59');
+        $cmp = strcmp($aTime, $bTime);
+        if ($cmp !== 0) return $cmp;
+        return ($a['route_order'] ?? 999) - ($b['route_order'] ?? 999);
+    });
+
+    foreach ($dayStops as $stop) {
+        $crewIds = !empty($stop['crew_ids']) ? $stop['crew_ids'] : ($stop['crew_id'] ? [(int)$stop['crew_id']] : []);
+        if (!empty($crewIds)) {
+            $assignedStops[] = $stop;
+        } else {
+            $unassignedStops[] = $stop;
+        }
+    }
+
+    // Fetch contact names for day stops
+    $dayPropertyIds = array_unique(array_column($dayStops, 'property_id'));
+    if (!empty($dayPropertyIds)) {
+        $ph = implode(',', array_fill(0, count($dayPropertyIds), '?'));
+        $cStmt = $db->prepare("
+            SELECT p.id AS property_id,
+                   CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name
+            FROM properties p
+            LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+            WHERE p.id IN ({$ph})
+        ");
+        $cStmt->execute(array_values($dayPropertyIds));
+        while ($row = $cStmt->fetch(PDO::FETCH_ASSOC)) {
+            $dayContactMap[(int)$row['property_id']] = $row['contact_name'];
+        }
+    }
+
+    // Build JS data for the day view map
+    foreach (array_merge($assignedStops, $unassignedStops) as $stop) {
+        $isAssigned = !empty($stop['crew_ids']) || !empty($stop['crew_id']);
+        $dayViewMapStops[] = [
+            'stopId'      => (int)$stop['stop_id'],
+            'lat'         => $stop['latitude'] ? (float)$stop['latitude'] : null,
+            'lng'         => $stop['longitude'] ? (float)$stop['longitude'] : null,
+            'address'     => trim(($stop['property_address'] ?? '') . ', ' . ($stop['property_city'] ?? 'Vancouver') . ', BC, Canada'),
+            'routeOrder'  => (int)($stop['route_order'] ?? 999),
+            'contactName' => $dayContactMap[(int)$stop['property_id']] ?? ($stop['contact_name'] ?? ''),
+            'serviceType' => !empty($stop['visits']) ? ($stop['visits'][0]['service_type'] ?? '') : '',
+            'planTitle'   => !empty($stop['visits']) ? ($stop['visits'][0]['plan_title'] ?? '') : '',
+            'time'        => !empty($stop['estimated_arrival']) ? date('g:i A', strtotime($stop['estimated_arrival'])) : '',
+            'duration'    => !empty($stop['visits']) ? (int)($stop['visits'][0]['estimated_duration'] ?? 0) : 0,
+            'assigned'    => $isAssigned,
+            'crewNames'   => !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []),
+        ];
+    }
 }
 
 // ─── Service type config ────────────────────────────────────────────
@@ -351,12 +433,21 @@ if ($apiKey) {
               </div>
 
               <div class="mw-header-nav">
-                  <a href="?start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn">&larr;</a>
-                  <div class="mw-date-display">
-                      <?php echo date('M j', strtotime($startDate)); ?> &ndash; <?php echo date('M j, Y', strtotime($endDate)); ?>
-                  </div>
-                  <a href="?start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn">&rarr;</a>
-                  <a href="?<?php echo ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
+                  <?php if ($view === 'day'): ?>
+                      <a href="?view=day&date=<?php echo htmlspecialchars($prevDay) . $filterQueryStr; ?>" class="mw-nav-btn">&larr;</a>
+                      <div class="mw-date-display">
+                          <?php echo date('l, M j, Y', strtotime($dayDate)); ?>
+                      </div>
+                      <a href="?view=day&date=<?php echo htmlspecialchars($nextDay) . $filterQueryStr; ?>" class="mw-nav-btn">&rarr;</a>
+                      <a href="?view=day<?php echo $filterQueryStr; ?>" class="mw-today-btn">Today</a>
+                  <?php else: ?>
+                      <a href="?start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn">&larr;</a>
+                      <div class="mw-date-display">
+                          <?php echo date('M j', strtotime($startDate)); ?> &ndash; <?php echo date('M j, Y', strtotime($endDate)); ?>
+                      </div>
+                      <a href="?start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn">&rarr;</a>
+                      <a href="?<?php echo ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
+                  <?php endif; ?>
               </div>
 
               <div class="d-flex align-items-center" style="gap: 8px;">
@@ -380,10 +471,18 @@ if ($apiKey) {
                           </option>
                       <?php endforeach; ?>
                   </select>
+                  <!-- View toggle -->
+                  <div class="mw-dv-view-toggle">
+                      <a href="?start=<?php echo htmlspecialchars($weekStart) . $filterQueryStr; ?>"
+                         class="mw-dv-toggle-btn <?php echo $view === 'week' ? 'active' : ''; ?>">Week</a>
+                      <a href="?view=day&date=<?php echo htmlspecialchars($view === 'day' ? $dayDate : date('Y-m-d')) . $filterQueryStr; ?>"
+                         class="mw-dv-toggle-btn <?php echo $view === 'day' ? 'active' : ''; ?>">Day</a>
+                  </div>
                   <a href="index.php" class="btn btn-secondary btn-sm">List View</a>
               </div>
           </div>
 
+          <?php if ($view === 'week'): ?>
           <!-- ═══════════════════════════════════════════════
                DESKTOP: Calendar container (hidden on mobile)
                ═══════════════════════════════════════════════ -->
@@ -570,6 +669,156 @@ if ($apiKey) {
                   </div>
               <?php endforeach; ?>
           </div>
+          <?php endif; ?>
+
+          <?php if ($view === 'day'): ?>
+          <!-- ═══════════════════════════════════════════════
+               DESKTOP: Day View (split panel: cards left, map right)
+               ═══════════════════════════════════════════════ -->
+          <?php
+              $dayWeather = $weekWeather[$dayDate] ?? null;
+          ?>
+          <div class="mw-dv-container">
+              <!-- Left panel: stop cards -->
+              <div class="mw-dv-cards-panel">
+                  <?php if ($dayWeather): ?>
+                  <div class="mw-dv-weather">
+                      <span class="mw-dv-weather-icon"><?php echo $dayWeather['icon'] ?? '&#9925;'; ?></span>
+                      <span class="mw-dv-weather-temp"><?php echo (int)($dayWeather['temp_high'] ?? 0); ?>&deg; / <?php echo (int)($dayWeather['temp_low'] ?? 0); ?>&deg;</span>
+                      <span class="mw-dv-weather-cond"><?php echo htmlspecialchars($dayWeather['condition'] ?? ''); ?></span>
+                  </div>
+                  <?php endif; ?>
+
+                  <?php if (!empty($assignedStops)): ?>
+                  <div class="mw-dv-section">
+                      <div class="mw-dv-section-header">
+                          <span class="mw-dv-section-title">Assigned</span>
+                          <span class="mw-dv-section-count"><?php echo count($assignedStops); ?> stop<?php echo count($assignedStops) !== 1 ? 's' : ''; ?></span>
+                      </div>
+                      <?php foreach ($assignedStops as $stop):
+                          $arrival = !empty($stop['estimated_arrival']) ? date('g:i A', strtotime($stop['estimated_arrival'])) : '';
+                          $contactName = $dayContactMap[(int)$stop['property_id']] ?? ($stop['contact_name'] ?? '');
+                          $crewNames = !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []);
+                      ?>
+                      <div class="mw-dv-card <?php echo stopStatusClass($stop['stop_status'] ?? 'scheduled'); ?>"
+                           data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                           data-stop-date="<?php echo htmlspecialchars($stop['stop_date']); ?>"
+                           data-route-order="<?php echo (int)($stop['route_order'] ?? 0); ?>"
+                           data-crew-id="<?php echo (int)($stop['crew_id'] ?? 0); ?>"
+                           data-crew-ids="<?php echo htmlspecialchars(implode(',', $stop['crew_ids'] ?? [])); ?>"
+                           data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
+                           data-lat="<?php echo htmlspecialchars($stop['latitude'] ?? ''); ?>"
+                           data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>">
+                          <button type="button" class="mw-dv-pin-btn" data-stop-id="<?php echo (int)$stop['stop_id']; ?>" title="Pin as 1st stop">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                          </button>
+                          <div class="mw-dv-card-body">
+                              <div class="mw-dv-card-top">
+                                  <?php if ($arrival): ?>
+                                      <span class="mw-dv-card-time"><?php echo htmlspecialchars($arrival); ?></span>
+                                  <?php endif; ?>
+                                  <span class="mw-dv-card-client"><?php echo htmlspecialchars($contactName); ?></span>
+                              </div>
+                              <div class="mw-dv-card-address"><?php echo htmlspecialchars($stop['property_address'] ?? 'Unknown'); ?></div>
+                              <?php if (!empty($stop['visits'])): ?>
+                              <div class="mw-dv-card-services">
+                                  <?php foreach ($stop['visits'] as $visit): ?>
+                                      <span class="mw-visit-pill" style="border-left-color: <?php echo getServiceColorLocal($visit['service_type'] ?? ''); ?>">
+                                          <?php echo htmlspecialchars(getServiceLabelLocal($visit['service_type'] ?? '')); ?>
+                                      </span>
+                                  <?php endforeach; ?>
+                              </div>
+                              <?php endif; ?>
+                              <?php if (!empty($crewNames)): ?>
+                                  <div class="mw-dv-card-crew"><?php echo htmlspecialchars(implode(', ', $crewNames)); ?></div>
+                              <?php endif; ?>
+                              <?php
+                              // Profitability bar
+                              $margins = [];
+                              foreach (($stop['visits'] ?? []) as $v) {
+                                  $pid = $v['plan_id'] ?? 0;
+                                  if ($pid && !empty($profitabilityMap[$pid]) && $profitabilityMap[$pid]['has_data']) {
+                                      $margins[] = (int)$profitabilityMap[$pid]['margin_pct'];
+                                  }
+                              }
+                              if (!empty($margins)):
+                                  $avgMargin = (int)round(array_sum($margins) / count($margins));
+                                  $barColor = profitBarColor($avgMargin);
+                              ?>
+                              <div class="mw-profit-bar">
+                                  <div class="mw-profit-bar-fill" style="width: <?php echo min(100, max(5, $avgMargin)); ?>%; background: <?php echo $barColor; ?>;"></div>
+                              </div>
+                              <?php endif; ?>
+                          </div>
+                      </div>
+                      <?php endforeach; ?>
+                  </div>
+                  <?php endif; ?>
+
+                  <?php if (!empty($unassignedStops)): ?>
+                  <div class="mw-dv-section mw-dv-section-unassigned">
+                      <div class="mw-dv-section-header">
+                          <span class="mw-dv-section-title">Unassigned</span>
+                          <span class="mw-dv-section-count"><?php echo count($unassignedStops); ?> stop<?php echo count($unassignedStops) !== 1 ? 's' : ''; ?></span>
+                      </div>
+                      <?php foreach ($unassignedStops as $stop):
+                          $arrival = !empty($stop['estimated_arrival']) ? date('g:i A', strtotime($stop['estimated_arrival'])) : '';
+                          $contactName = $dayContactMap[(int)$stop['property_id']] ?? ($stop['contact_name'] ?? '');
+                      ?>
+                      <div class="mw-dv-card mw-dv-card-unassigned <?php echo stopStatusClass($stop['stop_status'] ?? 'scheduled'); ?>"
+                           data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                           data-stop-date="<?php echo htmlspecialchars($stop['stop_date']); ?>"
+                           data-route-order="<?php echo (int)($stop['route_order'] ?? 0); ?>"
+                           data-crew-id="0"
+                           data-crew-ids=""
+                           data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
+                           data-lat="<?php echo htmlspecialchars($stop['latitude'] ?? ''); ?>"
+                           data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>">
+                          <div class="mw-dv-card-body">
+                              <div class="mw-dv-card-top">
+                                  <?php if ($arrival): ?>
+                                      <span class="mw-dv-card-time"><?php echo htmlspecialchars($arrival); ?></span>
+                                  <?php endif; ?>
+                                  <span class="mw-dv-card-client"><?php echo htmlspecialchars($contactName); ?></span>
+                              </div>
+                              <div class="mw-dv-card-address"><?php echo htmlspecialchars($stop['property_address'] ?? 'Unknown'); ?></div>
+                              <?php if (!empty($stop['visits'])): ?>
+                              <div class="mw-dv-card-services">
+                                  <?php foreach ($stop['visits'] as $visit): ?>
+                                      <span class="mw-visit-pill" style="border-left-color: <?php echo getServiceColorLocal($visit['service_type'] ?? ''); ?>">
+                                          <?php echo htmlspecialchars(getServiceLabelLocal($visit['service_type'] ?? '')); ?>
+                                      </span>
+                                  <?php endforeach; ?>
+                              </div>
+                              <?php endif; ?>
+                              <div class="mw-dv-card-crew" style="color: #adb5bd;">Unassigned</div>
+                          </div>
+                      </div>
+                      <?php endforeach; ?>
+                  </div>
+                  <?php endif; ?>
+
+                  <?php if (empty($assignedStops) && empty($unassignedStops)): ?>
+                  <div class="mw-dv-empty">
+                      <div class="mw-dv-empty-icon">&#128197;</div>
+                      <div class="mw-dv-empty-text">No stops scheduled</div>
+                      <div class="mw-dv-empty-sub">for <?php echo date('l, M j', strtotime($dayDate)); ?></div>
+                  </div>
+                  <?php endif; ?>
+              </div>
+
+              <!-- Right panel: embedded Google Map -->
+              <div class="mw-dv-map-panel">
+                  <div class="mw-dv-map-topbar">
+                      <span class="mw-dv-map-title" id="mwDvMapTitle">Route</span>
+                      <button type="button" class="mw-dv-map-external" id="mwDvMapExternal" title="Open in Google Maps">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                      </button>
+                  </div>
+                  <div class="mw-dv-map" id="mwDvMap"></div>
+              </div>
+          </div>
+          <?php endif; ?>
 
           <!-- ═══ Crew Assignment Modal ═══ -->
           <div class="modal fade" id="crewAssignModal" tabindex="-1" role="dialog" aria-labelledby="crewAssignModalLabel" aria-hidden="true">
@@ -764,13 +1013,17 @@ function applyFilter() {
 
     var downX = 0, downY = 0;
 
-    document.querySelectorAll('.mw-stop-card').forEach(function(card) {
+    document.querySelectorAll('.mw-stop-card, .mw-dv-card').forEach(function(card) {
         card.addEventListener('mousedown', function(e) {
+            // Don't track pin button clicks as modal openers
+            if (e.target.closest('.mw-dv-pin-btn')) return;
             downX = e.clientX;
             downY = e.clientY;
         });
 
         card.addEventListener('mouseup', function(e) {
+            // Don't open modal on pin button clicks
+            if (e.target.closest('.mw-dv-pin-btn')) return;
             // If mouse moved more than 5px, it was a drag — don't open modal
             var dx = Math.abs(e.clientX - downX);
             var dy = Math.abs(e.clientY - downY);
@@ -837,26 +1090,31 @@ function applyFilter() {
         .then(function(data) {
             $('#crewAssignModal').modal('hide');
             // Update the card's crew display without full reload
-            var card = document.querySelector('.mw-stop-card[data-stop-id="' + stopId + '"]');
+            var card = document.querySelector('.mw-stop-card[data-stop-id="' + stopId + '"], .mw-dv-card[data-stop-id="' + stopId + '"]');
             if (card) {
                 var returnedIds = data.crew_ids || [];
                 var returnedNames = data.crew_names || [];
                 card.dataset.crewId = returnedIds.length > 0 ? returnedIds[0] : '0';
                 card.dataset.crewIds = returnedIds.join(',');
 
-                var crewEl = card.querySelector('.mw-stop-crew');
+                var crewEl = card.querySelector('.mw-stop-crew, .mw-dv-card-crew');
                 if (returnedNames.length > 0) {
                     var displayText = returnedNames.join(', ');
                     if (crewEl) {
                         crewEl.textContent = displayText;
+                        crewEl.style.color = '';
                     } else {
                         var newCrew = document.createElement('div');
-                        newCrew.className = 'mw-stop-crew';
+                        newCrew.className = card.classList.contains('mw-dv-card') ? 'mw-dv-card-crew' : 'mw-stop-crew';
                         newCrew.textContent = displayText;
-                        card.appendChild(newCrew);
+                        var body = card.querySelector('.mw-dv-card-body') || card;
+                        body.appendChild(newCrew);
                     }
                 } else {
-                    if (crewEl) crewEl.remove();
+                    if (crewEl) {
+                        crewEl.textContent = 'Unassigned';
+                        crewEl.style.color = '#adb5bd';
+                    }
                 }
             }
             btn.disabled = false;
@@ -1081,4 +1339,28 @@ var MW_ROUTE_STOPS = <?php
 <script src="../js/schedule-route-map.js?v=20260216a"></script>
 <script src="../js/schedule-pill-workflow.js?v=20260214h"></script>
 <script src="../js/schedule-drag-drop.js"></script>
+<?php if ($view === 'day'): ?>
+<script>
+var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
+</script>
+<script src="../js/schedule-day-map.js?v=20260217a"></script>
+<?php endif; ?>
+<?php if ($view === 'week'): ?>
+<script>
+// Day header click → navigate to day view
+document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
+    cell.style.cursor = 'pointer';
+    cell.addEventListener('click', function() {
+        var date = cell.dataset.date;
+        if (date) {
+            var params = new URLSearchParams(window.location.search);
+            params.set('view', 'day');
+            params.set('date', date);
+            params.delete('start');
+            window.location.search = params.toString();
+        }
+    });
+});
+</script>
+<?php endif; ?>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

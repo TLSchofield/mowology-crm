@@ -5864,6 +5864,350 @@ textarea.font-monospace {
   }
 }
 
+/* ============================================
+   DAY VIEW — Split Panel Layout
+   ============================================ */
+
+/* View toggle buttons (Week | Day) */
+.mw-dv-view-toggle {
+  display: inline-flex;
+  border: 1px solid #ced4da;
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.mw-dv-toggle-btn {
+  padding: 5px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  color: #495057;
+  background: #fff;
+  border-right: 1px solid #ced4da;
+  transition: all 0.15s;
+  line-height: 1.4;
+}
+
+.mw-dv-toggle-btn:last-child { border-right: none; }
+
+.mw-dv-toggle-btn:hover {
+  background: var(--mw-light);
+  color: var(--mw-green);
+  text-decoration: none;
+}
+
+.mw-dv-toggle-btn.active {
+  background: var(--mw-green);
+  color: #fff;
+}
+
+.mw-dv-toggle-btn.active:hover {
+  background: var(--mw-dark);
+  color: #fff;
+  text-decoration: none;
+}
+
+/* Split container */
+.mw-dv-container {
+  display: flex;
+  gap: 0;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 0.25rem;
+  overflow: hidden;
+  min-height: 500px;
+  max-height: calc(100vh - 200px);
+}
+
+/* Left panel: cards */
+.mw-dv-cards-panel {
+  width: 38%;
+  min-width: 320px;
+  overflow-y: auto;
+  border-right: 1px solid #dee2e6;
+  padding: 12px;
+  background: #fafbfc;
+}
+
+/* Right panel: map */
+.mw-dv-map-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mw-dv-map-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid #dee2e6;
+  background: #f8f9fa;
+  flex-shrink: 0;
+}
+
+.mw-dv-map-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #212529;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-dv-map-external {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--mw-green);
+  cursor: pointer;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.mw-dv-map-external:hover {
+  background: var(--mw-light);
+}
+
+.mw-dv-map {
+  flex: 1;
+  min-height: 400px;
+}
+
+/* Section headers (Assigned / Unassigned) */
+.mw-dv-section {
+  margin-bottom: 16px;
+}
+
+.mw-dv-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0 6px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.mw-dv-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6c757d;
+}
+
+.mw-dv-section-count {
+  font-size: 11px;
+  color: #adb5bd;
+}
+
+/* Unassigned section distinct background */
+.mw-dv-section-unassigned {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 10px;
+  border: 1px dashed #ced4da;
+}
+
+/* Day view stop cards */
+.mw-dv-card {
+  position: relative;
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-left: 3px solid var(--mw-green);
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.mw-dv-card:last-child { margin-bottom: 0; }
+
+.mw-dv-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
+}
+
+.mw-dv-card.mw-dv-card-highlight {
+  box-shadow: 0 0 0 2px var(--mw-green);
+}
+
+.mw-dv-card-unassigned {
+  border-left-color: #adb5bd;
+  opacity: 0.85;
+}
+
+/* Status variants */
+.mw-dv-card.mw-stop-status-progress { border-left-color: #F59E0B; }
+.mw-dv-card.mw-stop-status-done { border-left-color: #10B981; opacity: 0.7; }
+.mw-dv-card.mw-stop-status-skipped { border-left-color: #6B7280; opacity: 0.6; }
+
+/* Pinned card highlight */
+.mw-dv-card-pinned {
+  border-left-color: var(--mw-orange) !important;
+  border-left-width: 4px;
+  background: rgba(232, 93, 4, 0.03);
+  box-shadow: 0 2px 8px rgba(232, 93, 4, 0.10);
+}
+
+/* Pin button */
+.mw-dv-pin-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dee2e6;
+  border-radius: 50%;
+  background: #fff;
+  color: #bbb;
+  cursor: pointer;
+  transition: all 0.15s;
+  z-index: 2;
+  padding: 0;
+}
+
+.mw-dv-pin-btn:hover {
+  border-color: var(--mw-orange);
+  color: var(--mw-orange);
+  background: rgba(232, 93, 4, 0.05);
+}
+
+.mw-dv-pin-btn.mw-dv-pin-active {
+  background: var(--mw-orange);
+  border-color: var(--mw-orange);
+  color: #fff;
+}
+
+/* #1 badge */
+.mw-dv-pin-badge {
+  position: absolute;
+  top: 6px;
+  right: 36px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--mw-orange);
+  background: rgba(232, 93, 4, 0.08);
+  padding: 2px 6px;
+  border-radius: 10px;
+  letter-spacing: 0.3px;
+  z-index: 2;
+}
+
+/* Card inner elements */
+.mw-dv-card-body {
+  padding-right: 34px;
+}
+
+.mw-dv-card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.mw-dv-card-time {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--mw-green);
+  flex-shrink: 0;
+}
+
+.mw-dv-card-client {
+  font-size: 11px;
+  font-weight: 600;
+  color: #495057;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-dv-card-address {
+  font-size: 13px;
+  font-weight: 600;
+  color: #212529;
+  line-height: 1.3;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-dv-card-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+
+.mw-dv-card-crew {
+  font-size: 10px;
+  color: #6c757d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Profit bar (reuse .mw-profit-bar inside day view cards) */
+.mw-dv-card .mw-profit-bar {
+  margin-top: 4px;
+}
+
+/* Empty state */
+.mw-dv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+  height: 100%;
+}
+
+.mw-dv-empty-icon { font-size: 40px; margin-bottom: 10px; opacity: 0.5; }
+.mw-dv-empty-text { font-size: 15px; font-weight: 600; color: #495057; }
+.mw-dv-empty-sub { font-size: 13px; color: #adb5bd; margin-top: 4px; }
+
+/* Day view weather bar */
+.mw-dv-weather {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+  font-size: 12px;
+  color: #495057;
+}
+
+.mw-dv-weather-icon { font-size: 18px; }
+.mw-dv-weather-temp { font-weight: 600; }
+.mw-dv-weather-cond { color: #6c757d; }
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .mw-dv-cards-panel {
+    width: 45%;
+    min-width: 280px;
+  }
+
+  .mw-dv-card-address { font-size: 12px; }
+}
+
+@media (max-width: 991px) {
+  .mw-dv-container { display: none !important; }
+  .mw-dv-view-toggle { display: none !important; }
+}
+
 /* ── Portfolio Action Buttons ────────────────────────── */
 
 .mw-action-buttons {
