@@ -173,6 +173,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         } elseif ($recurrencePattern === 'biweekly') {
             $recurrenceInterval = 2;
             $recurrenceIntervalUnit = 'weeks';
+        } elseif ($recurrencePattern === 'yearly') {
+            $recurrenceInterval = max(1, $recurrenceInterval);
+            $recurrenceIntervalUnit = 'years';
+        }
+
+        if (!in_array($recurrenceIntervalUnit, ['days', 'weeks', 'months', 'years'], true)) {
+            $recurrenceIntervalUnit = 'weeks';
+        }
+
+        // Multi-crew assignment
+        $crewIds = [];
+        if (!empty($_POST['crew_ids']) && is_array($_POST['crew_ids'])) {
+            $crewIds = array_map('intval', $_POST['crew_ids']);
+            $crewIds = array_filter($crewIds, function($id) { return $id > 0; });
         }
 
         $planData = [
@@ -182,7 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'pricing_model'            => $_POST['edit_pricing_model'] ?? 'per_visit',
             'price_per_visit'          => floatval($_POST['edit_price_per_visit'] ?? 0) ?: null,
             'estimated_duration_minutes' => intval($_POST['edit_duration'] ?? 60),
-            'default_crew_id'          => !empty($_POST['edit_crew_id']) ? intval($_POST['edit_crew_id']) : null,
+            'default_crew_id'          => !empty($crewIds) ? $crewIds[0] : (!empty($_POST['edit_crew_id']) ? intval($_POST['edit_crew_id']) : null),
             'default_time_start'       => !empty($_POST['edit_time_start']) ? $_POST['edit_time_start'] : null,
             'default_time_end'         => !empty($_POST['edit_time_end']) ? $_POST['edit_time_end'] : null,
             'plan_start_date'          => $_POST['edit_start_date'] ?? date('Y-m-d'),
@@ -193,6 +207,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'recurrence_interval_unit' => $recurrenceIntervalUnit,
             'recurrence_day_of_week'   => $recurrenceDow,
             'horizon_days'             => intval($_POST['edit_horizon_days'] ?? 28),
+            'crew_ids'                 => $crewIds,
         ];
 
         $result = updateJobPlan($planId, $planData, (int)$user['id']);
@@ -335,9 +350,10 @@ function describeRecurrence(array $plan): string {
     $unit = $plan['recurrence_interval_unit'] ?? 'weeks';
 
     switch ($pattern) {
-        case 'weekly':  return 'Weekly';
+        case 'weekly':  return $interval > 1 ? "Every {$interval} weeks" : 'Weekly';
         case 'biweekly': return 'Every 2 weeks';
-        case 'monthly': return 'Monthly';
+        case 'monthly': return $interval > 1 ? "Every {$interval} months" : 'Monthly';
+        case 'yearly':  return $interval > 1 ? "Every {$interval} years" : 'Yearly';
         case 'custom':
             $unitLabel = rtrim($unit, 's');
             if ($interval === 1) return 'Every ' . $unitLabel;
@@ -695,9 +711,22 @@ $activePage = 'jobs';
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Default Crew</span>
+                                <span class="mw-detail-label">Crew</span>
                                 <span class="mw-detail-value">
-                                    <?php echo htmlspecialchars($plan['default_crew_name'] ?? 'Unassigned'); ?>
+                                    <?php
+                                    $crewAssignments = getPlanCrewAssignments($planId);
+                                    if (!empty($crewAssignments)):
+                                        $crewNames = [];
+                                        foreach ($crewAssignments as $ca) {
+                                            $name = htmlspecialchars($ca['full_name']);
+                                            if ($ca['role'] === 'lead') $name .= ' <small class="text-muted">(Lead)</small>';
+                                            $crewNames[] = $name;
+                                        }
+                                        echo implode(', ', $crewNames);
+                                    else:
+                                        echo htmlspecialchars($plan['default_crew_name'] ?? 'Unassigned');
+                                    endif;
+                                    ?>
                                 </span>
                             </div>
                             <?php if ($plan['description']): ?>
@@ -1367,25 +1396,46 @@ $activePage = 'jobs';
                     </div>
                 </div>
 
-                <div class="mw-form-row">
-                    <div class="mw-form-group">
-                        <label class="form-label">Default Crew</label>
-                        <select name="edit_crew_id" class="form-control">
-                            <option value="">Unassigned</option>
-                            <?php foreach ($staff as $s): ?>
-                                <option value="<?php echo $s['id']; ?>" <?php echo ($plan['default_crew_id'] == $s['id']) ? 'selected' : ''; ?>><?php echo htmlspecialchars($s['full_name']); ?></option>
+                <div class="mw-form-group">
+                    <label class="form-label">Crew Assignment</label>
+                    <div class="mw-crew-wrapper">
+                        <div class="mw-crew-chips" id="editCrewChips">
+                            <?php
+                            $existingCrew = getPlanCrewAssignments($planId);
+                            foreach ($existingCrew as $ec):
+                            ?>
+                                <span class="mw-crew-chip <?php echo $ec['role'] === 'lead' ? 'mw-crew-lead' : ''; ?>">
+                                    <?php echo htmlspecialchars($ec['full_name']); ?><?php echo $ec['role'] === 'lead' ? ' (Lead)' : ''; ?>
+                                    <button type="button" class="mw-crew-chip-remove" onclick="editRemoveCrew(<?php echo (int)$ec['user_id']; ?>)">&times;</button>
+                                    <input type="hidden" name="crew_ids[]" value="<?php echo (int)$ec['user_id']; ?>">
+                                </span>
                             <?php endforeach; ?>
-                        </select>
+                            <button type="button" class="mw-crew-add-btn" onclick="editToggleCrewDropdown()">+ Assign</button>
+                        </div>
+                        <div class="mw-crew-dropdown" id="editCrewDropdown">
+                            <?php foreach ($staff as $s): ?>
+                                <div class="mw-crew-dropdown-item"
+                                     data-id="<?php echo (int)$s['id']; ?>"
+                                     data-name="<?php echo htmlspecialchars($s['full_name'], ENT_QUOTES); ?>"
+                                     onclick="editAssignCrew(<?php echo (int)$s['id']; ?>, this.dataset.name)">
+                                    <?php echo htmlspecialchars($s['full_name']); ?>
+                                    <small class="text-muted"><?php echo htmlspecialchars($s['role']); ?></small>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
                     </div>
-                    <div class="mw-form-group">
-                        <label class="form-label">Horizon Days</label>
-                        <input type="number" name="edit_horizon_days" class="form-control"
-                               value="<?php echo (int)$plan['horizon_days']; ?>" min="7" max="90">
-                    </div>
+                    <input type="hidden" name="default_crew_id" id="editDefaultCrewIdHidden" value="<?php echo (int)($plan['default_crew_id'] ?? 0); ?>">
+                    <small class="text-muted">First person assigned is the crew lead.</small>
+                </div>
+
+                <div class="mw-form-group">
+                    <label class="form-label">Horizon Days</label>
+                    <input type="number" name="edit_horizon_days" class="form-control"
+                           value="<?php echo (int)$plan['horizon_days']; ?>" min="7" max="90" style="width:120px;">
                 </div>
 
                 <?php
-                // Determine the display recurrence pattern for the select
+                // Determine the display recurrence pattern for the edit modal
                 $editRecPattern = $plan['recurrence_pattern'] ?? 'weekly';
                 $editIsCustom = false;
                 if ($editRecPattern === 'custom' && (int)($plan['recurrence_interval'] ?? 1) === 1
@@ -1396,48 +1446,65 @@ $activePage = 'jobs';
                 } elseif ($editRecPattern === 'custom') {
                     $editIsCustom = true;
                 }
+                $editDow = $plan['recurrence_day_of_week'] ?? null;
                 ?>
 
                 <div id="editRecurringOptions" style="<?php echo $plan['is_recurring'] ? '' : 'display:none;'; ?>">
                     <h6 class="mt-3">Recurrence</h6>
-                    <div class="mw-form-row">
-                        <div class="mw-form-group">
-                            <label class="form-label">Pattern</label>
-                            <select name="recurrence_pattern" id="editRecurrencePattern" class="form-control" onchange="toggleEditCustomInterval()">
-                                <option value="daily" <?php echo $editRecPattern === 'daily' ? 'selected' : ''; ?>>Daily</option>
-                                <option value="weekly" <?php echo $editRecPattern === 'weekly' ? 'selected' : ''; ?>>Weekly</option>
-                                <option value="biweekly" <?php echo $editRecPattern === 'biweekly' ? 'selected' : ''; ?>>Every 2 Weeks</option>
-                                <option value="monthly" <?php echo $editRecPattern === 'monthly' ? 'selected' : ''; ?>>Monthly</option>
-                                <option value="custom" <?php echo $editIsCustom ? 'selected' : ''; ?>>Custom...</option>
-                            </select>
-                        </div>
-                        <div class="mw-form-group">
-                            <label class="form-label">Day of Week</label>
-                            <select name="recurrence_day_of_week" class="form-control">
-                                <option value="">Same as start date</option>
-                                <?php
-                                $days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-                                foreach ($days as $i => $dayName): ?>
-                                    <option value="<?php echo $i; ?>" <?php echo ((int)($plan['recurrence_day_of_week'] ?? -1)) === $i ? 'selected' : ''; ?>><?php echo $dayName; ?></option>
-                                <?php endforeach; ?>
-                            </select>
+
+                    <!-- Frequency picker -->
+                    <div class="mw-freq-picker" id="editFreqPicker">
+                        <button type="button" class="mw-freq-btn <?php echo $editRecPattern === 'daily' ? 'active' : ''; ?>" data-freq="daily">Daily</button>
+                        <button type="button" class="mw-freq-btn <?php echo $editRecPattern === 'weekly' ? 'active' : ''; ?>" data-freq="weekly">Weekly</button>
+                        <button type="button" class="mw-freq-btn <?php echo $editRecPattern === 'monthly' ? 'active' : ''; ?>" data-freq="monthly">Monthly</button>
+                        <button type="button" class="mw-freq-btn <?php echo $editRecPattern === 'yearly' ? 'active' : ''; ?>" data-freq="yearly">Yearly</button>
+                        <button type="button" class="mw-freq-btn <?php echo $editIsCustom ? 'active' : ''; ?>" data-freq="custom">Custom</button>
+                    </div>
+
+                    <!-- Interval row -->
+                    <div class="mw-interval-row" id="editIntervalRow">
+                        <span class="mw-interval-label">Every</span>
+                        <input type="number" name="recurrence_interval" id="editRecurrenceInterval"
+                               class="form-control form-control-sm" value="<?php echo (int)($plan['recurrence_interval'] ?? 1); ?>" min="1" max="365">
+                        <span class="mw-interval-label" id="editIntervalUnitLabel">
+                            <?php
+                            $unitLabels = ['daily'=>'day(s)','weekly'=>'week(s)','biweekly'=>'week(s)','monthly'=>'month(s)','yearly'=>'year(s)'];
+                            echo $unitLabels[$editRecPattern] ?? 'week(s)';
+                            ?>
+                        </span>
+                    </div>
+
+                    <!-- Day-of-week picker -->
+                    <div id="editDowPickerWrap" style="<?php echo in_array($editRecPattern, ['weekly','biweekly']) ? '' : 'display:none;'; ?>">
+                        <label class="form-label mb-2">On</label>
+                        <div class="mw-dow-picker" id="editDowPicker">
+                            <?php $dowLetters = ['S','M','T','W','T','F','S']; ?>
+                            <?php for ($d = 0; $d <= 6; $d++): ?>
+                                <button type="button" class="mw-dow-btn <?php echo ($editDow !== null && (int)$editDow === $d) ? 'active' : ''; ?>" data-dow="<?php echo $d; ?>"><?php echo $dowLetters[$d]; ?></button>
+                            <?php endfor; ?>
                         </div>
                     </div>
-                    <div class="mw-form-row" id="editCustomIntervalRow" style="<?php echo $editIsCustom ? '' : 'display:none;'; ?>">
-                        <div class="mw-form-group">
-                            <label class="form-label">Repeat Every</label>
-                            <input type="number" name="recurrence_interval" class="form-control"
-                                   value="<?php echo (int)($plan['recurrence_interval'] ?? 1); ?>" min="1" max="365">
-                        </div>
-                        <div class="mw-form-group">
-                            <label class="form-label">Unit</label>
-                            <select name="recurrence_interval_unit" class="form-control">
-                                <option value="days" <?php echo ($plan['recurrence_interval_unit'] ?? '') === 'days' ? 'selected' : ''; ?>>Days</option>
-                                <option value="weeks" <?php echo ($plan['recurrence_interval_unit'] ?? 'weeks') === 'weeks' ? 'selected' : ''; ?>>Weeks</option>
-                                <option value="months" <?php echo ($plan['recurrence_interval_unit'] ?? '') === 'months' ? 'selected' : ''; ?>>Months</option>
-                            </select>
-                        </div>
+
+                    <!-- Custom unit picker -->
+                    <div id="editCustomUnitWrap" style="<?php echo $editIsCustom ? '' : 'display:none;'; ?>" class="mb-2">
+                        <select name="recurrence_interval_unit" id="editRecurrenceUnit" class="form-control form-control-sm" style="width:140px;">
+                            <option value="days" <?php echo ($plan['recurrence_interval_unit'] ?? '') === 'days' ? 'selected' : ''; ?>>Days</option>
+                            <option value="weeks" <?php echo ($plan['recurrence_interval_unit'] ?? 'weeks') === 'weeks' ? 'selected' : ''; ?>>Weeks</option>
+                            <option value="months" <?php echo ($plan['recurrence_interval_unit'] ?? '') === 'months' ? 'selected' : ''; ?>>Months</option>
+                            <option value="years" <?php echo ($plan['recurrence_interval_unit'] ?? '') === 'years' ? 'selected' : ''; ?>>Years</option>
+                        </select>
                     </div>
+
+                    <!-- Hidden fields synced by JS -->
+                    <input type="hidden" name="recurrence_pattern" id="editRecurrencePatternHidden" value="<?php echo htmlspecialchars($editRecPattern); ?>">
+                    <input type="hidden" name="recurrence_day_of_week" id="editRecurrenceDowHidden" value="<?php echo $editDow !== null ? (int)$editDow : ''; ?>">
+
+                    <!-- Summary -->
+                    <div class="mw-recurrence-summary" id="editRecurrenceSummary">
+                        <i data-feather="repeat" style="width:14px;height:14px;"></i>
+                        <span id="editRecurrenceSummaryText"><?php echo htmlspecialchars(describeRecurrence($plan)); ?></span>
+                    </div>
+
                     <div class="mt-2">
                         <small class="text-muted"><i data-feather="alert-triangle" style="width:12px;height:12px;color:#F59E0B;"></i> Changing recurrence settings will cancel and regenerate future visits.</small>
                     </div>
@@ -1680,12 +1747,160 @@ $activePage = 'jobs';
             opts.style.display = (planType.value === 'recurring') ? '' : 'none';
         }
 
-        function toggleEditCustomInterval() {
-            var pattern = document.getElementById('editRecurrencePattern');
-            var customRow = document.getElementById('editCustomIntervalRow');
-            if (!pattern || !customRow) return;
-            customRow.style.display = (pattern.value === 'custom') ? '' : 'none';
+        // ── Edit Modal: Jobber-style recurrence controls ─────
+        var editCurrentFreq = <?php echo json_encode($editRecPattern); ?>;
+        var editSelectedDow = <?php echo ($editDow !== null) ? (int)$editDow : 'null'; ?>;
+        var editDayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+        // Frequency picker
+        document.querySelectorAll('#editFreqPicker .mw-freq-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('#editFreqPicker .mw-freq-btn').forEach(function(b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                editCurrentFreq = this.dataset.freq;
+                editUpdateRecurrenceUI();
+            });
+        });
+
+        // DOW picker
+        document.querySelectorAll('#editDowPicker .mw-dow-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('#editDowPicker .mw-dow-btn').forEach(function(b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                editSelectedDow = parseInt(this.dataset.dow);
+                editUpdateHiddenFields();
+                editUpdateSummaryText();
+            });
+        });
+
+        // Interval input
+        var editIntervalInput = document.getElementById('editRecurrenceInterval');
+        if (editIntervalInput) {
+            editIntervalInput.addEventListener('input', function() {
+                editUpdateHiddenFields();
+                editUpdateSummaryText();
+            });
         }
+
+        // Custom unit select
+        var editUnitSelect = document.getElementById('editRecurrenceUnit');
+        if (editUnitSelect) {
+            editUnitSelect.addEventListener('change', function() {
+                editUpdateSummaryText();
+            });
+        }
+
+        function editUpdateRecurrenceUI() {
+            var dowWrap = document.getElementById('editDowPickerWrap');
+            var customUnitWrap = document.getElementById('editCustomUnitWrap');
+            var unitLabel = document.getElementById('editIntervalUnitLabel');
+
+            dowWrap.style.display = 'none';
+            customUnitWrap.style.display = 'none';
+            unitLabel.style.display = '';
+
+            switch (editCurrentFreq) {
+                case 'daily': unitLabel.textContent = 'day(s)'; break;
+                case 'weekly': unitLabel.textContent = 'week(s)'; dowWrap.style.display = ''; break;
+                case 'monthly': unitLabel.textContent = 'month(s)'; break;
+                case 'yearly': unitLabel.textContent = 'year(s)'; break;
+                case 'custom': customUnitWrap.style.display = ''; unitLabel.style.display = 'none'; break;
+            }
+
+            editUpdateHiddenFields();
+            editUpdateSummaryText();
+            if (typeof feather !== 'undefined') feather.replace();
+        }
+
+        function editUpdateHiddenFields() {
+            document.getElementById('editRecurrencePatternHidden').value = editCurrentFreq;
+            document.getElementById('editRecurrenceDowHidden').value = (editSelectedDow !== null) ? editSelectedDow : '';
+        }
+
+        function editUpdateSummaryText() {
+            var interval = parseInt(document.getElementById('editRecurrenceInterval').value) || 1;
+            var text = 'Repeats ';
+            switch (editCurrentFreq) {
+                case 'daily': text += interval === 1 ? 'every day' : 'every ' + interval + ' days'; break;
+                case 'weekly':
+                    text += interval === 1 ? 'every week' : 'every ' + interval + ' weeks';
+                    if (editSelectedDow !== null) text += ' on ' + editDayNames[editSelectedDow];
+                    break;
+                case 'monthly': text += interval === 1 ? 'every month' : 'every ' + interval + ' months'; break;
+                case 'yearly': text += interval === 1 ? 'every year' : 'every ' + interval + ' years'; break;
+                case 'custom':
+                    var unit = document.getElementById('editRecurrenceUnit').value;
+                    text += 'every ' + interval + ' ' + unit;
+                    break;
+            }
+            document.getElementById('editRecurrenceSummaryText').textContent = text;
+        }
+
+        // ── Edit Modal: Multi-crew assignment ─────────────────
+        var editAssignedCrew = <?php
+            $crewJson = [];
+            if (!empty($existingCrew)) {
+                // $existingCrew was fetched earlier for edit modal HTML
+            } else {
+                $existingCrew = getPlanCrewAssignments($planId);
+            }
+            foreach ($existingCrew as $ec) {
+                $crewJson[] = ['id' => (int)$ec['user_id'], 'name' => $ec['full_name']];
+            }
+            echo json_encode($crewJson);
+        ?>;
+
+        function editToggleCrewDropdown() {
+            var dd = document.getElementById('editCrewDropdown');
+            dd.classList.toggle('show');
+            dd.querySelectorAll('.mw-crew-dropdown-item').forEach(function(item) {
+                var id = parseInt(item.dataset.id);
+                item.classList.toggle('disabled', editAssignedCrew.some(function(c) { return c.id === id; }));
+            });
+        }
+
+        function editAssignCrew(id, name) {
+            if (editAssignedCrew.some(function(c) { return c.id === id; })) return;
+            editAssignedCrew.push({ id: id, name: name });
+            editRenderCrewChips();
+            document.getElementById('editCrewDropdown').classList.remove('show');
+        }
+
+        function editRemoveCrew(id) {
+            editAssignedCrew = editAssignedCrew.filter(function(c) { return c.id !== id; });
+            editRenderCrewChips();
+        }
+
+        function editRenderCrewChips() {
+            var container = document.getElementById('editCrewChips');
+            var html = '';
+            editAssignedCrew.forEach(function(c, idx) {
+                var isLead = (idx === 0);
+                html += '<span class="mw-crew-chip ' + (isLead ? 'mw-crew-lead' : '') + '">' +
+                    escHtml(c.name) + (isLead ? ' (Lead)' : '') +
+                    '<button type="button" class="mw-crew-chip-remove" onclick="editRemoveCrew(' + c.id + ')">&times;</button>' +
+                    '<input type="hidden" name="crew_ids[]" value="' + c.id + '">' +
+                    '</span>';
+            });
+            html += '<button type="button" class="mw-crew-add-btn" onclick="editToggleCrewDropdown()">+ Assign</button>';
+            container.innerHTML = html;
+            document.getElementById('editDefaultCrewIdHidden').value = editAssignedCrew.length > 0 ? editAssignedCrew[0].id : '';
+        }
+
+        function escHtml(str) {
+            if (!str) return '';
+            var d = document.createElement('div');
+            d.textContent = str;
+            return d.innerHTML;
+        }
+
+        // Close edit crew dropdown on outside click
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('#editCrewChips') && !e.target.closest('#editCrewDropdown')) {
+                var dd = document.getElementById('editCrewDropdown');
+                if (dd) dd.classList.remove('show');
+            }
+        });
 
         // ── Edit Visit modal ────────────────────────────────
         function openEditVisitModal(visitId, visitNumber, date, timeStart, timeEnd, crewId) {

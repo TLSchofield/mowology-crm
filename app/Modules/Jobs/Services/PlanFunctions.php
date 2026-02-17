@@ -195,6 +195,11 @@ function createJobPlan(array $planData, int $userId): array {
 
         $db->commit();
 
+        // Insert crew assignments if provided (outside transaction — non-critical)
+        if (!empty($planData['crew_ids']) && is_array($planData['crew_ids'])) {
+            setPlanCrewAssignments($planId, $planData['crew_ids'], $planData['default_crew_id'] ?? null);
+        }
+
         // Generate initial visits (outside transaction for clarity)
         generateVisits($planId);
 
@@ -698,6 +703,17 @@ function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate,
                 $shouldInclude = ($currentDay === $targetDay);
                 break;
 
+            case 'yearly':
+                $targetMonth = (int)$planStart->format('n');
+                $targetDayOfMonth = (int)$planStart->format('j');
+                $currentMonth = (int)$current->format('n');
+                $currentDayOfMonth = (int)$current->format('j');
+                if ($currentMonth === $targetMonth && $currentDayOfMonth === $targetDayOfMonth) {
+                    $yearDiff = (int)$current->format('Y') - (int)$planStart->format('Y');
+                    $shouldInclude = ($yearDiff >= 0 && $yearDiff % $interval === 0);
+                }
+                break;
+
             case 'custom':
                 // Custom interval using interval + intervalUnit
                 $diff = $planStart->diff($current);
@@ -708,12 +724,18 @@ function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate,
                     $unitValue = (int)floor($diff->days / 7);
                 } elseif ($intervalUnit === 'months') {
                     $unitValue = $diff->m + ($diff->y * 12);
+                } elseif ($intervalUnit === 'years') {
+                    $unitValue = $diff->y;
                 }
                 $shouldInclude = ($unitValue >= 0 && $unitValue % $interval === 0);
                 // For weeks/months custom, also check day-of-week match
                 if ($shouldInclude && $intervalUnit === 'weeks') {
                     $targetDay = ($targetDow !== null) ? (int)$targetDow : (int)$planStart->format('w');
                     $shouldInclude = ($currentDow === $targetDay);
+                }
+                // For months/years custom, check day-of-month match
+                if ($shouldInclude && in_array($intervalUnit, ['months', 'years'], true)) {
+                    $shouldInclude = ((int)$current->format('j') === (int)$planStart->format('j'));
                 }
                 break;
         }
@@ -1876,6 +1898,12 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
 
         $db->commit();
 
+        // Update crew assignments if provided
+        if (array_key_exists('crew_ids', $data) && is_array($data['crew_ids'])) {
+            $leadId = !empty($data['default_crew_id']) ? (int)$data['default_crew_id'] : null;
+            setPlanCrewAssignments($planId, $data['crew_ids'], $leadId);
+        }
+
         // Determine if we need to regenerate visits or just propagate
         $recurrenceFields = [
             'is_recurring', 'recurrence_pattern', 'recurrence_interval',
@@ -1984,4 +2012,68 @@ function replacePlanLineItems(int $planId, array $items): bool {
         error_log("replacePlanLineItems error: " . $e->getMessage());
         return false;
     }
+}
+
+
+// ============================================================================
+// PLAN CREW ASSIGNMENTS
+// ============================================================================
+
+/**
+ * Get crew members assigned to a plan.
+ */
+function getPlanCrewAssignments(int $planId): array {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT pca.user_id, pca.role, u.full_name, u.email, u.role AS user_role
+        FROM plan_crew_assignments pca
+        JOIN users u ON pca.user_id = u.id
+        WHERE pca.plan_id = ?
+        ORDER BY FIELD(pca.role, 'lead', 'crew'), u.full_name
+    ");
+    $stmt->execute([$planId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Set crew assignments for a plan (replaces all existing).
+ * First crew member becomes the lead if no leadId specified.
+ * Also updates job_plans.default_crew_id to the lead.
+ */
+function setPlanCrewAssignments(int $planId, array $crewIds, ?int $leadId = null): void {
+    $db = getDB();
+
+    // Filter to valid integers
+    $crewIds = array_filter(array_map('intval', $crewIds), function($id) { return $id > 0; });
+    $crewIds = array_unique($crewIds);
+
+    // Delete existing assignments
+    $stmt = $db->prepare("DELETE FROM plan_crew_assignments WHERE plan_id = ?");
+    $stmt->execute([$planId]);
+
+    if (empty($crewIds)) {
+        // Clear default_crew_id too
+        $stmt = $db->prepare("UPDATE job_plans SET default_crew_id = NULL WHERE id = ?");
+        $stmt->execute([$planId]);
+        return;
+    }
+
+    // If no lead specified, use first crew member
+    if (!$leadId || !in_array($leadId, $crewIds, true)) {
+        $leadId = $crewIds[0];
+    }
+
+    $stmt = $db->prepare("
+        INSERT INTO plan_crew_assignments (plan_id, user_id, role)
+        VALUES (?, ?, ?)
+    ");
+
+    foreach ($crewIds as $userId) {
+        $role = ($userId === $leadId) ? 'lead' : 'crew';
+        $stmt->execute([$planId, $userId, $role]);
+    }
+
+    // Update default_crew_id to the lead
+    $upStmt = $db->prepare("UPDATE job_plans SET default_crew_id = ? WHERE id = ?");
+    $upStmt->execute([$leadId, $planId]);
 }

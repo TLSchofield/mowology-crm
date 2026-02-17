@@ -175,6 +175,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     $horizonDays      = intval($_POST['horizon_days'] ?? 28);
     $description      = trim($_POST['description'] ?? '');
 
+    // Crew assignments (multi-staff)
+    $crewIds = [];
+    if (!empty($_POST['crew_ids']) && is_array($_POST['crew_ids'])) {
+        $crewIds = array_map('intval', $_POST['crew_ids']);
+        $crewIds = array_filter($crewIds, function($id) { return $id > 0; });
+    }
+
     // Recurring fields
     $isRecurring       = ($planType === 'recurring') ? 1 : 0;
     $recurrencePattern = $isRecurring ? ($_POST['recurrence_pattern'] ?? 'weekly') : null;
@@ -191,9 +198,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     } elseif ($recurrencePattern === 'biweekly') {
         $recurrenceInterval = 2;
         $recurrenceUnit = 'weeks';
+    } elseif ($recurrencePattern === 'yearly') {
+        $recurrenceInterval = max(1, $recurrenceInterval);
+        $recurrenceUnit = 'years';
     }
 
-    if (!in_array($recurrenceUnit, ['days', 'weeks', 'months'], true)) {
+    if (!in_array($recurrenceUnit, ['days', 'weeks', 'months', 'years'], true)) {
         $recurrenceUnit = 'weeks';
     }
 
@@ -248,6 +258,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'default_time_end'         => $defaultTimeEnd,
             'horizon_days'             => $horizonDays,
             'line_items'               => $formItems,
+            'crew_ids'                 => $crewIds,
         ];
 
         $result = createJobPlan($planData, (int)$user['id']);
@@ -457,55 +468,80 @@ if ($propLat && $propLng && $apiKey) {
                               </div>
 
                               <div class="mw-form-group">
-                                  <label class="form-label">Default Crew</label>
-                                  <select name="default_crew_id" class="form-control">
-                                      <option value="">Unassigned</option>
-                                      <?php foreach ($staff as $s): ?>
-                                          <option value="<?php echo $s['id']; ?>"><?php echo htmlspecialchars($s['full_name']); ?></option>
-                                      <?php endforeach; ?>
-                                  </select>
-                              </div>
-
-                              <!-- Recurring options -->
-                              <div class="mw-recurring-options" id="recurringOptions">
-                                  <h6 class="mb-3">Recurrence Settings</h6>
-                                  <div class="mw-form-row">
-                                      <div class="mw-form-group">
-                                          <label class="form-label">Repeat Pattern</label>
-                                          <select name="recurrence_pattern" id="recurrencePattern" class="form-control" onchange="toggleCustomInterval()">
-                                              <option value="weekly" selected>Weekly</option>
-                                              <option value="biweekly">Every 2 Weeks</option>
-                                              <option value="monthly">Monthly</option>
-                                              <option value="custom">Custom...</option>
-                                          </select>
+                                  <label class="form-label">Crew Assignment</label>
+                                  <div class="mw-crew-wrapper">
+                                      <div class="mw-crew-chips" id="crewChips">
+                                          <button type="button" class="mw-crew-add-btn" id="crewAddBtn" onclick="toggleCrewDropdown()">+ Assign</button>
                                       </div>
-                                      <div class="mw-form-group">
-                                          <label class="form-label">Day of Week</label>
-                                          <select name="recurrence_day_of_week" class="form-control">
-                                              <option value="">Same as start date</option>
-                                              <option value="0">Sunday</option>
-                                              <option value="1">Monday</option>
-                                              <option value="2">Tuesday</option>
-                                              <option value="3">Wednesday</option>
-                                              <option value="4">Thursday</option>
-                                              <option value="5">Friday</option>
-                                              <option value="6">Saturday</option>
-                                          </select>
+                                      <div class="mw-crew-dropdown" id="crewDropdown">
+                                          <?php foreach ($staff as $s): ?>
+                                              <div class="mw-crew-dropdown-item"
+                                                   data-id="<?php echo (int)$s['id']; ?>"
+                                                   data-name="<?php echo htmlspecialchars($s['full_name'], ENT_QUOTES); ?>"
+                                                   onclick="assignCrew(<?php echo (int)$s['id']; ?>, this.dataset.name)">
+                                                  <?php echo htmlspecialchars($s['full_name']); ?>
+                                                  <small class="text-muted"><?php echo htmlspecialchars($s['role']); ?></small>
+                                              </div>
+                                          <?php endforeach; ?>
                                       </div>
                                   </div>
-                                  <div class="mw-form-row" id="customIntervalRow" style="display:none;">
-                                      <div class="mw-form-group">
-                                          <label class="form-label">Repeat Every</label>
-                                          <input type="number" name="recurrence_interval" class="form-control" value="1" min="1" max="365">
+                                  <input type="hidden" name="default_crew_id" id="defaultCrewIdHidden" value="">
+                                  <small class="text-muted">First person assigned is the crew lead.</small>
+                              </div>
+
+                              <!-- Recurring options — Jobber-style -->
+                              <div class="mw-recurring-options" id="recurringOptions">
+                                  <h6 class="mb-3">Recurrence Settings</h6>
+
+                                  <!-- Frequency pill buttons -->
+                                  <div class="mw-freq-picker" id="freqPicker">
+                                      <button type="button" class="mw-freq-btn" data-freq="daily">Daily</button>
+                                      <button type="button" class="mw-freq-btn active" data-freq="weekly">Weekly</button>
+                                      <button type="button" class="mw-freq-btn" data-freq="monthly">Monthly</button>
+                                      <button type="button" class="mw-freq-btn" data-freq="yearly">Yearly</button>
+                                      <button type="button" class="mw-freq-btn" data-freq="custom">Custom</button>
+                                  </div>
+
+                                  <!-- Interval row -->
+                                  <div class="mw-interval-row" id="intervalRow">
+                                      <span class="mw-interval-label">Every</span>
+                                      <input type="number" name="recurrence_interval" id="recurrenceInterval"
+                                             class="form-control form-control-sm" value="1" min="1" max="365">
+                                      <span class="mw-interval-label" id="intervalUnitLabel">week(s)</span>
+                                  </div>
+
+                                  <!-- Day-of-week picker (weekly) -->
+                                  <div id="dowPickerWrap">
+                                      <label class="form-label mb-2">On</label>
+                                      <div class="mw-dow-picker" id="dowPicker">
+                                          <button type="button" class="mw-dow-btn" data-dow="0">S</button>
+                                          <button type="button" class="mw-dow-btn" data-dow="1">M</button>
+                                          <button type="button" class="mw-dow-btn" data-dow="2">T</button>
+                                          <button type="button" class="mw-dow-btn" data-dow="3">W</button>
+                                          <button type="button" class="mw-dow-btn" data-dow="4">T</button>
+                                          <button type="button" class="mw-dow-btn" data-dow="5">F</button>
+                                          <button type="button" class="mw-dow-btn" data-dow="6">S</button>
                                       </div>
-                                      <div class="mw-form-group">
-                                          <label class="form-label">Unit</label>
-                                          <select name="recurrence_interval_unit" class="form-control">
-                                              <option value="days">Days</option>
-                                              <option value="weeks" selected>Weeks</option>
-                                              <option value="months">Months</option>
-                                          </select>
-                                      </div>
+                                  </div>
+
+                                  <!-- Custom unit picker (custom only) -->
+                                  <div id="customUnitWrap" style="display:none;" class="mb-2">
+                                      <select name="recurrence_interval_unit" id="recurrenceUnit" class="form-control form-control-sm" style="width:140px;">
+                                          <option value="days">Days</option>
+                                          <option value="weeks" selected>Weeks</option>
+                                          <option value="months">Months</option>
+                                          <option value="years">Years</option>
+                                      </select>
+                                  </div>
+
+                                  <!-- Hidden fields synced by JS -->
+                                  <input type="hidden" name="recurrence_pattern" id="recurrencePatternHidden" value="weekly">
+                                  <input type="hidden" name="recurrence_day_of_week" id="recurrenceDowHidden" value="">
+
+                                  <!-- Summary -->
+                                  <div class="mw-recurrence-summary" id="recurrenceSummary">
+                                      <i data-feather="repeat" style="width:14px;height:14px;"></i>
+                                      <span id="recurrenceSummaryText">Repeats every week</span>
                                   </div>
                               </div>
 
@@ -875,10 +911,167 @@ if ($propLat && $propLng && $apiKey) {
                   }
               };
 
-              window.toggleCustomInterval = function() {
-                  var pattern = document.getElementById('recurrencePattern').value;
-                  document.getElementById('customIntervalRow').style.display = (pattern === 'custom') ? '' : 'none';
+              // ── Jobber-Style Recurrence Controls ──────────────
+              // Exposed on window so the Scheduling Intelligence script can access them
+              window._recurrenceState = { freq: 'weekly', dow: null };
+              var currentFreq = 'weekly';
+              var selectedDow = null;
+              var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+              // Frequency picker
+              document.querySelectorAll('.mw-freq-btn').forEach(function(btn) {
+                  btn.addEventListener('click', function() {
+                      document.querySelectorAll('.mw-freq-btn').forEach(function(b) { b.classList.remove('active'); });
+                      this.classList.add('active');
+                      currentFreq = this.dataset.freq;
+                      updateRecurrenceUI();
+                  });
+              });
+
+              // Day-of-week picker
+              document.querySelectorAll('.mw-dow-btn').forEach(function(btn) {
+                  btn.addEventListener('click', function() {
+                      document.querySelectorAll('.mw-dow-btn').forEach(function(b) { b.classList.remove('active'); });
+                      this.classList.add('active');
+                      selectedDow = parseInt(this.dataset.dow);
+                      window._recurrenceState.dow = selectedDow;
+                      updateHiddenFields();
+                      updateSummaryText();
+                  });
+              });
+
+              // Interval input change
+              document.getElementById('recurrenceInterval').addEventListener('input', function() {
+                  updateHiddenFields();
+                  updateSummaryText();
+              });
+
+              // Custom unit change
+              var unitSelect = document.getElementById('recurrenceUnit');
+              if (unitSelect) {
+                  unitSelect.addEventListener('change', function() {
+                      updateSummaryText();
+                  });
+              }
+
+              function updateRecurrenceUI() {
+                  var dowWrap = document.getElementById('dowPickerWrap');
+                  var customUnitWrap = document.getElementById('customUnitWrap');
+                  var intervalInput = document.getElementById('recurrenceInterval');
+                  var unitLabel = document.getElementById('intervalUnitLabel');
+
+                  dowWrap.style.display = 'none';
+                  customUnitWrap.style.display = 'none';
+                  unitLabel.style.display = '';
+
+                  switch (currentFreq) {
+                      case 'daily':
+                          unitLabel.textContent = 'day(s)';
+                          break;
+                      case 'weekly':
+                          unitLabel.textContent = 'week(s)';
+                          dowWrap.style.display = '';
+                          break;
+                      case 'monthly':
+                          unitLabel.textContent = 'month(s)';
+                          break;
+                      case 'yearly':
+                          unitLabel.textContent = 'year(s)';
+                          break;
+                      case 'custom':
+                          customUnitWrap.style.display = '';
+                          unitLabel.style.display = 'none';
+                          break;
+                  }
+
+                  updateHiddenFields();
+                  updateSummaryText();
+                  if (typeof feather !== 'undefined') feather.replace();
+              }
+
+              function updateHiddenFields() {
+                  document.getElementById('recurrencePatternHidden').value = currentFreq;
+                  document.getElementById('recurrenceDowHidden').value = (selectedDow !== null) ? selectedDow : '';
+              }
+
+              function updateSummaryText() {
+                  var interval = parseInt(document.getElementById('recurrenceInterval').value) || 1;
+                  var text = 'Repeats ';
+
+                  switch (currentFreq) {
+                      case 'daily':
+                          text += interval === 1 ? 'every day' : 'every ' + interval + ' days';
+                          break;
+                      case 'weekly':
+                          text += interval === 1 ? 'every week' : 'every ' + interval + ' weeks';
+                          if (selectedDow !== null) text += ' on ' + dayNames[selectedDow];
+                          break;
+                      case 'monthly':
+                          text += interval === 1 ? 'every month' : 'every ' + interval + ' months';
+                          break;
+                      case 'yearly':
+                          text += interval === 1 ? 'every year' : 'every ' + interval + ' years';
+                          break;
+                      case 'custom':
+                          var unit = document.getElementById('recurrenceUnit').value;
+                          text += 'every ' + interval + ' ' + unit;
+                          if (selectedDow !== null && unit === 'weeks') text += ' on ' + dayNames[selectedDow];
+                          break;
+                  }
+
+                  document.getElementById('recurrenceSummaryText').textContent = text;
+              }
+
+              // ── Multi-Crew Assignment ────────────────────────
+              var assignedCrew = [];
+
+              window.toggleCrewDropdown = function() {
+                  var dd = document.getElementById('crewDropdown');
+                  dd.classList.toggle('show');
+                  dd.querySelectorAll('.mw-crew-dropdown-item').forEach(function(item) {
+                      var id = parseInt(item.dataset.id);
+                      item.classList.toggle('disabled', assignedCrew.some(function(c) { return c.id === id; }));
+                  });
               };
+
+              window.assignCrew = function(id, name) {
+                  if (assignedCrew.some(function(c) { return c.id === id; })) return;
+                  assignedCrew.push({ id: id, name: name });
+                  renderCrewChips();
+                  document.getElementById('crewDropdown').classList.remove('show');
+              };
+
+              window.removeCrew = function(id) {
+                  assignedCrew = assignedCrew.filter(function(c) { return c.id !== id; });
+                  renderCrewChips();
+              };
+
+              function renderCrewChips() {
+                  var container = document.getElementById('crewChips');
+                  var html = '';
+
+                  assignedCrew.forEach(function(c, idx) {
+                      var isLead = (idx === 0);
+                      html += '<span class="mw-crew-chip ' + (isLead ? 'mw-crew-lead' : '') + '">' +
+                          esc(c.name) + (isLead ? ' (Lead)' : '') +
+                          '<button type="button" class="mw-crew-chip-remove" onclick="removeCrew(' + c.id + ')">&times;</button>' +
+                          '<input type="hidden" name="crew_ids[]" value="' + c.id + '">' +
+                          '</span>';
+                  });
+
+                  html += '<button type="button" class="mw-crew-add-btn" onclick="toggleCrewDropdown()">+ Assign</button>';
+                  container.innerHTML = html;
+
+                  document.getElementById('defaultCrewIdHidden').value = assignedCrew.length > 0 ? assignedCrew[0].id : '';
+              }
+
+              // Close crew dropdown on outside click
+              document.addEventListener('click', function(e) {
+                  if (!e.target.closest('.mw-crew-wrapper')) {
+                      var dd = document.getElementById('crewDropdown');
+                      if (dd) dd.classList.remove('show');
+                  }
+              });
 
               /**
                * Form validation
@@ -1024,9 +1217,15 @@ if ($propLat && $propLng && $apiKey) {
                   activeFilter = dow;
 
                   if (dow !== null) {
-                      // Set the recurrence_day_of_week dropdown
-                      var dowSelect = document.querySelector('select[name="recurrence_day_of_week"]');
-                      if (dowSelect) dowSelect.value = dow;
+                      // Activate the DOW circle button
+                      document.querySelectorAll('.mw-dow-btn').forEach(function(b) {
+                          b.classList.toggle('active', parseInt(b.dataset.dow) === dow);
+                      });
+                      // Sync state with main recurrence IIFE
+                      window._recurrenceState.dow = dow;
+                      // Set hidden fields directly
+                      var dowHidden = document.getElementById('recurrenceDowHidden');
+                      if (dowHidden) dowHidden.value = dow;
 
                       // Switch plan_type to recurring if not already
                       var planType = document.getElementById('planType');
@@ -1035,10 +1234,27 @@ if ($propLat && $propLng && $apiKey) {
                           if (typeof toggleRecurring === 'function') toggleRecurring();
                       }
 
-                      // Set recurrence_pattern to weekly if blank
-                      var patternSelect = document.getElementById('recurrencePattern');
-                      if (patternSelect && !patternSelect.value) {
-                          patternSelect.value = 'weekly';
+                      // Set frequency to weekly if not already set
+                      var patternHidden = document.getElementById('recurrencePatternHidden');
+                      if (patternHidden && patternHidden.value !== 'weekly') {
+                          patternHidden.value = 'weekly';
+                          document.querySelectorAll('.mw-freq-btn').forEach(function(b) {
+                              b.classList.toggle('active', b.dataset.freq === 'weekly');
+                          });
+                          var dowWrap = document.getElementById('dowPickerWrap');
+                          if (dowWrap) dowWrap.style.display = '';
+                          var unitLabel = document.getElementById('intervalUnitLabel');
+                          if (unitLabel) { unitLabel.textContent = 'week(s)'; unitLabel.style.display = ''; }
+                      }
+
+                      // Update summary text
+                      var summaryEl = document.getElementById('recurrenceSummaryText');
+                      if (summaryEl) {
+                          var interval = parseInt(document.getElementById('recurrenceInterval').value) || 1;
+                          var dNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+                          var text = interval === 1 ? 'Repeats every week' : 'Repeats every ' + interval + ' weeks';
+                          text += ' on ' + dNames[dow];
+                          summaryEl.textContent = text;
                       }
                   }
 
