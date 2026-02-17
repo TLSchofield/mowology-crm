@@ -849,7 +849,7 @@ $activePage = 'jobs';
                   // Set measurement and quote links
                   var contactId = contactIdInput.value;
                   var measureUrl = '/crm/products/area-measurement.php?property_id=' + propId;
-                  var quoteUrl = '/crm/quotes/create.php?contact_id=' + contactId + '&property_id=' + propId;
+                  var quoteUrl = '/crm/quote-workflow.php?contact_id=' + contactId + '&property_id=' + propId;
 
                   var measureBtn = document.getElementById('measurePropertyBtn');
                   var quoteBtn = document.getElementById('createQuoteBtn');
@@ -1031,7 +1031,7 @@ $activePage = 'jobs';
                   var propId = propertyIdInput.value;
                   var contactId = contactIdInput.value;
                   var measureUrl = '/crm/products/area-measurement.php?property_id=' + propId;
-                  var quoteUrl = '/crm/quotes/create.php?contact_id=' + contactId + '&property_id=' + propId;
+                  var quoteUrl = '/crm/quote-workflow.php?contact_id=' + contactId + '&property_id=' + propId;
 
                   var measureBtn = document.getElementById('measurePropertyBtn');
                   var quoteBtn = document.getElementById('createQuoteBtn');
