@@ -11,8 +11,13 @@ $user = getCurrentUser();
 $errorHandler = new CRMErrorHandler('Dashboard', $_SERVER['REQUEST_METHOD']);
 $GLOBALS['crm_error_handler'] = $errorHandler;
 
-// Get 7-day weather forecast for dashboard
+// Get 7-day weather forecast for dashboard (today + 6 days forward)
 $weekWeather = getWeekForecast('Vancouver', 'BC');
+
+// Get 7-day profitability data (3 past + today + 3 future, aligned with weather)
+$profitStart = date('Y-m-d', strtotime('-3 days'));
+$profitEnd = date('Y-m-d', strtotime('+3 days'));
+$dailyProfit = getDailyProfitability($profitStart, $profitEnd);
 
 // Get dashboard statistics
 $db = getDB();
@@ -120,31 +125,122 @@ $activePage = 'dashboard';
             </div>
           </div>
 
-          <!-- Weather Forecast Widget -->
-          <div class="mw-dashboard-weather">
-              <div class="mw-dashboard-weather-title">7-Day Weather Forecast</div>
-              <div class="mw-dashboard-weather-grid">
+          <!-- Daily Operations Strip: Weather + Profitability -->
+          <?php
+          $opsStartDate = new DateTime('-3 days');
+          $todayStr = date('Y-m-d');
+          // Calculate 7-day totals for summary
+          $weekRevenue = 0; $weekCost = 0; $weekProfit = 0;
+          $weekVisitsCompleted = 0; $weekVisitsScheduled = 0;
+          for ($t = 0; $t < 7; $t++) {
+              $td = (clone $opsStartDate)->modify("+{$t} days")->format('Y-m-d');
+              $dp = $dailyProfit[$td] ?? [];
+              $weekRevenue += ($dp['revenue'] ?? 0) + ($dp['est_revenue'] ?? 0);
+              $weekCost += $dp['total_cost'] ?? 0;
+              $weekProfit += ($dp['revenue'] ?? 0) - ($dp['total_cost'] ?? 0);
+              $weekVisitsCompleted += $dp['visits_completed'] ?? 0;
+              $weekVisitsScheduled += $dp['visits_scheduled'] ?? 0;
+          }
+          $weekMargin = $weekRevenue > 0 ? round(($weekProfit / $weekRevenue) * 100, 1) : 0;
+          ?>
+          <div class="mw-daily-ops">
+              <div class="mw-daily-ops-header">
+                  <div class="mw-daily-ops-title">7-Day Operations</div>
+                  <div class="mw-daily-ops-summary">
+                      <span class="mw-daily-ops-stat">
+                          <span class="mw-daily-ops-stat-val">$<?php echo number_format($weekRevenue, 0); ?></span>
+                          <span class="mw-daily-ops-stat-lbl">Revenue</span>
+                      </span>
+                      <span class="mw-daily-ops-stat">
+                          <span class="mw-daily-ops-stat-val">$<?php echo number_format($weekProfit, 0); ?></span>
+                          <span class="mw-daily-ops-stat-lbl">Profit</span>
+                      </span>
+                      <span class="mw-daily-ops-stat">
+                          <span class="mw-daily-ops-stat-val <?php echo $weekMargin >= 30 ? 'mw-margin-good' : ($weekMargin >= 15 ? 'mw-margin-ok' : 'mw-margin-low'); ?>"><?php echo $weekMargin; ?>%</span>
+                          <span class="mw-daily-ops-stat-lbl">Margin</span>
+                      </span>
+                      <span class="mw-daily-ops-stat">
+                          <span class="mw-daily-ops-stat-val"><?php echo $weekVisitsCompleted + $weekVisitsScheduled; ?></span>
+                          <span class="mw-daily-ops-stat-lbl">Visits</span>
+                      </span>
+                  </div>
+              </div>
+              <div class="mw-daily-ops-grid">
                   <?php
-                  $currentDate = new DateTime();
+                  $opsDate = clone $opsStartDate;
                   for ($i = 0; $i < 7; $i++):
-                      $dateStr = $currentDate->format('Y-m-d');
+                      $dateStr = $opsDate->format('Y-m-d');
+                      $isToday = ($dateStr === $todayStr);
+                      $isPast = ($dateStr < $todayStr);
+                      $isFuture = ($dateStr > $todayStr);
+
+                      // Weather data
                       $weather = $weekWeather[$dateStr] ?? [];
-                      $icon = getWeatherIcon($weather['condition'] ?? 'Clear');
-                      $high = (int)($weather['temp_high'] ?? 12);
-                      $low = (int)($weather['temp_low'] ?? 8);
-                      $precip = (int)($weather['precipitation'] ?? 0);
+                      $wIcon = getWeatherIcon($weather['condition'] ?? 'Clear');
+                      $wHigh = (int)($weather['temp_high'] ?? 0);
+                      $wLow = (int)($weather['temp_low'] ?? 0);
+                      $wPrecip = (int)($weather['precipitation'] ?? 0);
+
+                      // Profitability data
+                      $dp = $dailyProfit[$dateStr] ?? [];
+                      $revenue = $dp['revenue'] ?? 0;
+                      $totalCost = $dp['total_cost'] ?? 0;
+                      $profit = $dp['profit'] ?? 0;
+                      $margin = $dp['margin_pct'] ?? 0;
+                      $visitsCompleted = $dp['visits_completed'] ?? 0;
+                      $visitsScheduled = $dp['visits_scheduled'] ?? 0;
+                      $estRevenue = $dp['est_revenue'] ?? 0;
+                      $hasData = ($revenue > 0 || $totalCost > 0);
+                      $hasScheduled = ($visitsScheduled > 0);
+
+                      // Margin color class
+                      $marginClass = 'mw-margin-none';
+                      if ($hasData) {
+                          $marginClass = $margin >= 30 ? 'mw-margin-good' : ($margin >= 15 ? 'mw-margin-ok' : 'mw-margin-low');
+                      }
+
+                      $dayClass = 'mw-daily-ops-day';
+                      if ($isToday) $dayClass .= ' mw-daily-ops-today';
+                      if ($isPast) $dayClass .= ' mw-daily-ops-past';
+                      if ($isFuture) $dayClass .= ' mw-daily-ops-future';
                   ?>
-                      <div class="mw-dashboard-weather-day">
-                          <div class="mw-dashboard-weather-dayname">
-                              <?php echo $currentDate->format('M j'); ?><br>
-                              <small><?php echo $currentDate->format('D'); ?></small>
+                      <div class="<?php echo $dayClass; ?>">
+                          <!-- Date -->
+                          <div class="mw-daily-ops-date">
+                              <?php echo $opsDate->format('M j'); ?>
+                              <span class="mw-daily-ops-dayname"><?php echo $isToday ? 'Today' : $opsDate->format('D'); ?></span>
                           </div>
-                          <div class="mw-dashboard-weather-icon"><?php echo $icon; ?></div>
-                          <div class="mw-dashboard-weather-temps"><?php echo $high; ?>°/<?php echo $low; ?>°</div>
-                          <div class="mw-dashboard-weather-precip">💧 <?php echo $precip; ?>%</div>
+
+                          <!-- Weather -->
+                          <div class="mw-daily-ops-weather">
+                              <span class="mw-daily-ops-wicon"><?php echo $wIcon; ?></span>
+                              <span class="mw-daily-ops-wtemps"><?php echo $wHigh; ?>°/<?php echo $wLow; ?>°</span>
+                              <?php if ($wPrecip > 0): ?>
+                                  <span class="mw-daily-ops-wprecip"><?php echo $wPrecip; ?>%</span>
+                              <?php endif; ?>
+                          </div>
+
+                          <!-- Divider -->
+                          <div class="mw-daily-ops-divider"></div>
+
+                          <!-- Profitability -->
+                          <div class="mw-daily-ops-profit">
+                              <?php if ($hasData): ?>
+                                  <div class="mw-daily-ops-visits"><?php echo $visitsCompleted; ?> visit<?php echo $visitsCompleted !== 1 ? 's' : ''; ?></div>
+                                  <div class="mw-daily-ops-revenue">$<?php echo number_format($revenue, 0); ?></div>
+                                  <div class="mw-daily-ops-cost">-$<?php echo number_format($totalCost, 0); ?></div>
+                                  <div class="mw-daily-ops-net <?php echo $marginClass; ?>">$<?php echo number_format($profit, 0); ?></div>
+                                  <div class="mw-daily-ops-margin <?php echo $marginClass; ?>"><?php echo $margin; ?>%</div>
+                              <?php elseif ($hasScheduled): ?>
+                                  <div class="mw-daily-ops-visits mw-daily-ops-scheduled"><?php echo $visitsScheduled; ?> sched.</div>
+                                  <div class="mw-daily-ops-est">~$<?php echo number_format($estRevenue, 0); ?></div>
+                              <?php else: ?>
+                                  <div class="mw-daily-ops-empty">&mdash;</div>
+                              <?php endif; ?>
+                          </div>
                       </div>
                   <?php
-                      $currentDate->modify('+1 day');
+                      $opsDate->modify('+1 day');
                   endfor;
                   ?>
               </div>

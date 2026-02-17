@@ -2090,3 +2090,145 @@ function getWorkQueueItems() {
     return $items;
 }
 
+/**
+ * Get daily profitability breakdown for a date range.
+ *
+ * For each day: revenue from completed visits, labor cost from time entries,
+ * expenses, overhead, and scheduled/estimated figures for future days.
+ *
+ * @param string $startDate YYYY-MM-DD
+ * @param string $endDate   YYYY-MM-DD
+ * @return array Keyed by YYYY-MM-DD date strings
+ */
+function getDailyProfitability(string $startDate, string $endDate): array
+{
+    $db = getDB();
+    $today = date('Y-m-d');
+    $result = [];
+
+    // Initialize each day in range
+    $d = new DateTime($startDate);
+    $end = new DateTime($endDate);
+    $end->modify('+1 day');
+    while ($d < $end) {
+        $ds = $d->format('Y-m-d');
+        $result[$ds] = [
+            'revenue'          => 0,
+            'labor_cost'       => 0,
+            'expense_cost'     => 0,
+            'overhead_cost'    => 0,
+            'total_cost'       => 0,
+            'profit'           => 0,
+            'margin_pct'       => 0,
+            'visits_completed' => 0,
+            'visits_scheduled' => 0,
+            'est_revenue'      => 0,
+        ];
+        $d->modify('+1 day');
+    }
+
+    try {
+        // 1. Revenue from completed visits
+        $stmt = $db->prepare("
+            SELECT jv.scheduled_date,
+                   COUNT(*) AS cnt,
+                   COALESCE(SUM(COALESCE(jv.actual_amount, jp.price_per_visit, 0)), 0) AS revenue
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE jv.status = 'completed'
+              AND jv.scheduled_date BETWEEN ? AND ?
+            GROUP BY jv.scheduled_date
+        ");
+        $stmt->execute([$startDate, $endDate]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $ds = $row['scheduled_date'];
+            if (isset($result[$ds])) {
+                $result[$ds]['revenue'] = (float)$row['revenue'];
+                $result[$ds]['visits_completed'] = (int)$row['cnt'];
+            }
+        }
+
+        // 2. Scheduled visits (not yet completed) + estimated revenue
+        $stmt = $db->prepare("
+            SELECT jv.scheduled_date,
+                   COUNT(*) AS cnt,
+                   COALESCE(SUM(COALESCE(jp.price_per_visit, 0)), 0) AS est_revenue
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE jv.status IN ('scheduled', 'in_progress')
+              AND jv.scheduled_date BETWEEN ? AND ?
+            GROUP BY jv.scheduled_date
+        ");
+        $stmt->execute([$startDate, $endDate]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $ds = $row['scheduled_date'];
+            if (isset($result[$ds])) {
+                $result[$ds]['visits_scheduled'] = (int)$row['cnt'];
+                $result[$ds]['est_revenue'] = (float)$row['est_revenue'];
+            }
+        }
+
+        // 3. Labor cost from time entries
+        $stmt = $db->prepare("
+            SELECT jv.scheduled_date,
+                   COALESCE(SUM(jte.duration_minutes * COALESCE(u.hourly_rate, 25) / 60), 0) AS labor_cost
+            FROM job_time_entries jte
+            JOIN job_visits jv ON jte.visit_id = jv.id
+            JOIN users u ON jte.user_id = u.id
+            WHERE jte.status IN ('completed', 'edited')
+              AND jv.scheduled_date BETWEEN ? AND ?
+            GROUP BY jv.scheduled_date
+        ");
+        $stmt->execute([$startDate, $endDate]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $ds = $row['scheduled_date'];
+            if (isset($result[$ds])) {
+                $result[$ds]['labor_cost'] = (float)$row['labor_cost'];
+            }
+        }
+
+        // 4. Expenses by date
+        $stmt = $db->prepare("
+            SELECT expense_date,
+                   COALESCE(SUM(total), 0) AS expense_total
+            FROM expenses
+            WHERE status IN ('draft', 'approved', 'forwarded')
+              AND expense_date BETWEEN ? AND ?
+            GROUP BY expense_date
+        ");
+        $stmt->execute([$startDate, $endDate]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $ds = $row['expense_date'];
+            if (isset($result[$ds])) {
+                $result[$ds]['expense_cost'] = (float)$row['expense_total'];
+            }
+        }
+
+        // 5. Overhead settings (self-contained query to avoid PlanFunctions dependency)
+        $overheadPct = 20.0;
+        try {
+            $ohStmt = $db->prepare("SELECT setting_value FROM overhead_settings WHERE setting_key = 'overhead_percent'");
+            $ohStmt->execute();
+            $val = $ohStmt->fetchColumn();
+            if ($val !== false) $overheadPct = (float)$val;
+        } catch (Exception $e) {}
+
+        // 6. Calculate totals for each day
+        foreach ($result as $ds => &$day) {
+            $directCosts = $day['labor_cost'] + $day['expense_cost'];
+            $day['overhead_cost'] = round($directCosts * ($overheadPct / 100), 2);
+            $day['total_cost'] = round($directCosts + $day['overhead_cost'], 2);
+            $day['profit'] = round($day['revenue'] - $day['total_cost'], 2);
+            $day['margin_pct'] = $day['revenue'] > 0
+                ? round(($day['profit'] / $day['revenue']) * 100, 1)
+                : 0;
+        }
+        unset($day);
+
+    } catch (PDOException $e) {
+        error_log("getDailyProfitability error: " . $e->getMessage());
+    }
+
+    return $result;
+}
+
