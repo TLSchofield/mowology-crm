@@ -404,6 +404,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         // Existing measurements from database
         const existingMeasurements = <?php echo json_encode($existingMeasurements); ?>;
 
+        // Area type options for inline editing
+        const areaTypeOptions = <?php echo json_encode($areaTypeOptions); ?>;
+
         function initMap() {
             // Check if we have property coordinates
             const propLat = document.getElementById('propertyLat');
@@ -713,6 +716,29 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             calculatePricing();
         }
 
+        function buildTypeOptions(selectedType) {
+            // Build <option> list from areaTypeOptions (from DB) or fallback
+            var opts = '';
+            if (areaTypeOptions && areaTypeOptions.length > 0) {
+                areaTypeOptions.forEach(function(opt) {
+                    var sel = opt.value === selectedType ? ' selected' : '';
+                    opts += '<option value="' + opt.value + '"' + sel + '>' + opt.label + '</option>';
+                });
+            } else {
+                var fallback = ['lawn','garden','driveway','walkway','patio','parking','hedge','other'];
+                fallback.forEach(function(v) {
+                    var sel = v === selectedType ? ' selected' : '';
+                    opts += '<option value="' + v + '"' + sel + '>' + v.charAt(0).toUpperCase() + v.slice(1) + '</option>';
+                });
+            }
+            return opts;
+        }
+
+        function changeAreaType(areaId, newType) {
+            var area = savedAreas.find(function(a) { return a.id === areaId; });
+            if (area) area.type = newType;
+        }
+
         function updateAreasList() {
             const container = document.getElementById('areasList');
 
@@ -725,7 +751,12 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 <div class="mw-area-item" style="border-left: 4px solid ${area.color};">
                     <div class="mw-area-item-info">
                         <div class="mw-area-item-name">${area.name}</div>
-                        <div class="mw-area-item-detail">${area.type} - ${area.shapeType === 'polyline' ? (area.linearFt || 0).toLocaleString() + ' lin ft' : area.sqFt.toLocaleString() + ' sq ft'}</div>
+                        <div class="mw-area-item-detail">
+                            <select class="form-control form-control-sm mw-area-type-select" onchange="changeAreaType(${area.id}, this.value)">
+                                ${buildTypeOptions(area.type)}
+                            </select>
+                            <span class="ml-1">${area.shapeType === 'polyline' ? (area.linearFt || 0).toLocaleString() + ' lin ft' : area.sqFt.toLocaleString() + ' sq ft'}</span>
+                        </div>
                     </div>
                     <div class="mw-area-item-actions">
                         <button onclick="zoomToArea(${area.id})" title="Zoom to area">Zoom</button>

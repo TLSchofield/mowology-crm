@@ -528,6 +528,18 @@ a:hover {
 .mw-area-item-detail {
   font-size: 0.8rem;
   color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mw-area-type-select {
+  display: inline-block;
+  width: auto;
+  max-width: 120px;
+  font-size: 0.75rem;
+  padding: 1px 4px;
+  height: auto;
+  border-color: #dee2e6;
 }
 
 .mw-area-item-actions {
