@@ -56,8 +56,9 @@ try {
     }
 
     if ($searchQuery) {
-        $whereConditions[] = '(jp.plan_number LIKE ? OR c.company_name LIKE ? OR p.address LIKE ? OR jp.title LIKE ?)';
+        $whereConditions[] = '(jp.plan_number LIKE ? OR c.company_name LIKE ? OR p.address LIKE ? OR jp.title LIKE ? OR CONCAT(ct.first_name, " ", ct.last_name) LIKE ?)';
         $searchParam = "%{$searchQuery}%";
+        $params[] = $searchParam;
         $params[] = $searchParam;
         $params[] = $searchParam;
         $params[] = $searchParam;
@@ -70,6 +71,8 @@ try {
         SELECT
             jp.*,
             c.company_name,
+            ct.first_name AS contact_first_name,
+            ct.last_name AS contact_last_name,
             p.address,
             p.city,
             u.full_name AS crew_name,
@@ -79,6 +82,7 @@ try {
             (SELECT MIN(jv.scheduled_date) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'scheduled' AND jv.scheduled_date >= CURDATE()) AS next_visit
         FROM job_plans jp
         LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN contacts ct ON p.site_contact_id = ct.id
         LEFT JOIN companies c ON jp.company_id = c.id
         LEFT JOIN users u ON jp.default_crew_id = u.id
         LEFT JOIN quotes q ON jp.quote_id = q.id
@@ -306,7 +310,10 @@ $activePage = 'jobs';
                                       <?php endif; ?>
                                   </td>
                                   <td>
-                                      <div><?php echo htmlspecialchars($plan['company_name'] ?? 'N/A'); ?></div>
+                                      <?php
+                                          $clientName = $plan['company_name'] ?: trim(($plan['contact_first_name'] ?? '') . ' ' . ($plan['contact_last_name'] ?? ''));
+                                      ?>
+                                      <div><?php echo htmlspecialchars($clientName ?: 'N/A'); ?></div>
                                   </td>
                                   <td>
                                       <?php if (!empty($plan['crew_name'])): ?>
