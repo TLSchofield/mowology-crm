@@ -190,12 +190,13 @@ $activePage = 'dashboard';
                       $visitsCompleted = $dp['visits_completed'] ?? 0;
                       $visitsScheduled = $dp['visits_scheduled'] ?? 0;
                       $estRevenue = $dp['est_revenue'] ?? 0;
-                      $hasData = ($revenue > 0 || $totalCost > 0);
+                      $hasCompleted = ($visitsCompleted > 0);
                       $hasScheduled = ($visitsScheduled > 0);
+                      $hasExpensesOnly = (!$hasCompleted && !$hasScheduled && $totalCost > 0);
 
                       // Margin color class
                       $marginClass = 'mw-margin-none';
-                      if ($hasData) {
+                      if ($hasCompleted && $revenue > 0) {
                           $marginClass = $margin >= 30 ? 'mw-margin-good' : ($margin >= 15 ? 'mw-margin-ok' : 'mw-margin-low');
                       }
 
@@ -225,7 +226,7 @@ $activePage = 'dashboard';
 
                           <!-- Profitability -->
                           <div class="mw-daily-ops-profit">
-                              <?php if ($hasData): ?>
+                              <?php if ($hasCompleted): ?>
                                   <div class="mw-daily-ops-visits"><?php echo $visitsCompleted; ?> visit<?php echo $visitsCompleted !== 1 ? 's' : ''; ?></div>
                                   <div class="mw-daily-ops-revenue">$<?php echo number_format($revenue, 0); ?></div>
                                   <div class="mw-daily-ops-cost">-$<?php echo number_format($totalCost, 0); ?></div>
@@ -234,6 +235,12 @@ $activePage = 'dashboard';
                               <?php elseif ($hasScheduled): ?>
                                   <div class="mw-daily-ops-visits mw-daily-ops-scheduled"><?php echo $visitsScheduled; ?> sched.</div>
                                   <div class="mw-daily-ops-est">~$<?php echo number_format($estRevenue, 0); ?></div>
+                                  <?php if ($totalCost > 0): ?>
+                                      <div class="mw-daily-ops-cost">-$<?php echo number_format($totalCost, 0); ?> exp</div>
+                                  <?php endif; ?>
+                              <?php elseif ($hasExpensesOnly): ?>
+                                  <div class="mw-daily-ops-visits">0 visits</div>
+                                  <div class="mw-daily-ops-cost">-$<?php echo number_format($totalCost, 0); ?> exp</div>
                               <?php else: ?>
                                   <div class="mw-daily-ops-empty">&mdash;</div>
                               <?php endif; ?>
