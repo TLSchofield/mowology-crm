@@ -850,7 +850,13 @@ if ($action === 'view_contact' && $clientId) {
         $stmt = $db->prepare("
             SELECT p.id, p.property_name, p.address, p.city, p.province,
                    p.postal_code, p.latitude, p.longitude, p.property_type,
-                   p.lot_size_sqft, p.status, p.notes
+                   p.lot_size_sqft, p.status, p.notes,
+                   COALESCE(p.total_lawn_sqft, 0) AS total_lawn_sqft,
+                   COALESCE(p.total_hard_surface_sqft, 0) AS total_hard_surface_sqft,
+                   COALESCE(p.total_hedge_linear_ft, 0) AS total_hedge_linear_ft,
+                   COALESCE(p.total_other_sqft, 0) AS total_other_sqft,
+                   p.measurements_updated_at,
+                   (SELECT COUNT(*) FROM property_measurements pm WHERE pm.property_id = p.id) AS measurement_count
             FROM properties p
             WHERE p.site_contact_id = ?
             ORDER BY p.address ASC
@@ -1938,6 +1944,48 @@ $unconvertedRequests = $db->query("
                               <button type="button" class="mw-property-tag-add-btn" onclick="showTagPicker(<?php echo (int)$prop['id']; ?>, this)" title="Add tag">
                                 <i data-feather="plus" style="width: 10px; height: 10px;"></i>
                               </button>
+                            </div>
+                            <!-- Measurement Status -->
+                            <?php
+                              $mCount = (int)($prop['measurement_count'] ?? 0);
+                              $lawnSqft = floatval($prop['total_lawn_sqft'] ?? 0);
+                              $hardSqft = floatval($prop['total_hard_surface_sqft'] ?? 0);
+                              $hedgeFt = floatval($prop['total_hedge_linear_ft'] ?? 0);
+                              $otherSqft = floatval($prop['total_other_sqft'] ?? 0);
+                              $measuredAt = $prop['measurements_updated_at'] ?? null;
+                            ?>
+                            <div class="mw-property-measurement-status" onclick="event.stopPropagation();">
+                              <?php if ($mCount > 0): ?>
+                                <span class="mw-measurement-badge mw-measurement-done" title="<?php echo $mCount; ?> area(s) measured">
+                                  <i data-feather="check-circle" style="width: 11px; height: 11px;"></i> Measured
+                                </span>
+                                <span class="mw-measurement-summary">
+                                  <?php
+                                    $parts = [];
+                                    if ($lawnSqft > 0) $parts[] = number_format($lawnSqft) . ' sq ft lawn';
+                                    if ($hardSqft > 0) $parts[] = number_format($hardSqft) . ' sq ft hard';
+                                    if ($hedgeFt > 0) $parts[] = number_format($hedgeFt) . ' lin ft hedge';
+                                    if ($otherSqft > 0) $parts[] = number_format($otherSqft) . ' sq ft other';
+                                    echo h(implode(' · ', $parts) ?: $mCount . ' area(s)');
+                                  ?>
+                                </span>
+                                <?php if ($measuredAt): ?>
+                                  <span class="mw-measurement-date"><?php echo h(timeAgo($measuredAt)); ?></span>
+                                <?php endif; ?>
+                              <?php else: ?>
+                                <span class="mw-measurement-badge mw-measurement-pending">
+                                  <i data-feather="alert-circle" style="width: 11px; height: 11px;"></i> Not measured
+                                </span>
+                              <?php endif; ?>
+                            </div>
+                            <!-- Quick Actions -->
+                            <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
+                              <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Measure property and create quote">
+                                <i data-feather="file-text" style="width: 11px; height: 11px;"></i> Quote &amp; Measure
+                              </a>
+                              <a href="jobs/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn" title="Create job plan for this property">
+                                <i data-feather="clipboard" style="width: 11px; height: 11px;"></i> Create Plan
+                              </a>
                             </div>
                           </div>
                           <div class="d-flex align-items-center" onclick="event.stopPropagation();">

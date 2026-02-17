@@ -26,8 +26,51 @@ $db = getDB();
 $error = '';
 $success = '';
 
-// Require a quote request ID
+// Accept request_id OR contact_id + property_id for direct entry
 $requestId = isset($_GET['request_id']) ? intval($_GET['request_id']) : 0;
+
+// Direct entry: auto-create a quote request from contact + property
+if (!$requestId && !empty($_GET['contact_id']) && !empty($_GET['property_id'])) {
+    $directContactId = intval($_GET['contact_id']);
+    $directPropertyId = intval($_GET['property_id']);
+
+    // Verify contact and property exist
+    $contactCheck = $db->prepare("SELECT id FROM contacts WHERE id = ?");
+    $contactCheck->execute([$directContactId]);
+    $propertyCheck = $db->prepare("SELECT id FROM properties WHERE id = ?");
+    $propertyCheck->execute([$directPropertyId]);
+
+    if ($contactCheck->fetch() && $propertyCheck->fetch()) {
+        // Check for existing open (non-quoted) request for this contact+property
+        $existingStmt = $db->prepare("
+            SELECT id FROM quote_requests
+            WHERE contact_id = ? AND property_id = ? AND status IN ('new', 'reviewing')
+            ORDER BY created_at DESC LIMIT 1
+        ");
+        $existingStmt->execute([$directContactId, $directPropertyId]);
+        $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing) {
+            // Reuse existing open request
+            $requestId = (int)$existing['id'];
+        } else {
+            // Auto-create a quote request
+            $createStmt = $db->prepare("
+                INSERT INTO quote_requests
+                    (contact_id, property_id, service_types, urgency, project_description,
+                     status, source)
+                VALUES (?, ?, '', 'inquiring', '', 'reviewing', 'crm-direct')
+            ");
+            $createStmt->execute([$directContactId, $directPropertyId]);
+            $requestId = (int)$db->lastInsertId();
+        }
+
+        // Redirect to canonical URL with request_id
+        header("Location: quote-workflow.php?request_id={$requestId}");
+        exit;
+    }
+}
+
 if (!$requestId) {
     header('Location: dashboard_appstack.php');
     exit;

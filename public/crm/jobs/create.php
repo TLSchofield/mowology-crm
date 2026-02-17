@@ -150,6 +150,29 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_properties' && $_SERVER['
 $error = '';
 $prefill = [];
 
+// Pre-fill from URL params (contact_id + property_id from client page)
+$urlContactId = isset($_GET['contact_id']) ? intval($_GET['contact_id']) : 0;
+$urlPropertyId = isset($_GET['property_id']) ? intval($_GET['property_id']) : 0;
+
+if ($urlContactId && $urlPropertyId) {
+    $cpStmt = $db->prepare("
+        SELECT c.id AS contact_id, c.first_name, c.last_name, c.email,
+               p.id AS property_id, p.address, p.city
+        FROM contacts c, properties p
+        WHERE c.id = ? AND p.id = ?
+    ");
+    $cpStmt->execute([$urlContactId, $urlPropertyId]);
+    $cpData = $cpStmt->fetch(PDO::FETCH_ASSOC);
+    if ($cpData) {
+        $prefill = [
+            'contact_id'       => $cpData['contact_id'],
+            'contact_name'     => trim($cpData['first_name'] . ' ' . $cpData['last_name']),
+            'property_id'      => $cpData['property_id'],
+            'property_address' => $cpData['address'] . ', ' . $cpData['city'],
+        ];
+    }
+}
+
 // Check if creating from quote
 $quoteId = isset($_GET['quote_id']) ? intval($_GET['quote_id']) : 0;
 
@@ -348,12 +371,12 @@ $activePage = 'jobs';
                               <input type="text" id="clientSearch" class="form-control"
                                      placeholder="Start typing a name, company, email, or phone..."
                                      autocomplete="off"
-                                     value="<?php echo htmlspecialchars($prefill['company_name'] ?? ''); ?>"
-                                     <?php echo !empty($prefill['company_id']) ? 'readonly' : ''; ?>>
+                                     value="<?php echo htmlspecialchars($prefill['company_name'] ?? $prefill['contact_name'] ?? ''); ?>"
+                                     <?php echo (!empty($prefill['company_id']) || !empty($prefill['contact_id'])) ? 'readonly' : ''; ?>>
                               <div id="clientSearchResults" class="mw-search-results"></div>
                           </div>
                           <div class="mw-search-actions">
-                              <?php if (!empty($prefill['company_id'])): ?>
+                              <?php if (!empty($prefill['company_id']) || !empty($prefill['contact_id'])): ?>
                                   <a href="#" id="clearClient" class="mw-search-clear">Change client</a>
                               <?php endif; ?>
                               <a href="/crm/clients_appstack.php?action=create" target="_blank" class="mw-new-contact-btn">
@@ -431,9 +454,14 @@ $activePage = 'jobs';
               <div class="card">
                   <div class="card-header d-flex justify-content-between align-items-center">
                       <h5 class="card-title mb-0">Plan Items <small class="text-muted">(optional)</small></h5>
-                      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addManualItem()">
-                          <i data-feather="plus" style="width:14px;height:14px;"></i> Add Item
-                      </button>
+                      <div>
+                          <button type="button" class="btn btn-sm btn-outline-success mr-1" id="autoFillBtn" onclick="autoFillFromMeasurements()" style="display:none;" title="Auto-fill items from property measurements">
+                              <i data-feather="zap" style="width:14px;height:14px;"></i> Auto-Fill from Measurements
+                          </button>
+                          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addManualItem()">
+                              <i data-feather="plus" style="width:14px;height:14px;"></i> Add Item
+                          </button>
+                      </div>
                   </div>
                   <div class="card-body">
                       <p class="text-muted small mb-3" id="itemsHint">Add service items to break down what's included in each visit. If no items are added, the plan will use the price per visit from the Pricing section below.</p>
@@ -795,6 +823,10 @@ $activePage = 'jobs';
                   // Select this one
                   card.classList.add('selected');
                   propertyIdInput.value = card.dataset.propertyId;
+
+                  // Show auto-fill button now that a property is selected
+                  var afBtn = document.getElementById('autoFillBtn');
+                  if (afBtn) afBtn.style.display = '';
               }
 
               // ── If prefilled, load properties on page load ──
@@ -874,6 +906,90 @@ $activePage = 'jobs';
                       if (ppv) ppv.value = sum.toFixed(2);
                       if (ea) ea.value = sum.toFixed(2);
                   }
+              }
+
+              // ── Auto-fill from measurements ──
+              window.autoFillFromMeasurements = function() {
+                  var propId = propertyIdInput.value;
+                  if (!propId) {
+                      alert('Please select a property first.');
+                      return;
+                  }
+
+                  var btn = document.getElementById('autoFillBtn');
+                  var origText = btn.innerHTML;
+                  btn.disabled = true;
+                  btn.innerHTML = '<i data-feather="loader" style="width:14px;height:14px;"></i> Loading...';
+                  if (typeof feather !== 'undefined') feather.replace();
+
+                  // Call the existing auto-fill API
+                  fetch('/crm/api/quote-autofill.php?action=auto-fill', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                      body: 'property_id=' + propId
+                  })
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                      btn.disabled = false;
+                      btn.innerHTML = origText;
+                      if (typeof feather !== 'undefined') feather.replace();
+
+                      if (!data.success) {
+                          alert(data.error || 'Could not auto-fill. Try measuring the property first.');
+                          return;
+                      }
+
+                      if (!data.items || data.items.length === 0) {
+                          alert('No pricing rules matched the measurements. Add items manually or set up pricing rules in Products.');
+                          return;
+                      }
+
+                      // Clear existing items
+                      var body = document.getElementById('planItemsBody');
+                      body.innerHTML = '';
+                      itemIndex = 0;
+
+                      var table = document.getElementById('planItemsTable');
+                      var hint = document.getElementById('itemsHint');
+                      table.style.display = '';
+                      if (hint) hint.style.display = 'none';
+
+                      // Insert auto-filled items
+                      data.items.forEach(function(item) {
+                          var idx = itemIndex++;
+                          var lineTotal = parseFloat(item.line_total) || 0;
+                          var tr = document.createElement('tr');
+                          tr.innerHTML =
+                              '<td><input type="text" name="items[' + idx + '][service_type]" class="form-control form-control-sm" value="' + escapeAttr(item.service_type || '') + '" required></td>' +
+                              '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm" value="' + escapeAttr(item.description || '') + '"></td>' +
+                              '<td><input type="number" name="items[' + idx + '][quantity]" class="form-control form-control-sm mw-cfq-qty" value="' + (item.quantity || 1) + '" min="0.01" step="0.01" onchange="recalcItemRow(this)" style="width:70px;"></td>' +
+                              '<td><input type="number" name="items[' + idx + '][unit_price]" class="form-control form-control-sm mw-cfq-price text-right" value="' + (parseFloat(item.unit_price) || 0).toFixed(2) + '" min="0" step="0.01" onchange="recalcItemRow(this)" style="width:90px;">' +
+                                  '<input type="hidden" name="items[' + idx + '][unit_type]" value="visit"></td>' +
+                              '<td class="text-right"><span class="mw-cfq-row-total">$' + lineTotal.toFixed(2) + '</span>' +
+                                  '<input type="hidden" name="items[' + idx + '][line_total]" class="mw-cfq-total-input" value="' + lineTotal.toFixed(2) + '"></td>' +
+                              '<td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeItemRow(this)" title="Remove">&times;</button></td>';
+                          body.appendChild(tr);
+                      });
+
+                      updateItemTotals();
+
+                      // Show warnings if any
+                      if (data.warnings && data.warnings.length > 0) {
+                          alert('Auto-filled ' + data.items.length + ' item(s). Note: ' + data.warnings.join('; '));
+                      }
+                  })
+                  .catch(function(err) {
+                      btn.disabled = false;
+                      btn.innerHTML = origText;
+                      if (typeof feather !== 'undefined') feather.replace();
+                      alert('Error connecting to pricing API. Please try again.');
+                  });
+              };
+
+              // Show auto-fill button if property is already selected (prefill)
+              if (propertyIdInput.value) {
+                  var afBtn = document.getElementById('autoFillBtn');
+                  if (afBtn) afBtn.style.display = '';
               }
 
               // ── Recurring toggle ──
