@@ -509,9 +509,11 @@ function extractVendorHint(array $lines): ?string
 function extractTotal(string $text, array $lines): ?string
 {
     // Pattern: TOTAL, AMOUNT DUE, BALANCE DUE, etc. followed by dollar amount (same line)
+    // IMPORTANT: negative lookbehind (?<!SUB) prevents matching "SUBTOTAL" as "TOTAL"
     $totalPatterns = [
-        '/(?:TOTAL\s*(?:DUE)?|AMOUNT\s*DUE|BALANCE\s*DUE|GRAND\s*TOTAL|PURCHASE\s*TOTAL)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
-        '/^.*TOTAL[^$\d]*\$?\s*(\d{1,6}[.,]\d{2})\s*$/im',
+        '/(?<!SUB)TOTAL\s*(?:DUE)?\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
+        '/(?:AMOUNT\s*DUE|BALANCE\s*DUE|GRAND\s*TOTAL|PURCHASE\s*TOTAL)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i',
+        '/^.*(?<!SUB)TOTAL[^$\d\n]*\$?\s*(\d{1,6}[.,]\d{2})\s*$/im',
     ];
 
     foreach ($totalPatterns as $pattern) {
@@ -625,7 +627,7 @@ function extractGST(string $text): ?string
 function extractSubtotal(string $text): ?string
 {
     // Same-line pattern
-    $pattern = '/(?:SUB\s*TOTAL|SUBTOTAL)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i';
+    $pattern = '/(?:SUB[\s\-]*TOTAL|SUBTOTAL)\s*:?\s*\$?\s*(\d{1,6}[.,]\d{2})/i';
     if (preg_match($pattern, $text, $m)) {
         return str_replace(',', '.', $m[1]);
     }
@@ -635,7 +637,7 @@ function extractSubtotal(string $text): ?string
     $lineCount = count($lines);
     for ($i = 0; $i < $lineCount - 1; $i++) {
         $line = trim($lines[$i]);
-        if (preg_match('/^(?:SUB\s*TOTAL|SUBTOTAL)\s*:?\s*$/i', $line)) {
+        if (preg_match('/^(?:SUB[\s\-]*TOTAL|SUBTOTAL)\s*:?\s*$/i', $line)) {
             $nextLine = trim($lines[$i + 1]);
             if (preg_match('/^\$?(\d{1,6}[.,]\d{2})\s*$/', $nextLine, $m)) {
                 return str_replace(',', '.', $m[1]);
@@ -877,20 +879,19 @@ function extractColumnSeparatedAmounts(array $lines): array
 {
     $result = ['subtotal' => null, 'pst' => null, 'gst' => null, 'total' => null];
 
-    // Build a map of label positions (line index => label type)
+    // ── Phase 1: Detect labels and their order ──────────────────────
     $labels = [];
     $labelOrder = [];
 
     for ($i = 0; $i < count($lines); $i++) {
         $line = trim($lines[$i]);
-        $lineUpper = strtoupper($line);
 
         // Skip lines that already have amounts on them (handled by same-line extractors)
         if (preg_match('/\d{1,6}[.,]\d{2}/', $line) && preg_match('/[A-Z]{3,}/i', $line)) {
             continue;
         }
 
-        if (preg_match('/^(?:SUB\s*TOTAL|SUBTOTAL)\s*:?\s*$/i', $line)) {
+        if (preg_match('/^(?:SUB[\s\-]*TOTAL|SUBTOTAL)\s*:?\s*$/i', $line)) {
             $labels[$i] = 'subtotal';
             $labelOrder[] = 'subtotal';
         } elseif (preg_match('/^PST\s*(?:\d+%?)?\s*:?\s*$/i', $line)) {
@@ -904,69 +905,265 @@ function extractColumnSeparatedAmounts(array $lines): array
             $labels[$i] = 'total';
             $labelOrder[] = 'total';
         }
-        // Skip non-amount labels like AMOUNT PAID, CHANGE DUE, GST/HST #...
     }
 
     if (empty($labelOrder)) {
         return $result;
     }
 
-    // Now find a block of consecutive dollar amounts after the labels
     $lastLabelLine = max(array_keys($labels));
 
-    // Scan forward from the last label to find the amount block
+    // ── Phase 2: Find payment section boundary ──────────────────────
+    // POS receipts often print a TRANSACTION RECORD / debit card section that
+    // repeats the same dollar amounts. Detect where it starts so we can
+    // collect amounts only from the first (correct) occurrence.
+    $paymentStart = findPaymentSectionStart($lines, $lastLabelLine);
+
+    // ── Phase 3: Collect dollar amounts, stopping at payment boundary ─
     $amounts = [];
-    for ($i = $lastLabelLine + 1; $i < count($lines); $i++) {
+    $scanEnd = $paymentStart ?? count($lines);
+
+    for ($i = $lastLabelLine + 1; $i < $scanEnd; $i++) {
         $line = trim($lines[$i]);
-        // Match standalone dollar amounts (with or without $ sign)
         if (preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $line, $m)) {
             $amounts[] = str_replace(',', '.', $m[1]);
-        } elseif (!empty($amounts)) {
-            // Non-amount line after we started collecting — stop only if we've collected enough
-            // But some receipts have GST/HST # lines between labels and amounts, so keep scanning
-            if (preg_match('/^[A-Z]/', $line) && !preg_match('/^\$/', $line)) {
-                // It's a text line — if we already have enough amounts, stop
-                if (count($amounts) >= count($labelOrder)) {
-                    break;
+        }
+    }
+
+    // If we didn't find enough amounts before the payment section,
+    // scan the full text but deduplicate consecutive identical amounts
+    if (count($amounts) < count($labelOrder)) {
+        $amounts = [];
+        $prevAmount = null;
+        for ($i = $lastLabelLine + 1; $i < count($lines); $i++) {
+            $line = trim($lines[$i]);
+            if (preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $line, $m)) {
+                $val = str_replace(',', '.', $m[1]);
+                // Skip consecutive duplicates (card section repeats)
+                if ($val !== $prevAmount) {
+                    $amounts[] = $val;
                 }
+                $prevAmount = $val;
+            } else {
+                $prevAmount = null; // Reset on non-amount line
             }
         }
     }
 
-    // If we didn't find amounts after labels, try scanning backwards from end of text
-    // (amounts might be at the very end)
+    // Last resort: scan backward from end of text
     if (count($amounts) < count($labelOrder)) {
         $amounts = [];
+        $prevAmount = null;
         for ($i = count($lines) - 1; $i > $lastLabelLine; $i--) {
             $line = trim($lines[$i]);
             if (preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $line, $m)) {
-                array_unshift($amounts, str_replace(',', '.', $m[1]));
-            } elseif (!empty($amounts) && count($amounts) >= count($labelOrder)) {
-                break;
+                $val = str_replace(',', '.', $m[1]);
+                if ($val !== $prevAmount) {
+                    array_unshift($amounts, $val);
+                }
+                $prevAmount = $val;
+            } else {
+                $prevAmount = null;
             }
         }
     }
 
-    // Match labels to amounts by position
-    if (count($amounts) >= count($labelOrder)) {
-        foreach ($labelOrder as $idx => $type) {
-            if (isset($amounts[$idx])) {
-                $result[$type] = $amounts[$idx];
+    // ── Phase 4: Match amounts to labels ─────────────────────────────
+    if (count($amounts) < count($labelOrder)) {
+        return $result; // Not enough amounts found
+    }
+
+    // Try positional matching first
+    foreach ($labelOrder as $idx => $type) {
+        if (isset($amounts[$idx])) {
+            $result[$type] = $amounts[$idx];
+        }
+    }
+
+    // ── Phase 5: Validate and fall back to semantic matching ─────────
+    if (!validateColumnAmounts($result)) {
+        // Positional matching failed — try semantic (value-based) matching
+        $result = semanticMatchAmounts($amounts, $labelOrder);
+    }
+
+    return $result;
+}
+
+/**
+ * Detect where the payment/debit card section begins on a receipt.
+ * Returns the line index of the first payment marker found after $afterLine, or null.
+ */
+function findPaymentSectionStart(array $lines, int $afterLine): ?int
+{
+    $markers = [
+        '/^DEBIT\s*\/\s*CREDIT/i',
+        '/^CREDIT\s*\/\s*DEBIT/i',
+        '/^TRANSACTION\s+RECORD/i',
+        '/^(?:DEBIT|CREDIT)\s+CARD\s+PURCHASE/i',
+        '/^Term\s*[#:]/i',
+        '/^Term\s+Id\s*:/i',
+        '/^Card\s*[#:]/i',
+        '/^Batch\s*:\s*\d/i',
+        '/^AID\s*:\s*[A-F0-9]/i',
+    ];
+
+    for ($i = $afterLine + 1; $i < count($lines); $i++) {
+        $line = trim($lines[$i]);
+        foreach ($markers as $pattern) {
+            if (preg_match($pattern, $line)) {
+                return $i;
             }
         }
     }
 
-    // Validation: if we have subtotal and GST, check that GST is ~5% of subtotal (sanity check)
-    if ($result['subtotal'] !== null && $result['gst'] !== null) {
-        $sub = (float)$result['subtotal'];
-        $gst = (float)$result['gst'];
-        if ($sub > 0) {
-            $pct = $gst / $sub;
-            if ($pct < 0.01 || $pct > 0.15) {
-                // GST is unreasonable — amounts might be misaligned, discard
-                $result = ['subtotal' => null, 'pst' => null, 'gst' => null, 'total' => null];
+    return null;
+}
+
+/**
+ * Validate that column-separated extracted amounts are reasonable.
+ * Returns true if amounts look correct, false if they seem misaligned.
+ */
+function validateColumnAmounts(array $result): bool
+{
+    $sub   = $result['subtotal'] !== null ? (float)$result['subtotal'] : null;
+    $gst   = $result['gst'] !== null ? (float)$result['gst'] : null;
+    $pst   = $result['pst'] !== null ? (float)$result['pst'] : null;
+    $total = $result['total'] !== null ? (float)$result['total'] : null;
+
+    // If total exists, it must be the largest amount
+    if ($total !== null) {
+        if ($sub !== null && $total < $sub) return false;
+        if ($gst !== null && $total < $gst) return false;
+        if ($pst !== null && $total < $pst) return false;
+    }
+
+    // GST should be roughly 5% of subtotal (allow 2%-15% for rounding/provinces)
+    if ($sub !== null && $gst !== null && $sub > 0) {
+        $pct = $gst / $sub;
+        if ($pct < 0.02 || $pct > 0.15) return false;
+    }
+
+    // If we have all three, check subtotal + taxes ≈ total
+    if ($sub !== null && $gst !== null && $total !== null) {
+        $expected = $sub + $gst + ($pst ?? 0);
+        if (abs($expected - $total) > 0.10) return false;
+    }
+
+    return true;
+}
+
+/**
+ * Match amounts to labels using semantic (value-based) logic.
+ * Used when positional matching fails validation.
+ *
+ * Strategy:
+ *   TOTAL  = largest amount
+ *   GST    = amount closest to 5% of (TOTAL - taxes)
+ *   PST    = amount closest to 7% of subtotal (if PST label present)
+ *   SUBTOTAL = remaining amount, or TOTAL - GST - PST
+ */
+function semanticMatchAmounts(array $amounts, array $labelOrder): array
+{
+    $result = ['subtotal' => null, 'pst' => null, 'gst' => null, 'total' => null];
+    $hasLabel = array_flip($labelOrder);
+
+    // Take only the first N amounts matching label count
+    $useAmounts = array_slice($amounts, 0, max(count($labelOrder), 4));
+    $floats = array_map('floatval', $useAmounts);
+
+    if (empty($floats)) return $result;
+
+    // TOTAL = largest value
+    $maxIdx = 0;
+    $maxVal = $floats[0];
+    for ($i = 1; $i < count($floats); $i++) {
+        if ($floats[$i] > $maxVal) {
+            $maxVal = $floats[$i];
+            $maxIdx = $i;
+        }
+    }
+
+    if (isset($hasLabel['total'])) {
+        $result['total'] = $useAmounts[$maxIdx];
+    }
+
+    // Remaining amounts (exclude the total)
+    $remaining = [];
+    for ($i = 0; $i < count($useAmounts); $i++) {
+        if ($i !== $maxIdx) {
+            $remaining[] = ['val' => $floats[$i], 'str' => $useAmounts[$i]];
+        }
+    }
+
+    // Find GST: amount closest to 5% of maxVal
+    if (isset($hasLabel['gst']) && !empty($remaining)) {
+        $bestGstIdx = 0;
+        $bestGstDiff = PHP_FLOAT_MAX;
+        $expectedGst = $maxVal * 0.05 / 1.12; // rough: 5% of pre-tax base (assuming ~12% total tax)
+        // Simpler: GST is usually the smallest tax amount in BC
+        foreach ($remaining as $ri => $r) {
+            // GST should be between 1% and 8% of the total
+            $pctOfTotal = $maxVal > 0 ? $r['val'] / $maxVal : 0;
+            if ($pctOfTotal >= 0.01 && $pctOfTotal <= 0.08) {
+                $diff = abs($r['val'] - $maxVal * 0.05 / 1.12);
+                if ($diff < $bestGstDiff) {
+                    $bestGstDiff = $diff;
+                    $bestGstIdx = $ri;
+                }
             }
         }
+        // If we found a reasonable GST candidate
+        if ($bestGstDiff < PHP_FLOAT_MAX) {
+            $result['gst'] = $remaining[$bestGstIdx]['str'];
+            array_splice($remaining, $bestGstIdx, 1);
+        }
+    }
+
+    // Find PST: amount closest to 7% of estimated subtotal
+    if (isset($hasLabel['pst']) && !empty($remaining)) {
+        $bestPstIdx = 0;
+        $bestPstDiff = PHP_FLOAT_MAX;
+        foreach ($remaining as $ri => $r) {
+            $pctOfTotal = $maxVal > 0 ? $r['val'] / $maxVal : 0;
+            if ($pctOfTotal >= 0.03 && $pctOfTotal <= 0.12) {
+                $diff = abs($r['val'] - $maxVal * 0.07 / 1.12);
+                if ($diff < $bestPstDiff) {
+                    $bestPstDiff = $diff;
+                    $bestPstIdx = $ri;
+                }
+            }
+        }
+        if ($bestPstDiff < PHP_FLOAT_MAX) {
+            $result['pst'] = $remaining[$bestPstIdx]['str'];
+            array_splice($remaining, $bestPstIdx, 1);
+        }
+    }
+
+    // SUBTOTAL = remaining largest value, or calculate from total - taxes
+    if (isset($hasLabel['subtotal'])) {
+        if (!empty($remaining)) {
+            // Take the largest remaining
+            $bestSubIdx = 0;
+            $bestSubVal = $remaining[0]['val'];
+            for ($i = 1; $i < count($remaining); $i++) {
+                if ($remaining[$i]['val'] > $bestSubVal) {
+                    $bestSubVal = $remaining[$i]['val'];
+                    $bestSubIdx = $i;
+                }
+            }
+            $result['subtotal'] = $remaining[$bestSubIdx]['str'];
+        } else {
+            // Calculate: total - gst - pst
+            $calcSub = $maxVal - (float)($result['gst'] ?? 0) - (float)($result['pst'] ?? 0);
+            if ($calcSub > 0) {
+                $result['subtotal'] = number_format($calcSub, 2, '.', '');
+            }
+        }
+    }
+
+    // Final validation — if the semantic match also fails, return empty
+    if (!validateColumnAmounts($result)) {
+        return ['subtotal' => null, 'pst' => null, 'gst' => null, 'total' => null];
     }
 
     return $result;
