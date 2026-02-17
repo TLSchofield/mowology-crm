@@ -950,7 +950,8 @@ if ($action === 'view_contact' && $clientId) {
         $contactQuotes = [];
         try {
             $stmt = $db->prepare("
-                SELECT q.id, q.quote_number, q.title, q.status, q.total_amount,
+                SELECT q.id, q.quote_number, q.title, q.status,
+                       COALESCE(NULLIF(q.total_amount, 0), q.amount, 0) AS total_amount,
                        q.created_at, q.sent_at, q.accepted_at, p.address AS property_address
                 FROM quotes q
                 JOIN properties p ON q.property_id = p.id
