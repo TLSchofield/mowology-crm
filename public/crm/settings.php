@@ -511,5 +511,5 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     </div>
 </form>
 
-<script src="js/business-settings.js"></script>
+<script src="js/business-settings.js?v=2"></script>
 <?php include 'includes/appstack_footer.php'; ?>
