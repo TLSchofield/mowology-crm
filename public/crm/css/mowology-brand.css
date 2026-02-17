@@ -2614,6 +2614,79 @@ a:hover {
   border-radius: 3px;
 }
 
+/* On-map FSA labels */
+.mw-fsa-map-label {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  padding: 6px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  min-width: 90px;
+  border-left: 3px solid #94a3b8;
+}
+
+.mw-fsa-map-label:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.mw-fsa-map-label.mw-fsa-tier-high {
+  border-left-color: #059669;
+}
+
+.mw-fsa-map-label.mw-fsa-tier-medium {
+  border-left-color: #F59E0B;
+}
+
+.mw-fsa-map-label.mw-fsa-tier-low {
+  border-left-color: #94a3b8;
+}
+
+.mw-fsa-label-code {
+  font-family: 'Courier New', monospace;
+  font-weight: 800;
+  font-size: 14px;
+  color: #1a202c;
+  letter-spacing: 0.5px;
+}
+
+.mw-fsa-label-name {
+  font-size: 10px;
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.mw-fsa-label-stats {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 3px;
+}
+
+.mw-fsa-label-rev {
+  font-size: 11px;
+  font-weight: 700;
+  color: #059669;
+  margin-top: 2px;
+}
+
+.mw-fsa-label-opp {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--mw-orange);
+  font-style: italic;
+  margin-top: 2px;
+}
+
 /* Legend circles for density/revenue overlays */
 .mw-legend-circle {
   display: inline-block;
@@ -3337,134 +3410,246 @@ a:hover {
   border: 1px solid #FCA5A5;
 }
 
-/* Dashboard weather card */
-.mw-dashboard-weather {
-  background: linear-gradient(135deg, var(--mw-light) 0%, rgba(127, 216, 88, 0.08) 100%);
-  border: 1px solid var(--mw-light);
+/* ── Daily Operations Strip (Weather + Profitability) ──── */
+
+.mw-daily-ops {
+  background: #fff;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
-  padding: 16px;
   margin-bottom: 16px;
+  overflow: hidden;
 }
 
-.mw-dashboard-weather-title {
+.mw-daily-ops-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, var(--mw-light) 0%, rgba(127, 216, 88, 0.08) 100%);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.mw-daily-ops-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--mw-dark);
-  margin-bottom: 12px;
 }
 
-.mw-dashboard-weather-grid {
+.mw-daily-ops-summary {
+  display: flex;
+  gap: 20px;
+}
+
+.mw-daily-ops-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.mw-daily-ops-stat-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.mw-daily-ops-stat-lbl {
+  font-size: 10px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mw-daily-ops-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
+  gap: 0;
 }
 
-.mw-dashboard-weather-day {
+.mw-daily-ops-day {
   text-align: center;
-  padding: 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.6);
-  transition: all 0.2s ease;
+  padding: 10px 6px 12px;
+  border-right: 1px solid #f1f5f9;
+  transition: background 0.2s ease;
 }
 
-.mw-dashboard-weather-day:hover {
-  background: rgba(255, 255, 255, 1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+.mw-daily-ops-day:last-child {
+  border-right: none;
 }
 
-.mw-dashboard-weather-dayname {
-  font-size: 11px;
+.mw-daily-ops-day:hover {
+  background: #f8fafc;
+}
+
+/* Today highlight */
+.mw-daily-ops-today {
+  background: rgba(45, 134, 89, 0.04);
+  box-shadow: inset 0 3px 0 var(--mw-green);
+}
+
+.mw-daily-ops-today:hover {
+  background: rgba(45, 134, 89, 0.07);
+}
+
+/* Past days slightly muted */
+.mw-daily-ops-past {
+  opacity: 0.85;
+}
+
+/* Future days */
+.mw-daily-ops-future .mw-daily-ops-profit {
+  opacity: 0.7;
+}
+
+/* Date row */
+.mw-daily-ops-date {
+  font-size: 12px;
   font-weight: 600;
   color: var(--mw-dark);
   margin-bottom: 4px;
 }
 
-.mw-dashboard-weather-icon {
-  font-size: 24px;
-  line-height: 1;
-  margin-bottom: 2px;
+.mw-daily-ops-dayname {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: #94a3b8;
 }
 
-.mw-dashboard-weather-temps {
+.mw-daily-ops-today .mw-daily-ops-dayname {
+  color: var(--mw-green);
+  font-weight: 700;
+}
+
+/* Weather row */
+.mw-daily-ops-weather {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.mw-daily-ops-wicon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.mw-daily-ops-wtemps {
   font-size: 11px;
   font-weight: 600;
-  color: #495057;
-  margin-bottom: 2px;
+  color: #475569;
 }
 
-.mw-dashboard-weather-precip {
+.mw-daily-ops-wprecip {
   font-size: 10px;
-  color: #DC2626;
-  margin-bottom: 0;
+  color: #3B82F6;
+  font-weight: 500;
 }
 
-/* Responsive weather widget - keep 7 columns on desktop for space efficiency */
-@media (max-width: 1400px) {
-  .mw-dashboard-weather-grid {
-    grid-template-columns: repeat(7, 1fr);
-  }
-
-  .mw-dashboard-weather-dayname {
-    font-size: 10px;
-  }
-
-  .mw-dashboard-weather-icon {
-    font-size: 20px;
-  }
-
-  .mw-dashboard-weather-temps {
-    font-size: 10px;
-  }
+/* Divider */
+.mw-daily-ops-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 0 8px 6px;
 }
 
-@media (max-width: 1024px) {
-  .mw-dashboard-weather-grid {
-    grid-template-columns: repeat(5, 1fr);
-  }
+/* Profitability section */
+.mw-daily-ops-profit {
+  min-height: 80px;
+}
 
-  .mw-dashboard-weather-dayname {
-    font-size: 9px;
-  }
+.mw-daily-ops-visits {
+  font-size: 10px;
+  color: #64748b;
+  margin-bottom: 3px;
+}
 
-  .mw-dashboard-weather-icon {
-    font-size: 18px;
-  }
+.mw-daily-ops-visits.mw-daily-ops-scheduled {
+  color: #3B82F6;
+  font-style: italic;
+}
 
-  .mw-dashboard-weather-temps {
-    font-size: 9px;
-  }
+.mw-daily-ops-revenue {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.mw-daily-ops-cost {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.mw-daily-ops-net {
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.mw-daily-ops-margin {
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
+  display: inline-block;
+  padding: 1px 6px;
+  margin-top: 2px;
+}
+
+.mw-daily-ops-est {
+  font-size: 12px;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.mw-daily-ops-empty {
+  font-size: 14px;
+  color: #cbd5e1;
+  padding-top: 20px;
+}
+
+/* Margin color coding */
+.mw-margin-good { color: var(--mw-green); }
+.mw-margin-ok   { color: #F59E0B; }
+.mw-margin-low  { color: #DC2626; }
+.mw-margin-none { color: #cbd5e1; }
+
+.mw-daily-ops-margin.mw-margin-good { background: #dcfce7; color: #166534; }
+.mw-daily-ops-margin.mw-margin-ok   { background: #fef3c7; color: #92400e; }
+.mw-daily-ops-margin.mw-margin-low  { background: #fef2f2; color: #991b1b; }
+
+/* Responsive daily ops */
+@media (max-width: 1200px) {
+  .mw-daily-ops-wtemps { font-size: 10px; }
+  .mw-daily-ops-wicon { font-size: 16px; }
+  .mw-daily-ops-revenue { font-size: 12px; }
+  .mw-daily-ops-net { font-size: 12px; }
+  .mw-daily-ops-summary { gap: 12px; }
+  .mw-daily-ops-stat-val { font-size: 13px; }
+}
+
+@media (max-width: 992px) {
+  .mw-daily-ops-header { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .mw-daily-ops-day { padding: 8px 4px 10px; }
+  .mw-daily-ops-date { font-size: 10px; }
+  .mw-daily-ops-wicon { font-size: 14px; }
+  .mw-daily-ops-wtemps { font-size: 9px; }
+  .mw-daily-ops-revenue { font-size: 11px; }
+  .mw-daily-ops-cost { font-size: 10px; }
+  .mw-daily-ops-net { font-size: 11px; }
 }
 
 @media (max-width: 768px) {
-  .mw-dashboard-weather-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
-
-  .mw-dashboard-weather-dayname {
-    font-size: 8px;
-  }
-
-  .mw-dashboard-weather-icon {
-    font-size: 16px;
-  }
+  .mw-daily-ops-grid { grid-template-columns: repeat(4, 1fr); }
+  .mw-daily-ops-day:nth-child(n+5) { display: none; }
 }
 
 @media (max-width: 480px) {
-  .mw-dashboard-weather-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .mw-dashboard-weather-dayname {
-    font-size: 7px;
-  }
-
-  .mw-dashboard-weather-icon {
-    font-size: 14px;
-  }
-
-  .mw-dashboard-weather-temps {
-    font-size: 8px;
-  }
+  .mw-daily-ops-grid { grid-template-columns: repeat(3, 1fr); }
+  .mw-daily-ops-day:nth-child(n+4) { display: none; }
 }
 
 /* ── Invoice Creation Form (Phase 2-3) ───────────────────── */

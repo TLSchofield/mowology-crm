@@ -206,7 +206,7 @@ $activePage = 'map';
               <button type="button" class="btn btn-sm btn-outline-secondary active" id="btn-pins" onclick="toggleLayer('pins')">
                 <i data-feather="map-pin" style="width:14px;height:14px;display:inline;"></i> Pins
               </button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-density" onclick="toggleLayer('density')">
+              <button type="button" class="btn btn-sm btn-outline-secondary active" id="btn-density" onclick="toggleLayer('density')">
                 <i data-feather="target" style="width:14px;height:14px;display:inline;"></i> Density
               </button>
               <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-revenue" onclick="toggleLayer('revenue')">
@@ -290,7 +290,7 @@ $activePage = 'map';
                     <span>Request - Inquiring</span>
                   </div>
                 </div>
-                <div id="legend-density" style="display:none;">
+                <div id="legend-density">
                   <div class="mw-legend-item">
                     <span class="mw-legend-circle mw-circle-high"></span>
                     <span>High Density (4+)</span>
@@ -636,7 +636,7 @@ $activePage = 'map';
             // ── Layer State ────────────────────────────────────
             const layerVisibility = {
               pins: true,
-              density: false,
+              density: true,
               revenue: false,
               requests: true
             };
@@ -644,7 +644,7 @@ $activePage = 'map';
             // ── Map & Overlays ─────────────────────────────────
             let gmap = null;
             const markers = { properties: [], requests: [] };
-            const overlays = { density: [], revenue: [] };
+            const overlays = { density: [], revenue: [], labels: [] };
 
             // ── Initialize ─────────────────────────────────────
             function initMap() {
@@ -683,6 +683,7 @@ $activePage = 'map';
 
               renderPropertyMarkers();
               renderRequestMarkers();
+              renderDensityOverlay();
             }
 
             // ── Property Markers (pins layer) ──────────────────
@@ -803,12 +804,52 @@ $activePage = 'map';
               });
             }
 
-            // ── Density Circles (FSA-level) ────────────────────
+            // ── Density Circles + FSA Labels (on-map) ───────────
+            // FsaLabelOverlay class — must be initialized after Google Maps loads
+            let FsaLabelOverlay = null;
+            function initFsaLabelClass() {
+              if (FsaLabelOverlay) return;
+              FsaLabelOverlay = class extends google.maps.OverlayView {
+                constructor(position, html, map) {
+                  super();
+                  this.position = position;
+                  this.html = html;
+                  this.div = null;
+                  this.setMap(map);
+                }
+                onAdd() {
+                  this.div = document.createElement('div');
+                  this.div.style.position = 'absolute';
+                  this.div.style.transform = 'translate(-50%, -50%)';
+                  this.div.style.pointerEvents = 'auto';
+                  this.div.style.zIndex = '50';
+                  this.div.innerHTML = this.html;
+                  this.getPanes().overlayMouseTarget.appendChild(this.div);
+                }
+                draw() {
+                  if (!this.div) return;
+                  const proj = this.getProjection();
+                  if (!proj) return;
+                  const pos = proj.fromLatLngToDivPixel(this.position);
+                  if (pos) {
+                    this.div.style.left = pos.x + 'px';
+                    this.div.style.top = pos.y + 'px';
+                  }
+                }
+                onRemove() {
+                  if (this.div && this.div.parentNode) {
+                    this.div.parentNode.removeChild(this.div);
+                    this.div = null;
+                  }
+                }
+              };
+            }
             function renderDensityOverlay() {
               clearOverlay('density');
+              clearOverlay('labels');
               if (!layerVisibility.density) return;
+              initFsaLabelClass();
 
-              // Find max for scaling
               const maxCount = Math.max(...fsaStatsData.map(f => parseInt(f.property_count)), 1);
 
               fsaStatsData.forEach(fsa => {
@@ -816,41 +857,52 @@ $activePage = 'map';
                 if (!lat || !lng) return;
 
                 const count = parseInt(fsa.property_count);
-                const radius = 300 + (count / maxCount) * 700; // 300m to 1000m
+                const plans = parseInt(fsa.active_plans);
+                const rev = parseFloat(fsa.revenue_per_cycle);
+                const visits = parseInt(fsa.total_visits);
+                const radius = 300 + (count / maxCount) * 700;
 
-                let fillColor = '#94a3b8'; // grey for 1
-                let strokeColor = '#64748b';
-                if (count >= 4) { fillColor = '#059669'; strokeColor = '#047857'; }
-                else if (count >= 2) { fillColor = '#F59E0B'; strokeColor = '#D97706'; }
+                let fillColor = '#94a3b8', strokeColor = '#64748b', tierClass = 'mw-fsa-tier-low';
+                if (count >= 4) { fillColor = '#059669'; strokeColor = '#047857'; tierClass = 'mw-fsa-tier-high'; }
+                else if (count >= 2) { fillColor = '#F59E0B'; strokeColor = '#D97706'; tierClass = 'mw-fsa-tier-medium'; }
 
+                // Draw circle
                 const circle = new google.maps.Circle({
                   center: { lat, lng },
                   radius: radius,
                   fillColor: fillColor,
-                  fillOpacity: 0.25,
+                  fillOpacity: 0.2,
                   strokeColor: strokeColor,
                   strokeWeight: 2,
-                  strokeOpacity: 0.6,
+                  strokeOpacity: 0.5,
                   map: gmap,
-                  clickable: true
+                  clickable: false
                 });
-
-                // FSA label
-                const label = new google.maps.InfoWindow({
-                  content: `<div style="text-align:center;padding:4px 8px;font-weight:700;font-size:13px;color:${strokeColor};">
-                    ${esc(fsa.fsa)}<br>
-                    <span style="font-size:11px;font-weight:400;color:#666;">${count} properties</span>
-                  </div>`,
-                  position: { lat, lng },
-                  disableAutoPan: true
-                });
-
-                circle.addListener('click', () => {
-                  closeAllInfoWindows();
-                  label.open(gmap);
-                });
-
                 overlays.density.push(circle);
+
+                // Draw persistent HTML label on map
+                const fsaName = fsaNames[fsa.fsa] || fsa.city || fsa.fsa;
+                const revLine = rev > 0
+                  ? `<div class="mw-fsa-label-rev">$${rev.toFixed(0)}/visit</div>`
+                  : `<div class="mw-fsa-label-opp">opportunity</div>`;
+
+                const labelHtml = `
+                  <div class="mw-fsa-map-label ${tierClass}" onclick="focusFsa('${esc(fsa.fsa)}')">
+                    <div class="mw-fsa-label-code">${esc(fsa.fsa)}</div>
+                    <div class="mw-fsa-label-name">${esc(fsaName)}</div>
+                    <div class="mw-fsa-label-stats">
+                      <span>${count} prop</span>
+                      <span>${plans} plans</span>
+                    </div>
+                    ${revLine}
+                  </div>`;
+
+                const labelOverlay = new FsaLabelOverlay(
+                  new google.maps.LatLng(lat, lng),
+                  labelHtml,
+                  gmap
+                );
+                overlays.labels.push(labelOverlay);
               });
             }
 
@@ -967,7 +1019,9 @@ $activePage = 'map';
             }
 
             function clearOverlay(type) {
-              (overlays[type] || []).forEach(o => o.setMap(null));
+              (overlays[type] || []).forEach(o => {
+                if (o.setMap) o.setMap(null);
+              });
               overlays[type] = [];
             }
 
