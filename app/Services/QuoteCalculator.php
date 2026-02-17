@@ -72,10 +72,11 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
     // Actual per-unit rate and total units are preserved in snapshot columns.
     $lineTotal = round($lineTotal, 2);
 
-    // Build description with area names
+    // Build description: use product description if available, fall back to area names
     $areaDesc = !empty($measurementNames)
         ? implode(', ', $measurementNames) . ' (' . number_format($totalUnits) . ' ' . $unitLabel . ')'
         : number_format($totalUnits) . ' ' . $unitLabel;
+    $description = !empty($product['description']) ? $product['description'] : $areaDesc;
 
     // Build pricing snapshot (immutable record of how price was calculated)
     $snapshot = json_encode([
@@ -92,6 +93,7 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
         'unit'            => $unitLabel,
         'base_price'      => $basePrice,
         'frequency'       => $rule['default_frequency'] ?? 'one_off',
+        'area_description'=> $areaDesc,
         'calculated_at'   => date('Y-m-d H:i:s'),
     ]);
 
@@ -99,7 +101,7 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
         'product_id'            => (int)$product['id'],
         'pricing_rule_id'       => (int)$rule['id'],
         'service_type'          => $product['name'],
-        'description'           => $areaDesc,
+        'description'           => $description,
         'quantity'              => 1,
         'unit_type'             => 'each',
         'unit_price'            => $lineTotal,
