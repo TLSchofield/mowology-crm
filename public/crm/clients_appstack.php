@@ -1980,7 +1980,7 @@ $unconvertedRequests = $db->query("
                             </div>
                             <!-- Quick Actions -->
                             <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
-                              <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Measure property and create quote">
+                              <a href="quotes/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Create quote with service pricing">
                                 <i data-feather="file-text" style="width: 11px; height: 11px;"></i> Quote &amp; Measure
                               </a>
                               <a href="jobs/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn" title="Create job plan for this property">

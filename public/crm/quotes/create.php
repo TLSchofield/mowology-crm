@@ -84,6 +84,21 @@ if ($quote && $quote['property_id']) {
     $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
     $stmt->execute([$prefilledContactId]);
     $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+} elseif (!empty($_GET['contact_id']) && !empty($_GET['property_id'])) {
+    // Direct entry from client page — pre-fill contact + property
+    $directContactId = intval($_GET['contact_id']);
+    $directPropertyId = intval($_GET['property_id']);
+    $stmt = $db->prepare("SELECT id, first_name, last_name FROM contacts WHERE id = ?");
+    $stmt->execute([$directContactId]);
+    $directContact = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($directContact) {
+        $prefilledContactId = $directContactId;
+        $prefilledContactName = trim($directContact['first_name'] . ' ' . $directContact['last_name']);
+        $prefilledPropertyId = $directPropertyId;
+        $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
+        $stmt->execute([$prefilledContactId]);
+        $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
 
 // Get service templates
