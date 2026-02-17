@@ -1172,9 +1172,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 if (stop && stop.latitude && stop.longitude) {
                     gmap.panTo({ lat: stop.latitude, lng: stop.longitude });
                     gmap.setZoom(16);
-                    // Open the corresponding marker info window
+                    // Open the corresponding info window (position-based, no marker anchor)
                     if (jobMarkers[idx]) {
-                        jobMarkers[idx].infoWindow.open(gmap, jobMarkers[idx].marker);
+                        jobMarkers[idx].infoWindow.open(gmap);
                     }
                 }
             });
