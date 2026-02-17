@@ -328,6 +328,74 @@ $servicesStr = !empty($servicesList) ? implode(', ', $servicesList) : 'Not speci
 $fullAddress = $request['address'] ?? '';
 if ($request['city']) $fullAddress .= ', ' . $request['city'];
 
+// ─── Contact Intelligence ───────────────────────────────
+$contactBI = ['total_quotes' => 0, 'accepted_quotes' => 0, 'total_value' => 0, 'active_plans' => 0, 'avg_quote' => 0, 'acceptance_rate' => 0, 'last_quote_date' => null];
+if ($request['contact_id']) {
+    $cid = (int)$request['contact_id'];
+    // Quote history for this contact (via properties they own)
+    try {
+        $biStmt = $db->prepare("
+            SELECT
+                COUNT(*) AS total_quotes,
+                SUM(CASE WHEN q.status IN ('accepted', 'approved_verbal') THEN 1 ELSE 0 END) AS accepted_quotes,
+                SUM(CASE WHEN q.status IN ('accepted', 'approved_verbal') THEN q.amount ELSE 0 END) AS total_value,
+                AVG(q.amount) AS avg_quote,
+                MAX(q.created_at) AS last_quote_date
+            FROM quotes q
+            JOIN properties p ON q.property_id = p.id
+            WHERE p.site_contact_id = ?
+        ");
+        $biStmt->execute([$cid]);
+        $biRow = $biStmt->fetch(PDO::FETCH_ASSOC);
+        if ($biRow) {
+            $contactBI['total_quotes'] = (int)$biRow['total_quotes'];
+            $contactBI['accepted_quotes'] = (int)$biRow['accepted_quotes'];
+            $contactBI['total_value'] = (float)$biRow['total_value'];
+            $contactBI['avg_quote'] = (float)$biRow['avg_quote'];
+            $contactBI['last_quote_date'] = $biRow['last_quote_date'];
+            $contactBI['acceptance_rate'] = $contactBI['total_quotes'] > 0
+                ? round(($contactBI['accepted_quotes'] / $contactBI['total_quotes']) * 100)
+                : 0;
+        }
+    } catch (Exception $e) { /* table may not exist */ }
+
+    // Active job plans
+    try {
+        $planStmt = $db->prepare("
+            SELECT COUNT(*) AS cnt FROM job_plans jp
+            JOIN properties p ON jp.property_id = p.id
+            WHERE p.site_contact_id = ? AND jp.status = 'active'
+        ");
+        $planStmt->execute([$cid]);
+        $contactBI['active_plans'] = (int)$planStmt->fetchColumn();
+    } catch (Exception $e) { /* table may not exist */ }
+}
+
+// ─── Property Intelligence ──────────────────────────────
+$propertyBI = ['nearby_quotes' => 0, 'nearby_avg' => 0, 'nearby_properties' => 0];
+if ($request['latitude'] && $request['longitude']) {
+    $lat = (float)$request['latitude'];
+    $lng = (float)$request['longitude'];
+    // Find quotes for properties within ~2km radius
+    try {
+        $nearbyStmt = $db->prepare("
+            SELECT COUNT(*) AS cnt, AVG(q.amount) AS avg_amt, COUNT(DISTINCT p.id) AS prop_cnt
+            FROM quotes q
+            JOIN properties p ON q.property_id = p.id
+            WHERE p.id != ? AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+              AND ABS(p.latitude - ?) < 0.02 AND ABS(p.longitude - ?) < 0.02
+              AND q.status IN ('accepted', 'approved_verbal', 'sent', 'draft')
+        ");
+        $nearbyStmt->execute([(int)$request['property_id'], $lat, $lng]);
+        $nearbyRow = $nearbyStmt->fetch(PDO::FETCH_ASSOC);
+        if ($nearbyRow) {
+            $propertyBI['nearby_quotes'] = (int)$nearbyRow['cnt'];
+            $propertyBI['nearby_avg'] = (float)$nearbyRow['avg_amt'];
+            $propertyBI['nearby_properties'] = (int)$nearbyRow['prop_cnt'];
+        }
+    } catch (Exception $e) { /* ok */ }
+}
+
 $pageTitle = 'Quote Workflow - ' . htmlspecialchars($contactName);
 $activePage = 'quotes';
 $extraHead = '<script>
@@ -370,29 +438,32 @@ $extraHead = '<script>
                         <!-- LEFT PANEL: Request Details + Quote Form -->
                         <div class="col-lg-7" id="leftPanel">
 
-                            <!-- Request Details -->
-                            <div class="card">
-                                <div class="card-header d-flex justify-content-between align-items-center">
-                                    <h5 class="card-title mb-0">Request Details</h5>
+                            <!-- Request Details (collapsible) -->
+                            <div class="card mw-wf-request-card">
+                                <div class="card-header d-flex justify-content-between align-items-center py-2 mw-wf-collapse-toggle" onclick="toggleRequestDetails()" style="cursor: pointer;">
+                                    <div class="d-flex align-items-center">
+                                        <i class="align-middle mr-2 mw-wf-chevron" data-feather="chevron-right" style="width:14px;height:14px;transition:transform 0.2s;" id="requestChevron"></i>
+                                        <h6 class="card-title mb-0"><?php echo h($contactName); ?></h6>
+                                        <span class="text-muted ml-2 small"><?php echo h($fullAddress ?: 'No address'); ?></span>
+                                    </div>
                                     <div>
-                                        <span class="mw-urgency-badge mw-urgency-<?php echo h($request['urgency'] ?? 'inquiring'); ?>">
+                                        <?php if ($request['email']): ?>
+                                            <a href="mailto:<?php echo h($request['email']); ?>" class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="event.stopPropagation();" title="<?php echo h($request['email']); ?>">
+                                                <i class="align-middle" data-feather="mail" style="width:12px;height:12px;"></i>
+                                            </a>
+                                        <?php endif; ?>
+                                        <?php if ($request['phone']): ?>
+                                            <a href="tel:<?php echo h($request['phone']); ?>" class="btn btn-sm btn-outline-secondary py-0 px-1" onclick="event.stopPropagation();" title="<?php echo h($request['phone']); ?>">
+                                                <i class="align-middle" data-feather="phone" style="width:12px;height:12px;"></i>
+                                            </a>
+                                        <?php endif; ?>
+                                        <span class="mw-urgency-badge mw-urgency-<?php echo h($request['urgency'] ?? 'inquiring'); ?> ml-1">
                                             <?php echo h(ucfirst($request['urgency'] ?? 'inquiring')); ?>
-                                        </span>
-                                        <span class="mw-status-badge <?php echo h($request['status']); ?> ml-1">
-                                            <?php echo h(ucfirst($request['status'])); ?>
                                         </span>
                                     </div>
                                 </div>
-                                <div class="card-body">
-                                    <div class="mw-detail-grid mb-3">
-                                        <div class="mw-detail-item">
-                                            <label>Contact</label>
-                                            <div class="value"><?php echo h($contactName); ?></div>
-                                        </div>
-                                        <div class="mw-detail-item">
-                                            <label>Property</label>
-                                            <div class="value"><?php echo h($fullAddress ?: 'No address'); ?></div>
-                                        </div>
+                                <div class="card-body py-2" id="requestDetailsBody" style="display: none;">
+                                    <div class="mw-detail-grid mb-2" style="grid-template-columns: 1fr 1fr 1fr;">
                                         <div class="mw-detail-item">
                                             <label>Email</label>
                                             <div class="value"><?php echo h($request['email'] ?? 'N/A'); ?></div>
@@ -403,55 +474,71 @@ $extraHead = '<script>
                                         </div>
                                         <div class="mw-detail-item">
                                             <label>Property Type</label>
-                                            <div class="value"><?php echo h(ucfirst($request['property_type'] ?? 'Not specified')); ?></div>
-                                        </div>
-                                        <div class="mw-detail-item">
-                                            <label>Preferred Contact</label>
-                                            <div class="value"><?php echo h(ucfirst($request['preferred_contact_method'] ?? 'Any')); ?></div>
+                                            <div class="value"><?php echo h(ucfirst($request['property_type'] ?? 'N/A')); ?></div>
                                         </div>
                                     </div>
 
-                                    <div class="mb-3">
-                                        <label style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Services Requested</label><br>
-                                        <?php foreach ($servicesList as $svc): ?>
-                                            <span class="mw-service-badge"><?php echo h($svc); ?></span>
-                                        <?php endforeach; ?>
-                                        <?php if (empty($servicesList)): ?>
-                                            <span class="text-muted">Not specified</span>
-                                        <?php endif; ?>
-                                    </div>
-
-                                    <?php if ($request['project_description']): ?>
-                                        <div class="mb-3">
-                                            <label style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Project Notes</label>
-                                            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 4px; font-size: 0.9rem;">
-                                                <?php echo nl2br(h($request['project_description'])); ?>
-                                            </div>
+                                    <?php if (!empty($servicesList)): ?>
+                                        <div class="mb-2">
+                                            <?php foreach ($servicesList as $svc): ?>
+                                                <span class="mw-service-badge"><?php echo h($svc); ?></span>
+                                            <?php endforeach; ?>
                                         </div>
                                     <?php endif; ?>
 
-                                    <div class="d-flex gap-2" style="gap: 0.5rem;">
-                                        <?php if ($request['email']): ?>
-                                            <a href="mailto:<?php echo h($request['email']); ?>" class="btn btn-sm btn-outline-secondary">
-                                                <i class="align-middle mr-1" data-feather="mail" style="width:14px;height:14px;"></i> Email
-                                            </a>
-                                        <?php endif; ?>
-                                        <?php if ($request['phone']): ?>
-                                            <a href="tel:<?php echo h($request['phone']); ?>" class="btn btn-sm btn-outline-secondary">
-                                                <i class="align-middle mr-1" data-feather="phone" style="width:14px;height:14px;"></i> Call
-                                            </a>
-                                        <?php endif; ?>
-                                        <form method="POST" class="d-inline">
-                                            <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                                            <input type="hidden" name="action" value="update_status">
-                                            <input type="hidden" name="new_status" value="declined">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Decline this request?')">
-                                                <i class="align-middle mr-1" data-feather="x-circle" style="width:14px;height:14px;"></i> Decline
-                                            </button>
-                                        </form>
-                                    </div>
+                                    <?php if ($request['project_description']): ?>
+                                        <div class="mb-2" style="background: #f8fafc; padding: 0.5rem 0.75rem; border-radius: 4px; font-size: 0.85rem;">
+                                            <?php echo nl2br(h($request['project_description'])); ?>
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <form method="POST" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                                        <input type="hidden" name="action" value="update_status">
+                                        <input type="hidden" name="new_status" value="declined">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Decline this request?')">
+                                            <i class="align-middle mr-1" data-feather="x-circle" style="width:12px;height:12px;"></i> Decline
+                                        </button>
+                                    </form>
                                 </div>
                             </div>
+
+                            <!-- Contact & Property Intelligence -->
+                            <?php if ($contactBI['total_quotes'] > 0 || $propertyBI['nearby_quotes'] > 0 || $contactBI['active_plans'] > 0): ?>
+                            <div class="mw-wf-intel-bar mb-2">
+                                <?php if ($contactBI['total_quotes'] > 0): ?>
+                                    <div class="mw-wf-intel-chip" title="<?php echo $contactBI['accepted_quotes']; ?> of <?php echo $contactBI['total_quotes']; ?> quotes accepted">
+                                        <i data-feather="user" style="width:12px;height:12px;"></i>
+                                        <?php echo $contactBI['acceptance_rate']; ?>% accept rate
+                                        <span class="mw-wf-intel-sub">(<?php echo $contactBI['accepted_quotes']; ?>/<?php echo $contactBI['total_quotes']; ?>)</span>
+                                    </div>
+                                <?php endif; ?>
+                                <?php if ($contactBI['total_value'] > 0): ?>
+                                    <div class="mw-wf-intel-chip" title="Total value of accepted quotes">
+                                        <i data-feather="dollar-sign" style="width:12px;height:12px;"></i>
+                                        $<?php echo number_format($contactBI['total_value'], 0); ?> lifetime
+                                    </div>
+                                <?php endif; ?>
+                                <?php if ($contactBI['avg_quote'] > 0): ?>
+                                    <div class="mw-wf-intel-chip" title="Average quote amount for this contact">
+                                        <i data-feather="bar-chart-2" style="width:12px;height:12px;"></i>
+                                        $<?php echo number_format($contactBI['avg_quote'], 0); ?> avg quote
+                                    </div>
+                                <?php endif; ?>
+                                <?php if ($contactBI['active_plans'] > 0): ?>
+                                    <div class="mw-wf-intel-chip mw-wf-intel-active" title="Active recurring plans">
+                                        <i data-feather="repeat" style="width:12px;height:12px;"></i>
+                                        <?php echo $contactBI['active_plans']; ?> active plan<?php echo $contactBI['active_plans'] !== 1 ? 's' : ''; ?>
+                                    </div>
+                                <?php endif; ?>
+                                <?php if ($propertyBI['nearby_quotes'] > 0): ?>
+                                    <div class="mw-wf-intel-chip" title="<?php echo $propertyBI['nearby_properties']; ?> properties within ~2km">
+                                        <i data-feather="map-pin" style="width:12px;height:12px;"></i>
+                                        <?php echo $propertyBI['nearby_properties']; ?> nearby · $<?php echo number_format($propertyBI['nearby_avg'], 0); ?> avg
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                            <?php endif; ?>
 
                             <!-- Quote Creation Form -->
                             <div class="card">
@@ -468,7 +555,12 @@ $extraHead = '<script>
                                         <div class="row mb-3">
                                             <div class="col-md-6">
                                                 <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Quote Title</label>
-                                                <input type="text" name="title" class="form-control" placeholder="e.g., Spring Lawn Care" value="<?php echo h($servicesStr . ' - ' . ($request['address'] ?? '')); ?>">
+                                                <input type="text" name="title" class="form-control" placeholder="e.g., Spring Lawn Care" value="<?php
+                                                    $titleParts = [];
+                                                    if ($servicesStr !== 'Not specified') $titleParts[] = $servicesStr;
+                                                    if (!empty($request['address'])) $titleParts[] = $request['address'];
+                                                    echo h(implode(' - ', $titleParts) ?: '');
+                                                ?>">
                                             </div>
                                             <div class="col-md-3">
                                                 <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Service Type</label>
@@ -697,9 +789,6 @@ Work to be completed weather permitting.</textarea>
                                         <div id="areasList" style="max-height: 200px; overflow-y: auto;">
                                             <p class="text-muted text-center" style="font-size: 0.85rem; padding: 1rem 0;">No areas measured yet</p>
                                         </div>
-                                        <button class="btn btn-sm btn-mowology btn-block mt-2" onclick="addAllToQuote()" id="addAllBtn" style="display: none;">
-                                            <i class="align-middle mr-1" data-feather="plus-circle" style="width:14px;height:14px;"></i> Add All to Quote
-                                        </button>
                                     </div>
 
                                     <!-- Save Measurements -->
@@ -726,28 +815,14 @@ Work to be completed weather permitting.</textarea>
     var propertyId = <?php echo (int)$request['property_id']; ?>;
     var existingMeasurements = <?php echo json_encode($measurements); ?>;
 
-    // Service pricing rates (per sq ft)
-    var servicePrices = {
-        'lawn': 0.015,
-        'garden': 0.008,
-        'driveway': 0.020,
-        'walkway': 0.020,
-        'patio': 0.010,
-        'parking': 0.020,
-        'hedge': 0.012,
-        'other': 0.010
-    };
-
-    var serviceNames = {
-        'lawn': 'Lawn Mowing',
-        'garden': 'Garden Maintenance',
-        'driveway': 'Snow Removal - Driveway',
-        'walkway': 'Snow Removal - Walkway',
-        'patio': 'Patio Maintenance',
-        'parking': 'Snow Removal - Parking',
-        'hedge': 'Hedge Trimming',
-        'other': 'Property Service'
-    };
+    // ─── Request Details Toggle ────────────────────────────
+    function toggleRequestDetails() {
+        var body = document.getElementById('requestDetailsBody');
+        var chevron = document.getElementById('requestChevron');
+        var isOpen = body.style.display !== 'none';
+        body.style.display = isOpen ? 'none' : '';
+        chevron.style.transform = isOpen ? '' : 'rotate(90deg)';
+    }
 
     // ─── Line Items Management ──────────────────────────────
     var lineItems = [];
@@ -1138,11 +1213,9 @@ Work to be completed weather permitting.</textarea>
 
     function updateAreasList() {
         var container = document.getElementById('areasList');
-        var addAllBtn = document.getElementById('addAllBtn');
 
         if (savedAreas.length === 0) {
             container.innerHTML = '<p class="text-muted text-center" style="font-size: 0.85rem; padding: 1rem 0;">No areas measured yet</p>';
-            addAllBtn.style.display = 'none';
             document.getElementById('areaCount').textContent = '0';
             document.getElementById('totalArea').textContent = '0 sq ft';
             return;
@@ -1156,7 +1229,6 @@ Work to be completed weather permitting.</textarea>
                     '<div class="mw-area-item-detail">' + escapeHtml(area.type) + ' &mdash; ' + area.sqFt.toLocaleString() + ' sq ft</div>' +
                 '</div>' +
                 '<div class="mw-area-item-actions">' +
-                    '<button onclick="addMeasurementToQuote(' + area.id + ')" title="Add to quote">+</button>' +
                     (area.shape ? '<button onclick="zoomToArea(' + area.id + ')" title="Zoom">&#128269;</button>' : '') +
                     '<button onclick="deleteArea(' + area.id + ')" title="Delete">&#10005;</button>' +
                 '</div>' +
@@ -1168,7 +1240,6 @@ Work to be completed weather permitting.</textarea>
         var totalSqFt = savedAreas.reduce(function(sum, a) { return sum + a.sqFt; }, 0);
         document.getElementById('areaCount').textContent = savedAreas.length;
         document.getElementById('totalArea').textContent = totalSqFt.toLocaleString() + ' sq ft';
-        addAllBtn.style.display = 'block';
     }
 
     function deleteArea(id) {
@@ -1201,71 +1272,6 @@ Work to be completed weather permitting.</textarea>
         savedAreas = [];
         clearCurrentDrawing();
         updateAreasList();
-    }
-
-    // ─── Measure-to-Quote Integration ───────────────────────
-
-    /**
-     * Combine areas by type, calculate a rounded-up total price per service,
-     * and add as a single line item per service type.
-     * E.g., Front Lawn (2500 sqft) + Back Lawn (1800 sqft) = one "Lawn Mowing" line
-     * with quantity 1, price = ceil(totalSqFt * rate), description listing the areas.
-     */
-    function buildCombinedLineItem(areas) {
-        if (areas.length === 0) return null;
-
-        var type = areas[0].type;
-        var serviceName = serviceNames[type] || 'Property Service';
-        var rate = servicePrices[type] || 0.010;
-
-        var totalSqFt = areas.reduce(function(sum, a) { return sum + a.sqFt; }, 0);
-        var rawPrice = totalSqFt * rate;
-        var roundedPrice = Math.ceil(rawPrice);
-
-        // Build description listing the individual areas
-        var desc = areas.map(function(a) { return a.name; }).join(', ');
-
-        return {
-            name: serviceName,
-            description: desc,
-            default_price: roundedPrice,
-            unit_type: 'each',
-            quantity: 1,
-            fromMeasurement: true
-        };
-    }
-
-    function addMeasurementToQuote(areaId) {
-        var area = savedAreas.find(function(a) { return a.id === areaId; });
-        if (!area) return;
-
-        var lineData = buildCombinedLineItem([area]);
-        addLine(lineData);
-
-        showToast('Added "' + area.name + '" to quote as ' + (serviceNames[area.type] || 'Service'));
-    }
-
-    function addAllToQuote() {
-        if (savedAreas.length === 0) return;
-
-        // Group areas by type
-        var groups = {};
-        savedAreas.forEach(function(area) {
-            if (!groups[area.type]) groups[area.type] = [];
-            groups[area.type].push(area);
-        });
-
-        // Add one combined line item per service type
-        var count = 0;
-        Object.keys(groups).forEach(function(type) {
-            var lineData = buildCombinedLineItem(groups[type]);
-            if (lineData) {
-                addLine(lineData);
-                count++;
-            }
-        });
-
-        showToast('Added ' + count + ' service(s) to quote from ' + savedAreas.length + ' area(s)');
     }
 
     // ─── Save Measurements to DB ────────────────────────────

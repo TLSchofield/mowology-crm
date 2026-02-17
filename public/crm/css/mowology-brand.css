@@ -320,6 +320,66 @@ a:hover {
   border-color: var(--mw-green);
 }
 
+/* Collapsible Request Details Card */
+.mw-wf-request-card {
+  margin-bottom: 0.5rem;
+}
+.mw-wf-request-card .card-header {
+  background: #f8fafc;
+}
+.mw-wf-request-card .card-header h6 {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* Intelligence Bar */
+.mw-wf-intel-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mw-wf-intel-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.mw-wf-intel-chip svg {
+  color: var(--mw-green);
+}
+.mw-wf-intel-sub {
+  color: #94a3b8;
+  font-weight: 400;
+}
+.mw-wf-intel-chip.mw-wf-intel-active {
+  background: var(--mw-light);
+  border-color: var(--mw-green);
+  color: var(--mw-dark);
+}
+
+/* Sticky Right Panel */
+#rightPanel {
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+#rightPanel::-webkit-scrollbar {
+  width: 4px;
+}
+#rightPanel::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 2px;
+}
+
 .mw-detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
