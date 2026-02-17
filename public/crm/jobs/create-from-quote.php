@@ -89,6 +89,75 @@ $staff = getStaffMembers();
 // Check if property has existing visits (for "align" option)
 $nextVisitDate = getNextScheduledVisitDate((int)$quote['property_id']);
 
+// ─── Scheduling Intelligence: nearby recurring plans ───
+$propCoords = $db->prepare("SELECT latitude, longitude FROM properties WHERE id = ?");
+$propCoords->execute([$quote['property_id']]);
+$coordsRow = $propCoords->fetch(PDO::FETCH_ASSOC);
+$propLat = $coordsRow ? (float)$coordsRow['latitude'] : 0;
+$propLng = $coordsRow ? (float)$coordsRow['longitude'] : 0;
+
+$nearbyPlans = [];
+$dayStats = [];
+$dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+$bestDay = null;
+
+if ($propLat && $propLng) {
+    $nearbyStmt = $db->prepare("
+        SELECT
+            p.id AS property_id, p.address, p.city, p.latitude, p.longitude,
+            jp.id AS plan_id, jp.title AS plan_title, jp.service_type, jp.price_per_visit,
+            jp.recurrence_day_of_week, jp.recurrence_pattern,
+            jp.default_time_start, jp.estimated_duration_minutes,
+            jp.default_crew_id, u.full_name AS crew_name,
+            c.first_name, c.last_name,
+            (6371 * ACOS(
+                LEAST(1, COS(RADIANS(?)) * COS(RADIANS(p.latitude)) *
+                COS(RADIANS(p.longitude) - RADIANS(?)) +
+                SIN(RADIANS(?)) * SIN(RADIANS(p.latitude)))
+            )) AS distance_km
+        FROM job_plans jp
+        JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN contacts c ON p.site_contact_id = c.id
+        LEFT JOIN users u ON jp.default_crew_id = u.id
+        WHERE jp.status = 'active'
+          AND jp.is_recurring = 1
+          AND p.latitude IS NOT NULL AND p.latitude != 0
+          AND p.longitude IS NOT NULL AND p.longitude != 0
+          AND p.id != ?
+        HAVING distance_km <= 5
+        ORDER BY distance_km ASC
+        LIMIT 25
+    ");
+    $nearbyStmt->execute([$propLat, $propLng, $propLat, $quote['property_id']]);
+    $nearbyPlans = $nearbyStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Compute day-of-week statistics
+    for ($d = 0; $d <= 6; $d++) {
+        $dayStats[$d] = ['count' => 0, 'total_distance' => 0, 'avg_distance' => 0];
+    }
+    foreach ($nearbyPlans as $np) {
+        $dow = $np['recurrence_day_of_week'];
+        if ($dow !== null && isset($dayStats[(int)$dow])) {
+            $dayStats[(int)$dow]['count']++;
+            $dayStats[(int)$dow]['total_distance'] += (float)$np['distance_km'];
+        }
+    }
+    foreach ($dayStats as $d => &$stat) {
+        $stat['avg_distance'] = $stat['count'] > 0 ? round($stat['total_distance'] / $stat['count'], 1) : 0;
+    }
+    unset($stat);
+
+    // Best day = most nearby clients (Mon-Sat only, skip Sunday)
+    $bestCount = 0;
+    for ($d = 1; $d <= 6; $d++) {
+        if ($dayStats[$d]['count'] > $bestCount) {
+            $bestCount = $dayStats[$d]['count'];
+            $bestDay = $d;
+        }
+    }
+    if ($bestCount === 0) $bestDay = null;
+}
+
 // ─── Handle form submission ───
 $error = '';
 $justCreatedPlan = null;
@@ -223,6 +292,11 @@ $csrfToken = generateCSRFToken();
 
 $pageTitle = 'Create Plans from ' . htmlspecialchars($quote['quote_number']);
 $activePage = 'jobs';
+
+$apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+if ($propLat && $propLng && $apiKey) {
+    $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry" defer></script>';
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -527,6 +601,104 @@ $activePage = 'jobs';
                           </div>
                       </div>
                   </div>
+
+                  <!-- ═══ Scheduling Intelligence Panel ═══ -->
+                  <?php if ($propLat && $propLng): ?>
+                  <div class="card mt-3 mw-sched-intel">
+                      <div class="card-header" style="background: var(--mw-light);">
+                          <h5 class="card-title mb-0" style="display:flex;align-items:center;gap:6px;font-size:0.95rem;">
+                              <i data-feather="map-pin" style="width:16px;height:16px;"></i>
+                              Scheduling Intelligence
+                          </h5>
+                      </div>
+                      <div class="card-body p-0">
+                          <!-- Day Recommendation Grid -->
+                          <div class="mw-si-day-grid">
+                              <?php
+                              $maxCount = 1;
+                              if (!empty($dayStats)) {
+                                  foreach ($dayStats as $ds) {
+                                      if ($ds['count'] > $maxCount) $maxCount = $ds['count'];
+                                  }
+                              }
+                              for ($d = 1; $d <= 6; $d++):
+                                  $stat = isset($dayStats[$d]) ? $dayStats[$d] : ['count' => 0, 'avg_distance' => 0];
+                                  $isBest = ($d === $bestDay && $bestDay !== null);
+                                  $barPct = $stat['count'] > 0 ? round(($stat['count'] / $maxCount) * 100) : 0;
+                              ?>
+                              <div class="mw-si-day-col <?php echo $isBest ? 'mw-si-best' : ''; ?>"
+                                   data-dow="<?php echo $d; ?>"
+                                   onclick="selectScheduleDay(<?php echo $d; ?>)">
+                                  <div class="mw-si-day-name"><?php echo $dayNames[$d]; ?></div>
+                                  <div class="mw-si-day-bar-wrap">
+                                      <div class="mw-si-day-bar" style="height: <?php echo max(4, $barPct); ?>%;"></div>
+                                  </div>
+                                  <div class="mw-si-day-count"><?php echo $stat['count']; ?></div>
+                                  <?php if ($stat['count'] > 0): ?>
+                                  <div class="mw-si-day-dist"><?php echo $stat['avg_distance']; ?>km</div>
+                                  <?php endif; ?>
+                                  <?php if ($isBest): ?>
+                                  <div class="mw-si-best-badge">Best</div>
+                                  <?php endif; ?>
+                              </div>
+                              <?php endfor; ?>
+                          </div>
+
+                          <!-- Map -->
+                          <div id="schedIntelMap" class="mw-si-map"></div>
+
+                          <!-- Nearby Clients List -->
+                          <?php if (!empty($nearbyPlans)): ?>
+                          <div class="mw-si-nearby-list">
+                              <div class="mw-si-list-header">
+                                  <small class="text-muted"><?php echo count($nearbyPlans); ?> nearby recurring client<?php echo count($nearbyPlans) !== 1 ? 's' : ''; ?> within 5km</small>
+                                  <a href="#" onclick="selectScheduleDay(null); return false;" class="mw-si-show-all" style="font-size:0.7rem;">Show all</a>
+                              </div>
+                              <?php foreach ($nearbyPlans as $np): ?>
+                              <div class="mw-si-nearby-item"
+                                   data-dow="<?php echo $np['recurrence_day_of_week'] !== null ? (int)$np['recurrence_day_of_week'] : ''; ?>"
+                                   data-lat="<?php echo (float)$np['latitude']; ?>"
+                                   data-lng="<?php echo (float)$np['longitude']; ?>"
+                                   onclick="highlightOnMap(<?php echo (float)$np['latitude']; ?>, <?php echo (float)$np['longitude']; ?>)">
+                                  <div class="mw-si-nearby-main">
+                                      <div class="mw-si-nearby-address"><?php echo htmlspecialchars($np['address']); ?></div>
+                                      <div class="mw-si-nearby-meta">
+                                          <?php echo htmlspecialchars($np['service_type']); ?>
+                                          &middot; <?php echo round((float)$np['distance_km'], 1); ?>km
+                                          <?php if ($np['crew_name']): ?>
+                                          &middot; <?php echo htmlspecialchars($np['crew_name']); ?>
+                                          <?php endif; ?>
+                                      </div>
+                                  </div>
+                                  <div class="mw-si-nearby-day">
+                                      <?php
+                                      $dowVal = $np['recurrence_day_of_week'];
+                                      echo ($dowVal !== null) ? $dayNames[(int)$dowVal] : '?';
+                                      ?>
+                                      <?php if ($np['default_time_start']): ?>
+                                      <div class="mw-si-nearby-time"><?php echo date('g:ia', strtotime($np['default_time_start'])); ?></div>
+                                      <?php endif; ?>
+                                  </div>
+                              </div>
+                              <?php endforeach; ?>
+                          </div>
+                          <?php else: ?>
+                          <div class="mw-si-no-data">
+                              <p class="mb-1">No nearby recurring clients within 5km.</p>
+                              <small class="text-muted">Data will appear as you add more recurring plans.</small>
+                          </div>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+                  <?php elseif (!$propLat || !$propLng): ?>
+                  <div class="card mt-3">
+                      <div class="card-body text-center text-muted py-4">
+                          <i data-feather="map-pin" style="width:24px;height:24px;opacity:0.4;"></i>
+                          <p class="mb-0 mt-2 small">Property has no GPS coordinates.<br>Add them to enable scheduling intelligence.</p>
+                      </div>
+                  </div>
+                  <?php endif; ?>
+
               </div>
           </div>
 
@@ -730,5 +902,194 @@ $activePage = 'jobs';
               }
           })();
           </script>
+
+          <?php if ($propLat && $propLng && $apiKey): ?>
+          <script>
+          (function() {
+              var siMap = null;
+              var siMarkers = [];
+              var siInfoWindow = null;
+              var currentPropertyLat = <?php echo $propLat; ?>;
+              var currentPropertyLng = <?php echo $propLng; ?>;
+              var nearbyData = <?php echo json_encode($nearbyPlans); ?>;
+              var activeFilter = null;
+
+              var dayColors = {
+                  0: '#9CA3AF',
+                  1: '#3B82F6',
+                  2: '#10B981',
+                  3: '#F59E0B',
+                  4: '#8B5CF6',
+                  5: '#EF4444',
+                  6: '#D97706'
+              };
+              var dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+              function initScheduleMap() {
+                  var container = document.getElementById('schedIntelMap');
+                  if (!container) return;
+
+                  var center = { lat: currentPropertyLat, lng: currentPropertyLng };
+                  siMap = new google.maps.Map(container, {
+                      center: center,
+                      zoom: 14,
+                      mapTypeControl: false,
+                      streetViewControl: false,
+                      fullscreenControl: false,
+                      styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }]
+                  });
+
+                  // Current property marker (orange, larger)
+                  new google.maps.Marker({
+                      position: center,
+                      map: siMap,
+                      title: 'Current Property',
+                      icon: {
+                          path: 'M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z',
+                          fillColor: '#e85d04',
+                          fillOpacity: 1,
+                          scale: 2,
+                          strokeColor: '#fff',
+                          strokeWeight: 2.5,
+                          anchor: new google.maps.Point(12, 24)
+                      },
+                      zIndex: 999
+                  });
+
+                  siInfoWindow = new google.maps.InfoWindow();
+
+                  // Nearby property markers
+                  nearbyData.forEach(function(np) {
+                      var lat = parseFloat(np.latitude), lng = parseFloat(np.longitude);
+                      if (!lat || !lng) return;
+
+                      var dow = np.recurrence_day_of_week;
+                      var dowInt = dow !== null ? parseInt(dow) : null;
+                      var color = dowInt !== null ? (dayColors[dowInt] || '#6B7280') : '#6B7280';
+                      var dayLabel = dowInt !== null ? dayLabels[dowInt] : '?';
+
+                      var marker = new google.maps.Marker({
+                          position: { lat: lat, lng: lng },
+                          map: siMap,
+                          title: np.address + ' (' + dayLabel + ')',
+                          icon: {
+                              path: 'M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z',
+                              fillColor: color,
+                              fillOpacity: 0.85,
+                              scale: 1.3,
+                              strokeColor: '#fff',
+                              strokeWeight: 1.5,
+                              anchor: new google.maps.Point(12, 24)
+                          },
+                          _dow: dowInt
+                      });
+
+                      marker.addListener('click', function() {
+                          var timeStr = '';
+                          if (np.default_time_start) {
+                              var parts = np.default_time_start.split(':');
+                              var h = parseInt(parts[0]), m = parts[1];
+                              var ampm = h >= 12 ? 'pm' : 'am';
+                              h = h % 12 || 12;
+                              timeStr = h + ':' + m + ampm;
+                          }
+                          siInfoWindow.setContent(
+                              '<div style="padding:8px;min-width:180px;">' +
+                              '<strong style="color:' + color + ';">' + dayLabel + '</strong>' +
+                              (timeStr ? ' ' + timeStr : '') +
+                              '<br><span style="font-size:12px;">' + escHtml(np.address) + '</span>' +
+                              '<br><span style="font-size:11px;color:#666;">' + escHtml(np.service_type) +
+                              ' &middot; ' + parseFloat(np.distance_km).toFixed(1) + 'km</span>' +
+                              (np.crew_name ? '<br><span style="font-size:11px;color:#888;">Crew: ' + escHtml(np.crew_name) + '</span>' : '') +
+                              '</div>'
+                          );
+                          siInfoWindow.open(siMap, marker);
+                      });
+
+                      siMarkers.push(marker);
+                  });
+              }
+
+              function filterMapByDay(dow) {
+                  siMarkers.forEach(function(m) {
+                      m.setMap((dow === null || m._dow === dow) ? siMap : null);
+                  });
+              }
+
+              window.selectScheduleDay = function(dow) {
+                  // Toggle if same day clicked again
+                  if (dow === activeFilter) {
+                      dow = null;
+                  }
+                  activeFilter = dow;
+
+                  if (dow !== null) {
+                      // Set the recurrence_day_of_week dropdown
+                      var dowSelect = document.querySelector('select[name="recurrence_day_of_week"]');
+                      if (dowSelect) dowSelect.value = dow;
+
+                      // Switch plan_type to recurring if not already
+                      var planType = document.getElementById('planType');
+                      if (planType && planType.value !== 'recurring') {
+                          planType.value = 'recurring';
+                          if (typeof toggleRecurring === 'function') toggleRecurring();
+                      }
+
+                      // Set recurrence_pattern to weekly if blank
+                      var patternSelect = document.getElementById('recurrencePattern');
+                      if (patternSelect && !patternSelect.value) {
+                          patternSelect.value = 'weekly';
+                      }
+                  }
+
+                  // Highlight selected day column
+                  document.querySelectorAll('.mw-si-day-col').forEach(function(el) {
+                      el.classList.toggle('mw-si-selected', dow !== null && parseInt(el.dataset.dow) === dow);
+                  });
+
+                  // Filter map markers
+                  filterMapByDay(dow);
+
+                  // Filter nearby list
+                  document.querySelectorAll('.mw-si-nearby-item').forEach(function(el) {
+                      var itemDow = el.dataset.dow !== '' ? parseInt(el.dataset.dow) : null;
+                      el.style.display = (dow === null || itemDow === dow) ? '' : 'none';
+                  });
+              };
+
+              window.highlightOnMap = function(lat, lng) {
+                  if (!siMap) return;
+                  siMap.panTo({ lat: lat, lng: lng });
+                  siMap.setZoom(16);
+                  siMarkers.forEach(function(m) {
+                      var pos = m.getPosition();
+                      if (Math.abs(pos.lat() - lat) < 0.0001 && Math.abs(pos.lng() - lng) < 0.0001) {
+                          google.maps.event.trigger(m, 'click');
+                      }
+                  });
+              };
+
+              function escHtml(str) {
+                  if (!str) return '';
+                  var d = document.createElement('div');
+                  d.textContent = str;
+                  return d.innerHTML;
+              }
+
+              // Init when Google Maps loads
+              if (typeof google !== 'undefined' && google.maps) {
+                  initScheduleMap();
+              } else {
+                  var checkInterval = setInterval(function() {
+                      if (typeof google !== 'undefined' && google.maps) {
+                          clearInterval(checkInterval);
+                          initScheduleMap();
+                      }
+                  }, 200);
+                  setTimeout(function() { clearInterval(checkInterval); }, 10000);
+              }
+          })();
+          </script>
+          <?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

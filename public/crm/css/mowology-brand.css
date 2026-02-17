@@ -9944,6 +9944,178 @@ textarea.font-monospace {
   display: block;
 }
 
+/* ── Scheduling Intelligence Panel ─────────────────── */
+
+.mw-si-day-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.mw-si-day-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+.mw-si-day-col:hover {
+  background: var(--mw-light);
+}
+.mw-si-day-col.mw-si-selected {
+  background: var(--mw-light);
+  outline: 2px solid var(--mw-green);
+}
+.mw-si-day-col.mw-si-best {
+  background: #ECFDF5;
+}
+
+.mw-si-day-name {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #6B7280;
+  margin-bottom: 4px;
+}
+
+.mw-si-day-bar-wrap {
+  width: 20px;
+  height: 40px;
+  background: #F3F4F6;
+  border-radius: 3px;
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+.mw-si-day-bar {
+  width: 100%;
+  background: var(--mw-green);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+  transition: height 0.3s ease;
+}
+
+.mw-si-day-count {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #111;
+}
+
+.mw-si-day-dist {
+  font-size: 0.65rem;
+  color: #9CA3AF;
+}
+
+.mw-si-best-badge {
+  position: absolute;
+  top: -4px;
+  right: -2px;
+  background: var(--mw-green);
+  color: #fff;
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 8px;
+}
+
+.mw-si-map {
+  width: 100%;
+  height: 280px;
+  border-top: 1px solid #E5E7EB;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.mw-si-nearby-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.mw-si-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #F3F4F6;
+}
+
+.mw-si-show-all {
+  color: var(--mw-green);
+  text-decoration: none;
+}
+.mw-si-show-all:hover {
+  text-decoration: underline;
+}
+
+.mw-si-nearby-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #F3F4F6;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+.mw-si-nearby-item:hover {
+  background: #F9FAFB;
+}
+.mw-si-nearby-item:last-child {
+  border-bottom: none;
+}
+
+.mw-si-nearby-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.mw-si-nearby-address {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #111;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-si-nearby-meta {
+  font-size: 0.7rem;
+  color: #9CA3AF;
+}
+
+.mw-si-nearby-day {
+  text-align: center;
+  flex-shrink: 0;
+  padding-left: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--mw-dark);
+}
+
+.mw-si-nearby-time {
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: #9CA3AF;
+}
+
+.mw-si-no-data {
+  text-align: center;
+  padding: 20px 16px;
+  color: #9CA3AF;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 991px) {
+  .mw-si-map {
+    height: 200px;
+  }
+}
+
 /* Form row helpers */
 .mw-form-row.three {
   display: grid;
