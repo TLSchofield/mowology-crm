@@ -2,6 +2,17 @@
 declare(strict_types=1);
 require_once __DIR__ . '/includes/bootstrap.php';
 
+// CMS-first: render from database if CMS version exists and is published
+require_once __DIR__ . '/crm/includes/cms-functions.php';
+$_cmsPage = cms_getPageBySlug('contact');
+if ($_cmsPage && $_cmsPage['status'] === 'published') {
+    require_once __DIR__ . '/crm/includes/cms-token-engine.php';
+    require_once __DIR__ . '/crm/includes/cms-renderer.php';
+    cms_renderPage($_cmsPage);
+    exit;
+}
+unset($_cmsPage);
+
 $pageTitle = 'Contact Us | Mowology Landscaping';
 $pageDescription = 'Contact Mowology for professional landscaping services. Get a free quote for your property in Vancouver, Burnaby, or Richmond.';
 $activeNav = 'contact';

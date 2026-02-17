@@ -449,7 +449,10 @@ $csrfToken = generateCSRFToken();
               </template>
           <?php endforeach; ?>
 
+<?php include __DIR__ . '/block-forms/media-picker-modal.php'; ?>
+
 <script>
+window.csrfToken = '<?php echo h($csrfToken); ?>';
 let blockCounter = <?php echo count($blocks); ?>;
 
 // Toggle block expand/collapse

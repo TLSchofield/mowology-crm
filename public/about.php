@@ -2,6 +2,17 @@
 declare(strict_types=1);
 require_once __DIR__ . '/includes/bootstrap.php';
 
+// CMS-first: render from database if CMS version exists and is published
+require_once __DIR__ . '/crm/includes/cms-functions.php';
+$_cmsPage = cms_getPageBySlug('about');
+if ($_cmsPage && $_cmsPage['status'] === 'published') {
+    require_once __DIR__ . '/crm/includes/cms-token-engine.php';
+    require_once __DIR__ . '/crm/includes/cms-renderer.php';
+    cms_renderPage($_cmsPage);
+    exit;
+}
+unset($_cmsPage);
+
 $pageTitle = 'About Us | Mowology Landscaping';
 $pageDescription = "Learn about Mowology - Metro Vancouver's trusted landscaping company serving property management and residential clients since 2010.";
 $activeNav = 'about';

@@ -3,6 +3,17 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/bootstrap.php';
 
+// CMS-first: render from database if CMS version exists and is published
+require_once __DIR__ . '/crm/includes/cms-functions.php';
+$_cmsPage = cms_getPageBySlug('home');
+if ($_cmsPage && $_cmsPage['status'] === 'published') {
+    require_once __DIR__ . '/crm/includes/cms-token-engine.php';
+    require_once __DIR__ . '/crm/includes/cms-renderer.php';
+    cms_renderPage($_cmsPage);
+    exit;
+}
+unset($_cmsPage);
+
 $pageTitle = 'Mowology | Professional Landscaping & Grounds Maintenance | Vancouver, Burnaby, Richmond';
 $pageDescription = 'Professional landscaping and grounds maintenance services in Vancouver, Burnaby & Richmond. Specializing in strata properties and residential gardens.';
 $pageKeywords = 'landscaping Vancouver, strata landscaping, property management landscaping, residential landscaping, grounds maintenance, Burnaby landscaping, Richmond landscaping';

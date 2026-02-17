@@ -2,6 +2,17 @@
 declare(strict_types=1);
 require_once __DIR__ . '/includes/bootstrap.php';
 
+// CMS-first: render from database if CMS version exists and is published
+require_once __DIR__ . '/crm/includes/cms-functions.php';
+$_cmsPage = cms_getPageBySlug('services');
+if ($_cmsPage && $_cmsPage['status'] === 'published') {
+    require_once __DIR__ . '/crm/includes/cms-token-engine.php';
+    require_once __DIR__ . '/crm/includes/cms-renderer.php';
+    cms_renderPage($_cmsPage);
+    exit;
+}
+unset($_cmsPage);
+
 $pageTitle = 'Our Services | Mowology Landscaping';
 $pageDescription = 'Complete landscaping services for property management and residential clients. Weekly maintenance, seasonal cleanups, hedge trimming, and more.';
 $activeNav = 'services';
