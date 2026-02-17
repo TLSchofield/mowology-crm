@@ -2365,6 +2365,295 @@ a:hover {
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
 }
 
+/* ── Territory Intelligence ──────────────────────────── */
+
+/* Summary stat cards */
+.mw-territory-stat {
+  border-left: 3px solid var(--mw-green);
+  transition: transform 0.15s ease;
+}
+
+.mw-territory-stat:hover {
+  transform: translateY(-2px);
+}
+
+.mw-territory-stat .mw-stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.mw-territory-stat .mw-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1a202c;
+  line-height: 1.2;
+}
+
+.mw-territory-stat .mw-stat-detail {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+/* FSA tag inline */
+.mw-fsa-tag {
+  display: inline-block;
+  background: var(--mw-light);
+  color: var(--mw-dark);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 4px;
+  letter-spacing: 0.3px;
+}
+
+/* Territory grid */
+.mw-territory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+/* Territory card */
+.mw-territory-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #fff;
+}
+
+.mw-territory-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.mw-territory-card.mw-density-high {
+  border-left: 4px solid #059669;
+}
+
+.mw-territory-card.mw-density-medium {
+  border-left: 4px solid #F59E0B;
+}
+
+.mw-territory-card.mw-density-low {
+  border-left: 4px solid #94a3b8;
+}
+
+.mw-territory-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.mw-fsa-code {
+  font-weight: 700;
+  font-size: 15px;
+  color: #1a202c;
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.5px;
+}
+
+.mw-neighborhood-name {
+  font-size: 12px;
+  color: #64748b;
+  margin-left: 6px;
+}
+
+.mw-density-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+}
+
+.mw-density-badge.mw-density-high {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.mw-density-badge.mw-density-medium {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.mw-density-badge.mw-density-low {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.mw-territory-card-body {
+  padding: 0.75rem 1rem;
+}
+
+.mw-territory-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.mw-metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.mw-metric-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a202c;
+}
+
+.mw-metric-label {
+  font-size: 10px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.mw-territory-services {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mw-territory-services .badge {
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.mw-territory-revenue-bar {
+  margin-top: 0.5rem;
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.mw-revenue-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mw-green), var(--mw-lime));
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.mw-territory-est {
+  font-size: 11px;
+  color: var(--mw-dark);
+  font-weight: 600;
+  margin-top: 4px;
+  text-align: right;
+}
+
+.mw-territory-opportunity {
+  margin-top: 0.5rem;
+  font-size: 11px;
+  color: var(--mw-orange);
+  font-weight: 500;
+  font-style: italic;
+}
+
+/* Ranking items */
+.mw-territory-rank-item {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.mw-territory-rank-item:hover {
+  background: #f8fafc;
+}
+
+.mw-rank-number {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--mw-light);
+  color: var(--mw-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.mw-opp-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.mw-strength-bar {
+  width: 60px;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.mw-strength-fill {
+  height: 100%;
+  background: var(--mw-green);
+  border-radius: 3px;
+}
+
+/* Legend circles for density/revenue overlays */
+.mw-legend-circle {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid;
+  opacity: 0.7;
+}
+
+.mw-circle-high {
+  background: rgba(5, 150, 105, 0.25);
+  border-color: #047857;
+}
+
+.mw-circle-medium {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: #D97706;
+}
+
+.mw-circle-low {
+  background: rgba(148, 163, 184, 0.25);
+  border-color: #64748b;
+}
+
+.mw-circle-revenue-high {
+  background: rgba(5, 150, 105, 0.3);
+  border-color: #047857;
+}
+
+.mw-circle-revenue-medium {
+  background: rgba(45, 134, 89, 0.3);
+  border-color: #1A5F4A;
+}
+
+.mw-circle-revenue-none {
+  background: rgba(226, 232, 240, 0.3);
+  border-color: #94a3b8;
+}
+
 /* ============================================
    RECENT ACTIVITY — Timeline
    ============================================ */
