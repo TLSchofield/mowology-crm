@@ -955,6 +955,19 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         }
     }
 
+    // Remove stops that have no active visits (e.g. all visits cancelled)
+    foreach ($result as $date => &$stops) {
+        foreach ($stops as $stopId => $stop) {
+            if (empty($stop['visits'])) {
+                unset($stops[$stopId]);
+            }
+        }
+        if (empty($stops)) {
+            unset($result[$date]);
+        }
+    }
+    unset($stops);
+
     return $result;
 }
 
