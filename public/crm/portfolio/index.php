@@ -281,6 +281,7 @@ $activePage = 'portfolio';
                                   LEFT JOIN users u ON ma.created_by = u.id
                                   LEFT JOIN media_variants mv ON mv.media_id = ma.id AND mv.variant_type = 'thumb'
                                   WHERE ma.status NOT IN ('ready', 'rejected')
+                                    AND (ma.context_type IS NULL OR ma.context_type != 'expense')
                                   ORDER BY ma.created_at DESC
                               ");
                               $stmt->execute();

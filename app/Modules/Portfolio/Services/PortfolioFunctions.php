@@ -98,6 +98,7 @@ function approveMedia(int $mediaId, int $userId, bool $approved, ?string $reason
 /**
  * Get recent uploaded media (for upload queue / Recent Uploads)
  * Reads from media_assets. Thumbnail comes from media_variants.
+ * Excludes expense receipts — those belong in the Expenses module, not Portfolio.
  */
 function getRecentUploads(int $limit = 20): array
 {
@@ -113,6 +114,7 @@ function getRecentUploads(int $limit = 20): array
             FROM media_assets ma
             LEFT JOIN users u ON ma.created_by = u.id
             LEFT JOIN media_variants mv ON mv.media_id = ma.id AND mv.variant_type = 'thumb'
+            WHERE (ma.context_type IS NULL OR ma.context_type != 'expense')
             ORDER BY ma.created_at DESC
             LIMIT ?
         ");
@@ -126,6 +128,7 @@ function getRecentUploads(int $limit = 20): array
 
 /**
  * Get favorite media (for marketing shortlist)
+ * Excludes expense receipts.
  */
 function getFavoriteMedia(int $limit = 100): array
 {
@@ -140,6 +143,7 @@ function getFavoriteMedia(int $limit = 100): array
             FROM media_assets ma
             LEFT JOIN media_variants mv ON mv.media_id = ma.id AND mv.variant_type = 'thumb'
             WHERE ma.is_favorite = 1
+              AND (ma.context_type IS NULL OR ma.context_type != 'expense')
             ORDER BY ma.created_at DESC
             LIMIT ?
         ");
@@ -153,6 +157,7 @@ function getFavoriteMedia(int $limit = 100): array
 
 /**
  * Get portfolio statistics — counts from media_assets + portfolio_projects
+ * Excludes expense receipts from all media counts.
  */
 function getPortfolioStats(): array
 {
@@ -165,23 +170,25 @@ function getPortfolioStats(): array
         'published_items' => 0
     ];
 
+    $excludeExpense = "AND (context_type IS NULL OR context_type != 'expense')";
+
     try {
         $db = getDB();
 
-        // Total media
-        $stmt = $db->query("SELECT COUNT(*) AS cnt FROM media_assets");
+        // Total media (excluding receipts)
+        $stmt = $db->query("SELECT COUNT(*) AS cnt FROM media_assets WHERE 1=1 {$excludeExpense}");
         $stats['total_media'] = (int)$stmt->fetch()['cnt'];
 
         // Favorites
-        $stmt = $db->query("SELECT COUNT(*) AS cnt FROM media_assets WHERE is_favorite = 1");
+        $stmt = $db->query("SELECT COUNT(*) AS cnt FROM media_assets WHERE is_favorite = 1 {$excludeExpense}");
         $stats['favorite_media'] = (int)$stmt->fetch()['cnt'];
 
         // Ready / approved
-        $stmt = $db->query("SELECT COUNT(*) AS cnt FROM media_assets WHERE status = 'ready'");
+        $stmt = $db->query("SELECT COUNT(*) AS cnt FROM media_assets WHERE status = 'ready' {$excludeExpense}");
         $stats['approved_media'] = (int)$stmt->fetch()['cnt'];
 
         // Pending review (status = 'uploaded' or 'processing')
-        $stmt = $db->query("SELECT COUNT(*) AS cnt FROM media_assets WHERE status NOT IN ('ready', 'rejected')");
+        $stmt = $db->query("SELECT COUNT(*) AS cnt FROM media_assets WHERE status NOT IN ('ready', 'rejected') {$excludeExpense}");
         $stats['pending_review'] = (int)$stmt->fetch()['cnt'];
 
         // Portfolio project items

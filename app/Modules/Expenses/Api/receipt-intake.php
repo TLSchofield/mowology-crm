@@ -130,8 +130,8 @@ try {
     $stmt = $db->prepare("
         INSERT INTO media_assets
             (original_filename, stored_filename, file_path, file_type, mime_type, file_size,
-             image_width, image_height, gps_lat, gps_lng, alt_text, created_by)
-        VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, 'Receipt photo', ?)
+             image_width, image_height, gps_lat, gps_lng, alt_text, context_type, created_by)
+        VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, 'Receipt photo', 'expense', ?)
     ");
     $stmt->execute([
         $file['name'],
