@@ -1245,6 +1245,72 @@ if ($action === 'view_company' && $clientId) {
         if ($apiKey && empty($extraHead)) {
             $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places" defer></script>';
         }
+
+        // ── Measurement data for company properties ──
+        if (!empty($companyProperties)) {
+            $compPropIds = array_column($companyProperties, 'id');
+            $cmPlaceholders = implode(',', array_fill(0, count($compPropIds), '?'));
+
+            // Re-fetch properties with measurement summary columns
+            try {
+                $stmt = $db->prepare("
+                    SELECT p.id,
+                           COALESCE(p.total_lawn_sqft, 0) AS total_lawn_sqft,
+                           COALESCE(p.total_hard_surface_sqft, 0) AS total_hard_surface_sqft,
+                           COALESCE(p.total_hedge_linear_ft, 0) AS total_hedge_linear_ft,
+                           COALESCE(p.total_other_sqft, 0) AS total_other_sqft,
+                           p.measurements_updated_at,
+                           (SELECT COUNT(*) FROM property_measurements pm WHERE pm.property_id = p.id) AS measurement_count
+                    FROM properties p
+                    WHERE p.id IN ({$cmPlaceholders})
+                ");
+                $stmt->execute(array_values($compPropIds));
+                $compMeasurementMap = [];
+                while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                    $compMeasurementMap[(int)$row['id']] = $row;
+                }
+            } catch (Exception $e) { $compMeasurementMap = []; }
+        }
+
+        // ── Quotes for company's properties ──
+        $companyQuotes = [];
+        if (!empty($contactIds)) {
+            try {
+                $stmt = $db->prepare("
+                    SELECT q.id, q.quote_number, q.title, q.status,
+                           COALESCE(NULLIF(q.total_amount, 0), q.amount, 0) AS total_amount,
+                           q.created_at, q.sent_at, q.accepted_at,
+                           p.address AS property_address, p.id AS property_id
+                    FROM quotes q
+                    JOIN properties p ON q.property_id = p.id
+                    WHERE p.site_contact_id IN ({$cPlaceholders})
+                    ORDER BY q.created_at DESC
+                ");
+                $stmt->execute(array_values($contactIds));
+                $companyQuotes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Exception $e) { $companyQuotes = []; }
+        }
+
+        // ── Job Plans for company's properties ──
+        $companyPlans = [];
+        if (!empty($contactIds)) {
+            try {
+                $stmt = $db->prepare("
+                    SELECT jp.id, jp.plan_number, jp.title, jp.service_type, jp.status,
+                           jp.is_recurring, jp.recurrence_pattern, jp.price_per_visit,
+                           p.address AS property_address, p.id AS property_id,
+                           (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id) AS visit_count,
+                           (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'completed') AS completed_count,
+                           (SELECT MAX(jv.scheduled_date) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'completed') AS last_visit_date
+                    FROM job_plans jp
+                    JOIN properties p ON jp.property_id = p.id
+                    WHERE p.site_contact_id IN ({$cPlaceholders})
+                    ORDER BY FIELD(jp.status, 'active', 'paused', 'completed', 'cancelled'), jp.created_at DESC
+                ");
+                $stmt->execute(array_values($contactIds));
+                $companyPlans = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Exception $e) { $companyPlans = []; }
+        }
     }
 }
 
@@ -3319,6 +3385,13 @@ $unconvertedRequests = $db->query("
                       <?php foreach ($companyProperties as $prop):
                           $compPropTags = $companyPropertyTagMap[(int)$prop['id']] ?? [];
                           $ownerName = $companyContactNameMap[(int)($prop['site_contact_id'] ?? 0)] ?? '';
+                          $mData = $compMeasurementMap[(int)$prop['id']] ?? [];
+                          $mCount = (int)($mData['measurement_count'] ?? 0);
+                          $lawnSqft = floatval($mData['total_lawn_sqft'] ?? 0);
+                          $hardSqft = floatval($mData['total_hard_surface_sqft'] ?? 0);
+                          $hedgeFt = floatval($mData['total_hedge_linear_ft'] ?? 0);
+                          $otherSqft = floatval($mData['total_other_sqft'] ?? 0);
+                          $measuredAt = $mData['measurements_updated_at'] ?? null;
                       ?>
                         <div class="mw-contact-property-item" onclick="focusCompanyProperty(<?php echo (int)$prop['id']; ?>)">
                           <div style="flex: 1; min-width: 0;">
@@ -3346,6 +3419,40 @@ $unconvertedRequests = $db->query("
                               <button type="button" class="mw-property-tag-add-btn" onclick="showCompanyTagPicker(<?php echo (int)$prop['id']; ?>, this)" title="Add tag">
                                 <i data-feather="plus" style="width: 10px; height: 10px;"></i>
                               </button>
+                            </div>
+                            <!-- Measurement Status -->
+                            <div class="mw-property-measurement-status" onclick="event.stopPropagation();">
+                              <?php if ($mCount > 0): ?>
+                                <span class="mw-measurement-badge mw-measurement-done" title="<?php echo $mCount; ?> area(s) measured">
+                                  <i data-feather="check-circle" style="width: 11px; height: 11px;"></i> Measured
+                                </span>
+                                <span class="mw-measurement-summary">
+                                  <?php
+                                    $parts = [];
+                                    if ($lawnSqft > 0) $parts[] = number_format($lawnSqft) . ' sq ft lawn';
+                                    if ($hardSqft > 0) $parts[] = number_format($hardSqft) . ' sq ft hard';
+                                    if ($hedgeFt > 0) $parts[] = number_format($hedgeFt) . ' lin ft hedge';
+                                    if ($otherSqft > 0) $parts[] = number_format($otherSqft) . ' sq ft other';
+                                    echo h(implode(' · ', $parts) ?: $mCount . ' area(s)');
+                                  ?>
+                                </span>
+                                <?php if ($measuredAt): ?>
+                                  <span class="mw-measurement-date"><?php echo h(timeAgo($measuredAt)); ?></span>
+                                <?php endif; ?>
+                              <?php else: ?>
+                                <span class="mw-measurement-badge mw-measurement-pending">
+                                  <i data-feather="alert-circle" style="width: 11px; height: 11px;"></i> Not measured
+                                </span>
+                              <?php endif; ?>
+                            </div>
+                            <!-- Quick Actions -->
+                            <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
+                              <a href="quote-workflow.php?contact_id=<?php echo (int)($prop['site_contact_id'] ?? 0); ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Measure, quote & auto-fill pricing">
+                                <i data-feather="file-text" style="width: 11px; height: 11px;"></i> Quote &amp; Measure
+                              </a>
+                              <a href="jobs/create.php?contact_id=<?php echo (int)($prop['site_contact_id'] ?? 0); ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn" title="Create job plan for this property">
+                                <i data-feather="clipboard" style="width: 11px; height: 11px;"></i> Create Plan
+                              </a>
                             </div>
                           </div>
                           <div class="d-flex align-items-center" onclick="event.stopPropagation();">
@@ -3470,6 +3577,113 @@ $unconvertedRequests = $db->query("
                       </div>
                     <?php else: ?>
                       <span class="text-muted">No billing address on file</span>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Quotes Card -->
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="file-text"></i> Quotes
+                      <?php if (!empty($companyQuotes)): ?>
+                        <span class="badge badge-primary ml-1"><?php echo count($companyQuotes); ?></span>
+                      <?php endif; ?>
+                    </h5>
+                    <?php if (!empty($companyProperties) && !empty($companyContacts)): ?>
+                      <a href="quotes/create.php?contact_id=<?php echo (int)($viewCompany['primary_contact_id'] ?? $companyContacts[0]['id'] ?? 0); ?>" class="btn btn-sm btn-success">
+                        <i data-feather="plus"></i> New Quote
+                      </a>
+                    <?php endif; ?>
+                  </div>
+                  <div class="card-body p-0">
+                    <?php if (empty($companyQuotes)): ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="file-text" style="width: 32px; height: 32px; opacity: 0.4;"></i>
+                        <p class="mt-2 mb-0 small">No quotes yet</p>
+                      </div>
+                    <?php else: ?>
+                      <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 mw-client-compact-table">
+                          <thead>
+                            <tr><th>Quote</th><th>Status</th><th class="text-right">Amount</th><th>Date</th></tr>
+                          </thead>
+                          <tbody>
+                            <?php foreach ($companyQuotes as $q): ?>
+                              <tr onclick="window.location='quotes/view.php?id=<?php echo (int)$q['id']; ?>'" style="cursor:pointer;">
+                                <td>
+                                  <strong><?php echo h($q['quote_number']); ?></strong>
+                                  <?php if (!empty($q['title'])): ?>
+                                    <br><small class="text-muted"><?php echo h($q['title']); ?></small>
+                                  <?php endif; ?>
+                                  <?php if (!empty($q['property_address'])): ?>
+                                    <br><small class="text-muted"><i data-feather="map-pin" style="width: 10px; height: 10px;"></i> <?php echo h($q['property_address']); ?></small>
+                                  <?php endif; ?>
+                                </td>
+                                <td><?php echo getStatusBadge($q['status'], 'quote'); ?></td>
+                                <td class="text-right"><?php echo formatCurrency($q['total_amount'] ?? 0); ?></td>
+                                <td class="text-muted small"><?php echo formatDate($q['created_at']); ?></td>
+                              </tr>
+                            <?php endforeach; ?>
+                          </tbody>
+                        </table>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Job Plans Card -->
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="clipboard"></i> Job Plans
+                      <?php if (!empty($companyPlans)): ?>
+                        <span class="badge badge-primary ml-1"><?php echo count($companyPlans); ?></span>
+                      <?php endif; ?>
+                    </h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <?php if (empty($companyPlans)): ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="clipboard" style="width: 32px; height: 32px; opacity: 0.4;"></i>
+                        <p class="mt-2 mb-0 small">No job plans yet</p>
+                      </div>
+                    <?php else: ?>
+                      <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 mw-client-compact-table">
+                          <thead>
+                            <tr><th>Plan</th><th>Status</th><th>Visits</th><th class="text-right">$/Visit</th></tr>
+                          </thead>
+                          <tbody>
+                            <?php foreach ($companyPlans as $pl): ?>
+                              <tr onclick="window.location='jobs/view.php?id=<?php echo (int)$pl['id']; ?>'" style="cursor:pointer;">
+                                <td>
+                                  <strong><?php echo h($pl['plan_number']); ?></strong>
+                                  <br><small class="text-muted">
+                                    <?php echo h(ucwords(str_replace('_', ' ', $pl['service_type'] ?? ''))); ?>
+                                    <?php if ($pl['is_recurring']): ?>
+                                      &middot; <?php echo ucfirst($pl['recurrence_pattern'] ?? 'recurring'); ?>
+                                    <?php endif; ?>
+                                  </small>
+                                  <?php if (!empty($pl['property_address'])): ?>
+                                    <br><small class="text-muted"><i data-feather="map-pin" style="width: 10px; height: 10px;"></i> <?php echo h($pl['property_address']); ?></small>
+                                  <?php endif; ?>
+                                </td>
+                                <td><?php echo getStatusBadge($pl['status'], 'plan'); ?></td>
+                                <td>
+                                  <span class="<?php echo $pl['completed_count'] > 0 ? 'text-success' : 'text-muted'; ?>">
+                                    <?php echo (int)$pl['completed_count']; ?>/<?php echo (int)$pl['visit_count']; ?>
+                                  </span>
+                                  <?php if (!empty($pl['last_visit_date'])): ?>
+                                    <br><small class="text-muted">Last: <?php echo formatDate($pl['last_visit_date']); ?></small>
+                                  <?php endif; ?>
+                                </td>
+                                <td class="text-right"><?php echo formatCurrency($pl['price_per_visit'] ?? 0); ?></td>
+                              </tr>
+                            <?php endforeach; ?>
+                          </tbody>
+                        </table>
+                      </div>
                     <?php endif; ?>
                   </div>
                 </div>
