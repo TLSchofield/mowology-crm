@@ -397,14 +397,31 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                         <div class="card mw-measurement-summary" id="measurementPanel" style="display:none;">
                             <div class="card-header d-flex justify-content-between align-items-center">
                                 <h5 class="card-title mb-0">Property Measurements</h5>
-                                <span class="badge badge-info" id="measurementBadge"></span>
+                                <div>
+                                    <a href="#" id="measurePropertyLink" class="btn btn-sm btn-outline-primary mr-2" style="display:none;" target="_blank">
+                                        <i data-feather="maximize-2" style="width:14px;height:14px;"></i> Measure Property
+                                    </a>
+                                    <span class="badge badge-info" id="measurementBadge"></span>
+                                </div>
                             </div>
                             <div class="card-body py-2">
-                                <div id="measurementSummaryContent" class="small text-muted mb-2"></div>
-                                <div id="servicePickerContainer"></div>
-                                <button type="button" class="btn btn-sm btn-success mw-autofill-btn" id="addSelectedServicesBtn" onclick="addSelectedServices()" style="display:none;">
-                                    Add Selected Services
-                                </button>
+                                <!-- No measurements message -->
+                                <div id="noMeasurementsMsg" style="display:none;" class="text-center py-3">
+                                    <i data-feather="maximize-2" style="width: 32px; height: 32px; color: #ccc;"></i>
+                                    <p class="mb-2 mt-2 text-muted">This property hasn't been measured yet.</p>
+                                    <a href="#" id="measurePropertyBtnLarge" class="btn btn-primary" target="_blank">
+                                        <i data-feather="maximize-2" style="width:16px;height:16px;" class="mr-1"></i> Measure Property
+                                    </a>
+                                    <p class="mb-0 mt-2 small text-muted">After measuring, come back and refresh to see pricing options.</p>
+                                </div>
+                                <!-- Has measurements content -->
+                                <div id="hasMeasurementsContent" style="display:none;">
+                                    <div id="measurementSummaryContent" class="small text-muted mb-2"></div>
+                                    <div id="servicePickerContainer"></div>
+                                    <button type="button" class="btn btn-sm btn-success mw-autofill-btn" id="addSelectedServicesBtn" onclick="addSelectedServices()" style="display:none;">
+                                        Add Selected Services
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -848,13 +865,29 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             const badge = document.getElementById('measurementBadge');
             const pickerContainer = document.getElementById('servicePickerContainer');
             const addBtn = document.getElementById('addSelectedServicesBtn');
+            const noMeasMsg = document.getElementById('noMeasurementsMsg');
+            const hasMeasContent = document.getElementById('hasMeasurementsContent');
+            const measureLink = document.getElementById('measurePropertyLink');
+            const measureBtnLarge = document.getElementById('measurePropertyBtnLarge');
+
+            // Set measure tool links
+            const measureUrl = '../products/area-measurement.php?property_id=' + propertyId;
+            measureLink.href = measureUrl;
+            measureBtnLarge.href = measureUrl;
+
+            // Always show the panel when a property is selected
+            panel.style.display = '';
+            if (typeof feather !== 'undefined') feather.replace();
 
             fetch('../api/quote-autofill.php?action=get-measurements&property_id=' + propertyId)
                 .then(r => r.json())
                 .then(data => {
                     if (data.success && data.has_data) {
                         propertyMeasurements = data;
-                        panel.style.display = '';
+                        noMeasMsg.style.display = 'none';
+                        hasMeasContent.style.display = '';
+                        measureLink.style.display = '';
+                        badge.style.display = '';
 
                         const groupLabels = {
                             'lawn_area': 'Lawn & Garden',
@@ -881,10 +914,16 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                         // Build service picker per measurement group
                         buildServicePicker(data.measurements, data.rules);
                     } else {
-                        panel.style.display = 'none';
+                        // No measurements — show "measure property" prompt
                         propertyMeasurements = null;
+                        noMeasMsg.style.display = '';
+                        hasMeasContent.style.display = 'none';
+                        measureLink.style.display = '';
+                        badge.textContent = 'Not measured';
+                        badge.className = 'badge badge-warning';
                         pickerContainer.innerHTML = '';
                         addBtn.style.display = 'none';
+                        if (typeof feather !== 'undefined') feather.replace();
                     }
                 })
                 .catch(() => {
