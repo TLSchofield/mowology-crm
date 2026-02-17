@@ -51,6 +51,12 @@ $nextWeek = date('Y-m-d', strtotime($startDate . ' +7 days'));
 $crewFilter = isset($_GET['crew']) && $_GET['crew'] !== '' ? (int)$_GET['crew'] : null;
 $staff = getStaffMembers();
 
+// ─── Service type filter ────────────────────────────────────────────
+$validServiceTypes = ['landscaping', 'lawn_care', 'snow_removal', 'hedge_trimming', 'garden_maintenance', 'seasonal_cleanup'];
+$serviceFilter = (isset($_GET['service']) && in_array($_GET['service'], $validServiceTypes, true))
+    ? $_GET['service']
+    : null;
+
 // ─── Weather forecast ───────────────────────────────────────────────
 $todaysForecast = getWeekForecast('Vancouver', 'BC');
 
@@ -73,7 +79,7 @@ for ($i = 0; $i < 7; $i++) {
 }
 
 // ─── Calendar stop data ─────────────────────────────────────────────
-$calendarData = getCalendarStops($startDate, $endDate, $crewFilter);
+$calendarData = getCalendarStops($startDate, $endDate, $crewFilter, $serviceFilter);
 
 // ─── Profitability batch data for all plans this week ───────────────
 $allPlanIds = [];
@@ -143,12 +149,15 @@ function stopStatusClass(string $status): string {
     }
 }
 
-// ─── Build crew filter query string ─────────────────────────────────
-function buildCrewQuery(?int $crewId): string {
-    return $crewId !== null ? '&crew=' . $crewId : '';
+// ─── Build filter query string (crew + service) ─────────────────────
+function buildFilterQuery(?int $crewId, ?string $serviceType): string {
+    $qs = '';
+    if ($crewId !== null) $qs .= '&crew=' . $crewId;
+    if ($serviceType !== null) $qs .= '&service=' . urlencode($serviceType);
+    return $qs;
 }
 
-$crewQueryStr = buildCrewQuery($crewFilter);
+$filterQueryStr = buildFilterQuery($crewFilter, $serviceFilter);
 
 // ─── Day names ──────────────────────────────────────────────────────
 $dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -342,17 +351,27 @@ if ($apiKey) {
               </div>
 
               <div class="mw-header-nav">
-                  <a href="?start=<?php echo htmlspecialchars($prevWeek) . $crewQueryStr; ?>" class="mw-nav-btn">&larr;</a>
+                  <a href="?start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn">&larr;</a>
                   <div class="mw-date-display">
                       <?php echo date('M j', strtotime($startDate)); ?> &ndash; <?php echo date('M j, Y', strtotime($endDate)); ?>
                   </div>
-                  <a href="?start=<?php echo htmlspecialchars($nextWeek) . $crewQueryStr; ?>" class="mw-nav-btn">&rarr;</a>
-                  <a href="?<?php echo ltrim($crewQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
+                  <a href="?start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn">&rarr;</a>
+                  <a href="?<?php echo ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
               </div>
 
               <div class="d-flex align-items-center" style="gap: 8px;">
+                  <!-- Service filter -->
+                  <select id="serviceFilter" class="form-control form-control-sm" onchange="applyFilter()">
+                      <option value="">All Services</option>
+                      <?php foreach ($serviceLabels as $key => $label): ?>
+                          <option value="<?php echo htmlspecialchars($key); ?>"
+                              <?php echo ($serviceFilter === $key) ? 'selected' : ''; ?>>
+                              <?php echo htmlspecialchars($label); ?>
+                          </option>
+                      <?php endforeach; ?>
+                  </select>
                   <!-- Crew filter -->
-                  <select id="crewFilter" class="form-control form-control-sm" onchange="applyCrewFilter(this.value)">
+                  <select id="crewFilter" class="form-control form-control-sm" onchange="applyFilter()">
                       <option value="">All Crews</option>
                       <?php foreach ($staff as $member): ?>
                           <option value="<?php echo (int)$member['id']; ?>"
@@ -676,7 +695,7 @@ if ($apiKey) {
 
               <!-- ── Fixed Bottom Bar ── -->
               <div class="mw-mc-bottombar">
-                  <a href="?<?php echo ltrim($crewQueryStr, '&'); ?>" class="mw-mc-bottombar-btn mw-mc-bottombar-btn-active">
+                  <a href="?<?php echo ltrim($filterQueryStr, '&'); ?>" class="mw-mc-bottombar-btn mw-mc-bottombar-btn-active">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                       <span>Today</span>
                   </a>
@@ -723,15 +742,14 @@ if ($apiKey) {
 
 <script>
 /**
- * Crew filter: navigate with crew param
+ * Apply filters: navigate with crew + service params
  */
-function applyCrewFilter(crewId) {
+function applyFilter() {
     var params = new URLSearchParams(window.location.search);
-    if (crewId) {
-        params.set('crew', crewId);
-    } else {
-        params.delete('crew');
-    }
+    var crewId = document.getElementById('crewFilter').value;
+    var serviceType = document.getElementById('serviceFilter').value;
+    if (crewId) { params.set('crew', crewId); } else { params.delete('crew'); }
+    if (serviceType) { params.set('service', serviceType); } else { params.delete('service'); }
     window.location.search = params.toString();
 }
 

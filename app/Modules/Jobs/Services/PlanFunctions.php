@@ -808,7 +808,7 @@ function ensureCalendarStop(int $propertyId, string $date, ?int $crewId): int {
  * @param int|null $crewId  Filter by crew, or null for all
  * @return array
  */
-function getCalendarStops(string $startDate, string $endDate, ?int $crewId = null): array {
+function getCalendarStops(string $startDate, string $endDate, ?int $crewId = null, ?string $serviceType = null): array {
     $db = getDB();
 
     // Single query: stops with their visits
@@ -860,6 +860,12 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
         $sql .= " AND (cs.crew_id = ? OR cs.id IN (SELECT stop_id FROM calendar_stop_crew WHERE user_id = ?))";
         $params[] = $crewId;
         $params[] = $crewId;
+    }
+
+    if ($serviceType !== null) {
+        // Filter: only show stops that have at least one visit with this service type
+        $sql .= " AND cs.id IN (SELECT jv2.stop_id FROM job_visits jv2 JOIN job_plans jp2 ON jv2.plan_id = jp2.id WHERE jv2.stop_id IS NOT NULL AND jp2.service_type = ?)";
+        $params[] = $serviceType;
     }
 
     $sql .= " ORDER BY cs.stop_date, cs.crew_id, cs.route_order, jv.scheduled_time_start";
