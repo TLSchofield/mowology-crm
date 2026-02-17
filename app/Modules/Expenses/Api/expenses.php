@@ -161,7 +161,7 @@ function handleList(PDO $db): void
         LEFT JOIN users u ON u.id = e.created_by
         LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
         WHERE {$whereClause}
-        ORDER BY e.expense_date DESC, e.created_at DESC
+        ORDER BY e.created_at DESC
         LIMIT {$perPage} OFFSET {$offset}
     ");
     $stmt->execute($params);

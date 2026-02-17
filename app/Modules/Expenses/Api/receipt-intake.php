@@ -167,6 +167,42 @@ try {
             // Match OCR text against vendor's known product catalog
             $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
         }
+
+        // Auto-create vendor if OCR found a vendor name but no match in vendors table
+        if (empty($suggestions['vendor_id']) && !empty($parsed['vendor_hint'])) {
+            $vendorName = strtoupper(trim($parsed['vendor_hint']));
+            if (strlen($vendorName) >= 3) {
+                try {
+                    // Check once more that it doesn't exist (case-insensitive)
+                    $checkStmt = $db->prepare("SELECT id FROM vendors WHERE UPPER(name) = ? LIMIT 1");
+                    $checkStmt->execute([$vendorName]);
+                    $existingId = $checkStmt->fetchColumn();
+
+                    if ($existingId) {
+                        $suggestions['vendor_id']   = (int)$existingId;
+                        $suggestions['vendor_name']  = $vendorName;
+                        $suggestions['vendor_confidence'] = 80;
+                        $suggestions['match_details'][] = 'Exact match found on retry';
+                    } else {
+                        // Create new vendor
+                        $insertStmt = $db->prepare("
+                            INSERT INTO vendors (name, aliases, is_active)
+                            VALUES (?, ?, 1)
+                        ");
+                        $insertStmt->execute([$vendorName, strtolower($vendorName)]);
+                        $newVendorId = (int)$db->lastInsertId();
+
+                        $suggestions['vendor_id']   = $newVendorId;
+                        $suggestions['vendor_name']  = $vendorName;
+                        $suggestions['vendor_confidence'] = 70;
+                        $suggestions['match_details'][] = 'Auto-created from OCR vendor hint';
+                        $suggestions['vendor_auto_created'] = true;
+                    }
+                } catch (Throwable $e) {
+                    error_log('Auto vendor creation failed: ' . $e->getMessage());
+                }
+            }
+        }
     }
 
     // Return everything to the client

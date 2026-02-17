@@ -80,10 +80,28 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
         $result['line_items'] = extractLineItems($lines);
     }
 
+    // Fallback: handle column-separated OCR where labels and amounts are in separate blocks
+    // e.g. "SUBTOTAL\nPST\nGST\n...\nTOTAL\n...\n41.96\n2.94\n2.10\n...\n47.00"
+    if ($result['total'] === null || $result['gst'] === null || $result['subtotal'] === null) {
+        $columnParsed = extractColumnSeparatedAmounts($lines);
+        if ($result['subtotal'] === null && $columnParsed['subtotal'] !== null) {
+            $result['subtotal'] = $columnParsed['subtotal'];
+        }
+        if ($result['gst'] === null && $columnParsed['gst'] !== null) {
+            $result['gst'] = $columnParsed['gst'];
+        }
+        if ($result['total'] === null && $columnParsed['total'] !== null) {
+            $result['total'] = $columnParsed['total'];
+        }
+        if ($columnParsed['pst'] !== null) {
+            $result['pst'] = $columnParsed['pst'];
+        }
+    }
+
     // If we found subtotal and GST but no total, calculate it
     if ($result['total'] === null && $result['subtotal'] !== null && $result['gst'] !== null) {
         $result['total'] = number_format(
-            (float)$result['subtotal'] + (float)$result['gst'],
+            (float)$result['subtotal'] + (float)$result['gst'] + (float)($result['pst'] ?? 0),
             2,
             '.',
             ''
@@ -829,4 +847,127 @@ function extractDateFuzzyMonth(string $text): ?string
     }
 
     return null;
+}
+
+/**
+ * Extract amounts from column-separated receipt OCR.
+ *
+ * Some receipts (especially from POS systems like Coe Lumber) produce OCR
+ * where labels and amounts are in separate vertical columns. The OCR reads
+ * all labels first, then all amounts, producing output like:
+ *
+ *   SUBTOTAL
+ *   PST
+ *   GST
+ *   GST/HST #834080111
+ *   TOTAL
+ *   AMOUNT PAID
+ *   CHANGE DUE
+ *   41.96
+ *   2.94
+ *   2.10
+ *   47.00
+ *   47.00
+ *   0.00
+ *
+ * This function finds the block of labels and the corresponding block of
+ * dollar amounts, then matches them by position.
+ */
+function extractColumnSeparatedAmounts(array $lines): array
+{
+    $result = ['subtotal' => null, 'pst' => null, 'gst' => null, 'total' => null];
+
+    // Build a map of label positions (line index => label type)
+    $labels = [];
+    $labelOrder = [];
+
+    for ($i = 0; $i < count($lines); $i++) {
+        $line = trim($lines[$i]);
+        $lineUpper = strtoupper($line);
+
+        // Skip lines that already have amounts on them (handled by same-line extractors)
+        if (preg_match('/\d{1,6}[.,]\d{2}/', $line) && preg_match('/[A-Z]{3,}/i', $line)) {
+            continue;
+        }
+
+        if (preg_match('/^(?:SUB\s*TOTAL|SUBTOTAL)\s*:?\s*$/i', $line)) {
+            $labels[$i] = 'subtotal';
+            $labelOrder[] = 'subtotal';
+        } elseif (preg_match('/^PST\s*(?:\d+%?)?\s*:?\s*$/i', $line)) {
+            $labels[$i] = 'pst';
+            $labelOrder[] = 'pst';
+        } elseif (preg_match('/^GST\s*(?:\/\s*HST)?\s*(?:\d+%?)?\s*:?\s*$/i', $line)) {
+            $labels[$i] = 'gst';
+            $labelOrder[] = 'gst';
+        } elseif (preg_match('/^(?:TOTAL|TOTAL\s*DUE|GRAND\s*TOTAL)\s*:?\s*$/i', $line) &&
+                  stripos($line, 'sub') === false) {
+            $labels[$i] = 'total';
+            $labelOrder[] = 'total';
+        }
+        // Skip non-amount labels like AMOUNT PAID, CHANGE DUE, GST/HST #...
+    }
+
+    if (empty($labelOrder)) {
+        return $result;
+    }
+
+    // Now find a block of consecutive dollar amounts after the labels
+    $lastLabelLine = max(array_keys($labels));
+
+    // Scan forward from the last label to find the amount block
+    $amounts = [];
+    for ($i = $lastLabelLine + 1; $i < count($lines); $i++) {
+        $line = trim($lines[$i]);
+        // Match standalone dollar amounts (with or without $ sign)
+        if (preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $line, $m)) {
+            $amounts[] = str_replace(',', '.', $m[1]);
+        } elseif (!empty($amounts)) {
+            // Non-amount line after we started collecting — stop only if we've collected enough
+            // But some receipts have GST/HST # lines between labels and amounts, so keep scanning
+            if (preg_match('/^[A-Z]/', $line) && !preg_match('/^\$/', $line)) {
+                // It's a text line — if we already have enough amounts, stop
+                if (count($amounts) >= count($labelOrder)) {
+                    break;
+                }
+            }
+        }
+    }
+
+    // If we didn't find amounts after labels, try scanning backwards from end of text
+    // (amounts might be at the very end)
+    if (count($amounts) < count($labelOrder)) {
+        $amounts = [];
+        for ($i = count($lines) - 1; $i > $lastLabelLine; $i--) {
+            $line = trim($lines[$i]);
+            if (preg_match('/^\$?\s*(\d{1,6}[.,]\d{2})\s*$/', $line, $m)) {
+                array_unshift($amounts, str_replace(',', '.', $m[1]));
+            } elseif (!empty($amounts) && count($amounts) >= count($labelOrder)) {
+                break;
+            }
+        }
+    }
+
+    // Match labels to amounts by position
+    if (count($amounts) >= count($labelOrder)) {
+        foreach ($labelOrder as $idx => $type) {
+            if (isset($amounts[$idx])) {
+                $result[$type] = $amounts[$idx];
+            }
+        }
+    }
+
+    // Validation: if we have subtotal and GST, check that GST is ~5% of subtotal (sanity check)
+    if ($result['subtotal'] !== null && $result['gst'] !== null) {
+        $sub = (float)$result['subtotal'];
+        $gst = (float)$result['gst'];
+        if ($sub > 0) {
+            $pct = $gst / $sub;
+            if ($pct < 0.01 || $pct > 0.15) {
+                // GST is unreasonable — amounts might be misaligned, discard
+                $result = ['subtotal' => null, 'pst' => null, 'gst' => null, 'total' => null];
+            }
+        }
+    }
+
+    return $result;
 }

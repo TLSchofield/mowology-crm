@@ -116,6 +116,8 @@ try {
         'expense_id'          => $expenseId,
         'media_id'            => $expense['receipt_media_id'] ? (int)$expense['receipt_media_id'] : null,
         'vendor'              => $input['vendor'] ?? $expense['vendor_name'] ?? $expense['vendor_name_raw'] ?? 'Unknown',
+        'subtotal'            => (string)($expense['amount'] ?? '0.00'),
+        'gst_amount'          => (string)($expense['gst_amount'] ?? '0.00'),
         'total'               => $input['total'] ?? (string)$expense['total'],
         'date'                => $input['date'] ?? $expense['expense_date'],
         'job_id'              => $input['job_id'] ?? $expense['job_id'],

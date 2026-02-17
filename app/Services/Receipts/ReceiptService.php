@@ -206,6 +206,8 @@ function buildReceiptEmailBody(array $opts, array $config): string
 {
     $vendor     = htmlspecialchars($opts['vendor'] ?? 'Unknown');
     $total      = htmlspecialchars($opts['total'] ?? 'Unknown');
+    $gstAmount  = htmlspecialchars($opts['gst_amount'] ?? '');
+    $subtotal   = htmlspecialchars($opts['subtotal'] ?? '');
     $date       = htmlspecialchars($opts['date'] ?? date('Y-m-d'));
     $jobId      = $opts['job_id'] ?? null;
     $clientName = htmlspecialchars($opts['client_name'] ?? '');
@@ -229,7 +231,9 @@ function buildReceiptEmailBody(array $opts, array $config): string
     <table style="border-collapse: collapse; margin: 15px 0;">
         <tr><td style="padding: 4px 12px 4px 0; font-weight: bold;">Vendor:</td><td>{$vendor}</td></tr>
         <tr><td style="padding: 4px 12px 4px 0; font-weight: bold;">Date:</td><td>{$date}</td></tr>
-        <tr><td style="padding: 4px 12px 4px 0; font-weight: bold;">Total:</td><td>\${$total}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; font-weight: bold;">Subtotal:</td><td>\${$subtotal}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; font-weight: bold;">GST (5%):</td><td>\${$gstAmount}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; font-weight: bold;">Total:</td><td><strong>\${$total}</strong></td></tr>
         <tr><td style="padding: 4px 12px 4px 0; font-weight: bold;">Category:</td><td>{$category}</td></tr>
         <tr><td style="padding: 4px 12px 4px 0; font-weight: bold;">Job:</td><td>{$jobRef}{$clientRef}</td></tr>
     </table>

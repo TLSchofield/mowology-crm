@@ -611,7 +611,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <input type="hidden" id="expenseId">
                 <div class="row">
                     <!-- Left: Receipt Image (shown only when image exists) -->
-                    <div class="col-lg-4" id="expReceiptCol" style="display:none;">
+                    <div class="col-lg-5" id="expReceiptCol" style="display:none;">
                         <div class="mw-modal-receipt-preview" onclick="openLightbox(this.querySelector('img')?.src)">
                             <img id="expReceiptImg" src="" alt="Receipt">
                         </div>
@@ -1667,7 +1667,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (e.receipt_path) {
                 document.getElementById('expReceiptImg').src = e.receipt_path;
                 receiptCol.style.display = 'block';
-                formCol.className = 'col-md-8';
+                formCol.className = 'col-lg-7';
             } else {
                 receiptCol.style.display = 'none';
                 formCol.className = 'col-12';
