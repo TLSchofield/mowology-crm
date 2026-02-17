@@ -467,10 +467,10 @@ if ($apiKey) {
                                       ?>
 
                                       <?php
-                                      // Client display: property_name, company_name, or contact_name
-                                      $clientDisplay = $stop['property_name'] ?? '';
+                                      // Client display: prefer contact_name, fall back to company, then property_name
+                                      $clientDisplay = $stop['contact_name'] ?? '';
                                       if (!$clientDisplay) $clientDisplay = $stop['company_name'] ?? '';
-                                      if (!$clientDisplay) $clientDisplay = $stop['contact_name'] ?? '';
+                                      if (!$clientDisplay) $clientDisplay = $stop['property_name'] ?? '';
                                       ?>
 
                                       <?php if ($arrivalDisplay || $clientDisplay): ?>
