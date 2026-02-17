@@ -486,17 +486,26 @@ $extraHead = '<script>
                                             </div>
                                         </div>
 
-                                        <!-- Measurement Auto-Fill -->
+                                        <!-- Measurement Auto-Fill + Service Picker -->
                                         <div class="card mb-2 mw-measurement-summary" id="wfMeasurementPanel" style="display:none;">
+                                            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                                                <strong class="small mb-0">Property Measurements</strong>
+                                                <span class="badge badge-info small" id="wfMeasurementBadge"></span>
+                                            </div>
                                             <div class="card-body py-2">
-                                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                                    <strong class="small">Property Measurements</strong>
-                                                    <span class="badge badge-info small" id="wfMeasurementBadge"></span>
+                                                <!-- No measurements message -->
+                                                <div id="wfNoMeasurementsMsg" style="display:none;" class="text-center py-2">
+                                                    <p class="mb-1 text-muted small">This property hasn't been measured yet.</p>
+                                                    <p class="mb-0 small text-muted">Use the Measure Tool on the right to draw areas, then click "Save Measurements to Property".</p>
                                                 </div>
-                                                <div id="wfMeasurementSummary" class="small text-muted mb-2"></div>
-                                                <button type="button" class="btn btn-sm btn-success mw-autofill-btn" onclick="wfAutoFill()">
-                                                    Auto-fill from Measurements
-                                                </button>
+                                                <!-- Has measurements content -->
+                                                <div id="wfHasMeasurementsContent" style="display:none;">
+                                                    <div id="wfMeasurementSummary" class="small text-muted mb-2"></div>
+                                                    <div id="wfServicePickerContainer"></div>
+                                                    <button type="button" class="btn btn-sm btn-success mw-autofill-btn" id="wfAddSelectedServicesBtn" onclick="wfAddSelectedServices()" style="display:none;">
+                                                        Select services above
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -1302,6 +1311,8 @@ Work to be completed weather permitting.</textarea>
             if (data.success) {
                 statusDiv.className = 'mt-1 alert alert-success';
                 statusDiv.textContent = data.message;
+                // Refresh the service picker with the newly saved measurements
+                wfFetchMeasurements();
             } else {
                 statusDiv.className = 'mt-1 alert alert-danger';
                 statusDiv.textContent = data.error || 'Failed to save';
@@ -1348,13 +1359,19 @@ Work to be completed weather permitting.</textarea>
         setTimeout(resizeMaps, 500);
     }
 
-    // ─── Measurement Auto-Fill ───────────────────────────────
-    (function() {
+    // ─── Measurement Auto-Fill + Service Picker ────────────────
+    var wfPropertyMeasurements = null;
+
+    function wfFetchMeasurements() {
         if (!propertyId) return;
 
         var panel = document.getElementById('wfMeasurementPanel');
         var content = document.getElementById('wfMeasurementSummary');
         var badge = document.getElementById('wfMeasurementBadge');
+        var noMeasMsg = document.getElementById('wfNoMeasurementsMsg');
+        var hasMeasContent = document.getElementById('wfHasMeasurementsContent');
+        var pickerContainer = document.getElementById('wfServicePickerContainer');
+        var addBtn = document.getElementById('wfAddSelectedServicesBtn');
 
         var groupLabels = <?php
             $gl = ['lawn_area' => 'Lawn & Garden', 'hard_surface' => 'Hard Surface', 'hedge_linear' => 'Hedge / Edge', 'other_area' => 'Other'];
@@ -1362,10 +1379,17 @@ Work to be completed weather permitting.</textarea>
             echo json_encode($gl);
         ?>;
 
+        // Always show the panel
+        panel.style.display = '';
+
         fetch('api/quote-autofill.php?action=get-measurements&property_id=' + propertyId)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success && data.has_data) {
+                    wfPropertyMeasurements = data;
+                    noMeasMsg.style.display = 'none';
+                    hasMeasContent.style.display = '';
+
                     var html = '';
                     var totalAreas = 0;
 
@@ -1390,25 +1414,132 @@ Work to be completed weather permitting.</textarea>
 
                     content.innerHTML = html;
                     badge.textContent = totalAreas + ' area' + (totalAreas !== 1 ? 's' : '');
-                    panel.style.display = '';
+                    badge.className = 'badge badge-info small';
+
+                    // Build service picker per measurement group
+                    wfBuildServicePicker(data.measurements, data.rules);
+                } else {
+                    // No measurements yet
+                    wfPropertyMeasurements = null;
+                    noMeasMsg.style.display = '';
+                    hasMeasContent.style.display = 'none';
+                    badge.textContent = 'Not measured';
+                    badge.className = 'badge badge-warning small';
+                    pickerContainer.innerHTML = '';
+                    addBtn.style.display = 'none';
                 }
             })
-            .catch(function() { /* ignore */ });
-    })();
+            .catch(function() {
+                panel.style.display = 'none';
+                wfPropertyMeasurements = null;
+            });
+    }
 
-    function wfAutoFill() {
-        if (!propertyId) {
-            alert('No property associated with this request.');
+    function wfBuildServicePicker(measurements, rulesByGroup) {
+        var container = document.getElementById('wfServicePickerContainer');
+        var addBtn = document.getElementById('wfAddSelectedServicesBtn');
+        container.innerHTML = '';
+
+        var frequencyLabels = {
+            '7_day': '7-day', '14_day': '14-day', '21_day': '21-day',
+            'monthly': 'Monthly', 'seasonal': 'Seasonal', 'one_off': 'One-off'
+        };
+
+        var hasRules = false;
+
+        Object.keys(measurements).forEach(function(groupKey) {
+            var m = measurements[groupKey];
+            var rules = rulesByGroup[groupKey];
+            if (!rules || rules.length === 0) return;
+
+            hasRules = true;
+            var totalUnits = groupKey === 'hedge_linear' ? m.linear_ft : m.sqft;
+
+            var groupDiv = document.createElement('div');
+            groupDiv.className = 'mw-service-picker-group';
+
+            var rulesHtml = '';
+            rules.forEach(function(rule) {
+                var price = wfCalculatePreviewPrice(rule, totalUnits);
+                var freq = frequencyLabels[rule.default_frequency] || rule.default_frequency;
+                var rateInfo = rule.pricing_model === 'flat'
+                    ? 'Flat rate'
+                    : '$' + parseFloat(rule.price_per_unit).toFixed(4) + '/' + (rule.unit || 'sqft');
+
+                rulesHtml +=
+                    '<label class="mw-service-option">' +
+                        '<input type="checkbox" name="wf_service_rule" value="' + rule.id + '" data-group="' + groupKey + '">' +
+                        '<div class="mw-service-option-details">' +
+                            '<span class="mw-service-option-name">' + escapeHtml(rule.product_name) + '</span>' +
+                            '<span class="mw-service-option-meta">' + freq + ' &middot; ' + rateInfo + '</span>' +
+                        '</div>' +
+                        '<span class="mw-service-option-price">' + formatCurrencyJS(price) + '</span>' +
+                    '</label>';
+            });
+
+            groupDiv.innerHTML = rulesHtml;
+            container.appendChild(groupDiv);
+        });
+
+        if (hasRules) {
+            addBtn.style.display = '';
+            container.addEventListener('change', wfUpdateAddButtonState);
+            wfUpdateAddButtonState();
+        } else {
+            addBtn.style.display = 'none';
+        }
+    }
+
+    function wfCalculatePreviewPrice(rule, totalUnits) {
+        var model = rule.pricing_model;
+        var perUnit = parseFloat(rule.price_per_unit) || 0;
+        var minPrice = parseFloat(rule.minimum_price) || 0;
+        var included = parseFloat(rule.included_units) || 0;
+        var basePrice = parseFloat(rule.base_price) || 0;
+
+        var price = 0;
+        switch (model) {
+            case 'flat':
+                price = basePrice;
+                break;
+            case 'per_sqft':
+            case 'per_linear_ft':
+                price = totalUnits * perUnit;
+                if (minPrice > 0 && price < minPrice) price = minPrice;
+                break;
+            case 'min_plus_sqft':
+            case 'min_plus_linear_ft':
+                price = minPrice + (Math.max(0, totalUnits - included) * perUnit);
+                break;
+        }
+        return Math.round(price * 100) / 100;
+    }
+
+    function wfUpdateAddButtonState() {
+        var checked = document.querySelectorAll('#wfServicePickerContainer input[type="checkbox"]:checked');
+        var btn = document.getElementById('wfAddSelectedServicesBtn');
+        btn.disabled = checked.length === 0;
+        btn.textContent = checked.length === 0
+            ? 'Select services above'
+            : 'Add ' + checked.length + ' Selected Service' + (checked.length !== 1 ? 's' : '');
+    }
+
+    function wfAddSelectedServices() {
+        if (!propertyId) return;
+
+        var checked = document.querySelectorAll('#wfServicePickerContainer input[type="checkbox"]:checked');
+        if (checked.length === 0) {
+            alert('Please select at least one service.');
             return;
         }
 
-        if (lineItems.length > 0) {
-            if (!confirm('This will add auto-calculated line items to the existing list. Continue?')) return;
-        }
+        var selectedRuleIds = [];
+        checked.forEach(function(cb) { selectedRuleIds.push(parseInt(cb.value)); });
 
         var formData = new FormData();
         formData.append('action', 'auto-fill');
         formData.append('property_id', propertyId);
+        formData.append('selected_rules', JSON.stringify(selectedRuleIds));
 
         fetch('api/quote-autofill.php', { method: 'POST', body: formData })
             .then(function(r) { return r.json(); })
@@ -1439,17 +1570,26 @@ Work to be completed weather permitting.</textarea>
                     });
                     renderLineItems();
 
+                    // Uncheck all after adding
+                    document.querySelectorAll('#wfServicePickerContainer input[type="checkbox"]').forEach(function(cb) { cb.checked = false; });
+                    wfUpdateAddButtonState();
+
+                    showToast('Added ' + data.items.length + ' service(s) to quote');
+
                     if (data.warnings && data.warnings.length > 0) {
-                        alert('Auto-fill complete with warnings:\n' + data.warnings.join('\n'));
+                        alert('Services added with warnings:\n' + data.warnings.join('\n'));
                     }
                 } else if (data.warnings && data.warnings.length > 0) {
-                    alert('Could not auto-fill:\n' + data.warnings.join('\n'));
+                    alert('Could not add services:\n' + data.warnings.join('\n'));
                 } else {
-                    alert('No pricing rules found. Configure pricing rules on products first.');
+                    alert('No pricing rules matched. Check product pricing configuration.');
                 }
             })
             .catch(function(err) { alert('Error: ' + err.message); });
     }
+
+    // Fetch measurements on page load
+    wfFetchMeasurements();
     </script>
 
 <?php include 'includes/appstack_footer.php'; ?>
