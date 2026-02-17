@@ -331,6 +331,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             $messageType = 'error';
         }
     }
+
+    if ($action === 'delete') {
+        // Check if any job plans reference this quote
+        $stmt = $db->prepare("SELECT COUNT(*) FROM job_plans WHERE quote_id = ?");
+        $stmt->execute([$quoteId]);
+        $planCount = (int)$stmt->fetchColumn();
+
+        if ($planCount > 0) {
+            $message = "Cannot delete this quote — {$planCount} job plan(s) are linked to it. Delete the plans first.";
+            $messageType = 'error';
+        } else {
+            try {
+                $db->beginTransaction();
+
+                // Clean up activity_log references (no FK constraint)
+                $db->prepare("DELETE FROM activity_log WHERE quote_id = ?")->execute([$quoteId]);
+
+                // quote_line_items and quote_notes cascade automatically via FK
+                $db->prepare("DELETE FROM quotes WHERE id = ?")->execute([$quoteId]);
+
+                $db->commit();
+
+                // Log after commit (quote is gone, log under property/contact context)
+                logActivityExtended($user['id'], 'Quote deleted', "Deleted quote {$quote['quote_number']}");
+
+                // Redirect to quotes list
+                header("Location: ../quotes_appstack.php?deleted=1");
+                exit;
+            } catch (Exception $e) {
+                $db->rollBack();
+                error_log("Quote delete error: " . $e->getMessage());
+                $message = 'Error deleting quote. Please try again.';
+                $messageType = 'error';
+            }
+        }
+    }
 }
 
 $csrfToken = generateCSRFToken();
@@ -593,6 +629,10 @@ $activePage = 'quotes';
                           <i data-feather="clipboard" class="mr-1"></i> Create Plans
                       </a>
                   <?php endif; ?>
+
+                  <button type="button" class="btn btn-outline-danger" onclick="confirmDeleteQuote()">
+                      <i data-feather="trash-2" class="mr-1"></i> Delete
+                  </button>
               </div>
           </div>
 
@@ -1003,6 +1043,17 @@ $activePage = 'quotes';
           <script>
             const quoteId = <?php echo (int)$quoteId; ?>;
             const csrfToken = '<?php echo htmlspecialchars($csrfToken); ?>';
+
+            // --- Delete Confirmation ---
+            function confirmDeleteQuote() {
+              if (!confirm('Delete quote <?php echo htmlspecialchars($quote['quote_number']); ?>? This cannot be undone.')) return;
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.innerHTML = '<input type="hidden" name="csrf_token" value="' + csrfToken + '">' +
+                               '<input type="hidden" name="action" value="delete">';
+              document.body.appendChild(form);
+              form.submit();
+            }
 
             // --- Approve Modal ---
             function showApproveModal() {
