@@ -101,8 +101,21 @@ if ($quote && $quote['property_id']) {
     }
 }
 
-// Get service templates
-$templates = getServiceTemplates();
+// Load products from catalog for template dropdown
+$templates = [];
+try {
+    $templates = $db->query("
+        SELECT p.id, p.name, p.description, p.base_price, p.min_price,
+               c.name as category_name, u.abbreviation as unit_abbreviation, u.name as unit_name
+        FROM products p
+        LEFT JOIN product_categories c ON p.category_id = c.id
+        LEFT JOIN unit_types u ON p.unit_type_id = u.id
+        WHERE p.is_archived = 0 AND p.active = 1
+        ORDER BY c.name, p.display_order, p.name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    // Products table may not exist yet
+}
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -450,10 +463,17 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                             + Add from Template
                                         </button>
                                         <div class="mw-template-menu" id="templateMenu">
-                                            <?php foreach ($templates as $template): ?>
-                                                <div class="mw-template-item" data-template='<?php echo json_encode($template); ?>'>
+                                            <?php
+                                            $currentCat = null;
+                                            foreach ($templates as $template):
+                                                if ($template['category_name'] !== $currentCat):
+                                                    $currentCat = $template['category_name'];
+                                            ?>
+                                                <div class="mw-template-header"><?php echo htmlspecialchars($currentCat ?? 'Uncategorized'); ?></div>
+                                            <?php endif; ?>
+                                                <div class="mw-template-item" data-template='<?php echo htmlspecialchars(json_encode($template), ENT_QUOTES); ?>'>
                                                     <div class="mw-template-name"><?php echo htmlspecialchars($template['name']); ?></div>
-                                                    <div class="mw-template-price"><?php echo formatCurrency($template['default_price']); ?> / <?php echo htmlspecialchars($template['unit_type']); ?></div>
+                                                    <div class="mw-template-price"><?php echo formatCurrency($template['base_price']); ?><?php if ($template['unit_abbreviation']): ?> / <?php echo htmlspecialchars($template['unit_abbreviation']); ?><?php endif; ?></div>
                                                 </div>
                                             <?php endforeach; ?>
                                         </div>
@@ -645,14 +665,15 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
         }
 
         function addLine(templateData = null) {
+            const price = parseFloat(templateData?.base_price || templateData?.default_price || 0);
             const newItem = {
                 id: ++itemIdCounter,
                 service_type: templateData?.name || '',
                 description: templateData?.description || '',
                 quantity: 1,
-                unit_type: templateData?.unit_type || 'each',
-                unit_price: templateData?.default_price || 0,
-                line_total: templateData?.default_price || 0,
+                unit_type: templateData?.unit_abbreviation || templateData?.unit_name || templateData?.unit_type || 'each',
+                unit_price: price,
+                line_total: price,
                 is_optional: false
             };
 
