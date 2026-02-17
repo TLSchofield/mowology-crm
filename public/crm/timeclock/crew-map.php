@@ -912,16 +912,18 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         document.getElementById('jobsCounter').textContent = '';
     }
 
-    function createJobIcon(color, label) {
-        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="36" viewBox="0 0 30 36">' +
-            '<path d="M15 1L1 13h3v20h22V13h3L15 1z" fill="' + color + '" stroke="white" stroke-width="1.5"/>' +
-            '<text x="15" y="25" text-anchor="middle" font-size="10" font-weight="bold" fill="white" font-family="Arial">' + escapeHtml(label) + '</text>' +
-            '</svg>';
+    // Material Design teardrop pin — same icon style as Territory Map
+    var MD_PIN_PATH = 'M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z';
 
+    function createJobIcon(color) {
         return {
-            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-            scaledSize: new google.maps.Size(30, 36),
-            anchor: new google.maps.Point(15, 36)
+            path: MD_PIN_PATH,
+            fillColor: color,
+            fillOpacity: 0.9,
+            scale: 1.3,
+            strokeColor: '#fff',
+            strokeWeight: 2,
+            anchor: new google.maps.Point(12, 24)
         };
     }
 
@@ -930,19 +932,25 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         jobMarkers.forEach(function(entry) { entry.marker.setMap(null); });
         jobMarkers = [];
 
+        var bounds = new google.maps.LatLngBounds();
+        var hasJobCoords = false;
+
         jobsData.forEach(function(stop) {
             if (!stop.latitude || !stop.longitude) return;
 
-            // Determine primary service color and short label
+            // Determine primary service color
             var primaryService = (stop.visits && stop.visits.length > 0)
                 ? stop.visits[0].service_type : '';
             var color = SERVICE_COLORS[primaryService] || '#2D8659';
-            var shortLabel = (SERVICE_LABELS[primaryService] || '').substring(0, 4);
+
+            var pos = { lat: stop.latitude, lng: stop.longitude };
+            bounds.extend(pos);
+            hasJobCoords = true;
 
             var marker = new google.maps.Marker({
-                position: { lat: stop.latitude, lng: stop.longitude },
+                position: pos,
                 map: gmap,
-                icon: createJobIcon(color, shortLabel),
+                icon: createJobIcon(color),
                 title: stop.property_address || 'Job site',
                 zIndex: 800
             });
@@ -957,6 +965,17 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
             jobMarkers.push({ marker: marker, infoWindow: infoWindow, stopData: stop });
         });
+
+        // Auto-zoom: fit bounds to show all job markers + crew positions
+        if (hasJobCoords) {
+            // Also include live crew positions in the bounds
+            Object.keys(crewMarkers).forEach(function(uid) {
+                var pos = crewMarkers[uid].marker.getPosition();
+                if (pos) bounds.extend(pos);
+            });
+
+            gmap.fitBounds(bounds);
+        }
     }
 
     function buildJobInfoContent(stop) {
