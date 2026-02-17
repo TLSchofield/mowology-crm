@@ -82,10 +82,13 @@ $extraHead = $extraHead ?? '';
   <link href="/crm/css/classic.css" rel="stylesheet">
 
   <!-- Mowology brand override -->
-  <link href="/crm/css/mowology-brand.css?v=20260217b" rel="stylesheet">
+  <link href="/crm/css/mowology-brand.css?v=20260217c" rel="stylesheet">
 
   <!-- Feather Icons (required for CRM UI) -->
   <script src="https://unpkg.com/feather-icons"></script>
+
+  <!-- Global Spotlight Search -->
+  <script src="/crm/js/global-search.js?v=1" defer></script>
 
   <?php echo $extraHead; ?>
 

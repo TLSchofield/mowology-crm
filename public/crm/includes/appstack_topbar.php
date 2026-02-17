@@ -27,6 +27,13 @@ if (!isset($user)) $user = ['name' => 'Admin'];
         </button>
     </div>
 
+    <!-- Global Search Trigger -->
+    <button class="mw-spotlight-trigger" data-spotlight-open title="Search (<?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘' : 'Ctrl'; ?>+K)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <span class="mw-spotlight-trigger-text">Search...</span>
+        <kbd class="mw-spotlight-trigger-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
+    </button>
+
     <div class="navbar-collapse collapse">
         <ul class="navbar-nav navbar-align">
             <li class="nav-item dropdown">
@@ -53,3 +60,15 @@ if (!isset($user)) $user = ['name' => 'Admin'];
         </ul>
     </div>
 </nav>
+
+<!-- Spotlight Search Overlay -->
+<div class="mw-spotlight" id="mwSpotlight">
+    <div class="mw-spotlight-dialog">
+        <div class="mw-spotlight-header">
+            <svg class="mw-spotlight-search-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="mwSpotlightInput" class="mw-spotlight-input" placeholder="Search contacts, quotes, jobs..." autocomplete="off" spellcheck="false">
+            <kbd class="mw-kbd mw-spotlight-esc">Esc</kbd>
+        </div>
+        <div class="mw-spotlight-body" id="mwSpotlightBody"></div>
+    </div>
+</div>
