@@ -5,7 +5,7 @@
 All files have been configured with:
 - **Phone:** 778-846-9273
 - **SMS Gateway:** Telus (7788469273@msg.telus.com)
-- **Google Maps API:** AIzaSyCN-LxvQe4twbQ4O56zkd_3zxCU5blUNFs
+- **Google Maps API:** Set via `GOOGLE_MAPS_API_KEY` in `/app_config/secrets.php`
 
 ---
 

@@ -10863,3 +10863,30 @@ textarea.font-monospace {
   .mw-profit-row-amount { width: 70px; font-size: 0.8rem; }
   .mw-profit-row-bar { height: 10px; }
 }
+
+/* ============================================
+   TAG MANAGEMENT (Settings > Tags tab)
+   ============================================ */
+
+.mw-tag-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  vertical-align: middle;
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.mw-tag-group-header td {
+  background: var(--mw-light, #E8F3F0);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--mw-dark, #1A5F4A);
+  padding: 6px 12px !important;
+}
+
+#tagsTable code {
+  font-size: 0.8rem;
+  color: #6c757d;
+}

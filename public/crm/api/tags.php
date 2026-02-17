@@ -4,8 +4,12 @@
  *
  * GET  ?action=list&entity_type=property&entity_id=X  → tags on an entity
  * GET  ?action=available&groups=property_access,property_warning → available tags by group
+ * GET  ?action=admin_list                              → all tags with usage counts (admin)
  * POST action=apply   → apply tag to entity (+ optional value)
  * POST action=remove  → remove tag from entity
+ * POST action=create  → create new tag (admin)
+ * POST action=update  → update tag (admin)
+ * POST action=delete  → soft-delete tag (admin)
  *
  * @package Mowology CRM
  */
@@ -75,6 +79,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'available') {
 
     $tags = $stmt->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode(['success' => true, 'tags' => $tags]);
+    exit;
+}
+
+// ═══════════════════════════════════════════════════════
+//  GET — Admin list (all tags + usage counts)
+// ═══════════════════════════════════════════════════════
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'admin_list') {
+    if (function_exists('requirePermission')) {
+        requirePermission('settings.edit');
+    }
+
+    $stmt = $db->query("
+        SELECT t.id, t.tag_key, t.tag_label, t.tag_group,
+               t.tag_color, t.icon, t.show_on_card, t.has_value,
+               t.sort_order, t.is_active, t.created_at,
+               COUNT(et.id) AS usage_count
+        FROM tags t
+        LEFT JOIN entity_tags et ON et.tag_id = t.id
+        GROUP BY t.id
+        ORDER BY t.tag_group ASC, t.sort_order ASC, t.tag_label ASC
+    ");
+    $tags = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Group by tag_group
+    $grouped = [];
+    foreach ($tags as $tag) {
+        $grouped[$tag['tag_group']][] = $tag;
+    }
+
+    echo json_encode(['success' => true, 'tags' => $tags, 'grouped' => $grouped]);
     exit;
 }
 
@@ -160,6 +194,113 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         echo json_encode(['success' => true, 'removed' => $stmt->rowCount()]);
+        exit;
+    }
+
+    // ── Create tag (admin) ─────────────────────────────
+    if ($postAction === 'create') {
+        if (function_exists('requirePermission')) {
+            requirePermission('settings.edit');
+        }
+
+        $tagKey   = trim($json['tag_key'] ?? '');
+        $tagLabel = trim($json['tag_label'] ?? '');
+        $tagGroup = trim($json['tag_group'] ?? '');
+        $tagColor = trim($json['tag_color'] ?? '#6B7280');
+        $icon     = trim($json['icon'] ?? '') ?: null;
+        $showOnCard = (int)($json['show_on_card'] ?? 0);
+        $hasValue   = (int)($json['has_value'] ?? 0);
+
+        if (!$tagKey || !$tagLabel || !$tagGroup) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'tag_key, tag_label, and tag_group are required']);
+            exit;
+        }
+
+        // Validate tag_key format (lowercase, underscores, no spaces)
+        if (!preg_match('/^[a-z0-9_]+$/', $tagKey)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'tag_key must be lowercase letters, numbers, and underscores only']);
+            exit;
+        }
+
+        // Check for duplicate key
+        $dup = $db->prepare("SELECT id FROM tags WHERE tag_key = ?");
+        $dup->execute([$tagKey]);
+        if ($dup->fetch()) {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'error' => 'A tag with key "' . $tagKey . '" already exists']);
+            exit;
+        }
+
+        // Get next sort_order for this group
+        $orderStmt = $db->prepare("SELECT MAX(sort_order) AS max_order FROM tags WHERE tag_group = ?");
+        $orderStmt->execute([$tagGroup]);
+        $maxOrder = (int)($orderStmt->fetch(PDO::FETCH_ASSOC)['max_order'] ?? 0);
+
+        $stmt = $db->prepare("
+            INSERT INTO tags (tag_key, tag_label, tag_group, tag_color, icon, show_on_card, has_value, sort_order, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+        ");
+        $stmt->execute([$tagKey, $tagLabel, $tagGroup, $tagColor, $icon, $showOnCard, $hasValue, $maxOrder + 1]);
+
+        echo json_encode(['success' => true, 'id' => (int)$db->lastInsertId()]);
+        exit;
+    }
+
+    // ── Update tag (admin) ──────────────────────────────
+    if ($postAction === 'update') {
+        if (function_exists('requirePermission')) {
+            requirePermission('settings.edit');
+        }
+
+        $tagId    = (int)($json['id'] ?? 0);
+        $tagLabel = trim($json['tag_label'] ?? '');
+        $tagGroup = trim($json['tag_group'] ?? '');
+        $tagColor = trim($json['tag_color'] ?? '#6B7280');
+        $icon     = trim($json['icon'] ?? '') ?: null;
+        $showOnCard = (int)($json['show_on_card'] ?? 0);
+        $hasValue   = (int)($json['has_value'] ?? 0);
+
+        if (!$tagId || !$tagLabel || !$tagGroup) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'id, tag_label, and tag_group are required']);
+            exit;
+        }
+
+        $stmt = $db->prepare("
+            UPDATE tags SET tag_label = ?, tag_group = ?, tag_color = ?, icon = ?,
+                            show_on_card = ?, has_value = ?
+            WHERE id = ?
+        ");
+        $stmt->execute([$tagLabel, $tagGroup, $tagColor, $icon, $showOnCard, $hasValue, $tagId]);
+
+        echo json_encode(['success' => true, 'updated' => $stmt->rowCount()]);
+        exit;
+    }
+
+    // ── Delete tag (soft-delete, admin) ─────────────────
+    if ($postAction === 'delete') {
+        if (function_exists('requirePermission')) {
+            requirePermission('settings.edit');
+        }
+
+        $tagId = (int)($json['id'] ?? 0);
+        if (!$tagId) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'id is required']);
+            exit;
+        }
+
+        // Get usage count for response
+        $countStmt = $db->prepare("SELECT COUNT(*) AS cnt FROM entity_tags WHERE tag_id = ?");
+        $countStmt->execute([$tagId]);
+        $usageCount = (int)$countStmt->fetch(PDO::FETCH_ASSOC)['cnt'];
+
+        $stmt = $db->prepare("UPDATE tags SET is_active = 0 WHERE id = ?");
+        $stmt->execute([$tagId]);
+
+        echo json_encode(['success' => true, 'deactivated' => $stmt->rowCount(), 'usage_count' => $usageCount]);
         exit;
     }
 

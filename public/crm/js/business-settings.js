@@ -575,6 +575,344 @@
     }
   }
 
+  // ── Tags Management ─────────────────────────────────
+
+  var tagsLoaded = false;
+  var allTagsData = [];
+
+  var TAG_GROUP_LABELS = {
+    property_access: 'Property Access',
+    property_warning: 'Property Warning',
+    service: 'Service',
+    condition: 'Condition',
+    media: 'Media'
+  };
+
+  function loadTags() {
+    var loading = document.getElementById('tagsLoading');
+    var table = document.getElementById('tagsTable');
+    var empty = document.getElementById('tagsEmpty');
+    if (loading) loading.style.display = 'block';
+    if (table) table.style.display = 'none';
+    if (empty) empty.style.display = 'none';
+
+    fetch('/crm/api/tags.php?action=admin_list')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.success) throw new Error(data.error || 'Failed');
+        allTagsData = data.tags || [];
+        renderTagsTable(allTagsData);
+      })
+      .catch(function (err) {
+        showError('Failed to load tags: ' + err.message);
+      })
+      .finally(function () {
+        if (loading) loading.style.display = 'none';
+      });
+  }
+
+  function renderTagsTable(tags) {
+    var tbody = document.getElementById('tagsTableBody');
+    var table = document.getElementById('tagsTable');
+    var empty = document.getElementById('tagsEmpty');
+    var filterVal = (document.getElementById('tagGroupFilter') || {}).value || '';
+
+    // Filter by group if selected
+    var filtered = filterVal ? tags.filter(function (t) { return t.tag_group === filterVal; }) : tags;
+
+    // Only show active tags
+    filtered = filtered.filter(function (t) { return parseInt(t.is_active); });
+
+    if (!filtered.length) {
+      if (table) table.style.display = 'none';
+      if (empty) empty.style.display = 'block';
+      return;
+    }
+
+    if (table) table.style.display = 'table';
+    if (empty) empty.style.display = 'none';
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+
+    // Group tags
+    var groups = {};
+    filtered.forEach(function (t) {
+      if (!groups[t.tag_group]) groups[t.tag_group] = [];
+      groups[t.tag_group].push(t);
+    });
+
+    var groupOrder = ['property_access', 'property_warning', 'service', 'condition', 'media'];
+    groupOrder.forEach(function (grp) {
+      if (!groups[grp]) return;
+
+      // Group header row
+      var headerRow = document.createElement('tr');
+      headerRow.className = 'mw-tag-group-header';
+      headerRow.innerHTML = '<td colspan="9"><strong>' + escapeHtml(TAG_GROUP_LABELS[grp] || grp) + '</strong></td>';
+      tbody.appendChild(headerRow);
+
+      groups[grp].forEach(function (t) {
+        var row = document.createElement('tr');
+        var iconHtml = t.icon ? '<i data-feather="' + escapeHtml(t.icon) + '" style="width:16px;height:16px;"></i>' : '<span class="text-muted">—</span>';
+        row.innerHTML =
+          '<td><span class="mw-tag-swatch" style="background:' + escapeHtml(t.tag_color || '#6B7280') + ';"></span></td>' +
+          '<td>' + escapeHtml(t.tag_label) + '</td>' +
+          '<td><code>' + escapeHtml(t.tag_key) + '</code></td>' +
+          '<td><span class="badge badge-light">' + escapeHtml(TAG_GROUP_LABELS[t.tag_group] || t.tag_group) + '</span></td>' +
+          '<td>' + iconHtml + '</td>' +
+          '<td>' + (parseInt(t.show_on_card) ? '<span class="badge badge-success">Yes</span>' : '<span class="text-muted">No</span>') + '</td>' +
+          '<td>' + (parseInt(t.has_value) ? '<span class="badge badge-info">Yes</span>' : '<span class="text-muted">No</span>') + '</td>' +
+          '<td>' + (parseInt(t.usage_count) || 0) + '</td>' +
+          '<td>' +
+            '<button class="btn btn-sm btn-outline-primary mr-1 btn-edit-tag" ' +
+              'data-id="' + t.id + '" ' +
+              'data-label="' + escapeHtml(t.tag_label) + '" ' +
+              'data-key="' + escapeHtml(t.tag_key) + '" ' +
+              'data-group="' + escapeHtml(t.tag_group) + '" ' +
+              'data-color="' + escapeHtml(t.tag_color || '#6B7280') + '" ' +
+              'data-icon="' + escapeHtml(t.icon || '') + '" ' +
+              'data-showoncard="' + t.show_on_card + '" ' +
+              'data-hasvalue="' + t.has_value + '" ' +
+              'title="Edit"><i data-feather="edit-2" style="width:14px;height:14px;"></i></button>' +
+            '<button class="btn btn-sm btn-outline-danger btn-delete-tag" ' +
+              'data-id="' + t.id + '" data-label="' + escapeHtml(t.tag_label) + '" data-usage="' + (t.usage_count || 0) + '" ' +
+              'title="Delete"><i data-feather="trash-2" style="width:14px;height:14px;"></i></button>' +
+          '</td>';
+        tbody.appendChild(row);
+      });
+    });
+
+    // Handle any groups not in groupOrder
+    Object.keys(groups).forEach(function (grp) {
+      if (groupOrder.indexOf(grp) === -1) {
+        var headerRow = document.createElement('tr');
+        headerRow.className = 'mw-tag-group-header';
+        headerRow.innerHTML = '<td colspan="9"><strong>' + escapeHtml(grp) + '</strong></td>';
+        tbody.appendChild(headerRow);
+        groups[grp].forEach(function (t) {
+          var row = document.createElement('tr');
+          row.innerHTML = '<td colspan="9">' + escapeHtml(t.tag_label) + '</td>';
+          tbody.appendChild(row);
+        });
+      }
+    });
+
+    if (window.feather) feather.replace();
+  }
+
+  function resetTagForm() {
+    document.getElementById('tag_edit_id').value = '0';
+    document.getElementById('tag_label').value = '';
+    document.getElementById('tag_key').value = '';
+    document.getElementById('tag_key').disabled = false;
+    document.getElementById('tag_group').value = '';
+    document.getElementById('tag_color').value = '#6B7280';
+    document.getElementById('tag_color_hex').value = '#6B7280';
+    document.getElementById('tag_icon').value = '';
+    document.getElementById('tag_show_on_card').value = '0';
+    document.getElementById('tag_has_value').value = '0';
+    document.getElementById('tagFormTitle').textContent = 'Add Tag';
+    document.getElementById('tagIconPreview').innerHTML = '';
+  }
+
+  function setupTags() {
+    var tab = document.getElementById('tags-tab');
+    if (tab) {
+      tab.addEventListener('shown.bs.tab', function () {
+        if (!tagsLoaded) { loadTags(); tagsLoaded = true; }
+      });
+      $(tab).on('shown.bs.tab', function () {
+        if (!tagsLoaded) { loadTags(); tagsLoaded = true; }
+      });
+    }
+
+    // Group filter
+    var filterEl = document.getElementById('tagGroupFilter');
+    if (filterEl) {
+      filterEl.addEventListener('change', function () {
+        renderTagsTable(allTagsData);
+      });
+    }
+
+    // Add tag button
+    var addBtn = document.getElementById('btnAddTag');
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        resetTagForm();
+        document.getElementById('tagFormCard').style.display = 'block';
+      });
+    }
+
+    // Cancel button
+    var cancelBtn = document.getElementById('btnCancelTag');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function () {
+        document.getElementById('tagFormCard').style.display = 'none';
+      });
+    }
+
+    // Auto-generate key from label
+    var labelInput = document.getElementById('tag_label');
+    var keyInput = document.getElementById('tag_key');
+    if (labelInput && keyInput) {
+      labelInput.addEventListener('input', function () {
+        if (!keyInput.disabled && document.getElementById('tag_edit_id').value === '0') {
+          keyInput.value = labelInput.value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        }
+      });
+    }
+
+    // Sync color picker ↔ hex input
+    var colorPicker = document.getElementById('tag_color');
+    var colorHex = document.getElementById('tag_color_hex');
+    if (colorPicker && colorHex) {
+      colorPicker.addEventListener('input', function () {
+        colorHex.value = colorPicker.value;
+      });
+      colorHex.addEventListener('change', function () {
+        if (/^#[0-9a-fA-F]{6}$/.test(colorHex.value)) {
+          colorPicker.value = colorHex.value;
+        }
+      });
+    }
+
+    // Icon preview
+    var iconInput = document.getElementById('tag_icon');
+    var iconPreview = document.getElementById('tagIconPreview');
+    if (iconInput && iconPreview) {
+      iconInput.addEventListener('change', function () {
+        var val = iconInput.value.trim();
+        if (val) {
+          iconPreview.innerHTML = '<i data-feather="' + escapeHtml(val) + '" style="width:18px;height:18px;"></i>';
+          if (window.feather) feather.replace();
+        } else {
+          iconPreview.innerHTML = '';
+        }
+      });
+    }
+
+    // Save tag
+    var saveBtn = document.getElementById('btnSaveTag');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', function () {
+        var labelVal = (document.getElementById('tag_label').value || '').trim();
+        var keyVal = (document.getElementById('tag_key').value || '').trim();
+        var groupVal = document.getElementById('tag_group').value;
+
+        if (!labelVal || !keyVal || !groupVal) {
+          showError('Label, key, and group are required');
+          return;
+        }
+
+        if (!/^[a-z0-9_]+$/.test(keyVal)) {
+          showError('Key must be lowercase letters, numbers, and underscores only');
+          return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+
+        var editId = parseInt(document.getElementById('tag_edit_id').value) || 0;
+        var csrfToken = document.querySelector('meta[name="csrf-token"]');
+        var payload = {
+          action: editId ? 'update' : 'create',
+          csrf_token: csrfToken ? csrfToken.content : '',
+          tag_label: labelVal,
+          tag_key: keyVal,
+          tag_group: groupVal,
+          tag_color: document.getElementById('tag_color').value || '#6B7280',
+          icon: (document.getElementById('tag_icon').value || '').trim(),
+          show_on_card: parseInt(document.getElementById('tag_show_on_card').value) || 0,
+          has_value: parseInt(document.getElementById('tag_has_value').value) || 0
+        };
+
+        if (editId) payload.id = editId;
+
+        fetch('/crm/api/tags.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (!data.success) throw new Error(data.error || 'Failed');
+            document.getElementById('tagFormCard').style.display = 'none';
+            showSuccess('Tag ' + (editId ? 'updated' : 'created'));
+            setTimeout(function () { successEl.style.display = 'none'; }, 3000);
+            loadTags();
+          })
+          .catch(function (err) { showError('Failed to save tag: ' + err.message); })
+          .finally(function () {
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+          });
+      });
+    }
+
+    // Edit/delete via event delegation on table
+    var tbody = document.getElementById('tagsTableBody');
+    if (tbody) {
+      tbody.addEventListener('click', function (e) {
+        var editBtn = e.target.closest('.btn-edit-tag');
+        var deleteBtn = e.target.closest('.btn-delete-tag');
+
+        if (editBtn) {
+          document.getElementById('tag_edit_id').value = editBtn.dataset.id;
+          document.getElementById('tag_label').value = editBtn.dataset.label;
+          document.getElementById('tag_key').value = editBtn.dataset.key;
+          document.getElementById('tag_key').disabled = true; // Can't change key on edit
+          document.getElementById('tag_group').value = editBtn.dataset.group;
+          document.getElementById('tag_color').value = editBtn.dataset.color;
+          document.getElementById('tag_color_hex').value = editBtn.dataset.color;
+          document.getElementById('tag_icon').value = editBtn.dataset.icon || '';
+          document.getElementById('tag_show_on_card').value = editBtn.dataset.showoncard;
+          document.getElementById('tag_has_value').value = editBtn.dataset.hasvalue;
+          document.getElementById('tagFormTitle').textContent = 'Edit Tag';
+          document.getElementById('tagFormCard').style.display = 'block';
+
+          // Update icon preview
+          var iconVal = editBtn.dataset.icon || '';
+          var preview = document.getElementById('tagIconPreview');
+          if (iconVal && preview) {
+            preview.innerHTML = '<i data-feather="' + escapeHtml(iconVal) + '" style="width:18px;height:18px;"></i>';
+            if (window.feather) feather.replace();
+          } else if (preview) {
+            preview.innerHTML = '';
+          }
+        }
+
+        if (deleteBtn) {
+          var usage = parseInt(deleteBtn.dataset.usage) || 0;
+          var msg = 'Deactivate tag "' + deleteBtn.dataset.label + '"?';
+          if (usage > 0) {
+            msg += '\n\nThis tag is used on ' + usage + ' item(s). It will be hidden but existing assignments remain.';
+          }
+          if (!confirm(msg)) return;
+
+          var csrfToken = document.querySelector('meta[name="csrf-token"]');
+          fetch('/crm/api/tags.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'delete',
+              id: parseInt(deleteBtn.dataset.id),
+              csrf_token: csrfToken ? csrfToken.content : ''
+            })
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (!data.success) throw new Error(data.error || 'Failed');
+              showSuccess('Tag deactivated');
+              setTimeout(function () { successEl.style.display = 'none'; }, 3000);
+              loadTags();
+            })
+            .catch(function (err) { showError('Failed to delete tag: ' + err.message); });
+        }
+      });
+    }
+  }
+
   /**
    * Initialize
    */
@@ -587,6 +925,7 @@
     setupFormSubmit();
     setupReceiptTest();
     setupHolidays();
+    setupTags();
   }
 
   // Initialize when DOM is ready

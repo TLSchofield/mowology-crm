@@ -62,6 +62,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <a class="nav-link" id="holidays-tab" data-toggle="tab" href="#holidays" role="tab">Holidays</a>
     </li>
     <li class="nav-item">
+        <a class="nav-link" id="tags-tab" data-toggle="tab" href="#tags" role="tab">Tags</a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a>
     </li>
 </ul>
@@ -370,6 +373,117 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                     </div>
                     <input type="hidden" id="holiday_edit_id" value="0">
+                </div>
+            </div>
+        </div>
+
+        <!-- Tags Tab -->
+        <div class="tab-pane fade" id="tags" role="tabpanel">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Tag Vocabulary</h5>
+                    <div class="d-flex align-items-center">
+                        <select class="form-control form-control-sm mr-2" id="tagGroupFilter" style="width:180px;">
+                            <option value="">All Groups</option>
+                            <option value="property_access">Property Access</option>
+                            <option value="property_warning">Property Warning</option>
+                            <option value="service">Service</option>
+                            <option value="condition">Condition</option>
+                            <option value="media">Media</option>
+                        </select>
+                        <button type="button" class="btn btn-primary btn-sm" id="btnAddTag">
+                            <i data-feather="plus" style="width:14px;height:14px;"></i> Add Tag
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div id="tagsLoading" class="text-center py-4" style="display:none;">
+                        <div class="spinner-border spinner-border-sm text-primary"></div> Loading tags...
+                    </div>
+                    <table class="table table-hover mb-0" id="tagsTable" style="display:none;">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;"></th>
+                                <th>Label</th>
+                                <th>Key</th>
+                                <th>Group</th>
+                                <th>Icon</th>
+                                <th style="width:60px;">Card</th>
+                                <th style="width:60px;">Value</th>
+                                <th style="width:60px;">Used</th>
+                                <th style="width:90px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tagsTableBody"></tbody>
+                    </table>
+                    <div id="tagsEmpty" class="text-center py-4 text-muted" style="display:none;">
+                        No tags found. Click "Add Tag" to create one.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add/Edit Tag Form -->
+            <div class="card mt-3" id="tagFormCard" style="display:none;">
+                <div class="card-header"><h5 class="card-title mb-0" id="tagFormTitle">Add Tag</h5></div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="tag_label" class="form-label">Label <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="tag_label" maxlength="100" required placeholder="e.g. Dog Warning">
+                        </div>
+                        <div class="col-md-4">
+                            <label for="tag_key" class="form-label">Key <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="tag_key" maxlength="100" required placeholder="e.g. dog_warning">
+                            <small class="form-text text-muted">Lowercase, underscores only. Auto-generated from label.</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="tag_group" class="form-label">Group <span class="text-danger">*</span></label>
+                            <select class="form-control" id="tag_group" required>
+                                <option value="">Select group...</option>
+                                <option value="property_access">Property Access</option>
+                                <option value="property_warning">Property Warning</option>
+                                <option value="service">Service</option>
+                                <option value="condition">Condition</option>
+                                <option value="media">Media</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-3">
+                            <label for="tag_color" class="form-label">Color</label>
+                            <div class="d-flex align-items-center">
+                                <input type="color" class="form-control form-control-color mr-2" id="tag_color" value="#6B7280" style="width:50px;height:38px;">
+                                <input type="text" class="form-control" id="tag_color_hex" value="#6B7280" maxlength="7" style="width:90px;">
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="tag_icon" class="form-label">Icon</label>
+                            <div class="d-flex align-items-center">
+                                <input type="text" class="form-control" id="tag_icon" maxlength="30" placeholder="e.g. key, alert-triangle">
+                                <span id="tagIconPreview" class="ml-2" style="min-width:24px;"></span>
+                            </div>
+                            <small class="form-text text-muted">Feather icon name</small>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Show on Card</label>
+                            <select class="form-control" id="tag_show_on_card">
+                                <option value="0">No</option>
+                                <option value="1">Yes</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Has Custom Value</label>
+                            <select class="form-control" id="tag_has_value">
+                                <option value="0">No</option>
+                                <option value="1">Yes</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-primary mr-2" id="btnSaveTag">Save</button>
+                        <button type="button" class="btn btn-secondary" id="btnCancelTag">Cancel</button>
+                    </div>
+                    <input type="hidden" id="tag_edit_id" value="0">
                 </div>
             </div>
         </div>

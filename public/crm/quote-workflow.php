@@ -282,12 +282,20 @@ if ($request['property_id']) {
     $measurements = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Load service templates
-$templates = [];
+// Load products from catalog for "From Template" dropdown
+$products = [];
 try {
-    $templates = getServiceTemplates();
+    $products = $db->query("
+        SELECT p.id, p.name, p.description, p.base_price, p.min_price,
+               c.name as category_name, u.abbreviation as unit_abbreviation, u.name as unit_name
+        FROM products p
+        LEFT JOIN product_categories c ON p.category_id = c.id
+        LEFT JOIN unit_types u ON p.unit_type_id = u.id
+        WHERE p.is_archived = 0 AND p.active = 1
+        ORDER BY c.name, p.display_order, p.name
+    ")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
-    // Service templates table may not exist yet
+    // Products table may not exist yet
 }
 
 // Load measurement groups for dynamic area type dropdown
@@ -404,7 +412,7 @@ $extraHead = '<script>
         // This will be defined in the main script section below
     }
 </script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCN-LxvQe4twbQ4O56zkd_3zxCU5blUNFs&libraries=drawing,geometry&callback=initMaps" async defer></script>';
+<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initMaps" async defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -614,15 +622,22 @@ $extraHead = '<script>
                                         <div id="lineItemsContainer"></div>
 
                                         <div class="d-flex mt-2 mb-3" style="gap: 0.5rem;">
-                                            <?php if (!empty($templates)): ?>
+                                            <?php if (!empty($products)): ?>
                                                 <div class="dropdown">
                                                     <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-toggle="dropdown">
                                                         + From Template
                                                     </button>
-                                                    <div class="dropdown-menu">
-                                                        <?php foreach ($templates as $tpl): ?>
-                                                            <a class="dropdown-item" href="#" onclick="addLineFromTemplate(<?php echo htmlspecialchars(json_encode($tpl), ENT_QUOTES); ?>); return false;">
-                                                                <?php echo h($tpl['name']); ?> — <?php echo formatCurrency($tpl['default_price']); ?>
+                                                    <div class="dropdown-menu" style="max-height: 400px; overflow-y: auto;">
+                                                        <?php
+                                                        $currentCategory = null;
+                                                        foreach ($products as $prod):
+                                                            if ($prod['category_name'] !== $currentCategory):
+                                                                $currentCategory = $prod['category_name'];
+                                                        ?>
+                                                            <h6 class="dropdown-header"><?php echo h($currentCategory ?? 'Uncategorized'); ?></h6>
+                                                        <?php endif; ?>
+                                                            <a class="dropdown-item" href="#" onclick="addProductLine(<?php echo htmlspecialchars(json_encode($prod), ENT_QUOTES); ?>); return false;">
+                                                                <?php echo h($prod['name']); ?> — <?php echo formatCurrency($prod['base_price']); ?>
                                                             </a>
                                                         <?php endforeach; ?>
                                                     </div>
@@ -905,6 +920,16 @@ Work to be completed weather permitting.</textarea>
 
     function addLineFromTemplate(template) {
         addLine(template);
+    }
+
+    function addProductLine(product) {
+        addLine({
+            name: product.name,
+            description: product.description || '',
+            quantity: 1,
+            unit_type: product.unit_abbreviation || product.unit_name || 'each',
+            default_price: parseFloat(product.base_price) || 0
+        });
     }
 
     function updateFormInput() {
