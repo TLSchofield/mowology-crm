@@ -455,6 +455,12 @@ $activePage = 'jobs';
                   <div class="card-header d-flex justify-content-between align-items-center">
                       <h5 class="card-title mb-0">Plan Items <small class="text-muted">(optional)</small></h5>
                       <div>
+                          <a href="#" id="measurePropertyBtn" class="btn btn-sm btn-outline-primary mr-1" style="display:none;" target="_blank" title="Measure property areas">
+                              <i data-feather="maximize-2" style="width:14px;height:14px;"></i> Measure Property
+                          </a>
+                          <a href="#" id="createQuoteBtn" class="btn btn-sm btn-primary mr-1" style="display:none;" title="Create a quote with measurement-based pricing">
+                              <i data-feather="file-text" style="width:14px;height:14px;"></i> Quote & Measure
+                          </a>
                           <button type="button" class="btn btn-sm btn-outline-success mr-1" id="autoFillBtn" onclick="autoFillFromMeasurements()" style="display:none;" title="Auto-fill items from property measurements">
                               <i data-feather="zap" style="width:14px;height:14px;"></i> Auto-Fill from Measurements
                           </button>
@@ -464,6 +470,17 @@ $activePage = 'jobs';
                       </div>
                   </div>
                   <div class="card-body">
+                      <!-- No measurements message (hidden by default) -->
+                      <div id="noMeasurementsMsg" style="display:none;" class="text-center py-3 mb-3" style="background:#f8f9fa; border-radius:6px;">
+                          <i data-feather="maximize-2" style="width: 28px; height: 28px; color: #ccc;"></i>
+                          <p class="mb-2 mt-2 text-muted">This property hasn't been measured yet. Measure it first, then use the Quote & Measure flow for automatic pricing.</p>
+                          <a href="#" id="noMeasMeasureBtn" class="btn btn-sm btn-outline-primary mr-2" target="_blank">
+                              <i data-feather="maximize-2" style="width:14px;height:14px;"></i> Measure Property
+                          </a>
+                          <a href="#" id="noMeasQuoteBtn" class="btn btn-sm btn-primary">
+                              <i data-feather="file-text" style="width:14px;height:14px;"></i> Quote & Measure
+                          </a>
+                      </div>
                       <p class="text-muted small mb-3" id="itemsHint">Add service items to break down what's included in each visit. If no items are added, the plan will use the price per visit from the Pricing section below.</p>
                       <table class="mw-line-items-table" id="planItemsTable" style="display:none;">
                           <thead>
@@ -822,11 +839,31 @@ $activePage = 'jobs';
 
                   // Select this one
                   card.classList.add('selected');
-                  propertyIdInput.value = card.dataset.propertyId;
+                  var propId = card.dataset.propertyId;
+                  propertyIdInput.value = propId;
 
                   // Show auto-fill button now that a property is selected
                   var afBtn = document.getElementById('autoFillBtn');
                   if (afBtn) afBtn.style.display = '';
+
+                  // Set measurement and quote links
+                  var contactId = contactIdInput.value;
+                  var measureUrl = '/crm/products/area-measurement.php?property_id=' + propId;
+                  var quoteUrl = '/crm/quotes/create.php?contact_id=' + contactId + '&property_id=' + propId;
+
+                  var measureBtn = document.getElementById('measurePropertyBtn');
+                  var quoteBtn = document.getElementById('createQuoteBtn');
+                  var noMeasMeasure = document.getElementById('noMeasMeasureBtn');
+                  var noMeasQuote = document.getElementById('noMeasQuoteBtn');
+                  if (measureBtn) { measureBtn.href = measureUrl; measureBtn.style.display = ''; }
+                  if (quoteBtn) { quoteBtn.href = quoteUrl; quoteBtn.style.display = ''; }
+                  if (noMeasMeasure) noMeasMeasure.href = measureUrl;
+                  if (noMeasQuote) noMeasQuote.href = quoteUrl;
+                  if (typeof feather !== 'undefined') feather.replace();
+
+                  // Hide the no-measurements message when switching properties
+                  var noMeasMsg = document.getElementById('noMeasurementsMsg');
+                  if (noMeasMsg) noMeasMsg.style.display = 'none';
               }
 
               // ── If prefilled, load properties on page load ──
@@ -934,13 +971,13 @@ $activePage = 'jobs';
                       btn.innerHTML = origText;
                       if (typeof feather !== 'undefined') feather.replace();
 
-                      if (!data.success) {
-                          alert(data.error || 'Could not auto-fill. Try measuring the property first.');
-                          return;
-                      }
-
-                      if (!data.items || data.items.length === 0) {
-                          alert('No pricing rules matched the measurements. Add items manually or set up pricing rules in Products.');
+                      if (!data.success || !data.items || data.items.length === 0) {
+                          // Show inline message with measure/quote links
+                          var noMeasMsg = document.getElementById('noMeasurementsMsg');
+                          if (noMeasMsg) {
+                              noMeasMsg.style.display = '';
+                              if (typeof feather !== 'undefined') feather.replace();
+                          }
                           return;
                       }
 
@@ -986,10 +1023,24 @@ $activePage = 'jobs';
                   });
               };
 
-              // Show auto-fill button if property is already selected (prefill)
+              // Show auto-fill button and set links if property is already selected (prefill)
               if (propertyIdInput.value) {
                   var afBtn = document.getElementById('autoFillBtn');
                   if (afBtn) afBtn.style.display = '';
+
+                  var propId = propertyIdInput.value;
+                  var contactId = contactIdInput.value;
+                  var measureUrl = '/crm/products/area-measurement.php?property_id=' + propId;
+                  var quoteUrl = '/crm/quotes/create.php?contact_id=' + contactId + '&property_id=' + propId;
+
+                  var measureBtn = document.getElementById('measurePropertyBtn');
+                  var quoteBtn = document.getElementById('createQuoteBtn');
+                  var noMeasMeasure = document.getElementById('noMeasMeasureBtn');
+                  var noMeasQuote = document.getElementById('noMeasQuoteBtn');
+                  if (measureBtn) { measureBtn.href = measureUrl; measureBtn.style.display = ''; }
+                  if (quoteBtn) { quoteBtn.href = quoteUrl; quoteBtn.style.display = ''; }
+                  if (noMeasMeasure) noMeasMeasure.href = measureUrl;
+                  if (noMeasQuote) noMeasQuote.href = quoteUrl;
               }
 
               // ── Recurring toggle ──
