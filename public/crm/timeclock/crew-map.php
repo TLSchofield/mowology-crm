@@ -8,6 +8,7 @@
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
+require_once dirname(__DIR__) . '/includes/plan-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -43,6 +44,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 <label class="mw-route-toggle">
                     <input type="checkbox" id="routeToggle">
                     <span class="mw-route-toggle-label">Show Day Routes</span>
+                </label>
+                <label class="mw-route-toggle">
+                    <input type="checkbox" id="jobsToggle">
+                    <span class="mw-route-toggle-label">Show Day Jobs</span>
                 </label>
                 <div class="mw-route-date-wrap" id="routeDateWrap" style="display:none;">
                     <button type="button" class="btn btn-sm btn-outline-secondary mw-route-date-btn" id="routePrevDay">&lsaquo;</button>
@@ -88,6 +93,12 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                             <span style="display:inline-block;width:14px;height:14px;border-radius:2px;background:#666;color:#fff;font-size:9px;text-align:center;line-height:14px;font-weight:bold;margin-right:4px;vertical-align:middle;">5</span> Stop (&gt;5 min)
                         </div>
                     </div>
+                    <div class="mw-crew-legend-section" id="jobsLegend" style="display:none;">
+                        <div class="mw-crew-legend-title">Scheduled Jobs</div>
+                        <div id="jobsLegendItems">
+                            <!-- Rendered by JS based on service types present -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -118,6 +129,22 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             <div class="card-body p-0" id="routeStatsContainer">
             </div>
         </div>
+
+        <!-- Day's Jobs (shown when jobs toggle active) -->
+        <div class="card mt-3" id="jobsCard" style="display:none;">
+            <div class="card-header" style="background: var(--mw-forest); color:#fff;">
+                <h5 class="card-title mb-0" style="color:#fff;">
+                    <i data-feather="clipboard" style="width:16px;height:16px;display:inline;"></i>
+                    Day's Jobs
+                    <span id="jobsCounter" class="badge badge-light ml-1" style="font-size:0.65rem;"></span>
+                </h5>
+            </div>
+            <div class="card-body p-0 mw-jobs-panel" id="jobsListContainer" style="max-height:500px; overflow-y:auto;">
+                <div class="text-center text-muted py-3" style="font-size:0.85rem;">
+                    Loading jobs...
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -139,6 +166,29 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var routesEnabled = false;
     var STOP_MIN_MINUTES = 5; // minimum minutes to count as a stop
     var STOP_RADIUS_METERS = 50; // max radius to count as same location
+
+    // Job overlay state
+    var jobMarkers = []; // array of { marker, infoWindow, stopData }
+    var jobsEnabled = false;
+    var jobsData = []; // raw stops from API
+
+    var SERVICE_COLORS = {
+        lawn_care: '#7FD858',
+        landscaping: '#2D8659',
+        snow_removal: '#3B82F6',
+        hedge_trimming: '#8B5CF6',
+        garden_maintenance: '#F59E0B',
+        seasonal_cleanup: '#EC4899'
+    };
+
+    var SERVICE_LABELS = {
+        lawn_care: 'Lawn',
+        landscaping: 'Landscape',
+        snow_removal: 'Snow',
+        hedge_trimming: 'Hedge',
+        garden_maintenance: 'Garden',
+        seasonal_cleanup: 'Cleanup'
+    };
 
     // Distinct colors for crew route trails
     var ROUTE_COLORS = [
@@ -166,11 +216,17 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         fetchCrew();
         refreshTimer = setInterval(fetchCrew, REFRESH_MS);
         initRouteControls();
+        initJobsControls();
 
         // Auto-enable routes on page load
         var toggle = document.getElementById('routeToggle');
         toggle.checked = true;
         toggle.dispatchEvent(new Event('change'));
+
+        // Auto-enable jobs on page load
+        var jobsToggle = document.getElementById('jobsToggle');
+        jobsToggle.checked = true;
+        jobsToggle.dispatchEvent(new Event('change'));
     });
 
     function initMap() {
@@ -394,19 +450,18 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
         toggle.addEventListener('change', function() {
             routesEnabled = this.checked;
-            var wrap = document.getElementById('routeDateWrap');
             var filters = document.getElementById('routeCrewFilters');
             var legend = document.getElementById('routeLegend');
             var statsCard = document.getElementById('routeStatsCard');
 
+            updateDatePickerVisibility();
+
             if (routesEnabled) {
-                wrap.style.display = 'flex';
                 filters.style.display = 'flex';
                 legend.style.display = '';
                 statsCard.style.display = '';
                 fetchRoutes();
             } else {
-                wrap.style.display = 'none';
                 filters.style.display = 'none';
                 legend.style.display = 'none';
                 statsCard.style.display = 'none';
@@ -416,6 +471,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
         dateInput.addEventListener('change', function() {
             if (routesEnabled) fetchRoutes();
+            if (jobsEnabled) fetchJobs();
         });
 
         prevBtn.addEventListener('click', function() {
@@ -429,6 +485,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         todayBtn.addEventListener('click', function() {
             dateInput.value = todayStr();
             if (routesEnabled) fetchRoutes();
+            if (jobsEnabled) fetchJobs();
         });
     }
 
@@ -442,13 +499,15 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         var d = new Date(input.value + 'T12:00:00'); // noon to avoid timezone edge
         d.setDate(d.getDate() + days);
 
-        // Don't go past today
+        // Don't go past today for routes (route data only exists for past dates)
+        // but allow future dates when only jobs are enabled
         var today = new Date();
         today.setHours(23, 59, 59, 999);
-        if (d > today) return;
+        if (d > today && !jobsEnabled) return;
 
         input.value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-        if (routesEnabled) fetchRoutes();
+        if (routesEnabled && d <= today) fetchRoutes();
+        if (jobsEnabled) fetchJobs();
     }
 
     function fetchRoutes() {
@@ -780,6 +839,296 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         var timeParts = parts[1].split(':');
         var h = parseInt(timeParts[0]);
         var m = timeParts[1];
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        if (h === 0) h = 12;
+        else if (h > 12) h -= 12;
+        return h + ':' + m + ' ' + ampm;
+    }
+
+    // ── Date Picker Visibility (shared by routes + jobs) ──
+
+    function updateDatePickerVisibility() {
+        var dateWrap = document.getElementById('routeDateWrap');
+        if (routesEnabled || jobsEnabled) {
+            dateWrap.style.display = 'flex';
+        } else {
+            dateWrap.style.display = 'none';
+        }
+    }
+
+    // ── Day Jobs Overlay ───────────────────────────────
+
+    function initJobsControls() {
+        var toggle = document.getElementById('jobsToggle');
+
+        toggle.addEventListener('change', function() {
+            jobsEnabled = this.checked;
+            var jobsCard = document.getElementById('jobsCard');
+            var jobsLegend = document.getElementById('jobsLegend');
+
+            updateDatePickerVisibility();
+
+            if (jobsEnabled) {
+                jobsCard.style.display = '';
+                jobsLegend.style.display = '';
+                fetchJobs();
+            } else {
+                jobsCard.style.display = 'none';
+                jobsLegend.style.display = 'none';
+                clearJobMarkers();
+            }
+        });
+    }
+
+    function fetchJobs() {
+        var date = document.getElementById('routeDate').value;
+        if (!date) return;
+
+        fetch('/crm/api/calendar-stops.php?date=' + encodeURIComponent(date), {
+            credentials: 'same-origin'
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) return;
+            jobsData = data.stops || [];
+            drawJobMarkers();
+            renderJobsList();
+            renderJobsLegend();
+        })
+        .catch(function(err) {
+            console.error('Jobs fetch error:', err);
+        });
+    }
+
+    function clearJobMarkers() {
+        jobMarkers.forEach(function(entry) {
+            entry.marker.setMap(null);
+        });
+        jobMarkers = [];
+        jobsData = [];
+        document.getElementById('jobsListContainer').innerHTML =
+            '<div class="text-center text-muted py-3" style="font-size:0.85rem;">No job data</div>';
+        document.getElementById('jobsLegendItems').innerHTML = '';
+        document.getElementById('jobsCounter').textContent = '';
+    }
+
+    function createJobIcon(color, label) {
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="30" height="36" viewBox="0 0 30 36">' +
+            '<path d="M15 1L1 13h3v20h22V13h3L15 1z" fill="' + color + '" stroke="white" stroke-width="1.5"/>' +
+            '<text x="15" y="25" text-anchor="middle" font-size="10" font-weight="bold" fill="white" font-family="Arial">' + escapeHtml(label) + '</text>' +
+            '</svg>';
+
+        return {
+            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+            scaledSize: new google.maps.Size(30, 36),
+            anchor: new google.maps.Point(15, 36)
+        };
+    }
+
+    function drawJobMarkers() {
+        // Clear existing
+        jobMarkers.forEach(function(entry) { entry.marker.setMap(null); });
+        jobMarkers = [];
+
+        jobsData.forEach(function(stop) {
+            if (!stop.latitude || !stop.longitude) return;
+
+            // Determine primary service color and short label
+            var primaryService = (stop.visits && stop.visits.length > 0)
+                ? stop.visits[0].service_type : '';
+            var color = SERVICE_COLORS[primaryService] || '#2D8659';
+            var shortLabel = (SERVICE_LABELS[primaryService] || '').substring(0, 4);
+
+            var marker = new google.maps.Marker({
+                position: { lat: stop.latitude, lng: stop.longitude },
+                map: gmap,
+                icon: createJobIcon(color, shortLabel),
+                title: stop.property_address || 'Job site',
+                zIndex: 800
+            });
+
+            var infoWindow = new google.maps.InfoWindow({
+                content: buildJobInfoContent(stop)
+            });
+
+            marker.addListener('click', function() {
+                infoWindow.open(gmap, marker);
+            });
+
+            jobMarkers.push({ marker: marker, infoWindow: infoWindow, stopData: stop });
+        });
+    }
+
+    function buildJobInfoContent(stop) {
+        var statusColors = {
+            scheduled: '#6B7280',
+            in_progress: '#F59E0B',
+            completed: '#22c55e',
+            skipped: '#9CA3AF'
+        };
+        var statusColor = statusColors[stop.stop_status] || '#6B7280';
+
+        var time = '';
+        if (stop.estimated_arrival) {
+            time = formatTimeShort(stop.estimated_arrival);
+        } else if (stop.visits && stop.visits.length && stop.visits[0].scheduled_time_start) {
+            time = formatTimeShort(stop.visits[0].scheduled_time_start);
+        }
+
+        var html = '<div style="padding:8px;min-width:200px;">' +
+            '<h6 style="margin:0 0 4px 0;color:#0D3B2E;">' +
+            escapeHtml(stop.property_address) + '</h6>';
+
+        if (stop.company_name) {
+            html += '<p style="margin:0 0 4px 0;font-size:11px;color:#666;">' +
+                escapeHtml(stop.company_name) + '</p>';
+        }
+
+        if (time) {
+            html += '<p style="margin:0 0 4px 0;font-size:11px;">' +
+                '<strong>' + time + '</strong></p>';
+        }
+
+        // Service pills
+        if (stop.visits && stop.visits.length) {
+            html += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px;">';
+            stop.visits.forEach(function(v) {
+                var sColor = SERVICE_COLORS[v.service_type] || '#6B7280';
+                var sLabel = SERVICE_LABELS[v.service_type] || v.service_type;
+                html += '<span style="display:inline-block;font-size:10px;font-weight:600;' +
+                    'padding:1px 5px;border-radius:3px;background:#f3f4f6;border-left:3px solid ' +
+                    sColor + ';">' + escapeHtml(sLabel) + '</span>';
+            });
+            html += '</div>';
+        }
+
+        if (stop.crew_name) {
+            html += '<p style="margin:0 0 2px 0;font-size:11px;color:#666;">' +
+                'Crew: ' + escapeHtml(stop.crew_name) + '</p>';
+        }
+
+        var statusLabel = (stop.stop_status || 'scheduled').replace(/_/g, ' ');
+        html += '<p style="margin:0;font-size:10px;">' +
+            '<span style="color:' + statusColor + ';">&#9679;</span> ' +
+            statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1) + '</p>';
+
+        html += '</div>';
+        return html;
+    }
+
+    function renderJobsList() {
+        var container = document.getElementById('jobsListContainer');
+        var counter = document.getElementById('jobsCounter');
+
+        if (!jobsData.length) {
+            container.innerHTML = '<div class="text-center text-muted py-3" style="font-size:0.85rem;">No stops scheduled</div>';
+            counter.textContent = '';
+            return;
+        }
+
+        var completed = 0;
+        jobsData.forEach(function(s) { if (s.stop_status === 'completed') completed++; });
+        counter.textContent = jobsData.length + ' stop' + (jobsData.length !== 1 ? 's' : '') +
+            (completed > 0 ? ' \u00b7 ' + completed + ' done' : '');
+
+        var html = '';
+        jobsData.forEach(function(stop, idx) {
+            var statusClass = '';
+            if (stop.stop_status === 'in_progress') statusClass = ' mw-stop-in-progress';
+            else if (stop.stop_status === 'completed') statusClass = ' mw-stop-completed';
+            else if (stop.stop_status === 'skipped') statusClass = ' mw-stop-skipped';
+
+            var time = '';
+            if (stop.estimated_arrival) {
+                time = formatTimeShort(stop.estimated_arrival);
+            } else if (stop.visits && stop.visits.length && stop.visits[0].scheduled_time_start) {
+                time = formatTimeShort(stop.visits[0].scheduled_time_start);
+            }
+
+            html += '<div class="mw-jobs-stop-item' + statusClass + '" data-job-idx="' + idx + '">';
+
+            if (time) {
+                html += '<div class="mw-stop-time">' + escapeHtml(time) + '</div>';
+            }
+            html += '<div class="mw-stop-property">' + escapeHtml(stop.property_address || 'Unknown') + '</div>';
+
+            if (stop.company_name) {
+                html += '<div class="mw-stop-client">' + escapeHtml(stop.company_name) + '</div>';
+            }
+
+            if (stop.visits && stop.visits.length) {
+                html += '<div class="mw-stop-visits">';
+                stop.visits.forEach(function(v) {
+                    var sColor = SERVICE_COLORS[v.service_type] || '#6B7280';
+                    var sLabel = SERVICE_LABELS[v.service_type] || v.service_type;
+                    html += '<span class="mw-visit-pill" style="border-left-color:' + sColor + ';">' +
+                        escapeHtml(sLabel) + '</span>';
+                });
+                html += '</div>';
+            }
+
+            if (stop.crew_name) {
+                html += '<div class="mw-stop-crew">' + escapeHtml(stop.crew_name) + '</div>';
+            }
+
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
+
+        // Bind click handlers to pan map
+        container.querySelectorAll('.mw-jobs-stop-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+                var idx = parseInt(this.dataset.jobIdx);
+                var stop = jobsData[idx];
+                if (stop && stop.latitude && stop.longitude) {
+                    gmap.panTo({ lat: stop.latitude, lng: stop.longitude });
+                    gmap.setZoom(16);
+                    // Open the corresponding marker info window
+                    if (jobMarkers[idx]) {
+                        jobMarkers[idx].infoWindow.open(gmap, jobMarkers[idx].marker);
+                    }
+                }
+            });
+        });
+    }
+
+    function renderJobsLegend() {
+        var container = document.getElementById('jobsLegendItems');
+        if (!jobsData.length) {
+            container.innerHTML = '<div class="mw-crew-legend-item" style="color:#999;">No data</div>';
+            return;
+        }
+
+        // Collect unique service types present
+        var types = {};
+        jobsData.forEach(function(stop) {
+            (stop.visits || []).forEach(function(v) {
+                if (v.service_type) types[v.service_type] = true;
+            });
+        });
+
+        var html = '';
+        Object.keys(types).forEach(function(type) {
+            var color = SERVICE_COLORS[type] || '#6B7280';
+            var label = SERVICE_LABELS[type] || type;
+            html += '<div class="mw-crew-legend-item">' +
+                '<span class="mw-crew-legend-dot" style="background:' + color + ';border-radius:2px;"></span> ' +
+                escapeHtml(label) +
+                '</div>';
+        });
+        container.innerHTML = html;
+    }
+
+    /**
+     * Format a time-only string like "09:00:00" into "9:00 AM"
+     */
+    function formatTimeShort(timeStr) {
+        if (!timeStr) return '';
+        var parts = timeStr.split(':');
+        if (parts.length < 2) return timeStr;
+        var h = parseInt(parts[0]);
+        var m = parts[1];
         var ampm = h >= 12 ? 'PM' : 'AM';
         if (h === 0) h = 12;
         else if (h > 12) h -= 12;

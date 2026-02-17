@@ -7817,6 +7817,84 @@ textarea.font-monospace {
   color: #888;
 }
 
+/* ── Day Jobs Panel on Crew Map ─────────────────────── */
+
+.mw-jobs-panel .mw-jobs-stop-item {
+  display: block;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.mw-jobs-panel .mw-jobs-stop-item:hover {
+  background: var(--mw-light);
+}
+
+.mw-jobs-panel .mw-jobs-stop-item:last-child {
+  border-bottom: none;
+}
+
+.mw-jobs-panel .mw-stop-in-progress {
+  border-left: 3px solid var(--mw-orange);
+}
+
+.mw-jobs-panel .mw-stop-completed {
+  border-left: 3px solid var(--mw-green);
+  opacity: 0.65;
+}
+
+.mw-jobs-panel .mw-stop-skipped {
+  border-left: 3px solid #9CA3AF;
+  opacity: 0.5;
+}
+
+.mw-jobs-panel .mw-stop-time {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--mw-green);
+  margin-bottom: 2px;
+}
+
+.mw-jobs-panel .mw-stop-property {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #222;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-jobs-panel .mw-stop-client {
+  font-size: 0.7rem;
+  color: #888;
+  margin-bottom: 3px;
+}
+
+.mw-jobs-panel .mw-stop-visits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 3px;
+}
+
+.mw-jobs-panel .mw-visit-pill {
+  display: inline-block;
+  font-size: 0.63rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #f3f4f6;
+  color: #333;
+  border-left: 3px solid #ccc;
+  white-space: nowrap;
+}
+
+.mw-jobs-panel .mw-stop-crew {
+  font-size: 0.65rem;
+  color: #666;
+}
+
 /* Mobile responsive */
 @media (max-width: 576px) {
   .mw-schedule-header { flex-direction: column; align-items: stretch; }
