@@ -419,13 +419,54 @@ var MwDayViewMap = (function() {
                 reorderCards(ordered);
             } else {
                 console.warn('[DayViewMap] Directions failed:', status);
-                showAllMarkers(allAssigned);
+                showAllMarkersSorted(allAssigned);
             }
         });
     }
 
-    function showAllMarkers(stops) {
+    /**
+     * Nearest-neighbor sort: order stops by proximity starting from
+     * user GPS (or first stop if no GPS). Used as fallback when
+     * Directions API is unavailable.
+     */
+    function nearestNeighborSort(stops, startLat, startLng) {
+        if (stops.length <= 1) return stops.slice();
+        var remaining = stops.slice();
+        var sorted = [];
+        var curLat = startLat;
+        var curLng = startLng;
+
+        while (remaining.length > 0) {
+            var bestIdx = 0;
+            var bestDist = Infinity;
+            for (var i = 0; i < remaining.length; i++) {
+                if (remaining[i].lat && remaining[i].lng) {
+                    var d = haversine(curLat, curLng, remaining[i].lat, remaining[i].lng);
+                    if (d < bestDist) {
+                        bestDist = d;
+                        bestIdx = i;
+                    }
+                }
+            }
+            var next = remaining.splice(bestIdx, 1)[0];
+            sorted.push(next);
+            if (next.lat && next.lng) {
+                curLat = next.lat;
+                curLng = next.lng;
+            }
+        }
+        return sorted;
+    }
+
+    function showAllMarkersSorted(stops) {
         clearRoute();
+
+        // Sort by nearest-neighbor for optimized display order
+        var startLat = userLat || (stops[0] && stops[0].lat) || 49.2827;
+        var startLng = userLng || (stops[0] && stops[0].lng) || -123.1207;
+        var sorted = nearestNeighborSort(stops, startLat, startLng);
+        optimizedStops = sorted;
+
         var bounds = new google.maps.LatLngBounds();
         var any = false;
 
@@ -435,7 +476,7 @@ var MwDayViewMap = (function() {
             any = true;
         }
 
-        stops.forEach(function(stop, idx) {
+        sorted.forEach(function(stop, idx) {
             if (stop.lat && stop.lng) {
                 var pos = new google.maps.LatLng(stop.lat, stop.lng);
                 placeMarker(pos, stop, idx, false, false);
@@ -445,7 +486,10 @@ var MwDayViewMap = (function() {
         });
 
         if (any) map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
-        titleEl.textContent = stops.length + ' stops';
+        titleEl.textContent = sorted.length + ' stops';
+
+        // Reorder cards to match proximity-optimized order
+        reorderCards(sorted);
     }
 
     function fitBoundsAll(stops) {

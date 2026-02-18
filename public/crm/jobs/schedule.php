@@ -1463,7 +1463,7 @@ var MW_ROUTE_STOPS = <?php
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 </script>
-<script src="../js/schedule-day-map.js?v=20260217b"></script>
+<script src="../js/schedule-day-map.js?v=20260217c"></script>
 <?php endif; ?>
 <?php if ($view === 'week'): ?>
 <script>
