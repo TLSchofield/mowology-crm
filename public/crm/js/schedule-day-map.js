@@ -16,6 +16,7 @@ var MwDayViewMap = (function() {
 
     // ── State ──
     var map = null;
+    var geocoder = null;
     var directionsService = null;
     var directionsRenderer = null;
     var userMarker = null;
@@ -94,6 +95,7 @@ var MwDayViewMap = (function() {
             ]
         });
 
+        geocoder = new google.maps.Geocoder();
         directionsService = new google.maps.DirectionsService();
         directionsRenderer = new google.maps.DirectionsRenderer({
             map: map,
@@ -142,37 +144,65 @@ var MwDayViewMap = (function() {
 
     function computeRoute() {
         var allStops = getStops();
-        var assigned = allStops.filter(function(s) { return s.assigned; });
-        var unassigned = allStops.filter(function(s) { return !s.assigned; });
 
         clearMarkers();
         optimizedStops = null;
 
-        // Show user location
-        var hasGPS = !!(userLat && userLng);
-        if (hasGPS) addUserMarker(userLat, userLng);
+        // Geocode any stops missing lat/lng, then proceed
+        geocodeMissing(allStops, function() {
+            var assigned = allStops.filter(function(s) { return s.assigned; });
+            var unassigned = allStops.filter(function(s) { return !s.assigned; });
 
-        // Show unassigned as gray markers (not on route)
-        unassigned.forEach(function(stop) {
-            if (stop.lat && stop.lng) {
-                placeMarker(new google.maps.LatLng(stop.lat, stop.lng), stop, null, false, true);
+            // Show user location
+            var hasGPS = !!(userLat && userLng);
+            if (hasGPS) addUserMarker(userLat, userLng);
+
+            // Show unassigned as gray markers (not on route)
+            unassigned.forEach(function(stop) {
+                if (stop.lat && stop.lng) {
+                    placeMarker(new google.maps.LatLng(stop.lat, stop.lng), stop, null, false, true);
+                }
+            });
+
+            if (assigned.length === 0) {
+                titleEl.textContent = unassigned.length > 0 ? unassigned.length + ' unassigned stop' + (unassigned.length !== 1 ? 's' : '') : 'No stops';
+                clearRoute();
+                fitBoundsAll(unassigned);
+                return;
             }
+
+            if (assigned.length === 1) {
+                singleStopRoute(assigned[0], hasGPS);
+                return;
+            }
+
+            // ── Multi-stop route ──
+            multiStopRoute(assigned, hasGPS);
         });
+    }
 
-        if (assigned.length === 0) {
-            titleEl.textContent = unassigned.length > 0 ? unassigned.length + ' unassigned stop' + (unassigned.length !== 1 ? 's' : '') : 'No stops';
-            clearRoute();
-            fitBoundsAll(unassigned);
-            return;
+    /**
+     * Geocode stops that have an address but no lat/lng.
+     * Processes sequentially to respect API rate limits, then calls callback.
+     */
+    function geocodeMissing(stops, callback) {
+        var missing = stops.filter(function(s) { return (!s.lat || !s.lng) && s.address; });
+        if (missing.length === 0 || !geocoder) { callback(); return; }
+
+        var idx = 0;
+        function next() {
+            if (idx >= missing.length) { callback(); return; }
+            var stop = missing[idx];
+            geocoder.geocode({ address: stop.address }, function(results, status) {
+                if (status === google.maps.GeocoderStatus.OK && results[0]) {
+                    stop.lat = results[0].geometry.location.lat();
+                    stop.lng = results[0].geometry.location.lng();
+                }
+                idx++;
+                next();
+            });
         }
-
-        if (assigned.length === 1) {
-            singleStopRoute(assigned[0], hasGPS);
-            return;
-        }
-
-        // ── Multi-stop route ──
-        multiStopRoute(assigned, hasGPS);
+        next();
     }
 
     function singleStopRoute(stop, hasGPS) {
@@ -384,6 +414,9 @@ var MwDayViewMap = (function() {
                 if (bounds) {
                     map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
                 }
+
+                // Reorder cards to match optimized route
+                reorderCards(ordered);
             } else {
                 console.warn('[DayViewMap] Directions failed:', status);
                 showAllMarkers(allAssigned);
@@ -441,50 +474,53 @@ var MwDayViewMap = (function() {
     }
 
     // ═══════════════════════════════════════════════════
-    //  MARKERS
+    //  MARKERS (teardrop pin style — consistent with crew map)
     // ═══════════════════════════════════════════════════
 
+    function createPinIcon(color, label, size) {
+        // Teardrop pin SVG matching crew map style
+        var w = size || 36;
+        var h = Math.round(w * 44 / 36);
+        var cx = w / 2;
+        var cy = Math.round(w * 16 / 36);
+        var r = Math.round(w * 10 / 36);
+        var fontSize = Math.round(w * 13 / 36);
+        var textY = cy + Math.round(fontSize * 0.38);
+
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
+            '<path d="M' + cx + ' 0C' + Math.round(w * 8.06 / 36) + ' 0 0 ' + Math.round(w * 8.06 / 36) + ' 0 ' + cx + 'c0 ' + Math.round(w * 11.25 / 36) + ' ' + cx + ' ' + Math.round(w * 26 / 36) + ' ' + cx + ' ' + Math.round(w * 26 / 36) + 's' + cx + '-' + Math.round(w * 14.75 / 36) + ' ' + cx + '-' + Math.round(w * 26 / 36) + 'C' + w + ' ' + Math.round(w * 8.06 / 36) + ' ' + Math.round(w * 27.94 / 36) + ' 0 ' + cx + ' 0z" fill="' + color + '" stroke="white" stroke-width="2"/>' +
+            '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="white" opacity="0.3"/>' +
+            '<text x="' + cx + '" y="' + textY + '" text-anchor="middle" font-size="' + fontSize + '" font-weight="bold" fill="white" font-family="Arial">' + label + '</text>' +
+            '</svg>';
+
+        return {
+            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+            scaledSize: new google.maps.Size(w, h),
+            anchor: new google.maps.Point(w / 2, h)
+        };
+    }
+
     function placeMarker(position, stop, index, isActive, isUnassigned) {
-        var color;
-        var scale;
-        var opacity;
+        var color, size;
 
         if (isUnassigned) {
             color = '#9CA3AF';
-            scale = 10;
-            opacity = 0.4;
+            size = 30;
         } else if (stop.stopId === pinnedStopId) {
             color = '#e85d04';
-            scale = 16;
-            opacity = 1;
+            size = 40;
         } else {
             color = serviceColors[stop.serviceType] || '#2D8659';
-            scale = isActive ? 16 : 13;
-            opacity = isActive ? 1 : 0.7;
+            size = isActive ? 40 : 36;
         }
 
-        var label = null;
-        if (index !== null) {
-            label = {
-                text: String(index + 1),
-                color: '#FFFFFF',
-                fontSize: scale >= 14 ? '12px' : '10px',
-                fontWeight: 'bold'
-            };
-        }
+        var label = index !== null ? String(index + 1) : '\u2022';
+        var icon = createPinIcon(color, label, size);
 
         var marker = new google.maps.Marker({
             position: position,
             map: map,
-            label: label,
-            icon: {
-                path: google.maps.SymbolPath.CIRCLE,
-                scale: scale,
-                fillColor: color,
-                fillOpacity: opacity,
-                strokeColor: '#FFFFFF',
-                strokeWeight: 2
-            },
+            icon: icon,
             title: stop.address || '',
             zIndex: isActive ? 100 : (isUnassigned ? 1 : 10)
         });
@@ -494,7 +530,13 @@ var MwDayViewMap = (function() {
             highlightCard(stop.stopId);
         });
 
-        stopMarkers.push({ marker: marker, stopId: stop.stopId });
+        stopMarkers.push({
+            marker: marker,
+            stopId: stop.stopId,
+            serviceType: stop.serviceType || '',
+            label: label,
+            isUnassigned: !!isUnassigned
+        });
     }
 
     function addUserMarker(lat, lng) {
@@ -523,6 +565,51 @@ var MwDayViewMap = (function() {
             userMarker = null;
         }
         clearRoute();
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  REORDER CARDS TO MATCH OPTIMIZED ROUTE
+    // ═══════════════════════════════════════════════════
+
+    function reorderCards(orderedStops) {
+        // Find the assigned section container
+        var section = document.querySelector('.mw-dv-section:not(.mw-dv-section-unassigned)');
+        if (!section) return;
+
+        // Get all assigned cards in the section
+        var cards = section.querySelectorAll('.mw-dv-card:not(.mw-dv-card-unassigned)');
+        if (cards.length < 2) return;
+
+        // Build a map of stopId → card element
+        var cardMap = {};
+        cards.forEach(function(card) {
+            var id = parseInt(card.dataset.stopId, 10);
+            cardMap[id] = card;
+        });
+
+        // Find the insertion point (after the section header)
+        var header = section.querySelector('.mw-dv-section-header');
+
+        // Reorder: move cards in optimized order
+        orderedStops.forEach(function(stop, idx) {
+            var card = cardMap[stop.stopId];
+            if (card) {
+                // Add route number badge
+                var existingBadge = card.querySelector('.mw-dv-route-num');
+                if (!existingBadge) {
+                    var badge = document.createElement('span');
+                    badge.className = 'mw-dv-route-num';
+                    badge.textContent = idx + 1;
+                    var body = card.querySelector('.mw-dv-card-body');
+                    if (body) body.insertBefore(badge, body.firstChild);
+                } else {
+                    existingBadge.textContent = idx + 1;
+                }
+
+                // Append to section (moves it in DOM order)
+                section.appendChild(card);
+            }
+        });
     }
 
     // ═══════════════════════════════════════════════════
@@ -590,16 +677,15 @@ var MwDayViewMap = (function() {
 
     function highlightMarker(stopId) {
         stopMarkers.forEach(function(sm) {
-            var icon = sm.marker.getIcon();
             if (sm.stopId === stopId) {
-                icon.scale = 18;
-                icon.fillOpacity = 1;
-                sm.marker.setIcon(icon);
+                // Enlarge the highlighted marker
+                var color = sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659');
+                sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', 44));
                 sm.marker.setZIndex(200);
             } else {
-                icon.scale = icon.scale > 14 ? icon.scale : 11;
-                icon.fillOpacity = 0.5;
-                sm.marker.setIcon(icon);
+                // Dim others slightly via smaller size
+                var c = sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659'));
+                sm.marker.setIcon(createPinIcon(c, sm.label || '\u2022', sm.isUnassigned ? 26 : 30));
                 sm.marker.setZIndex(10);
             }
         });
@@ -607,15 +693,16 @@ var MwDayViewMap = (function() {
 
     function unhighlightMarkers() {
         stopMarkers.forEach(function(sm) {
-            var icon = sm.marker.getIcon();
-            if (sm.stopId === pinnedStopId) {
-                icon.scale = 16;
-                icon.fillOpacity = 1;
+            var color, size;
+            if (sm.isUnassigned) {
+                color = '#9CA3AF'; size = 30;
+            } else if (sm.stopId === pinnedStopId) {
+                color = '#e85d04'; size = 40;
             } else {
-                icon.scale = 13;
-                icon.fillOpacity = 0.7;
+                color = serviceColors[sm.serviceType] || '#2D8659';
+                size = 36;
             }
-            sm.marker.setIcon(icon);
+            sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', size));
             sm.marker.setZIndex(10);
         });
     }

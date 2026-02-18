@@ -82,7 +82,7 @@ $extraHead = $extraHead ?? '';
   <link href="/crm/css/classic.css" rel="stylesheet">
 
   <!-- Mowology brand override -->
-  <link href="/crm/css/mowology-brand.css?v=20260217d" rel="stylesheet">
+  <link href="/crm/css/mowology-brand.css?v=20260217g" rel="stylesheet">
 
   <!-- Feather Icons (required for CRM UI) -->
   <script src="https://unpkg.com/feather-icons"></script>

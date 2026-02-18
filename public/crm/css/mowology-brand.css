@@ -80,15 +80,18 @@
 .mw-spotlight-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  flex: 1;
+  max-width: 420px;
+  min-width: 180px;
   margin-left: auto;
   margin-right: 12px;
-  padding: 6px 14px;
+  padding: 8px 16px;
   border: 1px solid #dce1e8;
   border-radius: 8px;
   background: #f7f8fa;
   color: #8a919e;
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
@@ -123,7 +126,7 @@
 @media (max-width: 575.98px) {
   .mw-spotlight-trigger-text,
   .mw-spotlight-trigger-kbd { display: none; }
-  .mw-spotlight-trigger { padding: 6px 10px; margin-right: 8px; }
+  .mw-spotlight-trigger { flex: 0; min-width: auto; max-width: none; padding: 8px 12px; margin-right: 8px; }
 }
 
 /* Spotlight overlay (glassmorphism) */
@@ -1865,6 +1868,21 @@ a:hover {
 }
 
 .mw-today-btn:hover { background: var(--mw-dark); color: #fff; text-decoration: none; }
+
+/* Schedule filters bar */
+.mw-schedule-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  flex-wrap: nowrap;
+}
+.mw-schedule-filters .form-control-sm {
+  width: auto;
+  max-width: 160px;
+  flex-shrink: 1;
+  min-width: 0;
+}
 
 /* ============================================
    PRODUCTS MODULE
@@ -5871,9 +5889,11 @@ textarea.font-monospace {
 /* View toggle buttons (Week | Day) */
 .mw-dv-view-toggle {
   display: inline-flex;
+  flex-shrink: 0;
   border: 1px solid #ced4da;
   border-radius: 0.25rem;
   overflow: hidden;
+  white-space: nowrap;
 }
 
 .mw-dv-toggle-btn {
@@ -6101,6 +6121,24 @@ textarea.font-monospace {
   border-radius: 10px;
   letter-spacing: 0.3px;
   z-index: 2;
+}
+
+/* Route number badge (inserted by JS after route optimization) */
+.mw-dv-route-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--mw-green);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-right: 6px;
+  float: left;
+  margin-top: 1px;
 }
 
 /* Card inner elements */

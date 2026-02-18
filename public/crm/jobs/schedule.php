@@ -450,7 +450,7 @@ if ($apiKey) {
                   <?php endif; ?>
               </div>
 
-              <div class="d-flex align-items-center" style="gap: 8px;">
+              <div class="mw-schedule-filters">
                   <!-- Service filter -->
                   <select id="serviceFilter" class="form-control form-control-sm" onchange="applyFilter()">
                       <option value="">All Services</option>
@@ -564,6 +564,20 @@ if ($apiKey) {
                                       // Build crew IDs list from junction data (falls back to single crew_id)
                                       $crewIds = !empty($stop['crew_ids']) ? $stop['crew_ids'] : ($stop['crew_id'] ? [(int)$stop['crew_id']] : []);
                                       $crewIdsStr = implode(',', $crewIds);
+                                      // Build visits JSON for modal quick links
+                                      $visitsJson = [];
+                                      if (!empty($stop['visits'])) {
+                                          foreach ($stop['visits'] as $v) {
+                                              $visitsJson[] = [
+                                                  'plan_id' => (int)($v['plan_id'] ?? 0),
+                                                  'plan_number' => $v['plan_number'] ?? '',
+                                                  'service_type' => $v['service_type'] ?? '',
+                                              ];
+                                          }
+                                      }
+                                      $clientDisplay2 = $stop['contact_name'] ?? '';
+                                      if (!$clientDisplay2) $clientDisplay2 = $stop['company_name'] ?? '';
+                                      if (!$clientDisplay2) $clientDisplay2 = $stop['property_name'] ?? '';
                                   ?>
                                   <div class="mw-stop-card <?php echo stopStatusClass($stop['stop_status']); ?>"
                                        draggable="true"
@@ -572,7 +586,10 @@ if ($apiKey) {
                                        data-route-order="<?php echo (int)$stop['route_order']; ?>"
                                        data-crew-id="<?php echo (int)($stop['crew_id'] ?? 0); ?>"
                                        data-crew-ids="<?php echo htmlspecialchars($crewIdsStr); ?>"
-                                       data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? 'Unknown'); ?>">
+                                       data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? 'Unknown'); ?>"
+                                       data-property-id="<?php echo (int)$stop['property_id']; ?>"
+                                       data-contact-name="<?php echo htmlspecialchars($clientDisplay2); ?>"
+                                       data-visits="<?php echo htmlspecialchars(json_encode($visitsJson)); ?>">
 
                                       <?php
                                       // Determine arrival time display
@@ -1343,7 +1360,7 @@ var MW_ROUTE_STOPS = <?php
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 </script>
-<script src="../js/schedule-day-map.js?v=20260217a"></script>
+<script src="../js/schedule-day-map.js?v=20260217b"></script>
 <?php endif; ?>
 <?php if ($view === 'week'): ?>
 <script>
