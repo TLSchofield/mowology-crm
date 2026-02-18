@@ -2615,3 +2615,58 @@
     min-width: 2px;
     /* Color set via inline style from PHP based on margin value */
 }
+
+
+/* ══════════════════════════════════════════════════════
+   Mobile Confidence Dots (Expenses)
+   ══════════════════════════════════════════════════════ */
+.mw-mc-conf-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+.mw-mc-conf-dot.mw-mc-conf-high { background: #2D8659; }
+.mw-mc-conf-dot.mw-mc-conf-medium { background: #ffc107; }
+.mw-mc-conf-dot.mw-mc-conf-low { background: #dc3545; }
+
+
+/* ══════════════════════════════════════════════════════
+   Swipe-to-Delete (Expenses)
+   ══════════════════════════════════════════════════════ */
+.mw-mc-expense-item {
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.15s ease;
+}
+
+.mw-mc-swipe-delete {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 80px;
+    background: #dc3545;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1;
+}
+.mw-mc-swipe-delete:active {
+    background: #a71d2a;
+}
+
+
+/* ══════════════════════════════════════════════════════
+   Batch Mode Buttons (Expenses)
+   ══════════════════════════════════════════════════════ */
+.mw-mc-batch-btn {
+    background: linear-gradient(135deg, #2D8659, #1A5F4A) !important;
+}
+.mw-mc-batch-btn svg {
+    margin-right: 4px;
+}

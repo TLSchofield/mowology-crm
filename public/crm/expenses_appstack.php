@@ -8,6 +8,7 @@ requirePermission('expenses.view');
 
 $canEdit = userHasPermission('expenses.edit');
 $canSend = userHasPermission('expenses.send');
+$canApprove = userHasPermission('expenses.approve');
 
 // Quick mode: activated from schedule page "Receipt" button
 $quickMode = ($_GET['mode'] ?? '') === 'quick';
@@ -17,9 +18,18 @@ $pageTitle = $quickMode ? 'Snap Receipt' : 'Expenses';
 $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
-           . '<link href="/crm/css/mobile-cards.css?v=20260215b" rel="stylesheet">';
+           . '<link href="/crm/css/mobile-cards.css?v=20260217" rel="stylesheet">'
+           . '<script src="/crm/js/offline-receipts.js?v=20260217" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
+
+<!-- Offline / sync status banner -->
+<div id="mw-offline-banner" class="mw-offline-banner" style="display:none;">
+    <span class="mw-offline-icon">&#127793;</span>
+    <span class="mw-offline-text">Offline — receipts will queue automatically</span>
+    <span class="mw-offline-badge" id="mw-offline-pending-count">0</span>
+    <button type="button" class="mw-offline-sync-btn" onclick="OfflineReceipts.syncNow().then(function(r){if(r.uploaded)loadExpenses();})">Retry</button>
+</div>
 
 <div class="mw-page-header d-flex justify-content-between align-items-center">
     <h1 class="h3 mb-0">Expenses</h1>
@@ -95,17 +105,28 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <label class="form-label small mb-0">Amount</label>
                         <input type="number" class="form-control form-control-sm" id="rvAmount" step="0.01" min="0">
                     </div>
-                    <div class="col-4">
+                    <div class="col-3">
                         <label class="form-label small mb-0">GST
                             <span class="mw-confidence-dot" id="confGst" title=""></span>
                         </label>
                         <input type="number" class="form-control form-control-sm" id="rvGst" step="0.01" min="0" value="0">
+                    </div>
+                    <div class="col-3">
+                        <label class="form-label small mb-0">PST</label>
+                        <input type="number" class="form-control form-control-sm" id="rvPst" step="0.01" min="0" value="0">
                     </div>
                     <div class="col-4">
                         <label class="form-label small mb-0">Total
                             <span class="mw-confidence-dot" id="confTotal" title=""></span>
                         </label>
                         <input type="number" class="form-control form-control-sm" id="rvTotal" step="0.01" min="0">
+                    </div>
+                    <!-- GST Math Warning (hidden) -->
+                    <div class="col-12" id="rvGstMathWarning" style="display:none;">
+                        <div class="mw-gst-math-warning">
+                            <span><i data-feather="alert-circle" style="width:14px;height:14px;"></i> <span id="rvGstMathMsg">Tax math mismatch</span></span>
+                            <button type="button" class="btn btn-sm btn-outline-warning" onclick="autoFixGstMath('rv')">Auto-fix</button>
+                        </div>
                     </div>
                     <div class="col-6">
                         <label class="form-label small mb-0">Accounting Category
@@ -192,6 +213,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <li class="nav-item">
         <a class="nav-link" data-toggle="tab" href="#send-log-tab" role="tab">Send Log</a>
     </li>
+    <?php if ($canApprove): ?>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#approvals-tab" role="tab">
+            Approvals <span class="badge bg-warning text-dark ms-1" id="approvalBadgeCount" style="display:none;">0</span>
+        </a>
+    </li>
+    <?php endif; ?>
 </ul>
 
 <div class="tab-content">
@@ -223,6 +251,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <option value="">All</option>
                         <option value="draft">Draft</option>
                         <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
                         <option value="forwarded">Forwarded</option>
                     </select>
                 </div>
@@ -233,10 +262,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <div class="col-md-2 d-flex gap-1">
                     <button class="btn btn-sm btn-primary flex-grow-1" onclick="loadExpenses()">Filter</button>
                     <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()">Clear</button>
+                    <button class="btn btn-sm btn-outline-success" onclick="exportCSV()" title="Export CSV">
+                        <i data-feather="download" style="width:14px;height:14px;"></i>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
+
+    <!-- Budget Variance Cards -->
+    <div class="row mb-3" id="budgetCards" style="display:none;"></div>
 
     <!-- Stats Summary -->
     <div class="row mb-3" id="expenseStats" style="display:none;">
@@ -286,6 +321,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <th class="text-end">Total</th>
                         <th>Job</th>
                         <th>Status</th>
+                        <th class="text-center" title="OCR Confidence">Conf</th>
                         <th>Receipt</th>
                         <th></th>
                     </tr>
@@ -363,7 +399,62 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     </div>
 </div>
 
+<?php if ($canApprove): ?>
+<!-- ───── Approvals Tab ──────────────────────────────────────────── -->
+<div class="tab-pane fade" id="approvals-tab" role="tabpanel">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">Expenses Awaiting Approval</h5>
+            <small class="text-muted">High-risk expenses auto-routed for review</small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Vendor</th>
+                        <th>Category</th>
+                        <th class="text-end">Total</th>
+                        <th>Risk</th>
+                        <th>Flags</th>
+                        <th>Created By</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="approvalsTableBody">
+                    <tr><td colspan="8" class="text-center py-4 text-muted">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 </div><!-- /tab-content -->
+
+
+<!-- ═══════ REJECTION REASON MODAL ══════════════════════════════════ -->
+<?php if ($canApprove): ?>
+<div class="modal fade" id="rejectModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Reject Expense</h5>
+                <button type="button" class="btn-close" data-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="rejectExpenseId">
+                <label class="form-label">Reason for rejection <span class="text-danger">*</span></label>
+                <textarea class="form-control" id="rejectReason" rows="3" placeholder="Explain why this expense is being rejected..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" onclick="confirmReject()">Reject</button>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 
 <!-- ═══════════════════════════════════════════════
@@ -505,6 +596,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="mw-mc-expense-field mw-mc-expense-field-narrow">
                         <label>GST</label>
                         <input type="number" id="mobileRvGst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                    </div>
+                    <div class="mw-mc-expense-field mw-mc-expense-field-narrow">
+                        <label>PST</label>
+                        <input type="number" id="mobileRvPst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
                     </div>
                 </div>
 
@@ -707,18 +802,32 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                         <input type="number" class="form-control" id="expAmount" step="0.01" min="0" placeholder="0.00">
                                     </div>
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-3">
                                     <label class="form-label">GST (5%)</label>
                                     <div class="input-group">
                                         <span class="input-group-text">$</span>
                                         <input type="number" class="form-control" id="expGst" step="0.01" min="0" value="0" placeholder="0.00">
                                     </div>
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-2">
+                                    <label class="form-label">PST</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" class="form-control" id="expPst" step="0.01" min="0" value="0" placeholder="0.00">
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
                                     <label class="form-label fw-bold">Total <span class="text-danger">*</span></label>
                                     <div class="input-group">
                                         <span class="input-group-text">$</span>
                                         <input type="number" class="form-control fw-bold" id="expTotal" step="0.01" min="0" required placeholder="0.00">
+                                    </div>
+                                </div>
+                                <!-- GST Math Warning -->
+                                <div class="col-12" id="expGstMathWarning" style="display:none;">
+                                    <div class="mw-gst-math-warning">
+                                        <span><i data-feather="alert-circle" style="width:14px;height:14px;"></i> <span id="expGstMathMsg">Tax math mismatch</span></span>
+                                        <button type="button" class="btn btn-sm btn-outline-warning" onclick="autoFixGstMath('exp')">Auto-fix</button>
                                     </div>
                                 </div>
                             </div>
@@ -763,6 +872,53 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                     <textarea class="form-control" id="expNotes" rows="2" placeholder="Additional notes..."></textarea>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Fuel/Mileage Fields (shown when category = Fuel) -->
+                        <div class="mw-expense-form-section" id="expFuelSection" style="display:none;">
+                            <h6 class="mw-expense-form-section-title"><i data-feather="truck"></i> Fuel & Mileage</h6>
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">Odometer Start</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="expOdometerStart" min="0" placeholder="km">
+                                        <span class="input-group-text">km</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Odometer End</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="expOdometerEnd" min="0" placeholder="km">
+                                        <span class="input-group-text">km</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Litres</label>
+                                    <input type="number" class="form-control" id="expFuelLitres" step="0.01" min="0" placeholder="L">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">$/Litre</label>
+                                    <input type="number" class="form-control" id="expFuelPrice" step="0.001" min="0" placeholder="1.699">
+                                </div>
+                                <div class="col-12" id="expFuelCalc" style="display:none;">
+                                    <div class="alert alert-light py-2 mb-0">
+                                        <strong>Distance:</strong> <span id="expFuelDistance">—</span> km &nbsp;|&nbsp;
+                                        <strong>Economy:</strong> <span id="expFuelEconomy">—</span> L/100km
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Anomaly Detection / Risk Analysis -->
+                        <div class="mw-expense-form-section" id="expAnomalySection" style="display:none;">
+                            <h6 class="mw-expense-form-section-title"><i data-feather="shield"></i> Risk Analysis</h6>
+                            <div id="expAnomalyContent"></div>
+                        </div>
+
+                        <!-- Job Margin Display -->
+                        <div class="mw-expense-form-section" id="expMarginSection" style="display:none;">
+                            <h6 class="mw-expense-form-section-title"><i data-feather="trending-up"></i> Job Margin</h6>
+                            <div id="expMarginContent"></div>
                         </div>
 
                         <!-- Smart Match Confidence -->
@@ -863,6 +1019,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     var selectedJobSuggestion = null; // Currently selected job pill
     const CAN_EDIT = <?php echo $canEdit ? 'true' : 'false'; ?>;
     const CAN_SEND = <?php echo $canSend ? 'true' : 'false'; ?>;
+    const CAN_APPROVE = <?php echo $canApprove ? 'true' : 'false'; ?>;
 
     let categories = { accounting_categories: [], gbp_categories: [], payment_methods: [] };
     let currentPage = 1;
@@ -871,6 +1028,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     // ── Init ─────────────────────────────────────────────────────
     async function init() {
+        // Initialize offline receipt queue
+        if (window.OfflineReceipts) OfflineReceipts.init();
+
         await loadCategories();
         loadExpenses();
         loadVendors();
@@ -879,11 +1039,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         setupVendorSearch('expVendorSearch', 'vendorDropdown', 'expVendorId', 'expAcctCategory', 'expGbpCategory');
         setupVendorSearch('rvVendorSearch', 'rvVendorDropdown', 'rvVendorId', 'rvAcctCategory', 'rvGbpCategory');
 
-        // Auto-calc totals
-        document.getElementById('expAmount')?.addEventListener('input', function() { calcTotalFor('exp'); });
-        document.getElementById('expGst')?.addEventListener('input', function() { calcTotalFor('exp'); });
-        document.getElementById('rvAmount')?.addEventListener('input', function() { calcTotalFor('rv'); });
-        document.getElementById('rvGst')?.addEventListener('input', function() { calcTotalFor('rv'); });
+        // Auto-calc totals (subtotal + gst + pst = total)
+        ['expAmount','expGst','expPst'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.addEventListener('input', function() { calcTotalFor('exp'); });
+        });
+        ['rvAmount','rvGst','rvPst'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.addEventListener('input', function() { calcTotalFor('rv'); });
+        });
+
+        // Fuel section toggle on category change
+        var expCatEl = document.getElementById('expAcctCategory');
+        if (expCatEl) expCatEl.addEventListener('change', function() { toggleFuelSection('exp', this.value); });
+        // Fuel auto-calc
+        ['expOdometerStart','expOdometerEnd','expFuelLitres'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.addEventListener('input', function() { calcFuelEconomy(); });
+        });
+
+        // Load budget variance
+        loadBudgetVariance();
+        // Load approvals if tab exists
+        if (CAN_APPROVE) loadApprovals();
 
         // File inputs
         var fileInput = document.getElementById('receiptFileInput');
@@ -916,7 +1094,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     function calcTotalFor(prefix) {
         var amt = parseFloat(document.getElementById(prefix + 'Amount').value) || 0;
         var gst = parseFloat(document.getElementById(prefix + 'Gst').value) || 0;
-        document.getElementById(prefix + 'Total').value = (amt + gst).toFixed(2);
+        var pstEl = document.getElementById(prefix + 'Pst');
+        var pst = pstEl ? (parseFloat(pstEl.value) || 0) : 0;
+        document.getElementById(prefix + 'Total').value = (amt + gst + pst).toFixed(2);
     }
 
     // ── Camera / Photo Capture ────────────────────────────────────
@@ -952,12 +1132,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (!data.success) throw new Error(data.error || 'Upload failed');
+            if (typeof haptic === 'function') haptic('save');
             showReviewPanel(data, file);
         })
         .catch(function(err) {
-            alert('Error: ' + err.message);
-            resetCapture();
-            mobileResetReview();
+            // Offline? Queue for later upload
+            if (!navigator.onLine && window.OfflineReceipts) {
+                OfflineReceipts.queue(file, currentGpsLat, currentGpsLng, CSRF).then(function() {
+                    if (typeof haptic === 'function') haptic('save');
+                    alert('You\'re offline. Receipt queued and will upload automatically when you reconnect.');
+                    resetCapture();
+                    mobileResetReview();
+                    OfflineReceipts.updatePendingBadge();
+                }).catch(function() {
+                    alert('Error: Could not queue receipt. ' + err.message);
+                    resetCapture();
+                    mobileResetReview();
+                });
+            } else {
+                if (typeof haptic === 'function') haptic('error');
+                alert('Error: ' + err.message);
+                resetCapture();
+                mobileResetReview();
+            }
         });
     }
 
@@ -1018,8 +1215,23 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (p.subtotal) {
             document.getElementById('rvAmount').value = p.subtotal;
         } else if (p.total && p.gst) {
-            document.getElementById('rvAmount').value =
-                (parseFloat(p.total) - parseFloat(p.gst)).toFixed(2);
+            var calcSub = parseFloat(p.total) - parseFloat(p.gst) - parseFloat(p.pst || 0);
+            document.getElementById('rvAmount').value = calcSub.toFixed(2);
+        }
+        // PST
+        if (p.pst) {
+            var pstEl = document.getElementById('rvPst');
+            if (pstEl) pstEl.value = p.pst;
+        }
+
+        // GST math validation warning
+        if (data.gst_validation && !data.gst_validation.valid) {
+            var warn = document.getElementById('rvGstMathWarning');
+            var msg = document.getElementById('rvGstMathMsg');
+            if (warn && msg) {
+                msg.textContent = data.gst_validation.message || 'Tax math mismatch';
+                warn.style.display = 'block';
+            }
         }
 
         // Categories
@@ -1452,6 +1664,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('rvDate').value = '';
         document.getElementById('rvAmount').value = '';
         document.getElementById('rvGst').value = '0';
+        if (document.getElementById('rvPst')) document.getElementById('rvPst').value = '0';
         document.getElementById('rvTotal').value = '';
         document.getElementById('rvAcctCategory').value = '';
         document.getElementById('rvGbpCategory').value = '';
@@ -1501,6 +1714,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             payment_method: document.getElementById('rvPayment').value,
             amount: document.getElementById('rvAmount').value,
             gst_amount: document.getElementById('rvGst').value,
+            pst_amount: document.getElementById('rvPst')?.value || '0',
             total: document.getElementById('rvTotal').value,
             accounting_category: document.getElementById('rvAcctCategory').value,
             gbp_category: document.getElementById('rvGbpCategory').value,
@@ -1629,7 +1843,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var tbody = document.getElementById('expensesTableBody');
 
         if (!expenses.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No expenses found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">No expenses found</td></tr>';
             return;
         }
 
@@ -1638,8 +1852,26 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var statusBadge = {
                 draft: 'bg-secondary',
                 approved: 'bg-primary',
+                rejected: 'bg-danger',
                 forwarded: 'bg-success',
             }[e.status] || 'bg-secondary';
+
+            // Confidence dot (green/yellow/red)
+            var conf = parseInt(e.match_confidence) || 0;
+            var confDot = '';
+            if (conf >= 70) confDot = '<span class="mw-conf-dot-sm mw-conf-high" title="High confidence ' + conf + '%"></span>';
+            else if (conf >= 40) confDot = '<span class="mw-conf-dot-sm mw-conf-medium" title="Medium confidence ' + conf + '%"></span>';
+            else if (conf > 0) confDot = '<span class="mw-conf-dot-sm mw-conf-low" title="Low confidence ' + conf + '%"></span>';
+            else confDot = '<span class="mw-conf-dot-sm" title="No confidence data"></span>';
+
+            // Anomaly flags
+            var anomalyScore = parseInt(e.anomaly_score) || 0;
+            var anomalyHtml = '';
+            if (anomalyScore > 30) {
+                anomalyHtml = ' <span class="mw-anomaly-icon mw-anomaly-high" title="High risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-triangle" style="width:12px;height:12px;"></i></span>';
+            } else if (anomalyScore > 15) {
+                anomalyHtml = ' <span class="mw-anomaly-icon mw-anomaly-med" title="Medium risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-circle" style="width:12px;height:12px;"></i></span>';
+            }
 
             var receiptIcon = e.receipt_path
                 ? '<img src="' + esc(e.receipt_path) + '" class="mw-receipt-thumb" title="Click to view receipt" onclick="event.stopPropagation();openLightbox(\'' + esc(e.receipt_path) + '\')">'
@@ -1658,11 +1890,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             return '<tr>' +
                 '<td>' + e.expense_date + '</td>' +
-                '<td>' + esc(vendorName) + '</td>' +
+                '<td>' + esc(vendorName) + anomalyHtml + '</td>' +
                 '<td><small>' + esc(e.accounting_category || '—') + '</small></td>' +
                 '<td class="text-end fw-bold">$' + parseFloat(e.total).toFixed(2) + '</td>' +
                 '<td>' + (e.job_id ? '#' + e.job_id : '—') + '</td>' +
                 '<td><span class="badge ' + statusBadge + '">' + e.status + '</span></td>' +
+                '<td class="text-center">' + confDot + '</td>' +
                 '<td>' + receiptIcon + '</td>' +
                 '<td class="text-end">' + actions + '</td>' +
             '</tr>';
@@ -1754,6 +1987,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('expDescription').value = e.description || '';
             document.getElementById('expNotes').value = e.notes || '';
 
+            // PST
+            var pstEl = document.getElementById('expPst');
+            if (pstEl) pstEl.value = e.pst_amount || '0';
+
+            // Fuel/mileage fields
+            toggleFuelSection('exp', e.accounting_category || '');
+            var setVal = function(id, val) { var el = document.getElementById(id); if (el) el.value = val || ''; };
+            setVal('expOdometerStart', e.odometer_start);
+            setVal('expOdometerEnd', e.odometer_end);
+            setVal('expFuelLitres', e.fuel_litres);
+            setVal('expFuelPrice', e.fuel_price_per_litre);
+            calcFuelEconomy();
+
             // Receipt image
             var receiptCol = document.getElementById('expReceiptCol');
             var formCol = document.getElementById('expFormCol');
@@ -1787,6 +2033,32 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 document.getElementById('matchConfidenceRow').style.display = 'none';
             }
 
+            // Anomaly detection display
+            var anomalySection = document.getElementById('expAnomalySection');
+            var anomalyContent = document.getElementById('expAnomalyContent');
+            if (anomalySection && e.anomaly_score > 0) {
+                var score = parseInt(e.anomaly_score);
+                var flags = (e.anomaly_flags || '').split(',').filter(Boolean);
+                var scoreClass = score > 30 ? 'danger' : score > 15 ? 'warning' : 'info';
+                var html = '<div class="d-flex align-items-center mb-2">' +
+                    '<span class="badge bg-' + scoreClass + ' me-2">Risk Score: ' + score + '</span>' +
+                    '</div>';
+                if (flags.length) {
+                    html += '<div class="mw-anomaly-flags">' + flags.map(function(f) {
+                        return '<span class="badge bg-light text-dark border me-1 mb-1">' + esc(f.trim()) + '</span>';
+                    }).join('') + '</div>';
+                }
+                anomalyContent.innerHTML = html;
+                anomalySection.style.display = 'block';
+            } else if (anomalySection) {
+                anomalySection.style.display = 'none';
+            }
+
+            // Job margin (async load if job linked)
+            var marginSection = document.getElementById('expMarginSection');
+            if (marginSection) marginSection.style.display = 'none';
+            if (e.job_id) loadJobMargin(e.job_id);
+
             if (window.feather) feather.replace();
             $('#expenseModal').modal('show');
         } catch(e) { alert('Error: ' + e.message); }
@@ -1803,6 +2075,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             payment_method: document.getElementById('expPayment').value,
             amount: document.getElementById('expAmount').value,
             gst_amount: document.getElementById('expGst').value,
+            pst_amount: document.getElementById('expPst')?.value || '0',
             total: document.getElementById('expTotal').value,
             accounting_category: document.getElementById('expAcctCategory').value,
             gbp_category: document.getElementById('expGbpCategory').value,
@@ -1810,6 +2083,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             status: document.getElementById('expStatus').value,
             description: document.getElementById('expDescription').value,
             notes: document.getElementById('expNotes').value,
+            odometer_start: document.getElementById('expOdometerStart')?.value || null,
+            odometer_end: document.getElementById('expOdometerEnd')?.value || null,
+            fuel_litres: document.getElementById('expFuelLitres')?.value || null,
+            fuel_price_per_litre: document.getElementById('expFuelPrice')?.value || null,
         };
         if (id) data.id = parseInt(id);
 
@@ -2214,6 +2491,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             payment_method: document.getElementById('mobileRvPayment').value,
             amount: document.getElementById('mobileRvAmount').value,
             gst_amount: document.getElementById('mobileRvGst').value,
+            pst_amount: document.getElementById('mobileRvPst')?.value || '0',
             total: document.getElementById('mobileRvTotal').value,
             accounting_category: document.getElementById('mobileRvCategory').value,
             job_id: document.getElementById('mobileRvJobId')?.value || null,
@@ -2264,14 +2542,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 }
             }
 
+            // Haptic feedback on save
+            haptic('save');
             mobileToast(andSend ? 'Saved & sent!' : 'Expense saved!');
+
+            // Batch mode: show "Snap Another" / "Done" instead of auto-resetting
             setTimeout(function() {
-                mobileResetReview();
                 loadExpenses(1);
                 loadStats();
                 if (andSend) loadSendLog();
+                showBatchButtons();
             }, 600);
         } catch(e) {
+            haptic('error');
             mobileToast('Error: ' + e.message, true);
         } finally {
             if (activeBtn) { activeBtn.disabled = false; activeBtn.classList.remove('mw-mc-expense-btn-loading'); }
@@ -2338,7 +2621,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
                 var catLabel = e.accounting_category ? '<span class="mw-mc-expense-item-cat">' + esc(e.accounting_category) + '</span>' : '';
 
-                html += '<div class="mw-mc-expense-item" onclick="editExpense(' + e.id + ')">' +
+                // Confidence dot for mobile
+                var mConf = parseInt(e.match_confidence) || 0;
+                var mConfDot = '';
+                if (mConf >= 70) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-high"></span>';
+                else if (mConf >= 40) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-medium"></span>';
+                else if (mConf > 0) mConfDot = '<span class="mw-mc-conf-dot mw-mc-conf-low"></span>';
+
+                html += '<div class="mw-mc-expense-item" data-expense-id="' + e.id + '" onclick="editExpense(' + e.id + ')">' +
                     thumbHtml +
                     '<div class="mw-mc-expense-item-left">' +
                         '<div class="mw-mc-expense-item-vendor">' + esc(vendorName) + '</div>' +
@@ -2347,7 +2637,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         '</div>' +
                     '</div>' +
                     '<div class="mw-mc-expense-item-right">' +
-                        '<div class="mw-mc-expense-item-amount">$' + parseFloat(e.total).toFixed(2) + '</div>' +
+                        '<div class="mw-mc-expense-item-amount">' + mConfDot + '$' + parseFloat(e.total).toFixed(2) + '</div>' +
                         statusIcon +
                     '</div>' +
                 '</div>';
@@ -2359,19 +2649,22 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         list.innerHTML = html;
     }
 
-    // Mobile auto-calc total (amount + gst = total)
+    // Mobile auto-calc total (amount + gst + pst = total)
     (function() {
         var mAmtEl = document.getElementById('mobileRvAmount');
         var mGstEl = document.getElementById('mobileRvGst');
+        var mPstEl = document.getElementById('mobileRvPst');
         if (mAmtEl && mGstEl) {
             function mCalc() {
                 var amt = parseFloat(mAmtEl.value) || 0;
                 var gst = parseFloat(mGstEl.value) || 0;
+                var pst = mPstEl ? (parseFloat(mPstEl.value) || 0) : 0;
                 var totalEl = document.getElementById('mobileRvTotal');
-                if (totalEl) totalEl.value = (amt + gst).toFixed(2);
+                if (totalEl) totalEl.value = (amt + gst + pst).toFixed(2);
             }
             mAmtEl.addEventListener('input', mCalc);
             mGstEl.addEventListener('input', mCalc);
+            if (mPstEl) mPstEl.addEventListener('input', mCalc);
         }
     })();
 
@@ -2540,6 +2833,127 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (review) review.style.display = 'block';
     };
 
+    // ── Haptic Feedback ───────────────────────────────────────
+    function haptic(type) {
+        if (!navigator.vibrate) return;
+        switch (type) {
+            case 'snap':  navigator.vibrate(50); break;
+            case 'save':  navigator.vibrate([50, 30, 50]); break;
+            case 'error': navigator.vibrate(200); break;
+            default:      navigator.vibrate(30);
+        }
+    }
+
+    // ── Batch Mode (Snap Another / Done) ────────────────────
+    function showBatchButtons() {
+        var saveRow = document.querySelector('.mw-mc-expense-save-row');
+        if (!saveRow) return;
+        saveRow.innerHTML =
+            '<button type="button" class="mw-mc-expense-save-btn mw-mc-batch-btn" onclick="batchSnapAnother()">' +
+                '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>' +
+                ' Snap Another' +
+            '</button>' +
+            '<button type="button" class="mw-mc-expense-send-btn" onclick="batchDone()">' +
+                '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>' +
+                ' Done' +
+            '</button>';
+    }
+
+    window.batchSnapAnother = function() {
+        haptic('snap');
+        mobileResetReview();
+        triggerCamera();
+    };
+
+    window.batchDone = function() {
+        mobileResetReview();
+    };
+
+    // ── Swipe-to-Delete on Mobile Expense Items ─────────────
+    function initSwipeDelete() {
+        var list = document.getElementById('mobileExpenseList');
+        if (!list) return;
+
+        var startX = 0, startY = 0, currentItem = null, deltaX = 0;
+
+        list.addEventListener('touchstart', function(e) {
+            var item = e.target.closest('.mw-mc-expense-item');
+            if (!item) return;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            currentItem = item;
+            deltaX = 0;
+        }, { passive: true });
+
+        list.addEventListener('touchmove', function(e) {
+            if (!currentItem) return;
+            var dx = e.touches[0].clientX - startX;
+            var dy = e.touches[0].clientY - startY;
+            // Only track horizontal swipe
+            if (Math.abs(dy) > Math.abs(dx)) { currentItem = null; return; }
+            deltaX = dx;
+            if (dx < 0) {
+                currentItem.style.transform = 'translateX(' + Math.max(dx, -100) + 'px)';
+                currentItem.style.willChange = 'transform';
+            }
+        }, { passive: true });
+
+        list.addEventListener('touchend', function() {
+            if (!currentItem) return;
+            if (deltaX < -80) {
+                // Show delete button
+                currentItem.style.transform = 'translateX(-80px)';
+                if (!currentItem.querySelector('.mw-mc-swipe-delete')) {
+                    var btn = document.createElement('button');
+                    btn.className = 'mw-mc-swipe-delete';
+                    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>';
+                    btn.onclick = function(e) {
+                        e.stopPropagation();
+                        var expId = currentItem.getAttribute('data-expense-id');
+                        if (expId && confirm('Delete this expense?')) {
+                            deleteExpenseById(parseInt(expId));
+                        }
+                        currentItem.style.transform = '';
+                        var existingBtn = currentItem.querySelector('.mw-mc-swipe-delete');
+                        if (existingBtn) existingBtn.remove();
+                    };
+                    currentItem.appendChild(btn);
+                }
+            } else {
+                currentItem.style.transform = '';
+                var btn = currentItem.querySelector('.mw-mc-swipe-delete');
+                if (btn) btn.remove();
+            }
+            currentItem = null;
+        }, { passive: true });
+    }
+
+    async function deleteExpenseById(id) {
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', csrf_token: CSRF, id: id }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            haptic('save');
+            mobileToast('Expense deleted');
+            loadExpenses(1);
+            loadStats();
+        } catch(e) {
+            haptic('error');
+            mobileToast('Delete failed: ' + e.message, true);
+        }
+    }
+
+    // Init swipe-delete after DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initSwipeDelete);
+    } else {
+        setTimeout(initSwipeDelete, 100);
+    }
+
     function mobileToast(msg, isError) {
         var toast = document.getElementById('mobileExpenseToast');
         var textEl = document.getElementById('mobileExpenseToastText');
@@ -2568,20 +2982,80 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     // ── Lightbox ─────────────────────────────────────────────────
     window.openLightbox = function(src) {
         if (!src) return;
+        var currentZoom = 1;
+        var currentRotation = 0;
+
         var overlay = document.createElement('div');
         overlay.className = 'mw-receipt-lightbox';
-        overlay.innerHTML = '<span class="mw-receipt-lightbox-close">&times;</span>' +
-            '<img src="' + src + '" alt="Receipt">';
+        overlay.innerHTML =
+            '<div class="mw-lightbox-toolbar">' +
+                '<button class="mw-lightbox-btn" onclick="event.stopPropagation();lbZoom(0.25)" title="Zoom in (+ key)">+</button>' +
+                '<button class="mw-lightbox-btn" onclick="event.stopPropagation();lbZoom(-0.25)" title="Zoom out (- key)">&minus;</button>' +
+                '<button class="mw-lightbox-btn" onclick="event.stopPropagation();lbRotate()" title="Rotate (R key)">&#8635;</button>' +
+                '<a class="mw-lightbox-btn" href="' + src + '" download title="Download">&#8681;</a>' +
+                '<button class="mw-lightbox-btn mw-lightbox-close-btn" onclick="event.stopPropagation();closeLightbox()">&times;</button>' +
+            '</div>' +
+            '<img src="' + src + '" alt="Receipt" class="mw-lightbox-img" id="lightboxImg">';
+
         overlay.addEventListener('click', function(e) {
-            if (e.target === overlay || e.target.classList.contains('mw-receipt-lightbox-close')) {
-                overlay.remove();
-            }
+            if (e.target === overlay) closeLightbox();
         });
+
         document.body.appendChild(overlay);
-        var escHandler = function(e) {
-            if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+
+        // Pinch-to-zoom support
+        var lastPinchDist = 0;
+        overlay.addEventListener('touchstart', function(e) {
+            if (e.touches.length === 2) {
+                var dx = e.touches[0].pageX - e.touches[1].pageX;
+                var dy = e.touches[0].pageY - e.touches[1].pageY;
+                lastPinchDist = Math.sqrt(dx * dx + dy * dy);
+            }
+        }, { passive: true });
+        overlay.addEventListener('touchmove', function(e) {
+            if (e.touches.length === 2) {
+                var dx = e.touches[0].pageX - e.touches[1].pageX;
+                var dy = e.touches[0].pageY - e.touches[1].pageY;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                if (lastPinchDist > 0) {
+                    var diff = (dist - lastPinchDist) * 0.005;
+                    currentZoom = Math.max(0.5, Math.min(5, currentZoom + diff));
+                    applyTransform();
+                }
+                lastPinchDist = dist;
+            }
+        }, { passive: true });
+
+        function applyTransform() {
+            var img = document.getElementById('lightboxImg');
+            if (img) img.style.transform = 'scale(' + currentZoom + ') rotate(' + currentRotation + 'deg)';
+        }
+
+        window.lbZoom = function(delta) {
+            currentZoom = Math.max(0.5, Math.min(5, currentZoom + delta));
+            applyTransform();
         };
-        document.addEventListener('keydown', escHandler);
+
+        window.lbRotate = function() {
+            currentRotation = (currentRotation + 90) % 360;
+            applyTransform();
+        };
+
+        window.closeLightbox = function() {
+            overlay.remove();
+            document.removeEventListener('keydown', keyHandler);
+            delete window.lbZoom;
+            delete window.lbRotate;
+            delete window.closeLightbox;
+        };
+
+        var keyHandler = function(e) {
+            if (e.key === 'Escape') closeLightbox();
+            else if (e.key === '+' || e.key === '=') lbZoom(0.25);
+            else if (e.key === '-' || e.key === '_') lbZoom(-0.25);
+            else if (e.key === 'r' || e.key === 'R') lbRotate();
+        };
+        document.addEventListener('keydown', keyHandler);
     };
 
     // ── Line Items ──────────────────────────────────────────────
@@ -2744,6 +3218,215 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (expId) editExpense(parseInt(expId));
         } catch(e) { alert('Unlink failed: ' + e.message); }
     };
+
+    // ── GST Math Auto-fix ─────────────────────────────────────────
+    window.autoFixGstMath = function(prefix) {
+        var amt = parseFloat(document.getElementById(prefix + 'Amount').value) || 0;
+        var total = parseFloat(document.getElementById(prefix + 'Total').value) || 0;
+        var pstEl = document.getElementById(prefix + 'Pst');
+        var pst = pstEl ? (parseFloat(pstEl.value) || 0) : 0;
+        // Recalculate GST as total - subtotal - pst
+        var gst = Math.max(0, total - amt - pst);
+        document.getElementById(prefix + 'Gst').value = gst.toFixed(2);
+        var warn = document.getElementById(prefix + 'GstMathWarning');
+        if (warn) warn.style.display = 'none';
+    };
+
+    // ── Fuel Section Toggle ──────────────────────────────────────
+    function toggleFuelSection(prefix, category) {
+        var section = document.getElementById(prefix + 'FuelSection');
+        if (!section) return;
+        section.style.display = (category && category.toLowerCase() === 'fuel') ? 'block' : 'none';
+    }
+
+    function calcFuelEconomy() {
+        var start = parseInt(document.getElementById('expOdometerStart')?.value) || 0;
+        var end = parseInt(document.getElementById('expOdometerEnd')?.value) || 0;
+        var litres = parseFloat(document.getElementById('expFuelLitres')?.value) || 0;
+        var calcEl = document.getElementById('expFuelCalc');
+        if (!calcEl) return;
+
+        if (start > 0 && end > start) {
+            var distance = end - start;
+            document.getElementById('expFuelDistance').textContent = distance.toLocaleString();
+            if (litres > 0) {
+                var economy = (litres / (distance / 100)).toFixed(1);
+                document.getElementById('expFuelEconomy').textContent = economy;
+            } else {
+                document.getElementById('expFuelEconomy').textContent = '—';
+            }
+            calcEl.style.display = 'block';
+        } else {
+            calcEl.style.display = 'none';
+        }
+    }
+
+    // ── Job Margin Loading ──────────────────────────────────────
+    async function loadJobMargin(jobId) {
+        var section = document.getElementById('expMarginSection');
+        var content = document.getElementById('expMarginContent');
+        if (!section || !content) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=job_margin&plan_id=' + jobId);
+            var d = await r.json();
+            if (d.success && d.margin) {
+                var m = d.margin;
+                var pct = parseFloat(m.material_margin_pct || 0);
+                var statusClass = pct >= 20 ? 'success' : pct >= 0 ? 'warning' : 'danger';
+                content.innerHTML =
+                    '<div class="d-flex justify-content-between align-items-center">' +
+                        '<div><strong>Materials:</strong> $' + parseFloat(m.actual_materials).toFixed(2) + ' spent / $' + parseFloat(m.quoted_materials).toFixed(2) + ' quoted</div>' +
+                        '<span class="badge bg-' + statusClass + '">' + pct.toFixed(0) + '% margin</span>' +
+                    '</div>';
+                section.style.display = 'block';
+            }
+        } catch(e) { /* non-critical */ }
+    }
+
+    // ── Budget Variance ────────────────────────────────────────
+    async function loadBudgetVariance() {
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=budget_status');
+            var d = await r.json();
+            if (!d.success || !d.budgets || !d.budgets.length) return;
+
+            var cardsEl = document.getElementById('budgetCards');
+            if (!cardsEl) return;
+
+            cardsEl.innerHTML = d.budgets.map(function(b) {
+                var pct = parseFloat(b.pct || 0);
+                var barClass = b.status === 'critical' ? 'bg-danger' : b.status === 'warning' ? 'bg-warning' : 'bg-success';
+                return '<div class="col-md-3 col-6 mb-2">' +
+                    '<div class="card mw-budget-card">' +
+                        '<div class="card-body py-2 px-3">' +
+                            '<div class="d-flex justify-content-between">' +
+                                '<small class="text-muted">' + esc(b.category) + '</small>' +
+                                '<small class="fw-bold">$' + parseFloat(b.spent).toFixed(0) + ' / $' + parseFloat(b.budget).toFixed(0) + '</small>' +
+                            '</div>' +
+                            '<div class="progress mt-1" style="height:6px;">' +
+                                '<div class="progress-bar ' + barClass + '" style="width:' + Math.min(pct, 100) + '%;"></div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+
+            cardsEl.style.display = 'flex';
+        } catch(e) { /* non-critical */ }
+    }
+
+    // ── CSV Export ──────────────────────────────────────────────
+    window.exportCSV = function() {
+        var params = new URLSearchParams({ format: 'csv' });
+        var dateFrom = document.getElementById('filterDateFrom').value;
+        var dateTo = document.getElementById('filterDateTo').value;
+        var cat = document.getElementById('filterCategory').value;
+        var status = document.getElementById('filterStatus').value;
+        var search = document.getElementById('filterSearch').value;
+        if (dateFrom) params.set('date_from', dateFrom);
+        if (dateTo) params.set('date_to', dateTo);
+        if (cat) params.set('category', cat);
+        if (status) params.set('status', status);
+        if (search) params.set('search', search);
+        window.location.href = '/crm/api/expense-export.php?' + params;
+    };
+
+    // ── Approvals Tab ──────────────────────────────────────────
+    async function loadApprovals() {
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=pending_approval');
+            var d = await r.json();
+            if (!d.success) return;
+
+            // Update badge count
+            var badge = document.getElementById('approvalBadgeCount');
+            if (badge) {
+                if (d.total > 0) {
+                    badge.textContent = d.total;
+                    badge.style.display = 'inline';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+
+            var tbody = document.getElementById('approvalsTableBody');
+            if (!tbody) return;
+
+            if (!d.expenses.length) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No expenses awaiting approval</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = d.expenses.map(function(e) {
+                var vendorName = e.vendor_name || e.vendor_name_raw || '—';
+                var score = parseInt(e.anomaly_score) || 0;
+                var scoreClass = score > 30 ? 'danger' : score > 15 ? 'warning' : 'info';
+                var flags = (e.anomaly_flags || '').split(',').filter(Boolean);
+                var flagsHtml = flags.map(function(f) {
+                    return '<span class="badge bg-light text-dark border me-1">' + esc(f.trim()) + '</span>';
+                }).join('');
+
+                return '<tr>' +
+                    '<td>' + e.expense_date + '</td>' +
+                    '<td>' + esc(vendorName) + '</td>' +
+                    '<td><small>' + esc(e.accounting_category || '—') + '</small></td>' +
+                    '<td class="text-end fw-bold">$' + parseFloat(e.total).toFixed(2) + '</td>' +
+                    '<td><span class="badge bg-' + scoreClass + '">' + score + '</span></td>' +
+                    '<td>' + flagsHtml + '</td>' +
+                    '<td><small>' + esc(e.created_by_name || '—') + '</small></td>' +
+                    '<td class="text-end text-nowrap">' +
+                        '<button class="btn btn-sm btn-outline-success me-1" onclick="approveExpense(' + e.id + ')" title="Approve"><i data-feather="check" style="width:14px;height:14px;"></i></button>' +
+                        '<button class="btn btn-sm btn-outline-danger me-1" onclick="showRejectModal(' + e.id + ')" title="Reject"><i data-feather="x" style="width:14px;height:14px;"></i></button>' +
+                        '<button class="btn btn-sm btn-outline-primary" onclick="editExpense(' + e.id + ')" title="View"><i data-feather="eye" style="width:14px;height:14px;"></i></button>' +
+                    '</td>' +
+                '</tr>';
+            }).join('');
+
+            if (window.feather) feather.replace();
+        } catch(e) { console.error('loadApprovals', e); }
+    }
+
+    window.approveExpense = async function(id) {
+        if (!confirm('Approve this expense?')) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'approve', csrf_token: CSRF, id: id }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            loadApprovals();
+            loadExpenses(currentPage);
+        } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    window.showRejectModal = function(id) {
+        document.getElementById('rejectExpenseId').value = id;
+        document.getElementById('rejectReason').value = '';
+        $('#rejectModal').modal('show');
+    };
+
+    window.confirmReject = async function() {
+        var id = document.getElementById('rejectExpenseId').value;
+        var reason = document.getElementById('rejectReason').value.trim();
+        if (!reason) { alert('Please enter a reason'); return; }
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reject', csrf_token: CSRF, id: parseInt(id), rejection_reason: reason }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            $('#rejectModal').modal('hide');
+            loadApprovals();
+            loadExpenses(currentPage);
+        } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    // ── Enhanced Lightbox with Zoom/Rotate ─────────────────────
+    // (Replaces the basic lightbox defined above)
 
     // ── Utility ──────────────────────────────────────────────────
     function esc(s) {

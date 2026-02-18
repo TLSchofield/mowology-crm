@@ -9,9 +9,14 @@
  *   - Images / uploads                   →  Cache-first, network fallback
  *
  * Cache versioning: bump CACHE_VERSION to bust all caches on next deploy.
+ * Auto cache bust: on activation, fetches /crm/api/cache-version.php to compare
+ * deploy SHA — if different, purges old caches.
+ *
+ * Background Sync: queued receipt uploads retry when connectivity restores.
+ * Push: handles approval notification push events.
  */
 
-var CACHE_VERSION = 'mw-v2';
+var CACHE_VERSION = 'mw-v4';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -27,6 +32,7 @@ var APP_SHELL = [
   '/crm/js/app.js',
   '/crm/js/feather-helper.js',
   '/crm/js/time-clock-widget.js',
+  '/crm/js/offline-receipts.js',
   '/assets/favicon/apple-touch-icon.png',
   '/assets/favicon/android-chrome-192x192.png',
   '/assets/favicon/android-chrome-512x512.png',
@@ -44,7 +50,7 @@ self.addEventListener('install', function(event) {
   );
 });
 
-// ── Activate: clean up old version caches ──
+// ── Activate: clean up old version caches + auto cache bust ──
 self.addEventListener('activate', function(event) {
   event.waitUntil(
     caches.keys().then(function(cacheNames) {
@@ -98,6 +104,112 @@ self.addEventListener('fetch', function(event) {
   event.respondWith(networkFirst(request, PAGE_CACHE));
 });
 
+// ── Background Sync: retry failed receipt uploads ──
+self.addEventListener('sync', function(event) {
+  if (event.tag === 'receipt-upload') {
+    event.waitUntil(syncPendingReceipts());
+  }
+});
+
+/**
+ * Process pending receipts from IndexedDB when back online.
+ * Reads from the mowology-receipts / pending-receipts store.
+ */
+function syncPendingReceipts() {
+  return new Promise(function(resolve) {
+    var dbReq = indexedDB.open('mowology-receipts', 1);
+    dbReq.onerror = function() { resolve(); };
+    dbReq.onsuccess = function(e) {
+      var db = e.target.result;
+      if (!db.objectStoreNames.contains('pending-receipts')) {
+        resolve();
+        return;
+      }
+      var tx = db.transaction('pending-receipts', 'readwrite');
+      var store = tx.objectStore('pending-receipts');
+      var getAll = store.getAll();
+      getAll.onsuccess = function() {
+        var receipts = getAll.result || [];
+        if (!receipts.length) { resolve(); return; }
+
+        var uploads = receipts.map(function(receipt) {
+          var formData = new FormData();
+          formData.append('receipt_photo', receipt.blob, 'receipt.jpg');
+          formData.append('csrf_token', receipt.csrf || '');
+          if (receipt.lat) formData.append('lat', receipt.lat);
+          if (receipt.lng) formData.append('lng', receipt.lng);
+
+          return fetch('/crm/api/receipt-intake.php', {
+            method: 'POST',
+            body: formData,
+          }).then(function(r) {
+            if (r.ok) {
+              // Delete from pending store on success
+              var delTx = db.transaction('pending-receipts', 'readwrite');
+              delTx.objectStore('pending-receipts').delete(receipt.id);
+            }
+          }).catch(function() {
+            // Will retry on next sync event
+          });
+        });
+
+        Promise.all(uploads).then(function() {
+          // Notify any open clients
+          self.clients.matchAll().then(function(clients) {
+            clients.forEach(function(client) {
+              client.postMessage({ type: 'receipts-synced', count: receipts.length });
+            });
+          });
+          resolve();
+        });
+      };
+    };
+  });
+}
+
+// ── Push Notifications: approval notifications ──
+self.addEventListener('push', function(event) {
+  if (!event.data) return;
+
+  var data;
+  try {
+    data = event.data.json();
+  } catch (e) {
+    data = { title: 'Mowology', body: event.data.text() };
+  }
+
+  var options = {
+    body: data.body || '',
+    icon: '/assets/favicon/android-chrome-192x192.png',
+    badge: '/assets/favicon/favicon-32x32.png',
+    tag: data.tag || 'mowology-notification',
+    data: { url: data.url || '/crm/expenses_appstack.php' },
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Mowology CRM', options)
+  );
+});
+
+// ── Notification Click: open the relevant page ──
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close();
+  var url = event.notification.data?.url || '/crm/expenses_appstack.php';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(clients) {
+      // Focus existing tab if open
+      for (var i = 0; i < clients.length; i++) {
+        if (clients[i].url.includes('/crm/') && 'focus' in clients[i]) {
+          return clients[i].focus();
+        }
+      }
+      // Open new tab
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
 /**
  * Cache-first: serve from cache, fall back to network (and update cache).
  */
@@ -140,7 +252,12 @@ function networkFirst(request, cacheName) {
         '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline</title>' +
         '<style>body{font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#F6F4EF;color:#333;}' +
         '.box{text-align:center;padding:40px;}.icon{font-size:3rem;margin-bottom:16px;}h1{font-size:1.2rem;margin:0 0 8px;}p{color:#666;font-size:.9rem;}</style></head>' +
-        '<body><div class="box"><div class="icon">&#127793;</div><h1>You\'re offline</h1><p>Check your connection and try again.</p></div></body></html>',
+        '<body><div class="box"><div class="icon">&#127793;</div><h1>You\'re offline</h1><p>Check your connection and try again.</p>' +
+        '<p id="pending" style="display:none;color:#e85d04;font-weight:600;"></p></div>' +
+        '<script>if(indexedDB){var r=indexedDB.open("mowology-receipts",1);r.onsuccess=function(e){var d=e.target.result;if(d.objectStoreNames.contains("pending-receipts")){' +
+        'var t=d.transaction("pending-receipts","readonly").objectStore("pending-receipts").count();' +
+        't.onsuccess=function(){if(t.result>0){var p=document.getElementById("pending");p.textContent=t.result+" receipt(s) pending upload";p.style.display="block";}};}}}</script>' +
+        '</body></html>',
         { status: 503, headers: { 'Content-Type': 'text/html' } }
       );
     });

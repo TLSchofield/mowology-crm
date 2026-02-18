@@ -1276,3 +1276,76 @@ function semanticMatchAmounts(array $amounts, array $labelOrder): array
 
     return $result;
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// GST / Tax Math Validation
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Validate that subtotal + GST + PST ≈ total (within tolerance).
+ * Returns a validation result that can be shown to the user.
+ *
+ * @param array $parsed The parsed receipt fields (total, gst, subtotal, pst)
+ * @return array ['valid' => bool, 'expected_total' => string, 'actual_total' => string, 'diff' => string, 'message' => string]
+ */
+function validateGstMath(array $parsed): array
+{
+    $subtotal = (float)($parsed['subtotal'] ?? 0);
+    $gst      = (float)($parsed['gst'] ?? 0);
+    $pst      = (float)($parsed['pst'] ?? 0);
+    $total    = (float)($parsed['total'] ?? 0);
+
+    // Need at least total and one other value
+    if ($total <= 0) {
+        return ['valid' => true, 'expected_total' => '0.00', 'actual_total' => '0.00', 'diff' => '0.00', 'message' => ''];
+    }
+
+    if ($subtotal <= 0 && $gst <= 0) {
+        return ['valid' => true, 'expected_total' => number_format($total, 2, '.', ''), 'actual_total' => number_format($total, 2, '.', ''), 'diff' => '0.00', 'message' => ''];
+    }
+
+    $expectedTotal = $subtotal + $gst + $pst;
+    $diff = abs($expectedTotal - $total);
+
+    // Tolerance: $0.05 or 0.5% of total, whichever is larger
+    $tolerance = max(0.05, $total * 0.005);
+    $valid = ($diff <= $tolerance);
+
+    $message = '';
+    if (!$valid) {
+        $message = sprintf(
+            'Math check: subtotal ($%.2f) + GST ($%.2f)%s = $%.2f, but total is $%.2f (off by $%.2f)',
+            $subtotal, $gst,
+            $pst > 0 ? sprintf(' + PST ($%.2f)', $pst) : '',
+            $expectedTotal, $total, $diff
+        );
+    }
+
+    // Also check if GST is approximately 5% of subtotal
+    $gstValid = true;
+    $gstMessage = '';
+    if ($subtotal > 0 && $gst > 0) {
+        $expectedGst = round($subtotal * 0.05, 2);
+        $gstDiff = abs($gst - $expectedGst);
+        $gstTolerance = max(0.10, $subtotal * 0.005);
+
+        if ($gstDiff > $gstTolerance) {
+            $gstValid = false;
+            $gstMessage = sprintf(
+                'GST $%.2f is not ~5%% of subtotal $%.2f (expected ~$%.2f)',
+                $gst, $subtotal, $expectedGst
+            );
+        }
+    }
+
+    return [
+        'valid'          => $valid,
+        'expected_total'  => number_format($expectedTotal, 2, '.', ''),
+        'actual_total'    => number_format($total, 2, '.', ''),
+        'diff'            => number_format($diff, 2, '.', ''),
+        'message'         => $message,
+        'gst_rate_valid'  => $gstValid,
+        'gst_rate_message' => $gstMessage,
+    ];
+}

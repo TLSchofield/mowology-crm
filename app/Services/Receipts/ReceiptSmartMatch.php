@@ -133,6 +133,24 @@ function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jo
         }
     }
 
+    // ── Step 2b: Vendor accuracy routing ─────────────────────────────
+    if ($result['vendor_id']) {
+        $accuracyInfo = getVendorAccuracyRouting($result['vendor_id'], $db);
+        if ($accuracyInfo) {
+            $result['vendor_accuracy_rate'] = $accuracyInfo['accuracy_rate'];
+            $result['vendor_total_receipts'] = $accuracyInfo['total_receipts'];
+
+            if ($accuracyInfo['accuracy_rate'] > 80 && $accuracyInfo['total_receipts'] >= 3) {
+                $result['vendor_confidence'] = min(100, $result['vendor_confidence'] + 10);
+                $result['match_details'][] = sprintf('High accuracy vendor (%.0f%%, +10)', $accuracyInfo['accuracy_rate']);
+            } elseif ($accuracyInfo['accuracy_rate'] < 50 && $accuracyInfo['total_receipts'] >= 3) {
+                $result['vendor_confidence'] = max(0, $result['vendor_confidence'] - 15);
+                $result['low_accuracy_warning'] = true;
+                $result['match_details'][] = sprintf('Low accuracy vendor (%.0f%%, -15)', $accuracyInfo['accuracy_rate']);
+            }
+        }
+    }
+
     // ── Step 3: Keyword fallback for category ───────────────────────
     if (empty($result['accounting_category'])) {
         $kwMatch = matchCategoryByKeywords($ocrLower);
@@ -436,5 +454,248 @@ function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng): array
     } catch (Throwable $e) {
         error_log('suggestJobFromSchedule error: ' . $e->getMessage());
         return [];
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Vendor Accuracy Routing
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Look up a vendor's parsing accuracy from vendor_parse_profiles.
+ *
+ * @param int $vendorId
+ * @param PDO $db
+ * @return array|null ['accuracy_rate' => float, 'total_receipts' => int] or null
+ */
+function getVendorAccuracyRouting(int $vendorId, PDO $db): ?array
+{
+    try {
+        $stmt = $db->prepare("
+            SELECT accuracy_rate, total_receipts
+            FROM vendor_parse_profiles
+            WHERE vendor_id = ?
+        ");
+        $stmt->execute([$vendorId]);
+        $profile = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$profile) return null;
+
+        return [
+            'accuracy_rate'  => (float)($profile['accuracy_rate'] ?? 0),
+            'total_receipts' => (int)($profile['total_receipts'] ?? 0),
+        ];
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Vendor Auto-Creation Gating (Fuzzy Match)
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Check if a vendor hint should auto-create a new vendor or if it matches
+ * an existing one via fuzzy matching. Prevents OCR typos from polluting
+ * the vendor table.
+ *
+ * @param string   $vendorHint OCR-extracted vendor name
+ * @param PDO      $db
+ * @param int      $minConfidence Minimum OCR confidence to allow auto-creation (0-100)
+ * @return array ['action' => 'match'|'create'|'skip', 'vendor' => array|null, 'similarity' => float]
+ */
+function gateVendorAutoCreation(string $vendorHint, PDO $db, int $minConfidence = 70): array
+{
+    $vendorHint = trim($vendorHint);
+    if (empty($vendorHint)) {
+        return ['action' => 'skip', 'vendor' => null, 'similarity' => 0];
+    }
+
+    $hintLower = strtolower($vendorHint);
+
+    try {
+        $stmt = $db->query("SELECT id, name, aliases FROM vendors WHERE is_active = 1");
+        $vendors = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (\Throwable $e) {
+        return ['action' => 'skip', 'vendor' => null, 'similarity' => 0];
+    }
+
+    $bestMatch = null;
+    $bestSimilarity = 0;
+
+    foreach ($vendors as $vendor) {
+        // Check vendor name similarity
+        $nameLower = strtolower($vendor['name']);
+        $similarity = 0;
+
+        // Exact containment
+        if (strpos($hintLower, $nameLower) !== false || strpos($nameLower, $hintLower) !== false) {
+            $similarity = 90;
+        } else {
+            // Levenshtein distance (normalized)
+            $maxLen = max(strlen($hintLower), strlen($nameLower));
+            if ($maxLen > 0) {
+                $distance = levenshtein($hintLower, $nameLower);
+                $similarity = (1 - ($distance / $maxLen)) * 100;
+            }
+        }
+
+        if ($similarity > $bestSimilarity) {
+            $bestSimilarity = $similarity;
+            $bestMatch = $vendor;
+        }
+
+        // Also check aliases
+        if (!empty($vendor['aliases'])) {
+            $aliases = array_map('trim', explode(',', $vendor['aliases']));
+            foreach ($aliases as $alias) {
+                if (empty($alias)) continue;
+                $aliasLower = strtolower($alias);
+
+                $aliasSim = 0;
+                if (strpos($hintLower, $aliasLower) !== false || strpos($aliasLower, $hintLower) !== false) {
+                    $aliasSim = 85;
+                } else {
+                    $maxLen = max(strlen($hintLower), strlen($aliasLower));
+                    if ($maxLen > 0) {
+                        $distance = levenshtein($hintLower, $aliasLower);
+                        $aliasSim = (1 - ($distance / $maxLen)) * 100;
+                    }
+                }
+
+                if ($aliasSim > $bestSimilarity) {
+                    $bestSimilarity = $aliasSim;
+                    $bestMatch = $vendor;
+                }
+            }
+        }
+    }
+
+    // Decision logic:
+    // >70% similarity: use existing vendor (likely OCR variant of known vendor)
+    // 50-70%: flag for review (might be a match, might not)
+    // <50%: allow auto-create (genuinely new vendor)
+    if ($bestSimilarity >= 70 && $bestMatch) {
+        return [
+            'action'     => 'match',
+            'vendor'     => $bestMatch,
+            'similarity' => round($bestSimilarity, 1),
+            'reason'     => sprintf('Fuzzy match to "%s" (%.0f%% similar)', $bestMatch['name'], $bestSimilarity),
+        ];
+    }
+
+    if ($bestSimilarity >= 50 && $bestMatch) {
+        return [
+            'action'     => 'review',
+            'vendor'     => $bestMatch,
+            'similarity' => round($bestSimilarity, 1),
+            'reason'     => sprintf('Possible match to "%s" (%.0f%% similar) — needs review', $bestMatch['name'], $bestSimilarity),
+        ];
+    }
+
+    return [
+        'action'     => 'create',
+        'vendor'     => null,
+        'similarity' => round($bestSimilarity, 1),
+        'reason'     => 'No close vendor match found — safe to auto-create',
+    ];
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Job-Type Expense Validation
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Mapping of job service types to expected expense categories.
+ */
+const JOB_CATEGORY_MAP = [
+    'lawn mowing'          => ['Fuel', 'Materials', 'Repairs/Maintenance'],
+    'lawn care'            => ['Fuel', 'Materials', 'Repairs/Maintenance'],
+    'hedge trimming'       => ['Fuel', 'Tools/Equipment', 'Disposal/Dump'],
+    'tree service'         => ['Fuel', 'Tools/Equipment', 'Disposal/Dump', 'Materials'],
+    'landscape install'    => ['Materials', 'Tools/Equipment', 'Disposal/Dump', 'Fuel'],
+    'hardscaping'          => ['Materials', 'Tools/Equipment', 'Fuel'],
+    'garden maintenance'   => ['Materials', 'Fuel', 'Disposal/Dump'],
+    'irrigation'           => ['Materials', 'Tools/Equipment'],
+    'snow removal'         => ['Fuel', 'Materials', 'Vehicle'],
+    'spring cleanup'       => ['Disposal/Dump', 'Fuel', 'Materials'],
+    'fall cleanup'         => ['Disposal/Dump', 'Fuel', 'Materials'],
+    'fertilization'        => ['Materials', 'Fuel'],
+    'aeration'             => ['Fuel', 'Tools/Equipment'],
+    'power washing'        => ['Fuel', 'Tools/Equipment'],
+];
+
+/**
+ * Validate whether an expense category makes sense for a job's service type.
+ *
+ * @param int    $jobPlanId Job plan ID
+ * @param string $category  Expense accounting category
+ * @param PDO|null $db
+ * @return array|null ['mismatch' => true, 'message' => string, 'expected' => array] or null if OK
+ */
+function validateExpenseForJob(int $jobPlanId, string $category, ?PDO $db = null): ?array
+{
+    if ($db === null) $db = getDB();
+    if (empty($category)) return null;
+
+    try {
+        // Get the service types for this job's plan line items
+        $stmt = $db->prepare("
+            SELECT DISTINCT pli.service_type
+            FROM plan_line_items pli
+            WHERE pli.plan_id = ?
+              AND pli.service_type IS NOT NULL
+              AND pli.service_type != ''
+        ");
+        $stmt->execute([$jobPlanId]);
+        $serviceTypes = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (empty($serviceTypes)) return null;
+
+        // Collect all expected categories for this job's service types
+        $expectedCategories = [];
+        foreach ($serviceTypes as $st) {
+            $stLower = strtolower($st);
+            foreach (JOB_CATEGORY_MAP as $jobType => $cats) {
+                if (strpos($stLower, $jobType) !== false || strpos($jobType, $stLower) !== false) {
+                    $expectedCategories = array_merge($expectedCategories, $cats);
+                }
+            }
+        }
+
+        $expectedCategories = array_unique($expectedCategories);
+
+        // If we couldn't determine expected categories, don't flag
+        if (empty($expectedCategories)) return null;
+
+        // Check if the expense category matches any expected category
+        $catLower = strtolower($category);
+        foreach ($expectedCategories as $expected) {
+            if (strtolower($expected) === $catLower) {
+                return null; // Match found — no mismatch
+            }
+        }
+
+        // Meals and Office/Admin are always acceptable
+        if (in_array($category, ['Meals', 'Office/Admin'])) return null;
+
+        return [
+            'mismatch' => true,
+            'category' => $category,
+            'expected' => $expectedCategories,
+            'service_types' => $serviceTypes,
+            'message'  => sprintf(
+                '"%s" is unusual for a %s job (expected: %s)',
+                $category,
+                implode('/', $serviceTypes),
+                implode(', ', $expectedCategories)
+            ),
+        ];
+    } catch (\Throwable $e) {
+        error_log('validateExpenseForJob: ' . $e->getMessage());
+        return null;
     }
 }

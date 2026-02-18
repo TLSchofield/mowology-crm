@@ -114,6 +114,28 @@ try {
     $lng = isset($_POST['lng']) && $_POST['lng'] !== '' ? (float)$_POST['lng'] : null;
     $jobId = isset($_POST['job_id']) && $_POST['job_id'] !== '' ? (int)$_POST['job_id'] : null;
 
+    // ── SHA-256 Image Hash Dedup ──────────────────────────────────────
+    $sha256 = hash_file('sha256', $filePath);
+    $db = getDB();
+    $duplicateImage = null;
+
+    if ($sha256) {
+        $checkHash = $db->prepare("
+            SELECT id, file_path FROM media_assets
+            WHERE sha256 = ? AND context_type = 'expense'
+            LIMIT 1
+        ");
+        $checkHash->execute([$sha256]);
+        $existing = $checkHash->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing) {
+            $duplicateImage = [
+                'existing_media_id' => (int)$existing['id'],
+                'existing_file_path' => $existing['file_path'],
+            ];
+        }
+    }
+
     // Get image dimensions
     $imgWidth = null;
     $imgHeight = null;
@@ -125,13 +147,12 @@ try {
         }
     }
 
-    // Register in media_assets
-    $db = getDB();
+    // Register in media_assets (include sha256 for future dedup)
     $stmt = $db->prepare("
         INSERT INTO media_assets
             (original_filename, stored_filename, file_path, file_type, mime_type, file_size,
-             image_width, image_height, gps_lat, gps_lng, alt_text, context_type, created_by)
-        VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, 'Receipt photo', 'expense', ?)
+             image_width, image_height, gps_lat, gps_lng, sha256, alt_text, context_type, created_by)
+        VALUES (?, ?, ?, 'image', ?, ?, ?, ?, ?, ?, ?, 'Receipt photo', 'expense', ?)
     ");
     $stmt->execute([
         $file['name'],
@@ -143,6 +164,7 @@ try {
         $imgHeight,
         $lat,
         $lng,
+        $sha256,
         $user['id'],
     ]);
     $mediaId = (int)$db->lastInsertId();
@@ -179,35 +201,65 @@ try {
             }
         }
 
-        // Auto-create vendor if OCR found a vendor name but no match in vendors table
+        // ── Word-Level Confidence Extraction ──────────────────────────
+        $fieldConfidences = [];
+        if ($rawResponse) {
+            $wordConfidences = extractWordConfidenceMap($rawResponse);
+            if (!empty($wordConfidences)) {
+                $fieldConfidences = calculateFieldConfidences($parsed, $wordConfidences);
+            }
+        }
+
+        // ── GST Math Validation ───────────────────────────────────────
+        $gstValidation = validateGstMath($parsed);
+
+        // ── Gated Vendor Auto-Creation ────────────────────────────────
+        // Instead of eagerly creating vendors from OCR hints, use fuzzy matching
+        // to prevent polluting the vendor table with OCR typos.
         if (empty($suggestions['vendor_id']) && !empty($parsed['vendor_hint'])) {
             $vendorName = strtoupper(trim($parsed['vendor_hint']));
             if (strlen($vendorName) >= 3) {
                 try {
-                    // Check once more that it doesn't exist (case-insensitive)
-                    $checkStmt = $db->prepare("SELECT id FROM vendors WHERE UPPER(name) = ? LIMIT 1");
-                    $checkStmt->execute([$vendorName]);
-                    $existingId = $checkStmt->fetchColumn();
+                    $gateResult = gateVendorAutoCreation($vendorName, $db);
 
-                    if ($existingId) {
-                        $suggestions['vendor_id']   = (int)$existingId;
-                        $suggestions['vendor_name']  = $vendorName;
-                        $suggestions['vendor_confidence'] = 80;
-                        $suggestions['match_details'][] = 'Exact match found on retry';
-                    } else {
-                        // Create new vendor
-                        $insertStmt = $db->prepare("
-                            INSERT INTO vendors (name, aliases, is_active)
-                            VALUES (?, ?, 1)
-                        ");
-                        $insertStmt->execute([$vendorName, strtolower($vendorName)]);
-                        $newVendorId = (int)$db->lastInsertId();
+                    if ($gateResult['action'] === 'match' && $gateResult['vendor']) {
+                        // Fuzzy matched an existing vendor — use it
+                        $suggestions['vendor_id']   = (int)$gateResult['vendor']['id'];
+                        $suggestions['vendor_name']  = $gateResult['vendor']['name'];
+                        $suggestions['vendor_confidence'] = 65;
+                        $suggestions['match_details'][] = $gateResult['reason'];
+                    } elseif ($gateResult['action'] === 'review' && $gateResult['vendor']) {
+                        // Possible match — suggest but flag for review
+                        $suggestions['vendor_id']   = (int)$gateResult['vendor']['id'];
+                        $suggestions['vendor_name']  = $gateResult['vendor']['name'];
+                        $suggestions['vendor_confidence'] = 40;
+                        $suggestions['vendor_needs_review'] = true;
+                        $suggestions['match_details'][] = $gateResult['reason'];
+                    } elseif ($gateResult['action'] === 'create') {
+                        // No close match — safe to auto-create
+                        $checkStmt = $db->prepare("SELECT id FROM vendors WHERE UPPER(name) = ? LIMIT 1");
+                        $checkStmt->execute([$vendorName]);
+                        $existingId = $checkStmt->fetchColumn();
 
-                        $suggestions['vendor_id']   = $newVendorId;
-                        $suggestions['vendor_name']  = $vendorName;
-                        $suggestions['vendor_confidence'] = 70;
-                        $suggestions['match_details'][] = 'Auto-created from OCR vendor hint';
-                        $suggestions['vendor_auto_created'] = true;
+                        if ($existingId) {
+                            $suggestions['vendor_id']   = (int)$existingId;
+                            $suggestions['vendor_name']  = $vendorName;
+                            $suggestions['vendor_confidence'] = 80;
+                            $suggestions['match_details'][] = 'Exact match found on retry';
+                        } else {
+                            $insertStmt = $db->prepare("
+                                INSERT INTO vendors (name, aliases, is_active)
+                                VALUES (?, ?, 1)
+                            ");
+                            $insertStmt->execute([$vendorName, strtolower($vendorName)]);
+                            $newVendorId = (int)$db->lastInsertId();
+
+                            $suggestions['vendor_id']   = $newVendorId;
+                            $suggestions['vendor_name']  = $vendorName;
+                            $suggestions['vendor_confidence'] = 70;
+                            $suggestions['match_details'][] = 'Auto-created from OCR vendor hint';
+                            $suggestions['vendor_auto_created'] = true;
+                        }
                     }
                 } catch (Throwable $e) {
                     error_log('Auto vendor creation failed: ' . $e->getMessage());
@@ -226,15 +278,18 @@ try {
 
     // Return everything to the client
     echo json_encode([
-        'success'        => true,
-        'media_id'       => $mediaId,
-        'file_path'      => $webPath,
-        'ocr_text'       => $ocrText,
-        'ocr_available'  => $ocrAvailable,
-        'ocr_error'      => $ocrResult['error'] ?? null,
-        'parsed'         => $parsed,
-        'suggestions'    => $suggestions,
-        'job_suggestions' => $jobSuggestions,
+        'success'           => true,
+        'media_id'          => $mediaId,
+        'file_path'         => $webPath,
+        'ocr_text'          => $ocrText,
+        'ocr_available'     => $ocrAvailable,
+        'ocr_error'         => $ocrResult['error'] ?? null,
+        'parsed'            => $parsed,
+        'suggestions'       => $suggestions,
+        'job_suggestions'   => $jobSuggestions,
+        'field_confidences' => $fieldConfidences ?? [],
+        'gst_validation'    => $gstValidation ?? null,
+        'duplicate_image'   => $duplicateImage,
     ]);
 
 } catch (Exception $e) {

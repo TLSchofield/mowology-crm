@@ -104,9 +104,9 @@ $navItems = [
                 </a>
             </li>
             <?php endif; ?>
-            <!-- Install App — always visible, hidden by JS when already installed -->
+            <!-- Install App (PWA) — hidden when already installed as standalone -->
             <li class="sidebar-item" id="mw-pwa-sidebar-item">
-                <a class="sidebar-link" href="/crm/downloads/mowology-crew.apk" id="mw-pwa-sidebar-link" download>
+                <a class="sidebar-link" href="#" id="mw-pwa-sidebar-link" onclick="event.preventDefault();if(window.mwDeferredInstall){window.mwDeferredInstall.prompt();}else{alert('Tap your browser menu → Add to Home Screen');}">
                     <i class="align-middle" data-feather="download"></i>
                     <span class="align-middle">Install App</span>
                 </a>

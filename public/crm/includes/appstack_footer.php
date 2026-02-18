@@ -152,8 +152,7 @@
     content += '<div class="mw-install-splash-actions">';
 
     if (isAndroid) {
-      content += '<a href="/crm/downloads/mowology-crew.apk" class="mw-install-splash-btn mw-install-splash-btn-primary" download>Download App</a>';
-      content += '<button type="button" class="mw-install-splash-btn mw-install-splash-btn-outline" id="mw-install-splash-pwa">Add to Home Screen</button>';
+      content += '<button type="button" class="mw-install-splash-btn mw-install-splash-btn-primary" id="mw-install-splash-pwa">Add to Home Screen</button>';
     }
 
     if (isIOS) {
@@ -220,7 +219,15 @@
   window.addEventListener('beforeinstallprompt', function(e) {
     e.preventDefault();
     window._mwInstallPrompt = e;
+    window.mwDeferredInstall = e; // Shared alias for sidebar + login banner
   });
+  // Hide PWA install sidebar item if already installed
+  if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
+    document.addEventListener('DOMContentLoaded', function() {
+      var pwaItem = document.getElementById('mw-pwa-sidebar-item');
+      if (pwaItem) pwaItem.style.display = 'none';
+    });
+  }
   </script>
 
   <!-- Debug Panel (development tool) -->

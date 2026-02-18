@@ -91,6 +91,36 @@ try {
             handleLinkProduct($db, $input);
             break;
 
+        case 'budget_status':
+            handleBudgetStatus($db);
+            break;
+
+        case 'job_margin':
+            handleJobMargin($db);
+            break;
+
+        case 'price_trend':
+            handlePriceTrend($db);
+            break;
+
+        case 'approve':
+            $canApprove = userHasPermission('expenses.approve');
+            if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
+            handleApprove($db, $input, $user);
+            break;
+
+        case 'reject':
+            $canApprove = userHasPermission('expenses.approve');
+            if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
+            handleReject($db, $input, $user);
+            break;
+
+        case 'pending_approval':
+            $canApprove = userHasPermission('expenses.approve');
+            if (!$canApprove) throw new Exception('Permission denied: expenses.approve required');
+            handlePendingApproval($db);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -262,13 +292,41 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         throw new Exception('Total amount or description is required');
     }
 
+    // ── Run anomaly detection ─────────────────────────────────────
+    $anomalyFlags = '';
+    $anomalyScore = 0;
+    try {
+        require_once APP_ROOT . '/Services/Receipts/AnomalyDetector.php';
+        $anomalyData = array_merge($input, [
+            'total' => $total,
+            'expense_date' => $expenseDate,
+            'created_by' => $user['id'],
+        ]);
+        $anomalyResult = detectAnomalies($anomalyData, $db);
+        $anomalyFlags = $anomalyResult['flags'] ?? '';
+        $anomalyScore = $anomalyResult['score'] ?? 0;
+    } catch (Throwable $e) {
+        error_log('Anomaly detection error: ' . $e->getMessage());
+    }
+
+    // ── Check budget variance ────────────────────────────────────
+    $budgetWarning = null;
+    try {
+        require_once APP_ROOT . '/Services/Receipts/BudgetService.php';
+        $budgetWarning = checkBudgetOnSave($input, $db);
+    } catch (Throwable $e) {
+        // Budget service non-critical
+    }
+
     $stmt = $db->prepare("
         INSERT INTO expenses
-            (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, total,
+            (expense_date, vendor_id, vendor_name_raw, description, amount, gst_amount, pst_amount, total,
              accounting_category, gbp_category, payment_method, receipt_media_id,
-             receipt_lat, receipt_lng, match_confidence, raw_ocr_json,
-             job_id, property_id, contact_id, notes, status, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             receipt_lat, receipt_lng, match_confidence, anomaly_flags, anomaly_score, raw_ocr_json,
+             job_id, property_id, contact_id, notes, status,
+             odometer_start, odometer_end, fuel_litres, fuel_price_per_litre,
+             created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $stmt->execute([
         $expenseDate,
@@ -277,6 +335,7 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         $input['description'] ?? null,
         (float)($input['amount'] ?? 0),
         (float)($input['gst_amount'] ?? 0),
+        (float)($input['pst_amount'] ?? 0),
         $total,
         $input['accounting_category'] ?? null,
         $input['gbp_category'] ?? null,
@@ -285,12 +344,18 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         !empty($input['receipt_lat']) ? (float)$input['receipt_lat'] : null,
         !empty($input['receipt_lng']) ? (float)$input['receipt_lng'] : null,
         (int)($input['match_confidence'] ?? 0),
+        $anomalyFlags ?: null,
+        $anomalyScore,
         $input['raw_ocr_json'] ?? null,
         !empty($input['job_id']) ? (int)$input['job_id'] : null,
         !empty($input['property_id']) ? (int)$input['property_id'] : null,
         !empty($input['contact_id']) ? (int)$input['contact_id'] : null,
         $input['notes'] ?? null,
         $input['status'] ?? 'draft',
+        !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
+        !empty($input['odometer_end']) ? (int)$input['odometer_end'] : null,
+        !empty($input['fuel_litres']) ? (float)$input['fuel_litres'] : null,
+        !empty($input['fuel_price_per_litre']) ? (float)$input['fuel_price_per_litre'] : null,
         $user['id'],
     ]);
 
@@ -299,6 +364,16 @@ function handleCreate(PDO $db, ?array $input, array $user): void
     // Save line items if provided
     if (!empty($input['line_items']) && is_array($input['line_items'])) {
         saveLineItems($db, $expenseId, $input['line_items']);
+
+        // ── Record line item prices for intelligence ──────────────
+        if (!empty($input['vendor_id'])) {
+            try {
+                require_once APP_ROOT . '/Services/Receipts/PriceIntelligence.php';
+                recordLineItemPrices($expenseId, (int)$input['vendor_id'], $input['line_items'], $expenseDate);
+            } catch (Throwable $e) {
+                error_log('Price intelligence error: ' . $e->getMessage());
+            }
+        }
     }
 
     // Record OCR corrections for learning (only if receipt was OCR'd)
@@ -360,10 +435,31 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     if (!$id) throw new Exception('Expense ID required');
 
     // Verify exists and fetch OCR text for learning
-    $check = $db->prepare("SELECT id, raw_ocr_json FROM expenses WHERE id = ?");
+    $check = $db->prepare("SELECT id, raw_ocr_json, vendor_id FROM expenses WHERE id = ?");
     $check->execute([$id]);
     $existing = $check->fetch(PDO::FETCH_ASSOC);
     if (!$existing) throw new Exception('Expense not found');
+
+    $expenseDate = $input['expense_date'] ?? date('Y-m-d');
+    $total = (float)($input['total'] ?? 0);
+
+    // ── Re-run anomaly detection on update ──────────────────────────
+    $anomalyFlags = '';
+    $anomalyScore = 0;
+    try {
+        require_once APP_ROOT . '/Services/Receipts/AnomalyDetector.php';
+        $anomalyData = array_merge($input, [
+            'id'           => $id,
+            'total'        => $total,
+            'expense_date' => $expenseDate,
+            'created_by'   => $user['id'],
+        ]);
+        $anomalyResult = detectAnomalies($anomalyData, $db);
+        $anomalyFlags = $anomalyResult['flags'] ?? '';
+        $anomalyScore = $anomalyResult['score'] ?? 0;
+    } catch (Throwable $e) {
+        error_log('Anomaly detection error (update): ' . $e->getMessage());
+    }
 
     $stmt = $db->prepare("
         UPDATE expenses SET
@@ -373,37 +469,51 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
             description = ?,
             amount = ?,
             gst_amount = ?,
+            pst_amount = ?,
             total = ?,
             accounting_category = ?,
             gbp_category = ?,
             payment_method = ?,
             receipt_media_id = ?,
             match_confidence = ?,
+            anomaly_flags = ?,
+            anomaly_score = ?,
             job_id = ?,
             property_id = ?,
             contact_id = ?,
             notes = ?,
-            status = ?
+            status = ?,
+            odometer_start = ?,
+            odometer_end = ?,
+            fuel_litres = ?,
+            fuel_price_per_litre = ?
         WHERE id = ?
     ");
     $stmt->execute([
-        $input['expense_date'] ?? date('Y-m-d'),
+        $expenseDate,
         !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
         $input['vendor_name_raw'] ?? null,
         $input['description'] ?? null,
         (float)($input['amount'] ?? 0),
         (float)($input['gst_amount'] ?? 0),
-        (float)($input['total'] ?? 0),
+        (float)($input['pst_amount'] ?? 0),
+        $total,
         $input['accounting_category'] ?? null,
         $input['gbp_category'] ?? null,
         $input['payment_method'] ?? null,
         !empty($input['receipt_media_id']) ? (int)$input['receipt_media_id'] : null,
         (int)($input['match_confidence'] ?? 0),
+        $anomalyFlags ?: null,
+        $anomalyScore,
         !empty($input['job_id']) ? (int)$input['job_id'] : null,
         !empty($input['property_id']) ? (int)$input['property_id'] : null,
         !empty($input['contact_id']) ? (int)$input['contact_id'] : null,
         $input['notes'] ?? null,
         $input['status'] ?? 'draft',
+        !empty($input['odometer_start']) ? (int)$input['odometer_start'] : null,
+        !empty($input['odometer_end']) ? (int)$input['odometer_end'] : null,
+        !empty($input['fuel_litres']) ? (float)$input['fuel_litres'] : null,
+        !empty($input['fuel_price_per_litre']) ? (float)$input['fuel_price_per_litre'] : null,
         $id,
     ]);
 
@@ -416,6 +526,17 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         $delStmt->execute([$id]);
         if (!empty($input['line_items'])) {
             saveLineItems($db, $id, $input['line_items']);
+
+            // ── Record line item prices for intelligence ──────────────
+            $vendorId = !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null;
+            if ($vendorId) {
+                try {
+                    require_once APP_ROOT . '/Services/Receipts/PriceIntelligence.php';
+                    recordLineItemPrices($id, $vendorId, $input['line_items'], $expenseDate);
+                } catch (Throwable $e) {
+                    error_log('Price intelligence error (update): ' . $e->getMessage());
+                }
+            }
         }
     }
 
@@ -747,4 +868,215 @@ function updateProductInventory(PDO $db, int $productId, float $qtyDelta): void
         WHERE id = ? AND track_inventory = 1
     ");
     $stmt->execute([$qtyDelta, $productId]);
+}
+
+
+// ============================================================================
+//  Budget, Margin, Price Trend, and Approval handlers
+// ============================================================================
+
+/**
+ * GET ?action=budget_status[&month=2026-03]
+ * Returns budget variance for all categories in the given month.
+ */
+function handleBudgetStatus(PDO $db): void
+{
+    require_once APP_ROOT . '/Services/Receipts/BudgetService.php';
+
+    $month = $_GET['month'] ?? date('Y-m-01');
+    // Normalize to first of month
+    $month = date('Y-m-01', strtotime($month));
+
+    $variances = getAllBudgetVariances($month, $db);
+
+    echo json_encode([
+        'success'   => true,
+        'month'     => $month,
+        'budgets'   => $variances,
+    ]);
+}
+
+
+/**
+ * GET ?action=job_margin&plan_id=X
+ * Returns quoted vs actual materials margin for a job plan.
+ */
+function handleJobMargin(PDO $db): void
+{
+    require_once APP_ROOT . '/Services/Receipts/MarginTracker.php';
+
+    $planId = (int)($_GET['plan_id'] ?? 0);
+    if (!$planId) throw new Exception('plan_id required');
+
+    $margin = getJobMargin($planId, $db);
+    if (!$margin) {
+        echo json_encode(['success' => true, 'margin' => null, 'message' => 'No margin data available']);
+        return;
+    }
+
+    echo json_encode(['success' => true, 'margin' => $margin]);
+}
+
+
+/**
+ * GET ?action=price_trend&vendor_id=X&product=Name
+ * Returns 12-month price history for a product at a vendor.
+ */
+function handlePriceTrend(PDO $db): void
+{
+    require_once APP_ROOT . '/Services/Receipts/PriceIntelligence.php';
+
+    $vendorId = (int)($_GET['vendor_id'] ?? 0);
+    $product  = $_GET['product'] ?? '';
+
+    if (!$vendorId || empty($product)) {
+        throw new Exception('vendor_id and product required');
+    }
+
+    $trend = getPriceTrend($vendorId, $product);
+
+    // Also check for price anomaly on latest price
+    $anomaly = null;
+    if (!empty($trend)) {
+        $latestPrice = (float)$trend[count($trend) - 1]['avg_price'];
+        $anomaly = checkPriceAnomaly($vendorId, $product, $latestPrice);
+    }
+
+    echo json_encode([
+        'success' => true,
+        'trend'   => $trend,
+        'anomaly' => $anomaly,
+    ]);
+}
+
+
+/**
+ * POST {action: 'approve', id: X}
+ * Marks an expense as approved.
+ */
+function handleApprove(PDO $db, ?array $input, array $user): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $id = (int)($input['id'] ?? 0);
+    if (!$id) throw new Exception('Expense ID required');
+
+    // Verify expense exists
+    $check = $db->prepare("SELECT id, status, created_by FROM expenses WHERE id = ?");
+    $check->execute([$id]);
+    $expense = $check->fetch(PDO::FETCH_ASSOC);
+    if (!$expense) throw new Exception('Expense not found');
+
+    // Prevent self-approval (the creator cannot approve their own expense)
+    if ((int)$expense['created_by'] === (int)$user['id']) {
+        throw new Exception('Cannot approve your own expense');
+    }
+
+    $stmt = $db->prepare("
+        UPDATE expenses SET
+            status = 'approved',
+            approved_by = ?,
+            approved_at = NOW()
+        WHERE id = ?
+    ");
+    $stmt->execute([$user['id'], $id]);
+
+    echo json_encode(['success' => true, 'message' => 'Expense approved']);
+}
+
+
+/**
+ * POST {action: 'reject', id: X, rejection_reason: '...'}
+ * Rejects an expense and records the reason.
+ */
+function handleReject(PDO $db, ?array $input, array $user): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $id = (int)($input['id'] ?? 0);
+    if (!$id) throw new Exception('Expense ID required');
+
+    $reason = trim($input['rejection_reason'] ?? '');
+    if (empty($reason)) throw new Exception('Rejection reason is required');
+
+    // Verify expense exists
+    $check = $db->prepare("SELECT id, created_by FROM expenses WHERE id = ?");
+    $check->execute([$id]);
+    $expense = $check->fetch(PDO::FETCH_ASSOC);
+    if (!$expense) throw new Exception('Expense not found');
+
+    $stmt = $db->prepare("
+        UPDATE expenses SET
+            status = 'rejected',
+            approved_by = ?,
+            approved_at = NOW(),
+            rejection_reason = ?
+        WHERE id = ?
+    ");
+    $stmt->execute([$user['id'], $reason, $id]);
+
+    // Notify the expense creator via activity log
+    try {
+        $db->prepare("
+            INSERT INTO activity_log (user_id, action, entity_type, entity_id, details, created_at)
+            VALUES (?, 'expense_rejected', 'expense', ?, ?, NOW())
+        ")->execute([$user['id'], $id, json_encode(['reason' => $reason])]);
+    } catch (Throwable $e) {
+        // Activity log is non-critical
+    }
+
+    echo json_encode(['success' => true, 'message' => 'Expense rejected']);
+}
+
+
+/**
+ * GET ?action=pending_approval[&page=1]
+ * Lists expenses that need approval (anomaly_score > 30 or status = 'pending_approval').
+ */
+function handlePendingApproval(PDO $db): void
+{
+    $page    = max(1, (int)($_GET['page'] ?? 1));
+    $perPage = 25;
+    $offset  = ($page - 1) * $perPage;
+
+    $countStmt = $db->prepare("
+        SELECT COUNT(*)
+        FROM expenses e
+        WHERE (e.anomaly_score > 30 AND e.status = 'draft')
+           OR e.status = 'pending_approval'
+    ");
+    $countStmt->execute();
+    $total = (int)$countStmt->fetchColumn();
+
+    $stmt = $db->prepare("
+        SELECT e.*,
+               v.name AS vendor_name,
+               u.full_name AS created_by_name,
+               ma.file_path AS receipt_path
+        FROM expenses e
+        LEFT JOIN vendors v ON v.id = e.vendor_id
+        LEFT JOIN users u ON u.id = e.created_by
+        LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
+        WHERE (e.anomaly_score > 30 AND e.status = 'draft')
+           OR e.status = 'pending_approval'
+        ORDER BY e.anomaly_score DESC, e.created_at DESC
+        LIMIT {$perPage} OFFSET {$offset}
+    ");
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode([
+        'success'  => true,
+        'expenses' => $rows,
+        'total'    => $total,
+        'page'     => $page,
+        'per_page' => $perPage,
+        'pages'    => (int)ceil($total / $perPage),
+    ]);
 }

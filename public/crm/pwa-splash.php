@@ -83,13 +83,37 @@ if (is_file($logoPath)) {
 
         // Add "Mowology" text below the logo
         $white = imagecolorallocate($img, 255, 255, 255);
-        $fontSize = max(3, (int) ($targetSize / 12)); // GD font size 1-5
-        $fontSize = min($fontSize, 5);
         $text = 'Mowology';
-        $textW = imagefontwidth($fontSize) * strlen($text);
-        $textX = (int) (($width - $textW) / 2);
-        $textY = $dstY + $targetSize + (int) ($targetSize * 0.15);
-        imagestring($img, $fontSize, $textX, $textY, $text, $white);
+        $textY = $dstY + $targetSize + (int) ($targetSize * 0.30);
+
+        // Prefer TTF (crisp at any size) with fallback to bitmap
+        $ttfFont = dirname(__DIR__) . '/vendor/mpdf/mpdf/ttfonts/DejaVuSans-Bold.ttf';
+        if (function_exists('imagettftext') && is_file($ttfFont)) {
+            // Scale font to ~4% of image height (looks balanced under logo)
+            $ptSize = max(16, (int) ($height * 0.035));
+            $bbox = imagettfbbox($ptSize, 0, $ttfFont, $text);
+            $textW = abs($bbox[2] - $bbox[0]);
+            $textX = (int) (($width - $textW) / 2);
+            // $textY is the baseline for imagettftext
+            imagettftext($img, $ptSize, 0, $textX, $textY, $white, $ttfFont, $text);
+
+            // Tagline below the brand name
+            $tagline = 'Landscaping CRM';
+            $tagPt = max(10, (int) ($ptSize * 0.5));
+            $tagColor = imagecolorallocate($img, 200, 230, 210); // soft mint
+            $tagBbox = imagettfbbox($tagPt, 0, $ttfFont, $tagline);
+            $tagW = abs($tagBbox[2] - $tagBbox[0]);
+            $tagX = (int) (($width - $tagW) / 2);
+            $tagY = $textY + (int) ($ptSize * 1.2);
+            imagettftext($img, $tagPt, 0, $tagX, $tagY, $tagColor, $ttfFont, $tagline);
+        } else {
+            // Fallback: GD built-in bitmap font
+            $fontSize = max(3, (int) ($targetSize / 12));
+            $fontSize = min($fontSize, 5);
+            $textW = imagefontwidth($fontSize) * strlen($text);
+            $textX = (int) (($width - $textW) / 2);
+            imagestring($img, $fontSize, $textX, $textY, $text, $white);
+        }
     }
 }
 

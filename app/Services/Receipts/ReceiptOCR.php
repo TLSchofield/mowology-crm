@@ -312,6 +312,108 @@ function getVisionAccessToken(string $credPath): array
 
 
 /**
+ * Extract word-level confidence scores from the Vision API response.
+ *
+ * The Vision API DOCUMENT_TEXT_DETECTION returns confidence per word in
+ * fullTextAnnotation.pages[].blocks[].paragraphs[].words[].confidence.
+ * This function flattens those into a simple array for field-level scoring.
+ *
+ * @param array $rawResponse Full decoded Vision API response
+ * @return array Array of ['text' => string, 'confidence' => float 0-1]
+ */
+function extractWordConfidenceMap(array $rawResponse): array
+{
+    $words = [];
+    $pages = $rawResponse['responses'][0]['fullTextAnnotation']['pages'] ?? [];
+
+    foreach ($pages as $page) {
+        foreach ($page['blocks'] ?? [] as $block) {
+            foreach ($block['paragraphs'] ?? [] as $paragraph) {
+                foreach ($paragraph['words'] ?? [] as $word) {
+                    $text = '';
+                    foreach ($word['symbols'] ?? [] as $symbol) {
+                        $text .= $symbol['text'] ?? '';
+                    }
+
+                    $confidence = $word['confidence'] ?? null;
+                    if (!empty($text) && $confidence !== null) {
+                        $words[] = [
+                            'text'       => $text,
+                            'confidence' => (float)$confidence,
+                        ];
+                    }
+                }
+            }
+        }
+    }
+
+    return $words;
+}
+
+
+/**
+ * Calculate per-field confidence from word confidence map.
+ *
+ * Finds words that match each field's value and averages their confidence.
+ *
+ * @param array $parsed          Parsed receipt fields (total, gst, vendor_hint, date, etc.)
+ * @param array $wordConfidences Array from extractWordConfidenceMap()
+ * @return array ['total' => 0.92, 'gst' => 0.87, 'vendor' => 0.95, 'date' => 0.88]
+ */
+function calculateFieldConfidences(array $parsed, array $wordConfidences): array
+{
+    if (empty($wordConfidences)) {
+        return [];
+    }
+
+    $fields = [
+        'total'       => $parsed['total'] ?? null,
+        'gst'         => $parsed['gst'] ?? null,
+        'subtotal'    => $parsed['subtotal'] ?? null,
+        'vendor'      => $parsed['vendor_hint'] ?? null,
+        'date'        => $parsed['date'] ?? null,
+    ];
+
+    $result = [];
+
+    foreach ($fields as $fieldName => $fieldValue) {
+        if (empty($fieldValue)) continue;
+
+        // Find words that contain or match this field value
+        $matchedConfidences = [];
+        $searchVal = strtolower((string)$fieldValue);
+
+        foreach ($wordConfidences as $wc) {
+            $wordText = strtolower($wc['text']);
+
+            // For numeric fields, match the digits
+            if (in_array($fieldName, ['total', 'gst', 'subtotal'])) {
+                // Strip non-numeric for comparison
+                $fieldDigits = preg_replace('/[^0-9.]/', '', $searchVal);
+                $wordDigits = preg_replace('/[^0-9.]/', '', $wordText);
+
+                if (!empty($fieldDigits) && !empty($wordDigits)) {
+                    if ($wordDigits === $fieldDigits || strpos($wordDigits, $fieldDigits) !== false) {
+                        $matchedConfidences[] = $wc['confidence'];
+                    }
+                }
+            }
+            // For text fields, check containment
+            elseif (stripos($wordText, $searchVal) !== false || stripos($searchVal, $wordText) !== false) {
+                $matchedConfidences[] = $wc['confidence'];
+            }
+        }
+
+        if (!empty($matchedConfidences)) {
+            $result[$fieldName] = round(array_sum($matchedConfidences) / count($matchedConfidences), 3);
+        }
+    }
+
+    return $result;
+}
+
+
+/**
  * Base64 URL-safe encode (no padding, URL-safe alphabet).
  */
 function base64UrlEncode(string $data): string

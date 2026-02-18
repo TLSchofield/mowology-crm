@@ -2,6 +2,7 @@
   "name": "Mowology CRM",
   "short_name": "Mowology",
   "description": "Landscaping CRM - Schedule, quotes, jobs & invoicing",
+  "id": "/crm/",
   "start_url": "/crm/jobs/schedule.php",
   "scope": "/",
   "display": "standalone",
@@ -17,12 +18,29 @@
     {
       "src": "/assets/favicon/android-chrome-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/assets/favicon/apple-touch-icon.png",
       "sizes": "180x180",
       "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Snap Receipt",
+      "short_name": "Receipt",
+      "url": "/crm/expenses_appstack.php?mode=quick",
+      "description": "Quick receipt capture",
+      "icons": [{"src": "/assets/favicon/android-chrome-192x192.png", "sizes": "192x192"}]
+    },
+    {
+      "name": "Schedule",
+      "short_name": "Schedule",
+      "url": "/crm/jobs/schedule.php",
+      "description": "View today's schedule",
+      "icons": [{"src": "/assets/favicon/android-chrome-192x192.png", "sizes": "192x192"}]
     }
   ],
   "categories": ["business", "productivity"],

@@ -10559,6 +10559,7 @@ textarea.font-monospace {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/* Legacy lightbox img + close — kept for backward compat, new lightbox uses .mw-lightbox-* classes */
 .mw-receipt-lightbox img {
   max-width: 90vw;
   max-height: 90vh;
@@ -10566,20 +10567,7 @@ textarea.font-monospace {
   border-radius: 4px;
   box-shadow: 0 4px 24px rgba(0,0,0,0.5);
   cursor: default;
-}
-.mw-receipt-lightbox-close {
-  position: absolute;
-  top: 16px;
-  right: 24px;
-  color: #fff;
-  font-size: 2rem;
-  cursor: pointer;
-  line-height: 1;
-  opacity: 0.7;
-  transition: opacity 0.15s;
-}
-.mw-receipt-lightbox-close:hover {
-  opacity: 1;
+  transition: transform 0.2s ease;
 }
 
 /* Receipt thumbnail in table */
@@ -10709,6 +10697,173 @@ textarea.font-monospace {
 }
 .mw-product-search-item:hover {
   background: var(--mw-light);
+}
+
+/* ── Confidence Dots in List ──────────────────────── */
+.mw-conf-dot-sm {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #dee2e6;
+}
+.mw-conf-dot-sm.mw-conf-high { background: var(--mw-green); }
+.mw-conf-dot-sm.mw-conf-medium { background: #ffc107; }
+.mw-conf-dot-sm.mw-conf-low { background: #dc3545; }
+
+/* ── Anomaly Icons in List ───────────────────────── */
+.mw-anomaly-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.mw-anomaly-icon.mw-anomaly-high {
+  color: #dc3545;
+}
+.mw-anomaly-icon.mw-anomaly-med {
+  color: #e85d04;
+}
+.mw-anomaly-flags .badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+/* ── GST Math Warning ────────────────────────────── */
+.mw-gst-math-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff9e6;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  color: #856404;
+  margin-top: 4px;
+}
+.mw-gst-math-warning span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── Budget Variance Cards ───────────────────────── */
+.mw-budget-card {
+  border: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.mw-budget-card .progress {
+  background: #e9ecef;
+  border-radius: 3px;
+}
+
+/* ── Enhanced Lightbox with Toolbar ──────────────── */
+.mw-lightbox-toolbar {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  display: flex;
+  gap: 8px;
+  z-index: 10001;
+}
+.mw-lightbox-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-decoration: none;
+  line-height: 1;
+}
+.mw-lightbox-btn:hover {
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  text-decoration: none;
+}
+.mw-lightbox-close-btn {
+  font-size: 1.5rem;
+}
+.mw-lightbox-img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  cursor: default;
+  transition: transform 0.2s ease;
+}
+
+/* ── Fuel/Mileage Section ────────────────────────── */
+#expFuelSection .input-group-text {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+}
+
+/* ── Offline / Sync Status Banner ────────────────── */
+.mw-offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #f0ad4e;
+  color: #333;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+.mw-offline-banner.mw-offline-offline {
+  background: #f0ad4e;
+}
+.mw-offline-banner.mw-offline-syncing {
+  background: #5bc0de;
+  color: #fff;
+}
+.mw-offline-banner.mw-offline-success {
+  background: var(--mw-green, #2D8659);
+  color: #fff;
+}
+.mw-offline-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+.mw-offline-text {
+  flex: 1;
+}
+.mw-offline-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  background: rgba(0,0,0,0.2);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0 6px;
+}
+.mw-offline-sync-btn {
+  background: rgba(255,255,255,0.9);
+  color: #333;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mw-offline-sync-btn:hover {
+  background: #fff;
 }
 
 /* ── Receipt Capture — Mobile Responsive ─────────── */

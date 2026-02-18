@@ -464,3 +464,97 @@ function normalizeFieldValue(string $fieldName, ?string $value): ?string
 
     return $value;
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// Temporal Accuracy Tracking
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Get accuracy trend for a vendor over time (monthly buckets).
+ *
+ * Returns an array of monthly accuracy data, showing how parsing accuracy
+ * has changed. Useful for detecting vendor receipt format changes.
+ *
+ * @param int      $vendorId
+ * @param PDO|null $db
+ * @return array Array of [{month, total_fields, corrections, accuracy_rate}]
+ */
+function getAccuracyTrend(int $vendorId, ?PDO $db = null): array
+{
+    if ($db === null) $db = getDB();
+
+    try {
+        // Get all lessons for this vendor grouped by month
+        $stmt = $db->prepare("
+            SELECT
+                DATE_FORMAT(created_at, '%Y-%m') AS month,
+                COUNT(*) AS total_fields,
+                SUM(CASE WHEN ocr_value != corrected_value THEN 1 ELSE 0 END) AS corrections,
+                ROUND(
+                    (1 - SUM(CASE WHEN ocr_value != corrected_value THEN 1 ELSE 0 END) / COUNT(*)) * 100,
+                    1
+                ) AS accuracy_rate
+            FROM receipt_parse_lessons
+            WHERE vendor_id = ?
+            GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+            ORDER BY month
+        ");
+        $stmt->execute([$vendorId]);
+        $trend = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Detect format changes: if accuracy drops >20% between months
+        for ($i = 1; $i < count($trend); $i++) {
+            $prev = (float)($trend[$i - 1]['accuracy_rate'] ?? 0);
+            $curr = (float)($trend[$i]['accuracy_rate'] ?? 0);
+
+            $trend[$i]['accuracy_change'] = round($curr - $prev, 1);
+            $trend[$i]['format_change_detected'] = ($prev - $curr) > 20;
+        }
+
+        return $trend;
+    } catch (\Throwable $e) {
+        error_log('getAccuracyTrend error: ' . $e->getMessage());
+        return [];
+    }
+}
+
+
+/**
+ * Check if a vendor's parsing accuracy has recently degraded,
+ * which could indicate a receipt format change.
+ *
+ * @param int      $vendorId
+ * @param PDO|null $db
+ * @return array|null Warning info or null if stable
+ */
+function checkAccuracyDegradation(int $vendorId, ?PDO $db = null): ?array
+{
+    $trend = getAccuracyTrend($vendorId, $db);
+
+    if (count($trend) < 2) return null;
+
+    $latest = end($trend);
+    $previous = prev($trend);
+
+    $latestRate = (float)($latest['accuracy_rate'] ?? 0);
+    $prevRate = (float)($previous['accuracy_rate'] ?? 0);
+
+    // Flag if accuracy dropped >20 percentage points
+    if (($prevRate - $latestRate) > 20) {
+        return [
+            'vendor_id'       => $vendorId,
+            'previous_rate'   => $prevRate,
+            'current_rate'    => $latestRate,
+            'drop'            => round($prevRate - $latestRate, 1),
+            'previous_month'  => $previous['month'],
+            'current_month'   => $latest['month'],
+            'message'         => sprintf(
+                'Parsing accuracy dropped from %.0f%% to %.0f%% — possible receipt format change',
+                $prevRate, $latestRate
+            ),
+        ];
+    }
+
+    return null;
+}

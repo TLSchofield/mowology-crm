@@ -352,14 +352,28 @@ $csrf_token = generateCSRFToken();
         <form class="login-form" method="POST" action="">
             <h2 class="form-title">Welcome Back</h2>
 
-            <a href="/downloads/mowology-crew.apk" id="appBanner" class="app-banner">
+            <a href="#" id="appBanner" class="app-banner" onclick="event.preventDefault();if(window.mwDeferredInstall){window.mwDeferredInstall.prompt();}else{alert('Tap your browser menu → Add to Home Screen');}">
                 <div class="app-banner-icon">📱</div>
                 <div class="app-banner-text">
-                    <div class="app-banner-title">Get the Mowology Crew App</div>
-                    <div class="app-banner-desc">Better GPS tracking &amp; offline support</div>
+                    <div class="app-banner-title">Install Mowology App</div>
+                    <div class="app-banner-desc">Add to Home Screen for the best experience</div>
                 </div>
                 <div class="app-banner-arrow">→</div>
             </a>
+            <script>
+            // Capture PWA install prompt for login banner
+            window.addEventListener('beforeinstallprompt', function(e) {
+                e.preventDefault();
+                window.mwDeferredInstall = e;
+            });
+            // Hide banner if already installed as PWA
+            if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
+                document.addEventListener('DOMContentLoaded', function() {
+                    var b = document.getElementById('appBanner');
+                    if (b) b.style.display = 'none';
+                });
+            }
+            </script>
 
             <?php if ($error): ?>
                 <div class="error-message"><?php echo htmlspecialchars($error); ?></div>
