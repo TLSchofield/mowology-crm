@@ -1587,7 +1587,7 @@ a:hover {
 
 .mw-calendar-header {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   background: var(--mw-forest);
   color: #fff;
 }
@@ -1602,7 +1602,7 @@ a:hover {
 
 .mw-calendar-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   min-height: 500px;
 }
 
@@ -5439,7 +5439,7 @@ textarea.font-monospace {
 /* Calendar Stop Grid */
 .mw-calendar-header {
   display: grid;
-  grid-template-columns: 0px repeat(7, 1fr);
+  grid-template-columns: 0px repeat(7, minmax(0, 1fr));
   background: var(--mw-forest);
   color: #fff;
   border-bottom: 2px solid var(--mw-dark);
@@ -5451,7 +5451,7 @@ textarea.font-monospace {
 
 .mw-calendar-dates-header {
   display: grid;
-  grid-template-columns: 0px repeat(7, 1fr);
+  grid-template-columns: 0px repeat(7, minmax(0, 1fr));
   background: #f8f9fa;
   border-bottom: 1px solid #dee2e6;
   gap: 1px;
@@ -5462,6 +5462,7 @@ textarea.font-monospace {
   text-align: center;
   border-right: 1px solid #dee2e6;
   background: #fff;
+  min-width: 0;
 }
 
 .mw-calendar-date-cell.today {
@@ -5557,7 +5558,7 @@ textarea.font-monospace {
 /* ── Stop Grid (replaces hourly time grid) ──────────── */
 .mw-stop-grid {
   display: grid;
-  grid-template-columns: 0px repeat(7, 1fr);
+  grid-template-columns: 0px repeat(7, minmax(0, 1fr));
   background: #fff;
   border: 1px solid #dee2e6;
   border-top: none;
@@ -5575,6 +5576,7 @@ textarea.font-monospace {
   padding: 8px 6px;
   border-right: 1px solid #f1f3f5;
   min-height: 200px;
+  min-width: 0;
   overflow-y: auto;
   max-height: 600px;
   transition: background 0.15s ease;
@@ -5617,6 +5619,8 @@ textarea.font-monospace {
   -webkit-user-select: none;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
   position: relative;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .mw-stop-card:hover {
@@ -5804,7 +5808,7 @@ textarea.font-monospace {
 @media (max-width: 1200px) {
   .mw-calendar-header,
   .mw-calendar-dates-header {
-    grid-template-columns: 0px repeat(7, 1fr);
+    grid-template-columns: 0px repeat(7, minmax(0, 1fr));
   }
 
   .mw-calendar-time-label {
@@ -5828,11 +5832,11 @@ textarea.font-monospace {
 @media (max-width: 768px) {
   .mw-calendar-header,
   .mw-calendar-dates-header {
-    grid-template-columns: 0px repeat(7, 1fr);
+    grid-template-columns: 0px repeat(7, minmax(0, 1fr));
   }
 
   .mw-stop-grid {
-    grid-template-columns: 0px repeat(7, 1fr);
+    grid-template-columns: 0px repeat(7, minmax(0, 1fr));
   }
 
   .mw-date-number {
