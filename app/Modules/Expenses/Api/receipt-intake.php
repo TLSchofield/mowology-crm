@@ -168,6 +168,17 @@ try {
             $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
         }
 
+        // Apply GST-exempt override: if matched vendor doesn't charge GST, zero it out
+        if (!empty($suggestions['vendor_gst_exempt'])) {
+            $parsed['gst'] = '0.00';
+            $parsed['gst_estimated'] = false;
+            $parsed['gst_exempt'] = true;
+            // Recalculate: if subtotal exists, total = subtotal (no tax)
+            if (!empty($parsed['subtotal']) && empty($parsed['pst'])) {
+                $parsed['total'] = $parsed['subtotal'];
+            }
+        }
+
         // Auto-create vendor if OCR found a vendor name but no match in vendors table
         if (empty($suggestions['vendor_id']) && !empty($parsed['vendor_hint'])) {
             $vendorName = strtoupper(trim($parsed['vendor_hint']));
@@ -205,16 +216,25 @@ try {
         }
     }
 
+    // Suggest matching job from today's/tomorrow's schedule (GPS + crew + time)
+    $jobSuggestions = [];
+    try {
+        $jobSuggestions = suggestJobFromSchedule((int)$user['id'], $lat, $lng);
+    } catch (Throwable $e) {
+        error_log('Job suggestion error: ' . $e->getMessage());
+    }
+
     // Return everything to the client
     echo json_encode([
-        'success'       => true,
-        'media_id'      => $mediaId,
-        'file_path'     => $webPath,
-        'ocr_text'      => $ocrText,
-        'ocr_available' => $ocrAvailable,
-        'ocr_error'     => $ocrResult['error'] ?? null,
-        'parsed'        => $parsed,
-        'suggestions'   => $suggestions,
+        'success'        => true,
+        'media_id'       => $mediaId,
+        'file_path'      => $webPath,
+        'ocr_text'       => $ocrText,
+        'ocr_available'  => $ocrAvailable,
+        'ocr_error'      => $ocrResult['error'] ?? null,
+        'parsed'         => $parsed,
+        'suggestions'    => $suggestions,
+        'job_suggestions' => $jobSuggestions,
     ]);
 
 } catch (Exception $e) {

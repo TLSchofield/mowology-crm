@@ -588,6 +588,7 @@ if ($apiKey) {
                                        data-crew-ids="<?php echo htmlspecialchars($crewIdsStr); ?>"
                                        data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? 'Unknown'); ?>"
                                        data-property-id="<?php echo (int)$stop['property_id']; ?>"
+                                       data-contact-id="<?php echo (int)($stop['contact_id'] ?? 0); ?>"
                                        data-contact-name="<?php echo htmlspecialchars($clientDisplay2); ?>"
                                        data-visits="<?php echo htmlspecialchars(json_encode($visitsJson)); ?>">
 
@@ -716,6 +717,13 @@ if ($apiKey) {
                           $arrival = !empty($stop['estimated_arrival']) ? date('g:i A', strtotime($stop['estimated_arrival'])) : '';
                           $contactName = $dayContactMap[(int)$stop['property_id']] ?? ($stop['contact_name'] ?? '');
                           $crewNames = !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []);
+                          // Build visits JSON for modal
+                          $dvVisitsJson = [];
+                          if (!empty($stop['visits'])) {
+                              foreach ($stop['visits'] as $v) {
+                                  $dvVisitsJson[] = ['plan_id' => (int)($v['plan_id'] ?? 0), 'plan_number' => $v['plan_number'] ?? '', 'service_type' => $v['service_type'] ?? ''];
+                              }
+                          }
                       ?>
                       <div class="mw-dv-card <?php echo stopStatusClass($stop['stop_status'] ?? 'scheduled'); ?>"
                            data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
@@ -724,6 +732,10 @@ if ($apiKey) {
                            data-crew-id="<?php echo (int)($stop['crew_id'] ?? 0); ?>"
                            data-crew-ids="<?php echo htmlspecialchars(implode(',', $stop['crew_ids'] ?? [])); ?>"
                            data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
+                           data-property-id="<?php echo (int)$stop['property_id']; ?>"
+                           data-contact-id="<?php echo (int)($stop['contact_id'] ?? 0); ?>"
+                           data-contact-name="<?php echo htmlspecialchars($contactName); ?>"
+                           data-visits="<?php echo htmlspecialchars(json_encode($dvVisitsJson)); ?>"
                            data-lat="<?php echo htmlspecialchars($stop['latitude'] ?? ''); ?>"
                            data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>">
                           <button type="button" class="mw-dv-pin-btn" data-stop-id="<?php echo (int)$stop['stop_id']; ?>" title="Pin as 1st stop">
@@ -781,6 +793,13 @@ if ($apiKey) {
                       <?php foreach ($unassignedStops as $stop):
                           $arrival = !empty($stop['estimated_arrival']) ? date('g:i A', strtotime($stop['estimated_arrival'])) : '';
                           $contactName = $dayContactMap[(int)$stop['property_id']] ?? ($stop['contact_name'] ?? '');
+                          // Build visits JSON for modal
+                          $unVisitsJson = [];
+                          if (!empty($stop['visits'])) {
+                              foreach ($stop['visits'] as $v) {
+                                  $unVisitsJson[] = ['plan_id' => (int)($v['plan_id'] ?? 0), 'plan_number' => $v['plan_number'] ?? '', 'service_type' => $v['service_type'] ?? ''];
+                              }
+                          }
                       ?>
                       <div class="mw-dv-card mw-dv-card-unassigned <?php echo stopStatusClass($stop['stop_status'] ?? 'scheduled'); ?>"
                            data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
@@ -789,6 +808,10 @@ if ($apiKey) {
                            data-crew-id="0"
                            data-crew-ids=""
                            data-property-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
+                           data-property-id="<?php echo (int)$stop['property_id']; ?>"
+                           data-contact-id="<?php echo (int)($stop['contact_id'] ?? 0); ?>"
+                           data-contact-name="<?php echo htmlspecialchars($contactName); ?>"
+                           data-visits="<?php echo htmlspecialchars(json_encode($unVisitsJson)); ?>"
                            data-lat="<?php echo htmlspecialchars($stop['latitude'] ?? ''); ?>"
                            data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>">
                           <div class="mw-dv-card-body">
@@ -837,24 +860,34 @@ if ($apiKey) {
           </div>
           <?php endif; ?>
 
-          <!-- ═══ Crew Assignment Modal ═══ -->
+          <!-- ═══ Stop Detail / Crew Assignment Modal ═══ -->
           <div class="modal fade" id="crewAssignModal" tabindex="-1" role="dialog" aria-labelledby="crewAssignModalLabel" aria-hidden="true">
               <div class="modal-dialog modal-dialog-centered" role="document">
-                  <div class="modal-content">
-                      <div class="modal-header">
-                          <h5 class="modal-title" id="crewAssignModalLabel">Assign Crew</h5>
-                          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                  <div class="modal-content mw-cam-content">
+                      <div class="mw-cam-header">
+                          <div class="mw-cam-header-left">
+                              <div class="mw-cam-client" id="crewAssignClient"></div>
+                              <div class="mw-cam-address" id="crewAssignProperty"></div>
+                          </div>
+                          <div class="mw-cam-header-right">
+                              <div class="mw-cam-date" id="crewAssignDate"></div>
+                          </div>
+                          <button type="button" class="close mw-cam-close" data-dismiss="modal" aria-label="Close">
                               <span aria-hidden="true">&times;</span>
                           </button>
                       </div>
-                      <div class="modal-body">
-                          <input type="hidden" id="crewAssignStopId">
-                          <div class="mb-3">
-                              <div class="mw-crew-modal-property" id="crewAssignProperty"></div>
-                              <div class="mw-crew-modal-date" id="crewAssignDate"></div>
-                          </div>
-                          <div class="form-group mb-0">
-                              <label>Assigned Crew</label>
+                      <input type="hidden" id="crewAssignStopId">
+
+                      <div class="mw-cam-body">
+                          <!-- Service pills -->
+                          <div class="mw-cam-services" id="crewAssignServices"></div>
+
+                          <!-- Quick links -->
+                          <div class="mw-cam-links" id="crewAssignLinks"></div>
+
+                          <!-- Crew selection -->
+                          <div class="mw-cam-crew-section">
+                              <div class="mw-cam-crew-label">Assign Crew</div>
                               <div class="mw-crew-checklist" id="crewAssignChecklist">
                                   <?php foreach ($staff as $member): ?>
                                       <label class="mw-crew-check-item">
@@ -866,9 +899,12 @@ if ($apiKey) {
                               </div>
                           </div>
                       </div>
-                      <div class="modal-footer">
-                          <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                          <button type="button" class="btn btn-primary" id="crewAssignSave">Save</button>
+
+                      <div class="mw-cam-footer">
+                          <button type="button" class="btn btn-light" data-dismiss="modal">Cancel</button>
+                          <button type="button" class="btn btn-primary" id="crewAssignSave">
+                              <i data-feather="check" style="width:16px;height:16px;margin-right:4px;vertical-align:-2px;"></i>Save
+                          </button>
                       </div>
                   </div>
               </div>
@@ -969,6 +1005,10 @@ if ($apiKey) {
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
                       <span>Route</span>
                   </button>
+                  <a href="/crm/expenses_appstack.php?mode=quick&return=schedule" class="mw-mc-bottombar-btn mw-mc-bottombar-btn-receipt">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M2 7h2m16 0h2M2 17h2m16 0h2"/></svg>
+                      <span>Receipt</span>
+                  </a>
                   <a href="index.php" class="mw-mc-bottombar-btn">
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                       <span>List</span>
@@ -1024,6 +1064,18 @@ function applyFilter() {
  * Uses mousedown/mouseup distance to distinguish clicks from drags.
  * Supports multi-crew selection via checkboxes.
  */
+// Service color/label maps (mirrored from PHP)
+var serviceColorMap = <?php echo json_encode($serviceColors); ?>;
+var serviceLabelMap = <?php echo json_encode($serviceLabels); ?>;
+
+function getServiceColor(type) {
+    return serviceColorMap[type] || '#6B7280';
+}
+function getServiceLabel(type) {
+    if (serviceLabelMap[type]) return serviceLabelMap[type];
+    return type.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+}
+
 (function() {
     // Only attach on desktop where the calendar grid is visible
     if (window.innerWidth <= 991) return;
@@ -1050,6 +1102,11 @@ function applyFilter() {
             var crewIds = (card.dataset.crewIds || '').split(',').filter(function(v) { return v !== ''; });
             var address = card.dataset.propertyAddress || 'Unknown';
             var stopDate = card.dataset.stopDate || '';
+            var contactName = card.dataset.contactName || '';
+            var contactId = parseInt(card.dataset.contactId || '0', 10);
+            var propertyId = parseInt(card.dataset.propertyId || '0', 10);
+            var visits = [];
+            try { visits = JSON.parse(card.dataset.visits || '[]'); } catch(e) {}
 
             // Format date for display
             var dateDisplay = stopDate;
@@ -1061,8 +1118,52 @@ function applyFilter() {
             }
 
             document.getElementById('crewAssignStopId').value = stopId;
+            document.getElementById('crewAssignClient').textContent = contactName || 'Unknown Client';
             document.getElementById('crewAssignProperty').textContent = address;
             document.getElementById('crewAssignDate').textContent = dateDisplay;
+
+            // Render service pills
+            var servicesEl = document.getElementById('crewAssignServices');
+            servicesEl.innerHTML = '';
+            var seenServices = {};
+            visits.forEach(function(v) {
+                if (!v.service_type || seenServices[v.service_type]) return;
+                seenServices[v.service_type] = true;
+                var pill = document.createElement('span');
+                pill.className = 'mw-cam-service-pill';
+                pill.style.borderLeftColor = getServiceColor(v.service_type);
+                pill.textContent = getServiceLabel(v.service_type);
+                servicesEl.appendChild(pill);
+            });
+
+            // Build quick links
+            var linksEl = document.getElementById('crewAssignLinks');
+            linksEl.innerHTML = '';
+
+            // Link to plan(s)
+            var seenPlans = {};
+            visits.forEach(function(v) {
+                if (!v.plan_id || seenPlans[v.plan_id]) return;
+                seenPlans[v.plan_id] = true;
+                var a = document.createElement('a');
+                a.href = '/crm/jobs/view.php?id=' + v.plan_id;
+                a.className = 'mw-cam-link';
+                a.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>' +
+                    '<span>View Plan' + (v.plan_number ? ' ' + v.plan_number : '') + '</span>';
+                a.target = '_blank';
+                linksEl.appendChild(a);
+            });
+
+            // Link to client
+            if (contactId > 0) {
+                var a = document.createElement('a');
+                a.href = '/crm/clients_appstack.php?action=view_contact&id=' + contactId;
+                a.className = 'mw-cam-link';
+                a.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
+                    '<span>View Client</span>';
+                a.target = '_blank';
+                linksEl.appendChild(a);
+            }
 
             // Check the right checkboxes
             var checklist = document.getElementById('crewAssignChecklist');
@@ -1071,6 +1172,8 @@ function applyFilter() {
             });
 
             $('#crewAssignModal').modal('show');
+            // Re-render feather icons in modal
+            if (typeof feather !== 'undefined') feather.replace();
         });
     });
 

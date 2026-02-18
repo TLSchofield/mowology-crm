@@ -9,7 +9,11 @@ requirePermission('expenses.view');
 $canEdit = userHasPermission('expenses.edit');
 $canSend = userHasPermission('expenses.send');
 
-$pageTitle = 'Expenses';
+// Quick mode: activated from schedule page "Receipt" button
+$quickMode = ($_GET['mode'] ?? '') === 'quick';
+$returnTo = $_GET['return'] ?? '';
+
+$pageTitle = $quickMode ? 'Snap Receipt' : 'Expenses';
 $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
@@ -426,6 +430,40 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
         </div>
 
+        <!-- Hidden fields for job/contact/property auto-linking -->
+        <input type="hidden" id="mobileRvPropertyId">
+        <input type="hidden" id="mobileRvContactId">
+
+        <!-- ═══ Quick Send Card (shown in quick mode after OCR) ═══ -->
+        <div class="mw-mc-expense-quick-card" id="mobileQuickCard" style="display:none;">
+            <div class="mw-mc-expense-quick-summary">
+                <div class="mw-mc-expense-quick-row">
+                    <div class="mw-mc-expense-quick-vendor" id="quickVendorName">—</div>
+                    <div class="mw-mc-expense-quick-total">$<span id="quickTotal">0.00</span></div>
+                </div>
+                <div class="mw-mc-expense-quick-row mw-mc-expense-quick-meta-row">
+                    <span id="quickGst" class="text-muted"></span>
+                    <span id="quickDate" class="text-muted"></span>
+                </div>
+            </div>
+            <div class="mw-mc-expense-quick-job" id="quickJobSection" style="display:none;">
+                <div class="mw-mc-expense-quick-job-label">Matched Job:</div>
+                <div class="mw-mc-expense-quick-job-pills" id="quickJobPills"></div>
+            </div>
+            <div class="mw-mc-expense-quick-category" id="quickCategoryRow">
+                <span id="quickCategory"></span>
+                <span class="mw-mc-expense-quick-sep">&middot;</span>
+                <span id="quickPayment"></span>
+            </div>
+            <div class="mw-mc-expense-quick-actions">
+                <button type="button" class="mw-mc-expense-edit-link" onclick="expandQuickToFull()">Edit Details</button>
+                <button type="button" class="mw-mc-expense-quick-send" onclick="quickSend()">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    SEND
+                </button>
+            </div>
+        </div>
+
         <!-- Mobile Review Panel (hidden until receipt captured) -->
         <div class="mw-mc-expense-review" id="mobileReviewPanel" style="display:none;">
             <div class="mw-mc-expense-review-header">
@@ -502,8 +540,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </select>
                     </div>
                     <div class="mw-mc-expense-field">
-                        <label>Job #</label>
-                        <input type="number" id="mobileRvJobId" placeholder="Optional" inputmode="numeric">
+                        <label>Job</label>
+                        <div class="mw-mc-expense-job-pills" id="mobileJobPills" style="display:none;"></div>
+                        <input type="number" id="mobileRvJobId" placeholder="Job # (optional)" inputmode="numeric">
                     </div>
                 </div>
 
@@ -792,6 +831,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <label class="form-label">Notes</label>
                     <textarea class="form-control" id="vendorNotes" rows="2"></textarea>
                 </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="vendorGstExempt">
+                    <label class="form-check-label" for="vendorGstExempt">
+                        GST Exempt <small class="text-muted">(vendor does not charge GST, e.g. landfill)</small>
+                    </label>
+                </div>
             </div>
             <div class="modal-footer d-flex">
                 <?php if ($canEdit): ?>
@@ -812,6 +857,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     'use strict';
 
     const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const QUICK_MODE = <?php echo $quickMode ? 'true' : 'false'; ?>;
+    const RETURN_TO = '<?php echo htmlspecialchars($returnTo); ?>';
+    var lastJobSuggestions = []; // Stored from receipt-intake response
+    var selectedJobSuggestion = null; // Currently selected job pill
     const CAN_EDIT = <?php echo $canEdit ? 'true' : 'false'; ?>;
     const CAN_SEND = <?php echo $canSend ? 'true' : 'false'; ?>;
 
@@ -1089,6 +1138,50 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             mobileReview.dataset.mediaId = data.media_id || '';
             mobileReview.dataset.ocrText = data.ocr_text || '';
             mobileReview.dataset.ocrParsed = data.parsed ? JSON.stringify(data.parsed) : '';
+
+            // ── Job Suggestions (pills) ──
+            lastJobSuggestions = data.job_suggestions || [];
+            selectedJobSuggestion = null;
+            renderJobPills('mobileJobPills', lastJobSuggestions, function(job) {
+                selectedJobSuggestion = job;
+                document.getElementById('mobileRvJobId').value = job ? (job.plan_id || '') : '';
+                document.getElementById('mobileRvPropertyId').value = job ? (job.property_id || '') : '';
+                document.getElementById('mobileRvContactId').value = job ? (job.contact_id || '') : '';
+            });
+
+            // ── Quick Mode: populate compact card instead of scrolling review ──
+            if (QUICK_MODE) {
+                var qCard = document.getElementById('mobileQuickCard');
+                if (qCard) {
+                    document.getElementById('quickVendorName').textContent = s.vendor_name || p.vendor_hint || 'Unknown Vendor';
+                    document.getElementById('quickTotal').textContent = p.total ? parseFloat(p.total).toFixed(2) : '0.00';
+                    var qGst = document.getElementById('quickGst');
+                    if (qGst) {
+                        if (p.gst_exempt) {
+                            qGst.innerHTML = '<span class="badge bg-secondary">GST Exempt</span>';
+                        } else if (p.gst && parseFloat(p.gst) > 0) {
+                            qGst.textContent = 'GST $' + parseFloat(p.gst).toFixed(2);
+                        } else {
+                            qGst.textContent = '';
+                        }
+                    }
+                    document.getElementById('quickDate').textContent = p.date || new Date().toISOString().slice(0, 10);
+                    document.getElementById('quickCategory').textContent = s.accounting_category || 'Materials';
+                    document.getElementById('quickPayment').textContent = formatPaymentLabel(p.payment_method || 'company_card');
+
+                    // Quick card job pills
+                    renderJobPills('quickJobPills', lastJobSuggestions, function(job) {
+                        selectedJobSuggestion = job;
+                        document.getElementById('mobileRvJobId').value = job ? (job.plan_id || '') : '';
+                        document.getElementById('mobileRvPropertyId').value = job ? (job.property_id || '') : '';
+                        document.getElementById('mobileRvContactId').value = job ? (job.contact_id || '') : '';
+                    });
+                    var qJobSection = document.getElementById('quickJobSection');
+                    if (qJobSection) qJobSection.style.display = lastJobSuggestions.length > 0 ? 'block' : 'none';
+
+                    qCard.style.display = 'block';
+                }
+            }
 
             // Scroll to top of review
             var scrollArea = document.getElementById('mobileExpenseScrollArea');
@@ -1837,6 +1930,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vendorPhone').value = data?.phone || '';
         document.getElementById('vendorWebsite').value = data?.website || '';
         document.getElementById('vendorNotes').value = data?.notes || '';
+        document.getElementById('vendorGstExempt').checked = !!(data?.gst_exempt && data.gst_exempt != '0');
         var delBtn = document.getElementById('vendorDeleteBtn');
         if (delBtn) delBtn.style.display = data?.id ? '' : 'none';
         $('#vendorModal').modal('show');
@@ -1863,6 +1957,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             phone: document.getElementById('vendorPhone').value,
             website: document.getElementById('vendorWebsite').value,
             notes: document.getElementById('vendorNotes').value,
+            gst_exempt: document.getElementById('vendorGstExempt').checked ? 1 : 0,
         };
         if (id) data.id = parseInt(id);
 
@@ -1973,6 +2068,26 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Reset receipt image expand
         var imgWrap = document.getElementById('mobileReceiptWrap');
         if (imgWrap) imgWrap.classList.remove('mw-mc-expense-review-img-expanded');
+
+        // Hide quick card
+        var qCard = document.getElementById('mobileQuickCard');
+        if (qCard) qCard.style.display = 'none';
+
+        // Clear job pills + hidden fields
+        ['mobileJobPills', 'quickJobPills'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+        });
+        ['mobileRvPropertyId', 'mobileRvContactId'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        lastJobSuggestions = [];
+        selectedJobSuggestion = null;
+
+        // Show manual Job # input again
+        var jobInput = document.getElementById('mobileRvJobId');
+        if (jobInput) jobInput.style.display = '';
 
         // Also reset desktop capture area
         resetCapture();
@@ -2102,6 +2217,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             total: document.getElementById('mobileRvTotal').value,
             accounting_category: document.getElementById('mobileRvCategory').value,
             job_id: document.getElementById('mobileRvJobId')?.value || null,
+            property_id: document.getElementById('mobileRvPropertyId')?.value || null,
+            contact_id: document.getElementById('mobileRvContactId')?.value || null,
             description: document.getElementById('mobileRvDescription').value,
             receipt_media_id: review ? (review.dataset.mediaId || null) : null,
             receipt_lat: currentGpsLat,
@@ -2257,6 +2374,171 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             mGstEl.addEventListener('input', mCalc);
         }
     })();
+
+    // ── Job Suggestion Pills ────────────────────────────────────
+    function renderJobPills(containerId, jobs, onSelect) {
+        var container = document.getElementById(containerId);
+        if (!container) return;
+        if (!jobs || jobs.length === 0) {
+            container.style.display = 'none';
+            // Show fallback manual input
+            var fallback = document.getElementById('mobileRvJobId');
+            if (fallback) fallback.style.display = '';
+            return;
+        }
+
+        container.style.display = 'flex';
+        // Hide the manual Job # input when pills are showing
+        var fallback = document.getElementById('mobileRvJobId');
+        if (fallback) fallback.style.display = 'none';
+
+        container.innerHTML = jobs.map(function(job, idx) {
+            var label = (job.contact_name || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
+            var sub = job.property_address || '';
+            if (sub.length > 30) sub = sub.substring(0, 30) + '…';
+            return '<button type="button" class="mw-mc-expense-job-pill' + (idx === 0 ? ' mw-mc-expense-job-pill-active' : '') + '" data-job-idx="' + idx + '">' +
+                '<span class="mw-mc-expense-job-pill-name">' + esc(label) + '</span>' +
+                (sub ? '<span class="mw-mc-expense-job-pill-addr">' + esc(sub) + '</span>' : '') +
+            '</button>';
+        }).join('') +
+        '<button type="button" class="mw-mc-expense-job-pill mw-mc-expense-job-pill-none" data-job-idx="-1">' +
+            '<span class="mw-mc-expense-job-pill-name">No Job</span>' +
+        '</button>';
+
+        // Auto-select first pill
+        if (jobs.length > 0) {
+            onSelect(jobs[0]);
+        }
+
+        // Bind clicks
+        container.querySelectorAll('.mw-mc-expense-job-pill').forEach(function(pill) {
+            pill.addEventListener('click', function() {
+                container.querySelectorAll('.mw-mc-expense-job-pill').forEach(function(p) {
+                    p.classList.remove('mw-mc-expense-job-pill-active');
+                });
+                pill.classList.add('mw-mc-expense-job-pill-active');
+                var idx = parseInt(pill.dataset.jobIdx);
+                if (idx >= 0 && jobs[idx]) {
+                    onSelect(jobs[idx]);
+                } else {
+                    onSelect(null);
+                }
+            });
+        });
+    }
+
+    function formatPaymentLabel(method) {
+        var labels = {
+            'company_card': 'Company Card',
+            'credit_card': 'Credit Card',
+            'debit': 'Debit',
+            'cash': 'Cash',
+            'etransfer': 'E-Transfer',
+            'cheque': 'Cheque',
+        };
+        return labels[method] || method || '';
+    }
+
+    // ── Quick Send (one-tap save + redirect) ──────────────────────
+    window.quickSend = async function() {
+        var sendBtn = document.querySelector('.mw-mc-expense-quick-send');
+        if (sendBtn) { sendBtn.disabled = true; sendBtn.classList.add('mw-mc-expense-btn-loading'); }
+
+        var review = document.getElementById('mobileReviewPanel');
+        var p = {};
+        try { p = JSON.parse(review?.dataset.ocrParsed || '{}'); } catch(e) {}
+        var s = {};
+
+        // Gather data from the mobile form fields (already populated by showReviewPanel)
+        var data = {
+            action: 'create',
+            csrf_token: CSRF,
+            expense_date: document.getElementById('mobileRvDate').value || new Date().toISOString().slice(0, 10),
+            vendor_id: document.getElementById('mobileRvVendorId').value || null,
+            vendor_name_raw: document.getElementById('mobileRvVendor').value,
+            payment_method: document.getElementById('mobileRvPayment').value || 'company_card',
+            amount: document.getElementById('mobileRvAmount').value,
+            gst_amount: document.getElementById('mobileRvGst').value,
+            total: document.getElementById('mobileRvTotal').value,
+            accounting_category: document.getElementById('mobileRvCategory').value || 'Materials',
+            job_id: document.getElementById('mobileRvJobId').value || null,
+            property_id: document.getElementById('mobileRvPropertyId').value || null,
+            contact_id: document.getElementById('mobileRvContactId').value || null,
+            description: document.getElementById('mobileRvDescription').value || '',
+            receipt_media_id: review ? (review.dataset.mediaId || null) : null,
+            receipt_lat: currentGpsLat,
+            receipt_lng: currentGpsLng,
+            raw_ocr_json: review ? (review.dataset.ocrText || null) : null,
+            ocr_parsed: review ? (review.dataset.ocrParsed || null) : null,
+            status: 'draft',
+            line_items: (window.currentMobileLineItems || []).map(function(li) {
+                return {
+                    name: li.name || 'Unknown',
+                    quantity: li.quantity || 1,
+                    unit_price: li.unit_price || null,
+                    line_total: li.amount || li.line_total || 0,
+                    sku_raw: li.sku_raw || null,
+                    product_id: li.product_id || null,
+                };
+            }),
+        };
+
+        if (!data.total || parseFloat(data.total) <= 0) {
+            mobileToast('Please enter a total amount', true);
+            if (sendBtn) { sendBtn.disabled = false; sendBtn.classList.remove('mw-mc-expense-btn-loading'); }
+            return;
+        }
+
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+
+            // Also send to accountant immediately
+            if (d.expense_id) {
+                try {
+                    await fetch('/crm/api/receipt-send.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ csrf_token: CSRF, expense_id: d.expense_id }),
+                    });
+                } catch(e) { /* send failure is non-blocking */ }
+            }
+
+            mobileToast('Receipt sent!');
+
+            // Redirect back to schedule after brief delay
+            if (RETURN_TO === 'schedule') {
+                setTimeout(function() {
+                    window.location.href = '/crm/jobs/schedule.php';
+                }, 800);
+            } else {
+                setTimeout(function() {
+                    mobileResetReview();
+                    loadExpenses(1);
+                    loadStats();
+                    loadSendLog();
+                }, 600);
+            }
+        } catch(e) {
+            mobileToast('Error: ' + e.message, true);
+        } finally {
+            if (sendBtn) { sendBtn.disabled = false; sendBtn.classList.remove('mw-mc-expense-btn-loading'); }
+        }
+    };
+
+    // ── Expand quick card to full review form ─────────────────────
+    window.expandQuickToFull = function() {
+        var qCard = document.getElementById('mobileQuickCard');
+        if (qCard) qCard.style.display = 'none';
+        // The mobile review panel is already populated by showReviewPanel — just make sure it's visible
+        var review = document.getElementById('mobileReviewPanel');
+        if (review) review.style.display = 'block';
+    };
 
     function mobileToast(msg, isError) {
         var toast = document.getElementById('mobileExpenseToast');

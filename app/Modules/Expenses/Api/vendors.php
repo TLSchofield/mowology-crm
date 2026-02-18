@@ -181,8 +181,8 @@ function handleVendorCreate(PDO $db, ?array $input): void
     if (empty($name)) throw new Exception('Vendor name is required');
 
     $stmt = $db->prepare("
-        INSERT INTO vendors (name, aliases, default_accounting_category, default_gbp_category, phone, website, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO vendors (name, aliases, default_accounting_category, default_gbp_category, phone, website, notes, gst_exempt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ");
     $stmt->execute([
         $name,
@@ -192,6 +192,7 @@ function handleVendorCreate(PDO $db, ?array $input): void
         $input['phone'] ?? null,
         $input['website'] ?? null,
         $input['notes'] ?? null,
+        (int)($input['gst_exempt'] ?? 0),
     ]);
 
     echo json_encode([
@@ -218,7 +219,7 @@ function handleVendorUpdate(PDO $db, ?array $input): void
         UPDATE vendors SET
             name = ?, aliases = ?, default_accounting_category = ?,
             default_gbp_category = ?, phone = ?, website = ?,
-            notes = ?, is_active = ?
+            notes = ?, gst_exempt = ?, is_active = ?
         WHERE id = ?
     ");
     $stmt->execute([
@@ -229,6 +230,7 @@ function handleVendorUpdate(PDO $db, ?array $input): void
         $input['phone'] ?? null,
         $input['website'] ?? null,
         $input['notes'] ?? null,
+        (int)($input['gst_exempt'] ?? 0),
         isset($input['is_active']) ? (int)$input['is_active'] : 1,
         $id,
     ]);

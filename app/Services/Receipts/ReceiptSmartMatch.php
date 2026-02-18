@@ -109,6 +109,7 @@ function suggestReceiptMeta(?string $ocrText, ?float $lat, ?float $lng, ?int $jo
         $result['vendor_id']         = $vendorMatch['id'];
         $result['vendor_name']       = $vendorMatch['name'];
         $result['vendor_confidence'] = $vendorMatch['confidence'];
+        $result['vendor_gst_exempt'] = !empty($vendorMatch['gst_exempt']);
         $result['match_details'][]   = $vendorMatch['reason'];
 
         // Use vendor defaults for categories
@@ -164,7 +165,7 @@ function matchVendorFromOcr(string $ocrLower, PDO $db): ?array
 {
     try {
         $stmt = $db->query("
-            SELECT id, name, aliases, default_accounting_category, default_gbp_category, phone
+            SELECT id, name, aliases, default_accounting_category, default_gbp_category, phone, gst_exempt
             FROM vendors
             WHERE is_active = 1
             ORDER BY id
@@ -311,4 +312,129 @@ function matchGbpByKeywords(string $ocrLower): ?array
         }
     }
     return null;
+}
+
+
+/**
+ * Suggest matching job(s) from today's/tomorrow's schedule based on GPS + crew + time.
+ *
+ * Scores calendar_stops by:
+ *   - GPS proximity (receipt lat/lng vs property lat/lng): +50 within 200m, +30 within 1km, +10 within 5km
+ *   - Crew match (user assigned to stop): +20
+ *   - Time proximity (receipt time vs estimated_arrival): +20 within 1hr, +10 within 3hr
+ *   - Status boost (stop in_progress): +15
+ *
+ * Returns top 3 ranked suggestions with contact/property info.
+ *
+ * @param int        $userId  Current logged-in user ID
+ * @param float|null $lat     GPS latitude at receipt upload
+ * @param float|null $lng     GPS longitude at receipt upload
+ * @return array Array of job suggestions, each with score and match_reasons
+ */
+function suggestJobFromSchedule(int $userId, ?float $lat, ?float $lng): array
+{
+    try {
+        // Load plan functions for getCalendarStops()
+        require_once APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php';
+
+        $today = date('Y-m-d');
+        $tomorrow = date('Y-m-d', strtotime('+1 day'));
+        $now = time();
+
+        // Get all stops for today + tomorrow (no crew filter — we score crew ourselves)
+        $calendarData = getCalendarStops($today, $tomorrow);
+
+        $db = getDB();
+        $scored = [];
+
+        foreach ($calendarData as $date => $stops) {
+            foreach ($stops as $stopId => $stop) {
+                $score = 0;
+                $reasons = [];
+
+                // GPS proximity scoring
+                if ($lat !== null && $lng !== null &&
+                    !empty($stop['latitude']) && !empty($stop['longitude'])) {
+                    $distance = haversineDistance($lat, $lng, (float)$stop['latitude'], (float)$stop['longitude']);
+                    if ($distance <= 0.2) {
+                        $score += 50;
+                        $reasons[] = 'GPS within 200m';
+                    } elseif ($distance <= 1.0) {
+                        $score += 30;
+                        $reasons[] = 'GPS within 1km';
+                    } elseif ($distance <= 5.0) {
+                        $score += 10;
+                        $reasons[] = 'GPS within 5km';
+                    }
+                }
+
+                // Crew match: check if current user is assigned to this stop
+                $crewIds = $stop['crew_ids'] ?? [];
+                if (in_array($userId, $crewIds) || ($stop['crew_id'] ?? 0) == $userId) {
+                    $score += 20;
+                    $reasons[] = 'Crew assigned';
+                }
+
+                // Time proximity: compare receipt upload time to stop's estimated arrival
+                if (!empty($stop['estimated_arrival']) && $date === $today) {
+                    $arrivalTime = strtotime($date . ' ' . $stop['estimated_arrival']);
+                    if ($arrivalTime) {
+                        $timeDiff = abs($now - $arrivalTime);
+                        if ($timeDiff <= 3600) {
+                            $score += 20;
+                            $reasons[] = 'Within 1hr of arrival';
+                        } elseif ($timeDiff <= 10800) {
+                            $score += 10;
+                            $reasons[] = 'Within 3hr of arrival';
+                        }
+                    }
+                }
+
+                // Status boost: in_progress stop is likely where user currently is
+                if (($stop['status'] ?? '') === 'in_progress') {
+                    $score += 15;
+                    $reasons[] = 'Stop in progress';
+                }
+
+                // Only include if some signal exists
+                if ($score > 0) {
+                    // Look up contact_id from property
+                    $contactId = null;
+                    if (!empty($stop['property_id'])) {
+                        $stmt = $db->prepare("SELECT site_contact_id FROM properties WHERE id = ?");
+                        $stmt->execute([$stop['property_id']]);
+                        $contactId = $stmt->fetchColumn() ?: null;
+                    }
+
+                    // Get the first visit for plan info
+                    $firstVisit = $stop['visits'][0] ?? [];
+
+                    $scored[] = [
+                        'stop_id'          => (int)$stopId,
+                        'property_id'      => (int)($stop['property_id'] ?? 0),
+                        'property_address'  => $stop['property_address'] ?? '',
+                        'property_city'     => $stop['property_city'] ?? '',
+                        'contact_name'      => $stop['contact_name'] ?? '',
+                        'contact_id'        => $contactId ? (int)$contactId : null,
+                        'company_name'      => $stop['company_name'] ?? '',
+                        'plan_id'           => (int)($firstVisit['plan_id'] ?? 0),
+                        'plan_title'        => $firstVisit['plan_title'] ?? '',
+                        'service_type'      => $firstVisit['service_type'] ?? '',
+                        'visit_id'          => (int)($firstVisit['visit_id'] ?? 0),
+                        'stop_date'         => $date,
+                        'score'             => $score,
+                        'match_reasons'     => $reasons,
+                    ];
+                }
+            }
+        }
+
+        // Sort by score descending, return top 3
+        usort($scored, function ($a, $b) { return $b['score'] - $a['score']; });
+        return array_slice($scored, 0, 3);
+
+    } catch (Throwable $e) {
+        error_log('suggestJobFromSchedule error: ' . $e->getMessage());
+        return [];
+    }
 }

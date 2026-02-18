@@ -2033,6 +2033,202 @@
     }
 
     /* ════════════════════════════════════════════════════
+       QUICK SEND CARD
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-expense-quick-card {
+        background: #fff;
+        border-radius: 16px;
+        margin: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+        border: 2px solid var(--mw-green, #2D8659);
+    }
+
+    .mw-mc-expense-quick-summary {
+        margin-bottom: 16px;
+    }
+
+    .mw-mc-expense-quick-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+    }
+
+    .mw-mc-expense-quick-vendor {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #111;
+        max-width: 60%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .mw-mc-expense-quick-total {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: var(--mw-green, #2D8659);
+    }
+
+    .mw-mc-expense-quick-meta-row {
+        margin-top: 4px;
+        font-size: 0.82rem;
+    }
+
+    .mw-mc-expense-quick-meta-row span + span {
+        margin-left: 12px;
+    }
+
+    .mw-mc-expense-quick-job {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 12px;
+        margin-bottom: 12px;
+    }
+
+    .mw-mc-expense-quick-job-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+    }
+
+    .mw-mc-expense-quick-job-pills,
+    .mw-mc-expense-job-pills {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .mw-mc-expense-job-pill {
+        display: flex;
+        flex-direction: column;
+        padding: 10px 14px;
+        border: 2px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f9fafb;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        text-align: left;
+        font-family: inherit;
+        width: 100%;
+    }
+
+    .mw-mc-expense-job-pill:active {
+        transform: scale(0.98);
+    }
+
+    .mw-mc-expense-job-pill-active {
+        border-color: var(--mw-green, #2D8659);
+        background: var(--mw-light, #E8F3F0);
+        box-shadow: 0 0 0 1px var(--mw-green, #2D8659);
+    }
+
+    .mw-mc-expense-job-pill-name {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #111;
+        line-height: 1.3;
+    }
+
+    .mw-mc-expense-job-pill-active .mw-mc-expense-job-pill-name {
+        color: var(--mw-dark, #1A5F4A);
+    }
+
+    .mw-mc-expense-job-pill-addr {
+        font-size: 0.75rem;
+        color: #6b7280;
+        margin-top: 2px;
+    }
+
+    .mw-mc-expense-job-pill-none {
+        border-style: dashed;
+        background: transparent;
+        align-items: center;
+        padding: 8px 14px;
+    }
+
+    .mw-mc-expense-job-pill-none .mw-mc-expense-job-pill-name {
+        color: #9ca3af;
+        font-weight: 500;
+    }
+
+    .mw-mc-expense-quick-category {
+        font-size: 0.85rem;
+        color: #6b7280;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .mw-mc-expense-quick-sep {
+        margin: 0 6px;
+    }
+
+    .mw-mc-expense-quick-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .mw-mc-expense-edit-link {
+        background: none;
+        border: none;
+        color: #6b7280;
+        font-size: 0.9rem;
+        text-decoration: underline;
+        cursor: pointer;
+        padding: 8px 4px;
+        font-family: inherit;
+    }
+
+    .mw-mc-expense-edit-link:active {
+        color: #111;
+    }
+
+    .mw-mc-expense-quick-send {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 32px;
+        background: var(--mw-green, #2D8659);
+        color: #fff;
+        border: none;
+        border-radius: 12px;
+        font-size: 1.05rem;
+        font-weight: 700;
+        cursor: pointer;
+        letter-spacing: 1px;
+        font-family: inherit;
+        transition: background 0.15s ease, transform 0.1s ease;
+    }
+
+    .mw-mc-expense-quick-send:active {
+        background: var(--mw-dark, #1A5F4A);
+        transform: scale(0.97);
+    }
+
+    .mw-mc-expense-quick-send:disabled {
+        opacity: 0.6;
+        pointer-events: none;
+    }
+
+    .mw-mc-expense-quick-send svg {
+        flex-shrink: 0;
+    }
+
+    /* Receipt button in schedule bottom bar */
+    .mw-mc-bottombar-btn-receipt {
+        color: var(--mw-orange, #e85d04) !important;
+    }
+
+    .mw-mc-bottombar-btn-receipt svg {
+        stroke: var(--mw-orange, #e85d04);
+    }
+
+    /* ════════════════════════════════════════════════════
        PWA STANDALONE TWEAKS
        ════════════════════════════════════════════════════ */
 
