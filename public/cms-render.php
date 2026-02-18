@@ -49,18 +49,14 @@ try {
 
     // If page not found or not published, try to fall back to legacy page
     if (!$page || $page['status'] !== 'published') {
-        // Log attempt if admin
-        // TODO: Add optional logging of not-found pages for SEO monitoring
-
-        // Attempt fallback to legacy page
         cms_fallbackToLegacy($pageSlug);
     }
 
     // Page found and published - render it
     cms_renderPage($page);
-} catch (Exception $e) {
-    // Log error
-    error_log("CMS Render Error: " . $e->getMessage());
+} catch (\Throwable $e) {
+    // Log error with full detail
+    error_log("CMS Render Error [{$pageSlug}]: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
 
     // Attempt fallback
     cms_fallbackToLegacy($pageSlug ?? 'home');
@@ -84,7 +80,7 @@ function cms_fallbackToLegacy(string $slug): void
         'portfolio' => 'portfolio.php',
         'about' => 'about.php',
         'contact' => 'contact.php',
-        'services' => 'services.php',
+        'services' => 'services_static.php',
         'quote' => 'quote.php',
         'get-free-quote' => 'get-free-quote.php',
     ];

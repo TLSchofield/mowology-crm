@@ -25,6 +25,9 @@ RewriteEngine On
 # /quote → /quote.php (pass query string through)
 RewriteRule ^quote/?$ /quote.php [L,QSA]
 
+# /services → CMS (services/ directory exists, so catch-all skips it)
+RewriteRule ^services/?$ /cms-render.php?page=services [L,QSA]
+
 # /services/slug → /services/slug.php (clean URLs for static service landing pages)
 # Only applies when the .php file exists; otherwise falls through to CMS catch-all
 RewriteCond %{REQUEST_FILENAME} !-f
