@@ -142,6 +142,19 @@ if (empty($parsed['line_items'])) {
     echo '</table>';
 }
 
+// Check learning tables existence
+echo '<h3>Learning System Status</h3>';
+$learningTables = ['receipt_parse_lessons', 'vendor_parse_profiles', 'vendors'];
+foreach ($learningTables as $tbl) {
+    try {
+        $chk = $db->query("SELECT COUNT(*) FROM $tbl");
+        $cnt = $chk->fetchColumn();
+        echo "<p>✅ <strong>$tbl</strong>: $cnt rows</p>";
+    } catch (Throwable $e) {
+        echo "<p>❌ <strong>$tbl</strong>: NOT FOUND — " . htmlspecialchars($e->getMessage()) . "</p>";
+    }
+}
+
 // Check stored line items
 $liStmt = $db->prepare("SELECT * FROM expense_line_items WHERE expense_id = ? ORDER BY sort_order, id");
 $liStmt->execute([$id]);

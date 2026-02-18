@@ -359,10 +359,11 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
     $id = (int)($input['id'] ?? 0);
     if (!$id) throw new Exception('Expense ID required');
 
-    // Verify exists
-    $check = $db->prepare("SELECT id FROM expenses WHERE id = ?");
+    // Verify exists and fetch OCR text for learning
+    $check = $db->prepare("SELECT id, raw_ocr_json FROM expenses WHERE id = ?");
     $check->execute([$id]);
-    if (!$check->fetch()) throw new Exception('Expense not found');
+    $existing = $check->fetch(PDO::FETCH_ASSOC);
+    if (!$existing) throw new Exception('Expense not found');
 
     $stmt = $db->prepare("
         UPDATE expenses SET
@@ -415,6 +416,25 @@ function handleUpdate(PDO $db, ?array $input, array $user): void
         $delStmt->execute([$id]);
         if (!empty($input['line_items'])) {
             saveLineItems($db, $id, $input['line_items']);
+        }
+    }
+
+    // Record corrections for learning (re-parse stored OCR and compare to updated values)
+    $ocrText = $existing['raw_ocr_json'] ?? '';
+    if (!empty($ocrText)) {
+        try {
+            require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+            require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+            $ocrParsed = parseReceiptText($ocrText);
+            recordCorrections(
+                !empty($input['vendor_id']) ? (int)$input['vendor_id'] : null,
+                $input['vendor_name_raw'] ?? null,
+                $ocrParsed,
+                $input,
+                $ocrText
+            );
+        } catch (Throwable $e) {
+            error_log('Receipt learning error (update): ' . $e->getMessage());
         }
     }
 
