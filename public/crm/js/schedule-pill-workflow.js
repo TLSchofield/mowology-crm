@@ -129,6 +129,45 @@
         document.addEventListener('mw-hero-promoted', function(e) {
             autoClockInSingleVisit(e.detail.card);
         });
+
+        // Listen for server-side proximity auto-start (from time-clock-widget.js)
+        // The server already started the timer — update pill state to match.
+        document.addEventListener('mw-proximity-auto-start', function(e) {
+            var info = e.detail;
+            if (!info || !info.visit_id) return;
+            var visitId = info.visit_id;
+
+            if (!visits[visitId]) {
+                console.log('[PillWorkflow] Server auto-started visit ' + visitId + ' but not found in pill registry');
+                return;
+            }
+
+            console.log('[PillWorkflow] Server auto-started visit ' + visitId + ', updating pill state');
+
+            // Update internal state — server already started the timer
+            visits[visitId].status = 'in_progress';
+            visits[visitId].startTime = new Date();
+            visits[visitId].entryId = info.entry_id || null;
+            updatePillVisual(visitId, 'in_progress');
+            startPillTimer(visitId);
+
+            // Notify GPS widget if not already done
+            if (window.MwTimeClock) {
+                window.MwTimeClock.notifyJobTimerStarted();
+            }
+
+            // Promote the card to hero position
+            var card = visits[visitId].pill.closest('.mw-mc-card');
+            if (card) {
+                card.classList.add('mw-mc-card-hero');
+                card.classList.add('mw-mc-proximity-match');
+                var scrollArea = document.querySelector('.mw-mc-scroll-area');
+                if (scrollArea && scrollArea.firstElementChild !== card) {
+                    scrollArea.insertBefore(card, scrollArea.firstElementChild);
+                    scrollArea.scrollTop = 0;
+                }
+            }
+        });
     }
 
     /**

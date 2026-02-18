@@ -28,6 +28,8 @@
     var GPS_INTERVAL_STANDARD = 30000; // Configurable from server settings
     var GPS_INTERVAL_HEIGHTENED = 10000; // Configurable from server settings
     var hasActiveJobTimer = false; // Whether a job timer is currently running
+    var autoArrivalEnabled = false; // Whether proximity auto-clock-in is active
+    var lastAutoStartVisitId = null; // Prevent re-triggering same visit
 
     // ── Initialization ──
     updateTrackingDot('unknown', 'Checking GPS...');
@@ -66,6 +68,9 @@
                 renderClockedOut();
             }
 
+            // Read auto-arrival setting
+            autoArrivalEnabled = !!data.auto_arrival_enabled;
+
             // Start GPS based on device profile
             if (trackingEnabled) {
                 if (deviceType === 'truck') {
@@ -79,6 +84,13 @@
                 }
             } else {
                 probeGPSStatus();
+            }
+
+            // One-shot proximity check on page load (all CRM pages)
+            // For personal devices not currently tracking, this is the key —
+            // it fires on every page navigation to detect nearby job sites.
+            if (autoArrivalEnabled && !hasActiveJobTimer) {
+                runOneShotProximityCheck();
             }
         })
         .catch(function(err) {
@@ -472,6 +484,10 @@
             if (data.error === 'Not clocked in' || data.error === 'Tracking not enabled') {
                 stopTracking();
             }
+            // Handle server-side proximity auto-start
+            if (data.auto_started) {
+                handleServerAutoStart(data.auto_started);
+            }
         })
         .catch(function(err) {
             console.warn('[MwTracking] Send failed, queueing:', err);
@@ -651,6 +667,81 @@
             toast.classList.remove('mw-clock-toast-visible');
             setTimeout(function() { toast.remove(); }, 300);
         }, 3000);
+    }
+
+    // ── Proximity Auto-Start ──
+
+    /**
+     * Server detected proximity and auto-started a visit timer.
+     * Update widget UI and notify other components (e.g., schedule pill workflow).
+     */
+    function handleServerAutoStart(info) {
+        console.log('[MwTracking] Server auto-started visit ' + info.visit_id +
+                    ' (' + info.job_title + ') at ' + info.distance_meters + 'm');
+
+        lastAutoStartVisitId = info.visit_id;
+        hasActiveJobTimer = true;
+
+        if (info.clock_in_created) {
+            clockInTime = new Date();
+        }
+
+        // Re-fetch full status to render the clocked-in widget with active job badge
+        fetchStatus();
+
+        // Show toast
+        showToast('Auto-started: ' + (info.job_title || info.job_number || 'Job') +
+                  ' (' + info.distance_meters + 'm away)', 'success');
+
+        // Dispatch event for schedule page pill workflow
+        document.dispatchEvent(new CustomEvent('mw-proximity-auto-start', {
+            detail: info
+        }));
+    }
+
+    /**
+     * One-shot proximity check — runs on every CRM page load.
+     * Gets a single GPS fix, then POSTs to crew-location.php with proximity_check flag.
+     * The server runs checkProximityAutoStart() and may auto-clock-in + start a timer.
+     */
+    function runOneShotProximityCheck() {
+        if (!navigator.geolocation) return;
+
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {
+                var lat = pos.coords.latitude;
+                var lng = pos.coords.longitude;
+                var accuracy = pos.coords.accuracy;
+
+                console.log('[MwTracking] One-shot proximity check: lat=' + lat +
+                            ', lng=' + lng + ', accuracy=' + Math.round(accuracy) + 'm');
+
+                fetch('/crm/api/crew-location.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        lat: lat,
+                        lng: lng,
+                        accuracy: accuracy,
+                        proximity_check: true
+                    })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.auto_started) {
+                        handleServerAutoStart(data.auto_started);
+                    }
+                })
+                .catch(function(err) {
+                    console.warn('[MwTracking] One-shot proximity check failed:', err);
+                });
+            },
+            function() {
+                // GPS denied or unavailable — silent fail for one-shot
+            },
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+        );
     }
 
     // ── Mobile Resilience: Page Visibility API ──

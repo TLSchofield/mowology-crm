@@ -443,6 +443,163 @@ function getJobTimeEntriesForRange($userId, $startDate, $endDate) {
 }
 
 /**
+ * Haversine distance between two lat/lng points, in meters.
+ */
+function haversineDistance(float $lat1, float $lng1, float $lat2, float $lng2): float {
+    $R = 6371000; // Earth radius in meters
+    $dLat = deg2rad($lat2 - $lat1);
+    $dLng = deg2rad($lng2 - $lng1);
+    $a = sin($dLat / 2) * sin($dLat / 2)
+       + cos(deg2rad($lat1)) * cos(deg2rad($lat2))
+       * sin($dLng / 2) * sin($dLng / 2);
+    return $R * 2 * atan2(sqrt($a), sqrt(1 - $a));
+}
+
+/**
+ * Check if user is within proximity of a scheduled visit and auto-start the timer.
+ * Called by crew-location.php on GPS pings and by the one-shot proximity check.
+ *
+ * @return array|null  Null if no auto-start; otherwise array with visit details
+ */
+function checkProximityAutoStart(int $userId, float $lat, float $lng, float $accuracy = 50.0): ?array {
+    // Guard 1: master toggle
+    $autoArrivalEnabled = getTimeClockSetting('auto_arrival_enabled', '1');
+    if ($autoArrivalEnabled !== '1') {
+        return null;
+    }
+
+    $proximityMeters = (int)getTimeClockSetting('gps_proximity_meters', '150');
+
+    // Guard 2: GPS accuracy — skip if too inaccurate
+    if ($accuracy > $proximityMeters * 1.5) {
+        return null;
+    }
+
+    // Guard 3: no active job timer
+    $activeTimer = getActiveJobTimer($userId);
+    if ($activeTimer) {
+        return null;
+    }
+
+    // Guard 4: cooldown — skip if auto-started in last 5 minutes
+    $db = getDB();
+    $cooldownStmt = $db->prepare("
+        SELECT id FROM job_time_entries
+        WHERE user_id = ? AND auto_started = 1
+          AND start_time > DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+        LIMIT 1
+    ");
+    $cooldownStmt->execute([$userId]);
+    if ($cooldownStmt->fetch()) {
+        return null;
+    }
+
+    // Guard 5: get today's visits (use session cache, 60s TTL)
+    $cacheKey = 'proximity_visits_cache';
+    $cacheTsKey = 'proximity_visits_cache_ts';
+    $today = date('Y-m-d');
+
+    if (isset($_SESSION[$cacheKey], $_SESSION[$cacheTsKey])
+        && $_SESSION[$cacheTsKey] > time() - 60
+        && ($_SESSION['proximity_visits_date'] ?? '') === $today) {
+        $allVisits = $_SESSION[$cacheKey];
+    } else {
+        $allVisits = getAllJobsForDate($today);
+        $_SESSION[$cacheKey] = $allVisits;
+        $_SESSION[$cacheTsKey] = time();
+        $_SESSION['proximity_visits_date'] = $today;
+    }
+
+    // Guard 6+7: find nearest scheduled visit within proximity
+    $allowedTypesStr = getTimeClockSetting('auto_arrival_service_types', '');
+    $allowedTypes = array_filter(array_map('trim', explode(',', $allowedTypesStr)));
+
+    $nearest = null;
+    $nearestDist = PHP_FLOAT_MAX;
+
+    foreach ($allVisits as $visit) {
+        // Must be scheduled
+        if ($visit['status'] !== 'scheduled') continue;
+
+        // Must have coordinates
+        $vLat = $visit['property_lat'] ?? null;
+        $vLng = $visit['property_lng'] ?? null;
+        if (!$vLat || !$vLng) continue;
+
+        $dist = haversineDistance($lat, $lng, (float)$vLat, (float)$vLng);
+        if ($dist < $nearestDist) {
+            $nearestDist = $dist;
+            $nearest = $visit;
+        }
+    }
+
+    if (!$nearest || $nearestDist > $proximityMeters) {
+        return null;
+    }
+
+    // Guard 8: service type check — global allowlist OR per-product auto_clock_in flag
+    $serviceType = $nearest['service_type'] ?? '';
+    $inGlobalList = !empty($allowedTypes) && in_array($serviceType, $allowedTypes);
+
+    $hasPerVisitFlag = false;
+    // Check per-product/plan auto_clock_in via resolveTrackingRequirements
+    $visitId = (int)$nearest['id'];
+    if (function_exists('resolveTrackingRequirements')) {
+        $trackReqs = resolveTrackingRequirements($visitId);
+        $hasPerVisitFlag = !empty($trackReqs['auto_clock_in']);
+    }
+
+    if (!$inGlobalList && !$hasPerVisitFlag) {
+        return null;
+    }
+
+    // Guard 9: visit not already auto-started today
+    $alreadyStmt = $db->prepare("
+        SELECT id FROM job_time_entries
+        WHERE visit_id = ? AND auto_started = 1 AND DATE(start_time) = CURDATE()
+        LIMIT 1
+    ");
+    $alreadyStmt->execute([$visitId]);
+    if ($alreadyStmt->fetch()) {
+        return null;
+    }
+
+    // All guards passed — auto-clock-in if needed, then start timer
+    $clockInCreated = false;
+    $clockEntry = getActiveClockEntry($userId);
+    if (!$clockEntry) {
+        try {
+            clockIn($userId, $lat, $lng);
+            $clockInCreated = true;
+        } catch (Exception $e) {
+            // Already clocked in (race condition) — proceed
+        }
+    }
+
+    // Start the visit timer
+    try {
+        $entryId = startJobTimer($visitId, $userId, $lat, $lng, true);
+    } catch (Exception $e) {
+        // Timer already running (race condition) — bail
+        return null;
+    }
+
+    // Invalidate session cache so next check sees the updated visit status
+    unset($_SESSION[$cacheKey]);
+
+    return [
+        'visit_id'        => $visitId,
+        'job_title'       => $nearest['title'] ?? '',
+        'job_number'      => $nearest['job_number'] ?? '',
+        'property_address' => $nearest['property_address'] ?? '',
+        'service_type'    => $serviceType,
+        'distance_meters' => (int)round($nearestDist),
+        'entry_id'        => $entryId,
+        'clock_in_created' => $clockInCreated,
+    ];
+}
+
+/**
  * Format minutes as hours:minutes string (e.g., "7h 30m")
  */
 function formatMinutesAsHours($minutes) {

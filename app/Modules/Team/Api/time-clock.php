@@ -101,6 +101,7 @@ try {
                 'device_type' => $deviceType,
                 'gps_interval_standard_ms' => $gpsIntervalStandard,
                 'gps_interval_heightened_ms' => $gpsIntervalHeightened,
+                'auto_arrival_enabled' => getTimeClockSetting('auto_arrival_enabled', '1') === '1',
             ];
 
             if ($entry) {

@@ -153,6 +153,8 @@ try {
         $lat = isset($input['lat']) ? (float)$input['lat'] : null;
         $lng = isset($input['lng']) ? (float)$input['lng'] : null;
         $accuracy = isset($input['accuracy']) ? (int)round((float)$input['accuracy']) : null;
+        $isProximityOnly = !empty($input['proximity_check']); // One-shot check from widget
+        $isQueued = !empty($input['queued_at']); // Replayed offline ping
 
         if (!$lat || !$lng) {
             throw new Exception('Latitude and longitude required');
@@ -169,12 +171,27 @@ try {
         $isTruck = ($trackRow['device_type'] === 'truck');
 
         // Truck devices can report GPS without being clocked in.
-        // Personal devices must be clocked in.
-        if (!$isTruck) {
+        // Personal devices must be clocked in — UNLESS this is a proximity-only check
+        // (the proximity engine handles auto-clock-in itself).
+        if (!$isTruck && !$isProximityOnly) {
             $clockEntry = getActiveClockEntry($user['id']);
             if (!$clockEntry) {
                 throw new Exception('Not clocked in');
             }
+        }
+
+        // For proximity-only checks, skip location storage and rate limiting — just run the check
+        if ($isProximityOnly) {
+            require_once CRM_INCLUDES . '/plan-functions.php';
+            $autoStartResult = checkProximityAutoStart(
+                (int)$user['id'], $lat, $lng, (float)($accuracy ?? 50)
+            );
+            echo json_encode([
+                'success' => true,
+                'proximity_only' => true,
+                'auto_started' => $autoStartResult
+            ]);
+            exit;
         }
 
         // Rate limit: reject if last entry < 10 seconds ago (use MySQL time to avoid timezone mismatch)
@@ -197,8 +214,31 @@ try {
             VALUES (?, ?, ?, ?, NULL, NOW())
         ");
         $stmt->execute([$user['id'], $lat, $lng, $accuracy]);
+        $insertId = (int)$db->lastInsertId();
 
-        echo json_encode(['success' => true, 'id' => (int)$db->lastInsertId()]);
+        // Proximity auto-start check (skip for stale offline-queued pings)
+        $autoStartResult = null;
+        if (!$isQueued) {
+            // Rate-limit the proximity check — only run every 3rd ping (~90s)
+            if (!isset($_SESSION['proximity_check_counter'])) {
+                $_SESSION['proximity_check_counter'] = 0;
+            }
+            $_SESSION['proximity_check_counter']++;
+
+            if ($_SESSION['proximity_check_counter'] >= 3) {
+                $_SESSION['proximity_check_counter'] = 0;
+                require_once CRM_INCLUDES . '/plan-functions.php';
+                $autoStartResult = checkProximityAutoStart(
+                    (int)$user['id'], $lat, $lng, (float)($accuracy ?? 50)
+                );
+            }
+        }
+
+        echo json_encode([
+            'success' => true,
+            'id' => $insertId,
+            'auto_started' => $autoStartResult
+        ]);
 
     } else {
         http_response_code(405);
