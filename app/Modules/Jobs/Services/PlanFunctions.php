@@ -685,27 +685,33 @@ function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate,
 
         switch ($pattern) {
             case 'weekly':
-                if ($targetDow !== null) {
-                    $shouldInclude = ($currentDow === (int)$targetDow);
-                } else {
-                    // Default: same day of week as plan start
-                    $shouldInclude = ($currentDow === (int)$planStart->format('w'));
-                }
-                break;
-
             case 'biweekly':
                 $targetDay = ($targetDow !== null) ? (int)$targetDow : (int)$planStart->format('w');
+                // Use interval from the plan (biweekly forces 2, weekly defaults to 1)
+                $weekInterval = ($pattern === 'biweekly') ? max(2, $interval) : $interval;
                 if ($currentDow === $targetDay) {
-                    $diffDays = (int)$current->diff($planStart)->days;
-                    $diffWeeks = (int)floor($diffDays / 7);
-                    $shouldInclude = ($diffWeeks % 2 === 0);
+                    if ($weekInterval <= 1) {
+                        $shouldInclude = true;
+                    } else {
+                        $diffDays = (int)$current->diff($planStart)->days;
+                        $diffWeeks = (int)floor($diffDays / 7);
+                        $shouldInclude = ($diffWeeks % $weekInterval === 0);
+                    }
                 }
                 break;
 
             case 'monthly':
                 $targetDay = (int)$planStart->format('j'); // day of month
                 $currentDay = (int)$current->format('j');
-                $shouldInclude = ($currentDay === $targetDay);
+                if ($currentDay === $targetDay) {
+                    if ($interval <= 1) {
+                        $shouldInclude = true;
+                    } else {
+                        $diffMonths = ((int)$current->format('Y') - (int)$planStart->format('Y')) * 12
+                                    + ((int)$current->format('n') - (int)$planStart->format('n'));
+                        $shouldInclude = ($diffMonths >= 0 && $diffMonths % $interval === 0);
+                    }
+                }
                 break;
 
             case 'yearly':
