@@ -164,10 +164,19 @@ $activePage = 'team';
                 <div class="mw-tracking-toggle" title="<?php echo $emp['location_tracking_enabled'] ? 'Location tracking ON' : 'Location tracking OFF'; ?>">
                     <label class="mw-toggle-switch">
                         <input type="checkbox" <?php echo $emp['location_tracking_enabled'] ? 'checked' : ''; ?>
-                               onchange="toggleTracking(<?php echo (int)$emp['id']; ?>, this.checked)">
+                               onchange="toggleTracking(<?php echo (int)$emp['id']; ?>, this.checked)"
+                               id="trackToggle_<?php echo (int)$emp['id']; ?>">
                         <span class="mw-toggle-slider"></span>
                     </label>
                     <i data-feather="navigation" style="width:13px;height:13px;" class="<?php echo $emp['location_tracking_enabled'] ? 'text-success' : 'text-muted'; ?>"></i>
+                    <select class="mw-ping-rate-select" id="pingRate_<?php echo (int)$emp['id']; ?>"
+                            onchange="changePingRate(<?php echo (int)$emp['id']; ?>, this.value)"
+                            title="GPS ping rate"
+                            style="<?php echo $emp['location_tracking_enabled'] ? '' : 'display:none;'; ?>">
+                        <option value="low"<?php echo ($emp['location_ping_rate'] ?? 'high') === 'low' ? ' selected' : ''; ?>>Low</option>
+                        <option value="medium"<?php echo ($emp['location_ping_rate'] ?? 'high') === 'medium' ? ' selected' : ''; ?>>Med</option>
+                        <option value="high"<?php echo ($emp['location_ping_rate'] ?? 'high') === 'high' ? ' selected' : ''; ?>>High</option>
+                    </select>
                 </div>
                 <button class="btn btn-sm btn-outline-secondary" onclick="openEditModal(<?php echo (int)$emp['id']; ?>)"
                         title="Edit">
@@ -282,6 +291,20 @@ $activePage = 'team';
                         </div>
                     </div>
 
+                    <!-- Location Tracking -->
+                    <div class="mt-3 pt-3" style="border-top:1px solid #eee;">
+                        <label class="d-block mb-2"><strong>Location Tracking</strong></label>
+                        <div class="form-group">
+                            <label>GPS Ping Rate</label>
+                            <select class="form-control" name="location_ping_rate" id="empPingRate">
+                                <option value="low">Low (every 10 minutes)</option>
+                                <option value="medium">Medium (every 2 minutes)</option>
+                                <option value="high" selected>High (every 30 seconds)</option>
+                            </select>
+                            <small class="form-text text-muted">How often the device sends GPS position when tracking is enabled.</small>
+                        </div>
+                    </div>
+
                     <!-- Notifications -->
                     <div class="mt-3 pt-3" style="border-top:1px solid #eee;">
                         <label class="d-block mb-2"><strong>Notifications</strong></label>
@@ -387,6 +410,10 @@ $activePage = 'team';
 
     // Toggle location tracking
     window.toggleTracking = function(empId, enabled) {
+        // Show/hide ping rate select
+        var rateSelect = document.getElementById('pingRate_' + empId);
+        if (rateSelect) rateSelect.style.display = enabled ? '' : 'none';
+
         fetch('/crm/api/employees.php', {
             method: 'POST',
             credentials: 'same-origin',
@@ -404,6 +431,35 @@ $activePage = 'team';
                 showAlert('Location tracking ' + (enabled ? 'enabled' : 'disabled'), 'success');
             } else {
                 showAlert(data.error || 'Failed to update tracking', 'danger');
+                setTimeout(function() { location.reload(); }, 500);
+            }
+        })
+        .catch(function() {
+            showAlert('Network error', 'danger');
+            setTimeout(function() { location.reload(); }, 500);
+        });
+    };
+
+    // Change GPS ping rate
+    window.changePingRate = function(empId, rate) {
+        var labels = { low: 'Low (10 min)', medium: 'Medium (2 min)', high: 'High (30 sec)' };
+        fetch('/crm/api/employees.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'update',
+                id: empId,
+                location_ping_rate: rate,
+                csrf_token: document.querySelector('input[name="csrf_token"]').value
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showAlert('Ping rate set to ' + (labels[rate] || rate), 'success');
+            } else {
+                showAlert(data.error || 'Failed to update ping rate', 'danger');
                 setTimeout(function() { location.reload(); }, 500);
             }
         })
@@ -444,6 +500,7 @@ $activePage = 'team';
                 document.getElementById('empActive').checked = emp.is_active == 1;
                 document.getElementById('empWeatherSms').checked = emp.receive_weather_sms != 0;
                 document.getElementById('empDeviceType').value = emp.device_type || 'personal';
+                document.getElementById('empPingRate').value = emp.location_ping_rate || 'high';
 
                 // Hide password for edit, show active toggle
                 document.getElementById('passwordSection').style.display = 'none';

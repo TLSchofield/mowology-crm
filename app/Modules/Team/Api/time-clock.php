@@ -75,15 +75,19 @@ try {
         }
     }
 
-    // Get tracking flag and device type from database (not in session)
-    $trackStmt = $db->prepare("SELECT location_tracking_enabled, IFNULL(device_type, 'personal') AS device_type FROM users WHERE id = ?");
+    // Get tracking flag, device type, and per-user ping rate from database
+    $trackStmt = $db->prepare("SELECT location_tracking_enabled, IFNULL(device_type, 'personal') AS device_type, IFNULL(location_ping_rate, 'high') AS location_ping_rate FROM users WHERE id = ?");
     $trackStmt->execute([$user['id']]);
     $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
     $locationTrackingEnabled = $trackRow ? (bool)$trackRow['location_tracking_enabled'] : false;
     $deviceType = $trackRow ? $trackRow['device_type'] : 'personal';
 
-    // GPS interval settings (configurable via Time Clock Settings page)
-    $gpsIntervalStandard = (int)getTimeClockSetting('gps_interval_standard_ms', '30000');
+    // Per-user ping rate overrides global setting
+    $pingRateMap = ['low' => 600000, 'medium' => 120000, 'high' => 30000];
+    $userPingRate = $trackRow ? ($trackRow['location_ping_rate'] ?? 'high') : 'high';
+    $gpsIntervalStandard = $pingRateMap[$userPingRate] ?? 30000;
+
+    // Heightened interval from global settings (used during high-risk jobs)
     $gpsIntervalHeightened = (int)getTimeClockSetting('gps_interval_heightened_ms', '10000');
 
     switch ($action) {

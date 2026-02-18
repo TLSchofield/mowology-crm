@@ -55,7 +55,8 @@ try {
                        hourly_rate, hire_date, emergency_contact, notes,
                        location_tracking_enabled, last_login, created_at,
                        IFNULL(receive_weather_sms, 1) AS receive_weather_sms,
-                       IFNULL(device_type, 'personal') AS device_type
+                       IFNULL(device_type, 'personal') AS device_type,
+                       IFNULL(location_ping_rate, 'high') AS location_ping_rate
                 FROM users WHERE id = ?
             ");
             $stmt->execute([$id]);
@@ -208,6 +209,11 @@ try {
             if (isset($input['device_type']) && in_array($input['device_type'], ['personal', 'truck'])) {
                 $updates[] = 'device_type = ?';
                 $params[] = $input['device_type'];
+            }
+
+            if (isset($input['location_ping_rate']) && in_array($input['location_ping_rate'], ['low', 'medium', 'high'])) {
+                $updates[] = 'location_ping_rate = ?';
+                $params[] = $input['location_ping_rate'];
             }
 
             // Optional password reset

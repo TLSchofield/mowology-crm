@@ -215,7 +215,28 @@ function getServiceTemplates() {
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-
+/**
+ * Get active products for dropdowns, grouped by category
+ */
+function getActiveProducts($categoryId = null) {
+    $db = getDB();
+    $sql = "
+        SELECT p.id, p.name, p.description, p.base_price,
+               c.name as category_name
+        FROM products p
+        LEFT JOIN product_categories c ON p.category_id = c.id
+        WHERE p.active = 1 AND p.is_archived = 0
+    ";
+    $params = [];
+    if ($categoryId !== null) {
+        $sql .= " AND p.category_id = ?";
+        $params[] = $categoryId;
+    }
+    $sql .= " ORDER BY c.name, p.display_order, p.name";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
 
 /**
  * Get dashboard statistics

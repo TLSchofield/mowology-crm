@@ -220,6 +220,9 @@ if ($quoteId) {
 // Get staff for crew assignment
 $staff = getStaffMembers();
 
+// Get active products for service type dropdowns
+$products = getActiveProducts();
+
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
@@ -435,12 +438,23 @@ $activePage = 'jobs';
                           <div class="mw-form-group">
                               <label class="form-label">Service Type</label>
                               <select name="service_type" class="form-control">
-                                  <option value="landscaping" <?php echo ($prefill['service_type'] ?? '') === 'landscaping' ? 'selected' : ''; ?>>Landscaping</option>
-                                  <option value="lawn_care" <?php echo ($prefill['service_type'] ?? '') === 'lawn_care' ? 'selected' : ''; ?>>Lawn Care</option>
-                                  <option value="snow_removal" <?php echo ($prefill['service_type'] ?? '') === 'snow_removal' ? 'selected' : ''; ?>>Snow Removal</option>
-                                  <option value="hedge_trimming" <?php echo ($prefill['service_type'] ?? '') === 'hedge_trimming' ? 'selected' : ''; ?>>Hedge Trimming</option>
-                                  <option value="garden_maintenance" <?php echo ($prefill['service_type'] ?? '') === 'garden_maintenance' ? 'selected' : ''; ?>>Garden Maintenance</option>
-                                  <option value="seasonal_cleanup" <?php echo ($prefill['service_type'] ?? '') === 'seasonal_cleanup' ? 'selected' : ''; ?>>Seasonal Cleanup</option>
+                                  <option value="">-- Select Service --</option>
+                                  <?php
+                                  $currentCat = '';
+                                  foreach ($products as $prod):
+                                      $cat = $prod['category_name'] ?: 'Uncategorized';
+                                      if ($cat !== $currentCat):
+                                          if ($currentCat !== '') echo '</optgroup>';
+                                          $currentCat = $cat;
+                                  ?>
+                                  <optgroup label="<?php echo htmlspecialchars($cat); ?>">
+                                  <?php endif; ?>
+                                      <option value="<?php echo htmlspecialchars($prod['name']); ?>"
+                                          <?php echo ($prefill['service_type'] ?? '') === $prod['name'] ? 'selected' : ''; ?>>
+                                          <?php echo htmlspecialchars($prod['name']); ?>
+                                      </option>
+                                  <?php endforeach; ?>
+                                  <?php if ($currentCat !== '') echo '</optgroup>'; ?>
                               </select>
                           </div>
                           <div class="mw-form-group">
@@ -676,6 +690,10 @@ $activePage = 'jobs';
           </form>
 
           <script>
+          var availableProducts = <?php echo json_encode(array_map(function($p) {
+              return ['name' => $p['name'], 'category' => $p['category_name'] ?: 'Uncategorized', 'price' => (float)$p['base_price']];
+          }, $products)); ?>;
+
           (function() {
               var searchInput = document.getElementById('clientSearch');
               var resultsDiv = document.getElementById('clientSearchResults');
@@ -914,6 +932,22 @@ $activePage = 'jobs';
               // ── Plan Items Management ──
               var itemIndex = 0;
 
+              function buildProductOptions(selectedVal) {
+                  var html = '<option value="">-- Select --</option>';
+                  var currentCat = '';
+                  availableProducts.forEach(function(p) {
+                      if (p.category !== currentCat) {
+                          if (currentCat !== '') html += '</optgroup>';
+                          currentCat = p.category;
+                          html += '<optgroup label="' + escapeAttr(currentCat) + '">';
+                      }
+                      var sel = (selectedVal && selectedVal === p.name) ? ' selected' : '';
+                      html += '<option value="' + escapeAttr(p.name) + '" data-price="' + p.price + '"' + sel + '>' + escapeHtml(p.name) + '</option>';
+                  });
+                  if (currentCat !== '') html += '</optgroup>';
+                  return html;
+              }
+
               window.addManualItem = function() {
                   var table = document.getElementById('planItemsTable');
                   var body = document.getElementById('planItemsBody');
@@ -925,7 +959,7 @@ $activePage = 'jobs';
                   var idx = itemIndex++;
                   var tr = document.createElement('tr');
                   tr.innerHTML =
-                      '<td><input type="text" name="items[' + idx + '][service_type]" class="form-control form-control-sm" placeholder="Service type" required></td>' +
+                      '<td><select name="items[' + idx + '][service_type]" class="form-control form-control-sm mw-item-service" onchange="onItemServiceChange(this)" required>' + buildProductOptions('') + '</select></td>' +
                       '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm" placeholder="Description"></td>' +
                       '<td><input type="number" name="items[' + idx + '][quantity]" class="form-control form-control-sm mw-cfq-qty" value="1" min="0.01" step="0.01" onchange="recalcItemRow(this)" style="width:70px;"></td>' +
                       '<td><input type="number" name="items[' + idx + '][unit_price]" class="form-control form-control-sm mw-cfq-price text-right" value="0" min="0" step="0.01" onchange="recalcItemRow(this)" style="width:90px;">' +
@@ -944,6 +978,19 @@ $activePage = 'jobs';
                   tr.querySelector('.mw-cfq-row-total').textContent = '$' + total.toFixed(2);
                   tr.querySelector('.mw-cfq-total-input').value = total.toFixed(2);
                   updateItemTotals();
+              };
+
+              window.onItemServiceChange = function(select) {
+                  var opt = select.options[select.selectedIndex];
+                  var price = parseFloat(opt.dataset.price) || 0;
+                  if (price > 0) {
+                      var tr = select.closest('tr');
+                      var priceInput = tr.querySelector('.mw-cfq-price');
+                      if (priceInput && (parseFloat(priceInput.value) === 0 || priceInput.value === '')) {
+                          priceInput.value = price.toFixed(2);
+                          recalcItemRow(priceInput);
+                      }
+                  }
               };
 
               window.removeItemRow = function(btn) {
@@ -1025,7 +1072,7 @@ $activePage = 'jobs';
                           var lineTotal = parseFloat(item.line_total) || 0;
                           var tr = document.createElement('tr');
                           tr.innerHTML =
-                              '<td><input type="text" name="items[' + idx + '][service_type]" class="form-control form-control-sm" value="' + escapeAttr(item.service_type || '') + '" required></td>' +
+                              '<td><select name="items[' + idx + '][service_type]" class="form-control form-control-sm mw-item-service" onchange="onItemServiceChange(this)" required>' + buildProductOptions(item.service_type || '') + '</select></td>' +
                               '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm" value="' + escapeAttr(item.description || '') + '"></td>' +
                               '<td><input type="number" name="items[' + idx + '][quantity]" class="form-control form-control-sm mw-cfq-qty" value="' + (item.quantity || 1) + '" min="0.01" step="0.01" onchange="recalcItemRow(this)" style="width:70px;"></td>' +
                               '<td><input type="number" name="items[' + idx + '][unit_price]" class="form-control form-control-sm mw-cfq-price text-right" value="' + (parseFloat(item.unit_price) || 0).toFixed(2) + '" min="0" step="0.01" onchange="recalcItemRow(this)" style="width:90px;">' +
