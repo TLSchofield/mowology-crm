@@ -8,7 +8,7 @@
  *
  * Active page keys: 'dashboard', 'clients', 'map', 'quotes', 'products', 'jobs',
  *                   'invoices', 'schedule', 'timeclock', 'team', 'portfolio', 'cms',
- *                   'media', 'marketing', 'settings', 'database', 'diagnostics', 'users'
+ *                   'media', 'marketing', 'settings', 'database', 'users'
  *
  * Each nav item can optionally specify a 'perm' key — the permission required to see it.
  * If omitted, the item is always visible. The server still enforces on the page itself;
@@ -83,15 +83,6 @@ $navItems = [
                 <a class="sidebar-link" href="/crm/database_appstack.php">
                     <i class="align-middle" data-feather="database"></i>
                     <span class="align-middle">Database</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <?php if (!function_exists('userHasPermission') || userHasPermission('diagnostics.view')): ?>
-            <li class="sidebar-item<?php echo ($activePage === 'diagnostics') ? ' active' : ''; ?>">
-                <a class="sidebar-link" href="/crm/diagnostics/">
-                    <i class="align-middle" data-feather="activity"></i>
-                    <span class="align-middle">Diagnostics</span>
                 </a>
             </li>
             <?php endif; ?>
