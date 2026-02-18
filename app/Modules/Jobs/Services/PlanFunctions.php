@@ -311,12 +311,28 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
 function addPlanLineItems(int $planId, array $items): bool {
     $db = getDB();
 
-    $stmt = $db->prepare("
-        INSERT INTO plan_line_items
-            (plan_id, quote_line_item_id, service_type, description, quantity,
-             unit_type, unit_price, line_total, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ");
+    // Check if product_id column exists
+    $hasProductId = false;
+    try {
+        $chk = $db->query("SHOW COLUMNS FROM plan_line_items LIKE 'product_id'");
+        $hasProductId = ($chk->rowCount() > 0);
+    } catch (Exception $e) { /* ignore */ }
+
+    if ($hasProductId) {
+        $stmt = $db->prepare("
+            INSERT INTO plan_line_items
+                (plan_id, quote_line_item_id, product_id, service_type, description, quantity,
+                 unit_type, unit_price, line_total, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+    } else {
+        $stmt = $db->prepare("
+            INSERT INTO plan_line_items
+                (plan_id, quote_line_item_id, service_type, description, quantity,
+                 unit_type, unit_price, line_total, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ");
+    }
 
     $sortOrder = 0;
     foreach ($items as $item) {
@@ -324,17 +340,42 @@ function addPlanLineItems(int $planId, array $items): bool {
         $unitPrice = floatval($item['unit_price'] ?? 0);
         $lineTotal = floatval($item['line_total'] ?? ($qty * $unitPrice));
 
-        $stmt->execute([
-            $planId,
-            $item['quote_line_item_id'] ?? null,
-            $item['service_type'] ?? 'Service',
-            $item['description'] ?? '',
-            $qty,
-            $item['unit_type'] ?? 'visit',
-            $unitPrice,
-            $lineTotal,
-            $item['sort_order'] ?? $sortOrder,
-        ]);
+        $productId = $item['product_id'] ?? null;
+
+        // If no product_id provided, try to resolve from service_type name
+        if (!$productId && !empty($item['service_type'])) {
+            $lookup = $db->prepare("SELECT id FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1");
+            $lookup->execute([$item['service_type']]);
+            $found = $lookup->fetchColumn();
+            if ($found) $productId = (int)$found;
+        }
+
+        if ($hasProductId) {
+            $stmt->execute([
+                $planId,
+                $item['quote_line_item_id'] ?? null,
+                $productId,
+                $item['service_type'] ?? 'Service',
+                $item['description'] ?? '',
+                $qty,
+                $item['unit_type'] ?? 'visit',
+                $unitPrice,
+                $lineTotal,
+                $item['sort_order'] ?? $sortOrder,
+            ]);
+        } else {
+            $stmt->execute([
+                $planId,
+                $item['quote_line_item_id'] ?? null,
+                $item['service_type'] ?? 'Service',
+                $item['description'] ?? '',
+                $qty,
+                $item['unit_type'] ?? 'visit',
+                $unitPrice,
+                $lineTotal,
+                $item['sort_order'] ?? $sortOrder,
+            ]);
+        }
 
         // Mark the source quote line item as converted
         if (!empty($item['quote_line_item_id'])) {
@@ -834,6 +875,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             p.longitude,
             p.property_name,
             co.company_name,
+            ct.id AS contact_id,
             CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
             u.full_name AS crew_name,
             jv.id AS visit_id,
@@ -936,6 +978,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'latitude'      => $row['latitude'],
                 'longitude'     => $row['longitude'],
                 'company_name'  => $row['company_name'],
+                'contact_id'    => $row['contact_id'] ? (int)$row['contact_id'] : null,
                 'contact_name'  => $row['contact_name'],
                 'property_name' => $row['property_name'],
                 'visits'        => [],
@@ -1521,21 +1564,47 @@ function resolveTrackingRequirementsForPlan(int $planId): array {
                 $hasAutoClockInProd = ($aciProdCheck->rowCount() > 0);
             } catch (Exception $e) { /* ignore */ }
 
+            // Check if plan_line_items has direct product_id column
+            $hasDirectProductId = false;
+            try {
+                $dpCheck = $db->query("SHOW COLUMNS FROM plan_line_items LIKE 'product_id'");
+                $hasDirectProductId = ($dpCheck->rowCount() > 0);
+            } catch (Exception $e) { /* ignore */ }
+
             $autoClockInCol = $hasAutoClockInProd ? "MAX(p.auto_clock_in) AS auto_clock_in," : "";
 
-            $prodStmt = $db->prepare("
-                SELECT MAX(p.require_clock_in) AS require_clock_in,
-                       MAX(p.require_gps) AS require_gps,
-                       MAX(p.require_photos) AS require_photos,
-                       {$autoClockInCol}
-                       MAX(CASE WHEN p.tracking_level = 'heightened' THEN 2
-                                WHEN p.tracking_level = 'custom' THEN 1
-                                ELSE 0 END) AS level_rank
-                FROM plan_line_items pli
-                JOIN quote_line_items qli ON pli.quote_line_item_id = qli.id
-                JOIN products p ON qli.product_id = p.id
-                WHERE pli.plan_id = ?
-            ");
+            // Resolve products via two paths:
+            //   1. Direct: plan_line_items.product_id → products
+            //   2. Via quote: plan_line_items.quote_line_item_id → quote_line_items.product_id → products
+            if ($hasDirectProductId) {
+                $prodStmt = $db->prepare("
+                    SELECT MAX(p.require_clock_in) AS require_clock_in,
+                           MAX(p.require_gps) AS require_gps,
+                           MAX(p.require_photos) AS require_photos,
+                           {$autoClockInCol}
+                           MAX(CASE WHEN p.tracking_level = 'heightened' THEN 2
+                                    WHEN p.tracking_level = 'custom' THEN 1
+                                    ELSE 0 END) AS level_rank
+                    FROM plan_line_items pli
+                    LEFT JOIN quote_line_items qli ON pli.quote_line_item_id = qli.id
+                    JOIN products p ON p.id = COALESCE(pli.product_id, qli.product_id)
+                    WHERE pli.plan_id = ?
+                ");
+            } else {
+                $prodStmt = $db->prepare("
+                    SELECT MAX(p.require_clock_in) AS require_clock_in,
+                           MAX(p.require_gps) AS require_gps,
+                           MAX(p.require_photos) AS require_photos,
+                           {$autoClockInCol}
+                           MAX(CASE WHEN p.tracking_level = 'heightened' THEN 2
+                                    WHEN p.tracking_level = 'custom' THEN 1
+                                    ELSE 0 END) AS level_rank
+                    FROM plan_line_items pli
+                    JOIN quote_line_items qli ON pli.quote_line_item_id = qli.id
+                    JOIN products p ON qli.product_id = p.id
+                    WHERE pli.plan_id = ?
+                ");
+            }
             $prodStmt->execute([$planId]);
             $prod = $prodStmt->fetch(PDO::FETCH_ASSOC);
 

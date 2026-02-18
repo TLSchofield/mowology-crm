@@ -287,6 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (empty($item['service_type'])) continue;
                 $formItems[] = [
                     'quote_line_item_id' => null,
+                    'product_id'         => !empty($item['product_id']) ? (int)$item['product_id'] : null,
                     'service_type'       => $item['service_type'],
                     'description'        => $item['description'] ?? '',
                     'quantity'           => floatval($item['quantity'] ?? 1),
@@ -691,7 +692,7 @@ $activePage = 'jobs';
 
           <script>
           var availableProducts = <?php echo json_encode(array_map(function($p) {
-              return ['name' => $p['name'], 'category' => $p['category_name'] ?: 'Uncategorized', 'price' => (float)$p['base_price']];
+              return ['id' => (int)$p['id'], 'name' => $p['name'], 'category' => $p['category_name'] ?: 'Uncategorized', 'price' => (float)$p['base_price']];
           }, $products)); ?>;
 
           (function() {
@@ -942,7 +943,7 @@ $activePage = 'jobs';
                           html += '<optgroup label="' + escapeAttr(currentCat) + '">';
                       }
                       var sel = (selectedVal && selectedVal === p.name) ? ' selected' : '';
-                      html += '<option value="' + escapeAttr(p.name) + '" data-price="' + p.price + '"' + sel + '>' + escapeHtml(p.name) + '</option>';
+                      html += '<option value="' + escapeAttr(p.name) + '" data-price="' + p.price + '" data-product-id="' + p.id + '"' + sel + '>' + escapeHtml(p.name) + '</option>';
                   });
                   if (currentCat !== '') html += '</optgroup>';
                   return html;
@@ -959,7 +960,8 @@ $activePage = 'jobs';
                   var idx = itemIndex++;
                   var tr = document.createElement('tr');
                   tr.innerHTML =
-                      '<td><select name="items[' + idx + '][service_type]" class="form-control form-control-sm mw-item-service" onchange="onItemServiceChange(this)" required>' + buildProductOptions('') + '</select></td>' +
+                      '<td><select name="items[' + idx + '][service_type]" class="form-control form-control-sm mw-item-service" onchange="onItemServiceChange(this)" required>' + buildProductOptions('') + '</select>' +
+                          '<input type="hidden" name="items[' + idx + '][product_id]" class="mw-item-product-id" value=""></td>' +
                       '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm" placeholder="Description"></td>' +
                       '<td><input type="number" name="items[' + idx + '][quantity]" class="form-control form-control-sm mw-cfq-qty" value="1" min="0.01" step="0.01" onchange="recalcItemRow(this)" style="width:70px;"></td>' +
                       '<td><input type="number" name="items[' + idx + '][unit_price]" class="form-control form-control-sm mw-cfq-price text-right" value="0" min="0" step="0.01" onchange="recalcItemRow(this)" style="width:90px;">' +
@@ -982,9 +984,12 @@ $activePage = 'jobs';
 
               window.onItemServiceChange = function(select) {
                   var opt = select.options[select.selectedIndex];
+                  var tr = select.closest('tr');
+                  // Set hidden product_id from selected option
+                  var pidInput = tr.querySelector('.mw-item-product-id');
+                  if (pidInput) pidInput.value = opt.dataset.productId || '';
                   var price = parseFloat(opt.dataset.price) || 0;
                   if (price > 0) {
-                      var tr = select.closest('tr');
                       var priceInput = tr.querySelector('.mw-cfq-price');
                       if (priceInput && (parseFloat(priceInput.value) === 0 || priceInput.value === '')) {
                           priceInput.value = price.toFixed(2);
@@ -1071,8 +1076,14 @@ $activePage = 'jobs';
                           var idx = itemIndex++;
                           var lineTotal = parseFloat(item.line_total) || 0;
                           var tr = document.createElement('tr');
+                          // Find product_id from the selected option
+                          var tempDiv = document.createElement('div');
+                          tempDiv.innerHTML = '<select>' + buildProductOptions(item.service_type || '') + '</select>';
+                          var selOpt = tempDiv.querySelector('option[selected]');
+                          var itemProductId = selOpt ? (selOpt.dataset.productId || '') : '';
                           tr.innerHTML =
-                              '<td><select name="items[' + idx + '][service_type]" class="form-control form-control-sm mw-item-service" onchange="onItemServiceChange(this)" required>' + buildProductOptions(item.service_type || '') + '</select></td>' +
+                              '<td><select name="items[' + idx + '][service_type]" class="form-control form-control-sm mw-item-service" onchange="onItemServiceChange(this)" required>' + buildProductOptions(item.service_type || '') + '</select>' +
+                                  '<input type="hidden" name="items[' + idx + '][product_id]" class="mw-item-product-id" value="' + itemProductId + '"></td>' +
                               '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm" value="' + escapeAttr(item.description || '') + '"></td>' +
                               '<td><input type="number" name="items[' + idx + '][quantity]" class="form-control form-control-sm mw-cfq-qty" value="' + (item.quantity || 1) + '" min="0.01" step="0.01" onchange="recalcItemRow(this)" style="width:70px;"></td>' +
                               '<td><input type="number" name="items[' + idx + '][unit_price]" class="form-control form-control-sm mw-cfq-price text-right" value="' + (parseFloat(item.unit_price) || 0).toFixed(2) + '" min="0" step="0.01" onchange="recalcItemRow(this)" style="width:90px;">' +
