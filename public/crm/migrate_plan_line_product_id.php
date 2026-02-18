@@ -53,9 +53,10 @@ try {
     $results[] = "✅ Backfilled product_id from quote_line_items: {$stmt} rows updated";
 
     // 3. Backfill product_id by matching service_type to products.name (for direct-created plans)
+    //    Use explicit COLLATE to handle mixed collation tables (utf8mb4_general_ci vs utf8mb4_0900_ai_ci)
     $stmt = $db->exec("
         UPDATE plan_line_items pli
-        JOIN products p ON LOWER(TRIM(pli.service_type)) = LOWER(TRIM(p.name))
+        JOIN products p ON LOWER(TRIM(pli.service_type)) = LOWER(TRIM(p.name)) COLLATE utf8mb4_general_ci
         SET pli.product_id = p.id
         WHERE pli.product_id IS NULL
     ");

@@ -344,7 +344,7 @@ function addPlanLineItems(int $planId, array $items): bool {
 
         // If no product_id provided, try to resolve from service_type name
         if (!$productId && !empty($item['service_type'])) {
-            $lookup = $db->prepare("SELECT id FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1");
+            $lookup = $db->prepare("SELECT id FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM(? COLLATE utf8mb4_general_ci)) LIMIT 1");
             $lookup->execute([$item['service_type']]);
             $found = $lookup->fetchColumn();
             if ($found) $productId = (int)$found;
