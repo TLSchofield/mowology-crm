@@ -586,7 +586,7 @@ function getSegmentRecipients(PDO $db, string $segmentType, int $productId = 0):
           AND c.receive_marketing = 1
           AND c.email IS NOT NULL
           AND c.email != ''
-          AND c.email NOT IN (SELECT email FROM marketing_unsubscribes)
+          AND c.email NOT IN (SELECT email COLLATE utf8mb4_0900_ai_ci FROM marketing_unsubscribes)
     ";
 
     switch ($segmentType) {

@@ -23,7 +23,7 @@ $activePage = 'marketing';
                   <h1 class="h3 mb-0">Email Campaigns</h1>
                   <p class="text-muted mb-0">Create and manage targeted email campaigns</p>
               </div>
-              <?php if (hasPermission('marketing.edit')): ?>
+              <?php if (userHasPermission('marketing.edit')): ?>
               <button class="btn btn-success" onclick="openCampaignModal()">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   New Campaign
@@ -181,7 +181,7 @@ $activePage = 'marketing';
               var currentStatus = '';
               var currentPage = 1;
               var csrf = '<?php echo generateCSRFToken(); ?>';
-              var canEdit = <?php echo json_encode(hasPermission('marketing.edit')); ?>;
+              var canEdit = <?php echo json_encode(userHasPermission('marketing.edit')); ?>;
               var templates = [];
               var products = [];
 
