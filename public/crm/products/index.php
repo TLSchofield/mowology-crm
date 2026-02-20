@@ -54,6 +54,13 @@ $activePage = 'products';
                   <span class="mw-badge-tag">Sales Engine</span>
               </a>
 
+              <a href="/crm/marketing/campaigns.php" class="mw-tool-card">
+                  <span class="mw-tool-icon">📧</span>
+                  <h3>Marketing Campaigns</h3>
+                  <p>Create and manage email campaigns. Target seasonal upsells, re-engage inactive clients, and track opens & clicks.</p>
+                  <span class="mw-badge-tag">Email Marketing</span>
+              </a>
+
               <a href="categories.php" class="mw-tool-card">
                   <span class="mw-tool-icon">📁</span>
                   <h3>Categories</h3>

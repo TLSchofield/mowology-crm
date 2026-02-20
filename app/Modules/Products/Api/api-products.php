@@ -1084,7 +1084,7 @@ try {
         }
 
     } else {
-        throw new Exception('Invalid action: ' . htmlspecialchars($action));
+        throw new Exception('Invalid action: ' . htmlspecialchars($action ?? ''));
     }
 
 } catch (Exception $e) {

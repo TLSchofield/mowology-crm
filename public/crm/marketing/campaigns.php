@@ -241,7 +241,7 @@ $activePage = 'marketing';
               }
 
               function loadProducts() {
-                  fetch('/crm/api/api-products.php?action=list')
+                  fetch('/crm/products/api-products.php?action=list-products')
                       .then(function(r) { return r.json(); })
                       .then(function(data) {
                           var list = data.products || data.data || [];
