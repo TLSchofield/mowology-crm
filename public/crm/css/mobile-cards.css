@@ -154,16 +154,6 @@
         white-space: nowrap;
     }
 
-    /* Hidden date input — sits behind the pill, opened via JS */
-    .mw-mc-date-input-hidden {
-        position: absolute;
-        opacity: 0;
-        pointer-events: none;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-    }
-
     .mw-mc-topbar-center {
         flex: 1;
         padding: 0 16px;

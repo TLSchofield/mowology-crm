@@ -120,6 +120,14 @@ foreach ($calendarData as $dateStops) {
 $allPlanIds = array_values(array_unique($allPlanIds));
 $profitabilityMap = !empty($allPlanIds) ? getStopProfitabilityBatch($allPlanIds) : [];
 
+// ─── Unscheduled jobs tray ───────────────────────────────────────────
+// Visits with no calendar_stop yet — displayed in the collapsible left tray.
+$unscheduledVisits = getUnscheduledVisits();
+$unscheduledCount  = count($unscheduledVisits);
+
+// Crew flag: 'user' role = mobile crew (auto-assign on drop); admin/manager = desktop
+$isCrew = ($user['role'] === 'user');
+
 // ─── Mission Control: Weekly aggregate calculations ──────────────────
 // Computed once here, used both in the Mission Control header and per-day
 // Battle Cards. All numbers are estimates derived from plan prices and
@@ -757,7 +765,7 @@ foreach ($mobileStops as $s) {
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260216b" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260220a" rel="stylesheet">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -990,8 +998,47 @@ if ($apiKey) {
               </div>
 
               <!-- Day columns with stop cards -->
-              <div class="mw-stop-grid">
+              <div class="mw-stop-grid<?php echo $unscheduledCount > 0 ? ' mw-stop-grid--has-tray' : ''; ?>" id="mwStopGrid">
+
+                  <!-- ── Unscheduled Jobs Tray ──────────────────────────── -->
+                  <?php if ($unscheduledCount > 0): ?>
+                  <div class="mw-tray" id="mwTray">
+                      <div class="mw-tray-header" id="mwTrayToggle" title="Toggle unscheduled jobs queue">
+                          <span class="mw-tray-icon">📋</span>
+                          <span class="mw-tray-title">Queue</span>
+                          <span class="mw-tray-count"><?php echo $unscheduledCount; ?></span>
+                          <span class="mw-tray-chevron">&#8249;</span>
+                      </div>
+                      <div class="mw-tray-body" id="mwTrayBody">
+                          <?php foreach ($unscheduledVisits as $uv): ?>
+                          <div class="mw-tray-card"
+                               draggable="true"
+                               data-visit-id="<?php echo (int)$uv['visit_id']; ?>"
+                               data-plan-id="<?php echo (int)$uv['plan_id']; ?>"
+                               data-property-id="<?php echo (int)$uv['property_id']; ?>"
+                               data-service-type="<?php echo htmlspecialchars($uv['service_type'] ?? ''); ?>"
+                               data-duration="<?php echo (int)($uv['estimated_duration'] ?? 0); ?>"
+                               data-revenue="<?php echo round((float)($uv['price_per_visit'] ?? 0), 2); ?>">
+                              <div class="mw-tray-card-service" style="border-left:3px solid <?php echo getServiceColorLocal($uv['service_type'] ?? ''); ?>">
+                                  <span class="mw-tray-card-type"><?php echo htmlspecialchars(getServiceLabelLocal($uv['service_type'] ?? '')); ?></span>
+                              </div>
+                              <div class="mw-tray-card-address" title="<?php echo htmlspecialchars(($uv['property_address'] ?? '') . ', ' . ($uv['property_city'] ?? '')); ?>">
+                                  <?php echo htmlspecialchars($uv['property_address'] ?? ''); ?>
+                              </div>
+                              <div class="mw-tray-card-meta">
+                                  <span class="mw-tray-card-client"><?php echo htmlspecialchars($uv['contact_name'] ?? ''); ?></span>
+                                  <span class="mw-tray-card-price">$<?php echo number_format((float)($uv['price_per_visit'] ?? 0), 0); ?></span>
+                              </div>
+                              <?php if (!empty($uv['scheduled_date'])): ?>
+                              <div class="mw-tray-card-date">Due <?php echo date('M j', strtotime($uv['scheduled_date'])); ?></div>
+                              <?php endif; ?>
+                          </div>
+                          <?php endforeach; ?>
+                      </div>
+                  </div>
+                  <?php else: ?>
                   <div class="mw-stop-grid-label"></div>
+                  <?php endif; ?>
                   <?php
                   $currentDate = new DateTime($startDate);
                   for ($dayIdx = 0; $dayIdx < 7; $dayIdx++):
@@ -1522,13 +1569,7 @@ if ($apiKey) {
                           <span class="mw-mc-date-pill-day"><?php echo htmlspecialchars($todayDayName); ?></span>
                           <span class="mw-mc-date-pill-date"><?php echo htmlspecialchars($todayDateDisplay); ?></span>
                       </button>
-                      <!-- Hidden native date input — triggered by button tap -->
-                      <input type="date"
-                             id="mwMobileDateInput"
-                             class="mw-mc-date-input-hidden"
-                             value="<?php echo htmlspecialchars($mobileDate); ?>"
-                             aria-hidden="true"
-                             tabindex="-1">
+                      <!-- Date input injected into body by JS to avoid layout bleed -->
                       <a href="?view=day&date=<?php echo htmlspecialchars($mobileNextDay) . $filterQueryStr; ?>"
                          class="mw-mc-date-arrow" aria-label="Next day">&#8250;</a>
                   </div>
@@ -1655,33 +1696,42 @@ if ($apiKey) {
 <script>
 /**
  * Mobile date picker — tapping the date pill opens the native date input.
- * On change, navigate to ?view=day&date=YYYY-MM-DD preserving other params.
+ * The input is created dynamically and appended to <body> to avoid any
+ * layout bleed in desktop Chrome's simulated mobile viewport.
+ * On change, navigate to ?view=day&date=YYYY-MM-DD preserving filters.
  */
 (function() {
-    var btn   = document.getElementById('mwMobileDateBtn');
-    var input = document.getElementById('mwMobileDateInput');
-    if (!btn || !input) return;
+    var btn = document.getElementById('mwMobileDateBtn');
+    if (!btn) return;
 
-    // Tap/click on date pill → open native date picker
-    btn.addEventListener('click', function(e) {
-        e.preventDefault();
-        // showPicker() is the modern API; fall back to focus() for older Safari
-        if (typeof input.showPicker === 'function') {
-            try { input.showPicker(); } catch(err) { input.focus(); }
-        } else {
-            input.focus();
-        }
-    });
+    var currentDate = '<?php echo htmlspecialchars($mobileDate); ?>';
+
+    // Create the hidden input and attach to body (keeps it out of topbar layout)
+    var input = document.createElement('input');
+    input.type = 'date';
+    input.value = currentDate;
+    input.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+    document.body.appendChild(input);
 
     // When a date is picked, navigate preserving crew/service filters
     input.addEventListener('change', function() {
-        var picked = input.value;  // "YYYY-MM-DD"
+        var picked = input.value;
         if (!picked) return;
         var params = new URLSearchParams(window.location.search);
         params.set('view', 'day');
         params.set('date', picked);
         params.delete('start');
         window.location.search = params.toString();
+    });
+
+    // Tap/click on date pill → open native date picker
+    btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (typeof input.showPicker === 'function') {
+            try { input.showPicker(); } catch(err) { input.focus(); }
+        } else {
+            input.focus();
+        }
     });
 })();
 
@@ -2322,5 +2372,136 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 
 })();
 </script>
+
+<?php if ($unscheduledCount > 0): ?>
+<script>
+(function() {
+    'use strict';
+
+    var CSRF    = <?php echo json_encode($csrfToken); ?>;
+    var IS_CREW = <?php echo json_encode($isCrew); ?>;
+
+    var stopGrid   = document.getElementById('mwStopGrid');
+    var trayToggle = document.getElementById('mwTrayToggle');
+
+    // ── Tray collapse / expand ────────────────────────────────────────────────
+    if (trayToggle && stopGrid) {
+        // Restore saved state
+        if (localStorage.getItem('mw_tray_collapsed') === '1') {
+            stopGrid.classList.add('mw-tray-collapsed');
+        }
+
+        trayToggle.addEventListener('click', function () {
+            var isNowCollapsed = stopGrid.classList.toggle('mw-tray-collapsed');
+            localStorage.setItem('mw_tray_collapsed', isNowCollapsed ? '1' : '0');
+        });
+    }
+
+    // ── Tray card drag ────────────────────────────────────────────────────────
+    document.querySelectorAll('.mw-tray-card').forEach(function (card) {
+        card.addEventListener('dragstart', function (e) {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/x-tray-visit', card.dataset.visitId);
+            card.classList.add('mw-tray-card--dragging');
+            // Highlight day columns as valid drop zones
+            document.querySelectorAll('.mw-day-column').forEach(function (col) {
+                col.classList.add('mw-tray-drop-target');
+            });
+        });
+
+        card.addEventListener('dragend', function () {
+            card.classList.remove('mw-tray-card--dragging');
+            document.querySelectorAll('.mw-day-column').forEach(function (col) {
+                col.classList.remove('mw-tray-drop-target');
+                col.classList.remove('mw-tray-drop-over');
+            });
+        });
+    });
+
+    // ── Day column drop acceptance (tray visits) ──────────────────────────────
+    document.querySelectorAll('.mw-day-column').forEach(function (col) {
+        col.addEventListener('dragover', function (e) {
+            if (e.dataTransfer.types.indexOf('text/x-tray-visit') !== -1) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                col.classList.add('mw-tray-drop-over');
+            }
+        });
+
+        col.addEventListener('dragleave', function (e) {
+            // Only remove highlight when truly leaving the column
+            if (!col.contains(e.relatedTarget)) {
+                col.classList.remove('mw-tray-drop-over');
+            }
+        });
+
+        col.addEventListener('drop', function (e) {
+            var visitId = e.dataTransfer.getData('text/x-tray-visit');
+            if (!visitId) return; // handled by the existing stop-card drag-drop
+            e.preventDefault();
+            e.stopPropagation();
+            col.classList.remove('mw-tray-drop-over');
+
+            var date       = col.dataset.date;
+            var routeOrder = col.querySelectorAll('.mw-stop-card').length;
+            scheduleTrayVisit(parseInt(visitId, 10), date, routeOrder);
+        });
+    });
+
+    // ── Perform schedule API call ─────────────────────────────────────────────
+    function scheduleTrayVisit(visitId, date, routeOrder) {
+        // Optimistically dim the tray card
+        var card = document.querySelector('.mw-tray-card[data-visit-id="' + visitId + '"]');
+        if (card) {
+            card.style.opacity = '0.4';
+            card.style.pointerEvents = 'none';
+        }
+
+        fetch('/crm/api/schedule-visit.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': CSRF
+            },
+            body: JSON.stringify({
+                visit_id:         visitId,
+                date:             date,
+                route_order:      routeOrder,
+                auto_assign_self: IS_CREW
+            })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (data.success) {
+                // Remove the card from the tray
+                if (card) card.remove();
+
+                // Update count badge
+                var remaining = document.querySelectorAll('.mw-tray-card').length;
+                var badge = document.querySelector('.mw-tray-count');
+                if (badge) badge.textContent = remaining;
+
+                // If tray is now empty, show the "all done" state
+                var trayBody = document.getElementById('mwTrayBody');
+                if (trayBody && remaining === 0) {
+                    trayBody.innerHTML = '<div class="mw-tray-empty">All jobs scheduled &#10003;</div>';
+                }
+
+                // Reload to show the new stop card in the day column
+                window.location.reload();
+            } else {
+                if (card) { card.style.opacity = ''; card.style.pointerEvents = ''; }
+                alert('Could not schedule job: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(function () {
+            if (card) { card.style.opacity = ''; card.style.pointerEvents = ''; }
+            alert('Network error — please try again.');
+        });
+    }
+
+})();
+</script>
+<?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
