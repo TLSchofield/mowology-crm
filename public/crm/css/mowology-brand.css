@@ -13381,3 +13381,163 @@ textarea.font-monospace {
   .mw-obs-card-header { flex-direction: column; gap: 4px; }
   .mw-obs-tabs { overflow-x: auto; flex-wrap: nowrap; }
 }
+
+/* ── Marketing Campaigns ───────────────────────────────────────── */
+
+/* Stats bar */
+.mw-camp-stats {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.mw-camp-stat-card {
+  flex: 1;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+}
+.mw-camp-stat-card.sent { border-left: 3px solid var(--mw-green); }
+.mw-camp-stat-number {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1a202c;
+}
+.mw-camp-stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+/* Filter tabs */
+.mw-camp-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+.mw-camp-tab {
+  padding: 0.5rem 1rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #64748b;
+  transition: all 0.2s;
+}
+.mw-camp-tab:hover { color: var(--mw-green); }
+.mw-camp-tab.active {
+  color: var(--mw-green);
+  border-bottom-color: var(--mw-green);
+}
+
+/* Campaign card grid */
+.mw-camp-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.mw-camp-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1.25rem;
+  transition: box-shadow 0.15s;
+}
+.mw-camp-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+.mw-camp-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.mw-camp-card-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.mw-camp-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.82rem;
+  color: #64748b;
+  margin-bottom: 0.75rem;
+}
+.mw-camp-card-stats {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid #f1f5f9;
+}
+.mw-camp-card-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.mw-camp-card-stat .num {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #1a202c;
+}
+.mw-camp-card-stat .label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #94a3b8;
+}
+.mw-camp-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 0.5rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* Status badges */
+.mw-camp-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.mw-camp-badge-draft { background: #f1f5f9; color: #64748b; }
+.mw-camp-badge-scheduled { background: #dbeafe; color: #1e40af; }
+.mw-camp-badge-queued { background: #fef3c7; color: #92400e; }
+.mw-camp-badge-sending { background: #c6f6d5; color: #22543d; animation: mw-camp-pulse 2s infinite; }
+.mw-camp-badge-completed { background: #d1fae5; color: #065f46; }
+.mw-camp-badge-paused { background: #fed7aa; color: #9a3412; }
+.mw-camp-badge-cancelled { background: #fecaca; color: #991b1b; }
+
+@keyframes mw-camp-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Empty state */
+.mw-camp-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #94a3b8;
+}
+.mw-camp-empty svg { margin-bottom: 0.75rem; opacity: 0.5; }
+.mw-camp-empty p { font-size: 0.9rem; }
+
+@media (max-width: 576px) {
+  .mw-camp-stats { flex-direction: column; }
+  .mw-camp-tabs { overflow-x: auto; flex-wrap: nowrap; }
+  .mw-camp-card-stats { flex-wrap: wrap; gap: 0.75rem; }
+  .mw-camp-card-header { flex-direction: column; align-items: flex-start; gap: 4px; }
+}

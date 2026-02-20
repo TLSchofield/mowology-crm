@@ -33,7 +33,7 @@ $navItems = [
     ['key' => 'portfolio', 'label' => 'Portfolio',     'icon' => 'image',       'href' => '/crm/portfolio/index.php',           'perm' => 'portfolio.view'],
     ['key' => 'cms',       'label' => 'CMS',          'icon' => 'edit-3',       'href' => '/crm/cms-pages_appstack.php',        'perm' => 'marketing.edit'],
     ['key' => 'media',     'label' => 'Media Library', 'icon' => 'image',       'href' => '/cms/cms-media_appstack.php',        'perm' => 'photos.upload'],
-    ['key' => 'marketing', 'label' => 'Marketing',     'icon' => 'zap',         'href' => '/crm/marketing/recommendations.php', 'perm' => 'marketing.view'],
+    ['key' => 'marketing', 'label' => 'Marketing',     'icon' => 'zap',         'href' => '/crm/marketing/campaigns.php',        'perm' => 'marketing.view'],
     ['key' => 'weather-ops', 'label' => 'Weather Ops',  'icon' => 'cloud-lightning', 'href' => '/crm/ops/weather_actions.php',  'perm' => 'schedule.edit'],
 ];
 ?>
