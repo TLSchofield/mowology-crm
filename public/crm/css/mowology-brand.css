@@ -2567,6 +2567,62 @@ a:hover {
   vertical-align: middle;
 }
 
+/* Customer Reach (purchase stats) */
+.mw-reach-stats {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.mw-reach-stat {
+  flex: 1;
+  text-align: center;
+  padding: 0.75rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+.mw-reach-stat.mw-reach-purchased {
+  background: var(--mw-light, #E8F3F0);
+  border-color: var(--mw-green, #2D8659);
+}
+.mw-reach-stat.mw-reach-available {
+  background: #fff8f0;
+  border-color: var(--mw-orange, #e85d04);
+}
+.mw-reach-number {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #1a202c;
+}
+.mw-reach-label {
+  display: block;
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.25rem;
+}
+.mw-reach-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.mw-reach-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+  font-size: 0.82rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+.mw-reach-item:last-child { border-bottom: none; }
+.mw-reach-name { font-weight: 500; min-width: 120px; }
+.mw-reach-email { flex: 1; }
+.mw-reach-date { white-space: nowrap; font-size: 0.75rem; }
+@media (max-width: 576px) {
+  .mw-reach-stats { flex-direction: column; }
+  .mw-reach-item { flex-wrap: wrap; }
+}
+
 /* Tracking & Compliance */
 .mw-tracking-flag-grid {
   display: grid;

@@ -987,6 +987,102 @@ try {
 
         echo json_encode(['success' => true, 'message' => 'Vendor product unlinked']);
 
+    // ── Customer Reach / Purchase Stats ───────────────────
+
+    } elseif ($action === 'get-purchase-stats') {
+        // Returns purchasers vs non-purchasers for a product
+        $productId = isset($_GET['product_id']) ? intval($_GET['product_id']) : 0;
+        if (!$productId) throw new Exception('Product ID is required');
+
+        // Check if contact_product_history table exists
+        $hasHistory = false;
+        try {
+            $db->query("SELECT 1 FROM contact_product_history LIMIT 0");
+            $hasHistory = true;
+        } catch (Exception $e) {}
+
+        if (!$hasHistory) {
+            echo json_encode([
+                'success' => true,
+                'available' => false,
+                'message' => 'Purchase history not available yet. Run the purchase history refresh cron first.'
+            ]);
+        } else {
+            // Get purchasers
+            $purchasers = $db->prepare("
+                SELECT cph.contact_id, c.first_name, c.last_name, c.email,
+                       cph.total_quantity, cph.total_revenue, cph.last_purchased
+                FROM contact_product_history cph
+                JOIN contacts c ON c.id = cph.contact_id
+                WHERE cph.product_id = ? AND c.is_active = 1
+                ORDER BY cph.total_revenue DESC
+            ");
+            $purchasers->execute([$productId]);
+            $purchaserList = $purchasers->fetchAll(PDO::FETCH_ASSOC);
+            $purchaserIds = array_column($purchaserList, 'contact_id');
+
+            // Get non-purchasers (active contacts with marketing consent who haven't bought this)
+            $nonPurchasers = [];
+
+            // Check if contacts.receive_marketing column exists
+            $hasMarketing = false;
+            try {
+                $mCheck = $db->query("SHOW COLUMNS FROM contacts LIKE 'receive_marketing'");
+                $hasMarketing = ($mCheck->rowCount() > 0);
+            } catch (Exception $e) {}
+
+            // Check if contacts.last_service_date column exists
+            $hasLastService = false;
+            try {
+                $lsCheck = $db->query("SHOW COLUMNS FROM contacts LIKE 'last_service_date'");
+                $hasLastService = ($lsCheck->rowCount() > 0);
+            } catch (Exception $e) {}
+
+            $lastServiceCol = $hasLastService ? ', c.last_service_date' : ", NULL AS last_service_date";
+            $marketingWhere = $hasMarketing ? 'AND c.receive_marketing = 1' : '';
+
+            if (!empty($purchaserIds)) {
+                $placeholders = implode(',', array_fill(0, count($purchaserIds), '?'));
+                $npStmt = $db->prepare("
+                    SELECT c.id AS contact_id, c.first_name, c.last_name, c.email
+                           {$lastServiceCol}
+                    FROM contacts c
+                    WHERE c.is_active = 1
+                      {$marketingWhere}
+                      AND c.id NOT IN ({$placeholders})
+                    ORDER BY c.last_name, c.first_name
+                    LIMIT 50
+                ");
+                $npStmt->execute($purchaserIds);
+            } else {
+                $npStmt = $db->prepare("
+                    SELECT c.id AS contact_id, c.first_name, c.last_name, c.email
+                           {$lastServiceCol}
+                    FROM contacts c
+                    WHERE c.is_active = 1
+                      {$marketingWhere}
+                    ORDER BY c.last_name, c.first_name
+                    LIMIT 50
+                ");
+                $npStmt->execute();
+            }
+            $nonPurchaserList = $npStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Total active contacts for percentage
+            $totalContactsStmt = $db->query("SELECT COUNT(*) FROM contacts WHERE is_active = 1");
+            $totalContacts = (int)$totalContactsStmt->fetchColumn();
+
+            echo json_encode([
+                'success' => true,
+                'available' => true,
+                'purchaser_count' => count($purchaserList),
+                'non_purchaser_count' => count($nonPurchaserList),
+                'total_contacts' => $totalContacts,
+                'purchasers' => $purchaserList,
+                'non_purchasers' => $nonPurchaserList,
+            ]);
+        }
+
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }

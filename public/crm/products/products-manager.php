@@ -635,6 +635,17 @@ $activePage = 'products';
                       </div>
                     </div>
 
+                    <!-- Customer Reach -->
+                    <div class="mw-product-form-section" id="customerReachSection">
+                      <h4>Customer Reach</h4>
+                      <p class="text-muted mb-2" style="font-size: 0.85rem;">
+                        See which clients have purchased this product/service and who hasn't — useful for targeted campaigns.
+                      </p>
+                      <div id="customerReachContent">
+                        <p class="text-muted small">Save this product first, then customer reach data will appear here.</p>
+                      </div>
+                    </div>
+
                     <!-- Weather Policy -->
                     <div class="mw-product-form-section">
                       <h4>Weather Policy</h4>
@@ -1165,6 +1176,9 @@ $activePage = 'products';
               document.getElementById('vendorSupplyList').innerHTML =
                 '<p class="text-muted small">Save this product first, then vendor links will appear here.</p>';
               document.getElementById('vendorSupplyActions').style.display = 'none';
+              // Reset customer reach
+              document.getElementById('customerReachContent').innerHTML =
+                '<p class="text-muted small">Save this product first, then customer reach data will appear here.</p>';
               $('#productModal').modal('show');
             }
 
@@ -1236,6 +1250,9 @@ $activePage = 'products';
 
               // Load vendor supply data
               loadVendorSupply(product.id);
+
+              // Load customer reach data
+              loadCustomerReach(product.id);
 
               // Set image preview
               if (product.image_url) {
@@ -2090,6 +2107,77 @@ $activePage = 'products';
                     }
                   });
                 });
+            }
+
+            // ── Customer Reach ──────────────────────────────────────
+
+            function loadCustomerReach(productId) {
+              const container = document.getElementById('customerReachContent');
+              if (!productId) {
+                container.innerHTML = '<p class="text-muted small">Save this product first, then customer reach data will appear here.</p>';
+                return;
+              }
+
+              container.innerHTML = '<p class="text-muted small">Loading customer reach data...</p>';
+
+              fetch('api-products.php?action=get-purchase-stats&product_id=' + productId)
+                .then(r => r.json())
+                .then(data => {
+                  if (!data.success || !data.available) {
+                    container.innerHTML = '<p class="text-muted small">' +
+                      (data.message || 'Purchase history not available yet. Run the daily refresh cron.') + '</p>';
+                    return;
+                  }
+                  renderCustomerReach(data, productId);
+                })
+                .catch(() => {
+                  container.innerHTML = '<p class="text-muted small">Unable to load customer reach data.</p>';
+                });
+            }
+
+            function renderCustomerReach(data, productId) {
+              const container = document.getElementById('customerReachContent');
+              const pct = data.total_contacts > 0
+                ? Math.round((data.purchaser_count / data.total_contacts) * 100)
+                : 0;
+
+              let html = `
+                <div class="mw-reach-stats">
+                  <div class="mw-reach-stat mw-reach-purchased">
+                    <span class="mw-reach-number">${data.purchaser_count}</span>
+                    <span class="mw-reach-label">clients have purchased</span>
+                  </div>
+                  <div class="mw-reach-stat mw-reach-available">
+                    <span class="mw-reach-number">${data.non_purchaser_count}</span>
+                    <span class="mw-reach-label">haven't purchased yet</span>
+                  </div>
+                  <div class="mw-reach-stat">
+                    <span class="mw-reach-number">${pct}%</span>
+                    <span class="mw-reach-label">penetration</span>
+                  </div>
+                </div>
+              `;
+
+              // Non-purchaser list (campaign targets)
+              if (data.non_purchasers && data.non_purchasers.length > 0) {
+                html += `<h6 class="mt-3 mb-2" style="font-size:0.85rem;color:#64748b;">Potential Campaign Targets</h6>`;
+                html += `<div class="mw-reach-list">`;
+                data.non_purchasers.slice(0, 10).forEach(c => {
+                  const name = escapeHtml((c.first_name || '') + ' ' + (c.last_name || '')).trim() || 'Unnamed';
+                  const lastService = c.last_service_date || '—';
+                  html += `<div class="mw-reach-item">
+                    <span class="mw-reach-name">${name}</span>
+                    <span class="mw-reach-email text-muted">${escapeHtml(c.email || '')}</span>
+                    <span class="mw-reach-date text-muted">Last service: ${lastService}</span>
+                  </div>`;
+                });
+                if (data.non_purchasers.length > 10) {
+                  html += `<div class="text-muted small mt-1">+ ${data.non_purchasers.length - 10} more</div>`;
+                }
+                html += `</div>`;
+              }
+
+              container.innerHTML = html;
             }
 
             // Utility: Escape HTML
