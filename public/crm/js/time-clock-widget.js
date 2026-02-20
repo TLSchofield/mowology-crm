@@ -31,6 +31,35 @@
     var autoArrivalEnabled = false; // Whether proximity auto-clock-in is active
     var lastAutoStartVisitId = null; // Prevent re-triggering same visit
 
+    // ── Screen Wake Lock ──
+    // Keeps the screen on while GPS tracking is active so mobile browsers
+    // don't suspend JS and drop location pings.
+    var wakeLock = null;
+
+    function requestWakeLock() {
+        if (!('wakeLock' in navigator)) return;
+        if (wakeLock) return; // Already held
+        navigator.wakeLock.request('screen').then(function(lock) {
+            wakeLock = lock;
+            wakeLock.addEventListener('release', function() {
+                wakeLock = null;
+            });
+        }).catch(function() {
+            // Wake lock denied (e.g. page not visible) — silently ignore
+        });
+    }
+
+    function releaseWakeLock() {
+        if (wakeLock) {
+            wakeLock.release().catch(function() {});
+            wakeLock = null;
+        }
+    }
+
+    // Note: wake lock is re-requested inside startTracking(), which is called
+    // by the visibilitychange handler below when the page becomes visible again.
+    // Wake locks are automatically released by the browser when the page hides.
+
     // ── Initialization ──
     updateTrackingDot('unknown', 'Checking GPS...');
     fetchStatus();
@@ -340,6 +369,7 @@
         gpsErrorCount = 0;
         gpsErrorToastShown = false;
         updateTrackingDot('unknown', 'Acquiring GPS...');
+        requestWakeLock();
 
         // ── Native Capacitor: background-capable GPS ──
         if (window.MwNative && window.MwNative.geo) {
@@ -421,6 +451,7 @@
     }
 
     function stopTracking() {
+        releaseWakeLock();
         // Stop native background GPS
         if (window.MwNative && window.MwNative.geo) {
             window.MwNative.geo.stopBackgroundTracking();
@@ -748,6 +779,7 @@
     // Mobile Safari suspends JS when backgrounded or screen-locked.
     // When the tab comes back, restart GPS watch and send a ping immediately.
     // In native Capacitor, the background plugin handles this natively.
+    // Wake lock is re-acquired by the visibilitychange handler above (near its declaration).
     document.addEventListener('visibilitychange', function() {
         if (window.MwNative) return; // Native plugin handles background GPS
         if (document.visibilityState !== 'visible' || !trackingEnabled) return;
