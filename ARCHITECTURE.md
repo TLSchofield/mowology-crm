@@ -64,12 +64,15 @@ Companion to `CLAUDE.md` (rules). This file documents what exists and where.
     │       ├── commercial-landscape-maintenance.php
     │       └── hedge-trimming.php
     │
-    ├── loginAuth/                     ← Central authentication system
-    │   ├── auth.php                   ← Core: loads session + config, provides all auth functions
-    │   ├── login.php                  ← Login form page
+    ├── loginAuth/                     ← Authentication system (pages + shim)
+    │   ├── auth.php                   ← Compatibility shim → /app/Core/Auth/auth.php
+    │   ├── login.php                  ← Login form page (inline POST + rate limiting)
     │   ├── logout.php                 ← Logout handler
-    │   ├── reset_password.php         ← Password reset
-    │   └── forms/                     ← Legacy form components
+    │   ├── forgot_password.php        ← Forgot password (inline POST, sends reset email)
+    │   ├── reset_password.php         ← Token-based password reset
+    │   ├── loginAuth_ARCHITECTURE.md  ← Auth architecture doc
+    │   ├── PROMPT.MD                  ← AI editing rules for auth scope
+    │   └── forms/                     ← Legacy form components (superseded by inline POST)
     │       ├── login.php
     │       └── forgot_password.php
     │
@@ -222,23 +225,28 @@ Companion to `CLAUDE.md` (rules). This file documents what exists and where.
 ```
 Browser → /loginAuth/login.php
             │
-            ├── require_once 'auth.php'
-            │     ├── require_once /app_config/session_config.php  (session_start, cookie hardening)
-            │     └── require_once /app_config/config.php          (Database class, helpers)
-            │           └── require_once /app_config/secrets.php   (DB_HOST, DB_PASS, API keys)
+            ├── require_once 'auth.php'    ← shim → /app/Core/Auth/auth.php
+            │     ├── require_once /app/Core/session_config.php  (session_start, cookie hardening)
+            │     └── require_once /app/Core/config.php          (Database class, helpers)
+            │           └── require_once /app_config/secrets.php  (DB_HOST, DB_PASS, API keys)
             │
-            ├── POST: loginUser($email, $password)
-            │     ├── SELECT from users WHERE email = ? AND is_active = 1
-            │     ├── password_verify() against bcrypt hash
-            │     ├── session_regenerate_id(true)
-            │     ├── Set $_SESSION: user_id, user_email, user_name, user_role,
-            │     │                  login_time, last_activity, csrf_token
-            │     └── Update users.last_login
-            │
-            └── Redirect → /crm/dashboard.php (or dashboard_appstack.php)
+            ├── POST (inline handling):
+            │     ├── verifyCSRFToken()
+            │     ├── isLoginRateLimited($email)  ← blocks after 5 fails in 10 min
+            │     ├── loginUser($email, $password)
+            │     │     ├── SELECT from users WHERE email = ? AND is_active = 1
+            │     │     ├── password_verify() against bcrypt hash
+            │     │     ├── session_regenerate_id(true)
+            │     │     ├── Set $_SESSION: user_id, user_email, user_name, user_role,
+            │     │     │                  login_time, last_activity
+            │     │     ├── Update users.last_login
+            │     │     ├── On success: clearLoginAttempts($email)
+            │     │     └── On failure: recordFailedLogin($email)
+            │     │
+            │     └── Redirect → DASHBOARD_URL (/crm/dashboard_appstack.php)
 
 Protected CRM page:
-    require_once __DIR__ . '/../loginAuth/auth.php'  ← loads session, DB, auth functions
+    require_once __DIR__ . '/../loginAuth/auth.php'  ← shim → canonical auth
     requireLogin()                     ← redirects to login if no session
     $user = getCurrentUser()           ← returns ['id','email','name','role']
 ```
@@ -590,7 +598,7 @@ Customer fills form on /jobFlow/jobFlow-getQuote.php
 | `csrf_token()` | `string` | Get/create CSRF token |
 | `csrf_verify($token)` | `bool` | Validate CSRF token |
 
-### From `/loginAuth/auth.php`
+### From `/loginAuth/auth.php` (shim → `/app/Core/Auth/auth.php`)
 
 | Function | Returns | Purpose |
 |----------|---------|---------|
@@ -604,3 +612,8 @@ Customer fills form on /jobFlow/jobFlow-getQuote.php
 | `verifyCSRFToken($token)` | `bool` | Validate CSRF token |
 | `logActivity($userId, $clientId, $action, $details)` | `void` | Write to activity_log |
 | `checkSessionTimeout($seconds)` | `void` or exit | Enforce idle timeout |
+| `isLoginRateLimited($email, $ip)` | `bool` | Check if login blocked (5 attempts/10 min) |
+| `recordFailedLogin($email, $ip)` | `void` | Record failed attempt |
+| `clearLoginAttempts($email, $ip)` | `void` | Clear attempts on success |
+
+Snake_case wrappers also exist (e.g., `is_logged_in()`, `require_login()`, `current_user()`).

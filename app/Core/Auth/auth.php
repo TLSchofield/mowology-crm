@@ -9,6 +9,7 @@ declare(strict_types=1);
  * - Pages in /loginAuth MUST include only this file (never config.php directly).
  * - Sessions are started only by session_config.php.
  * - Redirects use web-root absolute paths so calls from /crm/* work.
+ * - /public/loginAuth/auth.php is a compatibility shim that forwards here.
  *
  * Migrated from /public/loginAuth/auth.php
  */
@@ -39,6 +40,10 @@ if (!function_exists('getDB')) {
 if (!defined('LOGIN_URL'))     define('LOGIN_URL',     '/loginAuth/login.php');
 if (!defined('LOGOUT_URL'))    define('LOGOUT_URL',    '/loginAuth/logout.php');
 if (!defined('DASHBOARD_URL')) define('DASHBOARD_URL', '/crm/dashboard_appstack.php');
+
+// Rate-limit constants
+if (!defined('LOGIN_MAX_ATTEMPTS'))  define('LOGIN_MAX_ATTEMPTS', 5);
+if (!defined('LOGIN_WINDOW_SECONDS')) define('LOGIN_WINDOW_SECONDS', 600); // 10 minutes
 
 // Escape for HTML output
 if (!function_exists('h')) {
@@ -102,6 +107,76 @@ function isAdmin(): bool {
     return $u && ($u['role'] === 'admin');
 }
 
+// -------------------- Rate limiting --------------------
+
+/**
+ * Check whether the email+IP combination has exceeded the login attempt limit.
+ * Uses the login_attempts table (migration 401).
+ *
+ * @return bool true = blocked (too many attempts), false = allowed
+ */
+function isLoginRateLimited(string $email, ?string $ip = null): bool {
+    $ip = $ip ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            SELECT COUNT(*) FROM login_attempts
+            WHERE email = ? AND ip_address = ?
+              AND attempted_at > DATE_SUB(NOW(), INTERVAL ? SECOND)
+        ");
+        $stmt->execute([$email, $ip, LOGIN_WINDOW_SECONDS]);
+        return (int)$stmt->fetchColumn() >= LOGIN_MAX_ATTEMPTS;
+    } catch (Throwable $e) {
+        // If the table doesn't exist yet, fail open (don't block logins)
+        error_log("isLoginRateLimited() error: " . $e->getMessage());
+        return false;
+    }
+}
+
+/**
+ * Record a failed login attempt.
+ */
+function recordFailedLogin(string $email, ?string $ip = null): void {
+    $ip = $ip ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("INSERT INTO login_attempts (email, ip_address) VALUES (?, ?)");
+        $stmt->execute([$email, $ip]);
+    } catch (Throwable $e) {
+        error_log("recordFailedLogin() error: " . $e->getMessage());
+    }
+}
+
+/**
+ * Clear login attempts for an email+IP after successful login.
+ */
+function clearLoginAttempts(string $email, ?string $ip = null): void {
+    $ip = $ip ?? ($_SERVER['REMOTE_ADDR'] ?? '');
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("DELETE FROM login_attempts WHERE email = ? AND ip_address = ?");
+        $stmt->execute([$email, $ip]);
+    } catch (Throwable $e) {
+        error_log("clearLoginAttempts() error: " . $e->getMessage());
+    }
+}
+
+/**
+ * Purge expired login attempts (older than the rate-limit window).
+ * Call periodically (e.g., from cron) to keep the table small.
+ */
+function purgeExpiredLoginAttempts(): int {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL ? SECOND)");
+        $stmt->execute([LOGIN_WINDOW_SECONDS]);
+        return $stmt->rowCount();
+    } catch (Throwable $e) {
+        error_log("purgeExpiredLoginAttempts() error: " . $e->getMessage());
+        return 0;
+    }
+}
+
 // -------------------- Login / Logout --------------------
 
 function loginUser(string $email, string $password): bool {
@@ -135,13 +210,19 @@ function loginUser(string $email, string $password): bool {
             $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
             $upd->execute([(int)$user['id']]);
 
+            // Clear rate-limit records on success
+            clearLoginAttempts($email);
+
             // Log
             logActivity((int)$user['id'], null, 'User logged in', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
 
             return true;
         }
 
-        // Failed login attempt (if user exists)
+        // Record the failed attempt for rate limiting
+        recordFailedLogin($email);
+
+        // Also log to activity_log if the user account exists
         if ($user && isset($user['id'])) {
             logActivity((int)$user['id'], null, 'Failed login attempt', 'IP: ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
         }
@@ -218,4 +299,54 @@ function logActivity(int $user_id, $client_id, string $action, ?string $details 
     } catch (Throwable $e) {
         error_log("logActivity() error: " . $e->getMessage());
     }
+}
+
+// -------------------- Snake_case compatibility wrappers --------------------
+// loginAuth_ARCHITECTURE.md documents helpers in snake_case.
+// Canonical functions above are camelCase. These wrappers bridge the gap
+// so either naming convention works.
+
+if (!function_exists('is_logged_in')) {
+    function is_logged_in(): bool { return isLoggedIn(); }
+}
+if (!function_exists('require_login')) {
+    function require_login(): void { requireLogin(); }
+}
+if (!function_exists('current_user')) {
+    function current_user(): ?array { return getCurrentUser(); }
+}
+if (!function_exists('is_admin')) {
+    function is_admin(): bool { return isAdmin(); }
+}
+if (!function_exists('login_user')) {
+    function login_user(string $email, string $password): bool { return loginUser($email, $password); }
+}
+if (!function_exists('logout_user')) {
+    function logout_user(): void { logoutUser(); }
+}
+if (!function_exists('hash_password')) {
+    function hash_password(string $password): string { return hashPassword($password); }
+}
+if (!function_exists('generate_csrf_token')) {
+    function generate_csrf_token(): string { return generateCSRFToken(); }
+}
+if (!function_exists('verify_csrf_token')) {
+    function verify_csrf_token(string $token): bool { return verifyCSRFToken($token); }
+}
+if (!function_exists('log_activity')) {
+    function log_activity(int $user_id, $client_id, string $action, ?string $details = null): void {
+        logActivity($user_id, $client_id, $action, $details);
+    }
+}
+if (!function_exists('check_session_timeout')) {
+    function check_session_timeout(int $timeout = 1800): void { checkSessionTimeout($timeout); }
+}
+if (!function_exists('is_login_rate_limited')) {
+    function is_login_rate_limited(string $email, ?string $ip = null): bool { return isLoginRateLimited($email, $ip); }
+}
+if (!function_exists('record_failed_login')) {
+    function record_failed_login(string $email, ?string $ip = null): void { recordFailedLogin($email, $ip); }
+}
+if (!function_exists('clear_login_attempts')) {
+    function clear_login_attempts(string $email, ?string $ip = null): void { clearLoginAttempts($email, $ip); }
 }
