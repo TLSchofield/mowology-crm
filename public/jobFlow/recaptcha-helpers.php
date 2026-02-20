@@ -173,3 +173,80 @@ function is_recaptcha_v3_configured(): bool {
         && RECAPTCHA_V3_SECRET_KEY !== ''
         && RECAPTCHA_V3_SECRET_KEY !== 'REPLACE_WITH_RECAPTCHA_V3_SECRET_KEY';
 }
+
+/**
+ * Write a reCAPTCHA security event to activity_log.
+ *
+ * Called when a verification attempt fails (bad token format, low score,
+ * network error, action mismatch, rate limit hit). Never throws — audit
+ * failure must not break the user flow.
+ *
+ * @param string      $action  Event label, e.g. 'recaptcha_failed'
+ * @param array       $details Structured context (no PII — scores, error codes, action names only)
+ * @param string|null $ip      Client IP address
+ */
+function recaptcha_audit_log(string $action, array $details, ?string $ip): void
+{
+    try {
+        $db = getDB();
+        $db->prepare(
+            "INSERT INTO activity_log (user_id, action, details, ip_address)
+             VALUES (NULL, ?, ?, ?)"
+        )->execute([
+            $action,
+            json_encode($details, JSON_UNESCAPED_SLASHES),
+            $ip,
+        ]);
+    } catch (\Throwable $e) {
+        error_log('[recaptcha_audit_log] DB write error: ' . $e->getMessage());
+    }
+}
+
+/**
+ * Verify a reCAPTCHA v3 token with full audit logging on failure.
+ *
+ * Drop-in replacement for verify_recaptcha_v3() that also writes failed
+ * attempts to activity_log. Identical return shape.
+ *
+ * @param string      $token          The recaptcha_v3_token from the client.
+ * @param string      $expectedAction Expected action string (e.g. 'quote_submit').
+ * @param string|null $remoteIp       Optional client IP.
+ * @return array ['passed' => bool, 'score' => float|null, 'needs_v2' => bool, 'error' => string|null]
+ */
+function verify_recaptcha_v3_audited(string $token, string $expectedAction, ?string $remoteIp = null): array
+{
+    $result = verify_recaptcha_v3($token, $expectedAction, $remoteIp);
+
+    if (!$result['passed']) {
+        recaptcha_audit_log('recaptcha_v3_' . ($result['error'] ?? 'failed'), [
+            'action'    => $expectedAction,
+            'score'     => $result['score'],
+            'needs_v2'  => $result['needs_v2'],
+            'error'     => $result['error'],
+        ], $remoteIp);
+    }
+
+    return $result;
+}
+
+/**
+ * Verify a reCAPTCHA v2 checkbox token with audit logging on failure.
+ *
+ * Drop-in replacement for verify_recaptcha_v2_token() with audit logging.
+ *
+ * @param string      $token    The g-recaptcha-response from the v2 checkbox.
+ * @param string|null $remoteIp Optional client IP.
+ * @return bool True if verification succeeded.
+ */
+function verify_recaptcha_v2_audited(string $token, ?string $remoteIp = null): bool
+{
+    $passed = verify_recaptcha_v2_token($token, $remoteIp);
+
+    if (!$passed) {
+        recaptcha_audit_log('recaptcha_v2_failed', [
+            'token_length' => strlen($token),
+        ], $remoteIp);
+    }
+
+    return $passed;
+}

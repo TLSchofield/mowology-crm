@@ -89,6 +89,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Security check failed. Please refresh and try again.';
         } else {
 
+            // 1b. IP rate limit — max 10 form submissions per 15 minutes per IP.
+            // Protects the DB insert path independently of reCAPTCHA.
+            // Uses the same recaptcha_rate_limit table created by RecaptchaVerify.
+            $submissionIp = $_SERVER['REMOTE_ADDR'] ?? '';
+            $rateLimitHit = false;
+            if ($submissionIp !== '') {
+                try {
+                    $rlDb        = getDB();
+                    $rlWindow    = 900;   // 15 minutes
+                    $rlMax       = 10;    // submissions, not verification calls
+                    $rlWindowTs  = date('Y-m-d H:i:s', time() - $rlWindow);
+                    // Ensure table exists (RecaptchaVerify may not have run yet if token absent)
+                    $rlDb->exec("
+                        CREATE TABLE IF NOT EXISTS recaptcha_rate_limit (
+                            id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                            ip            VARCHAR(45)  NOT NULL,
+                            window_start  DATETIME     NOT NULL,
+                            attempt_count INT UNSIGNED NOT NULL DEFAULT 1,
+                            INDEX idx_ip_window (ip, window_start)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    ");
+                    $rlDb->prepare("DELETE FROM recaptcha_rate_limit WHERE window_start < ?")
+                         ->execute([$rlWindowTs]);
+                    $rlStmt = $rlDb->prepare(
+                        "SELECT attempt_count FROM recaptcha_rate_limit
+                          WHERE ip = ? AND window_start >= ? LIMIT 1"
+                    );
+                    $rlStmt->execute([$submissionIp, $rlWindowTs]);
+                    $rlRow = $rlStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($rlRow === false) {
+                        $rlDb->prepare(
+                            "INSERT INTO recaptcha_rate_limit (ip, window_start, attempt_count)
+                             VALUES (?, NOW(), 1)"
+                        )->execute([$submissionIp]);
+                    } elseif ((int)$rlRow['attempt_count'] >= $rlMax) {
+                        $rateLimitHit = true;
+                        recaptcha_audit_log('form_rate_limited', [
+                            'form'    => 'quote_submit',
+                            'count'   => (int)$rlRow['attempt_count'],
+                            'max'     => $rlMax,
+                            'window'  => $rlWindow,
+                        ], $submissionIp);
+                        error_log('[jobFlow-getQuote] rate limit hit for IP: ' . $submissionIp);
+                    } else {
+                        $rlDb->prepare(
+                            "UPDATE recaptcha_rate_limit
+                                SET attempt_count = attempt_count + 1
+                              WHERE ip = ? AND window_start >= ?"
+                        )->execute([$submissionIp, $rlWindowTs]);
+                    }
+                } catch (\Throwable $rlEx) {
+                    // DB error — fail open (don't block real users)
+                    error_log('[jobFlow-getQuote] rate limit check error: ' . $rlEx->getMessage());
+                }
+            }
+
+            if ($rateLimitHit) {
+                $error = 'Too many requests. Please wait a few minutes before trying again.';
+            } else {
+
             // 2. Strict validation (via helper)
             $validated = validateQuoteForm($_POST);
             $errors    = $validated['errors'];
@@ -100,11 +160,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $v3Token = (string)($_POST['recaptcha_v3_token'] ?? '');
 
             if ($v2Token !== '') {
-                if (!verify_recaptcha_v2_token($v2Token, $ip)) {
+                if (!verify_recaptcha_v2_audited($v2Token, $ip)) {
                     $errors['recaptcha'] = 'Security check failed. Please try again.';
                 }
             } elseif ($v3Token !== '') {
-                $v3Result = verify_recaptcha_v3($v3Token, 'quote_submit', $ip);
+                $v3Result = verify_recaptcha_v3_audited($v3Token, 'quote_submit', $ip);
                 if (!$v3Result['passed']) {
                     if ($v3Result['needs_v2']) {
                         $showV2Challenge = true;
@@ -161,7 +221,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ? 'Please complete the security check to continue.'
                     : 'Please correct the errors below and try again.';
             }
-        }
+        } // end: rate limit passed
+        } // end: CSRF passed
     }
 }
 
