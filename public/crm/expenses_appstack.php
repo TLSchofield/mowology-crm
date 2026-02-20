@@ -177,6 +177,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                 </div>
 
+                <!-- Vendor Product Matches (from receipt OCR) -->
+                <div class="mw-vd-match-banner" id="rvProductMatchBanner" style="display:none;">
+                    <div class="mw-vd-match-icon"><i data-feather="package" style="width:14px;height:14px;"></i></div>
+                    <span id="rvProductMatchText">0 products recognized</span>
+                    <a href="javascript:void(0)" id="rvProductMatchLink" class="mw-vd-match-viewlink" onclick="openVendorDetail(window.__lastMatchedVendorId)">View catalog</a>
+                </div>
+
                 <!-- Duplicate Warning (hidden until detected) -->
                 <div class="mw-duplicate-warning" id="rvDuplicateWarning" style="display:none;">
                     <div class="mw-duplicate-warning-header">
@@ -360,15 +367,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <tr>
                         <th>Vendor</th>
                         <th>Aliases</th>
-                        <th>Accounting Category</th>
-                        <th>GBP Category</th>
-                        <th>Locations</th>
+                        <th>Category</th>
+                        <th>Products</th>
                         <th>Total Spent</th>
                         <th></th>
                     </tr>
                 </thead>
                 <tbody id="vendorsTableBody">
-                    <tr><td colspan="7" class="text-center py-4 text-muted">Loading...</td></tr>
+                    <tr><td colspan="6" class="text-center py-4 text-muted">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -1007,6 +1013,81 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     </div>
 </div>
 
+<!-- ═══════ VENDOR DETAIL PANEL (slide-out) ═══════════════════════ -->
+<div class="mw-vendor-detail-overlay" id="vendorDetailOverlay" style="display:none;" onclick="closeVendorDetail()"></div>
+<div class="mw-vendor-detail-panel" id="vendorDetailPanel" style="display:none;">
+    <div class="mw-vendor-detail-header">
+        <div class="d-flex align-items-center justify-content-between">
+            <h5 class="mb-0" id="vdName">Vendor</h5>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="closeVendorDetail()" title="Close">
+                <i data-feather="x" style="width:16px;height:16px;"></i>
+            </button>
+        </div>
+        <div class="mt-1" id="vdBadges"></div>
+    </div>
+    <div class="mw-vendor-detail-body">
+        <!-- Spend summary -->
+        <div class="mw-vd-section" id="vdSpendSection">
+            <div class="d-flex gap-3 text-center">
+                <div class="mw-vd-stat">
+                    <div class="mw-vd-stat-val" id="vdTotalSpent">$0</div>
+                    <div class="mw-vd-stat-label">Total Spent</div>
+                </div>
+                <div class="mw-vd-stat">
+                    <div class="mw-vd-stat-val" id="vdExpenseCount">0</div>
+                    <div class="mw-vd-stat-label">Receipts</div>
+                </div>
+                <div class="mw-vd-stat">
+                    <div class="mw-vd-stat-val" id="vdLastExpense">—</div>
+                    <div class="mw-vd-stat-label">Last Purchase</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Products -->
+        <div class="mw-vd-section">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">Products <span class="badge bg-secondary" id="vdProductCount">0</span></h6>
+            </div>
+            <div id="vdProductsList">
+                <div class="text-muted small py-2">No products cataloged for this vendor.</div>
+            </div>
+        </div>
+
+        <!-- Locations -->
+        <div class="mw-vd-section">
+            <h6 class="mb-2">Locations <span class="badge bg-secondary" id="vdLocationCount">0</span></h6>
+            <div id="vdLocationsList">
+                <div class="text-muted small py-2">No locations.</div>
+            </div>
+        </div>
+
+        <!-- Recent Expenses -->
+        <div class="mw-vd-section">
+            <h6 class="mb-2">Recent Expenses</h6>
+            <div id="vdRecentExpenses">
+                <div class="text-muted small py-2">No expenses yet.</div>
+            </div>
+        </div>
+
+        <!-- Vendor info / quick actions -->
+        <div class="mw-vd-section">
+            <div class="d-flex gap-2">
+                <?php if ($canEdit): ?>
+                <button class="btn btn-sm btn-outline-primary" id="vdEditBtn" onclick="editVendorFromDetail()">
+                    <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit
+                </button>
+                <?php endif; ?>
+                <a class="btn btn-sm btn-outline-secondary" id="vdWebsiteBtn" href="#" target="_blank" rel="noopener" style="display:none;">
+                    <i data-feather="external-link" style="width:14px;height:14px;"></i> Website
+                </a>
+            </div>
+            <div class="mt-2 small text-muted" id="vdAliases"></div>
+            <div class="mt-1 small text-muted" id="vdNotes"></div>
+        </div>
+    </div>
+</div>
+
 
 <script>
 (function() {
@@ -1266,6 +1347,28 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             rvLiSection.style.display = 'block';
         } else if (rvLiSection) {
             rvLiSection.style.display = 'none';
+        }
+
+        // Product matches banner (from vendor product catalog)
+        var productMatches = p.product_matches || [];
+        var matchBanner = document.getElementById('rvProductMatchBanner');
+        if (matchBanner) {
+            if (productMatches.length > 0 && s.vendor_id) {
+                window.__lastMatchedVendorId = s.vendor_id;
+                document.getElementById('rvProductMatchText').textContent =
+                    productMatches.length + ' product' + (productMatches.length > 1 ? 's' : '') +
+                    ' recognized from ' + esc(s.vendor_name || 'vendor') + ' catalog';
+                matchBanner.style.display = 'flex';
+            } else if (s.vendor_id) {
+                // Vendor matched but no product matches — still show catalog link
+                window.__lastMatchedVendorId = s.vendor_id;
+                document.getElementById('rvProductMatchText').textContent =
+                    esc(s.vendor_name || 'Vendor') + ' identified';
+                document.getElementById('rvProductMatchLink').textContent = 'View catalog';
+                matchBanner.style.display = 'flex';
+            } else {
+                matchBanner.style.display = 'none';
+            }
         }
 
         if (window.feather) feather.replace();
@@ -2171,7 +2274,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     function renderVendors(vendors) {
         var tbody = document.getElementById('vendorsTableBody');
         if (!vendors.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No vendors yet</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No vendors yet</td></tr>';
             return;
         }
 
@@ -2183,12 +2286,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 ? ' <button class="btn btn-sm btn-outline-danger" onclick="deleteVendor(' + v.id + ', \'' + esc(v.name).replace(/'/g, "\\'") + '\')" title="Delete"><i data-feather="trash-2" style="width:14px;height:14px;"></i></button>'
                 : '';
 
+            var productBadge = (v.product_count > 0)
+                ? '<span class="badge bg-success">' + v.product_count + '</span>'
+                : '<span class="text-muted">—</span>';
+
+            var categoryLabel = esc(v.default_accounting_category || '—');
+            var gstBadge = (v.gst_exempt && v.gst_exempt !== '0')
+                ? ' <span class="badge bg-warning text-dark" style="font-size:0.65rem;">GST-free</span>'
+                : '';
+
             return '<tr>' +
-                '<td><strong>' + esc(v.name) + '</strong></td>' +
+                '<td><a href="javascript:void(0)" class="mw-vendor-name-link" onclick="openVendorDetail(' + v.id + ')">' + esc(v.name) + '</a>' + gstBadge + '</td>' +
                 '<td><small class="text-muted">' + esc(v.aliases || '—') + '</small></td>' +
-                '<td>' + esc(v.default_accounting_category || '—') + '</td>' +
-                '<td>' + esc(v.default_gbp_category || '—') + '</td>' +
-                '<td>' + (v.location_count || 0) + '</td>' +
+                '<td>' + categoryLabel + '</td>' +
+                '<td class="text-center">' + productBadge + '</td>' +
                 '<td>$' + parseFloat(v.total_spent || 0).toFixed(2) + '</td>' +
                 '<td class="text-nowrap">' + editBtn + deleteBtn + '</td>' +
             '</tr>';
@@ -2265,6 +2376,262 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             $('#vendorModal').modal('hide');
             loadVendors();
         } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    // ── Vendor Detail Panel ────────────────────────────────────────
+    var currentVendorDetail = null;
+
+    window.openVendorDetail = async function(vendorId) {
+        var panel = document.getElementById('vendorDetailPanel');
+        var overlay = document.getElementById('vendorDetailOverlay');
+        panel.style.display = 'flex';
+        overlay.style.display = 'block';
+        // Animate in
+        requestAnimationFrame(function() {
+            panel.classList.add('mw-vd-open');
+            overlay.classList.add('mw-vd-open');
+        });
+
+        try {
+            var r = await fetch('/crm/api/vendors.php?action=get&id=' + vendorId);
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            currentVendorDetail = d.vendor;
+            renderVendorDetail(d.vendor);
+        } catch(e) {
+            document.querySelector('.mw-vendor-detail-body').innerHTML =
+                '<div class="text-danger p-3">' + esc(e.message) + '</div>';
+        }
+    };
+
+    window.closeVendorDetail = function() {
+        var panel = document.getElementById('vendorDetailPanel');
+        var overlay = document.getElementById('vendorDetailOverlay');
+        panel.classList.remove('mw-vd-open');
+        overlay.classList.remove('mw-vd-open');
+        setTimeout(function() {
+            panel.style.display = 'none';
+            overlay.style.display = 'none';
+        }, 300);
+        currentVendorDetail = null;
+    };
+
+    window.editVendorFromDetail = function() {
+        if (currentVendorDetail) {
+            closeVendorDetail();
+            showVendorModal(currentVendorDetail);
+        }
+    };
+
+    function renderVendorDetail(v) {
+        // Header
+        document.getElementById('vdName').textContent = v.name;
+        var badges = '';
+        if (v.default_accounting_category) badges += '<span class="badge bg-primary me-1">' + esc(v.default_accounting_category) + '</span>';
+        if (v.default_gbp_category) badges += '<span class="badge bg-secondary me-1">' + esc(v.default_gbp_category) + '</span>';
+        if (v.gst_exempt && v.gst_exempt !== '0') badges += '<span class="badge bg-warning text-dark me-1">GST Exempt</span>';
+        document.getElementById('vdBadges').innerHTML = badges;
+
+        // Spend summary
+        var spend = v.spend_summary || {};
+        document.getElementById('vdTotalSpent').textContent = '$' + parseFloat(spend.total_spent || 0).toFixed(2);
+        document.getElementById('vdExpenseCount').textContent = spend.expense_count || 0;
+        document.getElementById('vdLastExpense').textContent = spend.last_expense || '—';
+
+        // Products
+        var products = v.products || [];
+        document.getElementById('vdProductCount').textContent = products.length;
+        if (products.length > 0) {
+            renderVendorProducts(products);
+        } else {
+            document.getElementById('vdProductsList').innerHTML =
+                '<div class="text-muted small py-2">No products cataloged for this vendor.</div>';
+        }
+
+        // Locations
+        var locs = v.locations || [];
+        document.getElementById('vdLocationCount').textContent = locs.length;
+        if (locs.length > 0) {
+            document.getElementById('vdLocationsList').innerHTML = locs.map(function(loc) {
+                return '<div class="mw-vd-location-item">' +
+                    '<i data-feather="map-pin" style="width:12px;height:12px;"></i> ' +
+                    '<span>' + esc(loc.label || loc.address || 'Unnamed') + '</span>' +
+                    (loc.city ? ' <small class="text-muted">(' + esc(loc.city) + ')</small>' : '') +
+                '</div>';
+            }).join('');
+        } else {
+            document.getElementById('vdLocationsList').innerHTML =
+                '<div class="text-muted small py-2">No locations.</div>';
+        }
+
+        // Recent expenses
+        var expenses = v.recent_expenses || [];
+        if (expenses.length > 0) {
+            document.getElementById('vdRecentExpenses').innerHTML = expenses.map(function(e) {
+                return '<div class="mw-vd-expense-item">' +
+                    '<span class="mw-vd-expense-date">' + esc(e.expense_date) + '</span>' +
+                    '<span class="mw-vd-expense-cat">' + esc(e.accounting_category || '') + '</span>' +
+                    '<span class="mw-vd-expense-amt">$' + parseFloat(e.total).toFixed(2) + '</span>' +
+                '</div>';
+            }).join('');
+        } else {
+            document.getElementById('vdRecentExpenses').innerHTML =
+                '<div class="text-muted small py-2">No expenses yet.</div>';
+        }
+
+        // Website link
+        var webBtn = document.getElementById('vdWebsiteBtn');
+        if (v.website) {
+            webBtn.href = v.website.startsWith('http') ? v.website : 'https://' + v.website;
+            webBtn.style.display = '';
+        } else {
+            webBtn.style.display = 'none';
+        }
+
+        // Aliases / notes
+        document.getElementById('vdAliases').textContent = v.aliases ? 'OCR aliases: ' + v.aliases : '';
+        document.getElementById('vdNotes').textContent = v.notes || '';
+
+        if (window.feather) feather.replace();
+    }
+
+    function renderVendorProducts(products) {
+        // Group by category
+        var grouped = {};
+        products.forEach(function(p) {
+            var cat = p.category || 'Uncategorized';
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(p);
+        });
+
+        var html = '';
+        Object.keys(grouped).sort().forEach(function(cat) {
+            html += '<div class="mw-vd-product-group">';
+            html += '<div class="mw-vd-product-group-label">' + esc(cat) + '</div>';
+            grouped[cat].forEach(function(p) {
+                var priceLabel = '';
+                if (p.price_per_unit) {
+                    priceLabel = '$' + parseFloat(p.price_per_unit).toFixed(2) + '/' + esc(p.unit || 'unit');
+                }
+                if (p.alt_price && p.alt_unit) {
+                    priceLabel += (priceLabel ? ' · ' : '') + '$' + parseFloat(p.alt_price).toFixed(2) + '/' + esc(p.alt_unit);
+                }
+
+                var linkHtml = '';
+                if (p.product_id && p.linked_product_name) {
+                    linkHtml = '<span class="mw-vd-product-link linked" title="Linked to internal product">' +
+                        '<i data-feather="link" style="width:11px;height:11px;"></i> ' +
+                        esc(p.linked_product_name) +
+                        (CAN_EDIT ? ' <a href="javascript:void(0)" class="mw-vd-unlink" onclick="unlinkVendorProduct(' + p.id + ')">x</a>' : '') +
+                    '</span>';
+                } else if (CAN_EDIT) {
+                    linkHtml = '<a href="javascript:void(0)" class="mw-vd-product-link unlinked" onclick="showVendorProductLink(' + p.id + ', this)">' +
+                        '<i data-feather="link-2" style="width:11px;height:11px;"></i> Link product' +
+                    '</a>';
+                }
+
+                html += '<div class="mw-vd-product-item">' +
+                    '<div class="mw-vd-product-name">' + esc(p.name) + '</div>' +
+                    (priceLabel ? '<div class="mw-vd-product-price">' + priceLabel + '</div>' : '') +
+                    linkHtml +
+                '</div>';
+            });
+            html += '</div>';
+        });
+
+        document.getElementById('vdProductsList').innerHTML = html;
+        if (window.feather) feather.replace();
+    }
+
+    // Product linking popover
+    var vpPopover = null;
+
+    window.showVendorProductLink = function(vpId, btn) {
+        closeVpPopover();
+        var pop = document.createElement('div');
+        pop.className = 'mw-vd-link-popover';
+        pop.innerHTML = '<input type="text" class="form-control form-control-sm" placeholder="Search your products..." autofocus>' +
+            '<div class="mw-vd-link-results"></div>';
+        pop.dataset.vpId = vpId;
+
+        btn.parentNode.style.position = 'relative';
+        btn.parentNode.appendChild(pop);
+        vpPopover = pop;
+
+        var input = pop.querySelector('input');
+        var debounce = null;
+        input.addEventListener('input', function() {
+            clearTimeout(debounce);
+            debounce = setTimeout(function() { searchProductsForLink(input.value, pop); }, 250);
+        });
+        input.focus();
+
+        setTimeout(function() {
+            document.addEventListener('click', closeVpOnOutside);
+        }, 100);
+    };
+
+    function closeVpPopover() {
+        if (vpPopover) { vpPopover.remove(); vpPopover = null; }
+        document.removeEventListener('click', closeVpOnOutside);
+    }
+
+    function closeVpOnOutside(e) {
+        if (vpPopover && !vpPopover.contains(e.target)) closeVpPopover();
+    }
+
+    async function searchProductsForLink(query, pop) {
+        if (query.length < 2) {
+            pop.querySelector('.mw-vd-link-results').innerHTML = '';
+            return;
+        }
+        try {
+            var r = await fetch('/crm/products/api-products.php?action=list-products&search=' + encodeURIComponent(query));
+            var d = await r.json();
+            var results = pop.querySelector('.mw-vd-link-results');
+            if (d.success && d.products && d.products.length > 0) {
+                results.innerHTML = d.products.slice(0, 8).map(function(p) {
+                    return '<div class="mw-vd-link-item" data-pid="' + p.id + '">' +
+                        esc(p.name) + (p.sku ? ' <small class="text-muted">' + esc(p.sku) + '</small>' : '') +
+                    '</div>';
+                }).join('');
+                results.querySelectorAll('.mw-vd-link-item').forEach(function(el) {
+                    el.addEventListener('click', function() {
+                        linkVendorProduct(parseInt(pop.dataset.vpId), parseInt(this.dataset.pid));
+                    });
+                });
+            } else {
+                results.innerHTML = '<div class="text-muted small p-2">No products found</div>';
+            }
+        } catch(e) { console.error('product search', e); }
+    }
+
+    async function linkVendorProduct(vpId, productId) {
+        closeVpPopover();
+        try {
+            var r = await fetch('/crm/api/vendors.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'link_vendor_product', vendor_product_id: vpId, product_id: productId, csrf_token: CSRF }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            // Refresh detail panel
+            if (currentVendorDetail) openVendorDetail(currentVendorDetail.id);
+        } catch(e) { alert('Link failed: ' + e.message); }
+    }
+
+    window.unlinkVendorProduct = async function(vpId) {
+        try {
+            var r = await fetch('/crm/api/vendors.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'unlink_vendor_product', vendor_product_id: vpId, csrf_token: CSRF }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            if (currentVendorDetail) openVendorDetail(currentVendorDetail.id);
+        } catch(e) { alert('Unlink failed: ' + e.message); }
     };
 
     // ── Send Log ─────────────────────────────────────────────────

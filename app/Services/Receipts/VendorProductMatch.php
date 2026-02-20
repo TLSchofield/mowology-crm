@@ -52,8 +52,42 @@ function matchVendorProducts(int $vendorId, string $ocrText, array $parsed): arr
 
     $lines = preg_split('/\r?\n/', $ocrText);
 
-    // 1) Fuzzy-match OCR lines against product names
+    // 1) Fuzzy-match OCR lines against product names (single lines)
     $productMatches = fuzzyMatchProducts($lines, $searchIndex, $products);
+
+    // 1b) If few matches found, try combining adjacent lines
+    //     Handwritten receipts often split product names across lines
+    //     e.g., "vy" + "1\" noch" → "vy 1 noch" which is closer to "navy jack"
+    if (count($productMatches) < 2) {
+        $combinedMatches = fuzzyMatchCombinedLines($lines, $searchIndex, $products);
+        // Merge, keeping highest confidence per product
+        foreach ($combinedMatches as $cm) {
+            $found = false;
+            foreach ($productMatches as &$pm) {
+                if ($pm['product_id'] === $cm['product_id']) {
+                    if ($cm['confidence'] > $pm['confidence']) $pm = $cm;
+                    $found = true;
+                    break;
+                }
+            }
+            unset($pm);
+            if (!$found) $productMatches[] = $cm;
+        }
+    }
+
+    // 1c) Word-level matching: extract individual OCR words and match against aliases
+    $wordMatches = fuzzyMatchByWords($lines, $searchIndex, $products);
+    foreach ($wordMatches as $wm) {
+        $found = false;
+        foreach ($productMatches as &$pm) {
+            if ($pm['product_id'] === $wm['product_id']) {
+                $found = true;
+                break;
+            }
+        }
+        unset($pm);
+        if (!$found) $productMatches[] = $wm;
+    }
 
     // 2) If we got product matches, try to pair them with amounts from OCR
     if (!empty($productMatches)) {
@@ -140,7 +174,7 @@ function fuzzyMatchProducts(array $lines, array $searchIndex, array $products): 
 
     for ($i = 0; $i < count($lines); $i++) {
         $line = trim($lines[$i]);
-        if ($line === '' || strlen($line) < 3) continue;
+        if ($line === '' || strlen($line) < 2) continue;
 
         $lineLower = strtolower($line);
 
@@ -166,7 +200,7 @@ function fuzzyMatchProducts(array $lines, array $searchIndex, array $products): 
 
         // Strategy 2: Check if line contains an alias as a substring
         foreach ($searchIndex as $term => $pid) {
-            if (strlen($term) >= 4 && strpos($lineLower, $term) !== false) {
+            if (strlen($term) >= 3 && strpos($lineLower, $term) !== false) {
                 $matches[] = [
                     'product_id'   => $pid,
                     'product_name' => $productsById[$pid]['name'],
@@ -513,4 +547,193 @@ function buildLineItemsFromMatches(array $productMatches): array
     }
 
     return $items;
+}
+
+
+/**
+ * Combine adjacent non-skipped OCR lines and try matching the combined text.
+ * Handwritten receipts often split product names across 2 lines.
+ * E.g., "vy" + "1\" noch" → "vy 1 noch" which fuzzy-matches "navy jack".
+ */
+function fuzzyMatchCombinedLines(array $lines, array $searchIndex, array $products): array
+{
+    $matches = [];
+    $productsById = [];
+    foreach ($products as $p) {
+        $productsById[$p['id']] = $p;
+    }
+
+    $skipPatterns = [
+        '/^\d{1,2}$/',
+        '/^\d{3,4}[\.\-]\d{3}[\.\-]\d{4}/',
+        '/^(tel|address|date|no|www\.|http)/i',
+        '/^\d+\s+(st|ave|blvd|rd|dr|cambie|broadway)/i',
+        '/^(GST|PST|HST|TAX|TOTAL|SUBTOTAL)/i',
+        '/^(enterprises|ltd|inc|corp)/i',
+    ];
+
+    // Collect non-skipped lines
+    $candidateLines = [];
+    for ($i = 0; $i < count($lines); $i++) {
+        $line = trim($lines[$i]);
+        if ($line === '' || strlen($line) < 2) continue;
+
+        $skip = false;
+        foreach ($skipPatterns as $pat) {
+            if (preg_match($pat, $line)) { $skip = true; break; }
+        }
+        if ($skip) continue;
+
+        $candidateLines[] = ['text' => $line, 'index' => $i];
+    }
+
+    // Try combining consecutive candidate lines (pairs and triples)
+    for ($i = 0; $i < count($candidateLines) - 1; $i++) {
+        // Pair
+        $combined = $candidateLines[$i]['text'] . ' ' . $candidateLines[$i+1]['text'];
+        $combinedLower = strtolower($combined);
+
+        // Check alias match
+        foreach ($searchIndex as $term => $pid) {
+            if (strlen($term) >= 4 && strpos($combinedLower, $term) !== false) {
+                $matches[] = [
+                    'product_id'   => $pid,
+                    'product_name' => $productsById[$pid]['name'],
+                    'matched_text' => $combined,
+                    'confidence'   => 70,
+                    'line_index'   => $candidateLines[$i]['index'],
+                    'strategy'     => 'combined_lines',
+                ];
+                break;
+            }
+        }
+
+        // Levenshtein on combined
+        if (preg_match('/[a-zA-Z]{3,}/', $combined)) {
+            $bestMatch = findBestLevenshteinMatch($combinedLower, $searchIndex, $productsById);
+            if ($bestMatch !== null && $bestMatch['confidence'] >= 50) {
+                $matches[] = array_merge($bestMatch, [
+                    'line_index'   => $candidateLines[$i]['index'],
+                    'matched_text' => $combined,
+                    'strategy'     => 'combined_levenshtein',
+                ]);
+            }
+        }
+
+        // Triple (if available)
+        if ($i < count($candidateLines) - 2) {
+            $triple = $candidateLines[$i]['text'] . ' ' . $candidateLines[$i+1]['text'] . ' ' . $candidateLines[$i+2]['text'];
+            $tripleLower = strtolower($triple);
+
+            foreach ($searchIndex as $term => $pid) {
+                if (strlen($term) >= 5 && strpos($tripleLower, $term) !== false) {
+                    $matches[] = [
+                        'product_id'   => $pid,
+                        'product_name' => $productsById[$pid]['name'],
+                        'matched_text' => $triple,
+                        'confidence'   => 65,
+                        'line_index'   => $candidateLines[$i]['index'],
+                        'strategy'     => 'combined_triple',
+                    ];
+                    break;
+                }
+            }
+        }
+    }
+
+    // Deduplicate by product_id (keep highest confidence)
+    $deduped = [];
+    foreach ($matches as $m) {
+        $pid = $m['product_id'];
+        if (!isset($deduped[$pid]) || $m['confidence'] > $deduped[$pid]['confidence']) {
+            $deduped[$pid] = $m;
+        }
+    }
+
+    return array_values($deduped);
+}
+
+
+/**
+ * Word-level matching: extract individual words from OCR and match against
+ * short aliases. Useful when OCR captures fragments like "NVY" for "Navy Jack"
+ * or "MULC" for "Mulch".
+ */
+function fuzzyMatchByWords(array $lines, array $searchIndex, array $products): array
+{
+    $matches = [];
+    $productsById = [];
+    foreach ($products as $p) {
+        $productsById[$p['id']] = $p;
+    }
+
+    // Build a word-level index from aliases (3+ chars)
+    $wordIndex = [];
+    foreach ($products as $p) {
+        if (empty($p['ocr_aliases'])) continue;
+        $aliases = explode(',', $p['ocr_aliases']);
+        foreach ($aliases as $alias) {
+            $alias = strtolower(trim($alias));
+            // Single-word aliases (good for word-level matching)
+            if ($alias !== '' && strpos($alias, ' ') === false && strlen($alias) >= 3) {
+                $wordIndex[$alias] = $p['id'];
+            }
+        }
+    }
+
+    if (empty($wordIndex)) return $matches;
+
+    // Extract all words from OCR text
+    $allText = implode(' ', $lines);
+    $words = preg_split('/[\s\/\-"\',.;:!?()]+/', strtolower($allText));
+    $words = array_filter($words, function($w) { return strlen($w) >= 2; });
+
+    foreach ($words as $word) {
+        $word = trim($word);
+        if (strlen($word) < 2) continue;
+
+        // Exact word match against alias
+        if (isset($wordIndex[$word])) {
+            $pid = $wordIndex[$word];
+            $matches[] = [
+                'product_id'   => $pid,
+                'product_name' => $productsById[$pid]['name'],
+                'matched_text' => $word,
+                'confidence'   => 70,
+                'line_index'   => 0,
+                'strategy'     => 'word_exact',
+            ];
+            continue;
+        }
+
+        // Close Levenshtein match for short words (edit distance 1)
+        if (strlen($word) >= 3) {
+            foreach ($wordIndex as $alias => $pid) {
+                if (abs(strlen($word) - strlen($alias)) > 2) continue;
+                $dist = levenshtein($word, $alias);
+                if ($dist <= 1 && $dist < strlen($alias) * 0.4) {
+                    $matches[] = [
+                        'product_id'   => $pid,
+                        'product_name' => $productsById[$pid]['name'],
+                        'matched_text' => $word . ' (≈' . $alias . ')',
+                        'confidence'   => 60,
+                        'line_index'   => 0,
+                        'strategy'     => 'word_fuzzy',
+                    ];
+                    break;
+                }
+            }
+        }
+    }
+
+    // Deduplicate
+    $deduped = [];
+    foreach ($matches as $m) {
+        $pid = $m['product_id'];
+        if (!isset($deduped[$pid]) || $m['confidence'] > $deduped[$pid]['confidence']) {
+            $deduped[$pid] = $m;
+        }
+    }
+
+    return array_values($deduped);
 }

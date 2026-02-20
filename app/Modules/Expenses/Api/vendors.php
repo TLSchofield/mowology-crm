@@ -3,10 +3,13 @@
  * Vendors API — CRUD for vendor directory
  *
  * GET:  ?action=list
- * GET:  ?action=get&id=X
- * GET:  ?action=search&q=term  — autocomplete search
+ * GET:  ?action=get&id=X             — full vendor detail (includes products, locations, expenses)
+ * GET:  ?action=products&vendor_id=X  — vendor products grouped by category with internal product links
+ * GET:  ?action=search&q=term         — autocomplete search
  * POST: {action: 'create', ...fields}
  * POST: {action: 'update', id, ...fields}
+ * POST: {action: 'link_vendor_product', vendor_product_id, product_id}   — link vendor product → internal product
+ * POST: {action: 'unlink_vendor_product', vendor_product_id}             — remove link
  * POST: {action: 'add_location', vendor_id, label, address, lat, lng, city}
  * POST: {action: 'delete_location', id}
  */
@@ -56,6 +59,20 @@ try {
             handleVendorSearch($db);
             break;
 
+        case 'products':
+            handleVendorProducts($db);
+            break;
+
+        case 'link_vendor_product':
+            if (!$canEdit) throw new Exception('Permission denied');
+            handleLinkVendorProduct($db, $input);
+            break;
+
+        case 'unlink_vendor_product':
+            if (!$canEdit) throw new Exception('Permission denied');
+            handleUnlinkVendorProduct($db, $input);
+            break;
+
         case 'create':
             if (!$canEdit) throw new Exception('Permission denied');
             handleVendorCreate($db, $input);
@@ -103,14 +120,12 @@ function handleVendorList(PDO $db): void
 
     $stmt = $db->query("
         SELECT v.*,
-               COUNT(vl.id) AS location_count,
-               COUNT(e.id) AS expense_count,
-               COALESCE(SUM(e.total), 0) AS total_spent
+               (SELECT COUNT(*) FROM vendor_locations WHERE vendor_id = v.id) AS location_count,
+               (SELECT COUNT(*) FROM expenses WHERE vendor_id = v.id) AS expense_count,
+               (SELECT COALESCE(SUM(total), 0) FROM expenses WHERE vendor_id = v.id) AS total_spent,
+               (SELECT COUNT(*) FROM vendor_products WHERE vendor_id = v.id AND is_active = 1) AS product_count
         FROM vendors v
-        LEFT JOIN vendor_locations vl ON vl.vendor_id = v.id
-        LEFT JOIN expenses e ON e.vendor_id = v.id
         {$where}
-        GROUP BY v.id
         ORDER BY v.name
     ");
     $vendors = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -135,6 +150,21 @@ function handleVendorGet(PDO $db): void
     $locStmt->execute([$id]);
     $vendor['locations'] = $locStmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Get vendor products with linked internal product info
+    $prodStmt = $db->prepare("
+        SELECT vp.id, vp.name, vp.category, vp.unit, vp.price_per_unit,
+               vp.alt_unit, vp.alt_price, vp.bag_price, vp.ocr_aliases,
+               vp.product_id, vp.is_active,
+               p.name AS linked_product_name, p.sku AS linked_product_sku
+        FROM vendor_products vp
+        LEFT JOIN products p ON p.id = vp.product_id
+        WHERE vp.vendor_id = ? AND vp.is_active = 1
+        ORDER BY vp.category, vp.name
+    ");
+    $prodStmt->execute([$id]);
+    $vendor['products'] = $prodStmt->fetchAll(PDO::FETCH_ASSOC);
+    $vendor['product_count'] = count($vendor['products']);
+
     // Recent expenses
     $expStmt = $db->prepare("
         SELECT id, expense_date, total, accounting_category, description
@@ -143,6 +173,17 @@ function handleVendorGet(PDO $db): void
     ");
     $expStmt->execute([$id]);
     $vendor['recent_expenses'] = $expStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Spend summary
+    $spendStmt = $db->prepare("
+        SELECT COUNT(*) AS expense_count,
+               COALESCE(SUM(total), 0) AS total_spent,
+               MIN(expense_date) AS first_expense,
+               MAX(expense_date) AS last_expense
+        FROM expenses WHERE vendor_id = ?
+    ");
+    $spendStmt->execute([$id]);
+    $vendor['spend_summary'] = $spendStmt->fetch(PDO::FETCH_ASSOC);
 
     echo json_encode(['success' => true, 'vendor' => $vendor]);
 }
@@ -306,6 +347,93 @@ function handleVendorDelete(PDO $db, array $input): void
     $db->prepare("DELETE FROM vendor_locations WHERE vendor_id = ?")->execute([$id]);
     $db->prepare("DELETE FROM vendors WHERE id = ?")->execute([$id]);
     echo json_encode(['success' => true, 'message' => 'Vendor deleted']);
+}
+
+
+function handleVendorProducts(PDO $db): void
+{
+    $vendorId = (int)($_GET['vendor_id'] ?? 0);
+    if (!$vendorId) throw new Exception('Vendor ID required');
+
+    // Get products grouped by category, with linked internal product info
+    $stmt = $db->prepare("
+        SELECT vp.id, vp.name, vp.category, vp.unit, vp.price_per_unit,
+               vp.alt_unit, vp.alt_price, vp.bag_price, vp.ocr_aliases,
+               vp.product_id, vp.is_active,
+               p.name AS linked_product_name, p.sku AS linked_product_sku
+        FROM vendor_products vp
+        LEFT JOIN products p ON p.id = vp.product_id
+        WHERE vp.vendor_id = ? AND vp.is_active = 1
+        ORDER BY vp.category, vp.name
+    ");
+    $stmt->execute([$vendorId]);
+    $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Group by category
+    $grouped = [];
+    foreach ($products as $p) {
+        $cat = $p['category'] ?: 'Uncategorized';
+        if (!isset($grouped[$cat])) {
+            $grouped[$cat] = [];
+        }
+        $grouped[$cat][] = $p;
+    }
+
+    echo json_encode([
+        'success'  => true,
+        'products' => $products,
+        'grouped'  => $grouped,
+        'count'    => count($products),
+    ]);
+}
+
+
+function handleLinkVendorProduct(PDO $db, ?array $input): void
+{
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $vpId = (int)($input['vendor_product_id'] ?? 0);
+    $productId = (int)($input['product_id'] ?? 0);
+    if (!$vpId) throw new Exception('Vendor product ID required');
+    if (!$productId) throw new Exception('Internal product ID required');
+
+    // Verify both exist
+    $checkVp = $db->prepare("SELECT id FROM vendor_products WHERE id = ?");
+    $checkVp->execute([$vpId]);
+    if (!$checkVp->fetch()) throw new Exception('Vendor product not found');
+
+    $checkP = $db->prepare("SELECT id, name FROM products WHERE id = ?");
+    $checkP->execute([$productId]);
+    $product = $checkP->fetch(PDO::FETCH_ASSOC);
+    if (!$product) throw new Exception('Internal product not found');
+
+    // Update the link
+    $stmt = $db->prepare("UPDATE vendor_products SET product_id = ? WHERE id = ?");
+    $stmt->execute([$productId, $vpId]);
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Linked to ' . $product['name'],
+        'linked_product_name' => $product['name'],
+    ]);
+}
+
+
+function handleUnlinkVendorProduct(PDO $db, ?array $input): void
+{
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $vpId = (int)($input['vendor_product_id'] ?? 0);
+    if (!$vpId) throw new Exception('Vendor product ID required');
+
+    $stmt = $db->prepare("UPDATE vendor_products SET product_id = NULL WHERE id = ?");
+    $stmt->execute([$vpId]);
+
+    echo json_encode(['success' => true, 'message' => 'Product unlinked']);
 }
 
 

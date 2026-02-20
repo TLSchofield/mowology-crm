@@ -40,22 +40,22 @@ SET @lawnboy_id = (SELECT id FROM vendors WHERE name = 'LAWNBOY' LIMIT 1);
 
 -- Turf
 INSERT INTO vendor_products (vendor_id, name, category, unit, price_per_unit, alt_unit, alt_price, bag_price, ocr_aliases)
-VALUES (@lawnboy_id, 'Sod Turf Roll', 'Turf', 'roll', 7.30, NULL, NULL, NULL, 'SOD, TURF, SOD TURF');
+VALUES (@lawnboy_id, 'Sod Turf Roll', 'Turf', 'roll', 7.30, NULL, NULL, NULL, 'SOD, TURF, SOD TURF, TRF');
 
 -- Mulch & Manure
 INSERT INTO vendor_products (vendor_id, name, category, unit, price_per_unit, alt_unit, alt_price, bag_price, ocr_aliases)
 VALUES
-(@lawnboy_id, 'Fresh Bark Mulch', 'Mulch & Manure', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'FRESH BARK, BARK MULCH, FRESH MULCH'),
-(@lawnboy_id, 'Composted Bark Mulch', 'Mulch & Manure', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'COMPOSTED BARK, COMP BARK, COMPOST MULCH'),
-(@lawnboy_id, 'Playground Wood Chip', 'Mulch & Manure', 'yard', 75.00, 'half_yard', 150.00, NULL, 'PLAYGROUND CHIP, WOOD CHIP, PLAY CHIP'),
-(@lawnboy_id, 'Mushroom Manure', 'Mulch & Manure', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'MUSHROOM, HORSE MANURE, MANURE');
+(@lawnboy_id, 'Fresh Bark Mulch', 'Mulch & Manure', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'FRESH BARK, BARK MULCH, FRESH MULCH, BARK, MULCH, FRSH'),
+(@lawnboy_id, 'Composted Bark Mulch', 'Mulch & Manure', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'COMPOSTED BARK, COMP BARK, COMPOST MULCH, COMP, COMPOST'),
+(@lawnboy_id, 'Playground Wood Chip', 'Mulch & Manure', 'yard', 75.00, 'half_yard', 150.00, NULL, 'PLAYGROUND CHIP, WOOD CHIP, PLAY CHIP, CHIP'),
+(@lawnboy_id, 'Mushroom Manure', 'Mulch & Manure', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'MUSHROOM, HORSE MANURE, MANURE, MUSH');
 
 -- Soil Blends
 INSERT INTO vendor_products (vendor_id, name, category, unit, price_per_unit, alt_unit, alt_price, bag_price, ocr_aliases)
 VALUES
-(@lawnboy_id, 'Turf Blend', 'Soil Blends', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'TURF BLEND, TURF MIX'),
-(@lawnboy_id, 'Garden Mix', 'Soil Blends', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'GARDEN MIX, GARDEN SOIL'),
-(@lawnboy_id, 'Soil Amender', 'Soil Blends', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'SOIL AMENDER, AMENDER, SOIL AMMENDER');
+(@lawnboy_id, 'Turf Blend', 'Soil Blends', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'TURF BLEND, TURF MIX, BLEND'),
+(@lawnboy_id, 'Garden Mix', 'Soil Blends', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'GARDEN MIX, GARDEN SOIL, GARDEN, GARD'),
+(@lawnboy_id, 'Soil Amender', 'Soil Blends', 'yard', 41.00, 'half_yard', 22.00, 5.00, 'SOIL AMENDER, AMENDER, SOIL AMMENDER, AMEND');
 
 -- Sand & Road Base
 INSERT INTO vendor_products (vendor_id, name, category, unit, price_per_unit, alt_unit, alt_price, bag_price, ocr_aliases)
@@ -69,14 +69,14 @@ VALUES
 -- Rock & Gravel
 INSERT INTO vendor_products (vendor_id, name, category, unit, price_per_unit, alt_unit, alt_price, bag_price, ocr_aliases)
 VALUES
-(@lawnboy_id, 'Navy Jack', 'Rock & Gravel', 'yard', 73.00, 'half_yard', 40.00, 4.00, 'NAVY JACK, NAVY JAC'),
-(@lawnboy_id, 'Crusher Dust', 'Rock & Gravel', 'yard', 75.00, 'half_yard', 40.00, 4.00, 'CRUSHER DUST, CRUSH DUST, CRUSHER'),
-(@lawnboy_id, 'Bird Eye Rock', 'Rock & Gravel', 'yard', 80.00, 'half_yard', 44.00, 4.00, 'BIRD EYE, BIRDEYE, BIRD EYE ROCK'),
+(@lawnboy_id, 'Navy Jack', 'Rock & Gravel', 'yard', 73.00, 'half_yard', 40.00, 4.00, 'NAVY JACK, NAVY JAC, NAVY, NVY, NAVYJACK, NAVYJAC'),
+(@lawnboy_id, 'Crusher Dust', 'Rock & Gravel', 'yard', 75.00, 'half_yard', 40.00, 4.00, 'CRUSHER DUST, CRUSH DUST, CRUSHER, CRSH'),
+(@lawnboy_id, 'Bird Eye Rock', 'Rock & Gravel', 'yard', 80.00, 'half_yard', 44.00, 4.00, 'BIRD EYE, BIRDEYE, BIRD EYE ROCK, BIRD'),
 (@lawnboy_id, 'Crush Rock', 'Rock & Gravel', 'yard', 80.00, 'half_yard', 44.00, 4.00, 'CRUSH ROCK, CRUSHED ROCK, CRUSH'),
-(@lawnboy_id, 'River Rock 1"', 'Rock & Gravel', 'yard', 107.00, 'half_yard', 59.00, 4.00, 'RIVER ROCK 1, RIVER ROCK'),
-(@lawnboy_id, 'River Rock 2"', 'Rock & Gravel', 'yard', 107.00, 'half_yard', 59.00, 4.00, 'RIVER ROCK 2'),
-(@lawnboy_id, 'River Rock 2-6"', 'Rock & Gravel', 'yard', 120.00, 'half_yard', 66.00, 6.00, 'RIVER ROCK 2-6, LARGE RIVER ROCK'),
-(@lawnboy_id, 'Recycled Crush Concrete', 'Rock & Gravel', 'yard', 54.00, 'half_yard', 29.00, 4.00, 'RECYCLED CRUSH, CRUSH CONCRETE, RECYCLED CONCRETE');
+(@lawnboy_id, 'River Rock 1"', 'Rock & Gravel', 'yard', 107.00, 'half_yard', 59.00, 4.00, 'RIVER ROCK 1, RIVER ROCK, RVR ROCK, ROCK 1'),
+(@lawnboy_id, 'River Rock 2"', 'Rock & Gravel', 'yard', 107.00, 'half_yard', 59.00, 4.00, 'RIVER ROCK 2, ROCK 2'),
+(@lawnboy_id, 'River Rock 2-6"', 'Rock & Gravel', 'yard', 120.00, 'half_yard', 66.00, 6.00, 'RIVER ROCK 2-6, LARGE RIVER ROCK, RIVER 2-6'),
+(@lawnboy_id, 'Recycled Crush Concrete', 'Rock & Gravel', 'yard', 54.00, 'half_yard', 29.00, 4.00, 'RECYCLED CRUSH, CRUSH CONCRETE, RECYCLED CONCRETE, RECYCLED');
 
 -- Disposal (accepting materials)
 INSERT INTO vendor_products (vendor_id, name, category, unit, price_per_unit, alt_unit, alt_price, bag_price, ocr_aliases)
