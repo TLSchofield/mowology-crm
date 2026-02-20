@@ -12733,3 +12733,249 @@ textarea.font-monospace {
 @media (max-width: 576px) {
   .mw-vendor-detail-panel { width: 100vw; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Proof of Work System
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Visit Detail Page ──────────────────────────────────────────────────── */
+
+.mw-page-header { margin-bottom: 1.5rem; }
+.mw-page-header .gap-2 { gap: 0.5rem !important; }
+
+/* ── Visit Work Page (mobile crew flow) ─────────────────────────────────── */
+
+.mw-pow-work {
+  max-width: 640px;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.pow-work-header {
+  background: var(--mw-dark);
+  color: #fff;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.pow-work-header-info .pow-work-visit { font-weight: 700; font-size: 14px; font-family: monospace; }
+.pow-work-header-info .pow-work-addr  { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+
+.pow-work-status-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ccc;
+  flex-shrink: 0;
+  transition: background 0.4s;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.3);
+}
+
+/* ── Stats bar ─────────────────────────────────────────────────────────── */
+
+.pow-work-stats-bar {
+  background: var(--mw-forest);
+  color: #fff;
+  display: flex;
+  padding: 8px 0;
+  flex-shrink: 0;
+}
+.pow-stat {
+  flex: 1;
+  text-align: center;
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+.pow-stat:last-child { border-right: none; }
+.pow-stat-val { display: block; font-size: 16px; font-weight: 700; font-family: monospace; line-height: 1.2; }
+.pow-stat-lbl { display: block; font-size: 9px; text-transform: uppercase; opacity: 0.7; letter-spacing: 0.5px; }
+
+/* ── Start gate ─────────────────────────────────────────────────────────── */
+
+.pow-start-gate {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  text-align: center;
+}
+.pow-start-icon svg { width: 72px; height: 72px; color: var(--mw-green); }
+.pow-start-title { font-size: 22px; font-weight: 700; color: var(--mw-dark); margin-top: 16px; }
+.pow-start-sub   { font-size: 14px; color: #666; margin-top: 8px; }
+
+/* ── Work tabs ──────────────────────────────────────────────────────────── */
+
+.pow-work-tabs {
+  background: #f8f9fa;
+  border-bottom: 2px solid var(--mw-light);
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+.pow-work-tabs .nav-item { flex: 1; text-align: center; min-width: 60px; }
+.pow-work-tabs .nav-link {
+  padding: 8px 4px 6px;
+  border: none;
+  border-radius: 0;
+  color: #888;
+  font-size: 10px;
+  line-height: 1.2;
+}
+.pow-work-tabs .nav-link svg { display: block; margin: 0 auto 2px; width: 18px; height: 18px; }
+.pow-work-tabs .nav-link.active {
+  background: #fff;
+  color: var(--mw-green);
+  border-bottom: 2px solid var(--mw-green);
+  font-weight: 600;
+}
+
+.pow-work-tab-content { flex: 1; overflow-y: auto; }
+
+.pow-tab-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  font-size: 13px;
+}
+
+/* ── Checklist rows ─────────────────────────────────────────────────────── */
+
+.pow-checklist-row {
+  padding: 10px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.pow-check-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  margin: 0;
+  font-weight: normal;
+}
+.pow-check-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  accent-color: var(--mw-green);
+}
+
+/* ── Material rows ──────────────────────────────────────────────────────── */
+
+.pow-material-row {
+  padding: 10px 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+/* ── End zone ───────────────────────────────────────────────────────────── */
+
+.pow-end-zone {
+  padding: 16px;
+  background: #fff;
+  border-top: 2px solid var(--mw-light);
+  flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+}
+
+/* ── Toast notifications (mobile) ──────────────────────────────────────── */
+
+.pow-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--mw-forest);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 13px;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.pow-toast-show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.pow-toast-success { background: var(--mw-green); }
+.pow-toast-danger  { background: #dc3545; }
+.pow-toast-warning { background: #ffc107; color: #000; }
+
+/* ── Visit Detail — note items ──────────────────────────────────────────── */
+
+.pow-note-item {
+  background: #f5faf7;
+  border-left: 3px solid var(--mw-lime);
+  padding: 8px 12px;
+  border-radius: 0 4px 4px 0;
+  font-size: 13px;
+}
+
+/* ── GPS dot pulse animation ─────────────────────────────────────────────── */
+
+@keyframes gps-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(45,134,89,0.6), 0 0 0 2px rgba(255,255,255,0.3); }
+  70%  { box-shadow: 0 0 0 8px rgba(45,134,89,0),   0 0 0 2px rgba(255,255,255,0.3); }
+  100% { box-shadow: 0 0 0 0   rgba(45,134,89,0),   0 0 0 2px rgba(255,255,255,0.3); }
+}
+.pow-work-status-dot[style*="2D8659"] { animation: gps-pulse 2s infinite; }
+
+/* ── Client portal PoW section ──────────────────────────────────────────── */
+
+.pow-portal-card {
+  border: 1px solid #c3e6cb;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.pow-portal-card-header {
+  background: var(--mw-green);
+  color: #fff;
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pow-portal-card-body { padding: 12px 16px; font-size: 13px; }
+
+/* ── Confidence box (portal) ────────────────────────────────────────────── */
+
+.pow-confidence-box {
+  background: #f0fbf3;
+  border: 2px solid var(--mw-green);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-top: 10px;
+}
+.pow-confidence-box h4 { color: var(--mw-dark); font-size: 14px; margin-bottom: 8px; }
+.pow-confidence-done li::before { content: "✓ "; color: var(--mw-green); font-weight: 700; }
+.pow-confidence-done li { list-style: none; padding: 2px 0; font-size: 13px; }
+.pow-upsell {
+  background: #fff7e6;
+  border-left: 3px solid var(--mw-orange);
+  padding: 8px 12px;
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+  margin-top: 10px;
+}
+.pow-upsell strong { color: var(--mw-orange); }
+
+/* ── Responsive: smaller screens ───────────────────────────────────────── */
+
+@media (max-width: 576px) {
+  .mw-pow-work { max-width: 100%; }
+  .pow-work-tabs .nav-link { padding: 8px 2px 6px; }
+  .pow-work-stats-bar .pow-stat-val { font-size: 14px; }
+}

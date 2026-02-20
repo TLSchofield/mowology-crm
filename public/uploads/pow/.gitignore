@@ -1,0 +1,5 @@
+# Keep directory structure but ignore generated files
+maps/*.png
+pdfs/*.pdf
+pdfs/*.html
+signatures/*.png

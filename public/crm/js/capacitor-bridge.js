@@ -444,4 +444,109 @@
 
     console.log('[MwNative] Capacitor bridge v2 initialized (with MwTracking)');
 
+    // ── Proof of Work — Visit GPS Integration ──────────────────────────────
+    // When the visit-work page is active, pump GPS points into the PoW GPS
+    // sync buffer. The visit-work page's JS owns the IndexedDB buffer and
+    // syncs to /crm/api/pow-gps-sync.php. This bridge fires the
+    // 'mw-visit-gps-point' custom event so visit-work.php can receive
+    // native GPS without re-implementing the Capacitor plugin calls.
+    //
+    // Usage (from visit-work.php):
+    //   document.addEventListener('mw-visit-gps-point', function(e) {
+    //     var pos = e.detail; // { lat, lng, accuracy, speed, heading, timestamp }
+    //   });
+
+    window.MwNative.pow = {
+        _visitId: null,
+        _active:  false,
+
+        /**
+         * Start Proof-of-Work GPS emission for a specific visit.
+         * Piggy-backs on the existing background tracking watcher.
+         * @param {number} visitId
+         */
+        startVisitTracking: function(visitId) {
+            if (this._active) return;
+            this._visitId = visitId;
+            this._active  = true;
+            console.log('[MwNative.pow] Visit tracking started for visit', visitId);
+
+            // If background tracking is already running (from clock-in session),
+            // hook into the existing stream via the activityChanged/location events.
+            // Otherwise start a fresh low-distanceFilter watcher for walk-tracking.
+            if (window.MwNative._bgWatchId === null) {
+                window.MwNative.geo.startBackgroundTracking(function(pos, err) {
+                    if (err || !pos) return;
+                    window.MwNative.pow._emit(pos);
+                }, { distanceFilter: 5 }); // 5m for walk-level granularity
+            } else {
+                // Existing watcher active — listen via MwTracking native events
+                if (MwTracking && MwTracking.addListener) {
+                    MwTracking.addListener('locationUpdate', function(data) {
+                        if (!window.MwNative.pow._active) return;
+                        var pos = {
+                            lat:       data.latitude  || data.lat,
+                            lng:       data.longitude || data.lng,
+                            accuracy:  data.accuracy,
+                            speed:     data.speed     || 0,
+                            heading:   data.bearing   || data.heading || 0,
+                            timestamp: data.time      || Date.now()
+                        };
+                        window.MwNative.pow._emit(pos);
+                    });
+                }
+            }
+        },
+
+        /**
+         * Stop PoW visit GPS emission.
+         */
+        stopVisitTracking: function() {
+            if (!this._active) return;
+            this._active  = false;
+            this._visitId = null;
+            console.log('[MwNative.pow] Visit tracking stopped');
+            // Note: do NOT stop the background watcher here — the clock-in
+            // session may still need it. The visit-work.php JS handles
+            // the final GPS flush to the server.
+        },
+
+        /**
+         * Emit a GPS position as a custom DOM event.
+         * visit-work.php listens for 'mw-visit-gps-point'.
+         */
+        _emit: function(pos) {
+            if (!this._active) return;
+            document.dispatchEvent(new CustomEvent('mw-visit-gps-point', {
+                detail: {
+                    lat:       pos.lat,
+                    lng:       pos.lng,
+                    accuracy:  pos.accuracy,
+                    speed:     pos.speed     || 0,
+                    heading:   pos.heading   || 0,
+                    altitude:  pos.altitude  || 0,
+                    timestamp: pos.timestamp || Date.now(),
+                    source:    'native_bg',
+                    visit_id:  this._visitId
+                }
+            }));
+        }
+    };
+
+    // Auto-detect visit page and start tracking
+    (function() {
+        var match = window.location.pathname.match(/visit-work\.php/);
+        if (!match) return;
+        var params   = new URLSearchParams(window.location.search);
+        var visitId  = parseInt(params.get('id') || '0', 10);
+        var statusEl = document.getElementById('pow-status');
+        if (visitId && statusEl && statusEl.value === 'in_progress') {
+            // Small delay to let page JS initialize first
+            setTimeout(function() {
+                window.MwNative.pow.startVisitTracking(visitId);
+                console.log('[MwNative.pow] Auto-started visit tracking, visit', visitId);
+            }, 800);
+        }
+    })();
+
 })();
