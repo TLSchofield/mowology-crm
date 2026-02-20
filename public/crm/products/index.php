@@ -29,7 +29,7 @@ $activePage = 'products';
               <a href="products-manager.php" class="mw-tool-card">
                   <span class="mw-tool-icon">📦</span>
                   <h3>Products Catalog</h3>
-                  <p>Add and manage services, materials, and bundles. Set pricing, create GGOB packages.</p>
+                  <p>Manage services, materials, and bundles. Includes data sheets, application rates, seasonality, and vendor cost tracking.</p>
                   <span class="mw-badge-tag">Product Management</span>
               </a>
 

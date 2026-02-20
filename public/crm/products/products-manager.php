@@ -493,6 +493,148 @@ $activePage = 'products';
                       </div>
                     </div>
 
+                    <!-- Data Sheets & Application -->
+                    <div class="mw-product-form-section">
+                      <h4>Data Sheets &amp; Application</h4>
+                      <p class="text-muted mb-2" style="font-size: 0.85rem;">
+                        Upload safety data sheets and enter application details. Crew sees these on-site; customers receive relevant sheets with quotes.
+                      </p>
+
+                      <div class="form-group">
+                        <label>Safety Data Sheet (SDS/MSDS)</label>
+                        <input type="hidden" name="sds_sheet_url" id="sdsSheetUrl" value="">
+                        <div id="sdsPreviewArea" style="display:flex;align-items:center;gap:1rem;margin-bottom:0.5rem;">
+                          <div id="sdsPreview" class="mw-sds-preview">
+                            <i data-feather="file-text" style="width:32px;height:32px;color:#94a3b8;"></i>
+                          </div>
+                          <div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSdsBrowser()">
+                              <i data-feather="grid"></i> Browse Documents
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary ml-1" id="viewSdsBtn" onclick="viewSdsSheet()" style="display:none;">
+                              <i data-feather="external-link"></i> View PDF
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary ml-1" id="clearSdsBtn" onclick="clearSdsSheet()" style="display:none;">
+                              <i data-feather="x"></i> Clear
+                            </button>
+                            <div id="sdsPathDisplay" class="small text-muted mt-1" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="row">
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>Dilution Rate</label>
+                            <input type="text" class="form-control" name="dilution_rate" placeholder="e.g., 1:10 with water">
+                          </div>
+                        </div>
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>Application Rate</label>
+                            <input type="text" class="form-control" name="application_rate" placeholder="e.g., 50 lbs per 1000 sq ft">
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="row">
+                        <div class="col-md-3">
+                          <div class="form-group">
+                            <label>Ideal pH Min</label>
+                            <input type="number" class="form-control" name="ph_range_min" step="0.1" min="0" max="14" placeholder="e.g., 6.0">
+                          </div>
+                        </div>
+                        <div class="col-md-3">
+                          <div class="form-group">
+                            <label>Ideal pH Max</label>
+                            <input type="number" class="form-control" name="ph_range_max" step="0.1" min="0" max="14" placeholder="e.g., 7.0">
+                          </div>
+                        </div>
+                        <div class="col-md-6">
+                          <div class="form-group">
+                            <label>Safety Warnings</label>
+                            <input type="text" class="form-control" name="safety_warnings" placeholder="e.g., Wear gloves. Keep away from waterways.">
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="form-group">
+                        <label>Application Notes</label>
+                        <textarea class="form-control" name="application_notes" rows="2" placeholder="Detailed application instructions, storage requirements, etc."></textarea>
+                      </div>
+                    </div>
+
+                    <!-- Seasonality & Marketing -->
+                    <div class="mw-product-form-section">
+                      <h4>Seasonality &amp; Marketing</h4>
+                      <p class="text-muted mb-2" style="font-size: 0.85rem;">
+                        Define when this product is best applied and when to start marketing it. Crew sees talking points on their mobile schedule.
+                      </p>
+
+                      <div class="form-group">
+                        <label>Best Season to Apply</label>
+                        <div class="mw-season-grid" id="bestSeasonGrid">
+                          <label class="mw-season-chip"><input type="checkbox" name="season_jan" value="jan"> Jan</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_feb" value="feb"> Feb</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_mar" value="mar"> Mar</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_apr" value="apr"> Apr</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_may" value="may"> May</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_jun" value="jun"> Jun</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_jul" value="jul"> Jul</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_aug" value="aug"> Aug</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_sep" value="sep"> Sep</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_oct" value="oct"> Oct</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_nov" value="nov"> Nov</label>
+                          <label class="mw-season-chip"><input type="checkbox" name="season_dec" value="dec"> Dec</label>
+                        </div>
+                        <small class="form-text text-muted">Select the months when this product/service is best applied or sold.</small>
+                      </div>
+
+                      <div class="form-group">
+                        <label>Marketing Trigger Month</label>
+                        <select class="form-control" name="trigger_month" style="width:auto;">
+                          <option value="">No automated trigger</option>
+                          <option value="1">January</option>
+                          <option value="2">February</option>
+                          <option value="3">March</option>
+                          <option value="4">April</option>
+                          <option value="5">May</option>
+                          <option value="6">June</option>
+                          <option value="7">July</option>
+                          <option value="8">August</option>
+                          <option value="9">September</option>
+                          <option value="10">October</option>
+                          <option value="11">November</option>
+                          <option value="12">December</option>
+                        </select>
+                        <small class="form-text text-muted">
+                          On this month, the system will generate a marketing campaign targeting clients who haven't purchased this product.
+                        </small>
+                      </div>
+
+                      <div class="form-group">
+                        <label>Crew Talking Points</label>
+                        <textarea class="form-control" name="crew_talking_points" rows="3" placeholder="What should crew say on-site when recommending this product?&#10;&#10;e.g., 'Your soil pH is low — lime application in spring will help your lawn absorb nutrients better. We can add it to your next visit for $X.'"></textarea>
+                        <small class="form-text text-muted">Displayed to crew on their mobile schedule when this product is relevant.</small>
+                      </div>
+                    </div>
+
+                    <!-- Vendor Supply & Cost Tracking -->
+                    <div class="mw-product-form-section" id="vendorSupplySection">
+                      <h4>Vendor Supply &amp; Cost Tracking</h4>
+                      <p class="text-muted mb-2" style="font-size: 0.85rem;">
+                        Vendors that supply this product, auto-populated from receipt scanning. Link vendor products to track real costs over time.
+                      </p>
+                      <div id="vendorSupplyList">
+                        <p class="text-muted small" id="vendorSupplyEmpty">Save this product first, then vendor links will appear here.</p>
+                      </div>
+                      <div id="vendorSupplyActions" style="display:none;">
+                        <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="openVendorLinkModal()">
+                          <i data-feather="link"></i> Link Vendor Product
+                        </button>
+                      </div>
+                    </div>
+
                     <!-- Weather Policy -->
                     <div class="mw-product-form-section">
                       <h4>Weather Policy</h4>
@@ -1016,6 +1158,13 @@ $activePage = 'products';
               // Reset tracking fields
               document.getElementById('trackingLevel').value = 'standard';
               document.getElementById('trackingCustomOptions').style.display = 'none';
+              // Reset product intelligence fields
+              clearSdsSheet();
+              setSelectedSeasons('');
+              // Reset vendor supply panel for new products
+              document.getElementById('vendorSupplyList').innerHTML =
+                '<p class="text-muted small">Save this product first, then vendor links will appear here.</p>';
+              document.getElementById('vendorSupplyActions').style.display = 'none';
               $('#productModal').modal('show');
             }
 
@@ -1061,8 +1210,32 @@ $activePage = 'products';
               document.getElementById('trackingCustomOptions').style.display =
                 (tLevel === 'heightened' || tLevel === 'custom') ? 'grid' : 'none';
 
+              // Data Sheets & Application fields
+              form.elements['sds_sheet_url'].value = product.sds_sheet_url || '';
+              form.elements['dilution_rate'].value = product.dilution_rate || '';
+              form.elements['application_rate'].value = product.application_rate || '';
+              form.elements['ph_range_min'].value = product.ph_range_min || '';
+              form.elements['ph_range_max'].value = product.ph_range_max || '';
+              form.elements['safety_warnings'].value = product.safety_warnings || '';
+              form.elements['application_notes'].value = product.application_notes || '';
+
+              // SDS preview
+              if (product.sds_sheet_url) {
+                setSdsSheet(product.sds_sheet_url);
+              } else {
+                clearSdsSheet();
+              }
+
+              // Seasonality & Marketing fields
+              setSelectedSeasons(product.best_season || '');
+              form.elements['trigger_month'].value = product.trigger_month || '';
+              form.elements['crew_talking_points'].value = product.crew_talking_points || '';
+
               // Refresh calculated displays
               updatePricingCalculations();
+
+              // Load vendor supply data
+              loadVendorSupply(product.id);
 
               // Set image preview
               if (product.image_url) {
@@ -1105,6 +1278,23 @@ $activePage = 'products';
               data.require_clock_in = form.elements['require_clock_in'] && form.elements['require_clock_in'].checked ? 1 : 0;
               data.require_gps = form.elements['require_gps'] && form.elements['require_gps'].checked ? 1 : 0;
               data.require_photos = form.elements['require_photos'] && form.elements['require_photos'].checked ? 1 : 0;
+
+              // Product intelligence fields
+              data.sds_sheet_url = form.elements['sds_sheet_url'].value || null;
+              data.dilution_rate = form.elements['dilution_rate'].value || null;
+              data.application_rate = form.elements['application_rate'].value || null;
+              data.ph_range_min = form.elements['ph_range_min'].value || null;
+              data.ph_range_max = form.elements['ph_range_max'].value || null;
+              data.safety_warnings = form.elements['safety_warnings'].value || null;
+              data.application_notes = form.elements['application_notes'].value || null;
+              data.best_season = getSelectedSeasons() || null;
+              data.trigger_month = form.elements['trigger_month'].value || null;
+              data.crew_talking_points = form.elements['crew_talking_points'].value || null;
+
+              // Remove individual season_* keys (they were just for the checkbox grid)
+              ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].forEach(m => {
+                delete data['season_' + m];
+              });
 
               fetch('api-products.php?action=save-product', {
                 method: 'POST',
@@ -1655,6 +1845,251 @@ $activePage = 'products';
               });
 
               return Promise.all([rulesChain, upsellsChain]);
+            }
+
+            // ============================================================
+            // SDS Document Browser
+            // ============================================================
+
+            function setSdsSheet(url) {
+              document.getElementById('sdsSheetUrl').value = url;
+              const preview = document.getElementById('sdsPreview');
+              const filename = url.split('/').pop();
+              preview.innerHTML = '<i data-feather="file-text" style="width:32px;height:32px;color:var(--mw-green);"></i>';
+              preview.style.border = '2px solid var(--mw-green, #2D8659)';
+              document.getElementById('viewSdsBtn').style.display = '';
+              document.getElementById('clearSdsBtn').style.display = '';
+              document.getElementById('sdsPathDisplay').textContent = filename;
+              hydrateFeatherIcons();
+            }
+
+            function clearSdsSheet() {
+              document.getElementById('sdsSheetUrl').value = '';
+              const preview = document.getElementById('sdsPreview');
+              preview.innerHTML = '<i data-feather="file-text" style="width:32px;height:32px;color:#94a3b8;"></i>';
+              preview.style.border = '2px dashed #cbd5e1';
+              document.getElementById('viewSdsBtn').style.display = 'none';
+              document.getElementById('clearSdsBtn').style.display = 'none';
+              document.getElementById('sdsPathDisplay').textContent = '';
+              hydrateFeatherIcons();
+            }
+
+            function viewSdsSheet() {
+              const url = document.getElementById('sdsSheetUrl').value;
+              if (url) window.open(url, '_blank');
+            }
+
+            function openSdsBrowser() {
+              // Reuse the media browser modal but filter for documents
+              const searchInput = document.getElementById('mediaSearchInput');
+              const productName = document.querySelector('[name="name"]').value.trim();
+              searchInput.value = productName || 'sds';
+              document.getElementById('mediaSuggestionHint').textContent = 'Showing documents (PDF, DOC)';
+
+              // Fetch documents instead of images
+              const grid = document.getElementById('mediaGrid');
+              grid.innerHTML = '<div class="text-center text-muted py-5">Loading documents...</div>';
+
+              let url = 'api-media-browse.php?type=document&limit=50';
+              if (productName) url += '&search=' + encodeURIComponent(productName);
+
+              fetch(url)
+                .then(r => r.json())
+                .then(data => {
+                  if (!data.success || !data.media || data.media.length === 0) {
+                    grid.innerHTML = '<div class="text-center text-muted py-5">No documents found in media library.<br><small>Upload SDS PDFs via <a href="/cms/cms-media_appstack.php" target="_blank">Media Library</a> first.</small></div>';
+                    return;
+                  }
+                  renderSdsGrid(data.media);
+                })
+                .catch(err => {
+                  grid.innerHTML = '<div class="text-center text-danger py-5">Error loading documents</div>';
+                });
+
+              // Override the title and show the modal
+              document.getElementById('mediaBrowserTitle').textContent = 'Choose SDS/Document from Media Library';
+              window._sdsBrowseMode = true;
+              $('#mediaBrowserModal').modal({backdrop: false});
+            }
+
+            function renderSdsGrid(items) {
+              const grid = document.getElementById('mediaGrid');
+              grid.innerHTML = items.map(item => {
+                const filename = item.original_filename || item.file_path.split('/').pop();
+                const altText = item.alt_text || '';
+                return `
+                  <div data-file-path="${escapeHtml(item.file_path)}" onclick="selectSdsItem(this.dataset.filePath)"
+                       style="cursor:pointer;border:2px solid #e2e8f0;border-radius:8px;overflow:hidden;background:#fff;transition:border-color 0.15s;padding:12px;text-align:center;"
+                       onmouseover="this.style.borderColor='var(--mw-green, #2D8659)'"
+                       onmouseout="this.style.borderColor='#e2e8f0'">
+                    <div style="font-size:32px;margin-bottom:8px;">📄</div>
+                    <div style="font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(filename)}">${escapeHtml(filename)}</div>
+                    ${altText ? '<div style="font-size:10px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(altText) + '</div>' : ''}
+                  </div>
+                `;
+              }).join('');
+            }
+
+            function selectSdsItem(filePath) {
+              setSdsSheet(filePath);
+              window._sdsBrowseMode = false;
+              document.getElementById('mediaBrowserTitle').textContent = 'Choose Image from Media Library';
+              $('#mediaBrowserModal').modal('hide');
+            }
+
+            // Override selectMediaItem to check if we're in SDS browse mode
+            const _originalSelectMediaItem = selectMediaItem;
+            selectMediaItem = function(filePath) {
+              if (window._sdsBrowseMode) {
+                selectSdsItem(filePath);
+              } else {
+                _originalSelectMediaItem(filePath);
+              }
+            };
+
+            // ============================================================
+            // Season Grid Helpers
+            // ============================================================
+
+            function getSelectedSeasons() {
+              const months = [];
+              document.querySelectorAll('#bestSeasonGrid input[type="checkbox"]').forEach(cb => {
+                if (cb.checked) months.push(cb.value);
+              });
+              return months.join(',');
+            }
+
+            function setSelectedSeasons(seasonStr) {
+              // Clear all first
+              document.querySelectorAll('#bestSeasonGrid input[type="checkbox"]').forEach(cb => {
+                cb.checked = false;
+              });
+              if (!seasonStr) return;
+              const months = seasonStr.split(',').map(s => s.trim().toLowerCase());
+              months.forEach(m => {
+                const cb = document.querySelector('#bestSeasonGrid input[value="' + m + '"]');
+                if (cb) cb.checked = true;
+              });
+            }
+
+            // ============================================================
+            // Vendor Supply Panel
+            // ============================================================
+
+            function loadVendorSupply(productId) {
+              if (!productId) {
+                document.getElementById('vendorSupplyList').innerHTML =
+                  '<p class="text-muted small">Save this product first, then vendor links will appear here.</p>';
+                document.getElementById('vendorSupplyActions').style.display = 'none';
+                return;
+              }
+
+              document.getElementById('vendorSupplyActions').style.display = '';
+
+              fetch('api-products.php?action=get-vendor-supply&product_id=' + productId)
+                .then(r => r.json())
+                .then(data => {
+                  if (!data.success || !data.vendors || data.vendors.length === 0) {
+                    document.getElementById('vendorSupplyList').innerHTML =
+                      '<p class="text-muted small">No vendor products linked yet. Link a vendor product from your expense receipts.</p>';
+                    return;
+                  }
+                  renderVendorSupply(data.vendors);
+                })
+                .catch(() => {
+                  document.getElementById('vendorSupplyList').innerHTML =
+                    '<p class="text-muted small">Unable to load vendor data.</p>';
+                });
+            }
+
+            function renderVendorSupply(vendors) {
+              const container = document.getElementById('vendorSupplyList');
+              container.innerHTML = `
+                <table class="table table-sm mb-0" style="font-size:0.85rem;">
+                  <thead>
+                    <tr>
+                      <th>Vendor</th>
+                      <th>Product</th>
+                      <th class="text-right">Last Price</th>
+                      <th class="text-right">Prev Price</th>
+                      <th class="text-center">Trend</th>
+                      <th class="text-right">Last Bought</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${vendors.map(v => {
+                      const trend = v.price_change > 0 ? '↑' : v.price_change < 0 ? '↓' : '→';
+                      const trendColor = v.price_change > 0 ? '#dc2626' : v.price_change < 0 ? '#16a34a' : '#64748b';
+                      const trendPct = v.price_change ? (Math.abs(v.price_change) * 100).toFixed(0) + '%' : '';
+                      return `<tr>
+                        <td><strong>${escapeHtml(v.vendor_name)}</strong></td>
+                        <td>${escapeHtml(v.vendor_product_name)}</td>
+                        <td class="text-right">$${parseFloat(v.last_price || 0).toFixed(2)}</td>
+                        <td class="text-right text-muted">$${parseFloat(v.prev_price || 0).toFixed(2)}</td>
+                        <td class="text-center" style="color:${trendColor};font-weight:600;">${trend} ${trendPct}</td>
+                        <td class="text-right text-muted">${v.last_purchased || '—'}</td>
+                        <td><button class="btn btn-sm btn-outline-danger" onclick="unlinkVendorProduct(${v.vendor_product_id})" title="Unlink">&times;</button></td>
+                      </tr>`;
+                    }).join('')}
+                  </tbody>
+                </table>
+              `;
+            }
+
+            function unlinkVendorProduct(vendorProductId) {
+              if (!confirm('Unlink this vendor product?')) return;
+              const productId = document.getElementById('productForm').elements['id'].value;
+              fetch('api-products.php?action=unlink-vendor-product', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vendor_product_id: vendorProductId })
+              })
+              .then(r => r.json())
+              .then(data => {
+                if (data.success) loadVendorSupply(productId);
+                else alert('Error: ' + (data.error || 'Unknown'));
+              });
+            }
+
+            function openVendorLinkModal() {
+              const productId = document.getElementById('productForm').elements['id'].value;
+              if (!productId) { alert('Save the product first.'); return; }
+
+              const query = prompt('Search vendor products by name (e.g., "mulch", "lime"):');
+              if (!query) return;
+
+              fetch('api-products.php?action=search-vendor-products&search=' + encodeURIComponent(query))
+                .then(r => r.json())
+                .then(data => {
+                  if (!data.success || !data.results || data.results.length === 0) {
+                    alert('No unlinked vendor products found for "' + query + '".\nVendor products are created automatically from receipt scanning in Expenses.');
+                    return;
+                  }
+                  // Build a simple selection list
+                  const options = data.results.map(r => r.vendor_name + ' — ' + r.name + ' ($' + parseFloat(r.price_per_unit || 0).toFixed(2) + ')');
+                  const choice = prompt(
+                    'Select a vendor product to link (enter number):\n\n' +
+                    options.map((o, i) => (i + 1) + '. ' + o).join('\n')
+                  );
+                  const idx = parseInt(choice) - 1;
+                  if (isNaN(idx) || idx < 0 || idx >= data.results.length) return;
+
+                  // Link it
+                  fetch('api-products.php?action=link-vendor-product', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vendor_product_id: data.results[idx].id, product_id: productId })
+                  })
+                  .then(r => r.json())
+                  .then(result => {
+                    if (result.success) {
+                      loadVendorSupply(productId);
+                    } else {
+                      alert('Error: ' + (result.error || 'Unknown'));
+                    }
+                  });
+                });
             }
 
             // Utility: Escape HTML

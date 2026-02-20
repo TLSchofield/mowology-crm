@@ -2487,6 +2487,86 @@ a:hover {
   font-size: 14px;
 }
 
+/* ── Product Intelligence (SDS, Season Grid, Vendor Supply) ───── */
+
+/* SDS Sheet Preview */
+.mw-sds-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--mw-light, #E8F3F0);
+  border: 1px solid #d1e7dd;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.mw-sds-preview .mw-sds-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+.mw-sds-preview .mw-sds-filename {
+  flex: 1;
+  word-break: break-all;
+  color: #1a202c;
+  font-weight: 500;
+}
+.mw-sds-preview .mw-sds-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Season Grid — 12-month checkbox chips */
+.mw-season-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.5rem;
+}
+@media (max-width: 576px) {
+  .mw-season-grid { grid-template-columns: repeat(4, 1fr); }
+}
+.mw-season-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 20px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  user-select: none;
+}
+.mw-season-chip:hover {
+  border-color: var(--mw-green, #2D8659);
+  background: var(--mw-light, #E8F3F0);
+}
+.mw-season-chip input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--mw-green, #2D8659);
+}
+.mw-season-chip:has(input:checked) {
+  background: var(--mw-green, #2D8659);
+  color: #fff;
+  border-color: var(--mw-green, #2D8659);
+}
+
+/* Vendor Supply Table */
+#vendorSupplySection .table th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #64748b;
+  border-top: none;
+  padding-bottom: 0.5rem;
+}
+#vendorSupplySection .table td {
+  vertical-align: middle;
+}
+
 /* Tracking & Compliance */
 .mw-tracking-flag-grid {
   display: grid;
