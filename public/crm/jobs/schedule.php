@@ -569,19 +569,33 @@ $filterQueryStr = buildFilterQuery($crewFilter, $serviceFilter);
 // ─── Day names ──────────────────────────────────────────────────────
 $dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 
-// ─── Mobile card view: today's stops with contact info ──────────────
+// ─── Mobile card view: date-aware (defaults to today, respects ?view=day&date=X) ──
 $today = date('Y-m-d');
-$todayDayName = strtoupper(date('D'));  // e.g. "SAT"
-$todayDateDisplay = date('F j, Y'); // e.g. "February 13, 2026"
 
-// Get today's weather
-$todayWeather = $weekWeather[$today] ?? $todaysForecast[$today] ?? [
+// Mobile view uses the day-view date if set, otherwise today
+$mobileDate = ($view === 'day' && !empty($dayDate)) ? $dayDate : $today;
+
+// Validate $mobileDate is a real date
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $mobileDate)) {
+    $mobileDate = $today;
+}
+
+$todayDayName    = strtoupper(date('D', strtotime($mobileDate)));  // e.g. "THU"
+$todayDateDisplay = date('M j', strtotime($mobileDate));             // e.g. "Feb 20"
+
+// Prev/next day for mobile date nav arrows
+$mobilePrevDay = date('Y-m-d', strtotime($mobileDate . ' -1 day'));
+$mobileNextDay = date('Y-m-d', strtotime($mobileDate . ' +1 day'));
+$mobileIsToday = ($mobileDate === $today);
+
+// Get weather for the selected mobile date
+$todayWeather = $weekWeather[$mobileDate] ?? $todaysForecast[$mobileDate] ?? [
     'temp_high' => 12, 'temp_low' => 8, 'condition' => 'Clear'
 ];
 
-// Build today's stops with contact names for mobile view
+// Build mobile stops for the selected date (mobileDate)
 $mobileStops = [];
-$todayStops = $calendarData[$today] ?? [];
+$todayStops = $calendarData[$mobileDate] ?? [];
 if (!empty($todayStops)) {
     // Fetch contact names for all properties in today's stops
     $propertyIds = array_column($todayStops, 'property_id');
@@ -1497,9 +1511,26 @@ if ($apiKey) {
 
               <!-- ── Fixed Top Bar ── -->
               <div class="mw-mc-topbar">
+                  <!-- Date nav: ‹ THU / Feb 20 › — tap date to open picker -->
                   <div class="mw-mc-topbar-left">
-                      <div class="mw-mc-topbar-day"><?php echo htmlspecialchars($todayDayName); ?></div>
-                      <div class="mw-mc-topbar-date"><?php echo date('M j'); ?></div>
+                      <a href="?view=day&date=<?php echo htmlspecialchars($mobilePrevDay) . $filterQueryStr; ?>"
+                         class="mw-mc-date-arrow" aria-label="Previous day">&#8249;</a>
+                      <button type="button"
+                              class="mw-mc-date-pill<?php echo $mobileIsToday ? ' mw-mc-date-pill-today' : ''; ?>"
+                              id="mwMobileDateBtn"
+                              title="Pick a date">
+                          <span class="mw-mc-date-pill-day"><?php echo htmlspecialchars($todayDayName); ?></span>
+                          <span class="mw-mc-date-pill-date"><?php echo htmlspecialchars($todayDateDisplay); ?></span>
+                      </button>
+                      <!-- Hidden native date input — triggered by button tap -->
+                      <input type="date"
+                             id="mwMobileDateInput"
+                             class="mw-mc-date-input-hidden"
+                             value="<?php echo htmlspecialchars($mobileDate); ?>"
+                             aria-hidden="true"
+                             tabindex="-1">
+                      <a href="?view=day&date=<?php echo htmlspecialchars($mobileNextDay) . $filterQueryStr; ?>"
+                         class="mw-mc-date-arrow" aria-label="Next day">&#8250;</a>
                   </div>
                   <div class="mw-mc-topbar-center">
                       <?php if ($totalStops > 0): ?>
@@ -1622,6 +1653,38 @@ if ($apiKey) {
           </div><!-- /.mw-mv -->
 
 <script>
+/**
+ * Mobile date picker — tapping the date pill opens the native date input.
+ * On change, navigate to ?view=day&date=YYYY-MM-DD preserving other params.
+ */
+(function() {
+    var btn   = document.getElementById('mwMobileDateBtn');
+    var input = document.getElementById('mwMobileDateInput');
+    if (!btn || !input) return;
+
+    // Tap/click on date pill → open native date picker
+    btn.addEventListener('click', function(e) {
+        e.preventDefault();
+        // showPicker() is the modern API; fall back to focus() for older Safari
+        if (typeof input.showPicker === 'function') {
+            try { input.showPicker(); } catch(err) { input.focus(); }
+        } else {
+            input.focus();
+        }
+    });
+
+    // When a date is picked, navigate preserving crew/service filters
+    input.addEventListener('change', function() {
+        var picked = input.value;  // "YYYY-MM-DD"
+        if (!picked) return;
+        var params = new URLSearchParams(window.location.search);
+        params.set('view', 'day');
+        params.set('date', picked);
+        params.delete('start');
+        window.location.search = params.toString();
+    });
+})();
+
 /**
  * Apply filters: navigate with crew + service params
  */
