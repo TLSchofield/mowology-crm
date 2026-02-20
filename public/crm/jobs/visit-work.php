@@ -325,6 +325,8 @@ $activePage = 'jobs';
 
   </div><!-- /tab-content -->
 
+  <?php endif; ?><!-- /work tabs -->
+
   <!-- ─ End Visit CTA ─ -->
   <?php if ($visit['status'] === 'in_progress'): ?>
   <div class="pow-end-zone">
