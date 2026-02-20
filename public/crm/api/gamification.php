@@ -21,15 +21,19 @@
 
 declare(strict_types=1);
 
-// Auth shim
-$__dir = __DIR__;
-for ($__i = 0; $__i < 5; $__i++) {
-    $__dir = dirname($__dir);
-    if (is_file($__dir . '/app/Core/paths.php')) {
-        require_once $__dir . '/app/Core/paths.php';
-        break;
+// Bootstrap — paths, then auth via public shim (same pattern as other API files)
+if (!defined('APP_ROOT')) {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 5; $__i++) {
+        $__dir = dirname($__dir);
+        if (is_file($__dir . '/app/Core/paths.php')) {
+            require_once $__dir . '/app/Core/paths.php';
+            break;
+        }
     }
+    unset($__dir, $__i);
 }
+require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once APP_ROOT . '/Core/Auth/authz.php';
 
 requireLogin();
