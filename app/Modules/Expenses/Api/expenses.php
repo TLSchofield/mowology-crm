@@ -197,6 +197,17 @@ function handleList(PDO $db): void
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Route receipt images through the auth-gated proxy instead of exposing
+    // direct /uploads/receipts/ paths. Uses media_id for clean URL.
+    foreach ($rows as &$row) {
+        if (!empty($row['receipt_media_id'])) {
+            $row['receipt_path'] = '/crm/api/serve-receipt.php?id=' . (int)$row['receipt_media_id'];
+        } else {
+            $row['receipt_path'] = null;
+        }
+    }
+    unset($row);
+
     echo json_encode([
         'success'  => true,
         'expenses' => $rows,
@@ -231,6 +242,13 @@ function handleGet(PDO $db): void
     $expense = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$expense) throw new Exception('Expense not found');
+
+    // Route receipt image through auth-gated proxy
+    if (!empty($expense['receipt_media_id'])) {
+        $expense['receipt_path'] = '/crm/api/serve-receipt.php?id=' . (int)$expense['receipt_media_id'];
+    } else {
+        $expense['receipt_path'] = null;
+    }
 
     // Get send history
     $logStmt = $db->prepare("
@@ -691,6 +709,16 @@ function handleCheckDuplicates(PDO $db): void
     $stmt->execute($params);
     $duplicates = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+    // Route receipt images through proxy
+    foreach ($duplicates as &$dup) {
+        if (!empty($dup['receipt_media_id'])) {
+            $dup['receipt_path'] = '/crm/api/serve-receipt.php?id=' . (int)$dup['receipt_media_id'];
+        } else {
+            $dup['receipt_path'] = null;
+        }
+    }
+    unset($dup);
+
     echo json_encode([
         'success'        => true,
         'has_duplicates'  => count($duplicates) > 0,
@@ -1070,6 +1098,14 @@ function handlePendingApproval(PDO $db): void
     ");
     $stmt->execute();
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Route receipt images through proxy
+    foreach ($rows as &$row) {
+        $row['receipt_path'] = !empty($row['receipt_media_id'])
+            ? '/crm/api/serve-receipt.php?id=' . (int)$row['receipt_media_id']
+            : null;
+    }
+    unset($row);
 
     echo json_encode([
         'success'  => true,
