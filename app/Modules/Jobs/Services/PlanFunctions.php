@@ -1145,7 +1145,7 @@ function getPlanDetails(int $planId): ?array {
             SUM(CASE WHEN status = 'completed' THEN COALESCE(actual_amount, 0) ELSE 0 END) AS total_revenue,
             MIN(CASE WHEN status = 'scheduled' AND scheduled_date >= CURDATE() THEN scheduled_date ELSE NULL END) AS next_visit_date
         FROM job_visits
-        WHERE plan_id = ?
+        WHERE plan_id = ? AND status != 'cancelled'
     ");
     $statsStmt->execute([$planId]);
     $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
@@ -1177,6 +1177,7 @@ function getPlanVisits(int $planId, ?string $status = null, int $limit = 50, int
         LEFT JOIN users u ON jv.assigned_crew_id = u.id
         LEFT JOIN calendar_stops cs ON jv.stop_id = cs.id
         WHERE jv.plan_id = ?
+          AND jv.status != 'cancelled'
     ";
     $params = [$planId];
 
