@@ -119,6 +119,176 @@ foreach ($calendarData as $dateStops) {
 $allPlanIds = array_values(array_unique($allPlanIds));
 $profitabilityMap = !empty($allPlanIds) ? getStopProfitabilityBatch($allPlanIds) : [];
 
+// ─── Mission Control: Weekly aggregate calculations ──────────────────
+// Computed once here, used both in the Mission Control header and per-day
+// Battle Cards. All numbers are estimates derived from plan prices and
+// the default crew hourly rate ($25/hr).
+$MC_DAILY_TARGET   = 1200.00; // Default daily revenue target (can be config-driven later)
+$MC_WEEKLY_TARGET  = $MC_DAILY_TARGET * 5;
+$MC_LABOR_RATE_DEFAULT = 25.00; // $/hr fallback when user hourly_rate is unknown
+
+// Per-day aggregates: [dateStr => ['revenue'=>float, 'labor'=>float, 'stops'=>int, 'duration_min'=>int, 'coords'=>[[lat,lng],...]]]
+$mcDayStats = [];
+$mcWeekRevenue  = 0.0;
+$mcWeekLabor    = 0.0;
+$mcWeekDuration = 0;  // minutes
+
+$currentDate2 = new DateTime($startDate);
+for ($di = 0; $di < 7; $di++) {
+    $ds = $currentDate2->format('Y-m-d');
+    $dayRev = 0.0;
+    $dayLabor = 0.0;
+    $dayDuration = 0;
+    $dayCoords = [];
+    $dayStopsArr = $calendarData[$ds] ?? [];
+
+    foreach ($dayStopsArr as $stop) {
+        if (!empty($stop['latitude']) && !empty($stop['longitude'])) {
+            $dayCoords[] = [(float)$stop['latitude'], (float)$stop['longitude']];
+        }
+        foreach (($stop['visits'] ?? []) as $v) {
+            $price = (float)($v['price_per_visit'] ?? 0);
+            $dur   = (int)($v['estimated_duration'] ?? 0);
+            $dayRev      += $price;
+            $dayDuration += $dur;
+            $dayLabor    += ($dur / 60.0) * $MC_LABOR_RATE_DEFAULT;
+        }
+    }
+
+    $mcDayStats[$ds] = [
+        'revenue'      => $dayRev,
+        'labor'        => $dayLabor,
+        'stops'        => count($dayStopsArr),
+        'duration_min' => $dayDuration,
+        'coords'       => $dayCoords,
+    ];
+    $mcWeekRevenue  += $dayRev;
+    $mcWeekLabor    += $dayLabor;
+    $mcWeekDuration += $dayDuration;
+    $currentDate2->modify('+1 day');
+}
+
+// Drive-time estimate: assume 8 min average between stops (rough heuristic)
+// In future: pull from route_engine actual drive times
+$mcWeekStops    = array_sum(array_column($mcDayStats, 'stops'));
+$mcDriveTimeMin = max(0, ($mcWeekStops - 7)) * 8; // subtract 1 per day (garage departure)
+
+// Route efficiency score (0–100): ratio of actual work time vs total day duration
+// 100 = all time is billable, 0 = all time is driving
+$mcTotalTimeMin  = $mcWeekDuration + $mcDriveTimeMin;
+$mcEfficiency    = $mcTotalTimeMin > 0
+    ? (int)round(min(100, ($mcWeekDuration / $mcTotalTimeMin) * 100))
+    : 0;
+
+// Density score (0–100): average stops per active day vs an "ideal" 6 stops/day
+$mcActiveDays = 0;
+foreach ($mcDayStats as $dStats) {
+    if ($dStats['stops'] > 0) $mcActiveDays++;
+}
+$mcAvgStopsPerDay = $mcActiveDays > 0 ? ($mcWeekStops / $mcActiveDays) : 0;
+$mcDensity = (int)round(min(100, ($mcAvgStopsPerDay / 6.0) * 100));
+
+// Week margin %
+$mcWeekOverhead   = $mcWeekLabor * 0.30; // 30% overhead on labor
+$mcWeekTotalCost  = $mcWeekLabor + $mcWeekOverhead;
+$mcWeekMargin     = $mcWeekRevenue > 0
+    ? (int)round((($mcWeekRevenue - $mcWeekTotalCost) / $mcWeekRevenue) * 100)
+    : 0;
+
+// Stretch target: +15% above current projected revenue
+$mcStretchTarget = $mcWeekRevenue * 1.15;
+
+// Completed stops this week (for progress bar)
+$mcCompletedStops = 0;
+foreach ($calendarData as $dateStops) {
+    foreach ($dateStops as $stop) {
+        if (($stop['stop_status'] ?? '') === 'completed') $mcCompletedStops++;
+    }
+}
+$mcProgressPct = $mcWeekStops > 0 ? (int)round(($mcCompletedStops / $mcWeekStops) * 100) : 0;
+
+// Revenue progress vs weekly target
+$mcRevenueProgressPct = $MC_WEEKLY_TARGET > 0 ? (int)round(min(100, ($mcWeekRevenue / $MC_WEEKLY_TARGET) * 100)) : 0;
+
+// Per-day battle card data
+$mcBattleCards = [];
+$currentDate2 = new DateTime($startDate);
+for ($di = 0; $di < 7; $di++) {
+    $ds  = $currentDate2->format('Y-m-d');
+    $dSt = $mcDayStats[$ds];
+    $dRev = $dSt['revenue'];
+    $dLab = $dSt['labor'];
+    $dOh  = $dLab * 0.30;
+    $dCost = $dLab + $dOh;
+    $dMargin = $dRev > 0 ? (int)round((($dRev - $dCost) / $dRev) * 100) : null;
+    $dDensity = (int)round(min(100, ($dSt['stops'] / 6.0) * 100));
+    $dDriveMin = max(0, $dSt['stops'] - 1) * 8;
+
+    // Weather risk: rain/storm/snow → high; wind > 30 → medium
+    $dWeather = $weekWeather[$ds] ?? [];
+    $dCondLow = strtolower($dWeather['condition'] ?? '');
+    $dPrecip  = (float)($dWeather['precipitation'] ?? 0);
+    $dWind    = (float)($dWeather['wind'] ?? 0);
+    if (strpos($dCondLow, 'storm') !== false || strpos($dCondLow, 'snow') !== false || $dPrecip > 10) {
+        $dWeatherRisk = 'high';
+    } elseif ($dPrecip > 3 || $dWind > 30) {
+        $dWeatherRisk = 'medium';
+    } else {
+        $dWeatherRisk = 'low';
+    }
+
+    // Outlier: any stop with < 20% margin or missing profitability data
+    $dOutlier = false;
+    foreach (($calendarData[$ds] ?? []) as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) {
+            $pid = (int)($v['plan_id'] ?? 0);
+            if ($pid && isset($profitabilityMap[$pid])) {
+                if ($profitabilityMap[$pid]['has_data'] && $profitabilityMap[$pid]['margin_pct'] < 20) {
+                    $dOutlier = true;
+                }
+            }
+        }
+    }
+
+    $mcBattleCards[$ds] = [
+        'revenue'      => $dRev,
+        'margin'       => $dMargin,
+        'density'      => $dDensity,
+        'weather_risk' => $dWeatherRisk,
+        'outlier'      => $dOutlier,
+        'drive_min'    => $dDriveMin,
+        'stops'        => $dSt['stops'],
+    ];
+    $currentDate2->modify('+1 day');
+}
+
+// ─── Gamification: streak + badges ──────────────────────────────────
+// Streak = consecutive days this week where all stops were completed
+// Simple heuristic: count from today backwards
+$mcStreak = 0;
+$streakDate = new DateTime(date('Y-m-d'));
+for ($si = 0; $si < 30; $si++) {
+    $sd = $streakDate->format('Y-m-d');
+    $dayData = $calendarData[$sd] ?? [];
+    if (empty($dayData)) { $streakDate->modify('-1 day'); continue; } // skip empty days
+    $allDone = true;
+    foreach ($dayData as $stop) {
+        if (($stop['stop_status'] ?? '') !== 'completed' && ($stop['stop_status'] ?? '') !== 'skipped') {
+            $allDone = false;
+            break;
+        }
+    }
+    if (!$allDone) break;
+    $mcStreak++;
+    $streakDate->modify('-1 day');
+}
+
+// Efficiency badge tier
+if ($mcEfficiency >= 80)      $mcBadgeTier = 'gold';
+elseif ($mcEfficiency >= 60)  $mcBadgeTier = 'silver';
+elseif ($mcEfficiency >= 40)  $mcBadgeTier = 'bronze';
+else                          $mcBadgeTier = null;
+
 // ─── Holiday lookup for calendar display ────────────────────────────
 $weekHolidays = [];
 try {
@@ -488,6 +658,118 @@ if ($apiKey) {
               </div>
           </div>
 
+          <!-- ═══════════════════════════════════════════════
+               MISSION CONTROL HEADER (Week View Only)
+               Projected revenue, labor, margin, drive time,
+               efficiency score, density, stretch target,
+               gamification badges — desktop only
+               ═══════════════════════════════════════════════ -->
+          <div class="mw-mission-control d-none d-lg-block">
+
+              <!-- Top row: primary KPIs -->
+              <div class="mw-mc-kpi-row">
+
+                  <div class="mw-mc-kpi mw-mc-kpi-revenue">
+                      <div class="mw-mc-kpi-label">Projected Revenue</div>
+                      <div class="mw-mc-kpi-value">$<?php echo number_format($mcWeekRevenue, 0); ?></div>
+                      <div class="mw-mc-kpi-sub">Target $<?php echo number_format($MC_WEEKLY_TARGET, 0); ?></div>
+                  </div>
+
+                  <div class="mw-mc-kpi mw-mc-kpi-labor">
+                      <div class="mw-mc-kpi-label">Labor Cost</div>
+                      <div class="mw-mc-kpi-value">$<?php echo number_format($mcWeekLabor, 0); ?></div>
+                      <div class="mw-mc-kpi-sub"><?php echo number_format(($mcWeekRevenue > 0 ? ($mcWeekLabor / $mcWeekRevenue) * 100 : 0), 0); ?>% of revenue</div>
+                  </div>
+
+                  <div class="mw-mc-kpi mw-mc-kpi-margin <?php echo $mcWeekMargin >= 40 ? 'is-green' : ($mcWeekMargin >= 20 ? 'is-amber' : 'is-red'); ?>">
+                      <div class="mw-mc-kpi-label">Margin</div>
+                      <div class="mw-mc-kpi-value"><?php echo $mcWeekMargin; ?>%</div>
+                      <div class="mw-mc-kpi-sub"><?php echo $mcWeekMargin >= 40 ? 'Healthy' : ($mcWeekMargin >= 20 ? 'Watch' : 'Critical'); ?></div>
+                  </div>
+
+                  <div class="mw-mc-kpi mw-mc-kpi-drive">
+                      <div class="mw-mc-kpi-label">Drive Time</div>
+                      <div class="mw-mc-kpi-value"><?php echo round($mcDriveTimeMin / 60, 1); ?>h</div>
+                      <div class="mw-mc-kpi-sub"><?php echo $mcDriveTimeMin; ?> min est.</div>
+                  </div>
+
+                  <div class="mw-mc-kpi mw-mc-kpi-efficiency">
+                      <div class="mw-mc-kpi-label">Route Efficiency</div>
+                      <div class="mw-mc-kpi-value" id="mc-efficiency-val"><?php echo $mcEfficiency; ?></div>
+                      <div class="mw-mc-kpi-sub">score / 100</div>
+                  </div>
+
+                  <div class="mw-mc-kpi mw-mc-kpi-density">
+                      <div class="mw-mc-kpi-label">Density Score</div>
+                      <div class="mw-mc-kpi-value"><?php echo $mcDensity; ?></div>
+                      <div class="mw-mc-kpi-sub"><?php echo number_format($mcAvgStopsPerDay, 1); ?> stops/day</div>
+                  </div>
+
+                  <div class="mw-mc-kpi mw-mc-kpi-stretch">
+                      <div class="mw-mc-kpi-label">Stretch Target</div>
+                      <div class="mw-mc-kpi-value">$<?php echo number_format($mcStretchTarget, 0); ?></div>
+                      <div class="mw-mc-kpi-sub">+15% of projected</div>
+                  </div>
+
+                  <!-- Gamification panel -->
+                  <div class="mw-mc-gamification">
+                      <?php if ($mcStreak > 0): ?>
+                      <div class="mw-mc-badge mw-mc-badge-streak" title="<?php echo $mcStreak; ?>-day completion streak">
+                          <span class="mw-mc-badge-icon">🔥</span>
+                          <span class="mw-mc-badge-text"><?php echo $mcStreak; ?> day streak</span>
+                      </div>
+                      <?php endif; ?>
+                      <?php if ($mcBadgeTier): ?>
+                      <div class="mw-mc-badge mw-mc-badge-eff mw-mc-badge-<?php echo $mcBadgeTier; ?>" title="Efficiency badge: <?php echo $mcBadgeTier; ?>">
+                          <span class="mw-mc-badge-icon"><?php echo $mcBadgeTier === 'gold' ? '🥇' : ($mcBadgeTier === 'silver' ? '🥈' : '🥉'); ?></span>
+                          <span class="mw-mc-badge-text"><?php echo ucfirst($mcBadgeTier); ?> Efficiency</span>
+                      </div>
+                      <?php endif; ?>
+                      <div class="mw-mc-badge mw-mc-badge-stops" title="<?php echo $mcCompletedStops; ?> of <?php echo $mcWeekStops; ?> stops done">
+                          <span class="mw-mc-badge-icon">✓</span>
+                          <span class="mw-mc-badge-text"><?php echo $mcCompletedStops; ?>/<?php echo $mcWeekStops; ?> stops</span>
+                      </div>
+                  </div>
+
+              </div><!-- /.mw-mc-kpi-row -->
+
+              <!-- Progress bar row: weekly completion + revenue vs target -->
+              <div class="mw-mc-progress-row">
+                  <div class="mw-mc-prog-block">
+                      <div class="mw-mc-prog-label">
+                          <span>Weekly Completion</span>
+                          <span><?php echo $mcProgressPct; ?>% · <?php echo $mcCompletedStops; ?>/<?php echo $mcWeekStops; ?> stops</span>
+                      </div>
+                      <div class="mw-mc-prog-track">
+                          <div class="mw-mc-prog-fill mw-mc-prog-stops" style="width: <?php echo $mcProgressPct; ?>%"
+                               data-target="<?php echo $mcProgressPct; ?>"></div>
+                      </div>
+                  </div>
+                  <div class="mw-mc-prog-block">
+                      <div class="mw-mc-prog-label">
+                          <span>Revenue vs Target</span>
+                          <span>$<?php echo number_format($mcWeekRevenue, 0); ?> / $<?php echo number_format($MC_WEEKLY_TARGET, 0); ?></span>
+                      </div>
+                      <div class="mw-mc-prog-track">
+                          <div class="mw-mc-prog-fill mw-mc-prog-revenue" style="width: <?php echo $mcRevenueProgressPct; ?>%"
+                               data-target="<?php echo $mcRevenueProgressPct; ?>"></div>
+                      </div>
+                  </div>
+                  <div class="mw-mc-prog-block mw-mc-prog-block-efficiency">
+                      <div class="mw-mc-prog-label">
+                          <span>Route Efficiency</span>
+                          <span id="mc-eff-label"><?php echo $mcEfficiency; ?>/100</span>
+                      </div>
+                      <div class="mw-mc-prog-track">
+                          <div class="mw-mc-prog-fill mw-mc-prog-eff" id="mc-eff-bar"
+                               style="width: <?php echo $mcEfficiency; ?>%"
+                               data-target="<?php echo $mcEfficiency; ?>"></div>
+                      </div>
+                  </div>
+              </div><!-- /.mw-mc-progress-row -->
+
+          </div><!-- /.mw-mission-control -->
+
           <?php if ($view === 'week'): ?>
           <!-- ═══════════════════════════════════════════════
                DESKTOP: Calendar container (hidden on mobile)
@@ -559,13 +841,73 @@ if ($apiKey) {
                           return ($a['route_order'] ?? 999) - ($b['route_order'] ?? 999);
                       });
                   ?>
-                      <div class="mw-day-column <?php echo $isToday ? 'today' : ''; ?>"
-                           data-date="<?php echo $dateStr; ?>">
+                      <?php
+                      // ─── Battle Card variables for this day ────────────────
+                      $bcData    = $mcBattleCards[$dateStr] ?? [];
+                      $bcMargin  = $bcData['margin']       ?? null;
+                      $bcDensity = $bcData['density']      ?? 0;
+                      $bcRisk    = $bcData['weather_risk'] ?? 'low';
+                      $bcOutlier = $bcData['outlier']      ?? false;
+                      $bcRev     = $bcData['revenue']      ?? 0;
+                      $bcStops   = $bcData['stops']        ?? 0;
+                      $bcDrive   = $bcData['drive_min']    ?? 0;
+
+                      // Margin color class for Battle Card
+                      $bcMarginClass = '';
+                      if ($bcMargin !== null) {
+                          $bcMarginClass = $bcMargin >= 40 ? 'bc-margin-green' : ($bcMargin >= 20 ? 'bc-margin-amber' : 'bc-margin-red');
+                      }
+                      // Heatmap intensity: 0-100 based on density score
+                      $bcHeatmapAlpha = round(($bcDensity / 100) * 0.08, 3); // subtle 0–0.08 overlay
+                      ?>
+                      <div class="mw-day-column mw-battle-card <?php echo $isToday ? 'today' : ''; ?> <?php echo $bcMarginClass; ?>"
+                           data-date="<?php echo $dateStr; ?>"
+                           data-density="<?php echo $bcDensity; ?>"
+                           style="--bc-heat: <?php echo $bcHeatmapAlpha; ?>">
+
+                          <!-- Battle Card header (shown when stops exist) -->
+                          <?php if ($bcStops > 0): ?>
+                          <div class="mw-bc-header">
+                              <div class="mw-bc-header-top">
+                                  <span class="mw-bc-rev">$<?php echo number_format($bcRev, 0); ?></span>
+                                  <?php if ($bcMargin !== null): ?>
+                                  <span class="mw-bc-margin <?php echo $bcMarginClass; ?>"><?php echo $bcMargin; ?>%</span>
+                                  <?php endif; ?>
+                                  <?php if ($bcOutlier): ?>
+                                  <span class="mw-bc-outlier-flag" title="Low-margin job detected">⚠</span>
+                                  <?php endif; ?>
+                              </div>
+                              <div class="mw-bc-header-bottom">
+                                  <!-- Density score mini bar -->
+                                  <div class="mw-bc-density" title="Density: <?php echo $bcDensity; ?>/100">
+                                      <div class="mw-bc-density-bar" style="width: <?php echo $bcDensity; ?>%"></div>
+                                  </div>
+                                  <!-- Weather risk -->
+                                  <span class="mw-bc-weather-risk mw-bc-risk-<?php echo $bcRisk; ?>"
+                                        title="Weather risk: <?php echo $bcRisk; ?>">
+                                      <?php echo $bcRisk === 'high' ? '⛈' : ($bcRisk === 'medium' ? '🌧' : '☀'); ?>
+                                  </span>
+                                  <!-- Drive time -->
+                                  <span class="mw-bc-drive" title="Est. drive time"><?php echo $bcDrive; ?>m</span>
+                              </div>
+                              <!-- Mini profit meter -->
+                              <?php if ($bcMargin !== null): ?>
+                              <div class="mw-bc-profit-meter" title="Margin: <?php echo $bcMargin; ?>%">
+                                  <div class="mw-bc-profit-fill" style="width: <?php echo max(0, min(100, $bcMargin)); ?>%"></div>
+                              </div>
+                              <?php endif; ?>
+                          </div>
+                          <?php endif; ?>
 
                           <?php if (empty($dayStops)): ?>
                               <div class="mw-day-empty">No stops</div>
                           <?php else: ?>
-                              <?php foreach ($dayStops as $stop): ?>
+                              <?php
+                              // Convert to indexed array for distance-to-next calculation
+                              $dayStopsArr2 = array_values($dayStops);
+                              $totalDayStops = count($dayStopsArr2);
+                              ?>
+                              <?php foreach ($dayStopsArr2 as $stopIdx => $stop): ?>
                                   <?php
                                       // Build crew IDs list from junction data (falls back to single crew_id)
                                       $crewIds = !empty($stop['crew_ids']) ? $stop['crew_ids'] : ($stop['crew_id'] ? [(int)$stop['crew_id']] : []);
@@ -584,6 +926,27 @@ if ($apiKey) {
                                       $clientDisplay2 = $stop['contact_name'] ?? '';
                                       if (!$clientDisplay2) $clientDisplay2 = $stop['company_name'] ?? '';
                                       if (!$clientDisplay2) $clientDisplay2 = $stop['property_name'] ?? '';
+
+                                      // Revenue for this stop
+                                      $stopRevenue = 0.0;
+                                      foreach (($stop['visits'] ?? []) as $sv) {
+                                          $stopRevenue += (float)($sv['price_per_visit'] ?? 0);
+                                      }
+
+                                      // Distance-to-next (haversine, km) — only if next stop has coords
+                                      $distToNext = null;
+                                      if ($stopIdx < $totalDayStops - 1) {
+                                          $nextStop = $dayStopsArr2[$stopIdx + 1];
+                                          if (!empty($stop['latitude']) && !empty($stop['longitude'])
+                                              && !empty($nextStop['latitude']) && !empty($nextStop['longitude'])) {
+                                              $lat1 = deg2rad((float)$stop['latitude']);
+                                              $lat2 = deg2rad((float)$nextStop['latitude']);
+                                              $dLat = $lat2 - $lat1;
+                                              $dLng = deg2rad((float)$nextStop['longitude'] - (float)$stop['longitude']);
+                                              $a = sin($dLat/2)**2 + cos($lat1)*cos($lat2)*sin($dLng/2)**2;
+                                              $distToNext = round(6371 * 2 * asin(sqrt($a)), 1); // km
+                                          }
+                                      }
                                   ?>
                                   <div class="mw-stop-card <?php echo stopStatusClass($stop['stop_status']); ?>"
                                        draggable="true"
@@ -596,7 +959,10 @@ if ($apiKey) {
                                        data-property-id="<?php echo (int)$stop['property_id']; ?>"
                                        data-contact-id="<?php echo (int)($stop['contact_id'] ?? 0); ?>"
                                        data-contact-name="<?php echo htmlspecialchars($clientDisplay2); ?>"
-                                       data-visits="<?php echo htmlspecialchars(json_encode($visitsJson)); ?>">
+                                       data-visits="<?php echo htmlspecialchars(json_encode($visitsJson)); ?>"
+                                       data-revenue="<?php echo round($stopRevenue, 2); ?>"
+                                       data-lat="<?php echo htmlspecialchars($stop['latitude'] ?? ''); ?>"
+                                       data-lng="<?php echo htmlspecialchars($stop['longitude'] ?? ''); ?>">
 
                                       <?php
                                       // Determine arrival time display
@@ -672,6 +1038,27 @@ if ($apiKey) {
                                           </div>
                                       <?php elseif (!empty($stop['visits'])): ?>
                                           <div class="mw-profit-bar mw-profit-bar-empty" title="No profitability data yet"></div>
+                                      <?php endif; ?>
+
+                                      <!-- Revenue strip -->
+                                      <?php if ($stopRevenue > 0): ?>
+                                      <div class="mw-stop-revenue-strip">
+                                          <span class="mw-stop-rev-icon">$</span>
+                                          <span class="mw-stop-rev-amount"><?php echo number_format($stopRevenue, 0); ?></span>
+                                          <?php if ($stopHasProfit && $stopMargin !== null): ?>
+                                          <span class="mw-stop-rev-margin <?php echo $stopMargin >= 40 ? 'is-green' : ($stopMargin >= 20 ? 'is-amber' : 'is-red'); ?>">
+                                              <?php echo $stopMargin; ?>%
+                                          </span>
+                                          <?php endif; ?>
+                                      </div>
+                                      <?php endif; ?>
+
+                                      <!-- Distance to next stop -->
+                                      <?php if ($distToNext !== null): ?>
+                                      <div class="mw-stop-distance" title="Distance to next stop">
+                                          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                                          <?php echo $distToNext; ?> km
+                                      </div>
                                       <?php endif; ?>
                                   </div>
                               <?php endforeach; ?>
@@ -1491,4 +1878,204 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 });
 </script>
 <?php endif; ?>
+
+<!-- ═══════════════════════════════════════════════════════
+     MISSION CONTROL — Animations & Gamification JS
+     ═══════════════════════════════════════════════════════ -->
+<script>
+(function() {
+    'use strict';
+
+    // ── 1. Progress bar entrance animation ──────────────────────────
+    // Bars start at 0 width and animate to their data-target on load
+    function animateProgressBars() {
+        var fills = document.querySelectorAll('.mw-mc-prog-fill');
+        fills.forEach(function(el) {
+            var target = parseInt(el.dataset.target || '0', 10);
+            el.style.width = '0%';
+            requestAnimationFrame(function() {
+                setTimeout(function() {
+                    el.style.width = Math.min(100, target) + '%';
+                }, 120);
+            });
+        });
+    }
+
+    // ── 2. KPI counter roll-up animation ────────────────────────────
+    function animateKpiValues() {
+        var kpis = document.querySelectorAll('.mw-mc-kpi-value');
+        kpis.forEach(function(el) {
+            var text = el.textContent.trim();
+            // Only animate pure numeric or numeric-with-% values
+            var numeric = text.replace(/[$,%]/g, '');
+            if (isNaN(parseFloat(numeric))) return;
+            var target = parseFloat(numeric);
+            var prefix = text.indexOf('$') !== -1 ? '$' : '';
+            var suffix = text.indexOf('%') !== -1 ? '%' : '';
+            var start = 0;
+            var duration = 800;
+            var startTime = null;
+            function step(ts) {
+                if (!startTime) startTime = ts;
+                var progress = Math.min((ts - startTime) / duration, 1);
+                var ease = 1 - Math.pow(1 - progress, 3); // ease-out cubic
+                var val = start + (target - start) * ease;
+                el.textContent = prefix + (target >= 100 ? Math.round(val).toLocaleString() : Math.round(val)) + suffix;
+                if (progress < 1) requestAnimationFrame(step);
+            }
+            // Slight stagger per element
+            var idx = Array.prototype.indexOf.call(kpis, el);
+            setTimeout(function() { requestAnimationFrame(step); }, 60 * idx);
+        });
+    }
+
+    // ── 3. Battle Card density heatmap ──────────────────────────────
+    // Each .mw-battle-card has a --bc-heat CSS var set inline by PHP.
+    // JS applies the pseudo-background tint using a radial gradient overlay.
+    function applyHeatmaps() {
+        var cards = document.querySelectorAll('.mw-battle-card');
+        cards.forEach(function(card) {
+            var alpha = parseFloat(card.style.getPropertyValue('--bc-heat') || '0');
+            if (alpha > 0) {
+                // Add a subtle radial glow from the top — density warmth indicator
+                card.style.backgroundImage =
+                    'radial-gradient(ellipse 120% 60% at 50% 0%, rgba(45,134,89,' + alpha + ') 0%, transparent 70%)';
+            }
+        });
+    }
+
+    // ── 4. Live efficiency score update on drag-drop reorder ─────────
+    // After the drag-drop engine fires a 'mw:route-updated' event,
+    // we recalculate drive time and efficiency and animate the values.
+    function refreshEfficiencyDisplay(newEfficiency) {
+        var valEl   = document.getElementById('mc-efficiency-val');
+        var barEl   = document.getElementById('mc-eff-bar');
+        var labelEl = document.getElementById('mc-eff-label');
+        if (!valEl || !barEl || !labelEl) return;
+
+        var prev = parseInt(valEl.textContent, 10) || 0;
+        var duration = 600;
+        var startTime = null;
+        function step(ts) {
+            if (!startTime) startTime = ts;
+            var p = Math.min((ts - startTime) / duration, 1);
+            var ease = 1 - Math.pow(1 - p, 3);
+            var cur = Math.round(prev + (newEfficiency - prev) * ease);
+            valEl.textContent = cur;
+            labelEl.textContent = cur + '/100';
+            barEl.style.width = Math.min(100, cur) + '%';
+            if (p < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+    }
+
+    // Listen for route-engine updates
+    document.addEventListener('mw:route-updated', function(e) {
+        if (e.detail && typeof e.detail.efficiency === 'number') {
+            refreshEfficiencyDisplay(e.detail.efficiency);
+        }
+    });
+
+    // ── 5. Confetti on 100% weekly completion ───────────────────────
+    // Fires once per session if mcProgressPct === 100
+    var MC_PROGRESS = <?php echo (int)$mcProgressPct; ?>;
+    var MC_CONFETTI_KEY = 'mw_confetti_<?php echo date('Y-W'); ?>';
+
+    function launchConfetti() {
+        if (sessionStorage.getItem(MC_CONFETTI_KEY)) return;
+        sessionStorage.setItem(MC_CONFETTI_KEY, '1');
+
+        var canvas = document.createElement('canvas');
+        canvas.id = 'mw-confetti-canvas';
+        canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999';
+        document.body.appendChild(canvas);
+        var ctx = canvas.getContext('2d');
+        canvas.width  = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        var particles = [];
+        var colors = ['#2D8659','#7FD858','#F59E0B','#3B82F6','#EC4899','#fff'];
+        for (var i = 0; i < 160; i++) {
+            particles.push({
+                x: Math.random() * canvas.width,
+                y: -20 - Math.random() * 120,
+                vx: (Math.random() - 0.5) * 4,
+                vy: 2 + Math.random() * 4,
+                size: 4 + Math.random() * 6,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                rot: Math.random() * 360,
+                rSpeed: (Math.random() - 0.5) * 6,
+                alpha: 1,
+            });
+        }
+
+        var start = null;
+        function draw(ts) {
+            if (!start) start = ts;
+            var elapsed = ts - start;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(function(p) {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.rot += p.rSpeed;
+                p.vy += 0.05; // gravity
+                if (elapsed > 2000) p.alpha = Math.max(0, 1 - (elapsed - 2000) / 1500);
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.translate(p.x, p.y);
+                ctx.rotate(p.rot * Math.PI / 180);
+                ctx.fillStyle = p.color;
+                ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.5);
+                ctx.restore();
+            });
+            if (elapsed < 4000) {
+                requestAnimationFrame(draw);
+            } else {
+                canvas.remove();
+            }
+        }
+        requestAnimationFrame(draw);
+    }
+
+    // ── 6. Route optimization animation ─────────────────────────────
+    // When stop cards are reordered via drag-drop, animate cards
+    // sliding into their new positions using Web Animations API.
+    // We hook into the schedule-drag-drop.js completion callback via
+    // a custom event that the drag engine already fires.
+    document.addEventListener('mw:stops-reordered', function() {
+        var columns = document.querySelectorAll('.mw-day-column');
+        columns.forEach(function(col) {
+            var cards = Array.from(col.querySelectorAll('.mw-stop-card'));
+            cards.forEach(function(card, i) {
+                card.animate(
+                    [{ opacity: 0.5, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'translateY(0)' }],
+                    { duration: 280, delay: i * 40, easing: 'ease-out', fill: 'backwards' }
+                );
+            });
+        });
+
+        // Recalculate and animate drive-time savings display
+        var totalStops = document.querySelectorAll('.mw-stop-card').length;
+        var estDriveMin = Math.max(0, totalStops - 7) * 7; // optimized route slightly better
+        var estEff = Math.min(100, Math.round(
+            document.querySelectorAll('.mw-stop-card').length > 0
+                ? (<?php echo (int)$mcWeekDuration; ?> / (<?php echo (int)$mcWeekDuration; ?> + estDriveMin)) * 100
+                : <?php echo (int)$mcEfficiency; ?>
+        ));
+        refreshEfficiencyDisplay(estEff);
+    });
+
+    // ── Init ─────────────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', function() {
+        animateProgressBars();
+        animateKpiValues();
+        applyHeatmaps();
+        if (MC_PROGRESS >= 100) {
+            setTimeout(launchConfetti, 600);
+        }
+    });
+
+})();
+</script>
+
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

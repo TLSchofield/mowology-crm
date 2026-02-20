@@ -6179,6 +6179,334 @@ textarea.font-monospace {
 }
 
 /* ============================================
+   MISSION CONTROL — Header Panel
+   ============================================ */
+
+.mw-mission-control {
+  background: linear-gradient(135deg, #0D3B2E 0%, #1A5F4A 60%, #2D8659 100%);
+  border-radius: 10px;
+  padding: 16px 20px 12px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 20px rgba(13,59,46,0.25), 0 1px 4px rgba(0,0,0,0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Subtle noise texture overlay */
+.mw-mission-control::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  opacity: 0.3;
+}
+
+/* ── KPI Row ──────────────────────────────── */
+.mw-mc-kpi-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-bottom: 12px;
+}
+.mw-mc-kpi-row::-webkit-scrollbar { display: none; }
+
+.mw-mc-kpi {
+  flex: 1 0 auto;
+  min-width: 80px;
+  max-width: 120px;
+  padding: 0 14px 0 0;
+  border-right: 1px solid rgba(255,255,255,0.12);
+  margin-right: 14px;
+}
+.mw-mc-kpi:last-child,
+.mw-mc-gamification {
+  border-right: none;
+  margin-right: 0;
+}
+
+.mw-mc-kpi-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+  white-space: nowrap;
+  margin-bottom: 2px;
+}
+
+.mw-mc-kpi-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.mw-mc-kpi-sub {
+  font-size: 9px;
+  color: rgba(255,255,255,0.45);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+/* Colored accents on specific KPIs */
+.mw-mc-kpi-margin.is-green .mw-mc-kpi-value { color: #7FD858; }
+.mw-mc-kpi-margin.is-amber .mw-mc-kpi-value { color: #F59E0B; }
+.mw-mc-kpi-margin.is-red   .mw-mc-kpi-value { color: #F87171; }
+
+/* ── Gamification Panel ───────────────────── */
+.mw-mc-gamification {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  justify-content: center;
+  padding-left: 14px;
+  border-left: 1px solid rgba(255,255,255,0.12);
+  min-width: 130px;
+}
+
+.mw-mc-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 20px;
+  padding: 3px 8px 3px 5px;
+  white-space: nowrap;
+}
+
+.mw-mc-badge-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.mw-mc-badge-text {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.85);
+}
+
+.mw-mc-badge-streak { border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.1); }
+.mw-mc-badge-gold   { border-color: rgba(251,191,36,0.4);  background: rgba(251,191,36,0.1); }
+.mw-mc-badge-silver { border-color: rgba(209,213,219,0.4); background: rgba(209,213,219,0.1); }
+.mw-mc-badge-bronze { border-color: rgba(180,83,9,0.4);    background: rgba(180,83,9,0.1); }
+.mw-mc-badge-stops  { border-color: rgba(127,216,88,0.3);  background: rgba(127,216,88,0.06); }
+
+/* ── Progress Bar Row ─────────────────────── */
+.mw-mc-progress-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.mw-mc-prog-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.mw-mc-prog-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.mw-mc-prog-track {
+  height: 6px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mw-mc-prog-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  width: 0%; /* animates in via JS */
+}
+
+.mw-mc-prog-stops   { background: linear-gradient(90deg, #7FD858, #2D8659); }
+.mw-mc-prog-revenue { background: linear-gradient(90deg, #F59E0B, #D97706); }
+.mw-mc-prog-eff     { background: linear-gradient(90deg, #3B82F6, #1D4ED8); }
+
+/* ============================================
+   BATTLE CARDS — Day Column Upgrade
+   ============================================ */
+
+/* Heatmap background overlay (set via JS from --bc-heat) */
+.mw-battle-card {
+  position: relative;
+}
+
+/* Battle Card header panel */
+.mw-bc-header {
+  background: rgba(13,59,46,0.04);
+  border: 1px solid rgba(45,134,89,0.12);
+  border-radius: 5px;
+  padding: 5px 7px;
+  margin-bottom: 5px;
+}
+
+.mw-bc-header-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.mw-bc-rev {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--mw-green);
+  letter-spacing: -0.01em;
+  flex: 1;
+}
+
+.mw-bc-margin {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.3;
+}
+.mw-bc-margin.bc-margin-green { background: rgba(16,185,129,0.12); color: #059669; }
+.mw-bc-margin.bc-margin-amber { background: rgba(245,158,11,0.12); color: #D97706; }
+.mw-bc-margin.bc-margin-red   { background: rgba(220,38,38,0.12);  color: #DC2626; }
+
+.mw-bc-outlier-flag {
+  font-size: 11px;
+  cursor: default;
+  opacity: 0.8;
+}
+
+.mw-bc-header-bottom {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Density mini bar */
+.mw-bc-density {
+  flex: 1;
+  height: 3px;
+  background: #e9ecef;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.mw-bc-density-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mw-green), var(--mw-lime));
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.mw-bc-weather-risk {
+  font-size: 10px;
+  cursor: default;
+}
+
+.mw-bc-drive {
+  font-size: 9px;
+  color: #6c757d;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* Mini profit meter (thin bar below header-bottom) */
+.mw-bc-profit-meter {
+  height: 2px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 2px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+.mw-bc-profit-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+/* Color inherits from margin tier — applied via JS/parent class */
+.bc-margin-green .mw-bc-profit-fill { background: #10B981; }
+.bc-margin-amber .mw-bc-profit-fill { background: #F59E0B; }
+.bc-margin-red   .mw-bc-profit-fill { background: #DC2626; }
+
+/* Day column margin-color left border accent */
+.mw-battle-card.bc-margin-green { border-left: 2px solid rgba(16,185,129,0.3); }
+.mw-battle-card.bc-margin-amber { border-left: 2px solid rgba(245,158,11,0.3); }
+.mw-battle-card.bc-margin-red   { border-left: 2px solid rgba(220,38,38,0.3);  }
+
+/* ── Revenue Strip on Stop Cards ─────────── */
+.mw-stop-revenue-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 4px;
+  background: rgba(45,134,89,0.05);
+  border-radius: 3px;
+  border-left: 2px solid var(--mw-green);
+}
+
+.mw-stop-rev-icon {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--mw-green);
+  line-height: 1;
+}
+
+.mw-stop-rev-amount {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--mw-green);
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.mw-stop-rev-margin {
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  margin-left: auto;
+}
+.mw-stop-rev-margin.is-green { color: #059669; }
+.mw-stop-rev-margin.is-amber { color: #D97706; }
+.mw-stop-rev-margin.is-red   { color: #DC2626; }
+
+/* ── Distance to Next Indicator ──────────── */
+.mw-stop-distance {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  color: #9ca3af;
+  margin-top: 3px;
+  font-weight: 500;
+}
+.mw-stop-distance svg {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+/* ── Confetti canvas (injected by JS) ─────── */
+#mw-confetti-canvas {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ============================================
    DAY VIEW — Split Panel Layout
    ============================================ */
 
@@ -14171,4 +14499,44 @@ textarea.font-monospace {
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* ── Tracking Health — Device Setup Wizard ─────────────────────── */
+
+.mw-setup-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--mw-light);
+  transition: background 0.2s ease;
+}
+.mw-setup-item:last-child { border-bottom: none; }
+
+.mw-setup-icon {
+  font-size: 22px;
+  width: 32px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.mw-setup-body { flex: 1; min-width: 0; }
+.mw-setup-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--mw-forest);
+  margin-bottom: 2px;
+}
+.mw-setup-desc {
+  font-size: 12px;
+  color: #666;
+  line-height: 1.4;
+}
+.mw-setup-action { flex-shrink: 0; }
+
+/* Setup item state backgrounds */
+.mw-setup-item.is-ok    { background: #f0faf4; }
+.mw-setup-item.is-warn  { background: #fffbea; }
+.mw-setup-item.is-error { background: #fff5f5; }
+.mw-setup-item.is-ok    .mw-setup-title { color: var(--mw-green); }
+.mw-setup-item.is-error .mw-setup-title { color: #c0392b; }
+.mw-setup-item.is-warn  .mw-setup-title { color: #856404; }
 
