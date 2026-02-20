@@ -13,6 +13,8 @@
  * Depends on:
  *   - Google Maps JS API (loaded via $extraHead with &libraries=geometry)
  *   - MW_ROUTE_STOPS global (set by schedule.php)
+ *   - MwNavLauncher (navigation-launcher.js) — for external nav
+ *   - MwRouteEngine (route-engine.js) — for drive time computation
  *
  * @package Mowology CRM
  */
@@ -20,6 +22,16 @@ var MwRouteMap = (function() {
     'use strict';
 
     // Map View works at all screen sizes (mobile, tablet, desktop)
+
+    // ── Debug ──
+    var DEBUG = (typeof MW_DEBUG !== 'undefined' && MW_DEBUG) ||
+                (typeof localStorage !== 'undefined' && localStorage.getItem('mw_route_debug') === '1');
+
+    function log() {
+        if (!DEBUG) return;
+        var args = ['[RouteMap]'].concat(Array.prototype.slice.call(arguments));
+        console.log.apply(console, args);
+    }
 
     // ── State ──
     var map = null;
@@ -33,12 +45,16 @@ var MwRouteMap = (function() {
     var currentIndex = 0;
     var userLat = null;
     var userLng = null;
-    var optimizedStops = null; // Reordered stops after route optimization
-    var targetStopId = null;   // Stop to focus on after optimization
-    var singleRouteMode = false; // true when showing GPS→single stop route
+    var gpsTimestamp = 0;                // When GPS was last fetched
+    var GPS_MAX_AGE_MS = 30000;          // Refresh GPS if older than 30s
+    var optimizedStops = null;           // Reordered stops after route optimization
+    var targetStopId = null;             // Stop to focus on after optimization
+    var singleRouteMode = false;         // true when showing GPS→single stop route
+    var lastRouteSummary = null;         // Cached MwRouteEngine result for UI
+    var legDurations = [];               // Per-leg durations from Directions result
 
     // ── DOM refs ──
-    var viewEl, mapEl, trackEl, dotsEl, titleEl, backBtn, externalBtn, trayEl;
+    var viewEl, mapEl, trackEl, dotsEl, titleEl, backBtn, externalBtn, trayEl, summaryEl;
 
     // ── Service type colors ──
     var serviceColors = {
@@ -63,6 +79,7 @@ var MwRouteMap = (function() {
         backBtn     = document.getElementById('mwMapViewBack');
         externalBtn = document.getElementById('mwMapViewExternal');
         trayEl      = document.getElementById('mwMapViewTray');
+        summaryEl   = document.getElementById('mwMapViewSummary');
 
         if (!viewEl || !mapEl) return;
 
@@ -97,8 +114,8 @@ var MwRouteMap = (function() {
             if (!mapInitialized) initMap();
             else google.maps.event.trigger(map, 'resize');
 
-            // Get GPS, then sort by proximity and compute route
-            getGPS(function() {
+            // Always get fresh GPS, then sort by proximity and compute route
+            getFreshGPS(function() {
                 var closestIdx = findClosestStop(stops);
                 currentIndex = closestIdx;
                 buildCarousel(stops);
@@ -141,7 +158,7 @@ var MwRouteMap = (function() {
                     if (typeof google !== 'undefined' && typeof google.maps !== 'undefined') {
                         clearInterval(check);
                         initMap();
-                        getGPS(function() { computeFullRoute(); });
+                        getFreshGPS(function() { computeFullRoute(); });
                     }
                 }, 200);
                 return;
@@ -151,7 +168,7 @@ var MwRouteMap = (function() {
             google.maps.event.trigger(map, 'resize');
         }
 
-        getGPS(function() { computeFullRoute(); });
+        getFreshGPS(function() { computeFullRoute(); });
     }
 
     function openToStop(stopId) {
@@ -163,6 +180,8 @@ var MwRouteMap = (function() {
                 break;
             }
         }
+
+        log('openToStop:', stopId, 'found at index:', idx);
         targetStopId = stopId;
         open(idx);
     }
@@ -213,29 +232,39 @@ var MwRouteMap = (function() {
     // ═══════════════════════════════════════════════════
 
     /**
-     * Get GPS position, then call callback. Caches result.
+     * Get FRESH GPS position every time (never use stale cached position).
+     * GPS is refreshed if older than GPS_MAX_AGE_MS or not yet obtained.
      */
-    function getGPS(callback) {
-        if (userLat && userLng) {
-            callback();
-            return;
-        }
-        if (!navigator.geolocation) {
+    function getFreshGPS(callback) {
+        var now = Date.now();
+
+        // Use cached if fresh enough
+        if (userLat && userLng && (now - gpsTimestamp) < GPS_MAX_AGE_MS) {
+            log('Using cached GPS (age:', Math.round((now - gpsTimestamp) / 1000) + 's)');
             callback();
             return;
         }
 
+        if (!navigator.geolocation) {
+            log('Geolocation not available');
+            callback();
+            return;
+        }
+
+        log('Requesting fresh GPS...');
         navigator.geolocation.getCurrentPosition(
             function(pos) {
                 userLat = pos.coords.latitude;
                 userLng = pos.coords.longitude;
+                gpsTimestamp = Date.now();
+                log('GPS updated:', userLat, userLng);
                 callback();
             },
             function(err) {
                 console.warn('[RouteMap] GPS error:', err.message || err.code);
                 callback();
             },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 120000 }
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
         );
     }
 
@@ -291,6 +320,7 @@ var MwRouteMap = (function() {
         }
 
         clearMarkers();
+        legDurations = [];
 
         var hasGPS = !!(userLat && userLng);
 
@@ -316,7 +346,9 @@ var MwRouteMap = (function() {
                         var leg = result.routes[0].legs[0];
                         placeMarkerAt(leg.end_location, target, 0, true);
                         titleEl.textContent = leg.duration.text + ' \u00b7 ' + leg.distance.text;
+                        legDurations = [{ text: leg.duration.text, seconds: leg.duration.value }];
                         map.fitBounds(result.routes[0].bounds, { top: 60, right: 40, bottom: 200, left: 40 });
+                        updateCardDriveTimes();
                     } else {
                         console.warn('[RouteMap] Single-stop directions failed:', status);
                         geocodeAndShow(target, 0);
@@ -435,6 +467,16 @@ var MwRouteMap = (function() {
                 // Store optimized order for external maps and rebuild carousel
                 optimizedStops = orderedStopIndices.map(function(i) { return stops[i]; });
 
+                // Store per-leg durations for card display
+                legDurations = [];
+                for (var li = 0; li < legs.length; li++) {
+                    legDurations.push({
+                        text: legs[li].duration.text,
+                        seconds: legs[li].duration.value,
+                        distance: legs[li].distance.text
+                    });
+                }
+
                 // Rebuild carousel with optimized stop order
                 // Find the target stop in the optimized order (if user tapped a specific card)
                 currentIndex = 0;
@@ -449,6 +491,7 @@ var MwRouteMap = (function() {
                 }
                 buildCarousel(optimizedStops);
                 updateDots(optimizedStops.length, currentIndex);
+                updateCardDriveTimes();
 
                 // Place markers for each optimized stop
                 // Use leg endpoints for accurate on-road marker positions
@@ -488,6 +531,9 @@ var MwRouteMap = (function() {
                     : (totalDistance / 1000).toFixed(1) + ' km';
                 titleEl.textContent = stops.length + ' stops \u00b7 ' + durationText + ' \u00b7 ' + distanceText;
 
+                // Compute and show feasibility if RouteEngine is available
+                computeAndShowFeasibility(optimizedStops, totalDuration);
+
                 // Fit to route bounds with padding for the card tray
                 var bounds = result.routes[0].bounds;
                 if (bounds) {
@@ -497,6 +543,75 @@ var MwRouteMap = (function() {
                 console.warn('[RouteMap] Directions failed:', status);
                 // Fallback: show all stops as markers without a route line
                 showAllStopsNoRoute(stops);
+            }
+        });
+    }
+
+    /**
+     * Compute feasibility score and display in the summary area.
+     */
+    function computeAndShowFeasibility(stops, totalDriveSeconds) {
+        if (typeof MwRouteEngine === 'undefined') return;
+
+        var totalJobMin = 0;
+        stops.forEach(function(s) {
+            totalJobMin += (s.duration || 0);
+        });
+
+        var feasibility = MwRouteEngine.computeFeasibility(
+            totalDriveSeconds / 60,
+            totalJobMin
+        );
+
+        // Create or update summary chip
+        if (!summaryEl) {
+            summaryEl = document.getElementById('mwMapViewSummary');
+        }
+        if (!summaryEl) {
+            // Create summary element dynamically
+            summaryEl = document.createElement('div');
+            summaryEl.id = 'mwMapViewSummary';
+            summaryEl.className = 'mw-mv-summary';
+            var titleBar = viewEl.querySelector('.mw-mv-header') || titleEl.parentNode;
+            if (titleBar) {
+                titleBar.appendChild(summaryEl);
+            }
+        }
+
+        var colorMap = { green: '#2E7D32', yellow: '#F9A825', red: '#D32F2F' };
+        var labelMap = { green: 'On Track', yellow: 'Tight', red: 'Overloaded' };
+        var color = colorMap[feasibility.classification] || '#9E9E9E';
+        var label = labelMap[feasibility.classification] || '';
+        var b = feasibility.breakdown;
+
+        summaryEl.innerHTML =
+            '<span class="mw-mv-feas-badge" style="background:' + color + '">' +
+            label + ' \u00b7 ' + b.utilizationPercent + '%</span>' +
+            '<span class="mw-mv-feas-detail">' +
+            'Drive ' + b.totalDriveMinutes + 'm + Work ' + b.totalJobMinutes + 'm + Buffer ' + b.bufferMinutes + 'm' +
+            '</span>';
+
+        summaryEl.style.display = 'flex';
+        log('Feasibility:', feasibility.classification, b.utilizationPercent + '%');
+    }
+
+    /**
+     * Update carousel cards with per-leg drive times.
+     */
+    function updateCardDriveTimes() {
+        if (!legDurations.length) return;
+
+        var cards = trackEl.querySelectorAll('.mw-mv-card');
+        cards.forEach(function(card, idx) {
+            var etaEl = card.querySelector('.mw-mv-card-eta');
+            if (!etaEl) return;
+
+            // Leg idx: for the first stop, the leg is legs[0] (GPS→stop1)
+            // For stop N, the leg is legs[N] if origin is GPS, or legs[N-1] if origin is a stop
+            var legIdx = idx;
+            if (legIdx < legDurations.length) {
+                etaEl.textContent = legDurations[legIdx].text;
+                etaEl.style.display = '';
             }
         });
     }
@@ -551,7 +666,7 @@ var MwRouteMap = (function() {
         singleRouteMode = true;
 
         // Get fresh GPS then draw route
-        getGPS(function() {
+        getFreshGPS(function() {
             if (!userLat || !userLng) {
                 // No GPS — just center on the stop
                 clearMarkers();
@@ -715,6 +830,11 @@ var MwRouteMap = (function() {
             zIndex: isActive ? 100 : 10
         });
 
+        // Click marker → scroll carousel to this card
+        marker.addListener('click', function() {
+            goToCard(index);
+        });
+
         stopMarkers.push(marker);
     }
 
@@ -785,9 +905,14 @@ var MwRouteMap = (function() {
             // Show just street from full address (strip city/province/country)
             var displayAddress = stop.address ? stop.address.split(',')[0] : '';
 
-            // Navigation arrow icon (same as the external link concept but for single stop)
-            var goBtn = '<button type="button" class="mw-mv-card-go" data-address="' + escAttr(stop.address) + '" aria-label="Navigate to this stop">' +
+            // Navigate button — launches turn-by-turn navigation via MwNavLauncher
+            var navBtn = '<button type="button" class="mw-mv-card-nav" data-stop-idx="' + idx + '" aria-label="Start navigation to this stop">' +
                 '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>' +
+                '</button>';
+
+            // Route preview button — shows in-app route to this stop
+            var goBtn = '<button type="button" class="mw-mv-card-go" aria-label="Preview route to this stop">' +
+                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>' +
                 '</button>';
 
             card.innerHTML =
@@ -796,6 +921,7 @@ var MwRouteMap = (function() {
                     '<div class="mw-mv-card-row1">' +
                         '<span class="mw-mv-card-number">' + (idx + 1) + '</span>' +
                         '<span class="mw-mv-card-service">' + escHtml(serviceLabel) + '</span>' +
+                        '<span class="mw-mv-card-eta" style="display:none"></span>' +
                         (stop.time ? '<span class="mw-mv-card-time">' + escHtml(stop.time) + '</span>' : '') +
                     '</div>' +
                     '<div class="mw-mv-card-address">' +
@@ -808,14 +934,39 @@ var MwRouteMap = (function() {
                     '</div>' : '') +
                     '<div class="mw-mv-card-bottom">' +
                         (durStr ? '<span class="mw-mv-card-dur">' + escHtml(durStr) + '</span>' : '<span></span>') +
-                        goBtn +
+                        '<div class="mw-mv-card-btns">' +
+                            goBtn +
+                            navBtn +
+                        '</div>' +
                     '</div>' +
                 '</div>';
 
             trackEl.appendChild(card);
         });
 
-        // Wire up Go buttons — route to this stop in-app
+        // Wire up Navigate buttons — launch external turn-by-turn
+        trackEl.querySelectorAll('.mw-mv-card-nav').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var card = btn.closest('.mw-mv-card');
+                var idx = card ? parseInt(card.dataset.index, 10) : currentIndex;
+                var stopsArr = optimizedStops || getStops();
+                var stop = stopsArr[idx];
+
+                log('Navigate button tapped: stop', stop ? stop.stopId : 'unknown',
+                    'lat:', stop ? stop.lat : null, 'lng:', stop ? stop.lng : null);
+
+                if (stop && typeof MwNavLauncher !== 'undefined') {
+                    MwNavLauncher.launchNavigation(stop);
+                } else if (stop) {
+                    // Fallback: open Google Maps URL directly
+                    var url = buildFallbackNavUrl(stop);
+                    if (url) window.open(url, '_blank');
+                }
+            });
+        });
+
+        // Wire up Go buttons — show in-app route preview
         trackEl.querySelectorAll('.mw-mv-card-go').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.stopPropagation();
@@ -826,6 +977,23 @@ var MwRouteMap = (function() {
         });
 
         positionTrack(currentIndex, false);
+    }
+
+    /**
+     * Build a fallback navigation URL when MwNavLauncher is not loaded.
+     * Prefers lat/lng over address.
+     */
+    function buildFallbackNavUrl(stop) {
+        var dest = '';
+        if (stop.lat && stop.lng) {
+            dest = stop.lat + ',' + stop.lng;
+        } else if (stop.address) {
+            dest = stop.address;
+        } else {
+            return null;
+        }
+        return 'https://www.google.com/maps/dir/?api=1&destination=' +
+               encodeURIComponent(dest) + '&travelmode=driving&dir_action=navigate';
     }
 
     function updateDots(total, activeIdx) {
@@ -896,9 +1064,9 @@ var MwRouteMap = (function() {
         trayEl.addEventListener('touchstart', function(e) {
             if (e.touches.length !== 1) return;
 
-            // Don't intercept touches on the Go button
+            // Don't intercept touches on the Go/Nav buttons
             var target = e.target;
-            if (target.closest && target.closest('.mw-mv-card-go')) {
+            if (target.closest && (target.closest('.mw-mv-card-go') || target.closest('.mw-mv-card-nav'))) {
                 ignoreSwipe = true;
                 return;
             }
@@ -975,6 +1143,9 @@ var MwRouteMap = (function() {
                     var card = btn.closest('.mw-mc-card');
                     if (card) stopId = parseInt(card.dataset.stopId, 10);
                 }
+
+                log('Schedule card route button tapped: stopId', stopId);
+
                 if (stopId) {
                     openToStop(stopId);
                 }
@@ -990,34 +1161,43 @@ var MwRouteMap = (function() {
         var stops = optimizedStops || getStops();
         if (!stops.length) return;
 
-        var url;
-
-        // In single-route mode, open directions to just the current stop
+        // In single-route mode, navigate to just the current stop
         if (singleRouteMode) {
             var target = stops[currentIndex];
-            if (target) {
-                url = 'https://www.google.com/maps/dir/?api=1'
-                    + '&destination=' + encodeURIComponent(target.address)
-                    + '&travelmode=driving';
+            if (target && typeof MwNavLauncher !== 'undefined') {
+                MwNavLauncher.launchNavigation(target);
+            } else if (target) {
+                var url = buildFallbackNavUrl(target);
+                if (url) window.open(url, '_blank');
             }
-        } else if (stops.length === 1) {
-            url = 'https://www.google.com/maps/dir/?api=1'
-                + '&destination=' + encodeURIComponent(stops[0].address)
-                + '&travelmode=driving';
-        } else {
-            // Full multi-stop route
-            var dest = stops[stops.length - 1];
-            var waypointAddrs = [];
-            for (var i = 0; i < stops.length - 1; i++) {
-                waypointAddrs.push(stops[i].address);
-            }
-            url = 'https://www.google.com/maps/dir/?api=1'
-                + '&destination=' + encodeURIComponent(dest.address)
-                + '&waypoints=' + encodeURIComponent(waypointAddrs.join('|'))
-                + '&travelmode=driving';
+            return;
         }
 
-        if (url) window.open(url, '_blank');
+        // Full multi-stop route
+        if (typeof MwNavLauncher !== 'undefined') {
+            MwNavLauncher.launchMultiStopNavigation(stops);
+        } else {
+            // Fallback: use lat/lng where available, address as backup
+            var dest = stops[stops.length - 1];
+            var destStr = (dest.lat && dest.lng) ? (dest.lat + ',' + dest.lng) : dest.address;
+            var waypointParts = [];
+            for (var i = 0; i < stops.length - 1; i++) {
+                var s = stops[i];
+                if (s.lat && s.lng) {
+                    waypointParts.push(s.lat + ',' + s.lng);
+                } else if (s.address) {
+                    waypointParts.push(s.address);
+                }
+            }
+            var url = 'https://www.google.com/maps/dir/?api=1'
+                + '&destination=' + encodeURIComponent(destStr)
+                + '&travelmode=driving'
+                + '&dir_action=navigate';
+            if (waypointParts.length > 0) {
+                url += '&waypoints=' + encodeURIComponent(waypointParts.join('|'));
+            }
+            window.open(url, '_blank');
+        }
     }
 
     // ═══════════════════════════════════════════════════

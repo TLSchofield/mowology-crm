@@ -1,0 +1,286 @@
+/**
+ * Navigation & Route Engine Tests
+ *
+ * Lightweight test harness — run in browser console or via a test page.
+ * No external dependencies. Tests are synchronous where possible.
+ *
+ * Usage:
+ *   Load this file after navigation-launcher.js and route-engine.js,
+ *   then call MwNavRouteTests.runAll() in the console.
+ *
+ * @package Mowology CRM
+ */
+var MwNavRouteTests = (function() {
+    'use strict';
+
+    var passed = 0;
+    var failed = 0;
+    var results = [];
+
+    function assert(condition, testName) {
+        if (condition) {
+            passed++;
+            results.push({ pass: true, name: testName });
+        } else {
+            failed++;
+            results.push({ pass: false, name: testName });
+            console.error('FAIL:', testName);
+        }
+    }
+
+    function assertEqual(actual, expected, testName) {
+        var match = actual === expected;
+        if (!match) {
+            console.error('FAIL:', testName, '\n  Expected:', expected, '\n  Actual:  ', actual);
+        }
+        assert(match, testName);
+    }
+
+    function assertContains(str, substr, testName) {
+        var match = typeof str === 'string' && str.indexOf(substr) !== -1;
+        if (!match) {
+            console.error('FAIL:', testName, '\n  String:', str, '\n  Expected to contain:', substr);
+        }
+        assert(match, testName);
+    }
+
+    function assertNotNull(val, testName) {
+        assert(val !== null && val !== undefined, testName);
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  NAVIGATION LAUNCHER TESTS
+    // ═══════════════════════════════════════════════════
+
+    function testNavUrlWithLatLng() {
+        var url = MwNavLauncher.buildNavigationUrl({
+            lat: 49.2827,
+            lng: -123.1207,
+            address: '123 Main St, Vancouver'
+        });
+        assertNotNull(url, 'Nav URL: returns non-null for valid stop');
+        assertContains(url, '49.2827', 'Nav URL: contains latitude');
+        assertContains(url, '-123.1207', 'Nav URL: contains longitude');
+        assertContains(url, 'dir_action=navigate', 'Nav URL: includes navigate action');
+        assertContains(url, 'travelmode=driving', 'Nav URL: defaults to driving');
+        // Should NOT contain address when lat/lng is available
+        assert(url.indexOf('Main') === -1, 'Nav URL: prefers lat/lng over address');
+    }
+
+    function testNavUrlAddressFallback() {
+        var url = MwNavLauncher.buildNavigationUrl({
+            address: '456 Oak St, Vancouver BC'
+        });
+        assertNotNull(url, 'Nav URL fallback: returns URL for address-only stop');
+        assertContains(url, 'Oak', 'Nav URL fallback: contains address');
+    }
+
+    function testNavUrlNullStop() {
+        var url = MwNavLauncher.buildNavigationUrl(null);
+        assert(url === null, 'Nav URL: returns null for null stop');
+    }
+
+    function testNavUrlNoLocation() {
+        var url = MwNavLauncher.buildNavigationUrl({ stopId: 1 });
+        assert(url === null, 'Nav URL: returns null when no lat/lng or address');
+    }
+
+    function testNavUrlEncoding() {
+        var url = MwNavLauncher.buildNavigationUrl({
+            address: '123 Main St & Oak Ave, Vancouver BC'
+        });
+        assertContains(url, encodeURIComponent('123 Main St & Oak Ave, Vancouver BC'),
+            'Nav URL: properly encodes special characters');
+    }
+
+    function testMultiStopUrl() {
+        var stops = [
+            { lat: 49.28, lng: -123.12, address: 'A' },
+            { lat: 49.29, lng: -123.11, address: 'B' },
+            { lat: 49.30, lng: -123.10, address: 'C' }
+        ];
+        var url = MwNavLauncher.buildMultiStopUrl(stops);
+        assertNotNull(url, 'Multi-stop URL: returns non-null');
+        assertContains(url, '49.30', 'Multi-stop URL: last stop is destination');
+        assertContains(url, 'waypoints=', 'Multi-stop URL: includes waypoints');
+        assertContains(url, '49.28', 'Multi-stop URL: first stop in waypoints');
+    }
+
+    function testMultiStopSingleStop() {
+        var stops = [{ lat: 49.28, lng: -123.12 }];
+        var url = MwNavLauncher.buildMultiStopUrl(stops);
+        assertNotNull(url, 'Multi-stop URL single: returns URL');
+        assert(url.indexOf('waypoints') === -1, 'Multi-stop URL single: no waypoints param');
+    }
+
+    function testAndroidIntentUri() {
+        var uri = MwNavLauncher.buildAndroidIntentUri({ lat: 49.28, lng: -123.12 });
+        assertContains(uri, 'google.navigation:', 'Android intent: correct scheme');
+        assertContains(uri, '49.28', 'Android intent: contains lat');
+        assertContains(uri, 'mode=d', 'Android intent: driving mode');
+    }
+
+    function testAppleMapsUrl() {
+        var url = MwNavLauncher.buildAppleMapsUrl({ lat: 49.28, lng: -123.12 });
+        assertContains(url, 'maps.apple.com', 'Apple Maps URL: correct domain');
+        assertContains(url, 'daddr=49.28', 'Apple Maps URL: contains destination');
+        assertContains(url, 'dirflg=d', 'Apple Maps URL: driving flag');
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  ROUTE ENGINE TESTS
+    // ═══════════════════════════════════════════════════
+
+    function testCacheKeyDeterministic() {
+        var stops = [
+            { stopId: 1, lat: 49.28, lng: -123.12 },
+            { stopId: 2, lat: 49.29, lng: -123.11 }
+        ];
+        var opts = { date: '2026-02-19', crewId: 5 };
+        var key1 = MwRouteEngine._buildCacheKey(stops, opts);
+        var key2 = MwRouteEngine._buildCacheKey(stops, opts);
+        assertEqual(key1, key2, 'Cache key: deterministic for same inputs');
+    }
+
+    function testCacheKeyDifferentOrder() {
+        var stops1 = [{ stopId: 1 }, { stopId: 2 }];
+        var stops2 = [{ stopId: 2 }, { stopId: 1 }];
+        var opts = { date: '2026-02-19', crewId: 5 };
+        var key1 = MwRouteEngine._buildCacheKey(stops1, opts);
+        var key2 = MwRouteEngine._buildCacheKey(stops2, opts);
+        assert(key1 !== key2, 'Cache key: different for different stop order');
+    }
+
+    function testFeasibilityGreen() {
+        // 30 min drive + 200 min work + buffer = well under 480 min
+        var f = MwRouteEngine.computeFeasibility(30, 200);
+        assertEqual(f.classification, 'green', 'Feasibility: green for light day');
+        assert(f.load < 0.85, 'Feasibility: load < 0.85 for green');
+    }
+
+    function testFeasibilityYellow() {
+        // 60 min drive + 320 min work + buffer ≈ tight
+        var f = MwRouteEngine.computeFeasibility(60, 320);
+        assertEqual(f.classification, 'yellow', 'Feasibility: yellow for tight day');
+        assert(f.load >= 0.85 && f.load <= 1.0, 'Feasibility: load between 0.85-1.0');
+    }
+
+    function testFeasibilityRed() {
+        // 120 min drive + 400 min work = way over 480 min
+        var f = MwRouteEngine.computeFeasibility(120, 400);
+        assertEqual(f.classification, 'red', 'Feasibility: red for overloaded day');
+        assert(f.load > 1.0, 'Feasibility: load > 1.0 for red');
+    }
+
+    function testFeasibilityBreakdown() {
+        var f = MwRouteEngine.computeFeasibility(60, 300, { percent: 10, fixedMinutes: 15 });
+        assertEqual(f.breakdown.totalDriveMinutes, 60, 'Feasibility breakdown: drive minutes');
+        assertEqual(f.breakdown.totalJobMinutes, 300, 'Feasibility breakdown: job minutes');
+        assertEqual(f.breakdown.bufferMinutes, 21, 'Feasibility breakdown: buffer = 10% of 60 + 15 = 21');
+        assertEqual(f.breakdown.workWindowMinutes, 480, 'Feasibility breakdown: default window');
+    }
+
+    function testOutlierDetection() {
+        var stops = [
+            { stopId: 1 }, { stopId: 2 }, { stopId: 3 }, { stopId: 4 }
+        ];
+        var legs = [
+            { durationSeconds: 300 },   // 5 min — normal
+            { durationSeconds: 360 },   // 6 min — normal
+            { durationSeconds: 1800 },  // 30 min — outlier
+            { durationSeconds: 240 }    // 4 min — normal
+        ];
+        var warnings = MwRouteEngine._detectOutliers(stops, legs);
+        assert(warnings.length > 0, 'Outlier detection: identifies outlier leg');
+        assert(warnings[0].type === 'outlier', 'Outlier detection: warning type is "outlier"');
+        assertContains(warnings[0].message, '30', 'Outlier detection: mentions detour time');
+    }
+
+    function testHaversineEstimate() {
+        var stops = [
+            { stopId: 1, lat: 49.28, lng: -123.12, duration: 30 },
+            { stopId: 2, lat: 49.30, lng: -123.10, duration: 45 }
+        ];
+        var result = MwRouteEngine._computeHaversineEstimate(stops, {
+            originLat: 49.27, originLng: -123.13
+        });
+        assert(result.totalDriveSeconds > 0, 'Haversine estimate: positive drive time');
+        assert(result.totalDistanceMeters > 0, 'Haversine estimate: positive distance');
+        assert(result.legs.length === 2, 'Haversine estimate: correct number of legs');
+        assertEqual(result.confidence, 'low', 'Haversine estimate: confidence is low');
+    }
+
+    function testFormatDuration() {
+        assertEqual(MwRouteEngine.formatDuration(30), '< 1 min', 'Format: < 1 min');
+        assertEqual(MwRouteEngine.formatDuration(300), '5 min', 'Format: 5 min');
+        assertEqual(MwRouteEngine.formatDuration(3660), '1 hr 1 min', 'Format: 1 hr 1 min');
+        assertEqual(MwRouteEngine.formatDuration(7200), '2 hr', 'Format: 2 hr exact');
+    }
+
+    function testFormatDistance() {
+        assertEqual(MwRouteEngine.formatDistance(500), '500 m', 'Format distance: meters');
+        assertEqual(MwRouteEngine.formatDistance(2500), '2.5 km', 'Format distance: km');
+    }
+
+    function testApiCounterReset() {
+        MwRouteEngine._resetApiCounter();
+        assertEqual(MwRouteEngine._apiCallCount(), 0, 'API counter: resets to 0');
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  RUN ALL
+    // ═══════════════════════════════════════════════════
+
+    function runAll() {
+        passed = 0;
+        failed = 0;
+        results = [];
+
+        console.log('%c[NavRouteTests] Running all tests...', 'color: #2D8659; font-weight: bold');
+
+        // Navigation Launcher
+        testNavUrlWithLatLng();
+        testNavUrlAddressFallback();
+        testNavUrlNullStop();
+        testNavUrlNoLocation();
+        testNavUrlEncoding();
+        testMultiStopUrl();
+        testMultiStopSingleStop();
+        testAndroidIntentUri();
+        testAppleMapsUrl();
+
+        // Route Engine
+        testCacheKeyDeterministic();
+        testCacheKeyDifferentOrder();
+        testFeasibilityGreen();
+        testFeasibilityYellow();
+        testFeasibilityRed();
+        testFeasibilityBreakdown();
+        testOutlierDetection();
+        testHaversineEstimate();
+        testFormatDuration();
+        testFormatDistance();
+        testApiCounterReset();
+
+        // Summary
+        var total = passed + failed;
+        var color = failed === 0 ? '#2E7D32' : '#D32F2F';
+        console.log(
+            '%c[NavRouteTests] ' + passed + '/' + total + ' passed' +
+            (failed > 0 ? ', ' + failed + ' FAILED' : ' — all green!'),
+            'color: ' + color + '; font-weight: bold; font-size: 14px'
+        );
+
+        if (failed > 0) {
+            console.group('Failed tests:');
+            results.forEach(function(r) {
+                if (!r.pass) console.error('  FAIL:', r.name);
+            });
+            console.groupEnd();
+        }
+
+        return { passed: passed, failed: failed, total: total, results: results };
+    }
+
+    return { runAll: runAll };
+})();

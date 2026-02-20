@@ -771,21 +771,36 @@ var MwDayViewMap = (function() {
         var stops = optimizedStops || getStops().filter(function(s) { return s.assigned; });
         if (!stops.length) return;
 
+        // Use MwNavLauncher if available (handles Capacitor intents + lat/lng preference)
+        if (typeof MwNavLauncher !== 'undefined') {
+            if (stops.length === 1) {
+                MwNavLauncher.launchNavigation(stops[0]);
+            } else {
+                MwNavLauncher.launchMultiStopNavigation(stops);
+            }
+            return;
+        }
+
+        // Fallback: build URL with lat/lng preference
         var url;
         if (stops.length === 1) {
+            var s = stops[0];
+            var dest = (s.lat && s.lng) ? (s.lat + ',' + s.lng) : s.address;
             url = 'https://www.google.com/maps/dir/?api=1'
-                + '&destination=' + encodeURIComponent(stops[0].address)
-                + '&travelmode=driving';
+                + '&destination=' + encodeURIComponent(dest)
+                + '&travelmode=driving&dir_action=navigate';
         } else {
-            var dest = stops[stops.length - 1];
-            var waypointAddrs = [];
+            var last = stops[stops.length - 1];
+            var destStr = (last.lat && last.lng) ? (last.lat + ',' + last.lng) : last.address;
+            var waypointParts = [];
             for (var i = 0; i < stops.length - 1; i++) {
-                waypointAddrs.push(stops[i].address);
+                var ws = stops[i];
+                waypointParts.push((ws.lat && ws.lng) ? (ws.lat + ',' + ws.lng) : ws.address);
             }
             url = 'https://www.google.com/maps/dir/?api=1'
-                + '&destination=' + encodeURIComponent(dest.address)
-                + '&waypoints=' + encodeURIComponent(waypointAddrs.join('|'))
-                + '&travelmode=driving';
+                + '&destination=' + encodeURIComponent(destStr)
+                + '&waypoints=' + encodeURIComponent(waypointParts.join('|'))
+                + '&travelmode=driving&dir_action=navigate';
         }
 
         if (url) window.open(url, '_blank');

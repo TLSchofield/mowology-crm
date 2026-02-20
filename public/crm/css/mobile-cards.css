@@ -2558,6 +2558,101 @@
     margin-left: 1px;
 }
 
+/* ── Navigate (external turn-by-turn) button ── */
+.mw-mv-card-nav {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 50%;
+    background: var(--mw-orange, #e85d04);
+    color: #fff;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(232, 93, 4, 0.3);
+    transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.mw-mv-card-nav:active {
+    background: #c44d03;
+    transform: scale(0.92);
+}
+
+/* ── Card button group ── */
+.mw-mv-card-btns {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* ── Per-leg ETA badge on cards ── */
+.mw-mv-card-eta {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--mw-green, #2D8659);
+    background: var(--mw-light, #E8F3F0);
+    padding: 2px 7px;
+    border-radius: 10px;
+    white-space: nowrap;
+    margin-left: auto;
+}
+
+/* ── Route feasibility summary bar ── */
+.mw-mv-summary {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: rgba(0,0,0,0.03);
+    border-top: 1px solid rgba(0,0,0,0.06);
+    font-size: 0.72rem;
+    flex-wrap: wrap;
+}
+
+.mw-mv-feas-badge {
+    display: inline-block;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.68rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.mw-mv-feas-detail {
+    color: #6b7280;
+    font-size: 0.68rem;
+    white-space: nowrap;
+}
+
+/* ── Single-route back pill ── */
+.mw-mv-back-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    border: none;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 3px 10px 3px 6px;
+    border-radius: 14px;
+    cursor: pointer;
+    margin-right: 8px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mv-back-pill:active {
+    background: rgba(255,255,255,0.25);
+}
+
+.mw-mv-route-info {
+    font-weight: 600;
+}
+
 /* ── Dot indicators ── */
 .mw-mv-card-dots {
     display: flex;
