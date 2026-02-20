@@ -2296,7 +2296,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 : '';
 
             return '<tr>' +
-                '<td><a href="javascript:void(0)" class="mw-vendor-name-link" onclick="openVendorDetail(' + v.id + ')">' + esc(v.name) + '</a>' + gstBadge + '</td>' +
+                '<td><a href="javascript:void(0)" class="mw-vendor-name-link" onclick="event.stopPropagation(); openVendorDetail(' + v.id + ')">' + esc(v.name) + '</a>' + gstBadge + '</td>' +
                 '<td><small class="text-muted">' + esc(v.aliases || '—') + '</small></td>' +
                 '<td>' + categoryLabel + '</td>' +
                 '<td class="text-center">' + productBadge + '</td>' +
@@ -2381,11 +2381,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     // ── Vendor Detail Panel ────────────────────────────────────────
     var currentVendorDetail = null;
 
+    var vendorDetailOpenedAt = 0;
+
     window.openVendorDetail = async function(vendorId) {
         var panel = document.getElementById('vendorDetailPanel');
         var overlay = document.getElementById('vendorDetailOverlay');
         panel.style.display = 'flex';
         overlay.style.display = 'block';
+        vendorDetailOpenedAt = Date.now();
         // Animate in
         requestAnimationFrame(function() {
             panel.classList.add('mw-vd-open');
@@ -2405,6 +2408,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     };
 
     window.closeVendorDetail = function() {
+        // Guard: ignore close if panel was just opened (prevents overlay catching the same click)
+        if (Date.now() - vendorDetailOpenedAt < 300) return;
         var panel = document.getElementById('vendorDetailPanel');
         var overlay = document.getElementById('vendorDetailOverlay');
         panel.classList.remove('mw-vd-open');
