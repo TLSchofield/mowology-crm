@@ -41,6 +41,7 @@ try {
     require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
     require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
     require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
+    require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -225,8 +226,32 @@ try {
     ]);
     $mediaId = (int)$db->lastInsertId();
 
-    // Run OCR
-    $ocrResult = extractTextFromImage($filePath);
+    // ── Tesseract Pre-Screen ──────────────────────────────────────────
+    // Try a fast local Tesseract pass first. If it gets good text (score ≥ 70)
+    // we skip the Vision API entirely (saves cost). Poor quality → Vision.
+    // Not a receipt at all (score < 30) → skip all OCR, let user fill manually.
+    $preScreen = tesseractPreScreen($filePath);
+    $preScreenDecision = $preScreen['decision']; // use_tesseract | use_vision | skip
+
+    $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
+    $ocrSource  = 'none';  // 'tesseract' | 'vision' | 'none'
+
+    if ($preScreenDecision === 'use_tesseract') {
+        // Tesseract text is good enough — use it directly, skip Vision
+        $ocrResult = [
+            'success'      => true,
+            'text'         => $preScreen['text'],
+            'raw_response' => null,          // No bounding boxes from Tesseract
+            'error'        => null,
+        ];
+        $ocrSource = 'tesseract';
+    } elseif ($preScreenDecision === 'use_vision') {
+        // Tesseract wasn't confident enough — call Vision for better extraction
+        $ocrResult = extractTextFromImage($filePath);
+        $ocrSource = 'vision';
+    }
+    // 'skip' → leave $ocrResult with success:false, user fills manually
+
     $ocrAvailable = $ocrResult['success'];
     $ocrText = $ocrResult['text'] ?? '';
 
@@ -340,6 +365,12 @@ try {
         'ocr_text'          => $ocrText,
         'ocr_available'     => $ocrAvailable,
         'ocr_error'         => $ocrResult['error'] ?? null,
+        'ocr_source'        => $ocrSource,          // 'tesseract' | 'vision' | 'none'
+        'pre_screen'        => [                    // Pre-screen debug info
+            'score'    => $preScreen['score'],
+            'decision' => $preScreenDecision,
+            'low_quality' => $preScreen['low_quality'],
+        ],
         'parsed'            => $parsed,
         'suggestions'       => $suggestions,
         'job_suggestions'   => $jobSuggestions,

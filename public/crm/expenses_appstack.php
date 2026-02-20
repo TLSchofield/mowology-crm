@@ -421,6 +421,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
 <!-- ───── Send Log Tab ───────────────────────────────────────────── -->
 <div class="tab-pane fade" id="send-log-tab" role="tabpanel">
+    <!-- QB Status Widget -->
+    <div class="card mb-3">
+        <div class="card-body py-2 px-3">
+            <div class="d-flex align-items-center mb-1">
+                <i data-feather="book-open" style="width:14px;height:14px;" class="me-2 text-muted"></i>
+                <small class="fw-bold text-muted text-uppercase" style="letter-spacing:.05em;">QuickBooks Status</small>
+            </div>
+            <div id="mw-qb-status-widget"><small class="text-muted">Loading…</small></div>
+        </div>
+    </div>
     <div class="card">
         <div class="card-header"><h5 class="card-title mb-0">Receipt Forwarding Log</h5></div>
         <div class="table-responsive">
@@ -1199,6 +1209,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         loadVendors();
         loadStats();
         loadSendLog();
+        loadQbStatusWidget();
         setupVendorSearch('expVendorSearch', 'vendorDropdown', 'expVendorId', 'expAcctCategory', 'expGbpCategory');
         setupVendorSearch('rvVendorSearch', 'rvVendorDropdown', 'rvVendorId', 'rvAcctCategory', 'rvGbpCategory');
 
@@ -4295,38 +4306,88 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var btn = document.getElementById('forwardSelectedBtn');
         if (btn) { btn.disabled = true; btn.textContent = 'Forwarding…'; }
 
-        var failed = 0;
-        for (var i = 0; i < ids.length; i++) {
-            try {
-                var r = await fetch('/crm/api/receipt-send.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ csrf_token: CSRF, expense_id: ids[i] }),
-                });
-                var d = await r.json();
-                if (!d.success) failed++;
-            } catch(e) { failed++; }
+        try {
+            // Use batch_forward — one API call for the whole batch
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'batch_forward', csrf_token: CSRF, expense_ids: ids }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Batch forward failed');
+            var msg = d.sent + ' forwarded';
+            if (d.failed > 0) msg += ', ' + d.failed + ' failed';
+            showToast(msg, d.failed > 0 ? 'warning' : 'success');
+        } catch(e) {
+            alert('Error: ' + e.message);
         }
 
-        if (failed > 0) alert(failed + ' expense(s) failed to forward. The rest were sent.');
+        _reviewQueueSelected.clear();
         loadReviewQueue();
         loadSendLog();
         loadExpenses(currentPage);
+        loadQbStatusWidget();
+
+        if (btn) { btn.disabled = false; btn.textContent = 'Forward Selected to QB'; }
     };
 
     window.forwardSingleFromQueue = async function(id) {
         try {
-            var r = await fetch('/crm/api/receipt-send.php', {
+            var r = await fetch('/crm/api/expenses.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ csrf_token: CSRF, expense_id: id }),
+                body: JSON.stringify({ action: 'batch_forward', csrf_token: CSRF, expense_ids: [id] }),
             });
             var d = await r.json();
             if (!d.success) throw new Error(d.error || d.message);
+            showToast('Forwarded to QB', 'success');
             loadReviewQueue();
             loadSendLog();
             loadExpenses(currentPage);
+            loadQbStatusWidget();
         } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    // QB Status Widget (loads in send-log tab area)
+    window.loadQbStatusWidget = async function() {
+        var el = document.getElementById('mw-qb-status-widget');
+        if (!el) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=qb_status');
+            var d = await r.json();
+            if (!d.success) return;
+            var s = d.status;
+            var methodBadge = s.method === 'email'
+                ? '<span class="badge bg-secondary">Email</span>'
+                : '<span class="badge bg-success">API</span>';
+            var connBadge = s.enabled
+                ? '<span class="badge bg-success ms-1">Enabled</span>'
+                : '<span class="badge bg-danger ms-1">Disabled</span>';
+            el.innerHTML = [
+                '<div class="d-flex align-items-center gap-3 flex-wrap">',
+                '  <div><small class="text-muted d-block">Method</small>' + methodBadge + connBadge + '</div>',
+                '  <div><small class="text-muted d-block">Sent (30d)</small><strong class="text-success">' + (s.sent_30d || 0) + '</strong></div>',
+                '  <div><small class="text-muted d-block">Failed (30d)</small><strong class="' + (s.failed_30d > 0 ? 'text-danger' : 'text-muted') + '">' + (s.failed_30d || 0) + '</strong></div>',
+                '  <div><small class="text-muted d-block">Pending</small><strong class="text-warning">' + (s.pending_count || 0) + '</strong></div>',
+                s.last_sent_at ? '  <div><small class="text-muted d-block">Last sent</small><small>' + relativeTime(s.last_sent_at) + '</small></div>' : '',
+                s.retry_eligible > 0 ? '  <button class="btn btn-xs btn-outline-warning ms-auto" onclick="retryFailedSends()">Retry ' + s.retry_eligible + ' failed</button>' : '',
+                '</div>',
+            ].join('');
+        } catch(e) {}
+    };
+
+    window.retryFailedSends = async function() {
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'qb_retry', csrf_token: CSRF }),
+            });
+            var d = await r.json();
+            showToast(d.message || 'Retry complete', d.sent > 0 ? 'success' : 'info');
+            loadQbStatusWidget();
+            loadSendLog();
+        } catch(e) { alert('Retry error: ' + e.message); }
     };
 
     function relativeTime(dateStr) {

@@ -131,6 +131,20 @@ try {
             handleMarginSummary($db);
             break;
 
+        case 'qb_status':
+            handleQbStatus($db);
+            break;
+
+        case 'batch_forward':
+            if (!$canSend) throw new Exception('Permission denied: expenses.send required');
+            handleBatchForward($db, $input);
+            break;
+
+        case 'qb_retry':
+            if (!$canSend) throw new Exception('Permission denied: expenses.send required');
+            handleQbRetry($db);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -1182,4 +1196,42 @@ function handleMarginSummary(PDO $db): void
     require_once APP_ROOT . '/Services/Receipts/MarginTracker.php';
     $summary = getMarginSummary($db);
     echo json_encode(['success' => true, 'summary' => $summary]);
+}
+
+// ── QB Abstraction Layer handlers ──────────────────────────────────────────
+
+function handleQbStatus(PDO $db): void
+{
+    require_once APP_ROOT . '/Services/QuickBooks/QBService.php';
+    $status = qbGetStatus($db);
+    echo json_encode(['success' => true, 'status' => $status]);
+}
+
+function handleBatchForward(PDO $db, array $input): void
+{
+    require_once APP_ROOT . '/Services/QuickBooks/QBService.php';
+
+    $ids = $input['expense_ids'] ?? [];
+    if (!is_array($ids) || empty($ids)) {
+        throw new Exception('expense_ids array is required');
+    }
+
+    // Sanitize
+    $ids = array_map('intval', $ids);
+    $ids = array_filter($ids, fn($id) => $id > 0);
+    $ids = array_values(array_unique($ids));
+
+    if (count($ids) > 50) {
+        throw new Exception('Maximum 50 expenses per batch');
+    }
+
+    $result = qbForwardBatch($ids, $db);
+    echo json_encode(['success' => true] + $result);
+}
+
+function handleQbRetry(PDO $db): void
+{
+    require_once APP_ROOT . '/Services/QuickBooks/QBService.php';
+    $result = qbRetryFailed($db);
+    echo json_encode(['success' => true] + $result);
 }
