@@ -299,7 +299,7 @@ $csrf_token = generateCSRFToken();
         }
 
         .app-banner {
-            background: linear-gradient(135deg, var(--forest-dark) 0%, var(--forest-main) 100%);
+            background: linear-gradient(135deg, #1a3a2a 0%, var(--forest-dark) 100%);
             border-radius: 12px;
             padding: 16px;
             margin-bottom: 24px;
@@ -313,33 +313,47 @@ $csrf_token = generateCSRFToken();
         }
         .app-banner:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+            text-decoration: none;
+            color: var(--snow-white);
         }
         .app-banner-icon {
-            width: 44px;
-            height: 44px;
+            width: 48px;
+            height: 48px;
             background: var(--lime-accent);
             border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
-            font-size: 22px;
+            font-size: 26px;
         }
         .app-banner-text {
             flex: 1;
         }
+        .app-banner-label {
+            display: inline-block;
+            background: var(--lime-accent);
+            color: var(--forest-dark);
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+        }
         .app-banner-title {
             font-weight: 700;
-            font-size: 14px;
+            font-size: 15px;
             margin-bottom: 2px;
         }
         .app-banner-desc {
             font-size: 12px;
-            opacity: 0.85;
+            opacity: 0.8;
         }
         .app-banner-arrow {
-            font-size: 20px;
+            font-size: 22px;
             opacity: 0.7;
         }
     </style>
@@ -354,28 +368,15 @@ $csrf_token = generateCSRFToken();
         <form class="login-form" method="POST" action="">
             <h2 class="form-title">Welcome Back</h2>
 
-            <a href="#" id="appBanner" class="app-banner" onclick="event.preventDefault();if(window.mwDeferredInstall){window.mwDeferredInstall.prompt();}else{alert('Tap your browser menu → Add to Home Screen');}">
-                <div class="app-banner-icon">📱</div>
+            <a href="/crm/downloads/mowology-crew.apk" id="appBanner" class="app-banner" download>
+                <div class="app-banner-icon">🤖</div>
                 <div class="app-banner-text">
-                    <div class="app-banner-title">Install Mowology App</div>
-                    <div class="app-banner-desc">Add to Home Screen for the best experience</div>
+                    <span class="app-banner-label">Android App</span>
+                    <div class="app-banner-title">Download Mowology Crew App</div>
+                    <div class="app-banner-desc">Install the native Android app for GPS tracking &amp; time clock</div>
                 </div>
-                <div class="app-banner-arrow">→</div>
+                <div class="app-banner-arrow">⬇</div>
             </a>
-            <script>
-            // Capture PWA install prompt for login banner
-            window.addEventListener('beforeinstallprompt', function(e) {
-                e.preventDefault();
-                window.mwDeferredInstall = e;
-            });
-            // Hide banner if already installed as PWA
-            if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
-                document.addEventListener('DOMContentLoaded', function() {
-                    var b = document.getElementById('appBanner');
-                    if (b) b.style.display = 'none';
-                });
-            }
-            </script>
 
             <?php if ($error): ?>
                 <div class="error-message"><?php echo htmlspecialchars($error); ?></div>
@@ -420,7 +421,7 @@ $csrf_token = generateCSRFToken();
         </div>
     </div>
 <script>
-// Show Android app download banner — only on Android browsers (not inside Capacitor WebView)
+// Show Android APK download banner — only on Android browsers (not inside the native Capacitor app)
 (function() {
     var ua = navigator.userAgent || '';
     var isAndroid = /Android/i.test(ua);
