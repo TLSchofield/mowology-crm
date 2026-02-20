@@ -12,6 +12,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/plan-functions.php';
 require_once dirname(__DIR__) . '/includes/weather-service.php';
 require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
+require_once dirname(__DIR__) . '/modules/weather/weather-rules.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -288,6 +289,154 @@ if ($mcEfficiency >= 80)      $mcBadgeTier = 'gold';
 elseif ($mcEfficiency >= 60)  $mcBadgeTier = 'silver';
 elseif ($mcEfficiency >= 40)  $mcBadgeTier = 'bronze';
 else                          $mcBadgeTier = null;
+
+// ─── Route Feasibility: per-day verdict ─────────────────────────────
+// Combines 4 real signals into one green/amber/red verdict per day.
+// Signal 1 — Crew:    any stop with no assigned crew → not viable
+// Signal 2 — Load:    total job minutes > 480 min (8h window) → over capacity
+// Signal 3 — Weather: precipitation/wind/temp vs ops constraints → weather risk
+// Signal 4 — Weather block: any visit has weather_ok = 0 → blocked by weather cron
+
+// Load ops weather constraints once
+$opsConstraints = [];
+try {
+    $opsConstraints = getWeatherOpsConstraints();
+} catch (Throwable $e) {
+    $opsConstraints = getDefaultOpsConstraints();
+}
+$opsMaxPrecip   = (float)($opsConstraints['default_max_precip_chance_pct'] ?? 50);
+$opsMaxWind     = (float)($opsConstraints['default_max_wind_kph'] ?? 50);
+$opsMinTemp     = (float)($opsConstraints['default_min_temp_c'] ?? -5);
+$opsMaxTemp     = (float)($opsConstraints['default_max_temp_c'] ?? 40);
+$opsBorderlineL = (float)($opsConstraints['borderline_precip_chance_low'] ?? 30);
+
+// Batch load weather_ok flag from job_visits for all stop IDs this week
+$allStopIds = [];
+foreach ($calendarData as $dateStops) {
+    foreach ($dateStops as $stop) {
+        $allStopIds[] = (int)$stop['stop_id'];
+    }
+}
+$weatherBlockedStops = []; // stopId => bool
+if (!empty($allStopIds)) {
+    $wph = implode(',', array_fill(0, count($allStopIds), '?'));
+    try {
+        $wStmt = $db->prepare("
+            SELECT stop_id, MIN(COALESCE(weather_ok, 1)) AS any_blocked
+            FROM job_visits
+            WHERE stop_id IN ({$wph})
+              AND status NOT IN ('cancelled', 'skipped')
+            GROUP BY stop_id
+        ");
+        $wStmt->execute(array_values($allStopIds));
+        while ($wRow = $wStmt->fetch(PDO::FETCH_ASSOC)) {
+            $weatherBlockedStops[(int)$wRow['stop_id']] = ((int)$wRow['any_blocked'] === 0);
+        }
+    } catch (Throwable $e) {
+        // weather_ok column may not exist on older installs — continue
+    }
+}
+
+// Compute per-day feasibility verdict
+$mcFeasibility = []; // dateStr => ['verdict'=>'go'|'caution'|'no-go', 'issues'=>[...], 'signals'=>[...]]
+$currentDate2b = new DateTime($startDate);
+for ($di = 0; $di < 7; $di++) {
+    $ds       = $currentDate2b->format('Y-m-d');
+    $dayStops = $calendarData[$ds] ?? [];
+    $weather  = $weekWeather[$ds] ?? [];
+
+    $issues  = [];
+    $signals = [];
+
+    // — Signal 1: Unassigned stops —
+    $unassignedCount = 0;
+    foreach ($dayStops as $stop) {
+        $hasCrew = !empty($stop['crew_ids']) || !empty($stop['crew_id']);
+        if (!$hasCrew) $unassignedCount++;
+    }
+    if ($unassignedCount > 0) {
+        $issues[] = "{$unassignedCount} stop" . ($unassignedCount > 1 ? 's' : '') . " unassigned";
+        $signals['crew'] = 'red';
+    } else {
+        $signals['crew'] = count($dayStops) > 0 ? 'green' : 'grey';
+    }
+
+    // — Signal 2: Capacity load —
+    $totalJobMin = (int)($mcDayStats[$ds]['duration_min'] ?? 0);
+    $estDriveMin = (int)($mcBattleCards[$ds]['drive_min'] ?? 0);
+    $totalDayMin = $totalJobMin + $estDriveMin;
+    $loadPct     = $totalDayMin > 0 ? round(($totalDayMin / 480) * 100) : 0;
+    if ($loadPct > 100) {
+        $issues[] = "Over capacity ({$loadPct}% of 8h)";
+        $signals['load'] = 'red';
+    } elseif ($loadPct > 85) {
+        $issues[] = "Near capacity ({$loadPct}% of 8h)";
+        $signals['load'] = 'amber';
+    } else {
+        $signals['load'] = count($dayStops) > 0 ? 'green' : 'grey';
+    }
+
+    // — Signal 3: Forecast weather vs ops constraints —
+    $precip  = (float)($weather['precipitation'] ?? 0);
+    $wind    = (float)($weather['wind'] ?? 0);
+    $tempHi  = (float)($weather['temp_high'] ?? 15);
+    $tempLo  = (float)($weather['temp_low'] ?? 5);
+    $cond    = strtolower($weather['condition'] ?? '');
+
+    $weatherIssues = [];
+    if ($precip >= $opsMaxPrecip || strpos($cond, 'storm') !== false || strpos($cond, 'thunder') !== false) {
+        $weatherIssues[] = "Heavy precip ({$precip}%)";
+    } elseif ($precip >= $opsBorderlineL) {
+        $weatherIssues[] = "Rain likely ({$precip}%)";
+    }
+    if ($wind >= $opsMaxWind) {
+        $weatherIssues[] = "High wind ({$wind} km/h)";
+    }
+    if ($tempLo <= $opsMinTemp) {
+        $weatherIssues[] = "Freezing ({$tempLo}°C)";
+    }
+    if ($tempHi >= $opsMaxTemp) {
+        $weatherIssues[] = "Extreme heat ({$tempHi}°C)";
+    }
+    if (!empty($weatherIssues)) {
+        $issues = array_merge($issues, $weatherIssues);
+        $signals['weather'] = ($precip >= $opsMaxPrecip || $wind >= $opsMaxWind) ? 'red' : 'amber';
+    } else {
+        $signals['weather'] = count($dayStops) > 0 ? 'green' : 'grey';
+    }
+
+    // — Signal 4: Weather-blocked visits (from weather cron) —
+    $blockedCount = 0;
+    foreach ($dayStops as $stop) {
+        if (!empty($weatherBlockedStops[(int)$stop['stop_id']])) $blockedCount++;
+    }
+    if ($blockedCount > 0) {
+        $issues[] = "{$blockedCount} visit" . ($blockedCount > 1 ? 's' : '') . " weather-blocked";
+        $signals['blocked'] = 'red';
+    } else {
+        $signals['blocked'] = 'green';
+    }
+
+    // — Overall verdict —
+    if (empty($dayStops)) {
+        $verdict = 'empty';
+    } elseif (in_array('red', $signals, true)) {
+        $verdict = 'no-go';
+    } elseif (in_array('amber', $signals, true)) {
+        $verdict = 'caution';
+    } else {
+        $verdict = 'go';
+    }
+
+    $mcFeasibility[$ds] = [
+        'verdict' => $verdict,
+        'issues'  => $issues,
+        'signals' => $signals,
+        'load_pct'=> $loadPct,
+    ];
+
+    $currentDate2b->modify('+1 day');
+}
 
 // ─── Holiday lookup for calendar display ────────────────────────────
 $weekHolidays = [];
@@ -852,6 +1001,20 @@ if ($apiKey) {
                       $bcStops   = $bcData['stops']        ?? 0;
                       $bcDrive   = $bcData['drive_min']    ?? 0;
 
+                      // ─── Feasibility verdict for this day ──────────────────
+                      $bcFeas       = $mcFeasibility[$dateStr] ?? ['verdict'=>'empty','issues'=>[],'signals'=>[],'load_pct'=>0];
+                      $bcVerdict    = $bcFeas['verdict'];   // go | caution | no-go | empty
+                      $bcIssues     = $bcFeas['issues'];
+                      $bcLoadPct    = $bcFeas['load_pct'];
+                      $bcSignals    = $bcFeas['signals'];
+                      $bcLabelMap = ['go' => 'Route GO', 'caution' => 'Caution', 'no-go' => 'No-Go'];
+                      $bcIconMap  = ['go' => '&#10003;', 'caution' => '&#9888;', 'no-go' => '&#10005;'];
+                      $bcVerdictLabel = $bcLabelMap[$bcVerdict] ?? '';
+                      $bcVerdictIcon  = $bcIconMap[$bcVerdict]  ?? '';
+                      $bcTooltip = empty($bcIssues)
+                          ? ($bcVerdict === 'go' ? "All systems go · {$bcLoadPct}% capacity" : '')
+                          : implode(' · ', $bcIssues);
+
                       // Margin color class for Battle Card
                       $bcMarginClass = '';
                       if ($bcMargin !== null) {
@@ -877,6 +1040,25 @@ if ($apiKey) {
                                   <span class="mw-bc-outlier-flag" title="Low-margin job detected">⚠</span>
                                   <?php endif; ?>
                               </div>
+                              <?php if ($bcVerdict !== 'empty'): ?>
+                              <div class="mw-bc-feasibility mw-bc-feas-<?php echo $bcVerdict; ?>"
+                                   title="<?php echo htmlspecialchars($bcTooltip); ?>">
+                                  <span class="mw-bc-feas-icon"><?php echo $bcVerdictIcon; ?></span>
+                                  <span class="mw-bc-feas-label"><?php echo $bcVerdictLabel; ?></span>
+                                  <?php if (!empty($bcIssues)): ?>
+                                  <span class="mw-bc-feas-issues"><?php echo count($bcIssues); ?> issue<?php echo count($bcIssues) > 1 ? 's' : ''; ?></span>
+                                  <?php else: ?>
+                                  <span class="mw-bc-feas-pct"><?php echo $bcLoadPct; ?>%</span>
+                                  <?php endif; ?>
+                                  <div class="mw-bc-feas-signals">
+                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['crew'] ?? 'grey'; ?>" title="Crew assignment">👤</span>
+                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['load'] ?? 'grey'; ?>" title="Capacity load">📊</span>
+                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['weather'] ?? 'grey'; ?>" title="Forecast weather">🌤</span>
+                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['blocked'] ?? 'grey'; ?>" title="Weather-blocked visits">🚫</span>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
                               <div class="mw-bc-header-bottom">
                                   <!-- Density score mini bar -->
                                   <div class="mw-bc-density" title="Density: <?php echo $bcDensity; ?>/100">

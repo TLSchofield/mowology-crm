@@ -5700,7 +5700,7 @@ textarea.font-monospace {
 /* ── Stop Grid (replaces hourly time grid) ──────────── */
 .mw-stop-grid {
   display: grid;
-  grid-template-columns: 0px repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-auto-rows: 1fr;
   align-items: stretch;
   background: #fff;
@@ -5725,7 +5725,9 @@ textarea.font-monospace {
   max-height: 600px;
   transition: background 0.15s ease;
   box-sizing: border-box;
-  /* Force column to fill its grid track even when content is narrow */
+  /* Force column to fill its grid track — width:100% beats justify-self:stretch
+     when overflow-y:auto creates a shrink-wrap sizing context in Chrome/Safari */
+  width: 100%;
   align-self: stretch;
   justify-self: stretch;
 }
@@ -6140,7 +6142,7 @@ textarea.font-monospace {
   }
 
   .mw-stop-grid {
-    grid-template-columns: 0px repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 
   .mw-date-number {
@@ -9543,19 +9545,8 @@ textarea.font-monospace {
   min-height: 500px;
 }
 
-.mw-day-column {
-  background: #fff;
-  min-height: 120px;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  transition: background 0.15s ease;
-}
-
-.mw-day-column.drag-over {
-  background: var(--mw-light);
-}
+/* NOTE: .mw-day-column styles are defined earlier in the Schedule/Calendar section.
+   Do not duplicate here — the primary rule includes width:100% to fix grid shrinkage. */
 
 .mw-day-column.mw-today {
   background: #f0fdf4;
