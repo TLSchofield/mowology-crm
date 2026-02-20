@@ -123,15 +123,15 @@ $activePage = 'profitability';
             var s = d.summary;
             allJobs = s.details || [];
 
-            // KPIs
+            // KPIs — guard against missing keys when jobs_tracked = 0
             document.getElementById('kpi-jobs').textContent    = s.jobs_tracked || 0;
             document.getElementById('kpi-quoted').textContent  = '$' + fmtMoney(s.total_quoted || 0);
             document.getElementById('kpi-actual').textContent  = '$' + fmtMoney(s.total_actual || 0);
-            var marginPct = s.total_margin_pct;
+            var marginPct = (s.total_margin_pct != null) ? parseFloat(s.total_margin_pct) : null;
             var marginEl  = document.getElementById('kpi-margin');
             marginEl.textContent = marginPct !== null ? (marginPct >= 0 ? '+' : '') + marginPct.toFixed(1) + '%' : '—';
             marginEl.className   = 'mw-stat-value ' + (marginPct === null ? '' : marginPct >= 20 ? 'text-success' : marginPct >= 0 ? 'text-warning' : 'text-danger');
-            if (s.over_budget_jobs > 0) {
+            if ((s.over_budget_jobs || 0) > 0) {
                 document.getElementById('kpi-over-budget').textContent = s.over_budget_jobs + ' job' + (s.over_budget_jobs === 1 ? '' : 's') + ' over budget';
                 document.getElementById('kpi-over-budget').className   = 'small mb-0 text-danger';
             }
