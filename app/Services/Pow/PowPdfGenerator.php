@@ -2,17 +2,10 @@
 /**
  * Proof of Work PDF Generator
  * ────────────────────────────
- * Generates a branded PDF for a completed job visit.
- * Uses pure-PHP HTML→PDF via the html2pdf technique (no Composer):
- * renders structured HTML into a self-contained document that browsers
- * and Mowology's server can produce via wkhtmltopdf or html2canvas+jsPDF
- * on the client side.
+ * Generates a branded PDF for a completed job visit using mPDF
+ * (the same library used for quotes and invoices).
  *
- * SERVER-SIDE: This class generates the HTML and, if wkhtmltopdf is
- * available, converts it to PDF. If not, it returns the HTML for
- * client-side rendering via window.print() / jsPDF.
- *
- * Storage:  /uploads/pow/pdfs/visit_{id}_v{n}.pdf
+ * Storage:  storage/pdfs/pow/visit_{id}_v{n}.pdf
  * DB write: Sets job_visits.pdf_path, pdf_generated_at, locked_at, distance_m
  *
  * Client Confidence Box is included as the last content section.
@@ -23,13 +16,17 @@ if (!defined('APP_ROOT')) {
     require_once dirname(__DIR__, 2) . '/Core/paths.php';
 }
 
+// Load Composer autoloader (mPDF)
+require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
+
 if (!class_exists('MapSnapshotService')) {
     require_once __DIR__ . '/MapSnapshotService.php';
 }
 
 class PowPdfGenerator
 {
-    private const STORAGE_DIR = '/uploads/pow/pdfs/';
+    /** Relative path stored in DB (relative to PROJECT_ROOT) */
+    private const RELATIVE_DIR = 'storage/pdfs/pow/';
 
     private \PDO    $db;
     private string  $publicRoot;
@@ -42,7 +39,10 @@ class PowPdfGenerator
     {
         $this->db          = $db;
         $this->publicRoot  = rtrim($publicRoot, '/');
-        $this->storageDir  = $this->publicRoot . self::STORAGE_DIR;
+        // Absolute path: sits alongside storage/pdfs/quotes/ and storage/pdfs/invoices/
+        $this->storageDir  = defined('STORAGE_ROOT')
+            ? STORAGE_ROOT . '/pdfs/pow'
+            : dirname($this->publicRoot) . '/storage/pdfs/pow';
         $this->siteUrl     = rtrim($siteUrl, '/');
         $this->companyName = 'Mowology Landscaping';
         $this->logoPath    = $this->publicRoot . '/assets/img/mowology-logo.png';
@@ -94,18 +94,11 @@ class PowPdfGenerator
 
         // Determine output path
         $filename = 'visit_' . $visitId . '_v' . $version . '.pdf';
-        $filepath = $this->storageDir . $filename;
-        $webPath  = self::STORAGE_DIR . $filename;
+        $filepath = rtrim($this->storageDir, '/') . '/' . $filename;
+        $webPath  = self::RELATIVE_DIR . $filename;
 
-        // Try wkhtmltopdf
-        $ok = $this->renderWithWkhtmltopdf($html, $filepath);
-
-        if (!$ok) {
-            // Fallback: save HTML as the "PDF" (client-side printing)
-            $htmlFile = str_replace('.pdf', '.html', $filepath);
-            file_put_contents($htmlFile, $html);
-            $webPath = self::STORAGE_DIR . str_replace('.pdf', '.html', $filename);
-        }
+        // Render with mPDF
+        $this->renderWithMpdf($html, $filepath);
 
         // Update DB
         $distanceM = $gpsStats['distance_m'] ?? null;
@@ -718,30 +711,29 @@ class PowPdfGenerator
     }
 
     /**
-     * Convert HTML to PDF using wkhtmltopdf if available on the server.
-     * Returns true on success.
+     * Render HTML to PDF using mPDF and write to $outputPath.
      */
-    private function renderWithWkhtmltopdf(string $html, string $outputPath): bool
+    private function renderWithMpdf(string $html, string $outputPath): void
     {
-        $wk = '/usr/local/bin/wkhtmltopdf';
-        if (!file_exists($wk)) $wk = '/usr/bin/wkhtmltopdf';
-        if (!file_exists($wk)) return false;
+        $tmpDir = sys_get_temp_dir() . '/mpdf';
+        if (!is_dir($tmpDir)) {
+            @mkdir($tmpDir, 0755, true);
+        }
 
-        $tmpHtml = sys_get_temp_dir() . '/pow_' . uniqid() . '.html';
-        file_put_contents($tmpHtml, $html);
+        $mpdf = new \Mpdf\Mpdf([
+            'mode'            => 'utf-8',
+            'format'          => 'A4',
+            'margin_left'     => 0,
+            'margin_right'    => 0,
+            'margin_top'      => 0,
+            'margin_bottom'   => 0,
+            'margin_header'   => 0,
+            'margin_footer'   => 0,
+            'default_font'    => 'helvetica',
+            'tempDir'         => $tmpDir,
+        ]);
 
-        $cmd = escapeshellarg($wk)
-             . ' --quiet'
-             . ' --page-size A4'
-             . ' --margin-top 0 --margin-bottom 0 --margin-left 0 --margin-right 0'
-             . ' --enable-local-file-access'
-             . ' ' . escapeshellarg($tmpHtml)
-             . ' ' . escapeshellarg($outputPath)
-             . ' 2>&1';
-
-        exec($cmd, $out, $rc);
-        unlink($tmpHtml);
-
-        return $rc === 0 && file_exists($outputPath);
+        $mpdf->WriteHTML($html);
+        $mpdf->Output($outputPath, \Mpdf\Output\Destination::FILE);
     }
 }
