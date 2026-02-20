@@ -351,6 +351,10 @@
             '    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>' +
             '    Photo' +
             '  </button>' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-observe" data-action="observe">' +
+            '    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>' +
+            '    Observe' +
+            '  </button>' +
             '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-finish" data-action="finish">' +
             '    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>' +
             '    Finish' +
@@ -361,6 +365,12 @@
             .addEventListener('click', function(e) {
                 e.stopPropagation();
                 triggerCamera(visitId, 'during');
+            });
+
+        drawer.querySelector('[data-action="observe"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                openObservationModal(visitId);
             });
 
         drawer.querySelector('[data-action="finish"]')
@@ -994,6 +1004,258 @@
                 if (toast.parentNode) toast.parentNode.removeChild(toast);
             }, 300);
         }, 2500);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  FIELD OBSERVATION MODAL
+    // ═══════════════════════════════════════════════════════
+
+    var observationTypes = [
+        { value: 'ph_test',           label: 'pH Test' },
+        { value: 'soil_condition',    label: 'Soil Condition' },
+        { value: 'pest_damage',       label: 'Pest Damage' },
+        { value: 'weed_growth',       label: 'Weed Growth' },
+        { value: 'drainage_issue',    label: 'Drainage Issue' },
+        { value: 'lawn_disease',      label: 'Lawn Disease' },
+        { value: 'tree_hazard',       label: 'Tree Hazard' },
+        { value: 'hedge_overgrowth',  label: 'Hedge Overgrowth' },
+        { value: 'hardscape_damage',  label: 'Hardscape Damage' },
+        { value: 'other',             label: 'Other' }
+    ];
+
+    /**
+     * Open a full-screen observation form for the given visit
+     */
+    function openObservationModal(visitId) {
+        // Remove any existing modal
+        var existing = document.getElementById('mw-obs-modal');
+        if (existing) existing.remove();
+
+        var optionsHtml = '<option value="">Select type...</option>';
+        observationTypes.forEach(function(t) {
+            optionsHtml += '<option value="' + t.value + '">' + escHtml(t.label) + '</option>';
+        });
+
+        var modal = document.createElement('div');
+        modal.id = 'mw-obs-modal';
+        modal.className = 'mw-obs-modal';
+        modal.innerHTML =
+            '<div class="mw-obs-modal-content">' +
+            '  <div class="mw-obs-modal-header">' +
+            '    <h3>Log Observation</h3>' +
+            '    <button class="mw-obs-modal-close" data-action="close">&times;</button>' +
+            '  </div>' +
+            '  <div class="mw-obs-modal-body">' +
+            '    <div class="mw-obs-field">' +
+            '      <label>Type *</label>' +
+            '      <select id="mw-obs-type">' + optionsHtml + '</select>' +
+            '    </div>' +
+            '    <div class="mw-obs-field">' +
+            '      <label>Value / Reading</label>' +
+            '      <input type="text" id="mw-obs-value" placeholder="e.g., pH 5.2, severity: high">' +
+            '    </div>' +
+            '    <div class="mw-obs-field">' +
+            '      <label>Notes</label>' +
+            '      <textarea id="mw-obs-notes" rows="3" placeholder="Describe what you observed..."></textarea>' +
+            '    </div>' +
+            '    <div class="mw-obs-field">' +
+            '      <label>Photo (optional)</label>' +
+            '      <input type="file" id="mw-obs-photo" accept="image/*" capture="environment">' +
+            '    </div>' +
+            '    <div id="mw-obs-suggestion" class="mw-obs-suggestion" style="display:none;"></div>' +
+            '    <div id="mw-obs-error" class="mw-obs-error" style="display:none;"></div>' +
+            '  </div>' +
+            '  <div class="mw-obs-modal-footer">' +
+            '    <button class="mw-obs-btn mw-obs-btn-cancel" data-action="close">Cancel</button>' +
+            '    <button class="mw-obs-btn mw-obs-btn-submit" data-action="submit">Save Observation</button>' +
+            '  </div>' +
+            '</div>';
+
+        document.body.appendChild(modal);
+
+        // Prevent body scroll
+        document.body.style.overflow = 'hidden';
+
+        // Close handlers
+        modal.querySelectorAll('[data-action="close"]').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                closeObservationModal();
+            });
+        });
+
+        // Auto-suggest product when type changes
+        var typeSelect = document.getElementById('mw-obs-type');
+        typeSelect.addEventListener('change', function() {
+            loadObservationSuggestion(typeSelect.value);
+        });
+
+        // Submit handler
+        modal.querySelector('[data-action="submit"]').addEventListener('click', function(e) {
+            e.stopPropagation();
+            submitObservation(visitId);
+        });
+
+        // Focus the type select
+        setTimeout(function() { typeSelect.focus(); }, 100);
+    }
+
+    function closeObservationModal() {
+        var modal = document.getElementById('mw-obs-modal');
+        if (modal) modal.remove();
+        document.body.style.overflow = '';
+    }
+
+    /**
+     * Load the product suggestion for a given observation type from rules API
+     */
+    function loadObservationSuggestion(obsType) {
+        var sugBox = document.getElementById('mw-obs-suggestion');
+        if (!sugBox) return;
+        if (!obsType) {
+            sugBox.style.display = 'none';
+            return;
+        }
+
+        fetch('/crm/api/field-observations.php?action=get-rules')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success || !data.rules || !data.rules.length) {
+                    sugBox.style.display = 'none';
+                    return;
+                }
+                var match = null;
+                data.rules.forEach(function(rule) {
+                    if (rule.observation_type === obsType && !match) {
+                        match = rule;
+                    }
+                });
+                if (match) {
+                    sugBox.innerHTML =
+                        '<strong>Suggested product:</strong> ' +
+                        escHtml(match.product_name || 'Unknown') +
+                        (match.product_price ? ' ($' + parseFloat(match.product_price).toFixed(2) + ')' : '') +
+                        '<br><small>' + (match.auto_send === '1' || match.auto_send === 1
+                            ? 'Will auto-send recommendation email'
+                            : 'Will queue for admin review') + '</small>';
+                    sugBox.style.display = 'block';
+                } else {
+                    sugBox.style.display = 'none';
+                }
+            })
+            .catch(function() {
+                sugBox.style.display = 'none';
+            });
+    }
+
+    /**
+     * Submit the observation form
+     */
+    function submitObservation(visitId) {
+        var obsType  = document.getElementById('mw-obs-type').value;
+        var obsValue = document.getElementById('mw-obs-value').value.trim();
+        var notes    = document.getElementById('mw-obs-notes').value.trim();
+        var photoInput = document.getElementById('mw-obs-photo');
+        var errBox   = document.getElementById('mw-obs-error');
+
+        if (!obsType) {
+            errBox.textContent = 'Please select an observation type.';
+            errBox.style.display = 'block';
+            return;
+        }
+
+        var submitBtn = document.querySelector('.mw-obs-btn-submit');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
+        errBox.style.display = 'none';
+
+        // If there's a photo, upload it first
+        var photoFile = photoInput && photoInput.files && photoInput.files[0];
+        if (photoFile) {
+            uploadObservationPhoto(photoFile, visitId, function(mediaId) {
+                sendObservation(visitId, obsType, obsValue, notes, mediaId, submitBtn, errBox);
+            }, function(err) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Save Observation';
+                errBox.textContent = 'Photo upload failed: ' + err;
+                errBox.style.display = 'block';
+            });
+        } else {
+            sendObservation(visitId, obsType, obsValue, notes, null, submitBtn, errBox);
+        }
+    }
+
+    /**
+     * Upload observation photo via existing media-upload endpoint
+     */
+    function uploadObservationPhoto(file, visitId, onSuccess, onError) {
+        var formData = new FormData();
+        formData.append('photos[]', file);
+        formData.append('context_type', 'field_observation');
+        formData.append('context_id', visitId);
+        formData.append('category', 'observation');
+        formData.append('csrf_token', state.csrf);
+
+        fetch('/crm/api/media-upload.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success && data.results && data.results[0] && data.results[0].media_id) {
+                onSuccess(data.results[0].media_id);
+            } else {
+                onError(data.error || 'Upload failed');
+            }
+        })
+        .catch(function(err) {
+            onError('Network error');
+        });
+    }
+
+    /**
+     * POST the observation to the API
+     */
+    function sendObservation(visitId, obsType, obsValue, notes, photoMediaId, submitBtn, errBox) {
+        fetch('/crm/api/field-observations.php?action=create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                visit_id: visitId,
+                observation_type: obsType,
+                observation_value: obsValue || null,
+                notes: notes || null,
+                photo_media_id: photoMediaId,
+                csrf_token: state.csrf
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                closeObservationModal();
+                var typeLabel = '';
+                observationTypes.forEach(function(t) {
+                    if (t.value === obsType) typeLabel = t.label;
+                });
+                showToast(typeLabel + ' observation logged');
+
+                // Update the pill to show observation badge
+                if (visits[visitId]) {
+                    visits[visitId].observationCount = (visits[visitId].observationCount || 0) + 1;
+                }
+            } else {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Save Observation';
+                errBox.textContent = data.error || 'Failed to save observation';
+                errBox.style.display = 'block';
+            }
+        })
+        .catch(function(err) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save Observation';
+            errBox.textContent = 'Network error. Check your connection.';
+            errBox.style.display = 'block';
+        });
     }
 
     // ═══════════════════════════════════════════════════════

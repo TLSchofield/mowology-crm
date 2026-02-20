@@ -47,6 +47,13 @@ $activePage = 'products';
                   <span class="mw-badge-tag">View Requests</span>
               </a>
 
+              <a href="recommendations.php" class="mw-tool-card">
+                  <span class="mw-tool-icon">📋</span>
+                  <h3>Field Recommendations</h3>
+                  <p>Review crew field observations and send personalized product recommendation emails to clients.</p>
+                  <span class="mw-badge-tag">Sales Engine</span>
+              </a>
+
               <a href="categories.php" class="mw-tool-card">
                   <span class="mw-tool-icon">📁</span>
                   <h3>Categories</h3>
