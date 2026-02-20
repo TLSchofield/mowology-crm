@@ -7,8 +7,9 @@
  *   $activePage   — string matching a key below to highlight the active nav item
  *
  * Active page keys: 'dashboard', 'clients', 'map', 'quotes', 'products', 'jobs',
- *                   'invoices', 'schedule', 'timeclock', 'team', 'portfolio', 'cms',
- *                   'media', 'marketing', 'settings', 'database', 'users'
+ *                   'invoices', 'expenses', 'profitability', 'schedule', 'timeclock',
+ *                   'team', 'portfolio', 'cms', 'media', 'marketing', 'settings',
+ *                   'database', 'users'
  *
  * Each nav item can optionally specify a 'perm' key — the permission required to see it.
  * If omitted, the item is always visible. The server still enforces on the page itself;
@@ -24,7 +25,8 @@ $navItems = [
     ['key' => 'quotes',    'label' => 'Quotes',        'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',           'perm' => 'billing.view'],
     ['key' => 'jobs',      'label' => 'Jobs',          'icon' => 'briefcase',   'href' => '/crm/jobs/index.php',                'perm' => 'jobs.view'],
     ['key' => 'invoices',  'label' => 'Invoices',      'icon' => 'file-text',   'href' => '/crm/invoices/index.php',            'perm' => 'billing.view'],
-    ['key' => 'expenses',  'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',         'perm' => 'expenses.view'],
+    ['key' => 'expenses',       'label' => 'Expenses',       'icon' => 'credit-card',  'href' => '/crm/expenses_appstack.php',         'perm' => 'expenses.view'],
+    ['key' => 'profitability',  'label' => 'Profitability',  'icon' => 'trending-up',  'href' => '/crm/profitability_appstack.php',    'perm' => 'expenses.view'],
     ['key' => 'schedule',  'label' => 'Schedule',      'icon' => 'calendar',    'href' => '/crm/jobs/schedule.php',             'perm' => 'schedule.view'],
     ['key' => 'timeclock', 'label' => 'Time Clock',    'icon' => 'clock',       'href' => '/crm/timeclock/my-schedule.php',     'perm' => 'schedule.view'],
     ['key' => 'team',      'label' => 'Team',          'icon' => 'user-check',  'href' => '/crm/team/index.php',                'perm' => 'team.view'],

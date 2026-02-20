@@ -121,6 +121,16 @@ try {
             handlePendingApproval($db);
             break;
 
+        case 'review_queue':
+            $canApprove2 = userHasPermission('expenses.approve');
+            if (!$canApprove2) throw new Exception('Permission denied: expenses.approve required');
+            handleReviewQueue($db);
+            break;
+
+        case 'margin_summary':
+            handleMarginSummary($db);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -215,6 +225,50 @@ function handleList(PDO $db): void
         'page'     => $page,
         'per_page' => $perPage,
         'pages'    => (int)ceil($total / $perPage),
+    ]);
+}
+
+
+/**
+ * GET ?action=review_queue
+ * Returns auto-approved expenses that have NOT yet been forwarded to accounting.
+ * These are normal (low anomaly) draft expenses ready for QB forwarding.
+ */
+function handleReviewQueue(PDO $db): void
+{
+    $countStmt = $db->prepare("
+        SELECT COUNT(*), SUM(e.total)
+        FROM expenses e
+        WHERE e.status IN ('draft', 'approved')
+          AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
+          AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
+    ");
+    $countStmt->execute();
+    $totals      = $countStmt->fetch(PDO::FETCH_NUM);
+    $total       = (int)($totals[0] ?? 0);
+    $totalAmount = (float)($totals[1] ?? 0);
+
+    $stmt = $db->prepare("
+        SELECT e.id, e.expense_date, e.vendor_id, e.vendor_name_raw, e.accounting_category,
+               e.total, e.status, e.job_id, e.receipt_media_id, e.created_at,
+               e.anomaly_score,
+               v.name AS vendor_name
+        FROM expenses e
+        LEFT JOIN vendors v ON v.id = e.vendor_id
+        WHERE e.status IN ('draft', 'approved')
+          AND (e.forwarded_to_accounting IS NULL OR e.forwarded_to_accounting = 0)
+          AND (e.anomaly_score <= 30 OR e.anomaly_score IS NULL)
+        ORDER BY e.expense_date DESC, e.created_at DESC
+        LIMIT 100
+    ");
+    $stmt->execute();
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode([
+        'success'      => true,
+        'expenses'     => $rows,
+        'total'        => $total,
+        'total_amount' => $totalAmount,
     ]);
 }
 
@@ -1115,4 +1169,17 @@ function handlePendingApproval(PDO $db): void
         'per_page' => $perPage,
         'pages'    => (int)ceil($total / $perPage),
     ]);
+}
+
+
+/**
+ * GET ?action=margin_summary
+ * Returns margin summary across all active jobs that have expenses.
+ * Used by profitability_appstack.php dashboard.
+ */
+function handleMarginSummary(PDO $db): void
+{
+    require_once APP_ROOT . '/Services/Receipts/MarginTracker.php';
+    $summary = getMarginSummary($db);
+    echo json_encode(['success' => true, 'summary' => $summary]);
 }

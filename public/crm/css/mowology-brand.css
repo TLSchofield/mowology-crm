@@ -13794,3 +13794,141 @@ textarea.font-monospace {
   .mw-cron-summary-bar { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
   .mw-cron-command { white-space: normal; word-break: break-all; }
 }
+
+/* ── Phase 3: Post-Save Impact Card ──────────────────────────── */
+
+.mw-impact-card {
+  border-left: 4px solid var(--mw-green);
+  background: #f0faf4;
+}
+.mw-impact-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.mw-impact-amount {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--mw-dark);
+  line-height: 1;
+}
+.mw-impact-cat {
+  font-size: 0.75rem;
+}
+.mw-impact-job-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--mw-dark);
+  margin-top: 8px;
+}
+.mw-impact-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--mw-green);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: mw-spin 0.7s linear infinite;
+}
+@keyframes mw-spin { to { transform: rotate(360deg); } }
+
+.mw-impact-job-row {
+  background: #fff;
+  border: 1px solid var(--mw-light);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 8px;
+}
+.mw-impact-job-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--mw-dark);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.mw-impact-job-stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: #555;
+}
+.mw-impact-pct {
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+.mw-impact-pct-good  { color: #16a34a; }
+.mw-impact-pct-warn  { color: #d97706; }
+.mw-impact-pct-over  { color: #dc2626; }
+.mw-impact-sent-note {
+  font-size: 0.8rem;
+  color: #16a34a;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+/* ── Phase 3: Enhanced Margin Breakdown in Expense Modal ─────── */
+
+.mw-margin-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mw-margin-plan-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--mw-dark);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mw-margin-quote-link {
+  font-size: 0.78rem;
+  color: var(--mw-green);
+  text-decoration: none;
+}
+.mw-margin-quote-link:hover { text-decoration: underline; }
+.mw-margin-bar-wrap { margin-bottom: 8px; }
+.mw-margin-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #555;
+  margin-bottom: 3px;
+}
+.mw-margin-bar { height: 6px; border-radius: 3px; }
+.mw-margin-breakdown-table {
+  width: 100%;
+  font-size: 0.78rem;
+  border-collapse: collapse;
+  margin-top: 6px;
+}
+.mw-margin-breakdown-table td {
+  padding: 3px 0;
+  color: #444;
+  border-bottom: 1px solid #f0f0f0;
+}
+.mw-margin-breakdown-total td {
+  font-weight: 600;
+  color: var(--mw-dark);
+  border-bottom: none;
+  padding-top: 5px;
+}
+.mw-margin-footnote {
+  font-size: 0.73rem;
+  color: #888;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+/* ── Phase 3: Review Queue Tab ──────────────────────────────── */
+
+#review-queue-tab .table th { font-size: 0.78rem; white-space: nowrap; }
+#review-queue-tab .table td { vertical-align: middle; font-size: 0.82rem; }
+

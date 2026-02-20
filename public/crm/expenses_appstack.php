@@ -209,6 +209,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 </div>
 <?php endif; ?>
 
+<!-- ── Post-Save Impact Card ────────────────────────────────────── -->
+<div id="mw-impact-card" style="display:none;" class="card mb-3 mw-impact-card">
+    <div class="card-body py-3">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <h6 class="mb-0 fw-bold" id="mw-impact-vendor">Expense saved</h6>
+            <button type="button" class="btn-close btn-close-sm" onclick="document.getElementById('mw-impact-card').style.display='none';" aria-label="Dismiss"></button>
+        </div>
+        <div id="mw-impact-body">
+            <!-- Populated by showImpactCard() -->
+        </div>
+        <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-sm btn-outline-secondary flex-grow-1" onclick="document.getElementById('mw-impact-card').style.display='none';">
+                <i data-feather="plus" style="width:14px;height:14px;"></i> Add Another
+            </button>
+            <?php if ($canSend): ?>
+            <button class="btn btn-sm mw-btn-green" id="mw-impact-forward-btn" style="display:none;" onclick="forwardImpactExpense()">
+                <i data-feather="send" style="width:14px;height:14px;"></i> Forward to QB
+            </button>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
 <!-- Tabs -->
 <ul class="nav nav-tabs mb-3" role="tablist">
     <li class="nav-item">
@@ -224,6 +247,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <li class="nav-item">
         <a class="nav-link" data-toggle="tab" href="#approvals-tab" role="tab">
             Approvals <span class="badge bg-warning text-dark ms-1" id="approvalBadgeCount" style="display:none;">0</span>
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" data-toggle="tab" href="#review-queue-tab" role="tab">
+            Review Queue <span class="badge bg-info text-dark ms-1" id="reviewQueueBadgeCount" style="display:none;">0</span>
         </a>
     </li>
     <?php endif; ?>
@@ -431,6 +459,50 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <tr><td colspan="8" class="text-center py-4 text-muted">Loading...</td></tr>
                 </tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+<!-- ───── Review Queue Tab ───────────────────────────────────────── -->
+<div class="tab-pane fade" id="review-queue-tab" role="tabpanel">
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h5 class="card-title mb-0">Ready to Forward</h5>
+                <small class="text-muted">Auto-approved expenses awaiting QB forwarding. Review before sending.</small>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadReviewQueue()">
+                    <i data-feather="refresh-cw" style="width:14px;height:14px;"></i> Refresh
+                </button>
+                <button class="btn btn-sm mw-btn-green" id="forwardSelectedBtn" style="display:none;" onclick="forwardSelectedToQB()">
+                    <i data-feather="send" style="width:14px;height:14px;"></i> Forward Selected
+                </button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:36px;"><input type="checkbox" id="rqSelectAll" onchange="rqToggleAll(this.checked)" title="Select all"></th>
+                        <th>Date</th>
+                        <th>Vendor</th>
+                        <th>Category</th>
+                        <th>Job</th>
+                        <th class="text-end">Total</th>
+                        <th>Receipt</th>
+                        <th>Saved</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="reviewQueueBody">
+                    <tr><td colspan="9" class="text-center py-4 text-muted">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <small class="text-muted" id="reviewQueueFooter">—</small>
+            <button class="btn btn-sm btn-outline-secondary" onclick="loadReviewQueue()">Reload</button>
         </div>
     </div>
 </div>
@@ -921,9 +993,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                             <div id="expAnomalyContent"></div>
                         </div>
 
-                        <!-- Job Margin Display -->
+                        <!-- Job Profitability Impact -->
                         <div class="mw-expense-form-section" id="expMarginSection" style="display:none;">
-                            <h6 class="mw-expense-form-section-title"><i data-feather="trending-up"></i> Job Margin</h6>
+                            <h6 class="mw-expense-form-section-title"><i data-feather="trending-up"></i> Job Profitability Impact</h6>
                             <div id="expMarginContent"></div>
                         </div>
 
@@ -1141,8 +1213,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         // Load budget variance
         loadBudgetVariance();
-        // Load approvals if tab exists
-        if (CAN_APPROVE) loadApprovals();
+        // Load approvals + review queue if admin
+        if (CAN_APPROVE) { loadApprovals(); loadReviewQueue(); }
 
         // File inputs
         var fileInput = document.getElementById('receiptFileInput');
@@ -1974,6 +2046,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var d = await r.json();
             if (!d.success) throw new Error(d.error);
 
+            // Capture context for impact card before resetting
+            var savedVendor = document.getElementById('rvVendorSearch').value;
+            var savedTotal  = parseFloat(document.getElementById('rvTotal').value || '0');
+            var savedJobId  = document.getElementById('rvJobId').value;
+            var savedCat    = document.getElementById('rvAcctCategory').value;
+
             // If "Save & Send", send receipt
             if (andSend && d.expense_id) {
                 var sr = await fetch('/crm/api/receipt-send.php', {
@@ -1987,13 +2065,112 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 }
             }
 
-            // Reset and refresh
+            // Reset and refresh list
             resetCapture();
             loadExpenses(currentPage);
             loadStats();
             if (andSend) loadSendLog();
+
+            // Show profitability impact card
+            showImpactCard(savedVendor, savedTotal, savedCat, savedJobId, d.expense_id, andSend);
         } catch(e) { alert('Error: ' + e.message); }
     }
+
+    // ── Post-Save Impact Card ─────────────────────────────────────
+    var _impactExpenseId = null;
+
+    async function showImpactCard(vendor, total, category, jobId, expenseId, wasSent) {
+        var card = document.getElementById('mw-impact-card');
+        var body = document.getElementById('mw-impact-body');
+        var vendorEl = document.getElementById('mw-impact-vendor');
+        var fwdBtn = document.getElementById('mw-impact-forward-btn');
+        if (!card || !body) return;
+
+        _impactExpenseId = expenseId;
+
+        // Header
+        vendorEl.textContent = vendor || 'Expense saved';
+
+        // Base body: amount + category
+        var html = '<div class="mw-impact-row">';
+        html += '<div class="mw-impact-amount">$' + total.toFixed(2) + '</div>';
+        html += '<span class="mw-impact-cat badge bg-secondary">' + esc(category || 'Uncategorised') + '</span>';
+        html += '</div>';
+
+        if (!wasSent && fwdBtn) {
+            fwdBtn.style.display = 'inline-flex';
+        } else if (fwdBtn) {
+            fwdBtn.style.display = 'none';
+        }
+
+        // Job impact section
+        if (jobId) {
+            html += '<div class="mw-impact-job-loading" id="mw-impact-job-row"><span class="mw-impact-spinner"></span> Calculating job impact…</div>';
+        }
+
+        body.innerHTML = html;
+        card.style.display = 'block';
+        if (window.feather) feather.replace();
+
+        // Scroll impact card into view
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        // Async: load job margin impact
+        if (jobId) {
+            try {
+                var r = await fetch('/crm/api/expenses.php?action=job_margin&plan_id=' + jobId);
+                var d = await r.json();
+                var jobRow = document.getElementById('mw-impact-job-row');
+                if (jobRow && d.success && d.margin) {
+                    var m = d.margin;
+                    var matPct = parseFloat(m.material_margin_pct || 0);
+                    var pctClass = matPct >= 20 ? 'mw-impact-pct-good' : matPct >= 0 ? 'mw-impact-pct-warn' : 'mw-impact-pct-over';
+                    var pctLabel = (matPct >= 0 ? '+' : '') + matPct.toFixed(1) + '%';
+                    jobRow.className = 'mw-impact-job-row';
+                    jobRow.innerHTML =
+                        '<div class="mw-impact-job-title"><i data-feather="briefcase" style="width:13px;height:13px;"></i> ' + esc(m.plan_title || 'Job #' + jobId) + '</div>' +
+                        '<div class="mw-impact-job-stats">' +
+                            '<span>Materials: $' + parseFloat(m.actual_materials).toFixed(2) + ' / $' + parseFloat(m.quoted_materials).toFixed(2) + ' quoted</span>' +
+                            '<span class="mw-impact-pct ' + pctClass + '">' + pctLabel + ' margin</span>' +
+                        '</div>';
+                    if (window.feather) feather.replace();
+                } else if (jobRow) {
+                    jobRow.remove();
+                }
+            } catch(e) {
+                var jobRow2 = document.getElementById('mw-impact-job-row');
+                if (jobRow2) jobRow2.remove();
+            }
+        }
+    }
+
+    window.forwardImpactExpense = async function() {
+        if (!_impactExpenseId) return;
+        var btn = document.getElementById('mw-impact-forward-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Forwarding…'; }
+        try {
+            var r = await fetch('/crm/api/receipt-send.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF, expense_id: _impactExpenseId }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error || d.message);
+            if (btn) { btn.style.display = 'none'; }
+            var body2 = document.getElementById('mw-impact-body');
+            if (body2) {
+                var sentNote = document.createElement('p');
+                sentNote.className = 'mw-impact-sent-note';
+                sentNote.textContent = '✓ Forwarded to QuickBooks';
+                body2.appendChild(sentNote);
+            }
+            loadSendLog();
+            loadReviewQueue();
+        } catch(e) {
+            alert('Forward failed: ' + e.message);
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="send" style="width:14px;height:14px;"></i> Forward to QB'; if (window.feather) feather.replace(); }
+        }
+    };
 
     // ── Categories ───────────────────────────────────────────────
     async function loadCategories() {
@@ -3763,17 +3940,59 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var r = await fetch('/crm/api/expenses.php?action=job_margin&plan_id=' + jobId);
             var d = await r.json();
             if (d.success && d.margin) {
-                var m = d.margin;
-                var pct = parseFloat(m.material_margin_pct || 0);
-                var statusClass = pct >= 20 ? 'success' : pct >= 0 ? 'warning' : 'danger';
-                content.innerHTML =
-                    '<div class="d-flex justify-content-between align-items-center">' +
-                        '<div><strong>Materials:</strong> $' + parseFloat(m.actual_materials).toFixed(2) + ' spent / $' + parseFloat(m.quoted_materials).toFixed(2) + ' quoted</div>' +
-                        '<span class="badge bg-' + statusClass + '">' + pct.toFixed(0) + '% margin</span>' +
-                    '</div>';
+                content.innerHTML = buildMarginHtml(d.margin);
                 section.style.display = 'block';
             }
         } catch(e) { /* non-critical */ }
+    }
+
+    function buildMarginHtml(m) {
+        var matPct = parseFloat(m.material_margin_pct || 0);
+        var matClass = matPct >= 20 ? 'success' : matPct >= 0 ? 'warning' : 'danger';
+        var matPctLabel = m.material_margin_pct !== null
+            ? (matPct >= 0 ? '+' : '') + matPct.toFixed(1) + '% margin'
+            : 'No quote data';
+
+        // Header row: overall margin badge
+        var html = '<div class="mw-margin-header">';
+        if (m.quote_number) {
+            html += '<span class="mw-margin-plan-label"><i data-feather="file-text" style="width:12px;height:12px;"></i> ' + esc(m.plan_title || 'Job') + '</span>';
+            html += '<a href="/crm/quotes/view.php?id=' + (m.plan_id || '') + '" class="mw-margin-quote-link" target="_blank">' + esc(m.quote_number) + '</a>';
+        }
+        html += '<span class="badge bg-' + matClass + ' ms-auto">' + matPctLabel + '</span>';
+        html += '</div>';
+
+        // Materials breakdown bar
+        if (m.quoted_materials > 0) {
+            var fillPct = Math.min((parseFloat(m.actual_materials) / parseFloat(m.quoted_materials)) * 100, 120);
+            var barClass = fillPct > 100 ? 'bg-danger' : fillPct > 80 ? 'bg-warning' : 'bg-success';
+            html += '<div class="mw-margin-bar-wrap">';
+            html += '<div class="mw-margin-bar-label"><span>Materials: $' + parseFloat(m.actual_materials).toFixed(2) + ' spent</span><span>Quoted: $' + parseFloat(m.quoted_materials).toFixed(2) + '</span></div>';
+            html += '<div class="progress mw-margin-bar"><div class="progress-bar ' + barClass + '" style="width:' + Math.min(fillPct, 100) + '%;"></div></div>';
+            html += '</div>';
+        }
+
+        // Category breakdown table (only if there's data)
+        var rows = [];
+        if (parseFloat(m.actual_fuel || 0) > 0)     rows.push(['Fuel',           m.actual_fuel]);
+        if (parseFloat(m.actual_disposal || 0) > 0) rows.push(['Disposal/Dump',  m.actual_disposal]);
+        if (parseFloat(m.actual_tools || 0) > 0)    rows.push(['Tools/Equipment', m.actual_tools]);
+
+        if (rows.length) {
+            html += '<table class="mw-margin-breakdown-table">';
+            rows.forEach(function(row) {
+                html += '<tr><td>' + esc(row[0]) + '</td><td class="text-end">$' + parseFloat(row[1]).toFixed(2) + '</td></tr>';
+            });
+            html += '<tr class="mw-margin-breakdown-total"><td>Total Expenses</td><td class="text-end fw-bold">$' + parseFloat(m.actual_total).toFixed(2) + '</td></tr>';
+            html += '</table>';
+        }
+
+        // Expense count footnote
+        if (m.expense_count > 0) {
+            html += '<p class="mw-margin-footnote">' + m.expense_count + ' expense' + (m.expense_count === 1 ? '' : 's') + ' recorded on this job</p>';
+        }
+
+        return html;
     }
 
     // ── Budget Variance ────────────────────────────────────────
@@ -3917,6 +4136,146 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             loadExpenses(currentPage);
         } catch(e) { alert('Error: ' + e.message); }
     };
+
+    // ── Review Queue (Ready-to-Forward QB queue) ─────────────────
+    var _reviewQueueSelected = new Set();
+
+    async function loadReviewQueue() {
+        var tbody = document.getElementById('reviewQueueBody');
+        var footer = document.getElementById('reviewQueueFooter');
+        var badge = document.getElementById('reviewQueueBadgeCount');
+        if (!tbody) return;
+
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=review_queue');
+            var d = await r.json();
+            if (!d.success) return;
+
+            _reviewQueueSelected.clear();
+            document.getElementById('forwardSelectedBtn').style.display = 'none';
+
+            if (badge) {
+                if (d.total > 0) { badge.textContent = d.total; badge.style.display = 'inline'; }
+                else { badge.style.display = 'none'; }
+            }
+            if (footer) {
+                footer.textContent = d.total + ' expense' + (d.total === 1 ? '' : 's') + ' ready to forward' +
+                    (d.total_amount ? ' · $' + parseFloat(d.total_amount).toFixed(2) + ' total' : '');
+            }
+
+            if (!d.expenses || !d.expenses.length) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center py-5 text-muted"><i data-feather="check-circle" style="width:24px;height:24px;display:block;margin:0 auto 8px;"></i>All clear — nothing waiting to forward</td></tr>';
+                if (window.feather) feather.replace();
+                return;
+            }
+
+            tbody.innerHTML = d.expenses.map(function(e) {
+                var vendor = esc(e.vendor_name || e.vendor_name_raw || '—');
+                var jobLabel = e.job_id ? '<span class="badge bg-light text-dark border">#' + e.job_id + '</span>' : '—';
+                var receiptIcon = e.receipt_media_id
+                    ? '<a href="/crm/api/serve-receipt.php?id=' + e.receipt_media_id + '" target="_blank" title="View receipt"><i data-feather="image" style="width:14px;height:14px;color:var(--mw-green);"></i></a>'
+                    : '<span class="text-muted" title="No receipt">—</span>';
+                var savedAge = e.created_at ? '<span title="' + esc(e.created_at) + '">' + relativeTime(e.created_at) + '</span>' : '—';
+
+                return '<tr>' +
+                    '<td><input type="checkbox" class="rq-check" data-id="' + e.id + '" onchange="rqCheckChanged()"></td>' +
+                    '<td>' + esc(e.expense_date || '—') + '</td>' +
+                    '<td>' + vendor + '</td>' +
+                    '<td><small class="text-muted">' + esc(e.accounting_category || '—') + '</small></td>' +
+                    '<td>' + jobLabel + '</td>' +
+                    '<td class="text-end fw-bold">$' + parseFloat(e.total).toFixed(2) + '</td>' +
+                    '<td class="text-center">' + receiptIcon + '</td>' +
+                    '<td><small>' + savedAge + '</small></td>' +
+                    '<td class="text-end text-nowrap">' +
+                        '<button class="btn btn-sm btn-outline-success me-1" onclick="forwardSingleFromQueue(' + e.id + ')" title="Forward to QB"><i data-feather="send" style="width:13px;height:13px;"></i></button>' +
+                        '<button class="btn btn-sm btn-outline-primary" onclick="editExpense(' + e.id + ')" title="View"><i data-feather="eye" style="width:13px;height:13px;"></i></button>' +
+                    '</td>' +
+                '</tr>';
+            }).join('');
+
+            if (window.feather) feather.replace();
+        } catch(e) { console.error('loadReviewQueue', e); }
+    }
+
+    window.rqToggleAll = function(checked) {
+        document.querySelectorAll('.rq-check').forEach(function(cb) {
+            cb.checked = checked;
+            if (checked) _reviewQueueSelected.add(parseInt(cb.dataset.id));
+            else _reviewQueueSelected.delete(parseInt(cb.dataset.id));
+        });
+        rqUpdateForwardBtn();
+    };
+
+    window.rqCheckChanged = function() {
+        _reviewQueueSelected.clear();
+        document.querySelectorAll('.rq-check:checked').forEach(function(cb) {
+            _reviewQueueSelected.add(parseInt(cb.dataset.id));
+        });
+        rqUpdateForwardBtn();
+    };
+
+    function rqUpdateForwardBtn() {
+        var btn = document.getElementById('forwardSelectedBtn');
+        if (!btn) return;
+        if (_reviewQueueSelected.size > 0) {
+            btn.style.display = 'inline-flex';
+            btn.innerHTML = '<i data-feather="send" style="width:14px;height:14px;"></i> Forward ' + _reviewQueueSelected.size + ' to QB';
+            if (window.feather) feather.replace();
+        } else {
+            btn.style.display = 'none';
+        }
+    }
+
+    window.forwardSelectedToQB = async function() {
+        if (!_reviewQueueSelected.size) return;
+        var ids = Array.from(_reviewQueueSelected);
+        if (!confirm('Forward ' + ids.length + ' expense' + (ids.length === 1 ? '' : 's') + ' to QuickBooks?')) return;
+
+        var btn = document.getElementById('forwardSelectedBtn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Forwarding…'; }
+
+        var failed = 0;
+        for (var i = 0; i < ids.length; i++) {
+            try {
+                var r = await fetch('/crm/api/receipt-send.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ csrf_token: CSRF, expense_id: ids[i] }),
+                });
+                var d = await r.json();
+                if (!d.success) failed++;
+            } catch(e) { failed++; }
+        }
+
+        if (failed > 0) alert(failed + ' expense(s) failed to forward. The rest were sent.');
+        loadReviewQueue();
+        loadSendLog();
+        loadExpenses(currentPage);
+    };
+
+    window.forwardSingleFromQueue = async function(id) {
+        try {
+            var r = await fetch('/crm/api/receipt-send.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: CSRF, expense_id: id }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error || d.message);
+            loadReviewQueue();
+            loadSendLog();
+            loadExpenses(currentPage);
+        } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    function relativeTime(dateStr) {
+        if (!dateStr) return '—';
+        var diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+        if (diff < 60) return 'just now';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+        return Math.floor(diff / 86400) + 'd ago';
+    }
 
     // ── Enhanced Lightbox with Zoom/Rotate ─────────────────────
     // (Replaces the basic lightbox defined above)
