@@ -142,9 +142,7 @@ function syncComplianceEvents(PDO $db, array $user, array $events): array
         return ['inserted' => 0, 'skipped' => 0];
     }
 
-    // Ensure compliance_events table exists
-    ensureComplianceTable($db);
-
+    // compliance_events table is created by migration 603_compliance_events_table.sql
     $userId = (int)$user['id'];
     $inserted = 0;
     $skipped = 0;
@@ -199,34 +197,6 @@ function syncComplianceEvents(PDO $db, array $user, array $events): array
     return ['inserted' => $inserted, 'skipped' => $skipped];
 }
 
-/**
- * Ensure the compliance_events table exists.
- * Safe to call multiple times — uses CREATE TABLE IF NOT EXISTS.
- */
-function ensureComplianceTable(PDO $db): void
-{
-    static $checked = false;
-    if ($checked) return;
-    $checked = true;
-
-    $db->exec("
-        CREATE TABLE IF NOT EXISTS compliance_events (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            event_type VARCHAR(50) NOT NULL,
-            latitude DECIMAL(10,8) DEFAULT 0,
-            longitude DECIMAL(11,8) DEFAULT 0,
-            accuracy_meters INT DEFAULT NULL,
-            visit_id INT DEFAULT NULL,
-            job_id INT DEFAULT NULL,
-            reason VARCHAR(255) DEFAULT NULL,
-            metadata TEXT DEFAULT NULL,
-            device_timestamp DATETIME NOT NULL,
-            created_at DATETIME NOT NULL,
-            INDEX idx_compliance_user (user_id),
-            INDEX idx_compliance_type (event_type),
-            INDEX idx_compliance_visit (visit_id),
-            INDEX idx_compliance_time (device_timestamp)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
-    ");
-}
+// ensureComplianceTable() removed — Phase 1 fix.
+// The compliance_events table is created by migration 603_compliance_events_table.sql.
+// Apply that migration via the CRM Database dashboard or CLI before deploying this file.

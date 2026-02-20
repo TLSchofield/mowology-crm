@@ -13,6 +13,71 @@
  */
 
 // ============================================================================
+// TIME HELPERS
+// ============================================================================
+
+/**
+ * Convert a HH:MM or HH:MM:SS time string to total minutes.
+ * Returns 0 for empty/invalid input.
+ */
+function planTimeStringToMinutes(string $t): int {
+    $t = trim($t);
+    if ($t === '') return 0;
+    $parts = explode(':', $t);
+    return ((int)($parts[0] ?? 0)) * 60 + ((int)($parts[1] ?? 0));
+}
+
+/**
+ * Convert total minutes back to a HH:MM time string.
+ * Clamps to 23:59 to avoid overflowing midnight.
+ */
+function planMinutesToTimeString(int $minutes): string {
+    $h = (int)floor($minutes / 60);
+    $m = $minutes % 60;
+    return sprintf('%02d:%02d', min($h, 23), max(0, $m));
+}
+
+// ============================================================================
+// HORIZON CHECK
+// ============================================================================
+
+/**
+ * Quick read-only check: are all active recurring plans generated far enough ahead?
+ *
+ * Returns true  → horizon is current (cron ran recently enough).
+ * Returns false → at least one plan needs visit generation.
+ *
+ * "Current" means every active recurring plan has visits_generated_through
+ * at least 14 days into the future. This is a conservative threshold:
+ * the cron runs every 6 hours and generates 42 days ahead, so 14 days
+ * gives plenty of run-time buffer before the schedule page would ever
+ * show missing stops.
+ *
+ * This function does a single COUNT(*) — no writes, no plan iteration.
+ */
+function isVisitHorizonCurrent(): bool {
+    try {
+        $db = getDB();
+        $minHorizon = date('Y-m-d', strtotime('+14 days'));
+        $stmt = $db->prepare("
+            SELECT COUNT(*) FROM job_plans
+            WHERE status = 'active'
+              AND is_recurring = 1
+              AND (
+                visits_generated_through IS NULL
+                OR visits_generated_through < ?
+              )
+        ");
+        $stmt->execute([$minHorizon]);
+        return ((int)$stmt->fetchColumn()) === 0;
+    } catch (Exception $e) {
+        // On any DB error, report stale so the cron knows to run
+        error_log('[isVisitHorizonCurrent] ' . $e->getMessage());
+        return false;
+    }
+}
+
+// ============================================================================
 // NUMBER GENERATORS
 // ============================================================================
 
@@ -564,11 +629,22 @@ function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
                 $nextSeq = ((int)$seqStmt->fetchColumn()) + 1;
 
                 foreach ($dates as $date) {
-                    // Ensure calendar stop exists
+                    // Derive estimated arrival and departure from plan defaults
+                    $estArrival   = $plan['default_time_start'] ?: null;
+                    $estDeparture = null;
+                    if ($estArrival && !empty($plan['estimated_duration_minutes'])) {
+                        $arrivalMins   = planTimeStringToMinutes($estArrival);
+                        $departureMins = $arrivalMins + (int)$plan['estimated_duration_minutes'];
+                        $estDeparture  = planMinutesToTimeString($departureMins);
+                    }
+
+                    // Ensure calendar stop exists (populates times on insert, preserves manual edits on dup)
                     $stopId = ensureCalendarStop(
                         (int)$plan['property_id'],
                         $date,
-                        $plan['default_crew_id'] ? (int)$plan['default_crew_id'] : null
+                        $plan['default_crew_id'] ? (int)$plan['default_crew_id'] : null,
+                        $estArrival,
+                        $estDeparture
                     );
 
                     $visitNumber = generateVisitNumber($plan['plan_number'], $nextSeq);
@@ -826,16 +902,38 @@ function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate,
  * Uses INSERT ... ON DUPLICATE KEY UPDATE for idempotency.
  * Returns the stop_id.
  */
-function ensureCalendarStop(int $propertyId, string $date, ?int $crewId): int {
+/**
+ * Ensure a calendar_stops row exists for the given property+date+crew.
+ *
+ * On INSERT: writes estimated_arrival and estimated_departure if provided.
+ * On DUPLICATE KEY: preserves any existing times (COALESCE), only updates
+ * them when the column is currently NULL — so manual dispatcher edits are
+ * never overwritten by cron regeneration.
+ *
+ * @param int         $propertyId
+ * @param string      $date             YYYY-MM-DD
+ * @param int|null    $crewId
+ * @param string|null $estimatedArrival  HH:MM derived from plan default_time_start
+ * @param string|null $estimatedDeparture HH:MM derived from arrival + duration
+ * @return int  calendar_stops.id
+ */
+function ensureCalendarStop(int $propertyId, string $date, ?int $crewId,
+                            ?string $estimatedArrival = null,
+                            ?string $estimatedDeparture = null): int {
     $db = getDB();
 
-    // Try INSERT, on dup just touch updated_at
+    // INSERT with time fields; on duplicate preserve existing times (COALESCE),
+    // only back-fill when the column is currently NULL.
     $stmt = $db->prepare("
-        INSERT INTO calendar_stops (property_id, stop_date, crew_id, status)
-        VALUES (?, ?, ?, 'scheduled')
-        ON DUPLICATE KEY UPDATE updated_at = NOW()
+        INSERT INTO calendar_stops
+            (property_id, stop_date, crew_id, estimated_arrival, estimated_departure, status)
+        VALUES (?, ?, ?, ?, ?, 'scheduled')
+        ON DUPLICATE KEY UPDATE
+            estimated_arrival   = COALESCE(estimated_arrival,   VALUES(estimated_arrival)),
+            estimated_departure = COALESCE(estimated_departure, VALUES(estimated_departure)),
+            updated_at          = NOW()
     ");
-    $stmt->execute([$propertyId, $date, $crewId]);
+    $stmt->execute([$propertyId, $date, $crewId, $estimatedArrival, $estimatedDeparture]);
 
     // Fetch the ID (works for both insert and duplicate)
     $fetchStmt = $db->prepare("

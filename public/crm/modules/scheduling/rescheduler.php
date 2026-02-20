@@ -138,36 +138,79 @@ function executeReschedule(int $visitId, string $newDate, string $newTimeStart, 
 }
 
 /**
- * Check if a crew has a schedule conflict on a given date/time.
+ * Check if adding a job of $durationMin would overload a crew's day.
+ *
+ * Uses real duration math to compute day load, matching the feasibility
+ * thresholds in route-engine.js (FEASIBILITY_THRESHOLDS.yellow = 1.0).
+ *
+ * Algorithm:
+ *   totalJobMinutes = sum of existing scheduled visit durations + proposed durationMin
+ *   buffer          = 15% of totalJobMinutes
+ *   load            = (totalJobMinutes + buffer) / workWindowMinutes (480 = 8h)
+ *   conflict        = load > 1.0
+ *
+ * Duration source priority (per visit):
+ *   1. job_plans.estimated_duration_minutes
+ *   2. property_visit_patterns.avg_visit_duration_minutes (learned from past visits)
+ *   3. 60 minutes (conservative fallback)
  *
  * @param int    $crewId
  * @param string $date
- * @param string $timeStart
- * @param string $timeEnd
- * @param int    $durationMin
- * @return bool True if conflict exists
+ * @param string $timeStart    HH:MM (reserved for future time-overlap logic)
+ * @param string $timeEnd      HH:MM (reserved for future time-overlap logic)
+ * @param int    $durationMin  Duration of the proposed new visit in minutes
+ * @return bool True if adding this visit would push the crew over capacity
  */
 function hasScheduleConflict(int $crewId, string $date, string $timeStart, string $timeEnd, int $durationMin): bool
 {
+    // Work window matches route-engine.js CONFIG.WORK_WINDOW_MINUTES
+    $workWindowMinutes = 480; // 8 hours
+    // Buffer: 15% flat — mirrors route-engine.js DEFAULT_BUFFER_PERCENT
+    $bufferPercent = 0.15;
+
     try {
         $db = getDB();
 
-        // Count existing scheduled visits for this crew on this date
+        // Sum durations for all scheduled visits this crew has on this date.
+        // Falls back to property_visit_patterns.avg_visit_duration_minutes (the
+        // learning table populated by updatePropertyVisitPattern) when a plan
+        // has no estimated_duration_minutes set.
         $stmt = $db->prepare("
-            SELECT COUNT(*) AS cnt
+            SELECT
+                COALESCE(
+                    jp.estimated_duration_minutes,
+                    pvp.avg_visit_duration_minutes,
+                    60
+                ) AS est_duration
             FROM job_visits v
-            JOIN job_plans p ON v.plan_id = p.id
+            JOIN job_plans jp ON v.plan_id = jp.id
+            LEFT JOIN property_visit_patterns pvp
+                   ON pvp.property_id = jp.property_id
+                  AND pvp.crew_id = v.assigned_crew_id
             WHERE v.assigned_crew_id = ?
               AND v.scheduled_date = ?
               AND v.status = 'scheduled'
         ");
         $stmt->execute([$crewId, $date]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Simple heuristic: if crew already has 8+ visits, day is full
-        return ((int)($row['cnt'] ?? 0)) >= 8;
+        $totalJobMinutes = 0;
+        foreach ($rows as $r) {
+            $totalJobMinutes += max(0, (int)$r['est_duration']);
+        }
+
+        // Add the proposed new visit
+        $totalJobMinutes += max(0, $durationMin);
+
+        // Compute load with buffer
+        $buffer = (int)round($totalJobMinutes * $bufferPercent);
+        $load   = ($totalJobMinutes + $buffer) / $workWindowMinutes;
+
+        return $load > 1.0;
+
     } catch (Throwable $e) {
         error_log("hasScheduleConflict error: " . $e->getMessage());
+        // On DB error, report no conflict so rescheduler can still suggest slots
         return false;
     }
 }

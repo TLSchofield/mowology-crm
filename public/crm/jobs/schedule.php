@@ -33,8 +33,14 @@ if ($activeTimer) {
     ];
 }
 
-// ─── Generate visits on-demand (6 weeks out) ────────────────────────
-generateVisits(null, 42);
+// ─── Visit generation: handled by cron (generate_visits.php every 6h) ───
+// generateVisits() was removed from page load in Phase 1 to prevent
+// synchronous DB writes blocking rendering. The cron keeps the 42-day
+// horizon fresh. If the horizon is stale (cron hasn't run), log a warning
+// so the issue appears in error logs without degrading the user experience.
+if (!isVisitHorizonCurrent()) {
+    error_log('[schedule.php] Visit horizon stale — ensure generate_visits cron is scheduled: 0 */6 * * * php /home/mowology/app/Modules/Jobs/Cron/generate_visits.php');
+}
 
 // ─── View mode (week or day) ─────────────────────────────────────────
 $view = (isset($_GET['view']) && $_GET['view'] === 'day') ? 'day' : 'week';
