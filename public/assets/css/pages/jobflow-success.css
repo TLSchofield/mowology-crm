@@ -125,3 +125,88 @@
     color: var(--mowology-dark);
     margin-bottom: 8px;
 }
+
+/* ── Phase 2 additions ──────────────────────────────────────────────── */
+
+/* Personalised lead paragraph */
+.success-lead {
+    font-size: 17px;
+    margin-bottom: 28px;
+}
+
+/* Info row with text block */
+.info-row div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.info-row div strong {
+    color: var(--mowology-dark);
+    font-weight: 700;
+    font-size: 15px;
+}
+
+.info-row div,
+.info-row span {
+    font-size: 14px;
+    color: #4b5563;
+}
+
+/* SMS nudge */
+.sms-nudge {
+    background: rgba(45, 134, 89, 0.07);
+    border: 1px solid rgba(45, 134, 89, 0.2);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    text-align: left;
+    font-size: 14px;
+    color: #374151;
+    line-height: 1.5;
+}
+
+.sms-nudge p {
+    font-size: 14px;
+    margin-bottom: 0;
+    color: #374151;
+}
+
+/* Referral box */
+.referral-box {
+    background: linear-gradient(135deg, rgba(45, 134, 89, 0.08), rgba(26, 95, 74, 0.12));
+    border: 2px solid rgba(45, 134, 89, 0.2);
+    border-radius: 14px;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    text-align: left;
+}
+
+.referral-box h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--mowology-dark);
+    margin-bottom: 10px;
+}
+
+.referral-box p {
+    font-size: 14px;
+    color: #374151;
+    margin-bottom: 0;
+    line-height: 1.6;
+}
+
+/* Success actions */
+.success-actions {
+    margin-bottom: 24px;
+}
+
+@media (max-width: 480px) {
+    .success-card {
+        padding: 40px 24px;
+    }
+
+    .success-card h1 {
+        font-size: 28px;
+    }
+}

@@ -124,6 +124,152 @@
     background: #f8f9fa;
 }
 
+/* ── Phase 2 additions ──────────────────────────────────────────────── */
+
+/* Price estimate section */
+.estimate-section {
+    background: linear-gradient(135deg, rgba(45, 134, 89, 0.06), rgba(26, 95, 74, 0.06));
+    border: 2px solid rgba(45, 134, 89, 0.18);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.price-estimate {
+    text-align: center;
+}
+
+.price-range {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--mowology-green);
+}
+
+.price-range small {
+    font-size: 16px;
+    font-weight: 500;
+    color: #6c757d;
+}
+
+.price-note {
+    font-size: 13px;
+    color: #6c757d;
+    margin-top: 8px;
+    margin-bottom: 0;
+}
+
+/* Upsell section */
+.upsell-section {
+    background: #fafafa;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.upsell-intro {
+    font-size: 14px;
+    color: #6c757d;
+    margin-bottom: 16px;
+}
+
+.upsell-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+}
+
+.upsell-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.upsell-card input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.upsell-card:hover,
+.upsell-card.selected {
+    border-color: var(--mowology-green);
+    background: rgba(45, 134, 89, 0.04);
+}
+
+.upsell-card.selected::after {
+    content: "✓";
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--mowology-green);
+}
+
+.upsell-badge {
+    display: inline-block;
+    background: var(--mowology-lime);
+    color: var(--mowology-dark);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 20px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    width: fit-content;
+}
+
+.upsell-card strong {
+    font-size: 15px;
+    color: #212529;
+    margin-bottom: 4px;
+    display: block;
+}
+
+.upsell-price {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--mowology-green);
+    margin-bottom: 8px;
+}
+
+.upsell-desc {
+    font-size: 13px;
+    color: #6c757d;
+    line-height: 1.4;
+    margin: 0 0 6px 0;
+    flex: 1;
+}
+
+.upsell-note {
+    font-size: 11px;
+    color: #9ca3af;
+    font-style: italic;
+}
+
+/* Urgency / availability banner */
+.urgency-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    background: rgba(232, 93, 4, 0.08);
+    border: 1px solid rgba(232, 93, 4, 0.25);
+    border-radius: 12px;
+    font-size: 14px;
+    color: #374151;
+    font-weight: 500;
+    margin-bottom: 24px;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .review-card {
@@ -141,5 +287,9 @@
 
     .button-group {
         flex-direction: column;
+    }
+
+    .upsell-grid {
+        grid-template-columns: 1fr;
     }
 }
