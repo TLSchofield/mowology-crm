@@ -106,6 +106,20 @@ try {
         throw new Exception('Expense not found');
     }
 
+    // --- Idempotency check: block duplicate forwards ---
+    // Once a receipt has been forwarded to QuickBooks, refuse to re-send
+    // unless the user explicitly resets the status. Prevents duplicate
+    // entries in accounting from double-clicks or retries.
+    if (!empty($expense['forwarded_to_accounting'])) {
+        $forwardedAt = $expense['forwarded_at'] ? date('M j, Y g:ia', strtotime($expense['forwarded_at'])) : 'previously';
+        echo json_encode([
+            'success' => false,
+            'error'   => 'This receipt was already forwarded to QuickBooks on ' . $forwardedAt . '. Open the expense to reset and re-send if needed.',
+            'log_id'  => null,
+        ]);
+        exit;
+    }
+
     // Build send options, allowing input overrides
     $clientName = trim(($expense['client_first'] ?? '') . ' ' . ($expense['client_last'] ?? ''));
     if (!empty($expense['property_address'])) {

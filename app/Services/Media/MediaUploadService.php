@@ -140,6 +140,31 @@ function mediaUploadFile(
         }
     }
 
+    // --- Strip all EXIF metadata by re-encoding through GD ---
+    // EXIF in stored files can expose GPS coordinates, device model/serial,
+    // and other metadata. We already extracted what we need into the DB.
+    // Re-encoding through GD strips all EXIF cleanly.
+    if (extension_loaded('gd') && $mimeType === 'image/jpeg') {
+        $stripped = @imagecreatefromjpeg($absolutePath);
+        if ($stripped) {
+            imagejpeg($stripped, $absolutePath, 92);
+            imagedestroy($stripped);
+        }
+    } elseif (extension_loaded('gd') && $mimeType === 'image/png') {
+        $stripped = @imagecreatefrompng($absolutePath);
+        if ($stripped) {
+            imagesavealpha($stripped, true);
+            imagepng($stripped, $absolutePath, 6);
+            imagedestroy($stripped);
+        }
+    } elseif (extension_loaded('gd') && $mimeType === 'image/webp') {
+        $stripped = @imagecreatefromwebp($absolutePath);
+        if ($stripped) {
+            imagewebp($stripped, $absolutePath, 90);
+            imagedestroy($stripped);
+        }
+    }
+
     // --- Insert into database ---
     try {
         $stmt = $db->prepare('

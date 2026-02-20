@@ -133,6 +133,54 @@
             });
         }
 
+        // --- Blur detection via Canvas pixel-variance analysis ---
+        // Samples a downscaled greyscale version of the image and computes
+        // variance. Low variance = flat image = likely blurry/dark/covered lens.
+        // Threshold of 80 catches most blurry photos without false positives.
+        // Returns a Promise<boolean> — true if the image appears blurry.
+        function isImageBlurry(file, threshold) {
+            threshold = threshold || 80;
+            return new Promise(function(resolve) {
+                // Only run on JPEG/PNG/WebP — skip for unsupported types
+                if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
+                    resolve(false);
+                    return;
+                }
+                var url = URL.createObjectURL(file);
+                var img = new Image();
+                img.onload = function() {
+                    try {
+                        // Downscale to 100x100 for fast variance calculation
+                        var canvas = document.createElement('canvas');
+                        canvas.width = 100;
+                        canvas.height = 100;
+                        var ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, 100, 100);
+                        URL.revokeObjectURL(url);
+
+                        var data = ctx.getImageData(0, 0, 100, 100).data;
+                        // Convert to greyscale and compute mean
+                        var grey = [];
+                        for (var i = 0; i < data.length; i += 4) {
+                            grey.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                        }
+                        var mean = grey.reduce(function(a, b) { return a + b; }, 0) / grey.length;
+                        var variance = grey.reduce(function(sum, v) { return sum + (v - mean) * (v - mean); }, 0) / grey.length;
+
+                        resolve(variance < threshold);
+                    } catch (e) {
+                        // Canvas tainted or unsupported — skip blur check
+                        resolve(false);
+                    }
+                };
+                img.onerror = function() {
+                    URL.revokeObjectURL(url);
+                    resolve(false);
+                };
+                img.src = url;
+            });
+        }
+
         // --- File handling ---
         function handleFiles(fileList) {
             var files = Array.prototype.slice.call(fileList);
@@ -148,7 +196,20 @@
                     showFileError(file.name, 'Too large (max ' + maxMB + ' MB)');
                     return;
                 }
-                uploadFile(file);
+                // Blur detection — warn before wasting an API call on a bad photo.
+                // Only applied when context is 'expense' (receipt capture).
+                if (config.contextType === 'expense') {
+                    isImageBlurry(file).then(function(blurry) {
+                        if (blurry) {
+                            if (!window.confirm('This photo looks blurry or dark.\nUpload anyway, or retake for a better result?')) {
+                                return; // User chose to retake
+                            }
+                        }
+                        uploadFile(file);
+                    });
+                } else {
+                    uploadFile(file);
+                }
             });
         }
 

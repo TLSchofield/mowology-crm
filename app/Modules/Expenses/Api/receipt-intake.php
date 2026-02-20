@@ -59,6 +59,38 @@ try {
         exit;
     }
 
+    // --- Rate Limiting: max 20 receipt uploads per user per hour ---
+    // Stored as a simple DB row to survive PHP session expiry on mobile.
+    try {
+        $rlDb = getDB();
+        $rlUserId = (int)$user['id'];
+        $rlWindow = date('Y-m-d H:00:00'); // Current hour bucket
+
+        // Upsert: increment counter for this user+hour
+        $rlDb->prepare("
+            INSERT INTO upload_rate_limits (user_id, window_start, upload_count)
+            VALUES (?, ?, 1)
+            ON DUPLICATE KEY UPDATE upload_count = upload_count + 1
+        ")->execute([$rlUserId, $rlWindow]);
+
+        // Check count
+        $rlStmt = $rlDb->prepare("
+            SELECT upload_count FROM upload_rate_limits
+            WHERE user_id = ? AND window_start = ?
+        ");
+        $rlStmt->execute([$rlUserId, $rlWindow]);
+        $rlCount = (int)($rlStmt->fetchColumn() ?: 0);
+
+        if ($rlCount > 20) {
+            http_response_code(429);
+            echo json_encode(['success' => false, 'error' => 'Too many uploads — please wait before uploading more receipts (limit: 20/hour)']);
+            exit;
+        }
+    } catch (Throwable $rlEx) {
+        // If rate limit table doesn't exist yet, log and continue — non-blocking
+        error_log('Rate limit check error (non-fatal): ' . $rlEx->getMessage());
+    }
+
     // Validate file
     if (empty($_FILES['receipt_photo']) || $_FILES['receipt_photo']['error'] !== UPLOAD_ERR_OK) {
         $errCode = $_FILES['receipt_photo']['error'] ?? UPLOAD_ERR_NO_FILE;
@@ -107,6 +139,30 @@ try {
     if (!move_uploaded_file($file['tmp_name'], $filePath)) {
         echo json_encode(['success' => false, 'error' => 'Failed to save uploaded file']);
         exit;
+    }
+
+    // --- Strip EXIF metadata by re-encoding through GD ---
+    // Prevents GPS coordinates, device model/serial from being stored in the file.
+    // EXIF values we need (GPS, date) are read below and stored in the DB instead.
+    if (extension_loaded('gd') && in_array($mimeType, ['image/jpeg', 'image/jpg'])) {
+        $stripped = @imagecreatefromjpeg($filePath);
+        if ($stripped) {
+            imagejpeg($stripped, $filePath, 92);
+            imagedestroy($stripped);
+        }
+    } elseif (extension_loaded('gd') && $mimeType === 'image/png') {
+        $stripped = @imagecreatefrompng($filePath);
+        if ($stripped) {
+            imagesavealpha($stripped, true);
+            imagepng($stripped, $filePath, 6);
+            imagedestroy($stripped);
+        }
+    } elseif (extension_loaded('gd') && $mimeType === 'image/webp') {
+        $stripped = @imagecreatefromwebp($filePath);
+        if ($stripped) {
+            imagewebp($stripped, $filePath, 90);
+            imagedestroy($stripped);
+        }
     }
 
     // Get GPS from POST

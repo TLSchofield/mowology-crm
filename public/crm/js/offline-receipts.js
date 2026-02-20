@@ -260,6 +260,14 @@
     /**
      * Initialize: open DB, attach online/offline listeners,
      * listen for service worker sync messages.
+     *
+     * iOS PWA note: Background Sync API is not supported on iOS Safari/PWA.
+     * We compensate by triggering syncNow() on:
+     *   - window 'online' event
+     *   - document 'visibilitychange' (app foregrounded)
+     *   - window 'focus' (app regains focus)
+     * This ensures pending receipts are uploaded as soon as the device has
+     * connectivity and the user returns to the app, even without a service worker.
      */
     function init() {
         openDB().catch(function() {
@@ -273,7 +281,7 @@
                 banner.classList.remove('mw-offline-offline');
                 banner.classList.add('mw-offline-syncing');
             }
-            // Auto-sync pending receipts
+            // Auto-sync pending receipts when connectivity restored
             updatePendingBadge();
         });
 
@@ -294,6 +302,30 @@
             }
         });
 
+        // ── iOS PWA fix: sync when app is foregrounded ──
+        // document.visibilitychange fires when the user switches back to the app.
+        // This is the primary mechanism on iOS PWA where Background Sync is unavailable.
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible' && navigator.onLine) {
+                getPendingCount().then(function(count) {
+                    if (count > 0) {
+                        updatePendingBadge(); // Will trigger syncNow() if online + pending
+                    }
+                });
+            }
+        });
+
+        // ── Additional fallback: window focus (desktop + some mobile browsers) ──
+        window.addEventListener('focus', function() {
+            if (navigator.onLine) {
+                getPendingCount().then(function(count) {
+                    if (count > 0) {
+                        updatePendingBadge();
+                    }
+                });
+            }
+        });
+
         // ── Listen for service worker sync completion messages ──
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.addEventListener('message', function(e) {
@@ -305,7 +337,7 @@
             });
         }
 
-        // Initial badge update
+        // Initial badge update on page load
         updatePendingBadge();
     }
 
