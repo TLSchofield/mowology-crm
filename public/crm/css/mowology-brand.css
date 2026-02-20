@@ -7606,6 +7606,41 @@ textarea.font-monospace {
   }
 }
 
+/* ── Topbar Snap Receipt Button ───────────────────────── */
+
+.mw-snap-receipt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  margin-right: 10px;
+  background: var(--mw-green);
+  color: #fff !important;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none !important;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.mw-snap-receipt-btn:hover {
+  background: var(--mw-dark);
+  color: #fff !important;
+}
+.mw-snap-receipt-btn svg {
+  flex-shrink: 0;
+}
+/* On small screens: icon only, hide label */
+@media (max-width: 575px) {
+  .mw-snap-receipt-label {
+    display: none;
+  }
+  .mw-snap-receipt-btn {
+    padding: 6px 8px;
+  }
+}
+
 /* ── Topbar Clock Widget ──────────────────────────────── */
 
 .mw-clock-widget {
