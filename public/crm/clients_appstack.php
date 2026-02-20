@@ -2110,7 +2110,7 @@ $unconvertedRequests = $db->query("
                       <?php endif; ?>
                     </h5>
                     <?php if (!empty($contactProperties)): ?>
-                      <a href="quotes/create.php?contact_id=<?php echo (int)$clientId; ?>" class="btn btn-sm btn-success">
+                      <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$contactProperties[0]['id']; ?>" class="btn btn-sm btn-success">
                         <i data-feather="plus"></i> New Quote
                       </a>
                     <?php endif; ?>
@@ -3591,7 +3591,7 @@ $unconvertedRequests = $db->query("
                       <?php endif; ?>
                     </h5>
                     <?php if (!empty($companyProperties) && !empty($companyContacts)): ?>
-                      <a href="quotes/create.php?contact_id=<?php echo (int)($viewCompany['primary_contact_id'] ?? $companyContacts[0]['id'] ?? 0); ?>" class="btn btn-sm btn-success">
+                      <a href="quote-workflow.php?contact_id=<?php echo (int)($viewCompany['primary_contact_id'] ?? $companyContacts[0]['id'] ?? 0); ?>&property_id=<?php echo (int)$companyProperties[0]['id']; ?>" class="btn btn-sm btn-success">
                         <i data-feather="plus"></i> New Quote
                       </a>
                     <?php endif; ?>
