@@ -7,15 +7,15 @@
  * highlights over-budget jobs, and surfaces the estimating accuracy trend.
  */
 declare(strict_types=1);
-require_once dirname(__DIR__) . '/../loginAuth/auth.php';
-require_once dirname(__DIR__) . '/../crm/includes/functions.php';
+require_once __DIR__ . '/../loginAuth/auth.php';
+require_once __DIR__ . '/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
 
 $pageTitle  = 'Profitability';
-$activePage = 'jobs';
+$activePage = 'profitability';
 ?>
-<?php include dirname(__DIR__) . '/../crm/includes/appstack_head.php'; ?>
+<?php include __DIR__ . '/includes/appstack_head.php'; ?>
 
 <!-- ── Page Header ─────────────────────────────────────────────── -->
 <div class="d-flex align-items-center justify-content-between mb-4">
@@ -224,4 +224,4 @@ $activePage = 'jobs';
 })();
 </script>
 
-<?php include dirname(__DIR__) . '/../crm/includes/appstack_footer.php'; ?>
+<?php include __DIR__ . '/includes/appstack_footer.php'; ?>
