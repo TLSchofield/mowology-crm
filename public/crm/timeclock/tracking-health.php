@@ -29,6 +29,18 @@ $activePage = 'schedule';
     <a href="/crm/downloads/mowology-crew.apk" class="alert-link">Download the app</a>
 </div>
 
+<!-- App Update Available -->
+<div id="updateAlert" class="alert alert-warning d-flex align-items-center gap-3" style="display:none!important;">
+    <span style="font-size:1.5rem;">⬆️</span>
+    <div class="flex-grow-1">
+        <strong>App Update Available</strong> — version <span id="updateVersion"></span> is ready.<br>
+        <small id="updateNotes" class="text-muted"></small>
+    </div>
+    <a id="updateApkLink" href="/crm/downloads/mowology-crew.apk" class="btn btn-warning btn-sm" download>
+        Download Update
+    </a>
+</div>
+
 <!-- Health Cards Grid -->
 <div class="row" id="healthCards">
 
@@ -85,6 +97,39 @@ $activePage = 'schedule';
                 <div class="mw-health-row">
                     <span class="mw-health-label">Network Location</span>
                     <span class="mw-health-value" id="hNetLoc">—</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Version -->
+    <div class="col-md-6 col-lg-4 mb-3">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <h5 class="card-title mb-0">App Version</h5>
+                <span id="versionStatusBadge" class="badge bg-secondary">Checking…</span>
+            </div>
+            <div class="card-body">
+                <div class="mw-health-row">
+                    <span class="mw-health-label">Installed</span>
+                    <span class="mw-health-value" id="hAppVersion">—</span>
+                </div>
+                <div class="mw-health-row">
+                    <span class="mw-health-label">Latest</span>
+                    <span class="mw-health-value" id="hLatestVersion">—</span>
+                </div>
+                <div class="mw-health-row">
+                    <span class="mw-health-label">Released</span>
+                    <span class="mw-health-value" id="hReleaseDate">—</span>
+                </div>
+                <div class="mt-2" id="versionUpdateRow" style="display:none;">
+                    <a id="versionApkLink" href="/crm/downloads/mowology-crew.apk"
+                       class="btn btn-warning btn-sm w-100" download>
+                        ⬆ Download Update
+                    </a>
+                </div>
+                <div class="mt-2" id="versionCurrentRow" style="display:none;">
+                    <span class="text-success small">✓ App is up to date</span>
                 </div>
             </div>
         </div>
@@ -166,6 +211,72 @@ $activePage = 'schedule';
     if (!isNative) {
         document.getElementById('nativeCheck').style.display = 'block';
     }
+
+    // Version check — compare installed vs latest
+    (function checkAppVersion() {
+        var installedVersion = (window.MwNative && window.MwNative.appVersion) || null;
+        var hInstalled = document.getElementById('hAppVersion');
+        var hLatest = document.getElementById('hLatestVersion');
+        var hReleaseDate = document.getElementById('hReleaseDate');
+        var badge = document.getElementById('versionStatusBadge');
+        var updateRow = document.getElementById('versionUpdateRow');
+        var currentRow = document.getElementById('versionCurrentRow');
+        var updateAlert = document.getElementById('updateAlert');
+
+        if (installedVersion) {
+            hInstalled.textContent = installedVersion;
+        } else {
+            hInstalled.innerHTML = '<span class="text-muted">Unknown (browser)</span>';
+        }
+
+        function semverNewer(a, b) {
+            var pa = (a || '0').split('.').map(Number);
+            var pb = (b || '0').split('.').map(Number);
+            for (var i = 0; i < 3; i++) {
+                if ((pb[i] || 0) > (pa[i] || 0)) return true;
+                if ((pb[i] || 0) < (pa[i] || 0)) return false;
+            }
+            return false;
+        }
+
+        fetch('/crm/api/app-version.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data) { badge.textContent = 'Error'; return; }
+
+                hLatest.textContent = data.version;
+                hReleaseDate.textContent = data.released || '—';
+
+                if (data.apk_url) {
+                    document.getElementById('versionApkLink').href = data.apk_url;
+                    document.getElementById('updateApkLink').href = data.apk_url;
+                }
+
+                if (installedVersion && semverNewer(installedVersion, data.version)) {
+                    // Update available
+                    badge.textContent = 'Update Available';
+                    badge.className = 'badge bg-warning text-dark';
+                    updateRow.style.display = 'block';
+                    // Show the top-level update alert banner
+                    document.getElementById('updateVersion').textContent = data.version;
+                    document.getElementById('updateNotes').textContent = data.release_notes || '';
+                    updateAlert.style.cssText = 'display:flex!important;';
+                } else if (installedVersion) {
+                    // Up to date
+                    badge.textContent = 'Up to date';
+                    badge.className = 'badge bg-success';
+                    currentRow.style.display = 'block';
+                } else {
+                    // Can't tell — browser
+                    badge.textContent = 'Browser mode';
+                    badge.className = 'badge bg-secondary';
+                }
+            })
+            .catch(function() {
+                badge.textContent = 'Offline';
+                badge.className = 'badge bg-secondary';
+            });
+    })();
 
     // Also check browser geolocation permission
     checkBrowserPermissions();

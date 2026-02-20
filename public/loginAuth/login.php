@@ -421,14 +421,66 @@ $csrf_token = generateCSRFToken();
         </div>
     </div>
 <script>
-// Show Android APK download banner — only on Android browsers (not inside the native Capacitor app)
 (function() {
+    'use strict';
     var ua = navigator.userAgent || '';
     var isAndroid = /Android/i.test(ua);
     var isCapacitor = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
-    if (isAndroid && !isCapacitor) {
-        var banner = document.getElementById('appBanner');
+    var banner = document.getElementById('appBanner');
+
+    // Helper: compare semver strings — returns true if b > a
+    function isNewer(a, b) {
+        var pa = (a || '0').split('.').map(Number);
+        var pb = (b || '0').split('.').map(Number);
+        for (var i = 0; i < 3; i++) {
+            if ((pb[i] || 0) > (pa[i] || 0)) return true;
+            if ((pb[i] || 0) < (pa[i] || 0)) return false;
+        }
+        return false;
+    }
+
+    function showUpdateBanner(latestVersion, apkUrl, releaseNotes) {
+        // Mutate the banner into an "update available" style
+        banner.querySelector('.app-banner-label').textContent = 'Update Available';
+        banner.querySelector('.app-banner-title').textContent = 'New version ' + latestVersion + ' ready';
+        banner.querySelector('.app-banner-desc').textContent = releaseNotes || 'Tap to download and install the update.';
+        banner.querySelector('.app-banner-icon').textContent = '⬆️';
+        banner.href = apkUrl;
+        banner.setAttribute('download', '');
+        banner.style.borderColor = '#e85d04'; // orange accent for urgency
+        banner.style.display = 'flex';
+    }
+
+    function showDownloadBanner() {
+        // Standard "install the app" banner for browser users
         if (banner) banner.style.display = 'flex';
+    }
+
+    // Fetch latest version from server
+    function checkVersion(installedVersion) {
+        fetch('/crm/api/app-version.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (!data) return;
+                if (installedVersion && isNewer(installedVersion, data.version)) {
+                    showUpdateBanner(data.version, data.apk_url, data.release_notes);
+                } else if (!installedVersion && isAndroid && !isCapacitor) {
+                    showDownloadBanner();
+                }
+            })
+            .catch(function() {
+                // Network error — fall back to simple logic
+                if (isAndroid && !isCapacitor) showDownloadBanner();
+            });
+    }
+
+    if (isCapacitor) {
+        // Inside the native app — check if an update is available
+        var installedVersion = (window.MwNative && window.MwNative.appVersion) ? window.MwNative.appVersion : null;
+        checkVersion(installedVersion);
+    } else if (isAndroid) {
+        // Android browser — just show the download banner (no installed version to compare)
+        checkVersion(null);
     }
 })();
 </script>
