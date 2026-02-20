@@ -5737,31 +5737,154 @@ textarea.font-monospace {
   white-space: nowrap;
 }
 
-/* Crew assignment modal */
-.mw-crew-modal-property {
-  font-size: 15px;
-  font-weight: 600;
-  color: #212529;
+/* ── Stop Detail / Crew Assignment Modal (CAM) ───────── */
+.mw-cam-content {
+  border: none;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08);
 }
 
-.mw-crew-modal-date {
+.mw-cam-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 24px 16px;
+  background: linear-gradient(135deg, var(--mw-forest) 0%, var(--mw-dark) 100%);
+  color: #fff;
+  position: relative;
+}
+
+.mw-cam-header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.mw-cam-client {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-cam-address {
   font-size: 13px;
-  color: #6c757d;
-  margin-top: 2px;
+  color: rgba(255,255,255,.75);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#crewAssignModal .modal-header {
-  border-bottom: 2px solid var(--mw-green);
+.mw-cam-header-right {
+  flex-shrink: 0;
+  text-align: right;
+  padding-right: 20px;
 }
 
-#crewAssignModal .btn-primary {
-  background-color: var(--mw-green);
+.mw-cam-date {
+  font-size: 13px;
+  color: rgba(255,255,255,.85);
+  font-weight: 500;
+  background: rgba(255,255,255,.12);
+  padding: 4px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.mw-cam-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  color: rgba(255,255,255,.7);
+  font-size: 22px;
+  line-height: 1;
+  opacity: 1;
+  text-shadow: none;
+  padding: 4px;
+}
+.mw-cam-close:hover {
+  color: #fff;
+}
+
+.mw-cam-body {
+  padding: 20px 24px;
+}
+
+/* Service pills row */
+.mw-cam-services {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.mw-cam-services:empty {
+  display: none;
+}
+
+.mw-cam-service-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  background: #f3f4f6;
+  padding: 4px 10px 4px 12px;
+  border-radius: 6px;
+  border-left: 3px solid #6B7280;
+  letter-spacing: 0.01em;
+}
+
+/* Quick links row */
+.mw-cam-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.mw-cam-links:empty {
+  display: none;
+}
+
+.mw-cam-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mw-green);
+  text-decoration: none;
+  padding: 6px 14px;
+  border: 1px solid var(--mw-light);
+  border-radius: 8px;
+  background: #fff;
+  transition: all 0.15s ease;
+}
+.mw-cam-link:hover {
+  background: var(--mw-light);
   border-color: var(--mw-green);
+  color: var(--mw-dark);
+  text-decoration: none;
+}
+.mw-cam-link svg {
+  flex-shrink: 0;
+  opacity: 0.8;
 }
 
-#crewAssignModal .btn-primary:hover {
-  background-color: var(--mw-dark);
-  border-color: var(--mw-dark);
+/* Crew section */
+.mw-cam-crew-section {
+  /* top divider */
+}
+
+.mw-cam-crew-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6c757d;
+  margin-bottom: 8px;
 }
 
 /* Crew checklist (multi-select) */
@@ -5769,22 +5892,24 @@ textarea.font-monospace {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 260px;
+  max-height: 220px;
   overflow-y: auto;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   padding: 4px 0;
+  background: #fafbfc;
 }
 
 .mw-crew-check-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 9px 14px;
   margin: 0;
   cursor: pointer;
   transition: background 0.15s;
   font-weight: 400;
+  border-radius: 4px;
 }
 
 .mw-crew-check-item:hover {
@@ -5802,6 +5927,37 @@ textarea.font-monospace {
 .mw-crew-check-name {
   font-size: 14px;
   color: #212529;
+}
+
+/* Footer */
+.mw-cam-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 24px;
+  background: #f8f9fa;
+  border-top: 1px solid #e9ecef;
+}
+
+.mw-cam-footer .btn-primary {
+  background-color: var(--mw-green);
+  border-color: var(--mw-green);
+  border-radius: 8px;
+  font-weight: 600;
+  padding: 8px 20px;
+  display: inline-flex;
+  align-items: center;
+}
+.mw-cam-footer .btn-primary:hover {
+  background-color: var(--mw-dark);
+  border-color: var(--mw-dark);
+}
+.mw-cam-footer .btn-light {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  font-weight: 500;
+  padding: 8px 18px;
+  color: #495057;
 }
 
 /* ── Responsive ─────────────────────────────────────── */
