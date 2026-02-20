@@ -13932,3 +13932,243 @@ textarea.font-monospace {
 #review-queue-tab .table th { font-size: 0.78rem; white-space: nowrap; }
 #review-queue-tab .table td { vertical-align: middle; font-size: 0.82rem; }
 
+
+/* ════════════════════════════════════════════════════════════════
+   Phase 4: Gamification — Leaderboard, Score Widget, Badges
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── Team Score Widget (expenses page header) ──────────────────── */
+
+.mw-team-score-widget {
+  display: flex;
+  align-items: center;
+}
+.mw-tsw-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: var(--mw-forest);
+  color: #fff !important;
+  border-radius: 20px;
+  text-decoration: none !important;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.mw-tsw-link:hover { background: var(--mw-dark); }
+.mw-tsw-team-name { opacity: 0.85; font-weight: 400; }
+.mw-tsw-divider   { opacity: 0.4; }
+.mw-tsw-score     { font-size: 1.1rem; font-weight: 700; line-height: 1; }
+.mw-tsw-label     { opacity: 0.7; font-weight: 400; }
+.mw-tsw-rank      { font-size: 0.7rem; }
+
+/* ── Leaderboard Cards ─────────────────────────────────────────── */
+
+.mw-lb-card {
+  transition: box-shadow 0.15s;
+  height: 100%;
+}
+.mw-lb-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.10); }
+
+.mw-lb-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.mw-lb-rank {
+  font-size: 1.5rem;
+  line-height: 1;
+  min-width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.mw-lb-team-info { flex: 1; min-width: 0; }
+.mw-lb-team-name {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mw-lb-score {
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.mw-lb-score-good { color: #16a34a; }
+.mw-lb-score-ok   { color: #d97706; }
+.mw-lb-score-low  { color: #dc2626; }
+
+.mw-lb-main-bar { height: 6px; border-radius: 3px; background: #e5e7eb; }
+
+/* Component bars */
+.mw-lb-component {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.mw-lb-comp-label {
+  font-size: 0.72rem;
+  color: #6b7280;
+  min-width: 48px;
+  flex-shrink: 0;
+}
+.mw-lb-comp-label small {
+  display: block;
+  font-size: 0.65rem;
+  opacity: 0.7;
+}
+.mw-lb-comp-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: #e5e7eb;
+}
+.mw-lb-comp-val {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #374151;
+  min-width: 24px;
+  text-align: right;
+}
+
+/* Member chips */
+.mw-lb-members { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.mw-lb-member-chip {
+  background: var(--mw-light);
+  color: var(--mw-dark);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 0.73rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mw-chip-remove {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: #9ca3af;
+  cursor: pointer;
+}
+.mw-chip-remove:hover { color: #ef4444; }
+
+/* Recent badges in card */
+.mw-lb-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.mw-lb-badge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  padding: 2px 7px;
+  font-size: 0.71rem;
+  font-weight: 500;
+}
+.mw-lb-badge-more {
+  font-size: 0.71rem;
+  color: #6b7280;
+  padding: 2px 4px;
+}
+
+/* Stats row */
+.mw-lb-stats {
+  display: flex;
+  gap: 10px;
+  font-size: 0.75rem;
+  color: #6b7280;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+/* ── Badge Cabinet ─────────────────────────────────────────────── */
+
+.mw-badge-tier-group { margin-bottom: 16px; }
+.mw-badge-tier-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #374151;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mw-badge-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mw-badge-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: default;
+  width: 72px;
+  text-align: center;
+}
+.mw-badge-icon {
+  width: 44px;
+  height: 44px;
+  border: 2px solid;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  transition: box-shadow 0.15s;
+}
+.mw-badge-item:hover .mw-badge-icon { box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.mw-badge-name {
+  font-size: 0.68rem;
+  color: #374151;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+/* ── Scoring Explainer Cards ───────────────────────────────────── */
+
+.mw-score-explain-card {
+  background: var(--mw-light);
+  border-radius: 8px;
+  padding: 14px;
+  height: 100%;
+}
+.mw-score-explain-pct {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--mw-green);
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.mw-score-explain-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--mw-dark);
+  margin-bottom: 6px;
+}
+.mw-score-explain-desc {
+  font-size: 0.78rem;
+  color: #555;
+  margin-bottom: 0;
+  line-height: 1.5;
+}
+
+/* ── Manage Teams (modal) ──────────────────────────────────────── */
+
+.mw-mt-team-row { padding: 12px 0; }
+.mw-mt-colour-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+

@@ -31,8 +31,18 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <button type="button" class="mw-offline-sync-btn" onclick="OfflineReceipts.syncNow().then(function(r){if(r.uploaded)loadExpenses();})">Retry</button>
 </div>
 
-<div class="mw-page-header d-flex justify-content-between align-items-center">
+<div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h1 class="h3 mb-0">Expenses</h1>
+    <!-- Team score widget — populated by loadTeamScoreWidget() -->
+    <div id="mw-team-score-widget" style="display:none;" class="mw-team-score-widget">
+        <a href="/crm/leaderboard_appstack.php" class="mw-tsw-link" title="View full leaderboard">
+            <span class="mw-tsw-team-name" id="mw-tsw-name">My Team</span>
+            <span class="mw-tsw-divider">·</span>
+            <span class="mw-tsw-score" id="mw-tsw-score">—</span>
+            <span class="mw-tsw-label">this week</span>
+            <span class="mw-tsw-rank badge" id="mw-tsw-rank"></span>
+        </a>
+    </div>
 </div>
 
 <?php if ($canEdit): ?>
@@ -1215,6 +1225,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         loadBudgetVariance();
         // Load approvals + review queue if admin
         if (CAN_APPROVE) { loadApprovals(); loadReviewQueue(); }
+        // Load team score widget (non-blocking)
+        loadTeamScoreWidget();
 
         // File inputs
         var fileInput = document.getElementById('receiptFileInput');
@@ -4136,6 +4148,55 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             loadExpenses(currentPage);
         } catch(e) { alert('Error: ' + e.message); }
     };
+
+    // ── Team Score Widget ─────────────────────────────────────────
+    async function loadTeamScoreWidget() {
+        var widget = document.getElementById('mw-team-score-widget');
+        if (!widget) return;
+        try {
+            var r = await fetch('/crm/api/gamification.php?action=leaderboard');
+            var d = await r.json();
+            if (!d.success || !d.leaderboard || !d.leaderboard.length) return;
+
+            // Find which team the current user belongs to
+            var userId = <?php echo (int)($user['id'] ?? 0); ?>;
+            var myTeam = null;
+
+            // Get the current user's team membership
+            var tr = await fetch('/crm/api/gamification.php?action=teams');
+            var td = await tr.json();
+            if (td.success) {
+                (td.teams || []).forEach(function(t) {
+                    (t.members || []).forEach(function(m) {
+                        if (m.id === userId) myTeam = t;
+                    });
+                });
+            }
+
+            if (!myTeam) return; // User not on any team — hide widget
+
+            // Find this team in the leaderboard
+            var myEntry = d.leaderboard.find(function(e) { return e.team_id === myTeam.id; });
+            if (!myEntry) return;
+
+            var score     = Math.round(parseFloat(myEntry.total_score || 0));
+            var rank      = myEntry.rank || '—';
+            var rankLabel = rank === 1 ? '🥇 #1' : rank === 2 ? '🥈 #2' : rank === 3 ? '🥉 #3' : '#' + rank;
+            var rankClass = rank === 1 ? 'bg-warning text-dark' : rank <= 3 ? 'bg-secondary' : 'bg-light text-dark';
+
+            document.getElementById('mw-tsw-name').textContent  = myEntry.team_name || myTeam.name;
+            document.getElementById('mw-tsw-score').textContent = score;
+            var rankEl = document.getElementById('mw-tsw-rank');
+            rankEl.textContent  = rankLabel;
+            rankEl.className    = 'mw-tsw-rank badge ' + rankClass;
+
+            // Colour the score by performance
+            var scoreEl = document.getElementById('mw-tsw-score');
+            scoreEl.style.color = score >= 80 ? 'var(--mw-lime)' : score >= 50 ? '#fbbf24' : '#ef4444';
+
+            widget.style.display = 'flex';
+        } catch(e) { /* non-critical — widget just stays hidden */ }
+    }
 
     // ── Review Queue (Ready-to-Forward QB queue) ─────────────────
     var _reviewQueueSelected = new Set();

@@ -27,6 +27,7 @@ $navItems = [
     ['key' => 'invoices',  'label' => 'Invoices',      'icon' => 'file-text',   'href' => '/crm/invoices/index.php',            'perm' => 'billing.view'],
     ['key' => 'expenses',       'label' => 'Expenses',       'icon' => 'credit-card',  'href' => '/crm/expenses_appstack.php',         'perm' => 'expenses.view'],
     ['key' => 'profitability',  'label' => 'Profitability',  'icon' => 'trending-up',  'href' => '/crm/profitability_appstack.php',    'perm' => 'expenses.view'],
+    ['key' => 'leaderboard',    'label' => 'Leaderboard',    'icon' => 'award',        'href' => '/crm/leaderboard_appstack.php',      'perm' => 'team.view'],
     ['key' => 'schedule',  'label' => 'Schedule',      'icon' => 'calendar',    'href' => '/crm/jobs/schedule.php',             'perm' => 'schedule.view'],
     ['key' => 'timeclock', 'label' => 'Time Clock',    'icon' => 'clock',       'href' => '/crm/timeclock/my-schedule.php',     'perm' => 'schedule.view'],
     ['key' => 'team',      'label' => 'Team',          'icon' => 'user-check',  'href' => '/crm/team/index.php',                'perm' => 'team.view'],
