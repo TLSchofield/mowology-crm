@@ -1842,32 +1842,35 @@ if ($apiKey) {
         var first = new Date(viewYear, viewMonth, 1);
         var firstMon = mondayOf(first);
 
-        for (var d = new Date(firstMon); ; d.setDate(d.getDate() + 1)) {
+        var last = new Date(viewYear, viewMonth + 1, 0); // last calendar day of month
+        var cur  = new Date(firstMon);
+        for (var iter = 0; iter < 42; iter++) {          // max 6 weeks, guards against infinite loop
             var cell = document.createElement('button');
             cell.type = 'button';
-            cell.textContent = d.getDate();
+            cell.textContent = cur.getDate();
             cell.className = 'mw-dp-cell';
-            cell.dataset.iso = toISO(d);
+            var cellIso = toISO(cur);
+            cell.dataset.iso = cellIso;
 
-            var inMonth = (d.getMonth() === viewMonth && d.getFullYear() === viewYear);
-            if (!inMonth)             cell.classList.add('mw-dp-cell-other');
-            if (isSameDay(d, today))  cell.classList.add('mw-dp-cell-today');
+            var inMonth = (cur.getMonth() === viewMonth && cur.getFullYear() === viewYear);
+            if (!inMonth)              cell.classList.add('mw-dp-cell-other');
+            if (isSameDay(cur, today)) cell.classList.add('mw-dp-cell-today');
 
             if (view === 'week') {
-                var inSel = (d >= weekMonday && d <= weekSunday);
+                var inSel = (cur >= weekMonday && cur <= weekSunday);
                 if (inSel) cell.classList.add('mw-dp-cell-in-week');
-                if (isSameDay(d, weekMonday)) cell.classList.add('mw-dp-cell-week-start');
-                if (isSameDay(d, weekSunday)) cell.classList.add('mw-dp-cell-week-end');
+                if (isSameDay(cur, weekMonday)) cell.classList.add('mw-dp-cell-week-start');
+                if (isSameDay(cur, weekSunday)) cell.classList.add('mw-dp-cell-week-end');
             } else {
-                if (isSameDay(d, selDate)) cell.classList.add('mw-dp-cell-selected');
+                if (isSameDay(cur, selDate)) cell.classList.add('mw-dp-cell-selected');
             }
 
             cell.addEventListener('click', function () { pick(this.dataset.iso); });
             grid.appendChild(cell);
 
-            // Stop after we've filled complete weeks and passed month end
-            var last = new Date(viewYear, viewMonth + 1, 0);
-            if (d > last && d.getDay() === 0) break; // end on Sunday after last day
+            // Advance, then stop once we've passed month-end and completed the week (Mon=1)
+            cur.setDate(cur.getDate() + 1);
+            if (cur > last && cur.getDay() === 1) break;
         }
     }
 

@@ -2,4 +2,4 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home/mowology/public_html
-    - /bin/cp -R public/* $DEPLOYPATH/
+    - shopt -s dotglob && /bin/cp -R public/* $DEPLOYPATH/
