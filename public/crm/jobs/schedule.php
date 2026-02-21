@@ -790,20 +790,59 @@ if ($apiKey) {
 
               <div class="mw-header-nav">
                   <?php if ($view === 'day'): ?>
-                      <a href="?view=day&date=<?php echo htmlspecialchars($prevDay) . $filterQueryStr; ?>" class="mw-nav-btn">&larr;</a>
-                      <div class="mw-date-display">
-                          <?php echo date('l, M j, Y', strtotime($dayDate)); ?>
-                      </div>
-                      <a href="?view=day&date=<?php echo htmlspecialchars($nextDay) . $filterQueryStr; ?>" class="mw-nav-btn">&rarr;</a>
+                      <a href="?view=day&date=<?php echo htmlspecialchars($prevDay) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous day">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                      </a>
+                      <button type="button" class="mw-datepicker-trigger" id="mwDatepickerTrigger"
+                              data-current="<?php echo htmlspecialchars($dayDate); ?>"
+                              data-view="day"
+                              aria-haspopup="true" aria-expanded="false">
+                          <svg class="mw-dp-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                          <span class="mw-dp-weekday"><?php echo date('D', strtotime($dayDate)); ?></span>
+                          <span class="mw-dp-date"><?php echo date('M j, Y', strtotime($dayDate)); ?></span>
+                          <svg class="mw-dp-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                      </button>
+                      <a href="?view=day&date=<?php echo htmlspecialchars($nextDay) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next day">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                      </a>
                       <a href="?view=day<?php echo $filterQueryStr; ?>" class="mw-today-btn">Today</a>
                   <?php else: ?>
-                      <a href="?start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn">&larr;</a>
-                      <div class="mw-date-display">
-                          <?php echo date('M j', strtotime($startDate)); ?> &ndash; <?php echo date('M j, Y', strtotime($endDate)); ?>
-                      </div>
-                      <a href="?start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn">&rarr;</a>
+                      <a href="?start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous week">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                      </a>
+                      <button type="button" class="mw-datepicker-trigger" id="mwDatepickerTrigger"
+                              data-current="<?php echo htmlspecialchars($startDate); ?>"
+                              data-view="week"
+                              aria-haspopup="true" aria-expanded="false">
+                          <svg class="mw-dp-cal-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                          <span class="mw-dp-date"><?php echo date('M j', strtotime($startDate)); ?> – <?php echo date('M j, Y', strtotime($endDate)); ?></span>
+                          <svg class="mw-dp-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                      </button>
+                      <a href="?start=<?php echo htmlspecialchars($nextWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Next week">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                      </a>
                       <a href="?<?php echo ltrim($filterQueryStr, '&'); ?>" class="mw-today-btn">Today</a>
                   <?php endif; ?>
+              </div>
+
+              <!-- ── Date Picker Dropdown ── -->
+              <div class="mw-datepicker-popup" id="mwDatepickerPopup" role="dialog" aria-label="Date picker" hidden>
+                  <div class="mw-dp-header">
+                      <button type="button" class="mw-dp-nav-btn" id="mwDpPrevMonth" aria-label="Previous month">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                      </button>
+                      <span class="mw-dp-month-label" id="mwDpMonthLabel"></span>
+                      <button type="button" class="mw-dp-nav-btn" id="mwDpNextMonth" aria-label="Next month">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                      </button>
+                  </div>
+                  <div class="mw-dp-weekdays">
+                      <span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span>
+                  </div>
+                  <div class="mw-dp-grid" id="mwDpGrid"></div>
+                  <div class="mw-dp-footer">
+                      <button type="button" class="mw-dp-today-link" id="mwDpTodayBtn">Jump to Today</button>
+                  </div>
               </div>
 
               <div class="mw-schedule-filters">
@@ -1741,6 +1780,147 @@ if ($apiKey) {
         } else {
             input.focus();
         }
+    });
+})();
+
+/**
+ * Desktop Date Picker
+ * Renders a custom calendar dropdown. Week-view picks navigate to
+ * the Monday of the chosen week; day-view picks navigate to that day.
+ */
+(function () {
+    var trigger  = document.getElementById('mwDatepickerTrigger');
+    var popup    = document.getElementById('mwDatepickerPopup');
+    var grid     = document.getElementById('mwDpGrid');
+    var monthLbl = document.getElementById('mwDpMonthLabel');
+    var prevBtn  = document.getElementById('mwDpPrevMonth');
+    var nextBtn  = document.getElementById('mwDpNextMonth');
+    var todayBtn = document.getElementById('mwDpTodayBtn');
+    if (!trigger || !popup) return;
+
+    var view    = trigger.dataset.view;            // 'day' | 'week'
+    var current = trigger.dataset.current;         // YYYY-MM-DD (day date or week-start)
+    var viewYear, viewMonth;                       // calendar display state
+
+    var MONTHS = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+
+    // ── Helpers ────────────────────────────────────────────────────
+    function parseDate(str) {
+        var p = str.split('-'); return new Date(+p[0], +p[1]-1, +p[2]);
+    }
+    function toISO(d) {
+        return d.getFullYear() + '-' +
+               String(d.getMonth()+1).padStart(2,'0') + '-' +
+               String(d.getDate()).padStart(2,'0');
+    }
+    function mondayOf(d) {
+        var day = d.getDay() || 7;          // treat Sunday as 7
+        var mon = new Date(d);
+        mon.setDate(d.getDate() - (day - 1));
+        return mon;
+    }
+    function isSameDay(a, b) {
+        return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+    }
+
+    // ── Render calendar grid ────────────────────────────────────────
+    function render() {
+        monthLbl.textContent = MONTHS[viewMonth] + ' ' + viewYear;
+        grid.innerHTML = '';
+
+        var today       = new Date();
+        var selDate     = parseDate(current);
+        var weekMonday  = view === 'week' ? selDate : mondayOf(selDate);
+        var weekSunday  = new Date(weekMonday); weekSunday.setDate(weekMonday.getDate() + 6);
+
+        // First Monday on or before the 1st of the month
+        var first = new Date(viewYear, viewMonth, 1);
+        var firstMon = mondayOf(first);
+
+        for (var d = new Date(firstMon); ; d.setDate(d.getDate() + 1)) {
+            var cell = document.createElement('button');
+            cell.type = 'button';
+            cell.textContent = d.getDate();
+            cell.className = 'mw-dp-cell';
+            cell.dataset.iso = toISO(d);
+
+            var inMonth = (d.getMonth() === viewMonth && d.getFullYear() === viewYear);
+            if (!inMonth)             cell.classList.add('mw-dp-cell-other');
+            if (isSameDay(d, today))  cell.classList.add('mw-dp-cell-today');
+
+            if (view === 'week') {
+                var inSel = (d >= weekMonday && d <= weekSunday);
+                if (inSel) cell.classList.add('mw-dp-cell-in-week');
+                if (isSameDay(d, weekMonday)) cell.classList.add('mw-dp-cell-week-start');
+                if (isSameDay(d, weekSunday)) cell.classList.add('mw-dp-cell-week-end');
+            } else {
+                if (isSameDay(d, selDate)) cell.classList.add('mw-dp-cell-selected');
+            }
+
+            cell.addEventListener('click', function () { pick(this.dataset.iso); });
+            grid.appendChild(cell);
+
+            // Stop after we've filled complete weeks and passed month end
+            var last = new Date(viewYear, viewMonth + 1, 0);
+            if (d > last && d.getDay() === 0) break; // end on Sunday after last day
+        }
+    }
+
+    // ── Navigate ────────────────────────────────────────────────────
+    function pick(iso) {
+        var params = new URLSearchParams(window.location.search);
+        if (view === 'week') {
+            var mon = mondayOf(parseDate(iso));
+            params.set('start', toISO(mon));
+            params.delete('view'); params.delete('date');
+        } else {
+            params.set('view', 'day');
+            params.set('date', iso);
+            params.delete('start');
+        }
+        window.location.search = params.toString();
+    }
+
+    // ── Open / close ────────────────────────────────────────────────
+    function open() {
+        var d = parseDate(current);
+        viewYear  = d.getFullYear();
+        viewMonth = d.getMonth();
+        render();
+        popup.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+        trigger.classList.add('mw-datepicker-open');
+    }
+    function close() {
+        popup.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.classList.remove('mw-datepicker-open');
+    }
+
+    trigger.addEventListener('click', function (e) {
+        e.stopPropagation();
+        popup.hidden ? open() : close();
+    });
+
+    prevBtn.addEventListener('click', function () {
+        viewMonth--;
+        if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+        render();
+    });
+    nextBtn.addEventListener('click', function () {
+        viewMonth++;
+        if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+        render();
+    });
+    todayBtn.addEventListener('click', function () { pick(toISO(new Date())); });
+
+    // Close on outside click / Escape
+    document.addEventListener('click', function (e) {
+        if (!popup.hidden && !popup.contains(e.target) && e.target !== trigger) close();
+    });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !popup.hidden) close();
     });
 })();
 
