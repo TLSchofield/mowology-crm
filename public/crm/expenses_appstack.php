@@ -1367,7 +1367,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         }
 
         fetch('/crm/api/receipt-status.php?media_id=' + encodeURIComponent(mediaId) + '&csrf=' + encodeURIComponent(CSRF))
-            .then(function(r) { return r.json(); })
+            .then(function(r) { return r.json().catch(function() { return {ocr_status: 'processing'}; }); })
             .then(function(statusData) {
                 if (statusData.ocr_status === 'ready' || statusData.ocr_status === 'failed') {
                     // OCR complete — show review panel
@@ -1416,7 +1416,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 method: 'POST',
                 body: formData,
             })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                return r.json().catch(function() {
+                    throw new Error('Server returned an unexpected response (status ' + r.status + '). Please try again.');
+                });
+            })
             .then(function(data) {
                 if (!data.success) throw new Error(data.error || 'Upload failed');
 
