@@ -102,6 +102,14 @@ try {
         'Page ' . ($pageId ? 'updated' : 'created')
     );
 
+    // Audit log
+    cms_logCmsActivity(
+        $user['id'],
+        $pageId ? 'page_updated' : 'page_created',
+        ($pageId ? 'Updated' : 'Created') . " page #{$savedPageId} \"{$title}\" ({$pageData['status']})",
+        ['page_id' => $savedPageId, 'slug' => $slug, 'status' => $pageData['status']]
+    );
+
     // Redirect to editor on success
     if (!empty($_POST['redirect'])) {
         header('Location: /crm/cms-page-editor.php?id=' . $savedPageId . '&status=success');

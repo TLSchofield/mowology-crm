@@ -43,74 +43,120 @@ if ($blockId) {
 // Block type templates with form field definitions
 $blockFieldTemplates = [
     'hero' => [
-        'headline' => ['type' => 'text', 'label' => 'Headline', 'required' => true],
-        'subheadline' => ['type' => 'textarea', 'label' => 'Subheadline', 'rows' => 2],
-        'cta_text' => ['type' => 'text', 'label' => 'CTA Button Text'],
-        'cta_url' => ['type' => 'text', 'label' => 'CTA Button URL'],
-        'media_id' => ['type' => 'media', 'label' => 'Hero Image'],
-        'media_alt' => ['type' => 'text', 'label' => 'Image Alt Text'],
+        'headline'    => ['type' => 'text',     'label' => 'Headline',        'required' => true,  'maxlength' => 80,  'hint' => '5–80 chars. Make it punchy.'],
+        'subheadline' => ['type' => 'textarea',  'label' => 'Subheadline',     'rows' => 2,         'maxlength' => 160, 'hint' => 'One sentence. 50–160 chars.'],
+        'cta_text'    => ['type' => 'text',     'label' => 'CTA Button Text',  'maxlength' => 40],
+        'cta_url'     => ['type' => 'text',     'label' => 'CTA Button URL'],
+        'secondary_cta_text' => ['type' => 'text', 'label' => 'Secondary Button Text', 'maxlength' => 40],
+        'secondary_cta_url'  => ['type' => 'text', 'label' => 'Secondary Button URL'],
+        'hero_style'  => ['type' => 'select',   'label' => 'Hero Style',       'options' => ['auto' => 'Auto-detect', 'image_bg' => 'Full-Width Background', 'image_side' => 'Side-by-Side', 'text_only' => 'Text Only (no image)']],
+        'media_id'    => ['type' => 'media',    'label' => 'Hero Image'],
+        'media_alt'   => ['type' => 'text',     'label' => 'Image Alt Text',   'maxlength' => 125,  'hint' => 'Describe the image for SEO and accessibility.'],
+        'trust_line'  => ['type' => 'text',     'label' => 'Trust Line',       'maxlength' => 80,   'hint' => 'e.g. "Trusted by 200+ homeowners in Vancouver"'],
     ],
     'feature_grid' => [
-        'title' => ['type' => 'text', 'label' => 'Section Title'],
-        'description' => ['type' => 'textarea', 'label' => 'Description', 'rows' => 2],
-        'layout' => ['type' => 'select', 'label' => 'Columns', 'options' => ['2' => '2 Columns', '3' => '3 Columns', '4' => '4 Columns']],
-        'features' => ['type' => 'repeatable', 'label' => 'Features', 'itemType' => 'feature', 'fields' => [
-            'title' => ['type' => 'text', 'label' => 'Title'],
-            'description' => ['type' => 'textarea', 'label' => 'Description', 'rows' => 2],
+        'title'       => ['type' => 'text',     'label' => 'Section Title',    'maxlength' => 80],
+        'description' => ['type' => 'textarea', 'label' => 'Description',      'rows' => 2, 'maxlength' => 200],
+        'layout'      => ['type' => 'select',   'label' => 'Columns',          'options' => ['2' => '2 Columns', '3' => '3 Columns', '4' => '4 Columns']],
+        'features'    => ['type' => 'repeatable', 'label' => 'Features', 'itemType' => 'feature', 'fields' => [
+            'title'       => ['type' => 'text',     'label' => 'Title',       'maxlength' => 60],
+            'description' => ['type' => 'textarea', 'label' => 'Description', 'rows' => 2, 'maxlength' => 150],
         ]],
     ],
     'cta' => [
-        'headline' => ['type' => 'text', 'label' => 'Headline', 'required' => true],
-        'subheadline' => ['type' => 'textarea', 'label' => 'Subheadline', 'rows' => 2],
-        'primary_text' => ['type' => 'text', 'label' => 'Primary Button Text'],
-        'primary_url' => ['type' => 'text', 'label' => 'Primary Button URL'],
-        'secondary_text' => ['type' => 'text', 'label' => 'Secondary Button Text'],
-        'secondary_url' => ['type' => 'text', 'label' => 'Secondary Button URL'],
-        'style' => ['type' => 'select', 'label' => 'Style', 'options' => ['gradient' => 'Green Gradient', 'dark' => 'Dark', 'light' => 'Light']],
+        'headline'       => ['type' => 'text',    'label' => 'Headline',              'required' => true, 'maxlength' => 80, 'hint' => 'Direct call to action. 5–80 chars.'],
+        'subheadline'    => ['type' => 'textarea','label' => 'Subheadline',           'rows' => 2,        'maxlength' => 160],
+        'primary_text'   => ['type' => 'text',    'label' => 'Primary Button Text',   'required' => true, 'maxlength' => 40],
+        'primary_url'    => ['type' => 'text',    'label' => 'Primary Button URL',    'required' => true],
+        'secondary_text' => ['type' => 'text',    'label' => 'Secondary Button Text', 'maxlength' => 40],
+        'secondary_url'  => ['type' => 'text',    'label' => 'Secondary Button URL'],
+        'style'          => ['type' => 'select',  'label' => 'Style',                 'options' => ['gradient' => 'Green Gradient', 'dark' => 'Dark', 'light' => 'Light']],
     ],
     'faq' => [
-        'title' => ['type' => 'text', 'label' => 'Section Title'],
-        'description' => ['type' => 'textarea', 'label' => 'Description', 'rows' => 2],
-        'faqs' => ['type' => 'repeatable', 'label' => 'FAQs', 'itemType' => 'faq', 'fields' => [
-            'question' => ['type' => 'text', 'label' => 'Question'],
-            'answer' => ['type' => 'textarea', 'label' => 'Answer', 'rows' => 3],
+        'title'       => ['type' => 'text',      'label' => 'Section Title', 'maxlength' => 80],
+        'description' => ['type' => 'textarea',  'label' => 'Description',   'rows' => 2, 'maxlength' => 200],
+        'faqs'        => ['type' => 'repeatable','label' => 'FAQs', 'itemType' => 'faq', 'fields' => [
+            'question' => ['type' => 'text',     'label' => 'Question', 'required' => true, 'maxlength' => 160],
+            'answer'   => ['type' => 'textarea', 'label' => 'Answer',   'required' => true, 'rows' => 3],
         ]],
     ],
     'gallery' => [
-        'title' => ['type' => 'text', 'label' => 'Section Title'],
-        'description' => ['type' => 'textarea', 'label' => 'Description', 'rows' => 2],
-        'layout' => ['type' => 'select', 'label' => 'Layout', 'options' => ['grid' => 'Grid', 'carousel' => 'Carousel']],
-        'columns' => ['type' => 'select', 'label' => 'Columns', 'options' => ['2' => '2 Columns', '3' => '3 Columns', '4' => '4 Columns']],
-        'images' => ['type' => 'repeatable', 'label' => 'Gallery Images', 'itemType' => 'image', 'fields' => [
-            'media_id' => ['type' => 'media', 'label' => 'Image'],
-            'caption' => ['type' => 'text', 'label' => 'Caption'],
-            'alt_override' => ['type' => 'text', 'label' => 'Alt Text (optional override)'],
+        'title'       => ['type' => 'text',     'label' => 'Section Title', 'maxlength' => 80],
+        'description' => ['type' => 'textarea', 'label' => 'Description',   'rows' => 2],
+        'layout'      => ['type' => 'select',   'label' => 'Layout',        'options' => ['grid' => 'Grid', 'carousel' => 'Carousel']],
+        'columns'     => ['type' => 'select',   'label' => 'Columns',       'options' => ['2' => '2 Columns', '3' => '3 Columns', '4' => '4 Columns']],
+        'images'      => ['type' => 'repeatable','label' => 'Gallery Images', 'itemType' => 'image', 'fields' => [
+            'media_id'     => ['type' => 'media','label' => 'Image'],
+            'caption'      => ['type' => 'text', 'label' => 'Caption',           'maxlength' => 120],
+            'alt_override' => ['type' => 'text', 'label' => 'Alt Text (override)','maxlength' => 125],
         ]],
     ],
     'rich_text' => [
-        'title' => ['type' => 'text', 'label' => 'Section Title'],
-        'content' => ['type' => 'html', 'label' => 'Content (HTML)'],
+        'title'   => ['type' => 'text','label' => 'Section Title', 'maxlength' => 80],
+        'content' => ['type' => 'html','label' => 'Content (HTML)'],
     ],
     'testimonials' => [
-        'title' => ['type' => 'text', 'label' => 'Section Title'],
-        'layout' => ['type' => 'select', 'label' => 'Layout', 'options' => ['grid' => 'Grid', 'carousel' => 'Carousel']],
-        'testimonials' => ['type' => 'repeatable', 'label' => 'Testimonials', 'itemType' => 'testimonial', 'fields' => [
-            'name' => ['type' => 'text', 'label' => 'Name'],
-            'quote' => ['type' => 'textarea', 'label' => 'Quote', 'rows' => 3],
-            'role' => ['type' => 'text', 'label' => 'Role/Company (optional)'],
+        'title'        => ['type' => 'text',    'label' => 'Section Title', 'maxlength' => 80],
+        'layout'       => ['type' => 'select',  'label' => 'Layout', 'options' => ['grid' => 'Grid', 'carousel' => 'Carousel']],
+        'testimonials' => ['type' => 'repeatable','label' => 'Testimonials', 'itemType' => 'testimonial', 'fields' => [
+            'name'  => ['type' => 'text',     'label' => 'Name',          'required' => true, 'maxlength' => 80],
+            'quote' => ['type' => 'textarea', 'label' => 'Quote',         'required' => true, 'rows' => 3, 'maxlength' => 400],
+            'role'  => ['type' => 'text',     'label' => 'Role / Company','maxlength' => 80],
         ]],
     ],
     'service_cards' => [
-        'title' => ['type' => 'text', 'label' => 'Section Title'],
-        'description' => ['type' => 'textarea', 'label' => 'Description', 'rows' => 2],
-        'columns' => ['type' => 'select', 'label' => 'Columns', 'options' => ['2' => '2 Columns', '3' => '3 Columns', '4' => '4 Columns']],
-        'services' => ['type' => 'repeatable', 'label' => 'Services', 'itemType' => 'service', 'fields' => [
-            'title' => ['type' => 'text', 'label' => 'Service Title'],
-            'description' => ['type' => 'textarea', 'label' => 'Description', 'rows' => 2],
+        'title'       => ['type' => 'text',      'label' => 'Section Title', 'maxlength' => 80],
+        'description' => ['type' => 'textarea',  'label' => 'Description',   'rows' => 2, 'maxlength' => 200],
+        'columns'     => ['type' => 'select',    'label' => 'Columns',       'options' => ['2' => '2 Columns', '3' => '3 Columns', '4' => '4 Columns']],
+        'services'    => ['type' => 'repeatable','label' => 'Services', 'itemType' => 'service', 'fields' => [
+            'title'       => ['type' => 'text',     'label' => 'Service Title', 'required' => true, 'maxlength' => 60],
+            'description' => ['type' => 'textarea', 'label' => 'Description',   'rows' => 2,        'maxlength' => 160],
+            'url'         => ['type' => 'text',     'label' => 'Link URL (optional)'],
+        ]],
+    ],
+    // ---- New block types ----
+    'service_grid' => [
+        'title'       => ['type' => 'text',      'label' => 'Section Title',  'maxlength' => 80],
+        'description' => ['type' => 'textarea',  'label' => 'Intro Text',     'rows' => 2, 'maxlength' => 200],
+        'services'    => ['type' => 'repeatable','label' => 'Services (3-col grid)', 'itemType' => 'service', 'fields' => [
+            'title'       => ['type' => 'text',     'label' => 'Service Name',  'required' => true, 'maxlength' => 60],
+            'description' => ['type' => 'textarea', 'label' => 'Description',   'rows' => 2,        'maxlength' => 200],
+            'icon'        => ['type' => 'text',     'label' => 'Icon name (Feather)', 'hint' => 'e.g. scissors, leaf, sun'],
+            'url'         => ['type' => 'text',     'label' => 'Link URL'],
+        ]],
+        'cta_text'  => ['type' => 'text', 'label' => 'Bottom CTA Text', 'maxlength' => 40],
+        'cta_url'   => ['type' => 'text', 'label' => 'Bottom CTA URL'],
+    ],
+    'before_after' => [
+        'title'       => ['type' => 'text',      'label' => 'Section Title',  'maxlength' => 80],
+        'description' => ['type' => 'textarea',  'label' => 'Description',    'rows' => 2, 'maxlength' => 200],
+        'pairs'       => ['type' => 'repeatable','label' => 'Before/After Pairs', 'itemType' => 'pair', 'fields' => [
+            'before_media_id' => ['type' => 'media','label' => 'Before Image'],
+            'after_media_id'  => ['type' => 'media','label' => 'After Image'],
+            'caption'         => ['type' => 'text', 'label' => 'Caption',     'maxlength' => 120],
+        ]],
+    ],
+    'stats_banner' => [
+        'title'       => ['type' => 'text',      'label' => 'Section Title',  'maxlength' => 80],
+        'background'  => ['type' => 'select',    'label' => 'Background',     'options' => ['green' => 'Green', 'dark' => 'Dark', 'light' => 'Light']],
+        'stats'       => ['type' => 'repeatable','label' => 'Stats', 'itemType' => 'stat', 'fields' => [
+            'number' => ['type' => 'text',     'label' => 'Number / Value', 'required' => true, 'maxlength' => 20, 'hint' => 'e.g. 200+, 98%, $1M'],
+            'label'  => ['type' => 'text',     'label' => 'Label',          'required' => true, 'maxlength' => 60],
+        ]],
+    ],
+    'portfolio_showcase' => [
+        'title'       => ['type' => 'text',      'label' => 'Section Title', 'maxlength' => 80],
+        'description' => ['type' => 'textarea',  'label' => 'Description',   'rows' => 2, 'maxlength' => 200],
+        'cta_text'    => ['type' => 'text',      'label' => 'CTA Text',      'maxlength' => 40],
+        'cta_url'     => ['type' => 'text',      'label' => 'CTA URL'],
+        'projects'    => ['type' => 'repeatable','label' => 'Projects', 'itemType' => 'project', 'fields' => [
+            'title'    => ['type' => 'text',     'label' => 'Project Title', 'maxlength' => 80],
+            'media_id' => ['type' => 'media',    'label' => 'Project Image'],
+            'url'      => ['type' => 'text',     'label' => 'Project URL (optional)'],
         ]],
     ],
     'custom' => [
-        'html_content' => ['type' => 'html', 'label' => 'HTML Content'],
+        'html_content' => ['type' => 'html','label' => 'HTML Content'],
     ],
 ];
 
@@ -183,13 +229,32 @@ $fields = $blockFieldTemplates[$block['block_type'] ?? ''] ?? [];
                                     <?php if ($field['required'] ?? false): ?><span class="text-danger">*</span><?php endif; ?>
                                 </label>
 
+                                <?php
+                                $maxlen = $field['maxlength'] ?? null;
+                                $hint   = $field['hint'] ?? null;
+                                $isReq  = $field['required'] ?? false;
+                                ?>
                                 <?php if ($field['type'] === 'text'): ?>
-                                    <input type="text" class="form-control" id="<?php echo h($fieldKey); ?>" name="config[<?php echo h($fieldKey); ?>]"
-                                           value="<?php echo h($value); ?>" <?php echo ($field['required'] ?? false) ? 'required' : ''; ?>>
+                                    <input type="text" class="form-control<?php echo $maxlen ? ' mw-char-input' : ''; ?>"
+                                           id="<?php echo h($fieldKey); ?>" name="config[<?php echo h($fieldKey); ?>]"
+                                           value="<?php echo h($value); ?>"
+                                           <?php echo $maxlen ? 'maxlength="' . (int)$maxlen . '" data-maxlen="' . (int)$maxlen . '"' : ''; ?>
+                                           <?php echo $isReq ? 'required' : ''; ?>>
+                                    <?php if ($maxlen): ?>
+                                    <small class="mw-char-count text-muted"><?php echo mb_strlen((string)$value); ?> / <?php echo $maxlen; ?></small>
+                                    <?php endif; ?>
+                                    <?php if ($hint): ?><small class="form-text text-info"><?php echo h($hint); ?></small><?php endif; ?>
 
                                 <?php elseif ($field['type'] === 'textarea'): ?>
-                                    <textarea class="form-control" id="<?php echo h($fieldKey); ?>" name="config[<?php echo h($fieldKey); ?>]"
-                                              rows="<?php echo $field['rows'] ?? 3; ?>" <?php echo ($field['required'] ?? false) ? 'required' : ''; ?>><?php echo h($value); ?></textarea>
+                                    <textarea class="form-control<?php echo $maxlen ? ' mw-char-input' : ''; ?>"
+                                              id="<?php echo h($fieldKey); ?>" name="config[<?php echo h($fieldKey); ?>]"
+                                              rows="<?php echo $field['rows'] ?? 3; ?>"
+                                              <?php echo $maxlen ? 'maxlength="' . (int)$maxlen . '" data-maxlen="' . (int)$maxlen . '"' : ''; ?>
+                                              <?php echo $isReq ? 'required' : ''; ?>><?php echo h($value); ?></textarea>
+                                    <?php if ($maxlen): ?>
+                                    <small class="mw-char-count text-muted"><?php echo mb_strlen((string)$value); ?> / <?php echo $maxlen; ?></small>
+                                    <?php endif; ?>
+                                    <?php if ($hint): ?><small class="form-text text-info"><?php echo h($hint); ?></small><?php endif; ?>
 
                                 <?php elseif ($field['type'] === 'html'): ?>
                                     <textarea class="form-control html-editor" id="<?php echo h($fieldKey); ?>" name="config[<?php echo h($fieldKey); ?>]"
@@ -579,6 +644,47 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // ---- Live character counters ----
+    function updateCharCount(input) {
+        var counter = input.parentElement.querySelector('.mw-char-count');
+        if (!counter) return;
+        var max = parseInt(input.dataset.maxlen, 10);
+        var len = input.value.length;
+        counter.textContent = len + ' / ' + max;
+        counter.style.color = len > max ? '#dc3545' : (len > max * 0.85 ? '#fd7e14' : '');
+    }
+
+    document.querySelectorAll('.mw-char-input').forEach(function(el) {
+        el.addEventListener('input', function() { updateCharCount(this); });
+        updateCharCount(el); // run once on load
+    });
+
+    // ---- Client-side required-field validation on save ----
+    var blockForm = document.getElementById('block-form');
+    if (blockForm) {
+        blockForm.addEventListener('submit', function(e) {
+            var errors = [];
+            this.querySelectorAll('[required]').forEach(function(el) {
+                if (el.closest('.d-none') || el.closest('[style*="display:none"]')) return;
+                if (!el.value.trim()) {
+                    errors.push(el.closest('.form-group')?.querySelector('label')?.textContent?.replace('*','').trim() || el.name);
+                    el.classList.add('is-invalid');
+                } else {
+                    el.classList.remove('is-invalid');
+                }
+            });
+            if (errors.length) {
+                e.preventDefault();
+                var alertEl = document.getElementById('save-alert');
+                if (alertEl) {
+                    alertEl.className = 'alert alert-danger';
+                    alertEl.textContent = 'Please fill in required fields: ' + errors.join(', ');
+                    alertEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
+        });
+    }
 });
 </script>
 

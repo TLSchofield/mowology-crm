@@ -1026,3 +1026,50 @@ function cms_getPageCompletionScore(array $page): int
 
     return (int)round(($passed / $total) * 100);
 }
+
+// ============================================================================
+// ACTIVITY LOG
+// ============================================================================
+
+/**
+ * Log a CMS activity to the activity_log table.
+ *
+ * Silently fails so it never breaks the calling operation.
+ *
+ * @param int    $userId    Acting user ID
+ * @param string $action    Machine-readable action key (e.g. 'page_published', 'block_updated')
+ * @param string $summary   Human-readable one-liner shown in the log UI
+ * @param array  $meta      Optional extra data (block_id, page_id, etc.)
+ */
+function cms_logCmsActivity(int $userId, string $action, string $summary, array $meta = []): void
+{
+    try {
+        $db = getDB();
+
+        // Gracefully try both common activity_log schemas
+        // Schema A: (user_id, action, description, created_at)
+        // Schema B: (user_id, action_type, notes, meta_json, created_at)
+        $cols = [];
+        $colCheck = $db->query("SHOW COLUMNS FROM activity_log");
+        if ($colCheck) {
+            $cols = array_column($colCheck->fetchAll(PDO::FETCH_ASSOC), 'Field');
+        }
+
+        if (in_array('action_type', $cols)) {
+            // Schema B
+            $db->prepare("
+                INSERT INTO activity_log (user_id, action_type, notes, meta_json, created_at)
+                VALUES (?, ?, ?, ?, NOW())
+            ")->execute([$userId, $action, $summary, json_encode($meta)]);
+        } elseif (in_array('action', $cols)) {
+            // Schema A
+            $db->prepare("
+                INSERT INTO activity_log (user_id, action, description, created_at)
+                VALUES (?, ?, ?, NOW())
+            ")->execute([$userId, $action, $summary]);
+        }
+        // If table has neither column, silently skip
+    } catch (Exception $e) {
+        error_log('cms_logCmsActivity failed: ' . $e->getMessage());
+    }
+}

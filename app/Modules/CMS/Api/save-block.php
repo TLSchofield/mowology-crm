@@ -88,6 +88,14 @@ try {
             $pageId,
         ]);
 
+        // Audit log
+        cms_logCmsActivity(
+            $user['id'],
+            'block_updated',
+            "Updated block #{$blockId} (page {$pageId})",
+            ['block_id' => $blockId, 'page_id' => $pageId]
+        );
+
         echo json_encode([
             'success' => true,
             'block_id' => $blockId,

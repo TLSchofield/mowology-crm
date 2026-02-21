@@ -88,10 +88,25 @@ if ($mediaId) {
 
                         <!-- Alt Text -->
                         <div class="form-group">
-                            <label for="alt_text">Alt Text (Accessibility & SEO)</label>
+                            <label for="alt_text">Alt Text <span class="text-danger">*</span> <small class="text-muted">(Accessibility &amp; SEO)</small></label>
                             <textarea class="form-control" id="alt_text" name="alt_text" rows="2"
-                                      placeholder="Describe the image for screen readers"><?php echo h((string)($media['alt_text'] ?? '')); ?></textarea>
-                            <small class="form-text text-muted">This text is used by screen readers and displayed if the image doesn't load</small>
+                                      placeholder="Describe the image for screen readers and SEO"><?php echo h((string)($media['alt_text'] ?? '')); ?></textarea>
+                            <small class="form-text text-muted">Used by screen readers and if image fails to load. Keep under 125 characters.</small>
+                        </div>
+
+                        <!-- Caption -->
+                        <div class="form-group">
+                            <label for="caption">Caption <small class="text-muted">(optional — shown under image on site)</small></label>
+                            <input type="text" class="form-control" id="caption" name="caption" maxlength="255"
+                                   value="<?php echo h((string)($media['caption'] ?? '')); ?>"
+                                   placeholder="Short visible caption">
+                        </div>
+
+                        <!-- Description / internal notes -->
+                        <div class="form-group">
+                            <label for="description">Internal Notes <small class="text-muted">(not shown publicly)</small></label>
+                            <textarea class="form-control" id="description" name="description" rows="2"
+                                      placeholder="Internal notes about this asset"><?php echo h((string)($media['description'] ?? '')); ?></textarea>
                         </div>
 
                         <!-- File Info -->

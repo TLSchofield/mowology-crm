@@ -43,8 +43,10 @@ if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
     exit;
 }
 
-$mediaId = (int)($_POST['id'] ?? 0);
-$altText = $_POST['alt_text'] ?? '';
+$mediaId    = (int)($_POST['id'] ?? 0);
+$altText    = trim($_POST['alt_text'] ?? '');
+$caption    = trim($_POST['caption'] ?? '');
+$description = trim($_POST['description'] ?? '');
 
 if (!$mediaId) {
     echo json_encode(['success' => false, 'error' => 'Invalid media ID']);
@@ -54,7 +56,7 @@ if (!$mediaId) {
 try {
     $db = getDB();
 
-    // Verify media exists
+    // Verify media exists and get column list (caption/description may not exist yet)
     $stmt = $db->prepare('SELECT id FROM media_assets WHERE id = ?');
     $stmt->execute([$mediaId]);
     if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
@@ -63,18 +65,38 @@ try {
         exit;
     }
 
-    // Update media
-    $stmt = $db->prepare('
-        UPDATE media_assets
-        SET alt_text = ?, updated_at = NOW()
-        WHERE id = ?
-    ');
-    $stmt->execute([$altText, $mediaId]);
+    // Check which optional columns exist (graceful degradation)
+    $cols = [];
+    try {
+        $check = $db->query("SHOW COLUMNS FROM media_assets LIKE 'caption'");
+        if ($check && $check->rowCount() > 0) $cols[] = 'caption';
+    } catch (Exception $e) {}
+    try {
+        $check = $db->query("SHOW COLUMNS FROM media_assets LIKE 'description'");
+        if ($check && $check->rowCount() > 0) $cols[] = 'description';
+    } catch (Exception $e) {}
+
+    // Build update
+    $setParts = ['alt_text = ?', 'updated_at = NOW()'];
+    $params   = [$altText];
+
+    if (in_array('caption', $cols)) {
+        $setParts[] = 'caption = ?';
+        $params[]   = $caption;
+    }
+    if (in_array('description', $cols)) {
+        $setParts[] = 'description = ?';
+        $params[]   = $description;
+    }
+    $params[] = $mediaId;
+
+    $db->prepare('UPDATE media_assets SET ' . implode(', ', $setParts) . ' WHERE id = ?')
+       ->execute($params);
 
     echo json_encode([
-        'success' => true,
+        'success'  => true,
         'media_id' => $mediaId,
-        'message' => 'Media updated successfully',
+        'message'  => 'Media updated successfully',
     ]);
 } catch (PDOException $e) {
     http_response_code(500);

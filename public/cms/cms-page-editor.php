@@ -330,35 +330,39 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Add Block</h5>
-                <button type="button" class="close" data-dismiss="modal">
-                    <span>&times;</span>
-                </button>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
             </div>
             <div class="modal-body">
-                <p>Select a block type to add:</p>
-                <form id="add-block-form" method="POST" action="/crm/api/add-block.php">
-                    <input type="hidden" name="page_id" value="<?php echo $pageId; ?>">
-                    <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
-
-                    <div class="form-group">
-                        <label for="block_type">Block Type</label>
-                        <select class="form-control" id="block_type" name="block_type" required>
-                            <option value="">-- Select --</option>
-                            <option value="hero">Hero Banner</option>
-                            <option value="feature_grid">Feature Grid</option>
-                            <option value="testimonials">Testimonials</option>
-                            <option value="cta">Call to Action</option>
-                            <option value="faq">FAQ</option>
-                            <option value="gallery">Gallery</option>
-                            <option value="service_cards">Service Cards</option>
-                            <option value="rich_text">Rich Text</option>
-                            <option value="portfolio_showcase">Portfolio Showcase</option>
-                            <option value="custom">Custom HTML</option>
-                        </select>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary">Add Block</button>
-                </form>
+                <p class="small text-muted mb-3">Choose a block type. You can edit its content immediately after adding.</p>
+                <div id="add-block-error" class="alert alert-danger d-none" role="alert"></div>
+                <!-- Block type card grid -->
+                <div class="mw-block-type-grid">
+                    <?php
+                    $blockTypes = [
+                        'hero'               => ['icon' => 'image',       'label' => 'Hero Banner',        'desc' => 'Full-width headline + CTA'],
+                        'cta'                => ['icon' => 'zap',         'label' => 'Call to Action',     'desc' => 'Prominent button section'],
+                        'feature_grid'       => ['icon' => 'grid',        'label' => 'Feature Grid',       'desc' => 'Icon + text card grid'],
+                        'service_cards'      => ['icon' => 'briefcase',   'label' => 'Service Cards',      'desc' => 'Service tile grid'],
+                        'service_grid'       => ['icon' => 'layout',      'label' => 'Service Grid',       'desc' => '3-col service overview'],
+                        'testimonials'       => ['icon' => 'message-circle', 'label' => 'Testimonials',   'desc' => 'Customer quotes'],
+                        'faq'                => ['icon' => 'help-circle', 'label' => 'FAQ',                'desc' => 'Collapsible Q&A'],
+                        'gallery'            => ['icon' => 'camera',      'label' => 'Gallery',            'desc' => 'Photo grid'],
+                        'before_after'       => ['icon' => 'sliders',     'label' => 'Before / After',     'desc' => 'Side-by-side image comparison'],
+                        'stats_banner'       => ['icon' => 'trending-up', 'label' => 'Stats Banner',       'desc' => 'Numbers + labels row'],
+                        'rich_text'          => ['icon' => 'type',        'label' => 'Rich Text',          'desc' => 'Formatted text body'],
+                        'portfolio_showcase' => ['icon' => 'star',        'label' => 'Portfolio Showcase', 'desc' => 'Project highlights'],
+                        'custom'             => ['icon' => 'code',        'label' => 'Custom HTML',        'desc' => 'Raw HTML block'],
+                    ];
+                    foreach ($blockTypes as $key => $bt): ?>
+                    <button type="button" class="mw-block-type-card" data-block-type="<?php echo h($key); ?>">
+                        <i data-feather="<?php echo h($bt['icon']); ?>" style="width:22px;height:22px;margin-bottom:6px;color:var(--mw-green);"></i>
+                        <strong><?php echo h($bt['label']); ?></strong>
+                        <span><?php echo h($bt['desc']); ?></span>
+                    </button>
+                    <?php endforeach; ?>
+                </div>
+                <input type="hidden" name="page_id" value="<?php echo $pageId; ?>">
+                <input type="hidden" id="add-block-csrf" value="<?php echo generateCSRFToken(); ?>">
             </div>
         </div>
     </div>
@@ -367,18 +371,29 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
 
 <script>
 function updateSEOPreview() {
-    const title = document.getElementById('meta_title').value ||
-                  document.getElementById('title').value || 'Your Page Title';
-    const desc = document.getElementById('meta_description').value ||
-                 'Professional landscaping services in Vancouver. Expert care for your landscape.';
+    var title = document.getElementById('meta_title').value ||
+                document.getElementById('title').value || 'Your Page Title';
+    var desc  = document.getElementById('meta_description').value ||
+                'Professional landscaping services in Vancouver.';
     document.getElementById('seoPreviewTitle').textContent = title.substring(0, 60);
-    document.getElementById('seoPreviewDesc').textContent = desc.substring(0, 160);
+    document.getElementById('seoPreviewDesc').textContent  = desc.substring(0, 160);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    var csrfToken = '<?php echo generateCSRFToken(); ?>';
+    var csrfToken = document.getElementById('add-block-csrf')
+        ? document.getElementById('add-block-csrf').value
+        : '<?php echo generateCSRFToken(); ?>';
+    var pageId = <?php echo $pageId ?: 0; ?>;
 
-    // ---- Help tooltips (mobile tap to show) ----
+    var blockTypeLabels = {
+        hero: 'Hero Banner', cta: 'Call to Action', feature_grid: 'Feature Grid',
+        service_cards: 'Service Cards', service_grid: 'Service Grid',
+        testimonials: 'Testimonials', faq: 'FAQ', gallery: 'Gallery',
+        before_after: 'Before / After', stats_banner: 'Stats Banner',
+        rich_text: 'Rich Text', portfolio_showcase: 'Portfolio Showcase', custom: 'Custom HTML',
+    };
+
+    // ---- Help tooltips ----
     document.querySelectorAll('.mw-help-tooltip').forEach(function(tip) {
         tip.addEventListener('click', function(e) {
             e.preventDefault();
@@ -386,36 +401,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // ---- Delete block ----
-    document.querySelectorAll('.mw-delete-block').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            if (!confirm('Delete this block? This cannot be undone.')) return;
-            var blockId = this.dataset.blockId;
-            var row = this.closest('.mw-block-row');
-            fetch('/crm/api/delete-block.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-                body: JSON.stringify({ id: blockId }),
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.success) {
-                    row.remove();
-                } else {
-                    alert('Error: ' + (data.error || 'Delete failed'));
-                }
-            })
-            .catch(function(err) { alert('Error: ' + err.message); });
-        });
-    });
-
-    // ---- Drag-to-reorder blocks ----
+    // ---- Shared drag-wiring (called on existing + new rows) ----
     var list = document.getElementById('blocks-list');
-    if (!list) return;
-
     var dragging = null;
 
-    list.querySelectorAll('.mw-block-row').forEach(function(row) {
+    function wireDragRow(row) {
         row.setAttribute('draggable', 'true');
         row.addEventListener('dragstart', function(e) {
             dragging = this;
@@ -425,9 +415,7 @@ document.addEventListener('DOMContentLoaded', function() {
         row.addEventListener('dragend', function() {
             dragging = null;
             this.style.opacity = '';
-            list.querySelectorAll('.mw-block-row').forEach(function(r) {
-                r.classList.remove('mw-block-row-over');
-            });
+            if (list) list.querySelectorAll('.mw-block-row').forEach(function(r) { r.classList.remove('mw-block-row-over'); });
             saveBlockOrder();
         });
         row.addEventListener('dragover', function(e) {
@@ -435,39 +423,143 @@ document.addEventListener('DOMContentLoaded', function() {
             e.dataTransfer.dropEffect = 'move';
             if (this !== dragging) {
                 this.classList.add('mw-block-row-over');
-                var bounding = this.getBoundingClientRect();
-                var offset = bounding.y + (bounding.height / 2);
-                if (e.clientY - offset > 0) {
-                    list.insertBefore(dragging, this.nextSibling);
-                } else {
-                    list.insertBefore(dragging, this);
-                }
+                var mid = this.getBoundingClientRect().y + this.getBoundingClientRect().height / 2;
+                list.insertBefore(dragging, e.clientY - mid > 0 ? this.nextSibling : this);
             }
         });
-        row.addEventListener('dragleave', function() {
-            this.classList.remove('mw-block-row-over');
-        });
-        row.addEventListener('drop', function(e) {
-            e.preventDefault();
-            this.classList.remove('mw-block-row-over');
-        });
-    });
+        row.addEventListener('dragleave', function() { this.classList.remove('mw-block-row-over'); });
+        row.addEventListener('drop', function(e) { e.preventDefault(); this.classList.remove('mw-block-row-over'); });
+    }
+
+    if (list) {
+        list.querySelectorAll('.mw-block-row').forEach(wireDragRow);
+    }
 
     function saveBlockOrder() {
+        if (!list || !pageId) return;
         var order = [];
-        list.querySelectorAll('.mw-block-row').forEach(function(row) {
-            order.push(parseInt(row.dataset.blockId, 10));
-        });
+        list.querySelectorAll('.mw-block-row').forEach(function(r) { order.push(parseInt(r.dataset.blockId, 10)); });
         fetch('/crm/api/reorder-blocks.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-            body: JSON.stringify({
-                page_id: <?php echo $pageId ?: 0; ?>,
-                order: order,
-            }),
-        })
-        .catch(function() {}); // silent — cosmetic reorder, hard refresh always correct
+            body: JSON.stringify({ page_id: pageId, order: order }),
+        }).catch(function() {});
     }
+
+    // ---- Delete block (event delegation — works for newly added rows too) ----
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.mw-delete-block');
+        if (!btn) return;
+        if (!confirm('Delete this block? This cannot be undone.')) return;
+        var row = btn.closest('.mw-block-row');
+        fetch('/crm/api/delete-block.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify({ id: btn.dataset.blockId }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) { if (d.success) { row.remove(); } else { alert('Error: ' + (d.error || 'Delete failed')); } })
+        .catch(function(err) { alert('Error: ' + err.message); });
+    });
+
+    // ---- Add block — card click → AJAX → inline row inject ----
+    document.querySelectorAll('.mw-block-type-card').forEach(function(card) {
+        card.addEventListener('click', function() {
+            var blockType = this.dataset.blockType;
+            var errEl = document.getElementById('add-block-error');
+            errEl.classList.add('d-none');
+
+            // Visual feedback — disable all cards while saving
+            document.querySelectorAll('.mw-block-type-card').forEach(function(c) { c.disabled = true; });
+            card.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Adding…';
+
+            var fd = new FormData();
+            fd.append('page_id', pageId);
+            fd.append('block_type', blockType);
+            fd.append('csrf_token', csrfToken);
+
+            fetch('/crm/api/add-block.php', { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) throw new Error(data.error || 'Add failed');
+
+                // Close modal
+                if (window.jQuery) { jQuery('#addBlockModal').modal('hide'); }
+
+                // Build new row and inject into list (or replace empty-state)
+                var label = blockTypeLabels[blockType] || blockType;
+                var newRow = document.createElement('div');
+                newRow.className = 'mw-block-row';
+                newRow.dataset.blockId = data.block_id;
+                newRow.innerHTML =
+                    '<div class="mw-block-row-handle" title="Drag to reorder">' +
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#adb5bd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>' +
+                    '</div>' +
+                    '<div class="mw-block-row-info">' +
+                        '<span class="badge badge-secondary mr-2">' + label + '</span>' +
+                        '<span class="text-muted small">New — click Edit to fill content</span>' +
+                    '</div>' +
+                    '<div class="mw-block-row-actions">' +
+                        '<a href="' + data.edit_url + '" class="btn btn-sm btn-outline-primary">' +
+                            '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
+                            ' Edit' +
+                        '</a>' +
+                        '<button type="button" class="btn btn-sm btn-outline-danger mw-delete-block" data-block-id="' + data.block_id + '">' +
+                            '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>' +
+                        '</button>' +
+                    '</div>';
+
+                // If empty-state placeholder exists, replace whole card body
+                if (!list) {
+                    var cardBody = document.querySelector('#addBlockModal').closest('.container-fluid').querySelector('.card-body .mw-ui-guide');
+                    if (cardBody) {
+                        var parent = cardBody.closest('.card-body');
+                        parent.innerHTML = '<p class="small text-muted mb-2"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg> Drag rows to reorder blocks</p><div id="blocks-list"></div>';
+                        list = document.getElementById('blocks-list');
+                    }
+                }
+
+                if (list) {
+                    list.appendChild(newRow);
+                    wireDragRow(newRow);
+                    // Scroll new row into view
+                    newRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+
+                // Flash green border on new row
+                newRow.style.borderColor = 'var(--mw-green)';
+                setTimeout(function() { newRow.style.borderColor = ''; }, 2000);
+            })
+            .catch(function(err) {
+                errEl.textContent = 'Error: ' + err.message;
+                errEl.classList.remove('d-none');
+            })
+            .finally(function() {
+                // Restore card grid
+                document.querySelectorAll('.mw-block-type-card').forEach(function(c) {
+                    c.disabled = false;
+                    var bt = c.dataset.blockType;
+                    var info = {
+                        hero: ['image','Hero Banner','Full-width headline + CTA'],
+                        cta: ['zap','Call to Action','Prominent button section'],
+                        feature_grid: ['grid','Feature Grid','Icon + text card grid'],
+                        service_cards: ['briefcase','Service Cards','Service tile grid'],
+                        service_grid: ['layout','Service Grid','3-col service overview'],
+                        testimonials: ['message-circle','Testimonials','Customer quotes'],
+                        faq: ['help-circle','FAQ','Collapsible Q&A'],
+                        gallery: ['camera','Gallery','Photo grid'],
+                        before_after: ['sliders','Before / After','Side-by-side image comparison'],
+                        stats_banner: ['trending-up','Stats Banner','Numbers + labels row'],
+                        rich_text: ['type','Rich Text','Formatted text body'],
+                        portfolio_showcase: ['star','Portfolio Showcase','Project highlights'],
+                        custom: ['code','Custom HTML','Raw HTML block'],
+                    }[bt] || ['box', bt, ''];
+                    c.innerHTML = '<strong>' + info[1] + '</strong><span>' + info[2] + '</span>';
+                });
+                if (window.feather) feather.replace();
+            });
+        });
+    });
 });
 </script>
 
