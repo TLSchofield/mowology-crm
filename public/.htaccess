@@ -39,10 +39,8 @@ RewriteRule ^services/([a-z0-9\-]+)/?$ /services/$1.php [L,QSA]
 RewriteRule ^api/ - [L]
 
 # ── BlueMoon PWA sub-app ──────────────────────────────────────────────────────
-# Serve static assets directly; route everything else in /bluemoon/ to its index.html
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^bluemoon/(.*)$ /bluemoon/index.html [L]
+# 1. Pass all real files/dirs inside /bluemoon/ through untouched
+RewriteRule ^bluemoon/ - [L]
 
 # Security: allow JS workers to be fetched with correct MIME and COOP headers
 <FilesMatch "\.worker\.js$">
