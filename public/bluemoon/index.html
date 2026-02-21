@@ -4,11 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>BlueMoon</title>
-
-  <!-- No indexing — private app -->
   <meta name="robots" content="noindex, nofollow" />
-
-  <!-- PWA / install-to-homescreen -->
   <link rel="manifest" href="/bluemoon/manifest.webmanifest" />
   <meta name="theme-color" content="#070B18" />
   <meta name="mobile-web-app-capable" content="yes" />
@@ -19,44 +15,28 @@
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     html, body {
-      width: 100%; height: 100%;
-      background: #000;
-      overflow: hidden;
-      overscroll-behavior: none;
-      user-select: none;
-      -webkit-tap-highlight-color: transparent;
+      width: 100%; height: 100%; background: #000;
+      overflow: hidden; overscroll-behavior: none;
+      user-select: none; -webkit-tap-highlight-color: transparent;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-
-    #app {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-    }
+    #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
 
     /* ── Admin navbar ── */
     #admin-nav {
-      flex: 0 0 auto;
-      display: flex;
-      align-items: center;
-      gap: 2px;
+      flex: 0 0 auto; display: flex; align-items: center; gap: 2px;
       padding: 6px 10px;
       background: rgba(5,7,12,0.96);
       border-bottom: 1px solid rgba(100,180,255,0.13);
       z-index: 200;
     }
     .nav-tab {
-      padding: 5px 14px;
-      border-radius: 8px;
-      border: 1px solid transparent;
-      background: transparent;
+      padding: 5px 14px; border-radius: 8px;
+      border: 1px solid transparent; background: transparent;
       color: rgba(180,210,255,0.40);
       font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
-      cursor: pointer;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      cursor: pointer; font-family: inherit;
       -webkit-tap-highlight-color: transparent;
       transition: background 0.15s, color 0.15s, border-color 0.15s;
     }
@@ -66,142 +46,100 @@
       color: rgba(200,235,255,0.95);
     }
 
-    /* ── Overlay panel (sits over vortex+dock) ── */
+    /* ── Panel overlay (Glyphs / Model / Fractal) ── */
     #panel-overlay {
-      display: none;
-      position: absolute;
-      inset: 0;
-      z-index: 100;
+      display: none; position: absolute; inset: 0; z-index: 100;
       background: rgba(4,6,14,0.96);
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+      flex-direction: column; align-items: center; justify-content: center;
       overflow: hidden;
     }
     #panel-overlay.open { display: flex; }
-
     .panel-title {
       font-size: 11px; font-weight: 700; letter-spacing: 1px;
-      color: rgba(140,190,255,0.40);
-      text-transform: uppercase;
+      color: rgba(140,190,255,0.40); text-transform: uppercase;
       margin-bottom: 18px;
     }
-
-    /* Glyph canvas */
     #glyph-canvas { display: block; }
-
-    /* Model (GLB) panel */
     #model-wrap {
-      width: 100%;
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
+      width: 100%; flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 10px;
     }
-    #model-canvas {
-      display: block;
-      border-radius: 16px;
-      touch-action: none;
-    }
-    .model-hint {
-      font-size: 10px;
-      color: rgba(140,190,255,0.30);
-      letter-spacing: 0.3px;
-    }
-
-    /* Fractal panel */
-    #fractal-wrap {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 14px;
-    }
+    #model-canvas { display: block; border-radius: 16px; touch-action: none; }
+    .model-hint { font-size: 10px; color: rgba(140,190,255,0.30); letter-spacing: 0.3px; }
+    #fractal-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
     #fractal-canvas { display: block; }
-    .fractal-controls {
-      display: flex; gap: 8px;
-    }
+    .fractal-controls { display: flex; gap: 8px; }
     .fractal-pill {
-      padding: 5px 14px;
-      border-radius: 999px;
+      padding: 5px 14px; border-radius: 999px;
       border: 1px solid rgba(80,160,255,0.22);
-      background: rgba(80,160,255,0.08);
-      color: rgba(200,235,255,0.85);
-      font-size: 11px; font-weight: 700;
-      cursor: pointer;
-      font-family: inherit;
+      background: rgba(80,160,255,0.08); color: rgba(200,235,255,0.85);
+      font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
       -webkit-tap-highlight-color: transparent;
     }
-    .fractal-progress {
-      font-size: 11px; color: rgba(140,190,255,0.50);
-      font-weight: 700; letter-spacing: 0.3px;
-    }
+    .fractal-progress { font-size: 11px; color: rgba(140,190,255,0.50); font-weight: 700; letter-spacing: 0.3px; }
 
-    /* Top 2/3: vortex canvas */
-    #canvas-wrap {
-      position: relative;
-      flex: 0 0 66.67%;
-      overflow: hidden;
-      /* Deep space nebula — radial glow from centre */
+    /* ── Screen: Moon (home) ── */
+    #screen-moon {
+      display: flex; flex-direction: column; flex: 1; overflow: hidden;
+    }
+    #screen-moon.hidden { display: none; }
+
+    /* Moon stage: moon canvas fills upper portion */
+    #moon-stage {
+      position: relative; flex: 0 0 62%; overflow: hidden;
       background:
         radial-gradient(ellipse 55% 55% at 50% 50%,
-          rgba(30, 60, 140, 0.55) 0%,
-          rgba(15, 30, 80,  0.38) 35%,
-          rgba(5,  12, 35,  0.25) 60%,
-          transparent 100%),
+          rgba(30,60,140,0.55) 0%, rgba(15,30,80,0.38) 35%,
+          rgba(5,12,35,0.25) 60%, transparent 100%),
         radial-gradient(ellipse 90% 80% at 50% 50%,
-          rgba(8, 18, 50, 0.7) 0%,
-          #000 75%);
+          rgba(8,18,50,0.7) 0%, #000 75%);
     }
-    #vortex {
-      display: block;
-      width: 100%;
-      height: 100%;
-      touch-action: none;
+    #moon-canvas {
+      position: absolute; inset: 0;
+      display: block; width: 100%; height: 100%;
+      pointer-events: none;
     }
-
-    /* Center tap zone */
-    #center-tap {
-      position: absolute;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      width: 140px; height: 140px;
-      border-radius: 50%;
-      cursor: pointer;
-      z-index: 10;
-      display: flex; align-items: center; justify-content: center;
-    }
-
-    /* Bottom 1/3: habit dock */
-    #habit-dock {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 10px 20px;
-      overflow: hidden;
-    }
-
-    .habit-btn {
-      width: 100%; max-width: 420px;
-      padding: 10px 16px;
-      background: transparent;
-      border: none;
-      border-radius: 10px;
-      color: rgba(255,255,255,0.90);
-      cursor: pointer;
-      display: flex; align-items: center; gap: 12px;
-      transition: background 0.15s;
+    /* Ball tap zone — invisible hit area centered */
+    #ball-tap {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      width: 120px; height: 120px; border-radius: 50%;
+      cursor: pointer; z-index: 20;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* ── Screen: Vortex ── */
+    #screen-vortex {
+      display: none; flex: 1; position: relative; overflow: hidden;
+      background:
+        radial-gradient(ellipse 55% 55% at 50% 50%,
+          rgba(30,60,140,0.55) 0%, rgba(15,30,80,0.38) 35%,
+          rgba(5,12,35,0.25) 60%, transparent 100%),
+        radial-gradient(ellipse 90% 80% at 50% 50%,
+          rgba(8,18,50,0.7) 0%, #000 75%);
+    }
+    #screen-vortex.visible { display: flex; }
+    #vortex {
+      position: absolute; inset: 0;
+      display: block; width: 100%; height: 100%; touch-action: none;
+    }
+
+    /* ── Habit dock ── */
+    #habit-dock {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 6px; padding: 10px 20px; overflow: hidden;
+    }
+    .habit-btn {
+      width: 100%; max-width: 420px; padding: 10px 16px;
+      background: transparent; border: none; border-radius: 10px;
+      color: rgba(255,255,255,0.90); cursor: pointer;
+      display: flex; align-items: center; gap: 12px;
+      transition: background 0.15s; -webkit-tap-highlight-color: transparent;
+    }
     .habit-btn:active { background: rgba(255,255,255,0.07); }
-    .habit-btn.tapped { background: rgba(255,255,255,0.04); }
-
+    .habit-btn.tapped  { background: rgba(255,255,255,0.04); }
     .habit-icon { flex-shrink: 0; display: block; }
-
     .habit-label {
       font-size: 15px; font-weight: 500; letter-spacing: 0.02em;
       color: rgba(255,255,255,0.90);
@@ -209,14 +147,79 @@
       font-family: monospace;
     }
 
-    /* Install banner */
+    /* ── Ball zen prompt overlay ── */
+    #ball-prompt {
+      display: none; position: fixed; inset: 0; z-index: 9000;
+      background: #000;
+      flex-direction: column; align-items: flex-start; justify-content: center;
+      padding: 0 40px;
+    }
+    #ball-prompt.open { display: flex; }
+    .bp-question {
+      font-size: 13px; font-family: 'SF Mono','Fira Mono','Consolas',monospace;
+      color: rgba(255,255,255,0.28); margin-bottom: 22px; letter-spacing: 0.02em;
+    }
+    .bp-input-row { display: flex; align-items: baseline; }
+    .bp-text {
+      font-size: 24px; font-family: 'SF Mono','Fira Mono','Consolas',monospace;
+      font-weight: 300; color: rgba(255,255,255,0.92);
+      letter-spacing: 0.01em; white-space: pre;
+    }
+    .bp-cursor {
+      font-size: 24px; font-family: 'SF Mono','Fira Mono','Consolas',monospace;
+      font-weight: 300; color: rgba(80,160,255,0.90);
+      animation: blink 1.06s step-end infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+    .bp-hint {
+      margin-top: 32px;
+      font-size: 11px; font-family: 'SF Mono','Fira Mono','Consolas',monospace;
+      color: rgba(255,255,255,0.16); letter-spacing: 0.05em;
+    }
+    /* Second prompt (habit) */
+    .bp-step2 { display: none; }
+    .bp-step2.visible { display: block; }
+    /* Hidden real text input for mobile keyboard */
+    #ball-real-input {
+      position: fixed; left: -9999px; top: 50%;
+      width: 1px; height: 1px; opacity: 0; font-size: 16px;
+    }
+
+    /* ── Admin moon overlay ── */
+    #admin-overlay {
+      display: none; position: absolute; bottom: 0; left: 0;
+      z-index: 150;
+      background: rgba(3,5,14,0.96);
+      border: 1px solid rgba(80,160,255,0.18);
+      border-radius: 0 14px 0 0;
+      padding: 16px 20px; min-width: 230px;
+    }
+    #admin-overlay.open { display: block; }
+    .ao-title {
+      font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+      color: rgba(80,160,255,0.50); text-transform: uppercase; margin-bottom: 14px;
+    }
+    .ao-row {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 10px; margin-bottom: 11px;
+    }
+    .ao-label { font-size: 11px; color: rgba(180,210,255,0.60); font-family: monospace; }
+    .ao-row input[type=range] { flex: 1; accent-color: rgba(80,160,255,0.85); }
+    .ao-val { font-size: 11px; color: rgba(80,160,255,0.80); font-family: monospace; min-width: 30px; text-align: right; }
+    .ao-row select, .ao-btn {
+      background: rgba(80,160,255,0.10);
+      border: 1px solid rgba(80,160,255,0.25);
+      border-radius: 6px; color: rgba(200,235,255,0.85);
+      font-size: 11px; font-family: monospace;
+      padding: 3px 9px; cursor: pointer;
+    }
+    .ao-btn.on { background: rgba(80,160,255,0.28); color: rgba(180,220,255,1); }
+
+    /* Install banners */
     #install-banner {
-      display: none;
-      position: fixed; bottom: 0; left: 0; right: 0;
-      padding: 14px 20px;
-      background: rgba(10,14,30,0.97);
-      border-top: 1px solid rgba(255,255,255,0.12);
-      z-index: 9999;
+      display: none; position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 14px 20px; background: rgba(10,14,30,0.97);
+      border-top: 1px solid rgba(255,255,255,0.12); z-index: 9999;
       align-items: center; gap: 12px;
     }
     #install-banner.show { display: flex; }
@@ -224,15 +227,10 @@
     #install-banner button { padding: 8px 18px; border-radius: 8px; border: none; font-size: 14px; font-weight: 700; cursor: pointer; }
     #btn-install { background: #4A9EFF; color: #fff; }
     #btn-dismiss { background: transparent; color: rgba(255,255,255,0.5); }
-
-    /* iOS install hint (no beforeinstallprompt on Safari) */
     #ios-hint {
-      display: none;
-      position: fixed; bottom: 0; left: 0; right: 0;
-      padding: 14px 20px 28px;
-      background: rgba(10,14,30,0.97);
-      border-top: 1px solid rgba(255,255,255,0.12);
-      z-index: 9999;
+      display: none; position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 14px 20px 28px; background: rgba(10,14,30,0.97);
+      border-top: 1px solid rgba(255,255,255,0.12); z-index: 9999;
       flex-direction: column; gap: 8px;
     }
     #ios-hint.show { display: flex; }
@@ -241,27 +239,25 @@
   </style>
 </head>
 <body>
-
 <div id="app">
+
+  <!-- Admin navbar -->
   <div id="admin-nav">
     <button class="nav-tab" data-panel="glyphs">Glyphs</button>
-    <button class="nav-tab" data-panel="moon">Moon</button>
+    <button class="nav-tab" data-panel="vortex">Vortex</button>
     <button class="nav-tab" data-panel="model">Model</button>
     <button class="nav-tab" data-panel="fractal">Fractal</button>
+    <button class="nav-tab" data-panel="admin" style="margin-left:auto;">⚙</button>
   </div>
+
   <div style="position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;">
+
+    <!-- Panel overlay (Glyphs / Model / Fractal) -->
     <div id="panel-overlay">
-      <!-- Glyphs panel -->
       <div id="panel-glyphs" class="panel-inner" style="display:none;flex-direction:column;align-items:center;gap:10px;">
         <div class="panel-title">Glyph Library</div>
         <canvas id="glyph-canvas"></canvas>
       </div>
-      <!-- Moon panel -->
-      <div id="panel-moon" class="panel-inner" style="display:none;flex-direction:column;align-items:center;gap:12px;">
-        <div class="panel-title">Moon · Vortex</div>
-        <div style="color:rgba(140,190,255,0.35);font-size:13px;">Vortex running behind</div>
-      </div>
-      <!-- Model panel -->
       <div id="panel-model" class="panel-inner" style="display:none;flex-direction:column;align-items:center;width:100%;height:100%;">
         <div class="panel-title">Neon Monkey</div>
         <div id="model-wrap">
@@ -269,7 +265,6 @@
           <div class="model-hint">drag to rotate · pinch to zoom</div>
         </div>
       </div>
-      <!-- Fractal panel -->
       <div id="panel-fractal" class="panel-inner" style="display:none;flex-direction:column;align-items:center;gap:14px;">
         <div class="panel-title">Fractal Relic</div>
         <div id="fractal-wrap">
@@ -282,329 +277,741 @@
         </div>
       </div>
     </div>
-    <div id="canvas-wrap">
-      <canvas id="vortex"></canvas>
-      <div id="center-tap"></div>
+
+    <!-- Screen: Moon (home — Fractal Moon + Ball + habit dock) -->
+    <div id="screen-moon">
+      <div id="moon-stage">
+        <canvas id="moon-canvas"></canvas>
+        <div id="ball-tap"></div>
+      </div>
+      <div id="habit-dock"></div>
     </div>
-    <div id="habit-dock"></div>
+
+    <!-- Screen: Vortex (separate screen) -->
+    <div id="screen-vortex">
+      <canvas id="vortex"></canvas>
+    </div>
+
+    <!-- Admin moon overlay -->
+    <div id="admin-overlay">
+      <div class="ao-title">Moon Admin</div>
+      <div class="ao-row">
+        <span class="ao-label">moonScale</span>
+        <input type="range" id="ao-scale" min="0.3" max="1.2" step="0.01" value="0.72" />
+        <span class="ao-val" id="ao-scale-val">0.72</span>
+      </div>
+      <div class="ao-row">
+        <span class="ao-label">seats</span>
+        <select id="ao-seats">
+          <option value="6">6</option>
+          <option value="8" selected>8</option>
+          <option value="12">12</option>
+        </select>
+      </div>
+      <div class="ao-row">
+        <span class="ao-label">freeze rot</span>
+        <button class="ao-btn" id="ao-freeze">OFF</button>
+      </div>
+      <div class="ao-row">
+        <span class="ao-label">glyph bounds</span>
+        <button class="ao-btn" id="ao-bounds">OFF</button>
+      </div>
+      <div class="ao-row">
+        <span class="ao-label">lattice pts</span>
+        <select id="ao-lpts">
+          <option value="80">80</option>
+          <option value="120" selected>120</option>
+          <option value="180">180</option>
+        </select>
+      </div>
+      <div class="ao-row">
+        <span class="ao-label">max glyph view</span>
+        <button class="ao-btn" id="ao-maxglyph">OFF</button>
+      </div>
+    </div>
   </div>
 </div>
+
+<!-- Ball zen prompt -->
+<div id="ball-prompt">
+  <div class="bp-question" id="bp-question">what are you here to become?</div>
+  <div class="bp-input-row">
+    <span class="bp-text" id="bp-display"></span><span class="bp-cursor">█</span>
+  </div>
+  <div class="bp-hint" id="bp-hint">return to save · esc to cancel</div>
+</div>
+<input id="ball-real-input" type="text" autocomplete="off" autocorrect="off"
+       autocapitalize="off" spellcheck="false" />
 
 <div id="install-banner">
   <p>Add BlueMoon to your home screen for the full experience.</p>
   <button id="btn-dismiss">Later</button>
   <button id="btn-install">Install</button>
 </div>
-
 <div id="ios-hint">
   <p>Install BlueMoon: tap <strong>Share ⬆</strong> then <strong>"Add to Home Screen"</strong></p>
   <button id="btn-ios-dismiss">OK</button>
 </div>
 
 <script>
-// ─────────────────────────────────────────────────────────────────────────────
-// BlueMoon — Main thread (input + PWA only when OffscreenCanvas available)
-// Physics + rendering runs in vortex.worker.js via OffscreenCanvas
-// Fallback: inline Canvas2D on main thread for older browsers
-// ─────────────────────────────────────────────────────────────────────────────
+'use strict';
+// ═════════════════════════════════════════════════════════════════════════════
+// BlueMoon Web — Main thread
+// Architecture mirrors the guide:
+//   MoonEngine  — pure math, no DOM (seededRng, lattice, seats, glyphs)
+//   MoonCache   — keyed by (seed, N, seatCount, moonScale) — rebuilt on change only
+//   MoonRenderer — draws to Canvas2D using engine output
+//   BallPrompt  — zen terminal overlay, 2-step (goal → habit)
+//   VortexWorker — physics/rendering off main thread (OffscreenCanvas)
+//   HabitDock   — hex-wedge icons, drives seat payloads on tap
+// ═════════════════════════════════════════════════════════════════════════════
 
-const STORAGE_KEY_HABITS = 'bluemoon_habits';
-const STORAGE_KEY_EVENTS = 'bluemoon_events';
-const STORAGE_KEY_IOS    = 'bluemoon_ios_hint_shown';
+// ─────────────────────────────────────────────────────────────────────────────
+// Storage
+// ─────────────────────────────────────────────────────────────────────────────
+const SK_HABITS = 'bluemoon_habits';
+const SK_EVENTS = 'bluemoon_events';
+const SK_GOAL   = 'bluemoon.goalPlan.v3';
+const SK_IOS    = 'bluemoon_ios_hint_shown';
 
 function loadHabits() {
-  try { const r=localStorage.getItem(STORAGE_KEY_HABITS); if(r) return JSON.parse(r); } catch{}
+  try { const r=localStorage.getItem(SK_HABITS); if(r) return JSON.parse(r); } catch{}
   return [
-    { id:'h1', label:'Siu Nim Tau' },
-    { id:'h2', label:'Monkey Face Wall' },
-    { id:'h3', label:'Stone Forge' },
+    {id:'h1', label:'Siu Nim Tau'},
+    {id:'h2', label:'Monkey Face Wall'},
+    {id:'h3', label:'Stone Forge'},
   ];
 }
 function loadEvents() {
-  try { const r=localStorage.getItem(STORAGE_KEY_EVENTS); if(r) return JSON.parse(r); } catch{}
+  try { const r=localStorage.getItem(SK_EVENTS); if(r) return JSON.parse(r); } catch{}
   return [];
 }
-function saveEvents(evs) { localStorage.setItem(STORAGE_KEY_EVENTS, JSON.stringify(evs)); }
+function saveEvents(evs) { localStorage.setItem(SK_EVENTS, JSON.stringify(evs)); }
+function loadGoalPlan() {
+  try { const r=localStorage.getItem(SK_GOAL); if(r) return JSON.parse(r); } catch{}
+  return null;
+}
+function saveGoalPlan(plan) { localStorage.setItem(SK_GOAL, JSON.stringify(plan)); }
 
-const habits  = loadHabits();
-let   events  = loadEvents();
-const dockEl  = document.getElementById('habit-dock');
-const canvas  = document.getElementById('vortex');
+// ─────────────────────────────────────────────────────────────────────────────
+// A) Moon Engine — pure math, zero DOM
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ── Hex+Wedge icon renderer ───────────────────────────────────────────────────
-const HEX_SIZE    = 40;
-const HEX_RADIUS  = (HEX_SIZE / 2) * 0.78;
-const HEX_ROT_RAD = -Math.PI / 2; // point-up
-
-const C_BLUE      = 'rgba(90,160,255,0.92)';
-const C_BLUE_DIM  = 'rgba(90,160,255,0.55)';
-const C_WHITE_DIM = 'rgba(255,255,255,0.30)';
-const C_WHITE_FNT = 'rgba(255,255,255,0.12)';
-
-function hexVertices(r) {
-  const v = [];
-  for (let i = 0; i < 6; i++) {
-    const a = (i * Math.PI) / 3 + HEX_ROT_RAD;
-    v.push([r * Math.cos(a), r * Math.sin(a)]);
-  }
-  return v;
+// Seeded RNG (mulberry32 port). RULE: never call Math.random() for geometry.
+function makeRng(seed) {
+  let s = (seed >>> 0) + 0x9e3779b9;
+  return () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let z = s;
+    z = Math.imul(z ^ (z >>> 15), z | 1);
+    z ^= z + Math.imul(z ^ (z >>> 7), z | 61);
+    return ((z ^ (z >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-function drawHexWedge(cvs, reinforcerCount) {
-  const dpr = window.devicePixelRatio || 1;
-  cvs.width  = HEX_SIZE * dpr;
-  cvs.height = HEX_SIZE * dpr;
-  cvs.style.width  = HEX_SIZE + 'px';
-  cvs.style.height = HEX_SIZE + 'px';
+// Build sphere lattice: N points, edges within euclidean dist threshold
+function buildLattice(seed, N, edgeDistSq) {
+  const rng = makeRng(seed);
+  const pts = [];
+  for (let i=0; i<N; i++) {
+    const u=rng(), v=rng();
+    const th = Math.acos(2*u-1);
+    const ph = 2*Math.PI*v;
+    const r  = 0.90 + rng()*0.18;
+    pts.push([r*Math.sin(th)*Math.cos(ph), r*Math.sin(th)*Math.sin(ph), r*Math.cos(th)]);
+  }
+  const edges = [];
+  for (let i=0; i<N; i++) {
+    for (let j=i+1; j<N; j++) {
+      const dx=pts[i][0]-pts[j][0], dy=pts[i][1]-pts[j][1], dz=pts[i][2]-pts[j][2];
+      if (dx*dx+dy*dy+dz*dz < edgeDistSq) edges.push([i,j]);
+    }
+  }
+  return {pts, edges};
+}
 
-  const ctx = cvs.getContext('2d');
-  ctx.save();
-  ctx.scale(dpr, dpr);
-  ctx.translate(HEX_SIZE / 2, HEX_SIZE / 2);
+// Rotate around Y axis
+function rotateY(p, a) {
+  const c=Math.cos(a), s=Math.sin(a);
+  return [p[0]*c+p[2]*s, p[1], -p[0]*s+p[2]*c];
+}
 
-  const r = HEX_RADIUS;
-  const verts = hexVertices(r);
-  const litCount = Math.max(0, Math.min(6, reinforcerCount));
+// Project 3D → 2D (perspective: oblique ring gives saturn-ring feel)
+function project3d(p, cx, cy, scale) {
+  const k = 1/(1+p[2]*0.75);
+  return [cx+p[0]*k*scale, cy+p[1]*k*scale*0.85, p[2], k];
+}
 
-  // Faint wedge fills
-  ctx.lineWidth = 1.6;
+// Compute oblique seat positions — DETERMINISTIC given (seatCount, ringR, rotAngle, cx, cy)
+function computeSeats(seatCount, ringR, rotAngle, cx, cy) {
+  const step = (2*Math.PI)/seatCount;
+  return Array.from({length: seatCount}, (_, i) => {
+    const theta = step*i + rotAngle;
+    const z = Math.sin(theta*0.5)*0.18;
+    const k = 1/(1+z*0.55);
+    return {
+      i, theta,
+      x: cx + Math.cos(theta)*ringR*k,
+      y: cy + Math.sin(theta)*ringR*k*0.72, // oblique flatten
+      k, z,
+    };
+  });
+}
+
+// Equilateral triangle vertices (point-up, seeded stable rotation offset)
+function triangleVerts(cx, cy, r, rotOff) {
+  const base = -Math.PI/2 + rotOff;
+  return [0,1,2].map(i => {
+    const a = base + i*(2*Math.PI/3);
+    return [cx + Math.cos(a)*r, cy + Math.sin(a)*r];
+  });
+}
+
+// B) Glyph Engine — converts session count → glyph recipe
+function glyphRecipe(count) {
+  return {
+    // triangle nesting depth: 0 = seat marker only
+    triCount: count === 0 ? 0 : count <= 2 ? 1 : count <= 5 ? 2 : 3,
+    // brightness 0..1
+    brightness: Math.min(1, count/6),
+    // dot markers at triangle vertices (outer ring only)
+    showDots: count > 0,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D) Moon Cache — keyed geometry, rebuilt only when inputs change
+// ─────────────────────────────────────────────────────────────────────────────
+const MoonCache = {
+  _latticeKey: '',
+  _lattice: null,
+  _glyphPaths: {}, // key: `${seatIdx}_${triCount}_${brightness}`
+
+  getLattice(seed, N, edgeDSq) {
+    const key = `${seed}_${N}_${edgeDSq}`;
+    if (this._latticeKey !== key) {
+      this._lattice    = buildLattice(seed, N, edgeDSq);
+      this._latticeKey = key;
+      this._glyphPaths = {}; // glyph cache invalidated when lattice seed changes
+    }
+    return this._lattice;
+  },
+
+  // Returns {rotOff, verts[]} per nested level — stable, computed once per seat
+  getGlyphVerts(seatIdx, goalSeed, cx, cy, r, recipe) {
+    const key = `${seatIdx}_${recipe.triCount}_${(recipe.brightness*10)|0}`;
+    if (!this._glyphPaths[key]) {
+      const rng = makeRng((seatIdx * 2654435761) ^ goalSeed);
+      const rotOff = (rng()-0.5) * 0.55; // stable per-seat offset
+      const verts = [];
+      for (let ti=0; ti<recipe.triCount; ti++) {
+        const rr = r * Math.pow(0.60, ti);
+        verts.push(triangleVerts(cx, cy, rr, rotOff));
+      }
+      this._glyphPaths[key] = {rotOff, verts};
+    }
+    return this._glyphPaths[key];
+  },
+
+  invalidate() {
+    this._latticeKey = '';
+    this._lattice    = null;
+    this._glyphPaths = {};
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C) Moon Renderer — draws to Canvas2D using engine output
+// ─────────────────────────────────────────────────────────────────────────────
+function renderMoon(ctx, W, H, rotAngle, state) {
+  const {moonScale, seatCount, latticeN, showBounds, maxGlyph, goalSeed, seatPayloads} = state;
+  ctx.clearRect(0, 0, W, H);
+
+  const cx = W*0.5, cy = H*0.50;
+  const base = Math.min(W, H);
+  const moonR = base * 0.26 * moonScale;
+  const ringR = moonR * 1.60;
+
+  // Lattice
+  const lattice = MoonCache.getLattice(goalSeed, latticeN, 0.30);
+  const proj = lattice.pts.map(p => project3d(rotateY(p, rotAngle), cx, cy, moonR));
+
+  // Draw lattice edges — alpha by depth
   ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = C_WHITE_FNT;
-  for (let i = 0; i < 6; i++) {
-    const v1 = verts[i], v2 = verts[(i + 1) % 6];
-    ctx.beginPath();
-    ctx.moveTo(0, 0); ctx.lineTo(v1[0], v1[1]); ctx.lineTo(v2[0], v2[1]);
-    ctx.closePath();
-    ctx.stroke();
+  for (const [ai, bi] of lattice.edges) {
+    const a=proj[ai], b=proj[bi];
+    const avgZ = (a[2]+b[2])*0.5;
+    const alpha = Math.max(0.03, Math.min(0.36, avgZ*0.28+0.20));
+    ctx.strokeStyle = `rgba(110,175,255,${alpha.toFixed(3)})`;
+    ctx.lineWidth = 0.55;
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
   }
 
-  // Lit wedges (bright blue)
-  ctx.strokeStyle = C_BLUE;
-  for (let i = 0; i < litCount; i++) {
-    const v1 = verts[i], v2 = verts[(i + 1) % 6];
-    ctx.beginPath();
-    ctx.moveTo(0, 0); ctx.lineTo(v1[0], v1[1]); ctx.lineTo(v2[0], v2[1]);
-    ctx.closePath();
-    ctx.stroke();
-  }
+  // Moon glow disc
+  const mg = ctx.createRadialGradient(cx,cy,moonR*0.5,cx,cy,moonR*1.2);
+  mg.addColorStop(0,'rgba(70,120,255,0.07)');
+  mg.addColorStop(0.5,'rgba(50,90,200,0.04)');
+  mg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=mg;
+  ctx.beginPath(); ctx.arc(cx,cy,moonR*1.2,0,Math.PI*2); ctx.fill();
 
-  // Hex outline
-  ctx.strokeStyle = C_WHITE_DIM;
-  ctx.lineWidth = 1.6;
+  // Seat ring (oblique ellipse)
+  ctx.strokeStyle='rgba(100,170,255,0.11)';
+  ctx.lineWidth=0.7;
   ctx.beginPath();
-  ctx.moveTo(verts[0][0], verts[0][1]);
-  for (let i = 1; i < 6; i++) ctx.lineTo(verts[i][0], verts[i][1]);
-  ctx.closePath();
+  ctx.ellipse(cx, cy, ringR, ringR*0.72, 0, 0, Math.PI*2);
   ctx.stroke();
 
+  // Seats + glyphs
+  const seats = computeSeats(seatCount, ringR, rotAngle, cx, cy);
+  const glyphBaseR = maxGlyph ? moonR*0.28 : moonR*0.13;
+
+  for (const seat of seats) {
+    const payload = seatPayloads[seat.i] || {count:0};
+    const recipe  = glyphRecipe(payload.count);
+    const br      = recipe.brightness;
+
+    // Seat anchor dot — faint if empty, lit if active
+    const dotAlpha = recipe.triCount > 0 ? 0.65+br*0.30 : 0.18;
+    ctx.fillStyle = `rgba(120,190,255,${dotAlpha.toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(seat.x, seat.y, 2.0*seat.k, 0, Math.PI*2); ctx.fill();
+
+    if (recipe.triCount === 0) continue;
+
+    // Thread from seat to moon center (very faint)
+    const threadA = 0.05 + br*0.07;
+    const mx = seat.x+(cx-seat.x)*0.55, my = seat.y+(cy-seat.y)*0.50-moonR*0.12;
+    ctx.strokeStyle = `rgba(90,160,255,${threadA.toFixed(3)})`;
+    ctx.lineWidth = 0.45;
+    ctx.beginPath();
+    ctx.moveTo(seat.x, seat.y);
+    ctx.quadraticCurveTo(mx, my, cx, cy);
+    ctx.stroke();
+
+    // Glyph triangles (nested, outline-only, no fill)
+    const r = glyphBaseR * (maxGlyph ? 1 : seat.k);
+    const cached = MoonCache.getGlyphVerts(seat.i, goalSeed, seat.x, seat.y, r, recipe);
+
+    for (let ti=0; ti<cached.verts.length; ti++) {
+      const verts = cached.verts[ti];
+      const strokeA = ti===0 ? (0.48+br*0.48) : (0.22+br*0.22);
+      const strokeW = ti===0 ? (0.9+br*0.7)   : 0.55;
+      const col = ti===0
+        ? `rgba(150,215,255,${strokeA.toFixed(3)})`
+        : `rgba(80,155,255,${strokeA.toFixed(3)})`;
+      ctx.strokeStyle = col;
+      ctx.lineWidth   = strokeW;
+      ctx.lineJoin    = 'round';
+      ctx.lineCap     = 'round';
+      ctx.beginPath();
+      ctx.moveTo(verts[0][0], verts[0][1]);
+      ctx.lineTo(verts[1][0], verts[1][1]);
+      ctx.lineTo(verts[2][0], verts[2][1]);
+      ctx.closePath();
+      ctx.stroke();
+
+      // Vertex dot markers on outermost triangle only
+      if (ti===0 && recipe.showDots) {
+        ctx.fillStyle = `rgba(180,230,255,${(strokeA*0.7).toFixed(3)})`;
+        for (const v of verts) {
+          ctx.beginPath(); ctx.arc(v[0],v[1], 1.0*(maxGlyph?1:seat.k), 0, Math.PI*2); ctx.fill();
+        }
+      }
+    }
+
+    // Debug glyph bounds
+    if (showBounds) {
+      ctx.strokeStyle='rgba(255,80,80,0.35)';
+      ctx.lineWidth=0.5;
+      ctx.beginPath(); ctx.arc(seat.x, seat.y, r, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+
+  // Ball (central orb)
+  renderBall(ctx, cx, cy, moonR*0.34, state.ballPulse);
+}
+
+function renderBall(ctx, cx, cy, r, pulse) {
+  // Soft halo glow
+  const hR = r*(1.65+pulse*0.35);
+  const g = ctx.createRadialGradient(cx,cy,r*0.28,cx,cy,hR);
+  g.addColorStop(0, `rgba(70,130,255,${(0.05+pulse*0.09).toFixed(3)})`);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle=g;
+  ctx.beginPath(); ctx.arc(cx,cy,hR,0,Math.PI*2); ctx.fill();
+
+  // Outer ring stroke
+  ctx.strokeStyle=`rgba(110,175,255,${(0.18+pulse*0.20).toFixed(3)})`;
+  ctx.lineWidth=0.85;
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+
+  // Faint inner gradient
+  const ig=ctx.createRadialGradient(cx,cy-r*0.12,r*0.08,cx,cy,r);
+  ig.addColorStop(0,'rgba(160,215,255,0.05)');
+  ig.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=ig;
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Moon loop state + RAF
+// ─────────────────────────────────────────────────────────────────────────────
+const moonCanvas = document.getElementById('moon-canvas');
+const moonCtx    = moonCanvas.getContext('2d');
+let moonDpr=1, moonW=0, moonH=0, moonRot=0, moonRafId=null;
+
+const moonState = {
+  moonScale:    0.72,
+  seatCount:    8,
+  latticeN:     120,
+  showBounds:   false,
+  maxGlyph:     false,
+  freezeRot:    false,
+  goalSeed:     42,
+  seatPayloads: [],
+  ballPulse:    0,
+};
+
+function resizeMoonCanvas() {
+  const stage=document.getElementById('moon-stage');
+  moonDpr=window.devicePixelRatio||1;
+  moonW=stage.clientWidth; moonH=stage.clientHeight;
+  moonCanvas.width  = Math.round(moonW*moonDpr);
+  moonCanvas.height = Math.round(moonH*moonDpr);
+  moonCanvas.style.width  = moonW+'px';
+  moonCanvas.style.height = moonH+'px';
+  MoonCache.invalidate();
+}
+
+function moonLoop() {
+  if (!moonState.freezeRot) moonRot += 0.0015;
+  if (moonState.ballPulse > 0) moonState.ballPulse = Math.max(0, moonState.ballPulse-0.022);
+  moonCtx.save();
+  moonCtx.scale(moonDpr, moonDpr);
+  renderMoon(moonCtx, moonW, moonH, moonRot, moonState);
+  moonCtx.restore();
+  moonRafId = requestAnimationFrame(moonLoop);
+}
+
+function startMoonLoop() {
+  resizeMoonCanvas();
+  if (moonRafId) cancelAnimationFrame(moonRafId);
+  moonLoop();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Seat payloads — map habits + today's completions → seat data
+// ─────────────────────────────────────────────────────────────────────────────
+function refreshSeatPayloads() {
+  const habits  = loadHabits();
+  const events  = loadEvents();
+  const today   = new Date().toDateString();
+  const counts  = {};
+  events.forEach(ev => {
+    if (new Date(ev.ts).toDateString()===today)
+      counts[ev.habitId] = (counts[ev.habitId]||0)+1;
+  });
+  moonState.seatPayloads = Array.from({length: moonState.seatCount}, (_,si) => {
+    const h = habits[si % habits.length];
+    return {count: counts[h.id]||0, label: h.label, habitId: h.id};
+  });
+}
+
+function refreshGoalSeed() {
+  const plan = loadGoalPlan();
+  if (!plan?.goalName) { moonState.goalSeed=42; return; }
+  let h=0;
+  for (let i=0;i<plan.goalName.length;i++) h=Math.imul(31,h)+plan.goalName.charCodeAt(i);
+  moonState.goalSeed=(h>>>0)||1;
+  MoonCache.invalidate();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ball prompt — 2-step zen terminal
+// Step 1: "what are you here to become?" → goal name
+// Step 2: "what is your first step?"     → first habit
+// ─────────────────────────────────────────────────────────────────────────────
+const ballPromptEl  = document.getElementById('ball-prompt');
+const bpQuestion    = document.getElementById('bp-question');
+const bpDisplay     = document.getElementById('bp-display');
+const bpHint        = document.getElementById('bp-hint');
+const ballRealInput = document.getElementById('ball-real-input');
+
+let ballOpen=false, ballStep=1, ballGoalText='', ballHabitText='';
+let ballText='';
+
+const BP_STEPS = [
+  { q: 'what are you here to become?',   hint: 'return to save · esc to cancel' },
+  { q: 'what is your first step?',        hint: 'return to save · esc to go back' },
+];
+
+function openBall() {
+  ballStep=1; ballText=''; ballGoalText=''; ballHabitText='';
+  bpQuestion.textContent = BP_STEPS[0].q;
+  bpHint.textContent     = BP_STEPS[0].hint;
+  bpDisplay.textContent  = '';
+  ballPromptEl.classList.add('open');
+  ballRealInput.value='';
+  ballRealInput.focus();
+  ballOpen=true;
+  moonState.ballPulse=1.0;
+}
+
+function closeBall(save) {
+  ballPromptEl.classList.remove('open');
+  ballRealInput.blur();
+  ballOpen=false;
+  if (save) {
+    const plan = loadGoalPlan() || {version:1,goalName:'',rewardIntent:'',subHabits:[],stacks:[]};
+    if (ballGoalText.trim())  plan.goalName = ballGoalText.trim();
+    if (ballHabitText.trim()) {
+      plan.subHabits = plan.subHabits || [];
+      const existing = plan.subHabits.find(h=>h.name===ballHabitText.trim());
+      if (!existing) plan.subHabits.push({id:'h_'+Date.now(),name:ballHabitText.trim(),cadence:'daily'});
+    }
+    if (plan.goalName) saveGoalPlan(plan);
+    refreshGoalSeed();
+    refreshSeatPayloads();
+    moonState.ballPulse=1.0;
+  }
+}
+
+function advanceBallStep() {
+  if (ballStep===1) {
+    if (!ballText.trim()) return;
+    ballGoalText=ballText;
+    ballStep=2; ballText='';
+    bpDisplay.textContent  ='';
+    ballRealInput.value    ='';
+    bpQuestion.textContent = BP_STEPS[1].q;
+    bpHint.textContent     = BP_STEPS[1].hint;
+  } else {
+    ballHabitText=ballText;
+    closeBall(true);
+  }
+}
+
+ballRealInput.addEventListener('input', ()=>{ ballText=ballRealInput.value; bpDisplay.textContent=ballText; });
+ballRealInput.addEventListener('keydown', e=>{
+  if (e.key==='Enter')  { e.preventDefault(); advanceBallStep(); }
+  if (e.key==='Escape') { e.preventDefault();
+    if (ballStep===2) { ballStep=1; ballText=ballGoalText; bpDisplay.textContent=ballText; ballRealInput.value=ballText; bpQuestion.textContent=BP_STEPS[0].q; bpHint.textContent=BP_STEPS[0].hint; }
+    else closeBall(false);
+  }
+});
+
+document.addEventListener('keydown', e=>{
+  if (!ballOpen) return;
+  if (e.key==='Enter')     { e.preventDefault(); advanceBallStep(); return; }
+  if (e.key==='Escape')    { e.preventDefault();
+    if (ballStep===2){ballStep=1;ballText=ballGoalText;bpDisplay.textContent=ballText;ballRealInput.value=ballText;bpQuestion.textContent=BP_STEPS[0].q;bpHint.textContent=BP_STEPS[0].hint;}
+    else closeBall(false); return;
+  }
+  if (e.key==='Backspace') { ballText=ballText.slice(0,-1); bpDisplay.textContent=ballText; ballRealInput.value=ballText; return; }
+  if (e.key.length===1&&!e.ctrlKey&&!e.metaKey) {
+    ballText+=e.key; bpDisplay.textContent=ballText; ballRealInput.value=ballText;
+  }
+});
+
+document.getElementById('ball-tap').addEventListener('click', ()=>{ if(!ballOpen) openBall(); });
+ballPromptEl.addEventListener('click', e=>{ if(e.target===ballPromptEl) closeBall(false); else ballRealInput.focus(); });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hex+Wedge icons (habit dock)
+// ─────────────────────────────────────────────────────────────────────────────
+const HEX_SIZE=40, HEX_RAD=(HEX_SIZE/2)*0.78, HEX_ROT=-Math.PI/2;
+function hexVerts(r){return Array.from({length:6},(_,i)=>{const a=(i*Math.PI)/3+HEX_ROT;return[r*Math.cos(a),r*Math.sin(a)];});}
+function drawHexWedge(cvs, count) {
+  const dpr=window.devicePixelRatio||1;
+  cvs.width=HEX_SIZE*dpr; cvs.height=HEX_SIZE*dpr;
+  cvs.style.width=HEX_SIZE+'px'; cvs.style.height=HEX_SIZE+'px';
+  const ctx=cvs.getContext('2d');
+  ctx.save(); ctx.scale(dpr,dpr); ctx.translate(HEX_SIZE/2,HEX_SIZE/2);
+  const verts=hexVerts(HEX_RAD), lit=Math.max(0,Math.min(6,count));
+  ctx.lineWidth=1.6; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.strokeStyle='rgba(255,255,255,0.12)';
+  for(let i=0;i<6;i++){const v1=verts[i],v2=verts[(i+1)%6];ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(v1[0],v1[1]);ctx.lineTo(v2[0],v2[1]);ctx.closePath();ctx.stroke();}
+  ctx.strokeStyle='rgba(90,160,255,0.92)';
+  for(let i=0;i<lit;i++){const v1=verts[i],v2=verts[(i+1)%6];ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(v1[0],v1[1]);ctx.lineTo(v2[0],v2[1]);ctx.closePath();ctx.stroke();}
+  ctx.strokeStyle='rgba(255,255,255,0.30)'; ctx.lineWidth=1.6;
+  ctx.beginPath(); ctx.moveTo(verts[0][0],verts[0][1]);
+  for(let i=1;i<6;i++) ctx.lineTo(verts[i][0],verts[i][1]);
+  ctx.closePath(); ctx.stroke();
   ctx.restore();
 }
 
-// ── Habit dock ────────────────────────────────────────────────────────────────
-// tapCounts[habitId] = number of taps today (drives wedge lit count)
+// ─────────────────────────────────────────────────────────────────────────────
+// Habit dock
+// ─────────────────────────────────────────────────────────────────────────────
+const habits  = loadHabits();
+let   events  = loadEvents();
+const dockEl  = document.getElementById('habit-dock');
 const tapCounts = {};
 
-function getTodayTapCount(habitId) {
-  const todayStr = new Date().toDateString();
-  return events.filter(e => e.habitId === habitId && new Date(e.ts).toDateString() === todayStr).length;
+function getTodayCount(habitId) {
+  const today=new Date().toDateString();
+  return events.filter(e=>e.habitId===habitId&&new Date(e.ts).toDateString()===today).length;
 }
 
 function buildDock() {
-  dockEl.innerHTML = '';
-  habits.forEach(h => {
-    tapCounts[h.id] = getTodayTapCount(h.id);
-
-    const btn = document.createElement('button');
-    btn.className = 'habit-btn';
-
-    // Canvas icon
-    const cvs = document.createElement('canvas');
-    cvs.className = 'habit-icon';
-    drawHexWedge(cvs, tapCounts[h.id]);
-    btn.appendChild(cvs);
-
-    // Label
-    const lbl = document.createElement('span');
-    lbl.className   = 'habit-label';
-    lbl.textContent = h.label;
-    btn.appendChild(lbl);
-
-    btn.addEventListener('click', () => onHabitTap(h.id, btn, cvs));
+  dockEl.innerHTML='';
+  habits.forEach(h=>{
+    tapCounts[h.id]=getTodayCount(h.id);
+    const btn=document.createElement('button'); btn.className='habit-btn';
+    const cvs=document.createElement('canvas'); cvs.className='habit-icon';
+    drawHexWedge(cvs,tapCounts[h.id]); btn.appendChild(cvs);
+    const lbl=document.createElement('span'); lbl.className='habit-label'; lbl.textContent=h.label; btn.appendChild(lbl);
+    btn.addEventListener('click',()=>onHabitTap(h.id,btn,cvs));
     dockEl.appendChild(btn);
   });
 }
 
 function onHabitTap(habitId, btn, cvs) {
-  const ev = { id:'c_'+Math.random().toString(16).slice(2), ts:Date.now(), habitId };
-  events.push(ev);
-  saveEvents(events);
+  const ev={id:'c_'+Math.random().toString(16).slice(2), ts:Date.now(), habitId};
+  events.push(ev); saveEvents(events);
   notifyWorkerEvents();
-
-  // Increment tap count and redraw hex
-  tapCounts[habitId] = (tapCounts[habitId] || 0) + 1;
+  tapCounts[habitId]=(tapCounts[habitId]||0)+1;
   drawHexWedge(cvs, tapCounts[habitId]);
-
-  btn.classList.add('tapped');
-  setTimeout(() => btn.classList.remove('tapped'), 600);
+  refreshSeatPayloads();
+  moonState.ballPulse=Math.min(1, moonState.ballPulse+0.4);
+  btn.classList.add('tapped'); setTimeout(()=>btn.classList.remove('tapped'),600);
 }
 
-// ── OffscreenCanvas + Worker path ─────────────────────────────────────────────
-let worker    = null;
-let usingWorker = false;
+// ─────────────────────────────────────────────────────────────────────────────
+// Vortex worker (OffscreenCanvas)
+// ─────────────────────────────────────────────────────────────────────────────
+const vortexCanvas=document.getElementById('vortex');
+let worker=null;
 
-function notifyWorkerEvents() {
-  if (worker) worker.postMessage({ type:'events', events });
-}
+function notifyWorkerEvents(){if(worker)worker.postMessage({type:'events',events});}
 
 function startWorker() {
-  if (!('OffscreenCanvas' in window)) return false;
-  if (!canvas.transferControlToOffscreen) return false;
+  if(!('OffscreenCanvas' in window)||!vortexCanvas.transferControlToOffscreen) return false;
   try {
-    worker = new Worker('/bluemoon/vortex.worker.js');
-    const dpr = window.devicePixelRatio || 1;
-    const W   = window.innerWidth;
-    const H   = window.innerHeight;
-    const cH  = H * 0.667;
-    // Must set pixel dimensions BEFORE transferControlToOffscreen
-    canvas.width  = Math.round(W * dpr);
-    canvas.height = Math.round(cH * dpr);
-    canvas.style.width  = W  + 'px';
-    canvas.style.height = cH + 'px';
-    const offscreen = canvas.transferControlToOffscreen();
-    worker.postMessage(
-      { type:'init', canvas:offscreen, width:W, height:H, devicePixelRatio:dpr, events },
-      [offscreen]
-    );
-    usingWorker = true;
-
-    window.addEventListener('resize', () => {
-      const W2=window.innerWidth, H2=window.innerHeight, cH2=H2*0.667;
-      canvas.style.width=W2+'px'; canvas.style.height=cH2+'px';
-      worker.postMessage({ type:'resize', width:W2, height:H2, devicePixelRatio:window.devicePixelRatio||1, events });
+    worker=new Worker('/bluemoon/vortex.worker.js');
+    const dpr=window.devicePixelRatio||1;
+    const W=window.innerWidth, cH=window.innerHeight - document.getElementById('admin-nav').offsetHeight;
+    vortexCanvas.width=Math.round(W*dpr); vortexCanvas.height=Math.round(cH*dpr);
+    vortexCanvas.style.width=W+'px'; vortexCanvas.style.height=cH+'px';
+    const offscreen=vortexCanvas.transferControlToOffscreen();
+    worker.postMessage({type:'init',canvas:offscreen,width:W,height:cH,devicePixelRatio:dpr,events},[offscreen]);
+    window.addEventListener('resize',()=>{
+      const W2=window.innerWidth, cH2=window.innerHeight - document.getElementById('admin-nav').offsetHeight;
+      vortexCanvas.style.width=W2+'px'; vortexCanvas.style.height=cH2+'px';
+      worker.postMessage({type:'resize',width:W2,height:cH2,devicePixelRatio:window.devicePixelRatio||1,events});
+      resizeMoonCanvas();
     });
     return true;
-  } catch(e) { return false; }
+  } catch{ return false; }
 }
 
-// ── Fallback: inline Canvas2D ─────────────────────────────────────────────────
-function startFallback() {
-  // Inline the full engine as a script tag, then init
-  const s = document.createElement('script');
-  s.src   = '/bluemoon/vortex.fallback.js';
-  s.onload = () => { if (window.VortexFallback) window.VortexFallback.init(canvas, events, habits); };
+function startFallback(){
+  const s=document.createElement('script'); s.src='/bluemoon/vortex.fallback.js';
+  s.onload=()=>{if(window.VortexFallback)window.VortexFallback.init(vortexCanvas,events,habits);};
   document.head.appendChild(s);
 }
 
-// ── Init ──────────────────────────────────────────────────────────────────────
-buildDock();
-
-const workerStarted = startWorker();
-if (!workerStarted) startFallback();
-
-// Center tap
-document.getElementById('center-tap').addEventListener('click', () => {
-  // Could open a relic screen — for now just a visual burst via worker
-  if (worker) worker.postMessage({ type:'pulse' });
-});
-
 // ─────────────────────────────────────────────────────────────────────────────
-// PWA — Install prompt
+// Admin navbar
 // ─────────────────────────────────────────────────────────────────────────────
-let deferredPrompt = null;
-const banner     = document.getElementById('install-banner');
-const btnInstall = document.getElementById('btn-install');
-const btnDismiss = document.getElementById('btn-dismiss');
-const iosHint    = document.getElementById('ios-hint');
-const btnIos     = document.getElementById('btn-ios-dismiss');
-
-// Android / Chrome — standard prompt
-window.addEventListener('beforeinstallprompt', e => {
-  e.preventDefault();
-  deferredPrompt = e;
-  banner.classList.add('show');
-});
-
-btnInstall.addEventListener('click', async () => {
-  banner.classList.remove('show');
-  if (!deferredPrompt) return;
-  deferredPrompt.prompt();
-  await deferredPrompt.userChoice;
-  deferredPrompt = null;
-});
-btnDismiss.addEventListener('click', () => {
-  banner.classList.remove('show');
-  deferredPrompt = null;
-});
-window.addEventListener('appinstalled', () => banner.classList.remove('show'));
-
-// iOS Safari — manual "Add to Home Screen" hint (shown once)
-const isIos      = /iphone|ipad|ipod/i.test(navigator.userAgent);
-const isStandalone = window.navigator.standalone === true
-  || window.matchMedia('(display-mode: standalone)').matches;
-
-if (isIos && !isStandalone && !localStorage.getItem(STORAGE_KEY_IOS)) {
-  setTimeout(() => iosHint.classList.add('show'), 2500);
-}
-btnIos.addEventListener('click', () => {
-  iosHint.classList.remove('show');
-  localStorage.setItem(STORAGE_KEY_IOS, '1');
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Admin navbar — tab switching
-// ─────────────────────────────────────────────────────────────────────────────
-const overlay    = document.getElementById('panel-overlay');
-const navTabs    = document.querySelectorAll('.nav-tab');
-const panels     = {
-  glyphs:  document.getElementById('panel-glyphs'),
-  moon:    document.getElementById('panel-moon'),
-  model:   document.getElementById('panel-model'),
-  fractal: document.getElementById('panel-fractal'),
+const overlay=document.getElementById('panel-overlay');
+const navTabs=document.querySelectorAll('.nav-tab');
+const panels={
+  glyphs:document.getElementById('panel-glyphs'),
+  model:document.getElementById('panel-model'),
+  fractal:document.getElementById('panel-fractal'),
 };
-let activeTab    = null;
-let modelInited  = false;
-let glyphInited  = false;
+const screenMoon=document.getElementById('screen-moon');
+const screenVortex=document.getElementById('screen-vortex');
+const adminOverlay=document.getElementById('admin-overlay');
+let activeTab=null, modelInited=false, glyphInited=false;
 
 function openPanel(name) {
-  // Close if tapping active tab
-  if (activeTab === name) {
-    overlay.classList.remove('open');
-    Object.values(panels).forEach(p => p.style.display = 'none');
-    navTabs.forEach(t => t.classList.remove('active'));
-    activeTab = null;
+  if (name==='admin') {
+    const isOpen=adminOverlay.classList.toggle('open');
+    document.querySelector('[data-panel="admin"]').classList.toggle('active',isOpen);
     return;
   }
-  // Moon tab = close overlay (vortex visible)
-  if (name === 'moon') {
+  navTabs.forEach(t=>t.classList.remove('active'));
+
+  // Vortex tab: show vortex screen, hide moon screen, close any panel overlay
+  if (name==='vortex') {
+    if (activeTab==='vortex') {
+      // toggle off — return to moon home
+      screenMoon.classList.remove('hidden');
+      screenVortex.classList.remove('visible');
+      overlay.classList.remove('open');
+      Object.values(panels).forEach(p=>p.style.display='none');
+      activeTab=null; return;
+    }
     overlay.classList.remove('open');
-    Object.values(panels).forEach(p => p.style.display = 'none');
-    navTabs.forEach(t => t.classList.remove('active'));
-    document.querySelector('[data-panel="moon"]').classList.add('active');
-    activeTab = 'moon';
-    return;
+    Object.values(panels).forEach(p=>p.style.display='none');
+    screenMoon.classList.add('hidden');
+    screenVortex.classList.add('visible');
+    document.querySelector('[data-panel="vortex"]').classList.add('active');
+    activeTab='vortex'; return;
   }
 
+  // Any other panel tab: show moon screen, hide vortex screen, open panel overlay
+  screenMoon.classList.remove('hidden');
+  screenVortex.classList.remove('visible');
+
+  if (activeTab===name) {
+    overlay.classList.remove('open');
+    Object.values(panels).forEach(p=>p.style.display='none');
+    activeTab=null; return;
+  }
   overlay.classList.add('open');
-  Object.values(panels).forEach(p => p.style.display = 'none');
-  const panel = panels[name];
-  if (panel) panel.style.display = 'flex';
-  navTabs.forEach(t => t.classList.remove('active'));
+  Object.values(panels).forEach(p=>p.style.display='none');
+  const panel=panels[name]; if(panel) panel.style.display='flex';
   document.querySelector('[data-panel="'+name+'"]').classList.add('active');
-  activeTab = name;
-
-  if (name === 'glyphs' && !glyphInited) { initGlyph(); glyphInited = true; }
-  if (name === 'model'  && !modelInited) { initModel(); modelInited = true; }
+  activeTab=name;
+  if(name==='glyphs'&&!glyphInited){initGlyph();glyphInited=true;}
+  if(name==='model'&&!modelInited){initModel();modelInited=true;}
 }
 
-navTabs.forEach(tab => {
-  tab.addEventListener('click', () => openPanel(tab.dataset.panel));
+navTabs.forEach(tab=>tab.addEventListener('click',()=>openPanel(tab.dataset.panel)));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin overlay controls
+// ─────────────────────────────────────────────────────────────────────────────
+const aoScale=document.getElementById('ao-scale'), aoScaleV=document.getElementById('ao-scale-val');
+const aoSeats=document.getElementById('ao-seats'), aoFreeze=document.getElementById('ao-freeze');
+const aoBounds=document.getElementById('ao-bounds'), aoLpts=document.getElementById('ao-lpts');
+const aoMaxGlyph=document.getElementById('ao-maxglyph');
+
+aoScale.addEventListener('input',()=>{
+  moonState.moonScale=parseFloat(aoScale.value);
+  aoScaleV.textContent=moonState.moonScale.toFixed(2);
+});
+aoSeats.addEventListener('change',()=>{
+  moonState.seatCount=parseInt(aoSeats.value,10);
+  refreshSeatPayloads(); MoonCache.invalidate();
+});
+aoFreeze.addEventListener('click',()=>{
+  moonState.freezeRot=!moonState.freezeRot;
+  aoFreeze.textContent=moonState.freezeRot?'ON':'OFF';
+  aoFreeze.classList.toggle('on',moonState.freezeRot);
+});
+aoBounds.addEventListener('click',()=>{
+  moonState.showBounds=!moonState.showBounds;
+  aoBounds.textContent=moonState.showBounds?'ON':'OFF';
+  aoBounds.classList.toggle('on',moonState.showBounds);
+});
+aoLpts.addEventListener('change',()=>{
+  moonState.latticeN=parseInt(aoLpts.value,10);
+  MoonCache.invalidate();
+});
+aoMaxGlyph.addEventListener('click',()=>{
+  moonState.maxGlyph=!moonState.maxGlyph;
+  aoMaxGlyph.textContent=moonState.maxGlyph?'ON':'OFF';
+  aoMaxGlyph.classList.toggle('on',moonState.maxGlyph);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Glyph panel — Sun Wukong wireframe (Canvas2D)
 // ─────────────────────────────────────────────────────────────────────────────
-const SW_VERTS = [
+const SW_VERTS=[
   [-0.011,0.500],[0.036,0.458],[0.083,0.456],[0.119,0.433],[0.068,0.414],
   [0.023,0.401],[-0.028,0.395],[-0.072,0.406],[-0.117,0.428],[-0.088,0.452],
   [-0.043,0.458],[0.123,0.375],[0.158,0.339],[0.167,0.286],[0.156,0.231],
@@ -630,11 +1037,9 @@ const SW_VERTS = [
   [0.171,-0.476],[0.157,-0.500],[-0.157,-0.500],[-0.171,-0.476],[-0.155,-0.434],
   [0.000,0.320],[0.000,0.470],[0.000,-0.180],[0.000,-0.430],[0.000,-0.500],
   [0.000,0.090],[0.000,-0.050],[0.000,0.155],[0.000,0.400],[0.200,0.260],
-  [-0.200,0.260],[0.200,-0.060],[-0.200,-0.060],[0.000,-0.260],[0.180,-0.270],
-  [-0.180,-0.270]
+  [-0.200,0.260],[0.200,-0.060],[-0.200,-0.060],[0.000,-0.260],[0.180,-0.270],[-0.180,-0.270]
 ];
-
-const SW_TRIS = [
+const SW_TRIS=[
   [0,1,10],[1,2,10],[2,9,10],[2,3,9],[3,8,9],[3,4,8],[4,7,8],[4,5,7],[5,6,7],
   [1,10,115],[2,10,114],[114,115,10],[11,12,24],[12,23,24],[12,13,23],[13,22,23],
   [13,14,22],[14,21,22],[14,15,21],[15,20,21],[15,16,23],[16,19,20],[16,17,18],
@@ -655,8 +1060,7 @@ const SW_TRIS = [
   [45,60,108],[45,108,107],[45,107,106],[45,106,120],[120,106,105],[120,105,119],
   [119,105,104],[119,104,109],[119,109,110],[119,110,111],[119,111,112],[119,112,109]
 ];
-
-const SW_SHADES = [
+const SW_SHADES=[
   0,0,0,1,1,1,1,1,1,3,3,3,1,1,1,1,1,1,1,1,1,1,1,1,1,
   2,2,2,3,3,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,1,1,1,1,1,
   1,1,1,2,1,2,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,1,1,1,1,
@@ -667,207 +1071,119 @@ const SW_SHADES = [
   1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
   1,1,2,2,2,2
 ];
+const SHADE_C=['rgba(10,20,50,0.7)','rgba(50,120,255,0.18)','rgba(120,200,255,0.32)','rgba(220,240,255,0.60)'];
+const SHADE_S=['rgba(80,140,255,0.35)','rgba(80,160,255,0.55)','rgba(140,210,255,0.80)','rgba(230,245,255,0.95)'];
 
-const SHADE_COLORS = [
-  'rgba(10,20,50,0.7)',          // 0 dark
-  'rgba(50,120,255,0.18)',       // 1 blue fill
-  'rgba(120,200,255,0.32)',      // 2 light blue
-  'rgba(220,240,255,0.60)',      // 3 white/bright
-];
-const SHADE_STROKE = [
-  'rgba(80,140,255,0.35)',
-  'rgba(80,160,255,0.55)',
-  'rgba(140,210,255,0.80)',
-  'rgba(230,245,255,0.95)',
-];
-
-function initGlyph() {
-  const cvs = document.getElementById('glyph-canvas');
-  const size = Math.min(window.innerWidth, window.innerHeight * 0.72, 340);
-  const dpr  = window.devicePixelRatio || 1;
-  cvs.width  = size * dpr;
-  cvs.height = size * dpr;
-  cvs.style.width  = size + 'px';
-  cvs.style.height = size + 'px';
-  const ctx = cvs.getContext('2d');
-  ctx.scale(dpr, dpr);
-
-  const cx = size / 2, cy = size / 2, scale = size * 0.88;
-
-  function proj(v) {
-    return [cx + v[0] * scale, cy - v[1] * scale];
-  }
-
-  // Shadow layer (offset, slightly larger, dark)
-  ctx.save();
-  ctx.translate(2, 3);
-  SW_TRIS.forEach((tri, i) => {
-    const shade = SW_SHADES[i] || 0;
-    const [ax, ay] = proj(SW_VERTS[tri[0]]);
-    const [bx, by] = proj(SW_VERTS[tri[1]]);
-    const [cx2, cy2] = proj(SW_VERTS[tri[2]]);
-    ctx.beginPath();
-    ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx2, cy2);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(0,10,40,0.25)';
-    ctx.fill();
+function initGlyph(){
+  const cvs=document.getElementById('glyph-canvas');
+  const size=Math.min(window.innerWidth,window.innerHeight*0.72,340);
+  const dpr=window.devicePixelRatio||1;
+  cvs.width=size*dpr; cvs.height=size*dpr;
+  cvs.style.width=size+'px'; cvs.style.height=size+'px';
+  const ctx=cvs.getContext('2d'); ctx.scale(dpr,dpr);
+  const cx=size/2,cy=size/2,sc=size*0.88;
+  const proj=v=>[cx+v[0]*sc, cy-v[1]*sc];
+  ctx.save(); ctx.translate(2,3);
+  SW_TRIS.forEach(t=>{
+    const[ax,ay]=proj(SW_VERTS[t[0]]);const[bx,by]=proj(SW_VERTS[t[1]]);const[cx2,cy2]=proj(SW_VERTS[t[2]]);
+    ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.lineTo(cx2,cy2);ctx.closePath();
+    ctx.fillStyle='rgba(0,10,40,0.25)';ctx.fill();
+  }); ctx.restore();
+  SW_TRIS.forEach((t,i)=>{
+    const s=SW_SHADES[i]||0;
+    const[ax,ay]=proj(SW_VERTS[t[0]]);const[bx,by]=proj(SW_VERTS[t[1]]);const[cx2,cy2]=proj(SW_VERTS[t[2]]);
+    ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.lineTo(cx2,cy2);ctx.closePath();
+    ctx.fillStyle=SHADE_C[s];ctx.strokeStyle=SHADE_S[s];
+    ctx.lineWidth=s>=2?1.4:0.8;ctx.fill();ctx.stroke();
   });
-  ctx.restore();
-
-  // Main triangles
-  SW_TRIS.forEach((tri, i) => {
-    const shade = SW_SHADES[i] || 0;
-    const [ax, ay] = proj(SW_VERTS[tri[0]]);
-    const [bx, by] = proj(SW_VERTS[tri[1]]);
-    const [cx2, cy2] = proj(SW_VERTS[tri[2]]);
-    ctx.beginPath();
-    ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx2, cy2);
-    ctx.closePath();
-    ctx.fillStyle   = SHADE_COLORS[shade];
-    ctx.strokeStyle = SHADE_STROKE[shade];
-    ctx.lineWidth   = shade >= 2 ? 1.4 : 0.8;
-    ctx.fill();
-    ctx.stroke();
-  });
-
-  // Vertex glow nodes on outer rings (every 4th vertex)
-  ctx.fillStyle = 'rgba(140,210,255,0.55)';
-  SW_VERTS.forEach((v, i) => {
-    if (i % 5 !== 0) return;
-    const [px, py] = proj(v);
-    ctx.beginPath();
-    ctx.arc(px, py, 1.5, 0, Math.PI * 2);
-    ctx.fill();
+  ctx.fillStyle='rgba(140,210,255,0.55)';
+  SW_VERTS.forEach((v,i)=>{
+    if(i%5!==0)return;const[px,py]=proj(v);
+    ctx.beginPath();ctx.arc(px,py,1.5,0,Math.PI*2);ctx.fill();
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Model panel — Three.js GLB viewer
 // ─────────────────────────────────────────────────────────────────────────────
-function initModel() {
-  const cvs   = document.getElementById('model-canvas');
-  const wrap   = document.getElementById('model-wrap');
-  const W      = wrap.clientWidth  || window.innerWidth;
-  const H      = Math.min(wrap.clientHeight || window.innerHeight * 0.75, window.innerHeight * 0.75);
-  const size   = Math.min(W, H);
-  const dpr    = window.devicePixelRatio || 1;
-  cvs.width    = size * dpr;
-  cvs.height   = size * dpr;
-  cvs.style.width  = size + 'px';
-  cvs.style.height = size + 'px';
-
-  // Load Three.js from CDN then boot
-  function loadScript(url, cb) {
-    if (document.querySelector('script[data-src="'+url+'"]')) { cb(); return; }
-    const s = document.createElement('script');
-    s.src = url;
-    s.setAttribute('data-src', url);
-    s.onload = cb;
-    document.head.appendChild(s);
-  }
-
-  const THREE_CDN = 'https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js';
-
-  // Use importmap-style dynamic import
-  import('https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js').then(THREE => {
-    import('https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/loaders/GLTFLoader.js').then(({ GLTFLoader }) => {
-      import('https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/controls/OrbitControls.js').then(({ OrbitControls }) => {
-        bootModel(THREE, GLTFLoader, OrbitControls, cvs, size, dpr);
+function initModel(){
+  const cvs=document.getElementById('model-canvas');
+  const wrap=document.getElementById('model-wrap');
+  const W2=wrap.clientWidth||window.innerWidth;
+  const H2=Math.min(wrap.clientHeight||window.innerHeight*0.75,window.innerHeight*0.75);
+  const size=Math.min(W2,H2);
+  const dpr=window.devicePixelRatio||1;
+  cvs.width=size*dpr; cvs.height=size*dpr;
+  cvs.style.width=size+'px'; cvs.style.height=size+'px';
+  import('https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js').then(THREE=>{
+    import('https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/loaders/GLTFLoader.js').then(({GLTFLoader})=>{
+      import('https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/controls/OrbitControls.js').then(({OrbitControls})=>{
+        bootModel(THREE,GLTFLoader,OrbitControls,cvs,size,dpr);
       });
     });
-  }).catch(err => {
-    console.error('Three.js load failed', err);
-    const ctx = cvs.getContext('2d');
-    ctx.scale(dpr, dpr);
-    ctx.fillStyle = 'rgba(80,160,255,0.25)';
-    ctx.fillText('WebGL not available', 10, 20);
-  });
+  }).catch(err=>console.error('Three.js load failed',err));
 }
-
-function bootModel(THREE, GLTFLoader, OrbitControls, cvs, size, dpr) {
-  // Renderer
-  const renderer = new THREE.WebGLRenderer({ canvas: cvs, antialias: true, alpha: true });
-  renderer.setPixelRatio(dpr);
-  renderer.setSize(size, size, false);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.4;
-
-  // Scene
-  const scene  = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 100);
-  camera.position.set(0, 0.1, 2.8);
-
-  // Lights
-  const amb = new THREE.AmbientLight(0x8ab4ff, 0.7);
-  scene.add(amb);
-  const key = new THREE.DirectionalLight(0xffffff, 2.2);
-  key.position.set(1.5, 2.5, 2);
-  scene.add(key);
-  const rim = new THREE.DirectionalLight(0x4488ff, 1.0);
-  rim.position.set(-2, 0.5, -1.5);
-  scene.add(rim);
-  const fill = new THREE.PointLight(0xff8844, 0.5, 10);
-  fill.position.set(0, -1, 1);
-  scene.add(fill);
-
-  // Orbit controls (touch-friendly)
-  const controls = new OrbitControls(camera, cvs);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.07;
-  controls.minDistance   = 0.8;
-  controls.maxDistance   = 6;
-  controls.autoRotate    = true;
-  controls.autoRotateSpeed = 1.2;
-
-  // Load GLB
-  const loader = new GLTFLoader();
-  loader.load('/bluemoon/monkey.glb', gltf => {
-    const model = gltf.scene;
-    // Center and normalize
-    const box = new THREE.Box3().setFromObject(model);
-    const cen = box.getCenter(new THREE.Vector3());
-    const siz = box.getSize(new THREE.Vector3()).length();
-    model.position.sub(cen);
-    model.scale.setScalar(2.0 / siz);
-    scene.add(model);
-
-    // Stop auto-rotate on touch/mouse
-    controls.addEventListener('start', () => { controls.autoRotate = false; });
-  }, undefined, err => {
-    console.error('GLB load error', err);
-  });
-
-  // Animate
+function bootModel(THREE,GLTFLoader,OrbitControls,cvs,size,dpr){
+  const renderer=new THREE.WebGLRenderer({canvas:cvs,antialias:true,alpha:true});
+  renderer.setPixelRatio(dpr);renderer.setSize(size,size,false);
+  renderer.outputColorSpace=THREE.SRGBColorSpace;
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.4;
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(42,1,0.01,100);camera.position.set(0,0.1,2.8);
+  scene.add(new THREE.AmbientLight(0x8ab4ff,0.7));
+  const key=new THREE.DirectionalLight(0xffffff,2.2);key.position.set(1.5,2.5,2);scene.add(key);
+  const rim=new THREE.DirectionalLight(0x4488ff,1.0);rim.position.set(-2,0.5,-1.5);scene.add(rim);
+  scene.add(Object.assign(new THREE.PointLight(0xff8844,0.5,10),{position:{x:0,y:-1,z:1}}));
+  const controls=new OrbitControls(camera,cvs);
+  controls.enableDamping=true;controls.dampingFactor=0.07;
+  controls.minDistance=0.8;controls.maxDistance=6;
+  controls.autoRotate=true;controls.autoRotateSpeed=1.2;
+  new GLTFLoader().load('/bluemoon/monkey.glb',gltf=>{
+    const model=gltf.scene;
+    const box=new THREE.Box3().setFromObject(model);
+    const cen=box.getCenter(new THREE.Vector3());
+    const siz=box.getSize(new THREE.Vector3()).length();
+    model.position.sub(cen);model.scale.setScalar(2.0/siz);scene.add(model);
+    controls.addEventListener('start',()=>{controls.autoRotate=false;});
+  },undefined,err=>console.error('GLB',err));
   let animId;
-  function animate() {
-    animId = requestAnimationFrame(animate);
-    controls.update();
-    renderer.render(scene, camera);
-  }
-  animate();
-
-  // Cleanup when panel hides (stop loop when not visible)
-  const modelPanel = document.getElementById('panel-model');
-  const obs = new MutationObserver(() => {
-    if (modelPanel.style.display === 'none') {
-      cancelAnimationFrame(animId);
-      obs.disconnect();
-    }
-  });
-  obs.observe(modelPanel, { attributes: true, attributeFilter: ['style'] });
+  (function animate(){animId=requestAnimationFrame(animate);controls.update();renderer.render(scene,camera);})();
+  const mp=document.getElementById('panel-model');
+  const obs=new MutationObserver(()=>{if(mp.style.display==='none'){cancelAnimationFrame(animId);obs.disconnect();}});
+  obs.observe(mp,{attributes:true,attributeFilter:['style']});
 }
 
-// Service worker — unregister stale SW first, then re-register
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(regs => {
-    const stale = regs.filter(r => r.scope.includes('/bluemoon') && !r.active?.scriptURL.includes('sw.js'));
-    Promise.all(stale.map(r => r.unregister())).then(() => {
-      navigator.serviceWorker.register('/bluemoon/sw.js').catch(()=>{});
-    });
-  }).catch(() => {
-    navigator.serviceWorker.register('/bluemoon/sw.js').catch(()=>{});
-  });
+// ─────────────────────────────────────────────────────────────────────────────
+// Boot
+// ─────────────────────────────────────────────────────────────────────────────
+refreshGoalSeed();
+refreshSeatPayloads();
+buildDock();
+startMoonLoop();
+if(!startWorker()) startFallback();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PWA
+// ─────────────────────────────────────────────────────────────────────────────
+let deferredPrompt=null;
+const banner=document.getElementById('install-banner');
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;banner.classList.add('show');});
+document.getElementById('btn-install').addEventListener('click',async()=>{
+  banner.classList.remove('show');if(!deferredPrompt)return;
+  deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;
+});
+document.getElementById('btn-dismiss').addEventListener('click',()=>{banner.classList.remove('show');deferredPrompt=null;});
+window.addEventListener('appinstalled',()=>banner.classList.remove('show'));
+const isIos=/iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone=window.navigator.standalone===true||window.matchMedia('(display-mode: standalone)').matches;
+if(isIos&&!isStandalone&&!localStorage.getItem(SK_IOS)){setTimeout(()=>document.getElementById('ios-hint').classList.add('show'),2500);}
+document.getElementById('btn-ios-dismiss').addEventListener('click',()=>{document.getElementById('ios-hint').classList.remove('show');localStorage.setItem(SK_IOS,'1');});
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.getRegistrations().then(regs=>{
+    const stale=regs.filter(r=>r.scope.includes('/bluemoon')&&!r.active?.scriptURL.includes('sw.js'));
+    Promise.all(stale.map(r=>r.unregister())).then(()=>navigator.serviceWorker.register('/bluemoon/sw.js').catch(()=>{}));
+  }).catch(()=>navigator.serviceWorker.register('/bluemoon/sw.js').catch(()=>{}));
 }
 </script>
 </body>
