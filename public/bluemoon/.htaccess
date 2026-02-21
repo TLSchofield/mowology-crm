@@ -3,9 +3,9 @@ Options -Indexes
 
 # Required for OffscreenCanvas + Web Workers in all browsers
 <IfModule mod_headers.c>
-    # Cross-Origin Isolation (needed for SharedArrayBuffer; good practice for workers)
+    # Cross-Origin Isolation — credentialless allows CDN resources (Three.js etc.)
     Header set Cross-Origin-Opener-Policy "same-origin"
-    Header set Cross-Origin-Embedder-Policy "require-corp"
+    Header set Cross-Origin-Embedder-Policy "credentialless"
 
     # Allow service worker scope
     Header set Service-Worker-Allowed "/"
@@ -16,18 +16,13 @@ Options -Indexes
     AddType application/manifest+json  .webmanifest
     AddType application/javascript     .js
     AddType image/png                  .png
+    AddType model/gltf-binary          .glb
 </IfModule>
 
-# Aggressive caching for versioned assets, no-cache for HTML/SW
-<FilesMatch "\.(webmanifest|html)$">
+# No-cache for all app files so deploys are always live
+<FilesMatch "\.(html|js|webmanifest)$">
     Header set Cache-Control "no-cache, must-revalidate"
 </FilesMatch>
-<FilesMatch "sw\.js$">
-    Header set Cache-Control "no-cache, must-revalidate"
-</FilesMatch>
-<FilesMatch "\.(png|ico)$">
+<FilesMatch "\.(png|ico|glb)$">
     Header set Cache-Control "public, max-age=604800"
-</FilesMatch>
-<FilesMatch "\.worker\.js$|vortex\.fallback\.js$">
-    Header set Cache-Control "public, max-age=3600"
 </FilesMatch>

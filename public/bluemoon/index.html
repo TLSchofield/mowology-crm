@@ -22,7 +22,7 @@
 
     html, body {
       width: 100%; height: 100%;
-      background: #070B18;
+      background: #000;
       overflow: hidden;
       overscroll-behavior: none;
       user-select: none;
@@ -37,11 +37,122 @@
       flex-direction: column;
     }
 
+    /* ── Admin navbar ── */
+    #admin-nav {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 6px 10px;
+      background: rgba(5,7,12,0.96);
+      border-bottom: 1px solid rgba(100,180,255,0.13);
+      z-index: 200;
+    }
+    .nav-tab {
+      padding: 5px 14px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: rgba(180,210,255,0.40);
+      font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
+      cursor: pointer;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .nav-tab.active {
+      background: rgba(80,160,255,0.18);
+      border-color: rgba(100,200,255,0.35);
+      color: rgba(200,235,255,0.95);
+    }
+
+    /* ── Overlay panel (sits over vortex+dock) ── */
+    #panel-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      z-index: 100;
+      background: rgba(4,6,14,0.96);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #panel-overlay.open { display: flex; }
+
+    .panel-title {
+      font-size: 11px; font-weight: 700; letter-spacing: 1px;
+      color: rgba(140,190,255,0.40);
+      text-transform: uppercase;
+      margin-bottom: 18px;
+    }
+
+    /* Glyph canvas */
+    #glyph-canvas { display: block; }
+
+    /* Model (GLB) panel */
+    #model-wrap {
+      width: 100%;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    #model-canvas {
+      display: block;
+      border-radius: 16px;
+      touch-action: none;
+    }
+    .model-hint {
+      font-size: 10px;
+      color: rgba(140,190,255,0.30);
+      letter-spacing: 0.3px;
+    }
+
+    /* Fractal panel */
+    #fractal-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+    #fractal-canvas { display: block; }
+    .fractal-controls {
+      display: flex; gap: 8px;
+    }
+    .fractal-pill {
+      padding: 5px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(80,160,255,0.22);
+      background: rgba(80,160,255,0.08);
+      color: rgba(200,235,255,0.85);
+      font-size: 11px; font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .fractal-progress {
+      font-size: 11px; color: rgba(140,190,255,0.50);
+      font-weight: 700; letter-spacing: 0.3px;
+    }
+
     /* Top 2/3: vortex canvas */
     #canvas-wrap {
       position: relative;
       flex: 0 0 66.67%;
       overflow: hidden;
+      /* Deep space nebula — radial glow from centre */
+      background:
+        radial-gradient(ellipse 55% 55% at 50% 50%,
+          rgba(30, 60, 140, 0.55) 0%,
+          rgba(15, 30, 80,  0.38) 35%,
+          rgba(5,  12, 35,  0.25) 60%,
+          transparent 100%),
+        radial-gradient(ellipse 90% 80% at 50% 50%,
+          rgba(8, 18, 50, 0.7) 0%,
+          #000 75%);
     }
     #vortex {
       display: block;
@@ -132,11 +243,51 @@
 <body>
 
 <div id="app">
-  <div id="canvas-wrap">
-    <canvas id="vortex"></canvas>
-    <div id="center-tap"></div>
+  <div id="admin-nav">
+    <button class="nav-tab" data-panel="glyphs">Glyphs</button>
+    <button class="nav-tab" data-panel="moon">Moon</button>
+    <button class="nav-tab" data-panel="model">Model</button>
+    <button class="nav-tab" data-panel="fractal">Fractal</button>
   </div>
-  <div id="habit-dock"></div>
+  <div style="position:relative;flex:1;display:flex;flex-direction:column;overflow:hidden;">
+    <div id="panel-overlay">
+      <!-- Glyphs panel -->
+      <div id="panel-glyphs" class="panel-inner" style="display:none;flex-direction:column;align-items:center;gap:10px;">
+        <div class="panel-title">Glyph Library</div>
+        <canvas id="glyph-canvas"></canvas>
+      </div>
+      <!-- Moon panel -->
+      <div id="panel-moon" class="panel-inner" style="display:none;flex-direction:column;align-items:center;gap:12px;">
+        <div class="panel-title">Moon · Vortex</div>
+        <div style="color:rgba(140,190,255,0.35);font-size:13px;">Vortex running behind</div>
+      </div>
+      <!-- Model panel -->
+      <div id="panel-model" class="panel-inner" style="display:none;flex-direction:column;align-items:center;width:100%;height:100%;">
+        <div class="panel-title">Neon Monkey</div>
+        <div id="model-wrap">
+          <canvas id="model-canvas"></canvas>
+          <div class="model-hint">drag to rotate · pinch to zoom</div>
+        </div>
+      </div>
+      <!-- Fractal panel -->
+      <div id="panel-fractal" class="panel-inner" style="display:none;flex-direction:column;align-items:center;gap:14px;">
+        <div class="panel-title">Fractal Relic</div>
+        <div id="fractal-wrap">
+          <canvas id="fractal-canvas"></canvas>
+          <div class="fractal-controls">
+            <button class="fractal-pill" id="fractal-btn-earned">Earned: 0</button>
+            <button class="fractal-pill" id="fractal-btn-color">Color: sample</button>
+          </div>
+          <div class="fractal-progress" id="fractal-progress">0 / 400 · 0%</div>
+        </div>
+      </div>
+    </div>
+    <div id="canvas-wrap">
+      <canvas id="vortex"></canvas>
+      <div id="center-tap"></div>
+    </div>
+    <div id="habit-dock"></div>
+  </div>
 </div>
 
 <div id="install-banner">
@@ -199,14 +350,14 @@ function hexVertices(r) {
   return v;
 }
 
-function drawHexWedge(canvas, reinforcerCount) {
+function drawHexWedge(cvs, reinforcerCount) {
   const dpr = window.devicePixelRatio || 1;
-  canvas.width  = HEX_SIZE * dpr;
-  canvas.height = HEX_SIZE * dpr;
-  canvas.style.width  = HEX_SIZE + 'px';
-  canvas.style.height = HEX_SIZE + 'px';
+  cvs.width  = HEX_SIZE * dpr;
+  cvs.height = HEX_SIZE * dpr;
+  cvs.style.width  = HEX_SIZE + 'px';
+  cvs.style.height = HEX_SIZE + 'px';
 
-  const ctx = canvas.getContext('2d');
+  const ctx = cvs.getContext('2d');
   ctx.save();
   ctx.scale(dpr, dpr);
   ctx.translate(HEX_SIZE / 2, HEX_SIZE / 2);
@@ -400,9 +551,323 @@ btnIos.addEventListener('click', () => {
   localStorage.setItem(STORAGE_KEY_IOS, '1');
 });
 
-// Service worker
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin navbar — tab switching
+// ─────────────────────────────────────────────────────────────────────────────
+const overlay    = document.getElementById('panel-overlay');
+const navTabs    = document.querySelectorAll('.nav-tab');
+const panels     = {
+  glyphs:  document.getElementById('panel-glyphs'),
+  moon:    document.getElementById('panel-moon'),
+  model:   document.getElementById('panel-model'),
+  fractal: document.getElementById('panel-fractal'),
+};
+let activeTab    = null;
+let modelInited  = false;
+let glyphInited  = false;
+
+function openPanel(name) {
+  // Close if tapping active tab
+  if (activeTab === name) {
+    overlay.classList.remove('open');
+    Object.values(panels).forEach(p => p.style.display = 'none');
+    navTabs.forEach(t => t.classList.remove('active'));
+    activeTab = null;
+    return;
+  }
+  // Moon tab = close overlay (vortex visible)
+  if (name === 'moon') {
+    overlay.classList.remove('open');
+    Object.values(panels).forEach(p => p.style.display = 'none');
+    navTabs.forEach(t => t.classList.remove('active'));
+    document.querySelector('[data-panel="moon"]').classList.add('active');
+    activeTab = 'moon';
+    return;
+  }
+
+  overlay.classList.add('open');
+  Object.values(panels).forEach(p => p.style.display = 'none');
+  const panel = panels[name];
+  if (panel) panel.style.display = 'flex';
+  navTabs.forEach(t => t.classList.remove('active'));
+  document.querySelector('[data-panel="'+name+'"]').classList.add('active');
+  activeTab = name;
+
+  if (name === 'glyphs' && !glyphInited) { initGlyph(); glyphInited = true; }
+  if (name === 'model'  && !modelInited) { initModel(); modelInited = true; }
+}
+
+navTabs.forEach(tab => {
+  tab.addEventListener('click', () => openPanel(tab.dataset.panel));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Glyph panel — Sun Wukong wireframe (Canvas2D)
+// ─────────────────────────────────────────────────────────────────────────────
+const SW_VERTS = [
+  [-0.011,0.500],[0.036,0.458],[0.083,0.456],[0.119,0.433],[0.068,0.414],
+  [0.023,0.401],[-0.028,0.395],[-0.072,0.406],[-0.117,0.428],[-0.088,0.452],
+  [-0.043,0.458],[0.123,0.375],[0.158,0.339],[0.167,0.286],[0.156,0.231],
+  [0.132,0.186],[0.096,0.162],[0.055,0.154],[-0.055,0.154],[-0.096,0.162],
+  [-0.132,0.186],[-0.156,0.231],[-0.167,0.286],[-0.158,0.339],[-0.123,0.375],
+  [0.000,0.280],[0.041,0.254],[0.033,0.208],[-0.033,0.208],[-0.041,0.254],
+  [0.000,0.175],[0.063,0.095],[0.111,0.052],[0.123,-0.006],[0.097,-0.060],
+  [0.051,-0.091],[0.000,-0.098],[-0.051,-0.091],[-0.097,-0.060],[-0.123,-0.006],
+  [-0.111,0.052],[-0.063,0.095],[0.020,0.037],[-0.020,0.037],[0.000,-0.003],
+  [0.147,-0.120],[0.178,-0.179],[0.174,-0.248],[0.142,-0.301],[0.099,-0.321],
+  [0.054,-0.309],[-0.054,-0.309],[-0.099,-0.321],[-0.142,-0.301],[-0.174,-0.248],
+  [-0.178,-0.179],[-0.147,-0.120],[0.000,-0.160],[0.043,-0.185],[0.037,-0.236],
+  [-0.037,-0.236],[-0.043,-0.185],[0.132,-0.349],[0.163,-0.406],[0.155,-0.459],
+  [0.118,-0.490],[0.072,-0.498],[0.027,-0.493],[-0.027,-0.493],[-0.072,-0.498],
+  [-0.118,-0.490],[-0.155,-0.459],[-0.163,-0.406],[-0.132,-0.349],[0.000,-0.380],
+  [0.041,-0.409],[0.033,-0.452],[-0.033,-0.452],[-0.041,-0.409],[0.209,0.395],
+  [0.232,0.340],[0.243,0.275],[0.237,0.209],[0.218,0.161],[-0.218,0.161],
+  [-0.237,0.209],[-0.243,0.275],[-0.232,0.340],[-0.209,0.395],[0.268,0.115],
+  [0.274,0.049],[0.263,-0.020],[0.237,-0.079],[0.198,-0.120],[-0.198,-0.120],
+  [-0.237,-0.079],[-0.263,-0.020],[-0.274,0.049],[-0.268,0.115],[0.220,-0.165],
+  [0.237,-0.240],[0.231,-0.316],[0.203,-0.370],[0.163,-0.395],[-0.163,-0.395],
+  [-0.203,-0.370],[-0.231,-0.316],[-0.237,-0.240],[-0.220,-0.165],[0.155,-0.434],
+  [0.171,-0.476],[0.157,-0.500],[-0.157,-0.500],[-0.171,-0.476],[-0.155,-0.434],
+  [0.000,0.320],[0.000,0.470],[0.000,-0.180],[0.000,-0.430],[0.000,-0.500],
+  [0.000,0.090],[0.000,-0.050],[0.000,0.155],[0.000,0.400],[0.200,0.260],
+  [-0.200,0.260],[0.200,-0.060],[-0.200,-0.060],[0.000,-0.260],[0.180,-0.270],
+  [-0.180,-0.270]
+];
+
+const SW_TRIS = [
+  [0,1,10],[1,2,10],[2,9,10],[2,3,9],[3,8,9],[3,4,8],[4,7,8],[4,5,7],[5,6,7],
+  [1,10,115],[2,10,114],[114,115,10],[11,12,24],[12,23,24],[12,13,23],[13,22,23],
+  [13,14,22],[14,21,22],[14,15,21],[15,20,21],[15,16,23],[16,19,20],[16,17,18],
+  [16,18,19],[11,24,79],[24,84,79],[79,80,84],[80,83,84],[80,81,83],[81,82,83],
+  [85,86,93],[86,92,93],[86,87,92],[87,91,92],[87,88,91],[88,90,91],[88,89,90],
+  [79,85,93],[79,93,112],[84,79,112],[84,112,113],[83,84,113],[25,26,29],[26,27,29],
+  [27,28,29],[26,27,116],[27,28,116],[30,31,41],[31,40,41],[31,32,40],[32,39,40],
+  [32,33,39],[33,38,39],[33,34,38],[34,37,38],[34,35,37],[35,36,37],[31,41,42],
+  [41,43,42],[42,43,44],[30,41,118],[30,118,117],[45,46,55],[46,54,55],[46,47,54],
+  [47,53,54],[47,48,53],[48,52,53],[48,49,52],[49,51,52],[49,50,51],[55,119,56],
+  [56,57,119],[57,58,119],[45,55,56],[45,56,120],[60,61,74],[61,73,74],[61,62,73],
+  [62,72,73],[62,63,72],[63,71,72],[63,64,72],[64,70,71],[64,65,70],[65,69,70],
+  [65,66,69],[66,68,69],[66,67,68],[60,74,121],[74,75,121],[75,76,121],[76,77,122],
+  [77,78,122],[60,121,61],[94,95,103],[95,102,103],[95,96,102],[96,101,102],
+  [96,97,101],[97,100,101],[97,98,100],[98,99,100],[94,103,104],[103,104,113],
+  [104,105,113],[105,106,107],[104,106,105],[104,107,108],[104,108,109],[104,109,112],
+  [104,112,113],[11,79,110],[11,110,111],[11,111,112],[11,112,94],[11,94,24],
+  [45,60,108],[45,108,107],[45,107,106],[45,106,120],[120,106,105],[120,105,119],
+  [119,105,104],[119,104,109],[119,109,110],[119,110,111],[119,111,112],[119,112,109]
+];
+
+const SW_SHADES = [
+  0,0,0,1,1,1,1,1,1,3,3,3,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  2,2,2,3,3,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,1,1,1,1,1,
+  1,1,1,2,1,2,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,1,1,1,1,
+  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  1,1,1,1,2,2,2,1,1,2,2,2,1,1,2,2,2,2,1,2,1,2,2,2,2,
+  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+  1,1,2,2,2,2
+];
+
+const SHADE_COLORS = [
+  'rgba(10,20,50,0.7)',          // 0 dark
+  'rgba(50,120,255,0.18)',       // 1 blue fill
+  'rgba(120,200,255,0.32)',      // 2 light blue
+  'rgba(220,240,255,0.60)',      // 3 white/bright
+];
+const SHADE_STROKE = [
+  'rgba(80,140,255,0.35)',
+  'rgba(80,160,255,0.55)',
+  'rgba(140,210,255,0.80)',
+  'rgba(230,245,255,0.95)',
+];
+
+function initGlyph() {
+  const cvs = document.getElementById('glyph-canvas');
+  const size = Math.min(window.innerWidth, window.innerHeight * 0.72, 340);
+  const dpr  = window.devicePixelRatio || 1;
+  cvs.width  = size * dpr;
+  cvs.height = size * dpr;
+  cvs.style.width  = size + 'px';
+  cvs.style.height = size + 'px';
+  const ctx = cvs.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const cx = size / 2, cy = size / 2, scale = size * 0.88;
+
+  function proj(v) {
+    return [cx + v[0] * scale, cy - v[1] * scale];
+  }
+
+  // Shadow layer (offset, slightly larger, dark)
+  ctx.save();
+  ctx.translate(2, 3);
+  SW_TRIS.forEach((tri, i) => {
+    const shade = SW_SHADES[i] || 0;
+    const [ax, ay] = proj(SW_VERTS[tri[0]]);
+    const [bx, by] = proj(SW_VERTS[tri[1]]);
+    const [cx2, cy2] = proj(SW_VERTS[tri[2]]);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx2, cy2);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0,10,40,0.25)';
+    ctx.fill();
+  });
+  ctx.restore();
+
+  // Main triangles
+  SW_TRIS.forEach((tri, i) => {
+    const shade = SW_SHADES[i] || 0;
+    const [ax, ay] = proj(SW_VERTS[tri[0]]);
+    const [bx, by] = proj(SW_VERTS[tri[1]]);
+    const [cx2, cy2] = proj(SW_VERTS[tri[2]]);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(cx2, cy2);
+    ctx.closePath();
+    ctx.fillStyle   = SHADE_COLORS[shade];
+    ctx.strokeStyle = SHADE_STROKE[shade];
+    ctx.lineWidth   = shade >= 2 ? 1.4 : 0.8;
+    ctx.fill();
+    ctx.stroke();
+  });
+
+  // Vertex glow nodes on outer rings (every 4th vertex)
+  ctx.fillStyle = 'rgba(140,210,255,0.55)';
+  SW_VERTS.forEach((v, i) => {
+    if (i % 5 !== 0) return;
+    const [px, py] = proj(v);
+    ctx.beginPath();
+    ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model panel — Three.js GLB viewer
+// ─────────────────────────────────────────────────────────────────────────────
+function initModel() {
+  const cvs   = document.getElementById('model-canvas');
+  const wrap   = document.getElementById('model-wrap');
+  const W      = wrap.clientWidth  || window.innerWidth;
+  const H      = Math.min(wrap.clientHeight || window.innerHeight * 0.75, window.innerHeight * 0.75);
+  const size   = Math.min(W, H);
+  const dpr    = window.devicePixelRatio || 1;
+  cvs.width    = size * dpr;
+  cvs.height   = size * dpr;
+  cvs.style.width  = size + 'px';
+  cvs.style.height = size + 'px';
+
+  // Load Three.js from CDN then boot
+  function loadScript(url, cb) {
+    if (document.querySelector('script[data-src="'+url+'"]')) { cb(); return; }
+    const s = document.createElement('script');
+    s.src = url;
+    s.setAttribute('data-src', url);
+    s.onload = cb;
+    document.head.appendChild(s);
+  }
+
+  const THREE_CDN = 'https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js';
+
+  // Use importmap-style dynamic import
+  import('https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js').then(THREE => {
+    import('https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/loaders/GLTFLoader.js').then(({ GLTFLoader }) => {
+      import('https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/controls/OrbitControls.js').then(({ OrbitControls }) => {
+        bootModel(THREE, GLTFLoader, OrbitControls, cvs, size, dpr);
+      });
+    });
+  }).catch(err => {
+    console.error('Three.js load failed', err);
+    const ctx = cvs.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = 'rgba(80,160,255,0.25)';
+    ctx.fillText('WebGL not available', 10, 20);
+  });
+}
+
+function bootModel(THREE, GLTFLoader, OrbitControls, cvs, size, dpr) {
+  // Renderer
+  const renderer = new THREE.WebGLRenderer({ canvas: cvs, antialias: true, alpha: true });
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(size, size, false);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.4;
+
+  // Scene
+  const scene  = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 100);
+  camera.position.set(0, 0.1, 2.8);
+
+  // Lights
+  const amb = new THREE.AmbientLight(0x8ab4ff, 0.7);
+  scene.add(amb);
+  const key = new THREE.DirectionalLight(0xffffff, 2.2);
+  key.position.set(1.5, 2.5, 2);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x4488ff, 1.0);
+  rim.position.set(-2, 0.5, -1.5);
+  scene.add(rim);
+  const fill = new THREE.PointLight(0xff8844, 0.5, 10);
+  fill.position.set(0, -1, 1);
+  scene.add(fill);
+
+  // Orbit controls (touch-friendly)
+  const controls = new OrbitControls(camera, cvs);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.07;
+  controls.minDistance   = 0.8;
+  controls.maxDistance   = 6;
+  controls.autoRotate    = true;
+  controls.autoRotateSpeed = 1.2;
+
+  // Load GLB
+  const loader = new GLTFLoader();
+  loader.load('/bluemoon/monkey.glb', gltf => {
+    const model = gltf.scene;
+    // Center and normalize
+    const box = new THREE.Box3().setFromObject(model);
+    const cen = box.getCenter(new THREE.Vector3());
+    const siz = box.getSize(new THREE.Vector3()).length();
+    model.position.sub(cen);
+    model.scale.setScalar(2.0 / siz);
+    scene.add(model);
+
+    // Stop auto-rotate on touch/mouse
+    controls.addEventListener('start', () => { controls.autoRotate = false; });
+  }, undefined, err => {
+    console.error('GLB load error', err);
+  });
+
+  // Animate
+  let animId;
+  function animate() {
+    animId = requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // Cleanup when panel hides (stop loop when not visible)
+  const modelPanel = document.getElementById('panel-model');
+  const obs = new MutationObserver(() => {
+    if (modelPanel.style.display === 'none') {
+      cancelAnimationFrame(animId);
+      obs.disconnect();
+    }
+  });
+  obs.observe(modelPanel, { attributes: true, attributeFilter: ['style'] });
+}
+
+// Service worker — unregister stale SW first, then re-register
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/bluemoon/sw.js').catch(()=>{});
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    const stale = regs.filter(r => r.scope.includes('/bluemoon') && !r.active?.scriptURL.includes('sw.js'));
+    Promise.all(stale.map(r => r.unregister())).then(() => {
+      navigator.serviceWorker.register('/bluemoon/sw.js').catch(()=>{});
+    });
+  }).catch(() => {
+    navigator.serviceWorker.register('/bluemoon/sw.js').catch(()=>{});
+  });
 }
 </script>
 </body>
