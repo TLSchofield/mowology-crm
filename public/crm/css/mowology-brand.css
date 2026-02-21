@@ -5575,7 +5575,7 @@ textarea.font-monospace {
 /* Calendar Stop Grid */
 .mw-calendar-header {
   display: grid;
-  grid-template-columns: 0px repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   background: var(--mw-forest);
   color: #fff;
   border-bottom: 2px solid var(--mw-dark);
@@ -5587,7 +5587,7 @@ textarea.font-monospace {
 
 .mw-calendar-dates-header {
   display: grid;
-  grid-template-columns: 0px repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   background: #f8f9fa;
   border-bottom: 1px solid #dee2e6;
   gap: 1px;
@@ -6282,7 +6282,7 @@ textarea.font-monospace {
 @media (max-width: 1200px) {
   .mw-calendar-header,
   .mw-calendar-dates-header {
-    grid-template-columns: 0px repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 
   .mw-calendar-time-label {
@@ -6306,7 +6306,7 @@ textarea.font-monospace {
 @media (max-width: 768px) {
   .mw-calendar-header,
   .mw-calendar-dates-header {
-    grid-template-columns: 0px repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 
   .mw-stop-grid {
