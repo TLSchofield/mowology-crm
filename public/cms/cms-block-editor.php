@@ -155,6 +155,14 @@ $blockFieldTemplates = [
             'url'      => ['type' => 'text',     'label' => 'Project URL (optional)'],
         ]],
     ],
+    'area_cards' => [
+        'title'    => ['type' => 'text',      'label' => 'Section Title', 'maxlength' => 80],
+        'subtitle' => ['type' => 'textarea',  'label' => 'Subtitle',      'rows' => 2, 'maxlength' => 200],
+        'areas'    => ['type' => 'repeatable','label' => 'Service Areas', 'itemType' => 'area', 'fields' => [
+            'name'           => ['type' => 'text',     'label' => 'Area Name',          'required' => true, 'maxlength' => 80, 'hint' => 'e.g. Vancouver, Burnaby'],
+            'neighborhoods'  => ['type' => 'textarea', 'label' => 'Neighborhoods / Notes', 'rows' => 2,    'maxlength' => 300, 'hint' => 'e.g. Kitsilano, Fairview, Mount Pleasant'],
+        ]],
+    ],
     'custom' => [
         'html_content' => ['type' => 'html','label' => 'HTML Content'],
     ],

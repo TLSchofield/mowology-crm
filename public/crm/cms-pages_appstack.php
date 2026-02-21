@@ -149,10 +149,22 @@ $csrfToken = generateCSRFToken();
                           <a href="/crm/cms/cms-page-edit.php" class="btn btn-sm btn-primary mt-2">Create Page</a>
                       </div>
                   <?php else: ?>
+                      <!-- Bulk action toolbar (hidden until rows are checked) -->
+                      <div id="bulk-toolbar" class="d-none mb-3 p-2 bg-light border rounded d-flex align-items-center">
+                          <span id="bulk-count" class="mr-3 text-muted small font-weight-bold"></span>
+                          <button type="button" class="btn btn-sm btn-success mr-2" data-bulk-action="publish">Publish</button>
+                          <button type="button" class="btn btn-sm btn-warning mr-2" data-bulk-action="unpublish">Unpublish</button>
+                          <button type="button" class="btn btn-sm btn-secondary mr-2" data-bulk-action="archive">Archive</button>
+                          <button type="button" class="btn btn-sm btn-link text-muted ml-auto" id="bulk-clear">Clear selection</button>
+                      </div>
+
                       <div class="table-responsive">
-                          <table class="table table-hover mb-0">
+                          <table class="table table-hover mb-0" id="pages-table">
                               <thead>
                                   <tr>
+                                      <th style="width:36px;">
+                                          <input type="checkbox" id="select-all" title="Select all">
+                                      </th>
                                       <th>Title</th>
                                       <th>Slug</th>
                                       <th>Type</th>
@@ -165,6 +177,9 @@ $csrfToken = generateCSRFToken();
                               <tbody>
                                   <?php foreach ($allPages as $pg): ?>
                                       <tr>
+                                          <td>
+                                              <input type="checkbox" class="page-checkbox" value="<?php echo (int)$pg['id']; ?>">
+                                          </td>
                                           <td>
                                               <a href="/crm/cms/cms-page-edit.php?id=<?php echo (int)$pg['id']; ?>" class="font-weight-bold text-dark">
                                                   <?php echo h($pg['title']); ?>
@@ -228,6 +243,14 @@ $csrfToken = generateCSRFToken();
                                                           </button>
                                                       </form>
                                                   <?php endif; ?>
+
+                                                  <button type="button"
+                                                          class="btn btn-outline-secondary mw-duplicate-page"
+                                                          data-page-id="<?php echo (int)$pg['id']; ?>"
+                                                          data-csrf="<?php echo h($csrfToken); ?>"
+                                                          title="Duplicate as draft">
+                                                      <i data-feather="copy" style="width:14px;height:14px;"></i>
+                                                  </button>
                                               </div>
                                           </td>
                                       </tr>
@@ -239,4 +262,106 @@ $csrfToken = generateCSRFToken();
               </div>
           </div>
 
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var csrfToken = '<?php echo h($csrfToken); ?>';
+
+    // ---- Bulk selection ----
+    var selectAll   = document.getElementById('select-all');
+    var bulkToolbar = document.getElementById('bulk-toolbar');
+    var bulkCount   = document.getElementById('bulk-count');
+    var bulkClear   = document.getElementById('bulk-clear');
+
+    function getCheckedIds() {
+        return Array.from(document.querySelectorAll('.page-checkbox:checked')).map(function(cb) { return cb.value; });
+    }
+
+    function updateBulkToolbar() {
+        var ids = getCheckedIds();
+        bulkToolbar.classList.toggle('d-none', ids.length === 0);
+        if (ids.length > 0) {
+            bulkCount.textContent = ids.length + ' page' + (ids.length !== 1 ? 's' : '') + ' selected';
+        }
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            document.querySelectorAll('.page-checkbox').forEach(function(cb) { cb.checked = selectAll.checked; });
+            updateBulkToolbar();
+        });
+    }
+
+    document.querySelectorAll('.page-checkbox').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            var all     = document.querySelectorAll('.page-checkbox').length;
+            var checked = document.querySelectorAll('.page-checkbox:checked').length;
+            if (selectAll) {
+                selectAll.checked       = checked === all;
+                selectAll.indeterminate = checked > 0 && checked < all;
+            }
+            updateBulkToolbar();
+        });
+    });
+
+    if (bulkClear) {
+        bulkClear.addEventListener('click', function() {
+            document.querySelectorAll('.page-checkbox').forEach(function(cb) { cb.checked = false; });
+            if (selectAll) { selectAll.checked = false; selectAll.indeterminate = false; }
+            updateBulkToolbar();
+        });
+    }
+
+    document.querySelectorAll('[data-bulk-action]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var action = this.dataset.bulkAction;
+            var ids    = getCheckedIds();
+            if (!ids.length) return;
+            if (!confirm('Set ' + ids.length + ' page(s) to "' + action + '"?')) return;
+
+            var fd = new FormData();
+            fd.append('csrf_token', csrfToken);
+            fd.append('action', action);
+            ids.forEach(function(id) { fd.append('page_ids[]', id); });
+
+            fetch('/crm/api/bulk-status.php', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) { location.reload(); }
+                    else { alert('Error: ' + (data.error || 'Bulk action failed')); }
+                })
+                .catch(function(err) { alert('Error: ' + err.message); });
+        });
+    });
+
+    // ---- Duplicate page buttons ----
+    document.querySelectorAll('.mw-duplicate-page').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (!confirm('Duplicate this page as a draft?')) return;
+            var pageId = this.dataset.pageId;
+            var csrf   = this.dataset.csrf;
+            var self   = this;
+            self.disabled = true;
+
+            var fd = new FormData();
+            fd.append('page_id', pageId);
+            fd.append('csrf_token', csrf);
+
+            fetch('/crm/api/duplicate-page.php', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        window.location.href = data.edit_url;
+                    } else {
+                        alert('Error: ' + (data.error || 'Duplicate failed'));
+                        self.disabled = false;
+                    }
+                })
+                .catch(function(err) {
+                    alert('Error: ' + err.message);
+                    self.disabled = false;
+                });
+        });
+    });
+});
+</script>
 <?php include 'includes/appstack_footer.php'; ?>

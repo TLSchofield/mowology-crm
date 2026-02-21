@@ -351,6 +351,7 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                         'stats_banner'       => ['icon' => 'trending-up', 'label' => 'Stats Banner',       'desc' => 'Numbers + labels row'],
                         'rich_text'          => ['icon' => 'type',        'label' => 'Rich Text',          'desc' => 'Formatted text body'],
                         'portfolio_showcase' => ['icon' => 'star',        'label' => 'Portfolio Showcase', 'desc' => 'Project highlights'],
+                        'area_cards'         => ['icon' => 'map-pin',     'label' => 'Area Cards',         'desc' => 'Service area grid'],
                         'custom'             => ['icon' => 'code',        'label' => 'Custom HTML',        'desc' => 'Raw HTML block'],
                     ];
                     foreach ($blockTypes as $key => $bt): ?>
@@ -390,7 +391,8 @@ document.addEventListener('DOMContentLoaded', function() {
         service_cards: 'Service Cards', service_grid: 'Service Grid',
         testimonials: 'Testimonials', faq: 'FAQ', gallery: 'Gallery',
         before_after: 'Before / After', stats_banner: 'Stats Banner',
-        rich_text: 'Rich Text', portfolio_showcase: 'Portfolio Showcase', custom: 'Custom HTML',
+        rich_text: 'Rich Text', portfolio_showcase: 'Portfolio Showcase',
+        area_cards: 'Area Cards', custom: 'Custom HTML',
     };
 
     // ---- Help tooltips ----
