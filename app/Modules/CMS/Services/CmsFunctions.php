@@ -1056,17 +1056,25 @@ function cms_logCmsActivity(int $userId, string $action, string $summary, array 
         }
 
         if (in_array('action_type', $cols)) {
-            // Schema B
+            // Schema B: action_type + notes + meta_json
             $db->prepare("
                 INSERT INTO activity_log (user_id, action_type, notes, meta_json, created_at)
                 VALUES (?, ?, ?, ?, NOW())
             ")->execute([$userId, $action, $summary, json_encode($meta)]);
         } elseif (in_array('action', $cols)) {
-            // Schema A
-            $db->prepare("
-                INSERT INTO activity_log (user_id, action, description, created_at)
-                VALUES (?, ?, ?, NOW())
-            ")->execute([$userId, $action, $summary]);
+            // Schema A: action + details (or description if that column name is used)
+            $textCol = in_array('details', $cols) ? 'details' : (in_array('description', $cols) ? 'description' : null);
+            if ($textCol) {
+                $db->prepare("
+                    INSERT INTO activity_log (user_id, action, {$textCol}, created_at)
+                    VALUES (?, ?, ?, NOW())
+                ")->execute([$userId, $action, $summary]);
+            } else {
+                $db->prepare("
+                    INSERT INTO activity_log (user_id, action, created_at)
+                    VALUES (?, ?, NOW())
+                ")->execute([$userId, $action]);
+            }
         }
         // If table has neither column, silently skip
     } catch (Exception $e) {

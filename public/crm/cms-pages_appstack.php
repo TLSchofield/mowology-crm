@@ -95,6 +95,9 @@ $csrfToken = generateCSRFToken();
               <li class="nav-item"><a class="nav-link" href="/crm/cms/cms-snippets.php"><i data-feather="copy" class="mr-1" style="width:14px;height:14px;"></i> Snippets</a></li>
               <li class="nav-item"><a class="nav-link" href="/crm/cms/cms-tokens.php"><i data-feather="hash" class="mr-1" style="width:14px;height:14px;"></i> Tokens</a></li>
               <li class="nav-item"><a class="nav-link" href="/crm/cms/cms-generator-manager.php"><i data-feather="layers" class="mr-1" style="width:14px;height:14px;"></i> Templates</a></li>
+              <?php if (isAdmin()): ?>
+              <li class="nav-item"><a class="nav-link" href="/crm/cms-activity_appstack.php"><i data-feather="activity" class="mr-1" style="width:14px;height:14px;"></i> Activity Log</a></li>
+              <?php endif; ?>
           </ul>
 
           <div class="d-flex justify-content-between align-items-center mb-4">
