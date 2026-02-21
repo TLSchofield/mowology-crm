@@ -1486,8 +1486,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var p = data.parsed || {};
         var s = data.suggestions || {};
 
-        // Date
-        document.getElementById('rvDate').value = p.date || new Date().toISOString().slice(0, 10);
+        // Date — safeDate() ensures YYYY-MM-DD format for <input type="date">
+        document.getElementById('rvDate').value = safeDate(p.date);
         setConfidence('confDate', p.date ? 70 : 0);
 
         // Vendor
@@ -1624,7 +1624,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var setMobileVal = function(id, val) { var el = document.getElementById(id); if (el && val) el.value = val; };
             setMobileVal('mobileRvVendor', s.vendor_name || p.vendor_hint || '');
             setMobileVal('mobileRvVendorId', s.vendor_id || '');
-            setMobileVal('mobileRvDate', p.date || new Date().toISOString().slice(0, 10));
+            setMobileVal('mobileRvDate', safeDate(p.date));
             setMobileVal('mobileRvTotal', p.total || '');
             setMobileVal('mobileRvGst', p.gst || '0');
             setMobileVal('mobileRvAmount', p.subtotal || (p.total && p.gst ? (parseFloat(p.total) - parseFloat(p.gst)).toFixed(2) : ''));
@@ -4397,6 +4397,44 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
         if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
         return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    /**
+     * Normalise a date string to YYYY-MM-DD for <input type="date">.
+     * OCR can return dates in many formats (DD/MM/YYYY, "Feb 20 2026", etc.).
+     * An invalid value on a date input triggers "did not match expected pattern".
+     */
+    function safeDate(raw) {
+        var today = new Date().toISOString().slice(0, 10);
+        if (!raw) return today;
+        var s = String(raw).trim();
+
+        // Already YYYY-MM-DD — validate and return
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+            var d = new Date(s + 'T00:00:00');
+            return isNaN(d.getTime()) ? today : s;
+        }
+
+        // DD/MM/YYYY or DD-MM-YYYY
+        var m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        if (m) {
+            var part1 = parseInt(m[1], 10), part2 = parseInt(m[2], 10), yr = m[3];
+            var day, mon;
+            // If first part > 12 it must be the day (DD/MM); else assume DD/MM too
+            day = part1; mon = part2;
+            if (mon > 12) { day = part2; mon = part1; } // swap if month > 12
+            var iso = yr + '-' + String(mon).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+            var d2 = new Date(iso + 'T00:00:00');
+            return isNaN(d2.getTime()) ? today : iso;
+        }
+
+        // Try native Date parsing as last resort ("Feb 20, 2026", "20 Feb 2026", etc.)
+        var d3 = new Date(s);
+        if (!isNaN(d3.getTime())) {
+            return d3.toISOString().slice(0, 10);
+        }
+
+        return today;
     }
 
     // ── Enhanced Lightbox with Zoom/Rotate ─────────────────────
