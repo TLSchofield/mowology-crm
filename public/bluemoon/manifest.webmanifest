@@ -1,0 +1,27 @@
+{
+  "name": "BlueMoon",
+  "short_name": "BlueMoon",
+  "description": "Black hole habit vortex",
+  "start_url": "/bluemoon/",
+  "scope": "/bluemoon/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070B18",
+  "theme_color": "#070B18",
+  "icons": [
+    {
+      "src": "/bluemoon/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/bluemoon/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["lifestyle", "health"],
+  "lang": "en"
+}

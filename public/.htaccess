@@ -38,6 +38,19 @@ RewriteRule ^services/([a-z0-9\-]+)/?$ /services/$1.php [L,QSA]
 # /api/module/action → handled by /api/.htaccess (do not rewrite here)
 RewriteRule ^api/ - [L]
 
+# ── BlueMoon PWA sub-app ──────────────────────────────────────────────────────
+# Serve static assets directly; route everything else in /bluemoon/ to its index.html
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^bluemoon/(.*)$ /bluemoon/index.html [L]
+
+# Security: allow JS workers to be fetched with correct MIME and COOP headers
+<FilesMatch "\.worker\.js$">
+    Header set Content-Type "application/javascript"
+    Header set Cross-Origin-Opener-Policy "same-origin"
+    Header set Cross-Origin-Embedder-Policy "require-corp"
+</FilesMatch>
+
 # ── CMS Catch-All ──
 # Routes unmatched slugs to CMS front controller.
 # Backwards-compatible: existing files still load directly.

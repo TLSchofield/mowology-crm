@@ -1,0 +1,33 @@
+# BlueMoon PWA sub-app
+Options -Indexes
+
+# Required for OffscreenCanvas + Web Workers in all browsers
+<IfModule mod_headers.c>
+    # Cross-Origin Isolation (needed for SharedArrayBuffer; good practice for workers)
+    Header set Cross-Origin-Opener-Policy "same-origin"
+    Header set Cross-Origin-Embedder-Policy "require-corp"
+
+    # Allow service worker scope
+    Header set Service-Worker-Allowed "/"
+</IfModule>
+
+# Correct MIME types
+<IfModule mod_mime.c>
+    AddType application/manifest+json  .webmanifest
+    AddType application/javascript     .js
+    AddType image/png                  .png
+</IfModule>
+
+# Aggressive caching for versioned assets, no-cache for HTML/SW
+<FilesMatch "\.(webmanifest|html)$">
+    Header set Cache-Control "no-cache, must-revalidate"
+</FilesMatch>
+<FilesMatch "sw\.js$">
+    Header set Cache-Control "no-cache, must-revalidate"
+</FilesMatch>
+<FilesMatch "\.(png|ico)$">
+    Header set Cache-Control "public, max-age=604800"
+</FilesMatch>
+<FilesMatch "\.worker\.js$|vortex\.fallback\.js$">
+    Header set Cache-Control "public, max-age=3600"
+</FilesMatch>
