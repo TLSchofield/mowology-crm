@@ -2316,3 +2316,51 @@ function setPlanCrewAssignments(int $planId, array $crewIds, ?int $leadId = null
     $upStmt = $db->prepare("UPDATE job_plans SET default_crew_id = ? WHERE id = ?");
     $upStmt->execute([$leadId, $planId]);
 }
+
+// ─── Unscheduled Jobs Tray ────────────────────────────────────────────────────
+
+/**
+ * Get all job_visits that are scheduled but have no calendar_stop assigned yet.
+ * Used to populate the Unscheduled Jobs Tray on the schedule page.
+ *
+ * Returns visits from active plans, ordered by their target scheduled_date.
+ *
+ * @return array  Flat list of visit rows, each containing:
+ *   visit_id, plan_id, scheduled_date, plan_title, service_type,
+ *   price_per_visit, estimated_duration, property_id,
+ *   property_address, property_city, contact_name
+ */
+function getUnscheduledVisits(): array
+{
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            SELECT
+                jv.id              AS visit_id,
+                jv.plan_id,
+                jv.scheduled_date,
+                jp.title           AS plan_title,
+                jp.service_type,
+                jp.price_per_visit,
+                jp.estimated_duration_minutes AS estimated_duration,
+                jp.default_crew_id,
+                jp.property_id,
+                p.address          AS property_address,
+                p.city             AS property_city,
+                CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            JOIN properties p  ON jp.property_id = p.id
+            LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+            WHERE jp.status = 'active'
+              AND jv.status  = 'scheduled'
+              AND jv.stop_id IS NULL
+            ORDER BY jv.scheduled_date ASC, jp.service_type ASC
+        ");
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        error_log('getUnscheduledVisits error: ' . $e->getMessage());
+        return [];
+    }
+}
