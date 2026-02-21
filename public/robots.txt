@@ -15,6 +15,7 @@ Disallow: /crinum/
 Disallow: /DEBUG_UTILITY.php
 Disallow: /POPULATE_TEST_DATA.php
 Disallow: /api/
+Disallow: /bluemoon/
 
 # Crawl delay to respect server resources
 Crawl-delay: 1
