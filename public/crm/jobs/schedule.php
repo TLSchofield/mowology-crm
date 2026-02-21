@@ -177,10 +177,19 @@ for ($di = 0; $di < 7; $di++) {
     $currentDate2->modify('+1 day');
 }
 
-// Drive-time estimate: assume 8 min average between stops (rough heuristic)
-// In future: pull from route_engine actual drive times
+// Drive-time estimate: assume 8 min average between each pair of stops within a day.
+// Each day with N stops has (N - 1) inter-stop gaps. We also add 10 min per active
+// day for the garage → first stop leg (not counted in stop-to-stop gaps).
+// In future: replace with actual drive times from the route engine.
 $mcWeekStops    = array_sum(array_column($mcDayStats, 'stops'));
-$mcDriveTimeMin = max(0, ($mcWeekStops - 7)) * 8; // subtract 1 per day (garage departure)
+$mcDriveTimeMin = 0;
+foreach ($mcDayStats as $dStats) {
+    $n = (int)$dStats['stops'];
+    if ($n > 0) {
+        $mcDriveTimeMin += max(0, $n - 1) * 8; // inter-stop gaps
+        $mcDriveTimeMin += 10;                  // garage → first stop
+    }
+}
 
 // Route efficiency score (0–100): ratio of actual work time vs total day duration
 // 100 = all time is billable, 0 = all time is driving
@@ -231,7 +240,7 @@ for ($di = 0; $di < 7; $di++) {
     $dCost = $dLab + $dOh;
     $dMargin = $dRev > 0 ? (int)round((($dRev - $dCost) / $dRev) * 100) : null;
     $dDensity = (int)round(min(100, ($dSt['stops'] / 6.0) * 100));
-    $dDriveMin = max(0, $dSt['stops'] - 1) * 8;
+    $dDriveMin = $dSt['stops'] > 0 ? (max(0, $dSt['stops'] - 1) * 8 + 10) : 0;
 
     // Weather risk: rain/storm/snow → high; wind > 30 → medium
     $dWeather = $weekWeather[$ds] ?? [];
