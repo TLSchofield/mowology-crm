@@ -140,14 +140,13 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                             <label for="meta_title">
                                 Meta Title (SEO)
                                 <span class="mw-help-tooltip" data-help="This is what appears as the title in Google search results. Keep it under 60 characters for best display. Leave empty for auto-generated default.">?</span>
-                                <span class="mw-auto-seo-badge">Auto-generated</span>
+                                <span class="mw-auto-seo-badge" id="meta-title-auto-badge"><?php echo empty($page['meta_title'] ?? '') ? 'Auto-generated' : ''; ?></span>
                             </label>
                             <input type="text" class="form-control" id="meta_title" name="meta_title"
                                    value="<?php echo h($page['meta_title'] ?? ''); ?>"
                                    placeholder="<?php echo h($suggestedMetaTitle); ?>"
-                                   maxlength="60"
-                                   onchange="updateSEOPreview()">
-                            <small class="form-text text-muted">Recommended: 50-60 characters</small>
+                                   maxlength="60">
+                            <small class="form-text text-muted"><span id="meta_title_count"><?php echo mb_strlen($page['meta_title'] ?? ''); ?></span>/60 chars — aim for 50–60</small>
                         </div>
 
                         <!-- Meta Description -->
@@ -155,13 +154,12 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                             <label for="meta_description">
                                 Meta Description (SEO)
                                 <span class="mw-help-tooltip" data-help="This snippet appears under your title in search results. Keep it under 160 characters. Should include your target keywords naturally. Leave empty for auto-generated summary.">?</span>
-                                <span class="mw-auto-seo-badge">Auto-generated</span>
+                                <span class="mw-auto-seo-badge" id="meta-desc-auto-badge"><?php echo empty($page['meta_description'] ?? '') ? 'Auto-generated' : ''; ?></span>
                             </label>
                             <textarea class="form-control" id="meta_description" name="meta_description"
                                       rows="2" maxlength="160"
-                                      placeholder="<?php echo h($suggestedMetaDesc); ?>"
-                                      onchange="updateSEOPreview()"><?php echo h($page['meta_description'] ?? ''); ?></textarea>
-                            <small class="form-text text-muted">Recommended: 120-160 characters. Bonus: Include your location and value proposition.</small>
+                                      placeholder="<?php echo h($suggestedMetaDesc); ?>"><?php echo h($page['meta_description'] ?? ''); ?></textarea>
+                            <small class="form-text text-muted"><span id="meta_desc_count"><?php echo mb_strlen($page['meta_description'] ?? ''); ?></span>/160 chars — aim for 120–160</small>
                         </div>
 
                         <!-- SEO Preview -->
@@ -295,6 +293,106 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
             </div>
             <?php endif; ?>
 
+                <?php
+            // Completion score for sidebar
+            $completionScore = 0;
+            $completionChecks = [];
+            if ($pageId && $page) {
+                $completionScore = cms_getPageCompletionScore($page);
+                $completionChecks = [
+                    'Title set'            => !empty(trim($page['title'] ?? '')),
+                    'Slug set'             => !empty(trim($page['slug'] ?? '')),
+                    'Meta title'           => !empty(trim($page['meta_title'] ?? '')),
+                    'Meta description'     => !empty(trim($page['meta_description'] ?? '')),
+                    '2+ blocks added'      => count($blocks) >= 2,
+                    'Hero block present'   => !empty(array_filter($blocks, fn($b) => $b['block_type'] === 'hero')),
+                    'Image referenced'     => $completionScore >= 86, // proxy: score would be 100% only with image
+                ];
+            }
+            $scoreColor = $completionScore >= 80 ? 'success' : ($completionScore >= 40 ? 'warning' : 'danger');
+            ?>
+
+            <!-- Completion Score -->
+            <?php if ($pageId): ?>
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Page Completeness</h5>
+                    <strong class="text-<?php echo $scoreColor; ?>"><?php echo $completionScore; ?>%</strong>
+                </div>
+                <div class="card-body">
+                    <div class="progress mb-3" style="height:8px;">
+                        <div class="progress-bar bg-<?php echo $scoreColor; ?>"
+                             style="width:<?php echo $completionScore; ?>%"
+                             role="progressbar"
+                             aria-valuenow="<?php echo $completionScore; ?>"
+                             aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <ul class="list-unstyled mb-0 small">
+                        <?php foreach ($completionChecks as $label => $done): ?>
+                        <li class="mb-1">
+                            <?php if ($done): ?>
+                                <i data-feather="check-circle" style="width:13px;height:13px;color:var(--mw-green);vertical-align:middle;"></i>
+                            <?php else: ?>
+                                <i data-feather="circle" style="width:13px;height:13px;color:#adb5bd;vertical-align:middle;"></i>
+                            <?php endif; ?>
+                            <span class="<?php echo $done ? '' : 'text-muted'; ?>"><?php echo h($label); ?></span>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <!-- Revision History -->
+            <?php if ($pageId): ?>
+            <?php
+            $revisions = [];
+            try { $revisions = cms_getPageRevisions($pageId, 10); } catch (Exception $e) {}
+            ?>
+            <?php if (!empty($revisions)): ?>
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Revision History</h5>
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
+                        <?php foreach ($revisions as $i => $rev): ?>
+                        <li class="list-group-item px-3 py-2">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="small">
+                                    <div class="font-weight-bold">
+                                        <?php
+                                        $revBadge = match($rev['revision_type'] ?? '') {
+                                            'published' => 'success',
+                                            'restore'   => 'warning',
+                                            default     => 'secondary',
+                                        };
+                                        ?>
+                                        <span class="badge badge-<?php echo $revBadge; ?> mr-1"><?php echo h(ucfirst($rev['revision_type'] ?? 'draft')); ?></span>
+                                        <?php echo $rev['revision_message'] ? h($rev['revision_message']) : 'Saved'; ?>
+                                    </div>
+                                    <div class="text-muted" style="font-size:.75rem;">
+                                        <?php echo date('M j, g:ia', strtotime($rev['created_at'])); ?>
+                                    </div>
+                                </div>
+                                <?php if ($i > 0): // don't restore the current/latest ?>
+                                <button type="button"
+                                        class="btn btn-xs btn-outline-secondary mw-restore-revision"
+                                        style="font-size:.7rem;padding:1px 6px;"
+                                        data-revision-id="<?php echo (int)$rev['id']; ?>"
+                                        data-csrf="<?php echo h(generateCSRFToken()); ?>">
+                                    Restore
+                                </button>
+                                <?php endif; ?>
+                            </div>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            </div>
+            <?php endif; ?>
+            <?php endif; ?>
+
             <!-- Help Section -->
             <div class="card">
                 <div class="card-header">
@@ -371,13 +469,46 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
 <?php endif; ?>
 
 <script>
+// ---- SEO Preview (live, fires on every keystroke) ----
 function updateSEOPreview() {
-    var title = document.getElementById('meta_title').value ||
-                document.getElementById('title').value || 'Your Page Title';
-    var desc  = document.getElementById('meta_description').value ||
+    var metaTitleEl = document.getElementById('meta_title');
+    var titleEl     = document.getElementById('title');
+    var descEl      = document.getElementById('meta_description');
+    var titleBadge  = document.getElementById('meta-title-auto-badge');
+    var descBadge   = document.getElementById('meta-desc-auto-badge');
+    var titleCount  = document.getElementById('meta_title_count');
+    var descCount   = document.getElementById('meta_desc_count');
+
+    var title = (metaTitleEl ? metaTitleEl.value : '') ||
+                (titleEl ? titleEl.value : '') ||
+                'Your Page Title';
+    var desc  = (descEl ? descEl.value : '') ||
                 'Professional landscaping services in Vancouver.';
-    document.getElementById('seoPreviewTitle').textContent = title.substring(0, 60);
-    document.getElementById('seoPreviewDesc').textContent  = desc.substring(0, 160);
+
+    var previewTitle = document.getElementById('seoPreviewTitle');
+    var previewDesc  = document.getElementById('seoPreviewDesc');
+    if (previewTitle) previewTitle.textContent = title.substring(0, 60);
+    if (previewDesc)  previewDesc.textContent  = desc.substring(0, 160);
+
+    // Auto-SEO badge: visible when field is empty
+    if (titleBadge && metaTitleEl) {
+        titleBadge.textContent  = metaTitleEl.value.trim() === '' ? 'Auto-generated' : '';
+    }
+    if (descBadge && descEl) {
+        descBadge.textContent   = descEl.value.trim() === '' ? 'Auto-generated' : '';
+    }
+
+    // Char counters with colour feedback
+    if (titleCount && metaTitleEl) {
+        var tl = metaTitleEl.value.length;
+        titleCount.textContent = tl;
+        titleCount.style.color = tl > 60 ? '#dc3545' : (tl > 50 ? '#fd7e14' : '');
+    }
+    if (descCount && descEl) {
+        var dl = descEl.value.length;
+        descCount.textContent = dl;
+        descCount.style.color = dl > 160 ? '#dc3545' : (dl > 140 ? '#fd7e14' : '');
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -394,6 +525,87 @@ document.addEventListener('DOMContentLoaded', function() {
         rich_text: 'Rich Text', portfolio_showcase: 'Portfolio Showcase',
         area_cards: 'Area Cards', custom: 'Custom HTML',
     };
+
+    // ---- Wire live SEO preview on every keystroke ----
+    ['meta_title', 'meta_description', 'title'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('input', updateSEOPreview);
+    });
+    updateSEOPreview(); // run once on load to set initial state
+
+    // ---- Slug auto-formatter: lowercase, hyphens only ----
+    var slugEl = document.getElementById('slug');
+    if (slugEl) {
+        slugEl.addEventListener('input', function() {
+            var clean = this.value.toLowerCase()
+                .replace(/[^a-z0-9\/\-]/g, '-')
+                .replace(/-{2,}/g, '-')
+                .replace(/^-+|-+$/g, '');
+            if (clean !== this.value) this.value = clean;
+        });
+        // Auto-populate slug from title if slug is empty
+        var titleInput = document.getElementById('title');
+        if (titleInput) {
+            titleInput.addEventListener('blur', function() {
+                if (slugEl.value === '' && this.value !== '') {
+                    slugEl.value = this.value.toLowerCase()
+                        .replace(/[^a-z0-9]+/g, '-')
+                        .replace(/^-+|-+$/g, '');
+                }
+            });
+        }
+    }
+
+    // ---- Unsaved changes guard ----
+    var pageForm = document.querySelector('form[action*="save-page"]');
+    var formDirty = false;
+    if (pageForm) {
+        pageForm.querySelectorAll('input, textarea, select').forEach(function(el) {
+            el.addEventListener('change', function() { formDirty = true; });
+            el.addEventListener('input',  function() { formDirty = true; });
+        });
+        pageForm.addEventListener('submit', function() { formDirty = false; });
+    }
+    window.addEventListener('beforeunload', function(e) {
+        if (formDirty) {
+            e.preventDefault();
+            e.returnValue = 'You have unsaved changes. Leave anyway?';
+        }
+    });
+
+    // ---- Restore revision buttons ----
+    document.querySelectorAll('.mw-restore-revision').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (!confirm('Restore this revision? Current blocks will be replaced.')) return;
+            var revId = this.dataset.revisionId;
+            var csrf  = this.dataset.csrf;
+            var self  = this;
+            self.disabled = true;
+            self.textContent = '…';
+
+            var fd = new FormData();
+            fd.append('revision_id', revId);
+            fd.append('csrf_token', csrf);
+
+            fetch('/crm/api/restore-revision.php', { method: 'POST', body: fd })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        formDirty = false; // suppress beforeunload
+                        location.reload();
+                    } else {
+                        alert('Error: ' + (data.error || 'Restore failed'));
+                        self.disabled = false;
+                        self.textContent = 'Restore';
+                    }
+                })
+                .catch(function(err) {
+                    alert('Error: ' + err.message);
+                    self.disabled = false;
+                    self.textContent = 'Restore';
+                });
+        });
+    });
 
     // ---- Help tooltips ----
     document.querySelectorAll('.mw-help-tooltip').forEach(function(tip) {

@@ -25,18 +25,27 @@ require_once __DIR__ . '/crm/includes/cms-renderer.php';
 // Get requested page slug
 $pageSlug = $_GET['page'] ?? null;
 
-// If no slug via query string, try to derive from request URI
+// If no slug via query string, derive from request URI
 if (!$pageSlug) {
-    // Remove leading/trailing slashes and .html/.php extensions
-    $uri = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/');
+    // Strip query string, then remove leading/trailing slashes + extensions
+    $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '/';
+    $uri = trim($uri, '/');
     $uri = preg_replace('/\.(php|html)$/', '', $uri);
 
-    // If it's just /, use 'home'
+    // Trailing slash normalisation: /about/ → /about (canonical)
+    $uri = rtrim($uri, '/');
+
     $pageSlug = ($uri === '' || $uri === '/') ? 'home' : $uri;
 }
 
-// Security: sanitize slug
-$pageSlug = preg_replace('/[^a-z0-9\-\/]/', '', strtolower($pageSlug ?? ''));
+// Trailing-slash normalisation on query-string slugs too
+$pageSlug = rtrim($pageSlug, '/');
+if ($pageSlug === '') {
+    $pageSlug = 'home';
+}
+
+// Security: sanitize slug (lowercase, allow hyphens + forward slashes for sub-paths)
+$pageSlug = preg_replace('/[^a-z0-9\-\/]/', '', strtolower($pageSlug));
 
 if (empty($pageSlug)) {
     header('HTTP/1.1 400 Bad Request');

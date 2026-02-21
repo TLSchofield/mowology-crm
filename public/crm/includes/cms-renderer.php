@@ -36,11 +36,19 @@ function cms_renderPage(array $page): void
     $pageTitle = $tokenMap ? cms_resolveTokens($rawTitle, $tokenMap) : $rawTitle;
     $pageDescription = $tokenMap ? cms_resolveTokens($rawDesc, $tokenMap) : $rawDesc;
     $activeNav = cms_getActiveNav($page);
-    $pageImage = $page['og_image_path'] ?? null;
 
-    // Add noindex if draft/archived, plus structured data
+    // OG image: use page-specific image, fall back to site default logo
+    $ogImagePath = $page['og_image_path'] ?? '';
+    if (empty($ogImagePath)) {
+        // Default share image — adjust path if logo location changes
+        $ogImagePath = '/assets/images/mowology-share.jpg';
+    }
+    $pageImage = $ogImagePath;
+
+    // Noindex: send both HTTP header and meta tag for maximum crawler coverage
     $extraHead = '';
-    if ($page['status'] !== 'published') {
+    if ($page['status'] !== 'published' || !empty($page['noindex'])) {
+        header('X-Robots-Tag: noindex, nofollow');
         $extraHead .= '<meta name="robots" content="noindex, nofollow">' . "\n";
     }
     $extraHead .= cms_renderStructuredData($page);
