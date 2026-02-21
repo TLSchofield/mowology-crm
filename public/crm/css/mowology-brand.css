@@ -1889,13 +1889,10 @@ a:hover {
 }
 .mw-datepicker-open .mw-dp-chevron { transform: rotate(180deg); }
 
-/* Datepicker popup */
+/* Datepicker popup — appended to <body> by JS, coords set via fixed positioning */
 .mw-datepicker-popup {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1100;
+  position: fixed;
+  z-index: 9999;
   background: #fff;
   border: 1px solid #dee2e6;
   border-radius: 14px;
@@ -1905,8 +1902,8 @@ a:hover {
   animation: mwDpFadeIn 0.15s ease;
 }
 @keyframes mwDpFadeIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* Popup header */

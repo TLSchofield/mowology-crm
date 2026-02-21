@@ -1798,6 +1798,10 @@ if ($apiKey) {
     var todayBtn = document.getElementById('mwDpTodayBtn');
     if (!trigger || !popup) return;
 
+    // Move popup to <body> so no parent overflow/z-index clips it
+    document.body.appendChild(popup);
+    popup.style.position = 'fixed';
+
     var view    = trigger.dataset.view;            // 'day' | 'week'
     var current = trigger.dataset.current;         // YYYY-MM-DD (day date or week-start)
     var viewYear, viewMonth;                       // calendar display state
@@ -1883,11 +1887,23 @@ if ($apiKey) {
     }
 
     // ── Open / close ────────────────────────────────────────────────
+    function positionPopup() {
+        var rect = trigger.getBoundingClientRect();
+        var popupW = 300;
+        // Centre under trigger, clamped to viewport
+        var left = rect.left + (rect.width / 2) - (popupW / 2);
+        left = Math.max(8, Math.min(left, window.innerWidth - popupW - 8));
+        popup.style.left = left + 'px';
+        popup.style.top  = (rect.bottom + 8) + 'px';
+        // Remove the CSS transform that was for static positioning
+        popup.style.transform = 'none';
+    }
     function open() {
         var d = parseDate(current);
         viewYear  = d.getFullYear();
         viewMonth = d.getMonth();
         render();
+        positionPopup();
         popup.hidden = false;
         trigger.setAttribute('aria-expanded', 'true');
         trigger.classList.add('mw-datepicker-open');
