@@ -12,6 +12,14 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="BlueMoon" />
   <link rel="apple-touch-icon" href="/bluemoon/icons/icon-192.png" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+    }
+  }
+  </script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -111,6 +119,7 @@
     /* ── Screen: Vortex ── */
     #screen-vortex {
       display: none; flex: 1; position: relative; overflow: hidden;
+      flex-direction: column;
       background:
         radial-gradient(ellipse 55% 55% at 50% 50%,
           rgba(30,60,140,0.55) 0%, rgba(15,30,80,0.38) 35%,
@@ -122,6 +131,12 @@
     #vortex {
       position: absolute; inset: 0;
       display: block; width: 100%; height: 100%; touch-action: none;
+    }
+    /* Habit dock sits over vortex at the bottom */
+    #screen-vortex #habit-dock {
+      position: relative; z-index: 10;
+      margin-top: auto;
+      background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 100%);
     }
 
     /* ── Habit dock ── */
@@ -243,8 +258,9 @@
 
   <!-- Admin navbar -->
   <div id="admin-nav">
-    <button class="nav-tab" data-panel="glyphs">Glyphs</button>
+    <button class="nav-tab active" data-panel="home">Moon</button>
     <button class="nav-tab" data-panel="vortex">Vortex</button>
+    <button class="nav-tab" data-panel="glyphs">Glyphs</button>
     <button class="nav-tab" data-panel="model">Model</button>
     <button class="nav-tab" data-panel="fractal">Fractal</button>
     <button class="nav-tab" data-panel="admin" style="margin-left:auto;">⚙</button>
@@ -254,9 +270,12 @@
 
     <!-- Panel overlay (Glyphs / Model / Fractal) -->
     <div id="panel-overlay">
-      <div id="panel-glyphs" class="panel-inner" style="display:none;flex-direction:column;align-items:center;gap:10px;">
-        <div class="panel-title">Glyph Library</div>
-        <canvas id="glyph-canvas"></canvas>
+      <div id="panel-glyphs" class="panel-inner" style="display:none;flex-direction:column;align-items:center;width:100%;height:100%;">
+        <div class="panel-title">Neon Monkey</div>
+        <div id="glyph-model-wrap" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;gap:10px;">
+          <canvas id="glyph-model-canvas" style="display:block;border-radius:16px;touch-action:none;"></canvas>
+          <div class="model-hint">drag to rotate · pinch to zoom</div>
+        </div>
       </div>
       <div id="panel-model" class="panel-inner" style="display:none;flex-direction:column;align-items:center;width:100%;height:100%;">
         <div class="panel-title">Neon Monkey</div>
@@ -278,18 +297,18 @@
       </div>
     </div>
 
-    <!-- Screen: Moon (home — Fractal Moon + Ball + habit dock) -->
+    <!-- Screen: Moon (home — Fractal Moon + Ball only) -->
     <div id="screen-moon">
       <div id="moon-stage">
         <canvas id="moon-canvas"></canvas>
         <div id="ball-tap"></div>
       </div>
-      <div id="habit-dock"></div>
     </div>
 
-    <!-- Screen: Vortex (separate screen) -->
+    <!-- Screen: Vortex (separate screen + habit dock) -->
     <div id="screen-vortex">
       <canvas id="vortex"></canvas>
+      <div id="habit-dock"></div>
     </div>
 
     <!-- Admin moon overlay -->
@@ -926,12 +945,23 @@ const screenVortex=document.getElementById('screen-vortex');
 const adminOverlay=document.getElementById('admin-overlay');
 let activeTab=null, modelInited=false, glyphInited=false;
 
+function goHome() {
+  overlay.classList.remove('open');
+  Object.values(panels).forEach(p=>p.style.display='none');
+  screenMoon.classList.remove('hidden');
+  screenVortex.classList.remove('visible');
+  navTabs.forEach(t=>t.classList.remove('active'));
+  document.querySelector('[data-panel="home"]').classList.add('active');
+  activeTab=null;
+}
+
 function openPanel(name) {
   if (name==='admin') {
     const isOpen=adminOverlay.classList.toggle('open');
     document.querySelector('[data-panel="admin"]').classList.toggle('active',isOpen);
     return;
   }
+  if (name==='home') { goHome(); return; }
   navTabs.forEach(t=>t.classList.remove('active'));
 
   // Vortex tab: show vortex screen, hide moon screen, close any panel overlay
@@ -1075,32 +1105,57 @@ const SHADE_C=['rgba(10,20,50,0.7)','rgba(50,120,255,0.18)','rgba(120,200,255,0.
 const SHADE_S=['rgba(80,140,255,0.35)','rgba(80,160,255,0.55)','rgba(140,210,255,0.80)','rgba(230,245,255,0.95)'];
 
 function initGlyph(){
-  const cvs=document.getElementById('glyph-canvas');
-  const size=Math.min(window.innerWidth,window.innerHeight*0.72,340);
-  const dpr=window.devicePixelRatio||1;
-  cvs.width=size*dpr; cvs.height=size*dpr;
-  cvs.style.width=size+'px'; cvs.style.height=size+'px';
-  const ctx=cvs.getContext('2d'); ctx.scale(dpr,dpr);
-  const cx=size/2,cy=size/2,sc=size*0.88;
-  const proj=v=>[cx+v[0]*sc, cy-v[1]*sc];
-  ctx.save(); ctx.translate(2,3);
-  SW_TRIS.forEach(t=>{
-    const[ax,ay]=proj(SW_VERTS[t[0]]);const[bx,by]=proj(SW_VERTS[t[1]]);const[cx2,cy2]=proj(SW_VERTS[t[2]]);
-    ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.lineTo(cx2,cy2);ctx.closePath();
-    ctx.fillStyle='rgba(0,10,40,0.25)';ctx.fill();
-  }); ctx.restore();
-  SW_TRIS.forEach((t,i)=>{
-    const s=SW_SHADES[i]||0;
-    const[ax,ay]=proj(SW_VERTS[t[0]]);const[bx,by]=proj(SW_VERTS[t[1]]);const[cx2,cy2]=proj(SW_VERTS[t[2]]);
-    ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.lineTo(cx2,cy2);ctx.closePath();
-    ctx.fillStyle=SHADE_C[s];ctx.strokeStyle=SHADE_S[s];
-    ctx.lineWidth=s>=2?1.4:0.8;ctx.fill();ctx.stroke();
-  });
-  ctx.fillStyle='rgba(140,210,255,0.55)';
-  SW_VERTS.forEach((v,i)=>{
-    if(i%5!==0)return;const[px,py]=proj(v);
-    ctx.beginPath();ctx.arc(px,py,1.5,0,Math.PI*2);ctx.fill();
-  });
+  const wrap=document.getElementById('glyph-model-wrap');
+  // Build a fresh canvas every time, let Three.js own it entirely
+  const cvs=document.createElement('canvas');
+  cvs.style.display='block'; cvs.style.borderRadius='12px'; cvs.style.touchAction='none';
+  // Remove any old canvas
+  const old=document.getElementById('glyph-model-canvas');
+  if(old) old.remove();
+  cvs.id='glyph-model-canvas';
+  wrap.insertBefore(cvs, wrap.firstChild);
+
+  Promise.all([
+    import('three'),
+    import('three/addons/loaders/GLTFLoader.js'),
+    import('three/addons/controls/OrbitControls.js'),
+  ]).then(([THREE,{GLTFLoader},{OrbitControls}])=>{
+    const dpr=window.devicePixelRatio||1;
+    const W2=wrap.clientWidth||window.innerWidth;
+    const H2=Math.max(wrap.clientHeight-40, 300);
+    const renderer=new THREE.WebGLRenderer({canvas:cvs,antialias:true});
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(W2,H2);
+    renderer.setClearColor(0x04060e,1);
+    renderer.outputColorSpace=THREE.SRGBColorSpace;
+    renderer.toneMapping=THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure=1.6;
+    const scene=new THREE.Scene();
+    const camera=new THREE.PerspectiveCamera(38,W2/H2,0.01,100);
+    camera.position.set(0,0,2.8);
+    scene.add(new THREE.AmbientLight(0xaaccff,1.0));
+    const key=new THREE.DirectionalLight(0xffffff,3.0); key.position.set(2,3,2); scene.add(key);
+    const rim=new THREE.DirectionalLight(0x4488ff,1.5); rim.position.set(-2,1,-2); scene.add(rim);
+    const btm=new THREE.DirectionalLight(0xff6622,0.8); btm.position.set(0,-2,1); scene.add(btm);
+    const controls=new OrbitControls(camera,cvs);
+    controls.enableDamping=true; controls.dampingFactor=0.07;
+    controls.minDistance=1; controls.maxDistance=8;
+    controls.autoRotate=true; controls.autoRotateSpeed=1.2;
+    new GLTFLoader().load('/bluemoon/monkey.glb',gltf=>{
+      const model=gltf.scene;
+      const box=new THREE.Box3().setFromObject(model);
+      const cen=box.getCenter(new THREE.Vector3());
+      const siz=box.getSize(new THREE.Vector3()).length();
+      model.position.sub(cen); model.scale.setScalar(2.2/siz);
+      scene.add(model);
+      controls.addEventListener('start',()=>{ controls.autoRotate=false; });
+    },undefined,e=>console.error('GLB',e));
+    let animId;
+    (function loop(){ animId=requestAnimationFrame(loop); controls.update(); renderer.render(scene,camera); })();
+    const gp=document.getElementById('panel-glyphs');
+    const obs=new MutationObserver(()=>{ if(gp.style.display==='none'){ cancelAnimationFrame(animId); renderer.dispose(); obs.disconnect(); glyphInited=false; } });
+    obs.observe(gp,{attributes:true,attributeFilter:['style']});
+  }).catch(e=>console.error('Three load',e));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1109,31 +1164,32 @@ function initGlyph(){
 function initModel(){
   const cvs=document.getElementById('model-canvas');
   const wrap=document.getElementById('model-wrap');
-  const W2=wrap.clientWidth||window.innerWidth;
-  const H2=Math.min(wrap.clientHeight||window.innerHeight*0.75,window.innerHeight*0.75);
-  const size=Math.min(W2,H2);
-  const dpr=window.devicePixelRatio||1;
-  cvs.width=size*dpr; cvs.height=size*dpr;
-  cvs.style.width=size+'px'; cvs.style.height=size+'px';
-  import('https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js').then(THREE=>{
-    import('https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/loaders/GLTFLoader.js').then(({GLTFLoader})=>{
-      import('https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/controls/OrbitControls.js').then(({OrbitControls})=>{
-        bootModel(THREE,GLTFLoader,OrbitControls,cvs,size,dpr);
-      });
-    });
-  }).catch(err=>console.error('Three.js load failed',err));
+  requestAnimationFrame(()=>{
+    const W2=wrap.clientWidth||window.innerWidth;
+    const H2=wrap.clientHeight||Math.round(window.innerHeight*0.75);
+    const size=Math.min(W2,H2);
+    const dpr=window.devicePixelRatio||1;
+    Promise.all([
+      import('three'),
+      import('three/addons/loaders/GLTFLoader.js'),
+      import('three/addons/controls/OrbitControls.js'),
+    ]).then(([THREE,{GLTFLoader},{OrbitControls}])=>{
+      bootModel(THREE,GLTFLoader,OrbitControls,cvs,size,size,dpr);
+    }).catch(err=>console.error('Three.js load failed',err));
+  });
 }
-function bootModel(THREE,GLTFLoader,OrbitControls,cvs,size,dpr){
-  const renderer=new THREE.WebGLRenderer({canvas:cvs,antialias:true,alpha:true});
-  renderer.setPixelRatio(dpr);renderer.setSize(size,size,false);
+function bootModel(THREE,GLTFLoader,OrbitControls,cvs,W2,H2,dpr){
+  const renderer=new THREE.WebGLRenderer({canvas:cvs,antialias:true,alpha:false});
+  renderer.setPixelRatio(dpr); renderer.setSize(W2,H2);
+  renderer.setClearColor(0x04060e,1);
   renderer.outputColorSpace=THREE.SRGBColorSpace;
   renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.4;
   const scene=new THREE.Scene();
-  const camera=new THREE.PerspectiveCamera(42,1,0.01,100);camera.position.set(0,0.1,2.8);
+  const camera=new THREE.PerspectiveCamera(42,W2/H2,0.01,100);camera.position.set(0,0.1,2.8);
   scene.add(new THREE.AmbientLight(0x8ab4ff,0.7));
   const key=new THREE.DirectionalLight(0xffffff,2.2);key.position.set(1.5,2.5,2);scene.add(key);
   const rim=new THREE.DirectionalLight(0x4488ff,1.0);rim.position.set(-2,0.5,-1.5);scene.add(rim);
-  scene.add(Object.assign(new THREE.PointLight(0xff8844,0.5,10),{position:{x:0,y:-1,z:1}}));
+  const pt=new THREE.PointLight(0xff8844,0.5,10); pt.position.set(0,-1,1); scene.add(pt);
   const controls=new OrbitControls(camera,cvs);
   controls.enableDamping=true;controls.dampingFactor=0.07;
   controls.minDistance=0.8;controls.maxDistance=6;
