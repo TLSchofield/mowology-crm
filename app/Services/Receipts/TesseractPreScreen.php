@@ -82,6 +82,11 @@ function tesseractPreScreen(string $filePath): array
         2 => ['pipe', 'w'],  // stderr
     ];
 
+    if (!function_exists('proc_open')) {
+        $empty['error'] = 'proc_open disabled';
+        return $empty;
+    }
+
     $proc = @proc_open($cmd, $descriptors, $pipes);
     if (!is_resource($proc)) {
         $empty['error'] = 'proc_open failed';
@@ -184,6 +189,12 @@ function _makeDecision(int $score): string
  */
 function _findTesseractBin(): ?string
 {
+    // Bail immediately if shell functions are disabled (shared hosting)
+    $disabled = array_map('trim', explode(',', ini_get('disable_functions') ?: ''));
+    if (in_array('shell_exec', $disabled, true) || in_array('proc_open', $disabled, true)) {
+        return null;
+    }
+
     // Check common paths on shared hosting (cPanel) and Linux servers
     $candidates = [
         '/usr/bin/tesseract',
@@ -193,7 +204,6 @@ function _findTesseractBin(): ?string
     ];
 
     foreach ($candidates as $path) {
-        // Use `which` to verify it's actually executable
         if ($path === 'tesseract') {
             $which = @shell_exec('which tesseract 2>/dev/null');
             if ($which && strlen(trim($which)) > 0) return 'tesseract';
