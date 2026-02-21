@@ -189,6 +189,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    function escapeHtml(text) {
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+        return String(text).replace(/[&<>"']/g, m => map[m]);
+    }
+
     // Load media usage data via AJAX
     const mediaId = <?php echo $mediaId; ?>;
     if (mediaId) {
@@ -199,7 +204,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.usage && data.usage.length > 0) {
                     let html = '<ul class="list-unstyled">';
                     data.usage.forEach(item => {
-                        html += '<li><a href="' + item.url + '" target="_blank">' + item.name + '</a></li>';
+                        html += '<li><a href="' + escapeHtml(item.url) + '" target="_blank">' + escapeHtml(item.name) + '</a></li>';
                     });
                     html += '</ul>';
                     container.innerHTML = html;

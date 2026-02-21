@@ -60,105 +60,6 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
 ?>
 <?php include dirname(__DIR__) . '/crm/includes/appstack_head.php'; ?>
 
-<style>
-.help-tooltip {
-    position: relative;
-    display: inline-block;
-    margin-left: 5px;
-    width: 18px;
-    height: 18px;
-    background-color: #007bff;
-    color: white;
-    border-radius: 50%;
-    text-align: center;
-    line-height: 18px;
-    font-size: 12px;
-    font-weight: bold;
-    cursor: help;
-}
-
-.help-tooltip:hover::after,
-.help-tooltip.show::after {
-    content: attr(data-help);
-    position: absolute;
-    bottom: 120%;
-    left: -150px;
-    width: 300px;
-    background-color: #333;
-    color: #fff;
-    padding: 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: normal;
-    text-align: left;
-    z-index: 1000;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-}
-
-.help-tooltip::before {
-    content: '';
-    position: absolute;
-    bottom: 115%;
-    left: -20px;
-    width: 0;
-    height: 0;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 5px solid #333;
-}
-
-.seo-preview {
-    background-color: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-radius: 4px;
-    padding: 12px;
-    margin-top: 10px;
-    font-size: 13px;
-}
-
-.seo-preview .title {
-    color: #1a73e8;
-    text-decoration: underline;
-    font-weight: 600;
-    margin-bottom: 4px;
-}
-
-.seo-preview .url {
-    color: #006621;
-    font-size: 12px;
-    margin-bottom: 4px;
-}
-
-.seo-preview .description {
-    color: #545454;
-    line-height: 1.4;
-    margin-top: 4px;
-}
-
-.ui-guide {
-    background-color: #e8f5e9;
-    border-left: 4px solid #4caf50;
-    padding: 12px;
-    margin-bottom: 15px;
-    border-radius: 2px;
-}
-
-.ui-guide strong {
-    color: #2e7d32;
-}
-
-.auto-seo-badge {
-    display: inline-block;
-    background-color: #c8e6c9;
-    color: #1b5e20;
-    padding: 4px 8px;
-    border-radius: 3px;
-    font-size: 11px;
-    font-weight: 600;
-    margin-left: 8px;
-}
-</style>
-
 <div class="container-fluid p-4">
     <div class="row">
         <div class="col-lg-8">
@@ -180,7 +81,7 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                     </div>
                     <div class="card-body">
                         <!-- UI Guide -->
-                        <div class="ui-guide">
+                        <div class="mw-ui-guide">
                             <strong>💡 Pro Tip:</strong> Fill in your page info first, then click "Create Page" to add blocks. SEO fields auto-populate with smart defaults — edit them to customize.
                         </div>
 
@@ -188,7 +89,7 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                         <div class="form-group">
                             <label for="slug">
                                 URL Slug *
-                                <span class="help-tooltip" data-help="URL-safe identifier for this page. Used in the page link. Example: 'lawn-maintenance' becomes /lawn-maintenance">?</span>
+                                <span class="mw-help-tooltip" data-help="URL-safe identifier for this page. Used in the page link. Example: 'lawn-maintenance' becomes /lawn-maintenance">?</span>
                             </label>
                             <input type="text" class="form-control" id="slug" name="slug" required
                                    value="<?php echo h($page['slug'] ?? ''); ?>"
@@ -200,7 +101,7 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                         <div class="form-group">
                             <label for="title">
                                 Page Title *
-                                <span class="help-tooltip" data-help="The main title of your page. Used for navigation and defaults for SEO meta title. Examples: 'Lawn Maintenance', 'About Mowology', 'Contact Us'">?</span>
+                                <span class="mw-help-tooltip" data-help="The main title of your page. Used for navigation and defaults for SEO meta title. Examples: 'Lawn Maintenance', 'About Mowology', 'Contact Us'">?</span>
                             </label>
                             <input type="text" class="form-control" id="title" name="title" required
                                    value="<?php echo h($page['title'] ?? ''); ?>"
@@ -238,8 +139,8 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                         <div class="form-group">
                             <label for="meta_title">
                                 Meta Title (SEO)
-                                <span class="help-tooltip" data-help="This is what appears as the title in Google search results. Keep it under 60 characters for best display. Leave empty for auto-generated default.">?</span>
-                                <span class="auto-seo-badge">Auto-generated</span>
+                                <span class="mw-help-tooltip" data-help="This is what appears as the title in Google search results. Keep it under 60 characters for best display. Leave empty for auto-generated default.">?</span>
+                                <span class="mw-auto-seo-badge">Auto-generated</span>
                             </label>
                             <input type="text" class="form-control" id="meta_title" name="meta_title"
                                    value="<?php echo h($page['meta_title'] ?? ''); ?>"
@@ -253,8 +154,8 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                         <div class="form-group">
                             <label for="meta_description">
                                 Meta Description (SEO)
-                                <span class="help-tooltip" data-help="This snippet appears under your title in search results. Keep it under 160 characters. Should include your target keywords naturally. Leave empty for auto-generated summary.">?</span>
-                                <span class="auto-seo-badge">Auto-generated</span>
+                                <span class="mw-help-tooltip" data-help="This snippet appears under your title in search results. Keep it under 160 characters. Should include your target keywords naturally. Leave empty for auto-generated summary.">?</span>
+                                <span class="mw-auto-seo-badge">Auto-generated</span>
                             </label>
                             <textarea class="form-control" id="meta_description" name="meta_description"
                                       rows="2" maxlength="160"
@@ -264,17 +165,17 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                         </div>
 
                         <!-- SEO Preview -->
-                        <div class="seo-preview">
-                            <div class="title" id="seoPreviewTitle"><?php echo h($suggestedMetaTitle); ?></div>
-                            <div class="url">mowology.ca/<?php echo h($page['slug'] ?? 'your-page'); ?></div>
-                            <div class="description" id="seoPreviewDesc"><?php echo h($suggestedMetaDesc); ?></div>
+                        <div class="mw-seo-preview">
+                            <div class="mw-seo-title" id="seoPreviewTitle"><?php echo h($suggestedMetaTitle); ?></div>
+                            <div class="mw-seo-url">mowology.ca/<?php echo h($page['slug'] ?? 'your-page'); ?></div>
+                            <div class="mw-seo-description" id="seoPreviewDesc"><?php echo h($suggestedMetaDesc); ?></div>
                         </div>
 
                         <!-- Status -->
                         <div class="form-group">
                             <label for="status">
                                 Status
-                                <span class="help-tooltip" data-help="Draft: Not visible to public or search engines. Published: Live and visible. Archived: Hidden but kept for history.">?</span>
+                                <span class="mw-help-tooltip" data-help="Draft: Not visible to public or search engines. Published: Live and visible. Archived: Hidden but kept for history.">?</span>
                             </label>
                             <select class="form-control" id="status" name="status">
                                 <option value="draft" <?php echo ($page['status'] ?? 'draft') === 'draft' ? 'selected' : ''; ?>>Draft (not visible)</option>
@@ -446,7 +347,7 @@ function updateSEOPreview() {
 
 document.addEventListener('DOMContentLoaded', function() {
     // Show all help tooltips on mobile
-    const tooltips = document.querySelectorAll('.help-tooltip');
+    const tooltips = document.querySelectorAll('.mw-help-tooltip');
     tooltips.forEach(tip => {
         tip.addEventListener('click', function(e) {
             e.preventDefault();

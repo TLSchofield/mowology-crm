@@ -129,11 +129,11 @@ $totalAll = count($allMedia);
             <small class="text-muted">Upload, optimize, and manage media assets</small>
         </div>
         <div>
-            <a href="?view=grid<?php echo $typeFilter ? '&type=' . h($typeFilter) : ''; ?><?php echo $searchFilter ? '&search=' . urlencode($searchFilter) : ''; ?>"
+            <a href="?view=grid<?php echo $typeFilter ? '&type=' . h($typeFilter) : ''; ?><?php echo $searchFilter ? '&search=' . h(urlencode($searchFilter)) : ''; ?>"
                class="btn btn-sm <?php echo $viewMode === 'grid' ? 'btn-primary' : 'btn-outline-secondary'; ?>">
                 <i data-feather="grid" style="width:14px;height:14px;"></i> Grid
             </a>
-            <a href="?view=table<?php echo $typeFilter ? '&type=' . h($typeFilter) : ''; ?><?php echo $searchFilter ? '&search=' . urlencode($searchFilter) : ''; ?>"
+            <a href="?view=table<?php echo $typeFilter ? '&type=' . h($typeFilter) : ''; ?><?php echo $searchFilter ? '&search=' . h(urlencode($searchFilter)) : ''; ?>"
                class="btn btn-sm <?php echo $viewMode === 'table' ? 'btn-primary' : 'btn-outline-secondary'; ?>">
                 <i data-feather="list" style="width:14px;height:14px;"></i> Table
             </a>

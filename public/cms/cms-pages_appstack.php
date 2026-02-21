@@ -209,7 +209,9 @@ foreach ($pages as &$p) {
     <?php endif; ?>
 </div>
 
-<!-- Scripts -->
+<!-- Hidden CSRF token for JS delete actions -->
+<input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Delete action handler

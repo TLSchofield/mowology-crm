@@ -119,78 +119,6 @@ $fields = $blockFieldTemplates[$block['block_type'] ?? ''] ?? [];
 ?>
 <?php include dirname(__DIR__) . '/crm/includes/appstack_head.php'; ?>
 
-<style>
-.repeatable-item {
-    background-color: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-radius: 4px;
-    padding: 15px;
-    margin-bottom: 10px;
-    position: relative;
-}
-
-.repeatable-item-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 15px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #dee2e6;
-}
-
-.repeatable-item-controls {
-    display: flex;
-    gap: 5px;
-}
-
-.repeatable-item-controls button {
-    padding: 3px 10px;
-    font-size: 12px;
-}
-
-.media-picker-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 10px;
-    max-height: 500px;
-    overflow-y: auto;
-}
-
-.media-picker-item {
-    cursor: pointer;
-    border: 2px solid transparent;
-    border-radius: 4px;
-    padding: 8px;
-    text-align: center;
-    transition: all 0.2s;
-}
-
-.media-picker-item:hover,
-.media-picker-item.selected {
-    border-color: #007bff;
-    background-color: #e7f1ff;
-}
-
-.media-picker-thumb {
-    width: 100%;
-    height: 100px;
-    object-fit: cover;
-    border-radius: 3px;
-    margin-bottom: 5px;
-}
-
-.media-picker-filename {
-    font-size: 11px;
-    color: #666;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.repeatable-add-btn {
-    margin-top: 10px;
-}
-</style>
 
 <div class="container-fluid p-4">
     <div class="row">
@@ -265,8 +193,8 @@ $fields = $blockFieldTemplates[$block['block_type'] ?? ''] ?? [];
 
                                 <?php elseif ($field['type'] === 'html'): ?>
                                     <textarea class="form-control html-editor" id="<?php echo h($fieldKey); ?>" name="config[<?php echo h($fieldKey); ?>]"
-                                              rows="10" <?php echo ($field['required'] ?? false) ? 'required' : ''; ?>><?php echo $value; ?></textarea>
-                                    <small class="form-text text-muted">HTML editor (not escaped on public site)</small>
+                                              rows="10" <?php echo ($field['required'] ?? false) ? 'required' : ''; ?>><?php echo h((string)$value); ?></textarea>
+                                    <small class="form-text text-muted">HTML is rendered as-is on the public site. Ensure content is trusted.</small>
 
                                 <?php elseif ($field['type'] === 'select'): ?>
                                     <select class="form-control" id="<?php echo h($fieldKey); ?>" name="config[<?php echo h($fieldKey); ?>]"
@@ -306,10 +234,10 @@ $fields = $blockFieldTemplates[$block['block_type'] ?? ''] ?? [];
                                             }
                                             ?>
                                             <?php foreach ($items as $idx => $item): ?>
-                                            <div class="repeatable-item" data-index="<?php echo $idx; ?>">
-                                                <div class="repeatable-item-header">
+                                            <div class="mw-repeatable-item" data-index="<?php echo $idx; ?>">
+                                                <div class="mw-repeatable-item-header">
                                                     <strong><?php echo ucfirst($field['itemType']); ?> <?php echo $idx + 1; ?></strong>
-                                                    <div class="repeatable-item-controls">
+                                                    <div class="mw-repeatable-item-controls">
                                                         <button type="button" class="btn btn-sm btn-secondary move-up" title="Move up">↑</button>
                                                         <button type="button" class="btn btn-sm btn-secondary move-down" title="Move down">↓</button>
                                                         <button type="button" class="btn btn-sm btn-danger remove-item">Remove</button>
@@ -342,7 +270,7 @@ $fields = $blockFieldTemplates[$block['block_type'] ?? ''] ?? [];
                                             </div>
                                             <?php endforeach; ?>
                                         </div>
-                                        <button type="button" class="btn btn-sm btn-success repeatable-add-btn" data-field-key="<?php echo h($fieldKey); ?>" data-item-type="<?php echo h($field['itemType']); ?>">
+                                        <button type="button" class="btn btn-sm btn-success mw-repeatable-add-btn" data-field-key="<?php echo h($fieldKey); ?>" data-item-type="<?php echo h($field['itemType']); ?>">
                                             <i data-feather="plus"></i> Add <?php echo ucfirst($field['itemType']); ?>
                                         </button>
                                     </div>
@@ -393,7 +321,7 @@ $fields = $blockFieldTemplates[$block['block_type'] ?? ''] ?? [];
                 <div class="form-group mb-3">
                     <input type="text" class="form-control" id="mediaSearchInput" placeholder="Search by filename or alt text...">
                 </div>
-                <div class="media-picker-grid" id="mediaPickerGrid">
+                <div class="mw-media-picker-grid" id="mediaPickerGrid">
                     <p class="text-muted">Loading media...</p>
                 </div>
                 <nav class="mt-3">
@@ -413,7 +341,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentMediaPage = 1;
 
     // Repeatable item management
-    document.querySelectorAll('.repeatable-add-btn').forEach(btn => {
+    document.querySelectorAll('.mw-repeatable-add-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
             const fieldKey = this.dataset.fieldKey;
@@ -425,13 +353,13 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!fieldDef[fieldKey] || !fieldDef[fieldKey].fields) return;
 
             const subFields = fieldDef[fieldKey].fields;
-            const newIndex = container.querySelectorAll('.repeatable-item').length;
+            const newIndex = container.querySelectorAll('.mw-repeatable-item').length;
 
             let html = `
-                <div class="repeatable-item" data-index="${newIndex}">
-                    <div class="repeatable-item-header">
+                <div class="mw-repeatable-item" data-index="${newIndex}">
+                    <div class="mw-repeatable-item-header">
                         <strong>${itemType.charAt(0).toUpperCase() + itemType.slice(1)} ${newIndex + 1}</strong>
-                        <div class="repeatable-item-controls">
+                        <div class="mw-repeatable-item-controls">
                             <button type="button" class="btn btn-sm btn-secondary move-up" title="Move up">↑</button>
                             <button type="button" class="btn btn-sm btn-secondary move-down" title="Move down">↓</button>
                             <button type="button" class="btn btn-sm btn-danger remove-item">Remove</button>
@@ -474,7 +402,7 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.removeEventListener('click', null);
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
-                this.closest('.repeatable-item').remove();
+                this.closest('.mw-repeatable-item').remove();
             });
         });
 
@@ -483,9 +411,9 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.removeEventListener('click', null);
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
-                const current = this.closest('.repeatable-item');
+                const current = this.closest('.mw-repeatable-item');
                 const prev = current.previousElementSibling;
-                if (prev && prev.classList.contains('repeatable-item')) {
+                if (prev && prev.classList.contains('mw-repeatable-item')) {
                     current.parentNode.insertBefore(current, prev);
                 }
             });
@@ -495,9 +423,9 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.removeEventListener('click', null);
             btn.addEventListener('click', function(e) {
                 e.preventDefault();
-                const current = this.closest('.repeatable-item');
+                const current = this.closest('.mw-repeatable-item');
                 const next = current.nextElementSibling;
-                if (next && next.classList.contains('repeatable-item')) {
+                if (next && next.classList.contains('mw-repeatable-item')) {
                     current.parentNode.insertBefore(next, current);
                 }
             });
@@ -552,9 +480,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 data.data.forEach(item => {
                     const isImage = item.type === 'image';
                     html += `
-                        <div class="media-picker-item" data-media-id="${item.id}" data-media-filename="${escapeHtml(item.filename)}">
-                            ${isImage ? `<img src="${item.thumb_path}" alt="${escapeHtml(item.alt_text)}" class="media-picker-thumb">` : `<div style="width:100%; height:100px; background:#eee; display:flex; align-items:center; justify-content:center; color:#999;">${item.type.toUpperCase()}</div>`}
-                            <div class="media-picker-filename">${escapeHtml(item.filename)}</div>
+                        <div class="mw-media-picker-item" data-media-id="${item.id}" data-media-filename="${escapeHtml(item.filename)}">
+                            ${isImage ? `<img src="${escapeHtml(item.thumb_path)}" alt="${escapeHtml(item.alt_text)}" class="mw-media-picker-thumb">` : `<div style="width:100%; height:100px; background:#eee; display:flex; align-items:center; justify-content:center; color:#999;">${escapeHtml(item.type.toUpperCase())}</div>`}
+                            <div class="mw-media-picker-filename">${escapeHtml(item.filename)}</div>
                         </div>
                     `;
                 });
@@ -568,7 +496,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('mediaPaginationContainer').innerHTML = paginationHtml;
 
                 // Media item selection
-                document.querySelectorAll('.media-picker-item').forEach(item => {
+                document.querySelectorAll('.mw-media-picker-item').forEach(item => {
                     item.addEventListener('click', function() {
                         const mediaId = this.dataset.mediaId;
                         const filename = this.dataset.mediaFilename;
@@ -576,7 +504,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (currentItemIndex !== null && currentSubKey !== null) {
                             // Repeatable sub-item
                             const container = document.querySelector(`.repeatable-field[data-field-key="${currentFieldKey}"] .repeatable-items`);
-                            const item = container.querySelector(`.repeatable-item[data-index="${currentItemIndex}"]`);
+                            const item = container.querySelector(`.mw-repeatable-item[data-index="${currentItemIndex}"]`);
                             item.querySelector(`.item-field[data-key="${currentSubKey}"].media-id-input`).value = mediaId;
                             item.querySelector(`.media-display`).value = filename;
                         } else {
@@ -627,7 +555,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const subFields = itemDefs[fieldKey] || {};
 
             const items = [];
-            field.querySelectorAll('.repeatable-item').forEach(item => {
+            field.querySelectorAll('.mw-repeatable-item').forEach(item => {
                 const itemObj = {};
                 item.querySelectorAll('.item-field').forEach(field => {
                     const key = field.dataset.key;
