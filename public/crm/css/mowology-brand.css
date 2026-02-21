@@ -5709,12 +5709,28 @@ textarea.font-monospace {
   min-height: 300px;
 }
 
-/* Tray-aware layouts */
+/* Tray-aware layouts — stop grid */
 .mw-stop-grid--has-tray {
   grid-template-columns: 160px repeat(7, minmax(0, 1fr));
 }
 .mw-stop-grid--has-tray.mw-tray-collapsed {
   grid-template-columns: 30px repeat(7, minmax(0, 1fr));
+}
+
+/* Tray-aware layouts — header rows must match stop grid so day names stay aligned */
+.mw-calendar-container--has-tray .mw-calendar-header,
+.mw-calendar-container--has-tray .mw-calendar-dates-header {
+  grid-template-columns: 160px repeat(7, minmax(0, 1fr));
+}
+.mw-calendar-container--has-tray.mw-tray-collapsed .mw-calendar-header,
+.mw-calendar-container--has-tray.mw-tray-collapsed .mw-calendar-dates-header {
+  grid-template-columns: 30px repeat(7, minmax(0, 1fr));
+}
+/* The time-label placeholder must occupy the tray slot (invisible but takes space) */
+.mw-calendar-container--has-tray .mw-calendar-time-label {
+  display: block;
+  visibility: hidden;
+  width: 100%;
 }
 
 .mw-stop-grid-label {

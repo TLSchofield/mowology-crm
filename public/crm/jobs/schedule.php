@@ -945,7 +945,7 @@ if ($apiKey) {
           <!-- ═══════════════════════════════════════════════
                DESKTOP: Calendar container (hidden on mobile)
                ═══════════════════════════════════════════════ -->
-          <div class="mw-calendar-container">
+          <div class="mw-calendar-container<?php echo $unscheduledCount > 0 ? ' mw-calendar-container--has-tray' : ''; ?>">
 
               <!-- Day name header row -->
               <div class="mw-calendar-header">
@@ -2382,17 +2382,26 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
     var IS_CREW = <?php echo json_encode($isCrew); ?>;
 
     var stopGrid   = document.getElementById('mwStopGrid');
-    var trayToggle = document.getElementById('mwTrayToggle');
+    var trayToggle  = document.getElementById('mwTrayToggle');
+    var calContainer = document.querySelector('.mw-calendar-container');
 
     // ── Tray collapse / expand ────────────────────────────────────────────────
+    // Toggle mw-tray-collapsed on BOTH the stop grid AND the calendar container
+    // so that all three header rows (day-names, dates, stop-grid) stay in sync.
     if (trayToggle && stopGrid) {
+        function applyTrayCollapse(collapsed) {
+            stopGrid.classList.toggle('mw-tray-collapsed', collapsed);
+            if (calContainer) calContainer.classList.toggle('mw-tray-collapsed', collapsed);
+        }
+
         // Restore saved state
         if (localStorage.getItem('mw_tray_collapsed') === '1') {
-            stopGrid.classList.add('mw-tray-collapsed');
+            applyTrayCollapse(true);
         }
 
         trayToggle.addEventListener('click', function () {
             var isNowCollapsed = stopGrid.classList.toggle('mw-tray-collapsed');
+            if (calContainer) calContainer.classList.toggle('mw-tray-collapsed', isNowCollapsed);
             localStorage.setItem('mw_tray_collapsed', isNowCollapsed ? '1' : '0');
         });
     }
