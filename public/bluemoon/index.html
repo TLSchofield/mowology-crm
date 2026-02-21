@@ -69,27 +69,33 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 10px;
-      padding: 12px 20px;
+      gap: 6px;
+      padding: 10px 20px;
       overflow: hidden;
     }
 
     .habit-btn {
-      width: 100%; max-width: 400px;
-      padding: 14px 20px;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 14px;
+      width: 100%; max-width: 420px;
+      padding: 10px 16px;
+      background: transparent;
+      border: none;
+      border-radius: 10px;
       color: rgba(255,255,255,0.90);
-      font-size: 15px; font-weight: 600; letter-spacing: 0.3px;
-      cursor: pointer; text-align: left;
-      transition: background 0.15s, border-color 0.3s;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 12px;
+      transition: background 0.15s;
       -webkit-tap-highlight-color: transparent;
     }
-    .habit-btn:active { background: rgba(255,255,255,0.14); }
-    .habit-btn.tapped {
-      border-color: rgba(255,100,100,0.7);
-      background: rgba(255,80,80,0.14);
+    .habit-btn:active { background: rgba(255,255,255,0.07); }
+    .habit-btn.tapped { background: rgba(255,255,255,0.04); }
+
+    .habit-icon { flex-shrink: 0; display: block; }
+
+    .habit-label {
+      font-size: 15px; font-weight: 500; letter-spacing: 0.02em;
+      color: rgba(255,255,255,0.90);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      font-family: monospace;
     }
 
     /* Install banner */
@@ -174,23 +180,120 @@ let   events  = loadEvents();
 const dockEl  = document.getElementById('habit-dock');
 const canvas  = document.getElementById('vortex');
 
+// ── Hex+Wedge icon renderer ───────────────────────────────────────────────────
+const HEX_SIZE    = 40;
+const HEX_RADIUS  = (HEX_SIZE / 2) * 0.78;
+const HEX_ROT_RAD = -Math.PI / 2; // point-up
+
+const C_BLUE      = 'rgba(90,160,255,0.92)';
+const C_BLUE_DIM  = 'rgba(90,160,255,0.55)';
+const C_WHITE_DIM = 'rgba(255,255,255,0.30)';
+const C_WHITE_FNT = 'rgba(255,255,255,0.12)';
+
+function hexVertices(r) {
+  const v = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (i * Math.PI) / 3 + HEX_ROT_RAD;
+    v.push([r * Math.cos(a), r * Math.sin(a)]);
+  }
+  return v;
+}
+
+function drawHexWedge(canvas, reinforcerCount) {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = HEX_SIZE * dpr;
+  canvas.height = HEX_SIZE * dpr;
+  canvas.style.width  = HEX_SIZE + 'px';
+  canvas.style.height = HEX_SIZE + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.translate(HEX_SIZE / 2, HEX_SIZE / 2);
+
+  const r = HEX_RADIUS;
+  const verts = hexVertices(r);
+  const litCount = Math.max(0, Math.min(6, reinforcerCount));
+
+  // Faint wedge fills
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = C_WHITE_FNT;
+  for (let i = 0; i < 6; i++) {
+    const v1 = verts[i], v2 = verts[(i + 1) % 6];
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(v1[0], v1[1]); ctx.lineTo(v2[0], v2[1]);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  // Lit wedges (bright blue)
+  ctx.strokeStyle = C_BLUE;
+  for (let i = 0; i < litCount; i++) {
+    const v1 = verts[i], v2 = verts[(i + 1) % 6];
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(v1[0], v1[1]); ctx.lineTo(v2[0], v2[1]);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  // Hex outline
+  ctx.strokeStyle = C_WHITE_DIM;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(verts[0][0], verts[0][1]);
+  for (let i = 1; i < 6; i++) ctx.lineTo(verts[i][0], verts[i][1]);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 // ── Habit dock ────────────────────────────────────────────────────────────────
+// tapCounts[habitId] = number of taps today (drives wedge lit count)
+const tapCounts = {};
+
+function getTodayTapCount(habitId) {
+  const todayStr = new Date().toDateString();
+  return events.filter(e => e.habitId === habitId && new Date(e.ts).toDateString() === todayStr).length;
+}
+
 function buildDock() {
   dockEl.innerHTML = '';
   habits.forEach(h => {
+    tapCounts[h.id] = getTodayTapCount(h.id);
+
     const btn = document.createElement('button');
-    btn.className   = 'habit-btn';
-    btn.textContent = h.label;
-    btn.addEventListener('click', () => onHabitTap(h.id, btn));
+    btn.className = 'habit-btn';
+
+    // Canvas icon
+    const cvs = document.createElement('canvas');
+    cvs.className = 'habit-icon';
+    drawHexWedge(cvs, tapCounts[h.id]);
+    btn.appendChild(cvs);
+
+    // Label
+    const lbl = document.createElement('span');
+    lbl.className   = 'habit-label';
+    lbl.textContent = h.label;
+    btn.appendChild(lbl);
+
+    btn.addEventListener('click', () => onHabitTap(h.id, btn, cvs));
     dockEl.appendChild(btn);
   });
 }
 
-function onHabitTap(habitId, btn) {
+function onHabitTap(habitId, btn, cvs) {
   const ev = { id:'c_'+Math.random().toString(16).slice(2), ts:Date.now(), habitId };
   events.push(ev);
   saveEvents(events);
   notifyWorkerEvents();
+
+  // Increment tap count and redraw hex
+  tapCounts[habitId] = (tapCounts[habitId] || 0) + 1;
+  drawHexWedge(cvs, tapCounts[habitId]);
+
   btn.classList.add('tapped');
   setTimeout(() => btn.classList.remove('tapped'), 600);
 }
@@ -208,13 +311,16 @@ function startWorker() {
   if (!canvas.transferControlToOffscreen) return false;
   try {
     worker = new Worker('/bluemoon/vortex.worker.js');
-    const offscreen = canvas.transferControlToOffscreen();
     const dpr = window.devicePixelRatio || 1;
     const W   = window.innerWidth;
     const H   = window.innerHeight;
     const cH  = H * 0.667;
+    // Must set pixel dimensions BEFORE transferControlToOffscreen
+    canvas.width  = Math.round(W * dpr);
+    canvas.height = Math.round(cH * dpr);
     canvas.style.width  = W  + 'px';
     canvas.style.height = cH + 'px';
+    const offscreen = canvas.transferControlToOffscreen();
     worker.postMessage(
       { type:'init', canvas:offscreen, width:W, height:H, devicePixelRatio:dpr, events },
       [offscreen]
