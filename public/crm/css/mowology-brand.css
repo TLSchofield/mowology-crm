@@ -15167,3 +15167,65 @@ textarea.font-monospace {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* Block row — drag-to-reorder list in page editor */
+.mw-block-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    cursor: default;
+    transition: background-color .15s, border-color .15s;
+}
+.mw-block-row[draggable="true"] { cursor: grab; }
+.mw-block-row[draggable="true"]:active { cursor: grabbing; }
+.mw-block-row.mw-block-row-over {
+    border-color: var(--mw-green);
+    background-color: var(--mw-light);
+}
+.mw-block-row-handle {
+    flex-shrink: 0;
+    padding: 2px 4px;
+    cursor: grab;
+    color: #adb5bd;
+}
+.mw-block-row-info {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.mw-block-row-actions {
+    flex-shrink: 0;
+    display: flex;
+    gap: 4px;
+}
+
+/* Completion score bar on pages list */
+.mw-completion-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+.mw-completion-bar-track {
+    width: 60px;
+    height: 6px;
+    background: #e9ecef;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.mw-completion-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--mw-green);
+    transition: width .3s;
+}
+.mw-completion-bar-fill.low  { background: #dc3545; }
+.mw-completion-bar-fill.mid  { background: #ffc107; }
+.mw-completion-bar-fill.high { background: var(--mw-green); }

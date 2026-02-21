@@ -53,11 +53,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 try {
     $pageId = !empty($_POST['id']) ? (int)$_POST['id'] : null;
 
+    $title = trim($_POST['title'] ?? '');
+    $slug  = trim($_POST['slug'] ?? '');
+
+    // Auto-SEO: fill empty meta_title with "{Title} | Mowology Landscaping"
+    $metaTitle = trim($_POST['meta_title'] ?? '');
+    if ($metaTitle === '' && $title !== '') {
+        $siteName = defined('SITE_NAME') ? SITE_NAME : 'Mowology Landscaping';
+        $candidate = $title . ' | ' . $siteName;
+        $metaTitle = mb_substr($candidate, 0, 60);
+    }
+
+    // Auto-SEO: fill empty meta_description from blocks if editing an existing page
+    $metaDesc = trim($_POST['meta_description'] ?? '');
+    if ($metaDesc === '' && $pageId) {
+        $existingBlocks = cms_getBlocksByPageId($pageId, 0); // bypass cache
+        foreach ($existingBlocks as $blk) {
+            $cfg = $blk['config'] ?? [];
+            // Try common text fields in order of preference
+            $text = $cfg['subheadline'] ?? $cfg['description'] ?? $cfg['body'] ?? $cfg['text'] ?? $cfg['headline'] ?? '';
+            if (is_string($text) && strlen(strip_tags($text)) > 30) {
+                $metaDesc = mb_substr(strip_tags($text), 0, 155) . '…';
+                break;
+            }
+        }
+    }
+
     $pageData = [
-        'slug' => $_POST['slug'] ?? '',
-        'title' => $_POST['title'] ?? '',
-        'meta_title' => $_POST['meta_title'] ?? '',
-        'meta_description' => $_POST['meta_description'] ?? '',
+        'slug' => $slug,
+        'title' => $title,
+        'meta_title' => $metaTitle,
+        'meta_description' => $metaDesc,
         'meta_keywords' => $_POST['meta_keywords'] ?? '',
         'page_type' => $_POST['page_type'] ?? 'custom',
         'layout_template' => $_POST['layout_template'] ?? 'default',

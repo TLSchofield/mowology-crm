@@ -310,10 +310,62 @@ $groups = cms_getFeaturedTemplateGroups();
     <?php endif; ?>
 </div>
 
+<!-- Hidden CSRF token for JS delete actions -->
+<input type="hidden" id="csrf_token" value="<?php echo generateCSRFToken(); ?>">
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Delete handlers would go here
-    // For now, basic implementation shown in cms-pages page
+    var csrfToken = document.getElementById('csrf_token').value;
+
+    function apiDelete(url, id, element, confirmMsg) {
+        if (!confirm(confirmMsg || 'Delete this item?')) return;
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken,
+            },
+            body: JSON.stringify({ id: id }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                if (element) element.closest('.col-md-6, tr').remove();
+            } else {
+                alert('Error: ' + (data.error || 'Delete failed'));
+            }
+        })
+        .catch(function(err) { alert('Error: ' + err.message); });
+    }
+
+    // Delete page template
+    document.querySelectorAll('[data-action="delete"]').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var row = this.closest('tr');
+            var id = row ? row.dataset.id : null;
+            if (!id) return;
+            apiDelete('/crm/api/delete-page-template.php', id, row, 'Delete this template?');
+        });
+    });
+
+    // Delete preset
+    document.querySelectorAll('.delete-preset').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var id = this.dataset.presetId;
+            apiDelete('/crm/api/delete-preset.php', id, this, 'Delete this preset?');
+        });
+    });
+
+    // Delete group
+    document.querySelectorAll('.delete-group').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var id = this.dataset.groupId;
+            apiDelete('/crm/api/delete-group.php', id, this, 'Delete this template group?');
+        });
+    });
 });
 </script>
 

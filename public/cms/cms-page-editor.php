@@ -206,20 +206,51 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                     </div>
                     <div class="card-body">
                         <?php if (empty($blocks)): ?>
-                            <p class="text-muted">No blocks added yet. Add a block to get started.</p>
+                            <div class="mw-ui-guide">
+                                <strong>Next step:</strong> Add your first block above — start with a Hero Banner, then add sections below it.
+                            </div>
                         <?php else: ?>
+                            <p class="small text-muted mb-2">
+                                <i data-feather="move" style="width:12px;height:12px;"></i>
+                                Drag rows to reorder blocks
+                            </p>
                             <div id="blocks-list">
-                                <?php foreach ($blocks as $block): ?>
-                                <div class="card mb-2" data-block-id="<?php echo $block['id']; ?>">
-                                    <div class="card-body d-flex justify-content-between align-items-center">
-                                        <div>
-                                            <strong><?php echo ucfirst($block['block_type']); ?></strong>
-                                            <small class="text-muted"><?php echo $block['label'] ?? 'Block'; ?></small>
-                                        </div>
-                                        <div>
-                                            <a href="/crm/cms-block-editor.php?block_id=<?php echo $block['id']; ?>" class="btn btn-sm btn-primary">Edit</a>
-                                            <button type="button" class="btn btn-sm btn-danger delete-block" data-block-id="<?php echo $block['id']; ?>">Delete</button>
-                                        </div>
+                                <?php
+                                $blockTypeLabels = [
+                                    'hero' => 'Hero Banner',
+                                    'feature_grid' => 'Feature Grid',
+                                    'testimonials' => 'Testimonials',
+                                    'cta' => 'Call to Action',
+                                    'faq' => 'FAQ',
+                                    'gallery' => 'Gallery',
+                                    'service_cards' => 'Service Cards',
+                                    'rich_text' => 'Rich Text',
+                                    'portfolio_showcase' => 'Portfolio Showcase',
+                                    'custom' => 'Custom HTML',
+                                ];
+                                foreach ($blocks as $block):
+                                    $typeLabel = $blockTypeLabels[$block['block_type']] ?? ucfirst(str_replace('_', ' ', $block['block_type']));
+                                    $headline = $block['config']['headline'] ?? $block['config']['title'] ?? $block['config']['heading'] ?? '';
+                                ?>
+                                <div class="mw-block-row" data-block-id="<?php echo (int)$block['id']; ?>">
+                                    <div class="mw-block-row-handle" title="Drag to reorder">
+                                        <i data-feather="grip-vertical" style="width:14px;height:14px;color:#adb5bd;"></i>
+                                    </div>
+                                    <div class="mw-block-row-info">
+                                        <span class="badge badge-secondary mr-2"><?php echo h($typeLabel); ?></span>
+                                        <?php if ($headline): ?>
+                                            <span class="text-muted small"><?php echo h(mb_strimwidth($headline, 0, 60, '…')); ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="mw-block-row-actions">
+                                        <a href="/crm/cms-block-editor.php?block_id=<?php echo (int)$block['id']; ?>" class="btn btn-sm btn-outline-primary">
+                                            <i data-feather="edit-2" style="width:12px;height:12px;"></i> Edit
+                                        </a>
+                                        <button type="button" class="btn btn-sm btn-outline-danger mw-delete-block"
+                                                data-block-id="<?php echo (int)$block['id']; ?>"
+                                                data-page-id="<?php echo $pageId; ?>">
+                                            <i data-feather="trash-2" style="width:12px;height:12px;"></i>
+                                        </button>
                                     </div>
                                 </div>
                                 <?php endforeach; ?>
@@ -237,7 +268,7 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                     <a href="/crm/cms-pages_appstack.php" class="btn btn-secondary btn-lg">Cancel</a>
 
                     <?php if ($page && $page['status'] === 'published'): ?>
-                    <a href="<?php echo h($page['slug']); ?>" target="_blank" class="btn btn-outline-primary btn-lg float-right">
+                    <a href="/<?php echo h(ltrim($page['slug'], '/')); ?>" target="_blank" class="btn btn-outline-primary btn-lg float-right">
                         <i data-feather="external-link"></i> View Live
                     </a>
                     <?php endif; ?>
@@ -340,20 +371,103 @@ function updateSEOPreview() {
                   document.getElementById('title').value || 'Your Page Title';
     const desc = document.getElementById('meta_description').value ||
                  'Professional landscaping services in Vancouver. Expert care for your landscape.';
-
     document.getElementById('seoPreviewTitle').textContent = title.substring(0, 60);
     document.getElementById('seoPreviewDesc').textContent = desc.substring(0, 160);
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Show all help tooltips on mobile
-    const tooltips = document.querySelectorAll('.mw-help-tooltip');
-    tooltips.forEach(tip => {
+    var csrfToken = '<?php echo generateCSRFToken(); ?>';
+
+    // ---- Help tooltips (mobile tap to show) ----
+    document.querySelectorAll('.mw-help-tooltip').forEach(function(tip) {
         tip.addEventListener('click', function(e) {
             e.preventDefault();
             this.classList.toggle('show');
         });
     });
+
+    // ---- Delete block ----
+    document.querySelectorAll('.mw-delete-block').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            if (!confirm('Delete this block? This cannot be undone.')) return;
+            var blockId = this.dataset.blockId;
+            var row = this.closest('.mw-block-row');
+            fetch('/crm/api/delete-block.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body: JSON.stringify({ id: blockId }),
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    row.remove();
+                } else {
+                    alert('Error: ' + (data.error || 'Delete failed'));
+                }
+            })
+            .catch(function(err) { alert('Error: ' + err.message); });
+        });
+    });
+
+    // ---- Drag-to-reorder blocks ----
+    var list = document.getElementById('blocks-list');
+    if (!list) return;
+
+    var dragging = null;
+
+    list.querySelectorAll('.mw-block-row').forEach(function(row) {
+        row.setAttribute('draggable', 'true');
+        row.addEventListener('dragstart', function(e) {
+            dragging = this;
+            this.style.opacity = '0.4';
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        row.addEventListener('dragend', function() {
+            dragging = null;
+            this.style.opacity = '';
+            list.querySelectorAll('.mw-block-row').forEach(function(r) {
+                r.classList.remove('mw-block-row-over');
+            });
+            saveBlockOrder();
+        });
+        row.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (this !== dragging) {
+                this.classList.add('mw-block-row-over');
+                var bounding = this.getBoundingClientRect();
+                var offset = bounding.y + (bounding.height / 2);
+                if (e.clientY - offset > 0) {
+                    list.insertBefore(dragging, this.nextSibling);
+                } else {
+                    list.insertBefore(dragging, this);
+                }
+            }
+        });
+        row.addEventListener('dragleave', function() {
+            this.classList.remove('mw-block-row-over');
+        });
+        row.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.classList.remove('mw-block-row-over');
+        });
+    });
+
+    function saveBlockOrder() {
+        var order = [];
+        list.querySelectorAll('.mw-block-row').forEach(function(row) {
+            order.push(parseInt(row.dataset.blockId, 10));
+        });
+        fetch('/crm/api/reorder-blocks.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify({
+                page_id: <?php echo $pageId ?: 0; ?>,
+                order: order,
+            }),
+        })
+        .catch(function() {}); // silent — cosmetic reorder, hard refresh always correct
+    }
 });
 </script>
 

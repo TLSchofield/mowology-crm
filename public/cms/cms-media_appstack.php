@@ -87,27 +87,50 @@ try {
     // Table doesn't exist yet
 }
 
+// Build variant maps in ONE query (eliminates the N+1)
+$variantThumbMap = [];   // media_id => thumb file_path
+$variantCountMap = [];   // media_id => total variant count
+if ($hasVariantsTable && !empty($media)) {
+    $mediaIds = array_filter(array_column($media, 'id'));
+    if ($mediaIds) {
+        $placeholders = implode(',', array_fill(0, count($mediaIds), '?'));
+
+        // Thumbnails — one row per media_id (the thumb_square jpeg)
+        $thStmt = $db->prepare(
+            "SELECT media_id, file_path
+             FROM media_variants
+             WHERE media_id IN ($placeholders)
+               AND variant_type = 'thumb_square'
+               AND format = 'jpeg'"
+        );
+        $thStmt->execute(array_values($mediaIds));
+        foreach ($thStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $variantThumbMap[(int)$row['media_id']] = $row['file_path'];
+        }
+
+        // Counts — one row per media_id
+        $vcStmt = $db->prepare(
+            "SELECT media_id, COUNT(*) AS cnt
+             FROM media_variants
+             WHERE media_id IN ($placeholders)
+             GROUP BY media_id"
+        );
+        $vcStmt->execute(array_values($mediaIds));
+        foreach ($vcStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $variantCountMap[(int)$row['media_id']] = (int)$row['cnt'];
+        }
+    }
+}
+
 foreach ($media as &$m) {
     $m['filename'] = $m['original_filename'] ?? $m['stored_filename'] ?? '';
     $m['media_type'] = $m['file_type'] ?? 'image';
     $m['uploaded_date'] = !empty($m['created_at']) ? date('M d, Y', strtotime($m['created_at'])) : '';
     $m['file_size_display'] = formatMediaBytes((int)($m['file_size'] ?? 0));
 
-    // Try to get square thumbnail from new variants table
-    $m['thumb_url'] = null;
-    $m['variant_count'] = 0;
-    if ($hasVariantsTable && !empty($m['id'])) {
-        $thStmt = $db->prepare('SELECT file_path FROM media_variants WHERE media_id = ? AND variant_type = ? AND format = ? LIMIT 1');
-        $thStmt->execute([(int)$m['id'], 'thumb_square', 'jpeg']);
-        $th = $thStmt->fetch(PDO::FETCH_ASSOC);
-        $m['thumb_url'] = $th ? $th['file_path'] : null;
-
-        $vcStmt = $db->prepare('SELECT COUNT(*) as cnt FROM media_variants WHERE media_id = ?');
-        $vcStmt->execute([(int)$m['id']]);
-        $vc = $vcStmt->fetch(PDO::FETCH_ASSOC);
-        $m['variant_count'] = (int)($vc['cnt'] ?? 0);
-    }
-
+    $mid = (int)($m['id'] ?? 0);
+    $m['thumb_url'] = $variantThumbMap[$mid] ?? null;
+    $m['variant_count'] = $variantCountMap[$mid] ?? 0;
     $m['context_display'] = $hasNewCols ? ($m['context_type'] ?? 'cms') : 'cms';
 }
 unset($m);

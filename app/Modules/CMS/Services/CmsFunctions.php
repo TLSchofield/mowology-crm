@@ -976,3 +976,53 @@ if (!defined('CMS_BLOCKS_RENDERER_DIR')) {
 if (!defined('CMS_LAYOUTS_DIR')) {
     define('CMS_LAYOUTS_DIR', PUBLIC_ROOT . '/layouts');
 }
+
+// ============================================================================
+// COMPLETION SCORE
+// ============================================================================
+
+/**
+ * Calculate a 0-100 completion score for a page.
+ *
+ * Checks: title, slug, meta_title, meta_description, 2+ blocks,
+ *         hero block present, at least one media reference in any block config.
+ *
+ * @param array $page Page record
+ * @return int Score 0-100
+ */
+function cms_getPageCompletionScore(array $page): int
+{
+    $checks = [
+        'title'      => !empty(trim($page['title'] ?? '')),
+        'slug'       => !empty(trim($page['slug'] ?? '')),
+        'meta_title' => !empty(trim($page['meta_title'] ?? '')),
+        'meta_desc'  => !empty(trim($page['meta_description'] ?? '')),
+        'has_blocks' => false,
+        'has_hero'   => false,
+        'has_image'  => false,
+    ];
+
+    try {
+        $blocks = cms_getBlocksByPageId((int)$page['id'], 0);
+        $checks['has_blocks'] = count($blocks) >= 2;
+        foreach ($blocks as $blk) {
+            if ($blk['block_type'] === 'hero') {
+                $checks['has_hero'] = true;
+            }
+            foreach ($blk['config'] ?? [] as $v) {
+                if (is_numeric($v) && (int)$v > 0) {
+                    $checks['has_image'] = true;
+                } elseif (is_string($v) && preg_match('/\.(jpg|jpeg|png|webp|gif)/i', $v)) {
+                    $checks['has_image'] = true;
+                }
+            }
+        }
+    } catch (Exception $e) {
+        // Silently skip — don't break admin listing
+    }
+
+    $total  = count($checks);
+    $passed = count(array_filter($checks));
+
+    return (int)round(($passed / $total) * 100);
+}

@@ -67,6 +67,14 @@ foreach ($pages as &$p) {
     $p['edit_url'] = "/crm/cms-page-editor.php?id=" . $p['id'];
     $p['view_url'] = "/" . $p['slug'];
     $p['created_date'] = date('M d, Y', strtotime($p['created_at']));
+
+    // Completion score progress bar (0-100)
+    $score = cms_getPageCompletionScore($p);
+    $barClass = $score >= 80 ? 'high' : ($score >= 40 ? 'mid' : 'low');
+    $p['completion'] = '<span class="mw-completion-bar">'
+        . '<span class="mw-completion-bar-track"><span class="mw-completion-bar-fill ' . $barClass . '" style="width:' . $score . '%"></span></span>'
+        . '<span>' . $score . '%</span>'
+        . '</span>';
 }
 
 ?>
@@ -175,25 +183,31 @@ foreach ($pages as &$p) {
             'title' => [
                 'label' => 'Title',
                 'sortable' => true,
-                'width' => '35%',
+                'width' => '30%',
             ],
             'slug' => [
                 'label' => 'Slug',
-                'width' => '20%',
+                'width' => '18%',
             ],
             'type_display' => [
                 'label' => 'Type',
-                'width' => '15%',
+                'width' => '12%',
             ],
             'status' => [
                 'label' => 'Status',
                 'badge' => true,
                 'badge_variant' => ['published' => 'success', 'draft' => 'warning', 'archived' => 'secondary'],
+                'width' => '10%',
+            ],
+            'completion' => [
+                'label' => 'Complete',
+                'html' => true,
                 'width' => '12%',
+                'align' => 'center',
             ],
             'created_date' => [
                 'label' => 'Created',
-                'width' => '12%',
+                'width' => '10%',
                 'align' => 'right',
             ],
         ], [
