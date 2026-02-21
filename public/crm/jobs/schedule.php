@@ -868,9 +868,9 @@ if ($apiKey) {
                   </div>
 
                   <div class="mw-mc-kpi mw-mc-kpi-drive">
-                      <div class="mw-mc-kpi-label">Drive Time</div>
-                      <div class="mw-mc-kpi-value"><?php echo round($mcDriveTimeMin / 60, 1); ?>h</div>
-                      <div class="mw-mc-kpi-sub"><?php echo $mcDriveTimeMin; ?> min est.</div>
+                      <div class="mw-mc-kpi-label">Total Time</div>
+                      <div class="mw-mc-kpi-value"><?php echo round($mcTotalTimeMin / 60, 1); ?>h</div>
+                      <div class="mw-mc-kpi-sub"><?php echo $mcWeekDuration; ?> work + <?php echo $mcDriveTimeMin; ?> drive</div>
                   </div>
 
                   <div class="mw-mc-kpi mw-mc-kpi-efficiency">
