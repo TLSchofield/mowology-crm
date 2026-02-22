@@ -240,6 +240,16 @@ try {
         error_log("auto_rollover stop cleanup error: " . $e->getMessage());
     }
 
+    $hasErrors = !empty($results['errors']);
+    recordCronRun(
+        'auto_rollover',
+        $hasErrors ? 'warning' : 'success',
+        "{$results['visits_rolled']} rolled, {$results['visits_skipped']} skipped",
+        null,
+        $hasErrors ? implode('; ', array_slice($results['errors'], 0, 3)) : null,
+        !$isCli
+    );
+
     if ($isCli) {
         echo "Auto-rollover complete: {$results['visits_rolled']} rolled, {$results['visits_skipped']} skipped\n";
         foreach ($results['details'] as $detail) {
@@ -258,6 +268,7 @@ try {
 } catch (Exception $e) {
     $error = 'Auto-rollover fatal error: ' . $e->getMessage();
     error_log($error);
+    recordCronRun('auto_rollover', 'error', 'Fatal error', null, $error, !$isCli);
     if ($isCli) {
         echo "FATAL: {$error}\n";
         exit(1);

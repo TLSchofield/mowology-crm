@@ -315,6 +315,18 @@ try {
     $results['lookahead'] = "{$startDate} to {$endDate}";
     $results['total_visits'] = count($visits);
 
+    $hasErrors = !empty($results['errors'] ?? []);
+    $reschedCount = $results['rescheduled'] ?? 0;
+    $flagCount    = $results['flagged'] ?? 0;
+    recordCronRun(
+        'weather_guard',
+        $hasErrors ? 'warning' : 'success',
+        "{$reschedCount} rescheduled, {$flagCount} flagged, {$results['total_visits']} visits checked",
+        null,
+        $hasErrors ? implode('; ', array_slice((array)$results['errors'], 0, 3)) : null,
+        !$isCli
+    );
+
     if ($isCli) {
         echo json_encode($results, JSON_PRETTY_PRINT) . "\n";
     } else {
@@ -330,6 +342,7 @@ try {
     ];
 
     error_log("Weather Schedule Guard fatal error: " . $e->getMessage());
+    recordCronRun('weather_guard', 'error', 'Fatal error', null, $e->getMessage(), !$isCli);
 
     if ($isCli) {
         echo json_encode($error, JSON_PRETTY_PRINT) . "\n";

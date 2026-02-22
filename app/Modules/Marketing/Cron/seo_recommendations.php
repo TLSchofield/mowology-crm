@@ -294,6 +294,15 @@ try {
         $stats['runtime_seconds']
     );
 
+    recordCronRun(
+        'seo_recommendations',
+        $stats['errors'] > 0 ? 'warning' : 'success',
+        $message,
+        isset($stats['runtime_seconds']) ? (int)($stats['runtime_seconds'] * 1000) : null,
+        null,
+        !$isCli
+    );
+
     if ($isCli) {
         echo "\n[DONE] $message\n";
         exit(0);
@@ -305,6 +314,7 @@ try {
     $stats['errors']++;
     $msg = "SEO Recommendations Error: " . $e->getMessage();
     error_log($msg);
+    recordCronRun('seo_recommendations', 'error', 'Fatal error', null, $e->getMessage(), !$isCli);
 
     if ($isCli) {
         echo "\n[ERROR] $msg\n";

@@ -97,6 +97,15 @@ try {
         'updated'  => $updated,
     ];
 
+    recordCronRun(
+        'expense_baselines',
+        'success',
+        $result['message'],
+        null,
+        null,
+        !$isCli
+    );
+
     if ($isCli) {
         echo $result['message'] . "\n";
     } else {
@@ -106,6 +115,7 @@ try {
 } catch (\Throwable $e) {
     $error = 'expense_baselines error: ' . $e->getMessage();
     error_log($error);
+    recordCronRun('expense_baselines', 'error', 'Fatal error', null, $e->getMessage(), !$isCli);
 
     if ($isCli) {
         echo "ERROR: " . $error . "\n";

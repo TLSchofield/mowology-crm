@@ -304,9 +304,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <i data-feather="clock" class="mw-cron-summary-icon"></i>
                 <strong>7</strong>&nbsp;cron jobs configured
             </div>
-            <div class="mw-cron-summary-stat">
-                <i data-feather="sun" class="mw-cron-summary-icon"></i>
-                Daily execution window
+            <div class="mw-cron-summary-stat" id="cronHealthStat">
+                <i data-feather="loader" class="mw-cron-summary-icon"></i>
+                Loading status&hellip;
             </div>
             <div class="mw-cron-summary-stat">
                 <i data-feather="server" class="mw-cron-summary-icon"></i>
@@ -360,10 +360,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             <!-- ─── 1. Generate Visits ─────────────────────────────── -->
             <div class="col mb-4">
-                <div class="card mw-cron-card h-100">
+                <div class="card mw-cron-card h-100" data-cron-key="generate_visits">
                     <div class="card-header mw-cron-card-header">
-                        <h6 class="mw-cron-card-title mb-1">Generate Visits</h6>
-                        <span class="badge mw-badge-jobs">Jobs</span>
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <h6 class="mw-cron-card-title mb-0">Generate Visits</h6>
+                            <div class="d-flex align-items-center">
+                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
+                                <span class="badge mw-badge-jobs">Jobs</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body d-flex flex-column">
                         <div class="mw-cron-schedule mb-2">
@@ -378,14 +383,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
                         </div>
-                        <div class="mw-cron-meta text-muted small mb-3">
-                            <i data-feather="info" style="width:12px;height:12px;"></i>
-                            Last run: <em>Not yet tracked</em>
+                        <div class="mw-cron-last-run small mb-1">
+                            <i data-feather="clock" style="width:12px;height:12px;"></i>
+                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
                         </div>
+                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
                         <div class="mt-auto">
                             <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/generate_visits.php')">
                                 <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
                             </button>
+                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('generate_visits', 'Generate Visits')">History</button>
                             <div class="mw-cron-result mt-2" style="display:none;"></div>
                         </div>
                     </div>
@@ -394,10 +401,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             <!-- ─── 2. Auto Rollover ───────────────────────────────── -->
             <div class="col mb-4">
-                <div class="card mw-cron-card h-100">
+                <div class="card mw-cron-card h-100" data-cron-key="auto_rollover">
                     <div class="card-header mw-cron-card-header">
-                        <h6 class="mw-cron-card-title mb-1">Auto Rollover</h6>
-                        <span class="badge mw-badge-jobs">Jobs</span>
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <h6 class="mw-cron-card-title mb-0">Auto Rollover</h6>
+                            <div class="d-flex align-items-center">
+                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
+                                <span class="badge mw-badge-jobs">Jobs</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body d-flex flex-column">
                         <div class="mw-cron-schedule mb-2">
@@ -412,14 +424,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
                         </div>
-                        <div class="mw-cron-meta text-muted small mb-3">
-                            <i data-feather="info" style="width:12px;height:12px;"></i>
-                            Last run: <em>Not yet tracked</em>
+                        <div class="mw-cron-last-run small mb-1">
+                            <i data-feather="clock" style="width:12px;height:12px;"></i>
+                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
                         </div>
+                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
                         <div class="mt-auto">
                             <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/auto_rollover.php')">
                                 <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
                             </button>
+                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('auto_rollover', 'Auto Rollover')">History</button>
                             <div class="mw-cron-result mt-2" style="display:none;"></div>
                         </div>
                     </div>
@@ -428,10 +442,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             <!-- ─── 3. Weather Guard ───────────────────────────────── -->
             <div class="col mb-4">
-                <div class="card mw-cron-card h-100">
+                <div class="card mw-cron-card h-100" data-cron-key="weather_guard">
                     <div class="card-header mw-cron-card-header">
-                        <h6 class="mw-cron-card-title mb-1">Weather Guard</h6>
-                        <span class="badge mw-badge-jobs">Jobs</span>
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <h6 class="mw-cron-card-title mb-0">Weather Guard</h6>
+                            <div class="d-flex align-items-center">
+                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
+                                <span class="badge mw-badge-jobs">Jobs</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body d-flex flex-column">
                         <div class="mw-cron-schedule mb-2">
@@ -446,14 +465,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
                         </div>
-                        <div class="mw-cron-meta text-muted small mb-3">
-                            <i data-feather="info" style="width:12px;height:12px;"></i>
-                            Last run: <em>Not yet tracked</em>
+                        <div class="mw-cron-last-run small mb-1">
+                            <i data-feather="clock" style="width:12px;height:12px;"></i>
+                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
                         </div>
+                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
                         <div class="mt-auto">
                             <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/weather_schedule_guard.php')">
                                 <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
                             </button>
+                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('weather_guard', 'Weather Guard')">History</button>
                             <div class="mw-cron-result mt-2" style="display:none;"></div>
                         </div>
                     </div>
@@ -462,10 +483,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             <!-- ─── 4. Schema Snapshot ─────────────────────────────── -->
             <div class="col mb-4">
-                <div class="card mw-cron-card h-100">
+                <div class="card mw-cron-card h-100" data-cron-key="schema_snapshot">
                     <div class="card-header mw-cron-card-header">
-                        <h6 class="mw-cron-card-title mb-1">Schema Snapshot</h6>
-                        <span class="badge mw-badge-database">Database</span>
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <h6 class="mw-cron-card-title mb-0">Schema Snapshot</h6>
+                            <div class="d-flex align-items-center">
+                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
+                                <span class="badge mw-badge-database">Database</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body d-flex flex-column">
                         <div class="mw-cron-schedule mb-2">
@@ -480,14 +506,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
                         </div>
-                        <div class="mw-cron-meta text-muted small mb-3">
-                            <i data-feather="info" style="width:12px;height:12px;"></i>
-                            Last run: <em>Not yet tracked</em>
+                        <div class="mw-cron-last-run small mb-1">
+                            <i data-feather="clock" style="width:12px;height:12px;"></i>
+                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
                         </div>
+                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
                         <div class="mt-auto">
                             <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/schema_snapshot.php')">
                                 <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
                             </button>
+                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('schema_snapshot', 'Schema Snapshot')">History</button>
                             <div class="mw-cron-result mt-2" style="display:none;"></div>
                         </div>
                     </div>
@@ -496,10 +524,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             <!-- ─── 5. Purchase History ────────────────────────────── -->
             <div class="col mb-4">
-                <div class="card mw-cron-card h-100">
+                <div class="card mw-cron-card h-100" data-cron-key="purchase_history">
                     <div class="card-header mw-cron-card-header">
-                        <h6 class="mw-cron-card-title mb-1">Purchase History</h6>
-                        <span class="badge mw-badge-core">Core</span>
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <h6 class="mw-cron-card-title mb-0">Purchase History</h6>
+                            <div class="d-flex align-items-center">
+                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
+                                <span class="badge mw-badge-core">Core</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body d-flex flex-column">
                         <div class="mw-cron-schedule mb-2">
@@ -514,14 +547,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
                         </div>
-                        <div class="mw-cron-meta text-muted small mb-3">
-                            <i data-feather="info" style="width:12px;height:12px;"></i>
-                            Last run: <em>Not yet tracked</em>
+                        <div class="mw-cron-last-run small mb-1">
+                            <i data-feather="clock" style="width:12px;height:12px;"></i>
+                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
                         </div>
+                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
                         <div class="mt-auto">
                             <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/refresh_purchase_history.php')">
                                 <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
                             </button>
+                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('purchase_history', 'Purchase History')">History</button>
                             <div class="mw-cron-result mt-2" style="display:none;"></div>
                         </div>
                     </div>
@@ -530,10 +565,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             <!-- ─── 6. SEO Recommendations ─────────────────────────── -->
             <div class="col mb-4">
-                <div class="card mw-cron-card h-100">
+                <div class="card mw-cron-card h-100" data-cron-key="seo_recommendations">
                     <div class="card-header mw-cron-card-header">
-                        <h6 class="mw-cron-card-title mb-1">SEO Recommendations</h6>
-                        <span class="badge mw-badge-marketing">Marketing</span>
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <h6 class="mw-cron-card-title mb-0">SEO Recommendations</h6>
+                            <div class="d-flex align-items-center">
+                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
+                                <span class="badge mw-badge-marketing">Marketing</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body d-flex flex-column">
                         <div class="mw-cron-schedule mb-2">
@@ -548,14 +588,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
                         </div>
-                        <div class="mw-cron-meta text-muted small mb-3">
-                            <i data-feather="info" style="width:12px;height:12px;"></i>
-                            Last run: <em>Not yet tracked</em>
+                        <div class="mw-cron-last-run small mb-1">
+                            <i data-feather="clock" style="width:12px;height:12px;"></i>
+                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
                         </div>
+                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
                         <div class="mt-auto">
                             <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/seo_recommendations.php')">
                                 <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
                             </button>
+                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('seo_recommendations', 'SEO Recommendations')">History</button>
                             <div class="mw-cron-result mt-2" style="display:none;"></div>
                         </div>
                     </div>
@@ -564,10 +606,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             <!-- ─── 7. Expense Baselines ───────────────────────────── -->
             <div class="col mb-4">
-                <div class="card mw-cron-card h-100">
+                <div class="card mw-cron-card h-100" data-cron-key="expense_baselines">
                     <div class="card-header mw-cron-card-header">
-                        <h6 class="mw-cron-card-title mb-1">Expense Baselines</h6>
-                        <span class="badge mw-badge-core">Core</span>
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <h6 class="mw-cron-card-title mb-0">Expense Baselines</h6>
+                            <div class="d-flex align-items-center">
+                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
+                                <span class="badge mw-badge-core">Core</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="card-body d-flex flex-column">
                         <div class="mw-cron-schedule mb-2">
@@ -582,14 +629,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
                         </div>
-                        <div class="mw-cron-meta text-muted small mb-3">
-                            <i data-feather="info" style="width:12px;height:12px;"></i>
-                            Last run: <em>Not yet tracked</em>
+                        <div class="mw-cron-last-run small mb-1">
+                            <i data-feather="clock" style="width:12px;height:12px;"></i>
+                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
                         </div>
+                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
                         <div class="mt-auto">
                             <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/expense_baselines.php')">
                                 <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
                             </button>
+                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('expense_baselines', 'Expense Baselines')">History</button>
                             <div class="mw-cron-result mt-2" style="display:none;"></div>
                         </div>
                     </div>
@@ -599,13 +648,50 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         </div><!-- /.row (cron cards) -->
     </div><!-- /#tab-crons -->
 
+    <!-- Cron History Modal -->
+    <div class="modal fade" id="cronHistoryModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cronHistoryModalLabel">Cron History</h5>
+                    <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div id="cronHistoryLoading" class="text-center py-4">
+                        <span class="spinner-border spinner-border-sm"></span>
+                        <p class="text-muted mt-2 mb-0 small">Loading history&hellip;</p>
+                    </div>
+                    <div id="cronHistoryContent" style="display:none;">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="thead-light">
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Triggered by</th>
+                                    <th>Summary</th>
+                                    <th>Duration</th>
+                                    <th>Ran at</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cronHistoryRows"></tbody>
+                        </table>
+                    </div>
+                    <div id="cronHistoryEmpty" style="display:none;" class="p-4 text-center text-muted">
+                        No runs recorded yet. Run the cron manually or wait for the next scheduled execution.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div><!-- /.tab-content -->
 
 <script src="js/database-manager.js"></script>
 <script>
 // ════════════════════════════════════════════════════════════════════
-// CRON MANAGER — Tab activation (Feather icons don't render in hidden tabs)
+// CRON MANAGER — Tab activation + status loading
 // ════════════════════════════════════════════════════════════════════
+var cronStatusLoaded = false;
+
 document.addEventListener('DOMContentLoaded', function () {
     var cronsTab = document.getElementById('crons-tab');
     if (cronsTab) {
@@ -613,9 +699,184 @@ document.addEventListener('DOMContentLoaded', function () {
             if (typeof feather !== 'undefined') {
                 setTimeout(function () { feather.replace(); }, 50);
             }
+            if (!cronStatusLoaded) {
+                loadCronStatus();
+            }
         });
     }
 });
+
+// ════════════════════════════════════════════════════════════════════
+// CRON STATUS — load latest run per cron from API, paint cards
+// ════════════════════════════════════════════════════════════════════
+function loadCronStatus() {
+    fetch('/crm/api/cron-log.php?action=latest', {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (resp) {
+        if (!resp.success) return;
+        cronStatusLoaded = true;
+
+        // Build lookup: cron_key → row
+        var byKey = {};
+        (resp.data || []).forEach(function (row) { byKey[row.cron_key] = row; });
+
+        // Summarise overall health for the summary bar
+        var total = 0, errors = 0, warnings = 0, neverRun = 0;
+        document.querySelectorAll('.mw-cron-card[data-cron-key]').forEach(function (card) {
+            total++;
+            var key = card.dataset.cronKey;
+            var row = byKey[key] || null;
+            paintCronCard(card, row);
+            if (!row) { neverRun++; }
+            else if (row.status === 'error')   { errors++; }
+            else if (row.status === 'warning') { warnings++; }
+        });
+
+        // Update summary bar health stat
+        var healthEl = document.getElementById('cronHealthStat');
+        if (healthEl) {
+            var icon, txt, cls;
+            if (errors > 0) {
+                icon = 'alert-triangle'; txt = errors + ' error' + (errors > 1 ? 's' : ''); cls = 'text-danger';
+            } else if (warnings > 0) {
+                icon = 'alert-circle'; txt = warnings + ' warning' + (warnings > 1 ? 's' : ''); cls = 'text-warning';
+            } else if (neverRun > 0) {
+                icon = 'clock'; txt = neverRun + ' never run'; cls = 'text-muted';
+            } else {
+                icon = 'check-circle'; txt = 'All crons healthy'; cls = 'text-success';
+            }
+            healthEl.innerHTML = '<i data-feather="' + icon + '" class="mw-cron-summary-icon ' + cls + '"></i>'
+                + '<span class="' + cls + '">' + escapeHtml(txt) + '</span>';
+            if (typeof feather !== 'undefined') feather.replace();
+        }
+    })
+    .catch(function () {
+        // Silently fail — table may not exist yet on first deploy
+        document.querySelectorAll('.mw-cron-card[data-cron-key]').forEach(function (card) {
+            paintCronCard(card, null, true);
+        });
+    });
+}
+
+function paintCronCard(card, row, loadFailed) {
+    var dot     = card.querySelector('.mw-cron-status-dot');
+    var ranAtEl = card.querySelector('.mw-cron-ran-at');
+    var summEl  = card.querySelector('.mw-cron-last-summary');
+
+    if (loadFailed) {
+        if (dot) { dot.className = 'mw-cron-status-dot mw-cron-dot-unknown'; dot.title = 'Status unavailable'; }
+        if (ranAtEl) ranAtEl.innerHTML = '<em class="text-muted">Not yet tracked</em>';
+        return;
+    }
+
+    if (!row) {
+        // Never run
+        if (dot) { dot.className = 'mw-cron-status-dot mw-cron-dot-unknown'; dot.title = 'Never run'; }
+        if (ranAtEl) ranAtEl.innerHTML = '<em class="text-muted">Never run</em>';
+        return;
+    }
+
+    // Status dot
+    var dotClass = { success: 'mw-cron-dot-ok', warning: 'mw-cron-dot-warn', error: 'mw-cron-dot-err' }[row.status] || 'mw-cron-dot-unknown';
+    var dotTitle = { success: 'Last run OK', warning: 'Last run had warnings', error: 'Last run failed' }[row.status] || row.status;
+    if (dot) { dot.className = 'mw-cron-status-dot ' + dotClass; dot.title = dotTitle; }
+
+    // Ran-at timestamp
+    if (ranAtEl) {
+        var ago = timeAgo(row.ran_at);
+        var fullDate = formatDateTime(row.ran_at);
+        var byLabel  = row.triggered_by === 'web' ? ' (manual)' : '';
+        ranAtEl.innerHTML = '<span title="' + escapeHtml(fullDate) + '">' + escapeHtml(ago) + escapeHtml(byLabel) + '</span>';
+    }
+
+    // Summary line
+    if (summEl && row.summary) {
+        summEl.textContent = row.summary;
+        summEl.style.display = '';
+    }
+    if (summEl && row.status === 'error' && row.error_message) {
+        summEl.textContent = row.error_message;
+        summEl.classList.add('text-danger');
+        summEl.style.display = '';
+    }
+}
+
+function timeAgo(dateStr) {
+    if (!dateStr) return '—';
+    var d = new Date(dateStr.replace(' ', 'T') + 'Z'); // treat stored UTC
+    var now = new Date();
+    var diff = Math.floor((now - d) / 1000);
+    if (diff < 0)   return 'just now';
+    if (diff < 60)  return diff + 's ago';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CRON HISTORY MODAL
+// ════════════════════════════════════════════════════════════════════
+function showCronHistory(key, label) {
+    var modal = document.getElementById('cronHistoryModal');
+    var titleEl = document.getElementById('cronHistoryModalLabel');
+    var loadingEl = document.getElementById('cronHistoryLoading');
+    var contentEl = document.getElementById('cronHistoryContent');
+    var emptyEl   = document.getElementById('cronHistoryEmpty');
+    var tbody     = document.getElementById('cronHistoryRows');
+
+    if (!modal) return;
+    if (titleEl) titleEl.textContent = label + ' — Run History';
+    loadingEl.style.display = '';
+    contentEl.style.display = 'none';
+    emptyEl.style.display   = 'none';
+    if (tbody) tbody.innerHTML = '';
+
+    // Show modal
+    if (typeof $ !== 'undefined') {
+        $(modal).modal('show');
+    } else {
+        modal.style.display = 'block';
+    }
+
+    fetch('/crm/api/cron-log.php?action=history&key=' + encodeURIComponent(key) + '&limit=20', {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (resp) {
+        loadingEl.style.display = 'none';
+        if (!resp.success || !resp.data || resp.data.length === 0) {
+            emptyEl.style.display = '';
+            return;
+        }
+        contentEl.style.display = '';
+        resp.data.forEach(function (row) {
+            var statusBadge = {
+                success: '<span class="badge badge-success">OK</span>',
+                warning: '<span class="badge badge-warning">Warning</span>',
+                error:   '<span class="badge badge-danger">Error</span>',
+            }[row.status] || '<span class="badge badge-secondary">' + escapeHtml(row.status) + '</span>';
+
+            var durText = row.duration_ms ? (row.duration_ms < 1000 ? row.duration_ms + 'ms' : (row.duration_ms / 1000).toFixed(1) + 's') : '—';
+            var summary = row.status === 'error' && row.error_message
+                ? '<span class="text-danger">' + escapeHtml(row.error_message.substring(0, 80)) + '</span>'
+                : escapeHtml(row.summary || '—');
+
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + statusBadge + '</td>'
+                + '<td>' + escapeHtml(row.triggered_by || 'cron') + '</td>'
+                + '<td class="small">' + summary + '</td>'
+                + '<td class="text-nowrap">' + escapeHtml(durText) + '</td>'
+                + '<td class="text-nowrap small">' + escapeHtml(formatDateTime(row.ran_at)) + '</td>';
+            tbody.appendChild(tr);
+        });
+    })
+    .catch(function () {
+        loadingEl.style.display = 'none';
+        emptyEl.style.display   = '';
+    });
+}
 
 // ════════════════════════════════════════════════════════════════════
 // CRON MANAGER — Copy CLI command to clipboard
@@ -671,11 +932,11 @@ function runCron(el, url) {
 
     if (resultEl) { resultEl.style.display = 'none'; resultEl.innerHTML = ''; }
 
-    // CSRF token from meta tag (set by database_appstack.php line 23)
+    // CSRF token from meta tag
     var csrfMeta  = document.querySelector('meta[name="csrf-token"]');
     var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
 
-    // AbortController — 35s timeout (longer than PHP default 30s to catch near-timeouts)
+    // AbortController — 35s timeout
     var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var tid = controller ? setTimeout(function () { controller.abort(); }, 35000) : null;
 
@@ -700,11 +961,20 @@ function runCron(el, url) {
         })
         .then(function (res) {
             showCronResult(resultEl, res.ok, res.data, res.status, false);
+            // Refresh status dots after a short delay (cron script writes log before responding)
+            setTimeout(function () {
+                cronStatusLoaded = false;
+                loadCronStatus();
+            }, 1500);
         })
         .catch(function (err) {
             if (tid) clearTimeout(tid);
             var isTimeout = err && (err.name === 'AbortError' || err.message === 'Failed to fetch');
             showCronResult(resultEl, false, null, 0, isTimeout);
+            // Still refresh — cron may have logged before timing out
+            if (isTimeout) {
+                setTimeout(function () { cronStatusLoaded = false; loadCronStatus(); }, 2000);
+            }
         })
         .finally(function () {
             setTimeout(function () {
@@ -738,6 +1008,6 @@ function showCronResult(el, ok, data, status, isTimeout) {
 
     if (typeof feather !== 'undefined') feather.replace();
 }
-// Note: escapeHtml() is provided by database-manager.js (loaded above) and is in global scope.
+// Note: escapeHtml() and formatDateTime() are provided by database-manager.js (loaded above).
 </script>
 <?php include 'includes/appstack_footer.php'; ?>

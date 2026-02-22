@@ -100,6 +100,16 @@ try {
         }
     }
 
+    $hasErrors = !empty($result['errors']);
+    recordCronRun(
+        'generate_visits',
+        $hasErrors ? 'warning' : 'success',
+        "{$result['plans_processed']} plans processed, {$result['visits_created']} visits created",
+        (int)round($elapsed * 1000),
+        $hasErrors ? implode('; ', array_slice($result['errors'], 0, 3)) : null,
+        !$isCli
+    );
+
     if ($isCli) {
         echo "Generate visits complete: {$result['plans_processed']} plans processed, {$result['visits_created']} visits created ({$elapsed}s)\n";
         if (!empty($result['errors'])) {
@@ -115,6 +125,8 @@ try {
 } catch (Throwable $e) {
     $error = 'generate_visits fatal error: ' . $e->getMessage();
     error_log($error . ' in ' . $e->getFile() . ':' . $e->getLine());
+
+    recordCronRun('generate_visits', 'error', 'Fatal error', null, $error, !$isCli);
 
     if ($isCli) {
         echo "FATAL: {$error}\n";

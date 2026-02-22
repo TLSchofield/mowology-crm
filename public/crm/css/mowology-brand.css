@@ -14511,6 +14511,31 @@ textarea.font-monospace {
   font-size: 0.76rem;
 }
 
+/* ── Cron status dot ── */
+.mw-cron-status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #d1d5db;        /* grey = unknown/loading */
+  border: 1.5px solid rgba(0,0,0,0.10);
+  transition: background 0.3s;
+}
+.mw-cron-dot-ok   { background: #22c55e; border-color: #16a34a; }  /* green */
+.mw-cron-dot-warn { background: #f59e0b; border-color: #d97706; }  /* amber */
+.mw-cron-dot-err  { background: #ef4444; border-color: #dc2626; }  /* red */
+.mw-cron-dot-unknown { background: #d1d5db; border-color: #9ca3af; }
+
+/* History link */
+.mw-cron-history-btn {
+  font-size: 0.75rem;
+  color: var(--mw-green);
+  text-decoration: none;
+  vertical-align: middle;
+}
+.mw-cron-history-btn:hover { text-decoration: underline; color: var(--mw-dark); }
+
 /* Run Now button */
 .mw-cron-run-btn {
   background: var(--mw-light);

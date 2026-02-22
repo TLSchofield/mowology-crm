@@ -296,6 +296,15 @@ try {
         'contacts_updated' => $contactsUpdated,
     ];
 
+    recordCronRun(
+        'purchase_history',
+        'success',
+        $result['message'],
+        null,
+        null,
+        !$isCli
+    );
+
     if ($isCli) {
         echo $result['message'] . "\n";
     } else {
@@ -305,6 +314,7 @@ try {
 } catch (\Throwable $e) {
     $error = 'refresh_purchase_history error: ' . $e->getMessage();
     error_log($error);
+    recordCronRun('purchase_history', 'error', 'Fatal error', null, $e->getMessage(), !$isCli);
 
     if ($isCli) {
         echo "ERROR: " . $error . "\n";

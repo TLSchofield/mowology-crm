@@ -2253,3 +2253,66 @@ function getDailyProfitability(string $startDate, string $endDate): array
     return $result;
 }
 
+// ============================================================================
+// CRON RUN LOGGING
+// ============================================================================
+
+/**
+ * Record a cron job execution to the cron_runs table.
+ *
+ * Call this at the end of every cron script (both CLI and web paths).
+ *
+ * @param string      $cronKey      Machine key (e.g. 'generate_visits')
+ * @param string      $status       'success' | 'warning' | 'error'
+ * @param string|null $summary      One-line outcome (≤512 chars)
+ * @param int|null    $durationMs   Wall-clock milliseconds
+ * @param string|null $errorMessage Error detail when status = 'error'
+ * @param bool        $fromWeb      true when triggered via the Run Now button
+ */
+function recordCronRun(
+    string  $cronKey,
+    string  $status      = 'success',
+    ?string $summary     = null,
+    ?int    $durationMs  = null,
+    ?string $errorMessage = null,
+    bool    $fromWeb     = false
+): void {
+    $allowedStatuses = ['success', 'warning', 'error'];
+    if (!in_array($status, $allowedStatuses, true)) $status = 'success';
+    if ($summary !== null) $summary = substr($summary, 0, 512);
+
+    try {
+        $db = getDB();
+
+        // Idempotent DDL — creates table only if it doesn't exist yet
+        $db->exec("CREATE TABLE IF NOT EXISTS cron_runs (
+            id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            cron_key      VARCHAR(64)  NOT NULL,
+            triggered_by  ENUM('cron','web') NOT NULL DEFAULT 'cron',
+            status        ENUM('success','warning','error') NOT NULL DEFAULT 'success',
+            duration_ms   INT UNSIGNED NULL,
+            summary       VARCHAR(512) NULL,
+            error_message TEXT         NULL,
+            ran_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            INDEX idx_cron_key_ran_at (cron_key, ran_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+        $stmt = $db->prepare("
+            INSERT INTO cron_runs (cron_key, triggered_by, status, duration_ms, summary, error_message, ran_at)
+            VALUES (?, ?, ?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([
+            $cronKey,
+            $fromWeb ? 'web' : 'cron',
+            $status,
+            $durationMs,
+            $summary,
+            $errorMessage,
+        ]);
+    } catch (Throwable $e) {
+        // Never crash the cron over a logging failure
+        error_log("recordCronRun failed for [{$cronKey}]: " . $e->getMessage());
+    }
+}
+

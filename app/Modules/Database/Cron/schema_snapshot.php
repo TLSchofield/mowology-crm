@@ -161,6 +161,15 @@ try {
         $stats['runtime_seconds']
     );
 
+    recordCronRun(
+        'schema_snapshot',
+        'success',
+        $message,
+        (int)round($runtime * 1000),
+        null,
+        !$isCli
+    );
+
     if ($isCli) {
         echo "[DONE]  {$message}\n";
         exit(0);
@@ -171,6 +180,7 @@ try {
 } catch (Throwable $e) {
     $errorMsg = $e->getMessage();
     error_log("[schema_snapshot] FAILED: {$errorMsg}");
+    recordCronRun('schema_snapshot', 'error', 'Fatal error', null, $errorMsg, !$isCli);
 
     if ($isCli) {
         fwrite(STDERR, "[ERROR] {$errorMsg}\n");
