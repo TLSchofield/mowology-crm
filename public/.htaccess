@@ -1,6 +1,33 @@
 # Disable directory browsing
 Options -Indexes
 
+# ── Security Headers ──────────────────────────────────────────────────────────
+<IfModule mod_headers.c>
+    # Prevent clickjacking
+    Header always set X-Frame-Options "SAMEORIGIN"
+
+    # Prevent MIME-type sniffing
+    Header always set X-Content-Type-Options "nosniff"
+
+    # Control referrer info sent to third parties
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Disable browser features not needed by this app
+    Header always set Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=()"
+
+    # Content Security Policy
+    # - default: self only
+    # - scripts: self + Google Maps + AppStack inline (unsafe-inline kept for AppStack vendor JS)
+    # - styles: self + Google Fonts + unsafe-inline (AppStack uses inline styles)
+    # - frames: none (no iframes needed)
+    # - connect: self + APIs used (Google Maps, Open-Meteo weather)
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://maps.googleapis.com https://maps.gstatic.com https://*.google.com; connect-src 'self' https://maps.googleapis.com https://api.open-meteo.com https://api.weather.gc.ca; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';"
+
+    # Remove server version info
+    Header always unset X-Powered-By
+    Header always unset Server
+</IfModule>
+
 # Default documents (public site)
 DirectoryIndex index.php index.html
 

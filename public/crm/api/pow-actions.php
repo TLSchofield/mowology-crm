@@ -247,6 +247,14 @@ try {
             ")->execute([$lat, $lng, $notes, $notes, $visitId]);
 
             addAuditLog($db, $visitId, (int)$user['id'], 'complete', null, $ip);
+
+            // Capture labor cost + margin snapshot at completion time
+            $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
+            if (file_exists($vcService)) {
+                require_once $vcService;
+                VisitCompletionService::capture($visitId, (int)$user['id']);
+            }
+
             echo json_encode(['success' => true, 'completed_at' => date('c')]);
             break;
 

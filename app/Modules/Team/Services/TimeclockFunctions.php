@@ -216,6 +216,13 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
         if (function_exists('updateVisitStatus')) {
             updateVisitStatus($jobId, 'completed', $userId, $notes);
         }
+
+        // Capture labor cost + margin snapshot at completion time
+        $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
+        if (file_exists($vcService)) {
+            require_once $vcService;
+            VisitCompletionService::capture((int)$jobId, (int)$userId);
+        }
     }
 
     // Update property visit pattern
