@@ -309,10 +309,18 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             }
         });
 
-        // Fit bounds only on first load
+        // Fit bounds only on first load — include any already-drawn job overlays
         if (hasPositions && !gmap._hasFitBounds) {
+            // Extend bounds to include any job positions already on the map
+            jobsData.forEach(function(stop) {
+                if (stop.latitude && stop.longitude) {
+                    bounds.extend(new google.maps.LatLng(
+                        parseFloat(stop.latitude), parseFloat(stop.longitude)
+                    ));
+                }
+            });
             gmap.fitBounds(bounds);
-            if (crew.length === 1) gmap.setZoom(15);
+            if (crew.length === 1 && !jobsData.length) gmap.setZoom(15);
             gmap._hasFitBounds = true;
         }
     }
@@ -1037,7 +1045,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         });
 
         // Auto-zoom: fit bounds to show all job cards + crew positions
-        if (hasJobCoords) {
+        // Only fit on first load; after that let the user control the viewport
+        if (hasJobCoords && !gmap._hasFitBounds) {
             Object.keys(crewMarkers).forEach(function(uid) {
                 var pos = crewMarkers[uid].marker.getPosition();
                 if (pos) bounds.extend(pos);
