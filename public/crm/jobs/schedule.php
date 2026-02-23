@@ -128,6 +128,144 @@ $unscheduledCount  = count($unscheduledVisits);
 // Crew flag: 'user' role = mobile crew (auto-assign on drop); admin/manager = desktop
 $isCrew = ($user['role'] === 'user');
 
+// ─── Placement Intelligence: per-visit × per-day fit scores ──────────
+// Scored 0–100 per day for each unscheduled visit. Used client-side to
+// light up the calendar columns when a tray card is selected/hovered.
+//
+// Score components (max 100):
+//   Capacity Fit   0–40  How much headroom remains after adding this visit
+//   Cycle Match    0–40  For 14-day plans: is this the correct week in rotation?
+//                        For weekly: does DOW match preferred day?
+//   Weather        0–20  Low risk=20, medium=10, high=0
+//   Density Bonus  0–10  Slight preference for days with existing stops (cluster)
+//
+// The 14-day cycle check: from last_completed_at, count how many days to each
+// candidate date. If (days % 14) < 4 → on-cycle (score 40). If 4–7 → ok (20).
+// If 7–14 → off-cycle (0). For weekly plans, match preferred recurrence_day_of_week.
+$placementScores = []; // [visitId => [dateStr => ['score'=>int, 'cap'=>int, 'cycle'=>int, 'weather'=>int, 'density'=>int, 'label'=>string, 'cycle_note'=>string]]]
+
+// Build a fast lookup: dateStr => capacity used minutes (from already-scheduled stops)
+$dayCapUsed = []; // dateStr => total scheduled minutes
+$currentDatePl = new DateTime($startDate);
+for ($pi = 0; $pi < 7; $pi++) {
+    $ds = $currentDatePl->format('Y-m-d');
+    $used = 0;
+    foreach (($calendarData[$ds] ?? []) as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) {
+            $used += (int)($v['estimated_duration'] ?? 0);
+        }
+    }
+    // Add drive time estimate to used capacity
+    $nStops = count($calendarData[$ds] ?? []);
+    $used += $nStops > 0 ? (max(0, $nStops - 1) * 8 + 10) : 0;
+    $dayCapUsed[$ds] = $used;
+    $currentDatePl->modify('+1 day');
+}
+
+foreach ($unscheduledVisits as $uv) {
+    $visitId  = (int)$uv['visit_id'];
+    $duration = (int)($uv['estimated_duration'] ?? 45);
+    $pattern  = $uv['recurrence_pattern'] ?? 'weekly';
+    $interval = max(1, (int)($uv['recurrence_interval'] ?? 1));
+    $prefDow  = $uv['recurrence_day_of_week'] !== null ? (int)$uv['recurrence_day_of_week'] : null;
+    $lastDone = !empty($uv['last_completed_at']) ? strtotime($uv['last_completed_at']) : null;
+    $planStart= !empty($uv['plan_start_date'])   ? strtotime($uv['plan_start_date'])  : null;
+    $isBiweekly = ($pattern === 'biweekly') || ($pattern === 'weekly' && $interval >= 2)
+                  || ($pattern === 'custom' && strtolower($uv['recurrence_interval_unit'] ?? 'weeks') === 'weeks' && $interval >= 2);
+
+    $scores = [];
+    $currentDatePl2 = new DateTime($startDate);
+    for ($pi = 0; $pi < 7; $pi++) {
+        $ds         = $currentDatePl2->format('Y-m-d');
+        $dayTs      = strtotime($ds);
+        $dayDow     = (int)date('w', $dayTs); // 0=Sun..6=Sat
+        $usedMin    = $dayCapUsed[$ds] ?? 0;
+        $bcard      = $mcBattleCards[$ds] ?? [];
+
+        // ── Capacity Fit (0–40) ──────────────────────────────────────────
+        $afterMin = $usedMin + $duration;
+        if ($afterMin <= 480) {
+            $headroom = max(0, 480 - $usedMin);
+            $capScore = (int)round(min(40, ($headroom / 480) * 40));
+        } elseif ($afterMin <= 540) {
+            $capScore = 10; // slight overload — still placeable
+        } else {
+            $capScore = 0;  // over capacity
+        }
+
+        // ── Cycle Match (0–40) ───────────────────────────────────────────
+        $cycleScore = 20; // default for non-recurrence-specific
+        $cycleNote  = '';
+        if ($isBiweekly) {
+            // Determine effective interval in days
+            $intervalDays = $interval * 7;
+            $refTs = $lastDone ?? $planStart ?? $dayTs;
+            $daysDiff = abs((int)(($dayTs - $refTs) / 86400));
+            $cycleMod = $daysDiff % $intervalDays;
+            // Window: within ±2 days of perfect alignment = on-cycle
+            if ($cycleMod <= 2 || $cycleMod >= ($intervalDays - 2)) {
+                $cycleScore = 40;
+                $cycleNote = 'On cycle ✓';
+            } elseif ($cycleMod <= 5 || $cycleMod >= ($intervalDays - 5)) {
+                $cycleScore = 25;
+                $cycleNote = 'Near cycle';
+            } else {
+                $cycleScore = 0;
+                $cycleNote = 'Off cycle';
+            }
+        } elseif ($pattern === 'weekly' || ($pattern === 'custom' && $interval === 1)) {
+            if ($prefDow !== null) {
+                if ($dayDow === $prefDow) {
+                    $cycleScore = 40;
+                    $cycleNote = 'Preferred day ✓';
+                } else {
+                    $cycleScore = 15;
+                    $cycleNote = 'Not preferred day';
+                }
+            } else {
+                $cycleScore = 35; // no preference — most days work
+                $cycleNote = 'Any day OK';
+            }
+        } else {
+            // Monthly/custom with large interval — any day is reasonable
+            $cycleScore = 30;
+            $cycleNote = '';
+        }
+
+        // ── Weather (0–20) ───────────────────────────────────────────────
+        $risk = $bcard['weather_risk'] ?? 'low';
+        $weatherScore = $risk === 'low' ? 20 : ($risk === 'medium' ? 10 : 0);
+
+        // ── Density Bonus (0–10) ─────────────────────────────────────────
+        $existingStops = $bcard['stops'] ?? 0;
+        $densityScore  = $existingStops > 0 ? min(10, $existingStops * 2) : 0;
+
+        // ── Total ────────────────────────────────────────────────────────
+        $total = $capScore + $cycleScore + $weatherScore + $densityScore;
+        $total = max(0, min(100, $total));
+
+        // ── Label ────────────────────────────────────────────────────────
+        if ($total >= 80)       $label = 'Best';
+        elseif ($total >= 60)   $label = 'Good';
+        elseif ($total >= 40)   $label = 'OK';
+        elseif ($capScore === 0) $label = 'Full';
+        elseif ($cycleScore === 0 && $isBiweekly) $label = 'Off cycle';
+        else                    $label = 'Poor';
+
+        $scores[$ds] = [
+            'score'      => $total,
+            'cap'        => $capScore,
+            'cycle'      => $cycleScore,
+            'weather'    => $weatherScore,
+            'density'    => $densityScore,
+            'label'      => $label,
+            'cycle_note' => $cycleNote,
+        ];
+        $currentDatePl2->modify('+1 day');
+    }
+    $placementScores[$visitId] = $scores;
+}
+
 // ─── Mission Control: Weekly aggregate calculations ──────────────────
 // Computed once here, used both in the Mission Control header and per-day
 // Battle Cards. All numbers are estimates derived from plan prices and
@@ -793,7 +931,7 @@ if ($apiKey) {
                       <a href="?view=day&date=<?php echo htmlspecialchars($prevDay) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous day">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                       </a>
-                      <button type="button" class="mw-datepicker-trigger" id="mwDatepickerTrigger"
+                      <button type="button" class="mw-datepicker-trigger" id="mwDpTrigger2"
                               data-current="<?php echo htmlspecialchars($dayDate); ?>"
                               data-view="day"
                               aria-haspopup="true" aria-expanded="false">
@@ -810,7 +948,7 @@ if ($apiKey) {
                       <a href="?start=<?php echo htmlspecialchars($prevWeek) . $filterQueryStr; ?>" class="mw-nav-btn" aria-label="Previous week">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
                       </a>
-                      <button type="button" class="mw-datepicker-trigger" id="mwDatepickerTrigger"
+                      <button type="button" class="mw-datepicker-trigger" id="mwDpTrigger2"
                               data-current="<?php echo htmlspecialchars($startDate); ?>"
                               data-view="week"
                               aria-haspopup="true" aria-expanded="false">
@@ -826,7 +964,7 @@ if ($apiKey) {
               </div>
 
               <!-- ── Date Picker Dropdown ── -->
-              <div class="mw-datepicker-popup" id="mwDatepickerPopup" role="dialog" aria-label="Date picker" hidden>
+              <div class="mw-datepicker-popup" id="mwDpPopup2" role="dialog" aria-label="Date picker" hidden>
                   <div class="mw-dp-header">
                       <button type="button" class="mw-dp-nav-btn" id="mwDpPrevMonth" aria-label="Previous month">
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -1058,17 +1196,36 @@ if ($apiKey) {
                           <span class="mw-tray-chevron">&#8249;</span>
                       </div>
                       <div class="mw-tray-body" id="mwTrayBody">
-                          <?php foreach ($unscheduledVisits as $uv): ?>
+                          <?php foreach ($unscheduledVisits as $uv):
+                              $uvId = (int)$uv['visit_id'];
+                              $uvPattern   = $uv['recurrence_pattern'] ?? 'weekly';
+                              $uvInterval  = (int)($uv['recurrence_interval'] ?? 1);
+                              $uvPrefDow   = $uv['recurrence_day_of_week'] !== null ? (int)$uv['recurrence_day_of_week'] : null;
+                              $uvIsBiweek  = ($uvPattern === 'biweekly')
+                                             || ($uvPattern === 'weekly' && $uvInterval >= 2)
+                                             || ($uvPattern === 'custom' && strtolower($uv['recurrence_interval_unit'] ?? 'weeks') === 'weeks' && $uvInterval >= 2);
+                              $uvRecLabel  = $uvIsBiweek ? '14-day' : ($uvPattern === 'weekly' ? 'Weekly' : ucfirst($uvPattern));
+                              $uvScores    = $placementScores[$uvId] ?? [];
+                              $uvScoreJson = htmlspecialchars(json_encode($uvScores), ENT_QUOTES);
+                          ?>
                           <div class="mw-tray-card"
                                draggable="true"
-                               data-visit-id="<?php echo (int)$uv['visit_id']; ?>"
+                               data-visit-id="<?php echo $uvId; ?>"
                                data-plan-id="<?php echo (int)$uv['plan_id']; ?>"
                                data-property-id="<?php echo (int)$uv['property_id']; ?>"
                                data-service-type="<?php echo htmlspecialchars($uv['service_type'] ?? ''); ?>"
                                data-duration="<?php echo (int)($uv['estimated_duration'] ?? 0); ?>"
-                               data-revenue="<?php echo round((float)($uv['price_per_visit'] ?? 0), 2); ?>">
+                               data-revenue="<?php echo round((float)($uv['price_per_visit'] ?? 0), 2); ?>"
+                               data-recurrence="<?php echo htmlspecialchars($uvPattern); ?>"
+                               data-recurrence-interval="<?php echo $uvInterval; ?>"
+                               data-is-biweekly="<?php echo $uvIsBiweek ? '1' : '0'; ?>"
+                               data-pref-dow="<?php echo $uvPrefDow !== null ? $uvPrefDow : ''; ?>"
+                               data-placement-scores="<?php echo $uvScoreJson; ?>">
                               <div class="mw-tray-card-service" style="border-left:3px solid <?php echo getServiceColorLocal($uv['service_type'] ?? ''); ?>">
                                   <span class="mw-tray-card-type"><?php echo htmlspecialchars(getServiceLabelLocal($uv['service_type'] ?? '')); ?></span>
+                                  <?php if ($uvIsBiweek): ?>
+                                  <span class="mw-tray-card-recurrence-badge">14-day</span>
+                                  <?php endif; ?>
                               </div>
                               <div class="mw-tray-card-address" title="<?php echo htmlspecialchars(($uv['property_address'] ?? '') . ', ' . ($uv['property_city'] ?? '')); ?>">
                                   <?php echo htmlspecialchars($uv['property_address'] ?? ''); ?>
@@ -1187,6 +1344,21 @@ if ($apiKey) {
                                   <div class="mw-bc-profit-fill" style="width: <?php echo max(0, min(100, $bcMargin)); ?>%"></div>
                               </div>
                               <?php endif; ?>
+                          </div>
+                          <?php endif; ?>
+
+                          <!-- ── Placement Intelligence Strip ──────────────── -->
+                          <!-- Hidden until a tray card is selected/hovered. JS  -->
+                          <!-- sets data-score, data-label, data-cycle-note and  -->
+                          <!-- toggles the mw-pi-active class on the day column. -->
+                          <?php if ($unscheduledCount > 0): ?>
+                          <div class="mw-pi-strip" data-date="<?php echo $dateStr; ?>">
+                              <div class="mw-pi-bar"><div class="mw-pi-bar-fill"></div></div>
+                              <div class="mw-pi-info">
+                                  <span class="mw-pi-score"></span>
+                                  <span class="mw-pi-label"></span>
+                                  <span class="mw-pi-cycle-note"></span>
+                              </div>
                           </div>
                           <?php endif; ?>
 
@@ -1789,8 +1961,8 @@ if ($apiKey) {
  * the Monday of the chosen week; day-view picks navigate to that day.
  */
 (function () {
-    var trigger  = document.getElementById('mwDatepickerTrigger');
-    var popup    = document.getElementById('mwDatepickerPopup');
+    var trigger  = document.getElementById('mwDpTrigger2');
+    var popup    = document.getElementById('mwDpPopup2');
     var grid     = document.getElementById('mwDpGrid');
     var monthLbl = document.getElementById('mwDpMonthLabel');
     var prevBtn  = document.getElementById('mwDpPrevMonth');
@@ -2614,12 +2786,130 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
         });
     }
 
+    // ── Placement Intelligence ────────────────────────────────────────────────
+    // When a tray card is hovered or clicked, show fit scores on each day column.
+    // Scores are pre-computed server-side and embedded as data-placement-scores JSON.
+    // 14-day biweekly clients show cycle-alignment notes (On cycle / Off cycle).
+
+    var _piActiveCard = null; // currently selected tray card
+
+    var PI_TIER_MAP = {
+        'Best':      'pi-best',
+        'Good':      'pi-good',
+        'OK':        'pi-ok',
+        'Poor':      'pi-poor',
+        'Off cycle': 'pi-off-cycle',
+        'Full':      'pi-full',
+    };
+
+    function activatePlacementIntelligence(card) {
+        if (_piActiveCard === card) return; // already active
+        clearPlacementIntelligence();
+        _piActiveCard = card;
+        card.classList.add('mw-tray-card--placement-active');
+
+        var scores = {};
+        try { scores = JSON.parse(card.dataset.placementScores || '{}'); } catch(e) {}
+        var isBiweekly = card.dataset.isBiweekly === '1';
+
+        document.querySelectorAll('.mw-day-column').forEach(function(col) {
+            var dateStr = col.dataset.date;
+            if (!dateStr || !scores[dateStr]) return;
+
+            var s = scores[dateStr];
+            var score = s.score || 0;
+            var label = s.label || 'Poor';
+            var cycleNote = s.cycle_note || '';
+            var tierClass = PI_TIER_MAP[label] || 'pi-poor';
+
+            // Apply tier class to day column for glow
+            var colTier = (label === 'Best') ? 'pi-col-best'
+                        : (label === 'Good') ? 'pi-col-good'
+                        : (label === 'Poor' || label === 'Off cycle' || label === 'Full') ? 'pi-col-poor'
+                        : '';
+            col.classList.add('mw-pi-active');
+            if (colTier) col.classList.add(colTier);
+
+            // Update the strip
+            var strip = col.querySelector('.mw-pi-strip[data-date="' + dateStr + '"]');
+            if (!strip) return;
+
+            // Clear previous tier classes
+            strip.className = 'mw-pi-strip ' + tierClass;
+
+            var fill = strip.querySelector('.mw-pi-bar-fill');
+            var scoreEl = strip.querySelector('.mw-pi-score');
+            var labelEl = strip.querySelector('.mw-pi-label');
+            var cycleEl = strip.querySelector('.mw-pi-cycle-note');
+
+            if (fill)   { fill.style.width = '0%'; setTimeout(function(){ fill.style.width = score + '%'; }, 16); }
+            if (scoreEl) scoreEl.textContent = score;
+            if (labelEl) labelEl.textContent = label;
+            if (cycleEl) {
+                cycleEl.textContent = isBiweekly ? cycleNote : '';
+                cycleEl.className = 'mw-pi-cycle-note';
+                if (cycleNote === 'On cycle ✓') cycleEl.classList.add('cycle-on');
+                else if (cycleNote === 'Off cycle') cycleEl.classList.add('cycle-off');
+                else if (cycleNote === 'Near cycle') cycleEl.classList.add('cycle-near');
+            }
+        });
+    }
+
+    function clearPlacementIntelligence() {
+        if (_piActiveCard) {
+            _piActiveCard.classList.remove('mw-tray-card--placement-active');
+            _piActiveCard = null;
+        }
+        document.querySelectorAll('.mw-day-column').forEach(function(col) {
+            col.classList.remove('mw-pi-active', 'pi-col-best', 'pi-col-good', 'pi-col-poor');
+            var strip = col.querySelector('.mw-pi-strip');
+            if (strip) {
+                strip.className = 'mw-pi-strip';
+                var fill = strip.querySelector('.mw-pi-bar-fill');
+                if (fill) fill.style.width = '0%';
+            }
+        });
+    }
+
+    // Hover shows intelligence; move away from tray body clears it
+    document.querySelectorAll('.mw-tray-card').forEach(function(card) {
+        card.addEventListener('mouseenter', function() {
+            activatePlacementIntelligence(card);
+        });
+        // Click toggles sticky selection (stays visible until another card is picked or Escape)
+        card.addEventListener('click', function(e) {
+            if (_piActiveCard === card) {
+                clearPlacementIntelligence();
+            } else {
+                activatePlacementIntelligence(card);
+            }
+        });
+    });
+
+    // Hovering the tray body area clears if nothing specific is hovered
+    var trayBody2 = document.getElementById('mwTrayBody');
+    if (trayBody2) {
+        trayBody2.addEventListener('mouseleave', function() {
+            // Only clear if no sticky selection
+            if (_piActiveCard && !_piActiveCard.matches(':hover')) {
+                clearPlacementIntelligence();
+            }
+        });
+    }
+
+    // Escape key clears
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') clearPlacementIntelligence();
+    });
+
     // ── Tray card drag ────────────────────────────────────────────────────────
     document.querySelectorAll('.mw-tray-card').forEach(function (card) {
         card.addEventListener('dragstart', function (e) {
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/x-tray-visit', card.dataset.visitId);
             card.classList.add('mw-tray-card--dragging');
+            // Activate placement intelligence while dragging so scores stay visible
+            activatePlacementIntelligence(card);
             // Highlight day columns as valid drop zones
             document.querySelectorAll('.mw-day-column').forEach(function (col) {
                 col.classList.add('mw-tray-drop-target');
@@ -2632,6 +2922,7 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                 col.classList.remove('mw-tray-drop-target');
                 col.classList.remove('mw-tray-drop-over');
             });
+            clearPlacementIntelligence();
         });
     });
 

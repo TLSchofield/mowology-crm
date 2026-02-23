@@ -6069,6 +6069,157 @@ textarea.font-monospace {
   border-radius: 2px;
 }
 
+/* ── Placement Intelligence ─────────────────────────────────────────────────
+   Activated when user hovers or selects a tray card.
+   Each day column shows a score strip with color-coded fit rating.
+   14-day (biweekly) clients show a cycle-alignment note.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Tray card recurrence badge */
+.mw-tray-card-recurrence-badge {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+  background: rgba(139, 92, 246, 0.15);
+  color: #7C3AED;
+  vertical-align: middle;
+  line-height: 14px;
+}
+
+/* Tray card active state (selected for placement) */
+.mw-tray-card--placement-active {
+  outline: 2px solid var(--mw-green);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 4px rgba(45,134,89,0.10);
+}
+
+/* The placement strip inside each day column (hidden by default) */
+.mw-pi-strip {
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 6px 4px;
+  border-radius: 4px;
+  margin: 0 -2px 2px;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+/* Strip visible only when placement mode is active */
+.mw-pi-active .mw-pi-strip {
+  display: flex;
+}
+
+/* Score bar track */
+.mw-pi-bar {
+  height: 4px;
+  background: rgba(0,0,0,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.mw-pi-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  transition: width 0.25s ease, background-color 0.2s ease;
+}
+
+/* Info row: score number + label + cycle note */
+.mw-pi-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  line-height: 1.3;
+  flex-wrap: wrap;
+}
+.mw-pi-score {
+  font-weight: 700;
+  font-size: 10px;
+  min-width: 20px;
+}
+.mw-pi-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.mw-pi-cycle-note {
+  font-size: 8px;
+  color: #6B7280;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Score tier colours — applied to .mw-pi-strip via JS class */
+.mw-pi-strip.pi-best {
+  background: rgba(16,185,129,0.08);
+  border-color: rgba(16,185,129,0.25);
+}
+.mw-pi-strip.pi-best .mw-pi-bar-fill  { background: #10B981; }
+.mw-pi-strip.pi-best .mw-pi-score     { color: #059669; }
+.mw-pi-strip.pi-best .mw-pi-label     { background: rgba(16,185,129,0.15); color: #047857; }
+
+.mw-pi-strip.pi-good {
+  background: rgba(45,134,89,0.07);
+  border-color: rgba(45,134,89,0.20);
+}
+.mw-pi-strip.pi-good .mw-pi-bar-fill  { background: var(--mw-green); }
+.mw-pi-strip.pi-good .mw-pi-score     { color: var(--mw-green); }
+.mw-pi-strip.pi-good .mw-pi-label     { background: rgba(45,134,89,0.12); color: var(--mw-dark); }
+
+.mw-pi-strip.pi-ok {
+  background: rgba(245,158,11,0.06);
+  border-color: rgba(245,158,11,0.20);
+}
+.mw-pi-strip.pi-ok .mw-pi-bar-fill    { background: #F59E0B; }
+.mw-pi-strip.pi-ok .mw-pi-score       { color: #D97706; }
+.mw-pi-strip.pi-ok .mw-pi-label       { background: rgba(245,158,11,0.12); color: #B45309; }
+
+.mw-pi-strip.pi-poor,
+.mw-pi-strip.pi-off-cycle,
+.mw-pi-strip.pi-full {
+  background: rgba(220,38,38,0.05);
+  border-color: rgba(220,38,38,0.15);
+}
+.mw-pi-strip.pi-poor .mw-pi-bar-fill,
+.mw-pi-strip.pi-off-cycle .mw-pi-bar-fill,
+.mw-pi-strip.pi-full .mw-pi-bar-fill   { background: #EF4444; }
+.mw-pi-strip.pi-poor .mw-pi-score,
+.mw-pi-strip.pi-off-cycle .mw-pi-score,
+.mw-pi-strip.pi-full .mw-pi-score      { color: #DC2626; }
+.mw-pi-strip.pi-poor .mw-pi-label,
+.mw-pi-strip.pi-off-cycle .mw-pi-label,
+.mw-pi-strip.pi-full .mw-pi-label      { background: rgba(220,38,38,0.10); color: #B91C1C; }
+
+/* Day column glow when best/good placement */
+.mw-pi-active.mw-day-column.pi-col-best {
+  background: rgba(16,185,129,0.04);
+  box-shadow: inset 0 0 0 1px rgba(16,185,129,0.18);
+}
+.mw-pi-active.mw-day-column.pi-col-good {
+  background: rgba(45,134,89,0.04);
+  box-shadow: inset 0 0 0 1px rgba(45,134,89,0.15);
+}
+/* Off-cycle or full: subtle red tint */
+.mw-pi-active.mw-day-column.pi-col-poor {
+  background: rgba(220,38,38,0.02);
+}
+
+/* Cycle-match note colour overrides for on/off */
+.mw-pi-cycle-note.cycle-on  { color: #059669; font-weight: 600; }
+.mw-pi-cycle-note.cycle-off { color: #DC2626; font-weight: 600; }
+.mw-pi-cycle-note.cycle-near { color: #D97706; font-weight: 600; }
+
 .mw-day-column {
   display: flex;
   flex-direction: column;

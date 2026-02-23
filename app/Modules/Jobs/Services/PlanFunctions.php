@@ -2345,8 +2345,19 @@ function getUnscheduledVisits(): array
                 jp.estimated_duration_minutes AS estimated_duration,
                 jp.default_crew_id,
                 jp.property_id,
+                jp.recurrence_pattern,
+                jp.recurrence_interval,
+                jp.recurrence_interval_unit,
+                jp.recurrence_day_of_week,
+                jp.start_date      AS plan_start_date,
+                (SELECT MAX(jv2.completed_at)
+                 FROM job_visits jv2
+                 WHERE jv2.plan_id = jp.id
+                   AND jv2.status = 'completed') AS last_completed_at,
                 p.address          AS property_address,
                 p.city             AS property_city,
+                p.latitude         AS property_lat,
+                p.longitude        AS property_lng,
                 CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name
             FROM job_visits jv
             JOIN job_plans jp ON jv.plan_id = jp.id
