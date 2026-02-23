@@ -53,6 +53,16 @@ var MwRouteMap = (function() {
     var lastRouteSummary = null;         // Cached MwRouteEngine result for UI
     var legDurations = [];               // Per-leg durations from Directions result
 
+    // ── In-App Navigation state ──
+    var navActive = false;               // true when in-app nav panel is visible
+    var navSteps = [];                   // Steps from DirectionsResult.routes[0].legs[0].steps
+    var navStepIdx = 0;                  // Current step index
+    var navWatchId = null;               // geolocation.watchPosition ID
+    var navPanelEl = null;               // .mw-mv-nav-panel DOM element
+    var navTargetStop = null;            // Stop object being navigated to
+    var navEtaSecs = 0;                  // ETA in seconds from Directions API
+    var navEtaStart = 0;                 // performance.now() when nav started
+
     // ── DOM refs ──
     var viewEl, mapEl, trackEl, dotsEl, titleEl, backBtn, externalBtn, trayEl, summaryEl;
 
@@ -83,7 +93,14 @@ var MwRouteMap = (function() {
 
         if (!viewEl || !mapEl) return;
 
-        backBtn.addEventListener('click', close);
+        // Create the in-app nav panel and inject it into the map view
+        navPanelEl = buildNavPanel();
+        viewEl.insertBefore(navPanelEl, trayEl);
+
+        backBtn.addEventListener('click', function() {
+            if (navActive) stopInAppNav();
+            close();
+        });
         externalBtn.addEventListener('click', openExternal);
         wireCardTaps();
         setupSwipe();
@@ -187,6 +204,7 @@ var MwRouteMap = (function() {
     }
 
     function close() {
+        if (navActive) stopInAppNav();
         isOpen = false;
         viewEl.classList.remove('mw-mv-visible');
         document.body.style.overflow = '';
@@ -702,6 +720,10 @@ var MwRouteMap = (function() {
                 if (status === google.maps.DirectionsStatus.OK) {
                     directionsRenderer.setDirections(result);
                     var leg = result.routes[0].legs[0];
+                    // Store steps + ETA for in-app navigation
+                    navSteps = leg.steps || [];
+                    navEtaSecs = leg.duration ? leg.duration.value : 0;
+                    navTargetStop = target;
                     placeMarkerAt(leg.end_location, target, idx, true);
                     map.fitBounds(result.routes[0].bounds, { top: 60, right: 40, bottom: 200, left: 40 });
                     showSingleRouteTitle(
@@ -944,25 +966,14 @@ var MwRouteMap = (function() {
             trackEl.appendChild(card);
         });
 
-        // Wire up Navigate buttons — launch external turn-by-turn
+        // Wire up Navigate buttons — start in-app turn-by-turn
         trackEl.querySelectorAll('.mw-mv-card-nav').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.stopPropagation();
                 var card = btn.closest('.mw-mv-card');
                 var idx = card ? parseInt(card.dataset.index, 10) : currentIndex;
-                var stopsArr = optimizedStops || getStops();
-                var stop = stopsArr[idx];
-
-                log('Navigate button tapped: stop', stop ? stop.stopId : 'unknown',
-                    'lat:', stop ? stop.lat : null, 'lng:', stop ? stop.lng : null);
-
-                if (stop && typeof MwNavLauncher !== 'undefined') {
-                    MwNavLauncher.launchNavigation(stop);
-                } else if (stop) {
-                    // Fallback: open Google Maps URL directly
-                    var url = buildFallbackNavUrl(stop);
-                    if (url) window.open(url, '_blank');
-                }
+                log('Navigate button tapped: starting in-app nav for stop index', idx);
+                startInAppNav(idx);
             });
         });
 
@@ -1151,6 +1162,236 @@ var MwRouteMap = (function() {
                 }
             });
         });
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  IN-APP NAVIGATION PANEL
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * Build the nav panel DOM element (hidden by default).
+     * Injected once into #mwMapView above the card tray.
+     */
+    function buildNavPanel() {
+        var panel = document.createElement('div');
+        panel.className = 'mw-mv-nav-panel';
+        panel.id = 'mwNavPanel';
+        panel.innerHTML =
+            '<div class="mw-mv-nav-instruction" id="mwNavInstruction">Calculating...</div>' +
+            '<div class="mw-mv-nav-meta">' +
+                '<span class="mw-mv-nav-dist" id="mwNavDist"></span>' +
+                '<span class="mw-mv-nav-eta" id="mwNavEta"></span>' +
+                '<span class="mw-mv-nav-step" id="mwNavStep"></span>' +
+            '</div>' +
+            '<div class="mw-mv-nav-progress" id="mwNavProgress"><div class="mw-mv-nav-progress-fill" id="mwNavProgressFill"></div></div>' +
+            '<button class="mw-mv-nav-stop" id="mwNavStop" type="button">' +
+                '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>' +
+                'End Navigation' +
+            '</button>';
+        return panel;
+    }
+
+    /**
+     * Start in-app navigation to a stop.
+     * First draws the route (calls routeToStop), then slides up the nav panel
+     * and begins a watchPosition loop to advance through steps.
+     */
+    function startInAppNav(idx) {
+        var stops = optimizedStops || getStops();
+        if (!stops[idx]) return;
+
+        navStepIdx = 0;
+        navActive = false; // will be set true after route is drawn
+
+        // Draw route first (populates navSteps + navEtaSecs)
+        routeToStop(idx);
+
+        // Wait for route result (navSteps gets populated in the directions callback)
+        // Use a short poll since the callback is async
+        var attempts = 0;
+        var waitForSteps = setInterval(function() {
+            attempts++;
+            if (navSteps.length > 0 || attempts > 20) {
+                clearInterval(waitForSteps);
+                if (navSteps.length === 0) {
+                    showNavToast('Route unavailable — try external navigation');
+                    return;
+                }
+                activateNavPanel();
+            }
+        }, 300);
+    }
+
+    function activateNavPanel() {
+        navActive = true;
+        navStepIdx = 0;
+        navEtaStart = performance.now ? performance.now() : Date.now();
+
+        // Show panel
+        navPanelEl.classList.add('mw-mv-nav-panel-visible');
+        trayEl.classList.add('mw-mv-tray-hidden'); // slide card tray down
+        externalBtn.style.display = 'none';       // hide external button during nav
+
+        // Wire stop button
+        var stopBtn = document.getElementById('mwNavStop');
+        if (stopBtn) {
+            stopBtn.onclick = function() { stopInAppNav(); };
+        }
+
+        updateNavDisplay();
+        startNavWatch();
+
+        log('In-app nav started, steps:', navSteps.length, 'ETA:', navEtaSecs, 's');
+    }
+
+    function stopInAppNav() {
+        navActive = false;
+        if (navWatchId !== null && navigator.geolocation) {
+            navigator.geolocation.clearWatch(navWatchId);
+            navWatchId = null;
+        }
+        navPanelEl.classList.remove('mw-mv-nav-panel-visible');
+        trayEl.classList.remove('mw-mv-tray-hidden');
+        externalBtn.style.display = '';
+        log('In-app nav stopped');
+    }
+
+    /**
+     * Start watchPosition to advance through steps as user moves.
+     */
+    function startNavWatch() {
+        if (!navigator.geolocation) return;
+
+        navWatchId = navigator.geolocation.watchPosition(function(pos) {
+            if (!navActive) return;
+            userLat = pos.coords.latitude;
+            userLng = pos.coords.longitude;
+
+            checkNavProgress(userLat, userLng);
+            updateNavEta();
+        }, function() {
+            // GPS error — keep last known position, don't break nav
+        }, {
+            enableHighAccuracy: true,
+            maximumAge: 5000,
+            timeout: 10000
+        });
+    }
+
+    /**
+     * Check if user is close enough to the current step end_location
+     * to auto-advance to the next step.
+     */
+    function checkNavProgress(lat, lng) {
+        if (!navActive || !navSteps.length) return;
+        if (navStepIdx >= navSteps.length) return;
+
+        var step = navSteps[navStepIdx];
+        if (!step || !step.end_location) return;
+
+        var stepLat = step.end_location.lat();
+        var stepLng = step.end_location.lng();
+        var dist = haversineMeters(lat, lng, stepLat, stepLng);
+
+        log('Nav step', navStepIdx, 'dist to step end:', Math.round(dist), 'm');
+
+        // Advance if within 30m of step end point
+        if (dist < 30) {
+            navStepIdx++;
+            if (navStepIdx >= navSteps.length) {
+                // Arrived!
+                onNavArrived();
+            } else {
+                updateNavDisplay();
+            }
+        }
+    }
+
+    function updateNavDisplay() {
+        if (!navActive || !navSteps.length) return;
+
+        var instrEl  = document.getElementById('mwNavInstruction');
+        var distEl   = document.getElementById('mwNavDist');
+        var etaEl    = document.getElementById('mwNavEta');
+        var stepEl   = document.getElementById('mwNavStep');
+        var fillEl   = document.getElementById('mwNavProgressFill');
+
+        var step = navSteps[navStepIdx] || navSteps[navSteps.length - 1];
+
+        // Strip HTML from Google's instruction text (it contains <b> etc.)
+        var rawInstr = step.instructions || 'Continue';
+        var tmpDiv = document.createElement('div');
+        tmpDiv.innerHTML = rawInstr;
+        instrEl.textContent = tmpDiv.textContent || tmpDiv.innerText || rawInstr;
+
+        distEl.textContent = step.distance ? step.distance.text : '';
+        stepEl.textContent = 'Step ' + (navStepIdx + 1) + ' of ' + navSteps.length;
+
+        // Progress bar
+        var pct = navSteps.length > 1 ? Math.round((navStepIdx / navSteps.length) * 100) : 0;
+        fillEl.style.width = pct + '%';
+
+        updateNavEta();
+    }
+
+    function updateNavEta() {
+        var etaEl = document.getElementById('mwNavEta');
+        if (!etaEl) return;
+
+        if (navEtaSecs <= 0) { etaEl.textContent = ''; return; }
+
+        // Estimate remaining: subtract elapsed from original ETA
+        var elapsedSecs = navEtaStart
+            ? ((performance.now ? performance.now() : Date.now()) - navEtaStart) / 1000
+            : 0;
+        var remaining = Math.max(0, Math.round(navEtaSecs - elapsedSecs));
+
+        if (remaining < 60) {
+            etaEl.textContent = 'Arriving soon';
+        } else {
+            var mins = Math.round(remaining / 60);
+            etaEl.textContent = mins + ' min';
+        }
+    }
+
+    function onNavArrived() {
+        var instrEl = document.getElementById('mwNavInstruction');
+        if (instrEl) instrEl.textContent = 'You have arrived!';
+        var distEl = document.getElementById('mwNavDist');
+        if (distEl) distEl.textContent = '';
+        var etaEl = document.getElementById('mwNavEta');
+        if (etaEl) etaEl.textContent = '';
+        var fillEl = document.getElementById('mwNavProgressFill');
+        if (fillEl) fillEl.style.width = '100%';
+
+        // Auto-dismiss after 4 seconds
+        setTimeout(function() {
+            if (navActive) stopInAppNav();
+        }, 4000);
+    }
+
+    /** Simple haversine distance in metres between two lat/lng points */
+    function haversineMeters(lat1, lng1, lat2, lng2) {
+        var R = 6371000;
+        var dLat = (lat2 - lat1) * Math.PI / 180;
+        var dLng = (lng2 - lng1) * Math.PI / 180;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function showNavToast(msg) {
+        var t = document.createElement('div');
+        t.className = 'mw-mc-toast';
+        t.textContent = msg;
+        t.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:8px;font-size:0.82rem;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.2);opacity:0;transition:opacity 0.3s ease;';
+        document.body.appendChild(t);
+        requestAnimationFrame(function() { t.style.opacity = '1'; });
+        setTimeout(function() {
+            t.style.opacity = '0';
+            setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 300);
+        }, 3000);
     }
 
     // ═══════════════════════════════════════════════════

@@ -2750,6 +2750,121 @@
 
 
 /* ══════════════════════════════════════════════════════
+   In-App Navigation Panel (.mw-mv-nav-panel)
+   Slides up over the card tray when turn-by-turn nav is active
+   ══════════════════════════════════════════════════════ */
+
+.mw-mv-nav-panel {
+    flex-shrink: 0;
+    position: relative;
+    background: var(--mw-forest, #0D3B2E);
+    color: #fff;
+    padding: 18px 20px 14px 20px;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.3);
+    z-index: 12;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.mw-mv-nav-panel.mw-mv-nav-panel-visible {
+    display: flex;
+}
+
+/* Card tray hides when nav is active */
+.mw-mv-card-tray.mw-mv-tray-hidden {
+    display: none;
+}
+
+/* Instruction — large text, icon manoeuvre */
+.mw-mv-nav-instruction {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.3;
+    min-height: 2.6rem;
+}
+
+/* Meta row: distance chip, ETA, step counter */
+.mw-mv-nav-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.mw-mv-nav-dist {
+    display: inline-block;
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+}
+
+.mw-mv-nav-eta {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.75);
+    white-space: nowrap;
+}
+
+.mw-mv-nav-step {
+    margin-left: auto;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.5);
+    white-space: nowrap;
+}
+
+/* Progress bar */
+.mw-mv-nav-progress {
+    height: 3px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.mw-mv-nav-progress-fill {
+    height: 100%;
+    background: var(--mw-lime, #7FD858);
+    border-radius: 2px;
+    transition: width 0.5s ease;
+    width: 0%;
+}
+
+/* Stop / End Navigation button */
+.mw-mv-nav-stop {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    align-self: flex-start;
+    padding: 7px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 20px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease, color 0.15s ease;
+    font-family: inherit;
+    margin-top: 2px;
+}
+
+.mw-mv-nav-stop:active {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+}
+
+/* ══════════════════════════════════════════════════════
    Profitability Bar (Mobile Cards)
    ══════════════════════════════════════════════════════ */
 .mw-mc-profit-bar {
