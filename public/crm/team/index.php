@@ -187,6 +187,10 @@ $activePage = 'team';
                    class="btn btn-sm btn-outline-secondary" title="View Timesheets">
                     <i data-feather="clock" style="width:13px;height:13px;"></i>
                 </a>
+                <a href="/crm/team/profile.php?id=<?php echo (int)$emp['id']; ?>"
+                   class="btn btn-sm btn-outline-secondary" title="HR Profile">
+                    <i data-feather="user" style="width:13px;height:13px;"></i>
+                </a>
             </div>
         </div>
     </div>

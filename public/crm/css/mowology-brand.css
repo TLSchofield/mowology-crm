@@ -9609,6 +9609,46 @@ textarea.font-monospace {
   border-color: var(--mw-green);
 }
 
+/* ── Employee HR Profile Page ───────────────────────── */
+
+.mw-hr-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--mw-green);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.mw-hr-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #999;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+
+.mw-hr-value {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #333;
+  font-weight: 500;
+}
+
+.mw-hr-sin-val {
+  font-family: monospace;
+  letter-spacing: 1px;
+}
+
+/* ── Toggle Switch ──────────────────────────────────── */
+
 .mw-toggle-switch {
   position: relative;
   display: inline-block;
