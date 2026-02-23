@@ -1,21 +1,24 @@
 /**
  * Global Search — Spotlight / Command Palette
  * Cmd+K / Ctrl+K to open. Esc to close.
+ * Inline search bar (#mwSearchBarInput) passes keystrokes directly into the overlay.
  */
 (function() {
   'use strict';
 
-  var overlay = document.getElementById('mwSpotlight');
-  var input   = document.getElementById('mwSpotlightInput');
-  var body    = document.getElementById('mwSpotlightBody');
-  var hint    = document.getElementById('mwSpotlightHint');
+  var overlay        = document.getElementById('mwSpotlight');
+  var input          = document.getElementById('mwSpotlightInput');
+  var body           = document.getElementById('mwSpotlightBody');
+  var hint           = document.getElementById('mwSpotlightHint');
+  var searchBarInput = document.getElementById('mwSearchBarInput');
+  var searchIconBtn  = document.getElementById('mwSearchIconBtn');
 
   if (!overlay || !input) return;
 
-  var debounceTimer = null;
-  var activeIndex   = -1;
+  var debounceTimer  = null;
+  var activeIndex    = -1;
   var currentResults = [];
-  var abortCtrl     = null;
+  var abortCtrl      = null;
 
   // ── Category meta ─────────────────────────────────
   var categoryMeta = {
@@ -28,12 +31,17 @@
   };
 
   // ── Open / Close ──────────────────────────────────
-  function open() {
+  function open(prefill) {
     overlay.classList.add('mw-spotlight--open');
     document.body.style.overflow = 'hidden';
-    input.value = '';
+    input.value = prefill || '';
     input.focus();
-    showRecent();
+    if (prefill && prefill.length >= 2) {
+      showLoading();
+      fetchResults(prefill);
+    } else {
+      showRecent();
+    }
     activeIndex = -1;
   }
 
@@ -43,10 +51,66 @@
     input.value = '';
     body.innerHTML = '';
     if (abortCtrl) abortCtrl.abort();
+    // Clear the inline bar input too
+    if (searchBarInput) searchBarInput.value = '';
   }
 
   function isOpen() {
     return overlay.classList.contains('mw-spotlight--open');
+  }
+
+  // ── Inline search bar wiring ──────────────────────
+  // Typing into the topbar input directly opens spotlight and mirrors the text
+  if (searchBarInput) {
+    searchBarInput.addEventListener('focus', function() {
+      var val = searchBarInput.value.trim();
+      open(val || '');
+    });
+
+    searchBarInput.addEventListener('input', function() {
+      var val = searchBarInput.value;
+      if (!isOpen()) open(val);
+      input.value = val;
+      // Trigger the search logic
+      clearTimeout(debounceTimer);
+      if (val.trim().length < 2) {
+        showRecent();
+        activeIndex = -1;
+        return;
+      }
+      showLoading();
+      debounceTimer = setTimeout(function() { fetchResults(val.trim()); }, 200);
+    });
+
+    // Pass arrow keys / Enter / Esc from the bar into spotlight behaviour
+    searchBarInput.addEventListener('keydown', function(e) {
+      if (!isOpen()) return;
+      var items = body.querySelectorAll('.mw-spotlight-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, items.length - 1);
+        highlightItem(items);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        highlightItem(items);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        navigateToActive(items);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+        searchBarInput.blur();
+      }
+    });
+  }
+
+  // Mobile icon button opens spotlight
+  if (searchIconBtn) {
+    searchIconBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      open();
+    });
   }
 
   // ── Keyboard shortcut (Cmd/Ctrl + K) ─────────────
@@ -66,7 +130,7 @@
     if (e.target === overlay) close();
   });
 
-  // ── Trigger buttons ───────────────────────────────
+  // ── Legacy trigger buttons (data-spotlight-open) ──
   document.querySelectorAll('[data-spotlight-open]').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
       e.preventDefault();
@@ -78,6 +142,9 @@
   input.addEventListener('input', function() {
     clearTimeout(debounceTimer);
     var q = input.value.trim();
+
+    // Mirror back to inline bar
+    if (searchBarInput) searchBarInput.value = input.value;
 
     if (q.length < 2) {
       showRecent();
@@ -92,7 +159,7 @@
     }, 200);
   });
 
-  // ── Arrow key navigation ──────────────────────────
+  // ── Arrow key navigation (in overlay input) ───────
   input.addEventListener('keydown', function(e) {
     var items = body.querySelectorAll('.mw-spotlight-item');
     if (!items.length) return;
@@ -105,15 +172,22 @@
       e.preventDefault();
       activeIndex = Math.max(activeIndex - 1, 0);
       highlightItem(items);
-    } else if (e.key === 'Enter' && activeIndex >= 0 && items[activeIndex]) {
+    } else if (e.key === 'Enter') {
       e.preventDefault();
-      var url = items[activeIndex].dataset.url;
-      if (url) {
-        saveRecent(items[activeIndex].dataset.label, url, items[activeIndex].dataset.category);
-        window.location.href = url;
-      }
+      navigateToActive(items);
     }
   });
+
+  // Navigate to the active item, or the first item if none highlighted
+  function navigateToActive(items) {
+    if (!items.length) return;
+    var idx = activeIndex >= 0 ? activeIndex : 0;
+    var url = items[idx] && items[idx].dataset.url;
+    if (url) {
+      saveRecent(items[idx].dataset.label, url, items[idx].dataset.category);
+      window.location.href = url;
+    }
+  }
 
   function highlightItem(items) {
     items.forEach(function(item, i) {

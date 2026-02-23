@@ -37,11 +37,15 @@ if (!isset($user)) $user = ['name' => 'Admin'];
     </a>
     <?php endif; ?>
 
-    <!-- Global Search Trigger -->
-    <button class="mw-spotlight-trigger" data-spotlight-open title="Search (<?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘' : 'Ctrl'; ?>+K)">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-        <span class="mw-spotlight-trigger-text">Search...</span>
-        <kbd class="mw-spotlight-trigger-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
+    <!-- Global Search — inline typeable input -->
+    <div class="mw-search-bar" id="mwSearchBar">
+        <svg class="mw-search-bar-icon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" class="mw-search-bar-input" id="mwSearchBarInput" placeholder="Search..." autocomplete="off" spellcheck="false">
+        <kbd class="mw-spotlight-trigger-kbd mw-search-bar-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
+    </div>
+    <!-- Mobile search icon (shown on small screens instead of the bar) -->
+    <button class="mw-search-icon-btn d-none" id="mwSearchIconBtn" title="Search" aria-label="Search">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
     </button>
 
     <div class="navbar-collapse collapse">
