@@ -1,17 +1,16 @@
 /**
  * Global Search — Spotlight / Command Palette
- * Cmd+K / Ctrl+K to open. Esc to close.
- * Inline search bar (#mwSearchBarInput) passes keystrokes directly into the overlay.
+ *
+ * Open:  Cmd+K / Ctrl+K  OR  click the trigger button  OR  just start typing
+ * Close: Esc  OR  click outside
+ * Navigate: ↑ ↓ arrows, Enter goes to first result if none highlighted
  */
 (function() {
   'use strict';
 
-  var overlay        = document.getElementById('mwSpotlight');
-  var input          = document.getElementById('mwSpotlightInput');
-  var body           = document.getElementById('mwSpotlightBody');
-  var hint           = document.getElementById('mwSpotlightHint');
-  var searchBarInput = document.getElementById('mwSearchBarInput');
-  var searchIconBtn  = document.getElementById('mwSearchIconBtn');
+  var overlay = document.getElementById('mwSpotlight');
+  var input   = document.getElementById('mwSpotlightInput');
+  var body    = document.getElementById('mwSpotlightBody');
 
   if (!overlay || !input) return;
 
@@ -34,11 +33,19 @@
   function open(prefill) {
     overlay.classList.add('mw-spotlight--open');
     document.body.style.overflow = 'hidden';
-    input.value = prefill || '';
+    if (prefill) {
+      input.value = prefill;
+      // Put cursor at end
+      input.setSelectionRange(prefill.length, prefill.length);
+    } else {
+      input.value = '';
+    }
     input.focus();
     if (prefill && prefill.length >= 2) {
       showLoading();
       fetchResults(prefill);
+    } else if (prefill && prefill.length === 1) {
+      showRecent(); // show recent, search will fire when they type the 2nd char
     } else {
       showRecent();
     }
@@ -51,78 +58,46 @@
     input.value = '';
     body.innerHTML = '';
     if (abortCtrl) abortCtrl.abort();
-    // Clear the inline bar input too
-    if (searchBarInput) searchBarInput.value = '';
   }
 
   function isOpen() {
     return overlay.classList.contains('mw-spotlight--open');
   }
 
-  // ── Inline search bar wiring ──────────────────────
-  // Typing into the topbar input directly opens spotlight and mirrors the text
-  if (searchBarInput) {
-    searchBarInput.addEventListener('focus', function() {
-      var val = searchBarInput.value.trim();
-      open(val || '');
-    });
-
-    searchBarInput.addEventListener('input', function() {
-      var val = searchBarInput.value;
-      if (!isOpen()) open(val);
-      input.value = val;
-      // Trigger the search logic
-      clearTimeout(debounceTimer);
-      if (val.trim().length < 2) {
-        showRecent();
-        activeIndex = -1;
-        return;
-      }
-      showLoading();
-      debounceTimer = setTimeout(function() { fetchResults(val.trim()); }, 200);
-    });
-
-    // Pass arrow keys / Enter / Esc from the bar into spotlight behaviour
-    searchBarInput.addEventListener('keydown', function(e) {
-      if (!isOpen()) return;
-      var items = body.querySelectorAll('.mw-spotlight-item');
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        activeIndex = Math.min(activeIndex + 1, items.length - 1);
-        highlightItem(items);
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        activeIndex = Math.max(activeIndex - 1, 0);
-        highlightItem(items);
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        navigateToActive(items);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        close();
-        searchBarInput.blur();
-      }
-    });
-  }
-
-  // Mobile icon button opens spotlight
-  if (searchIconBtn) {
-    searchIconBtn.addEventListener('click', function(e) {
-      e.preventDefault();
-      open();
-    });
-  }
-
-  // ── Keyboard shortcut (Cmd/Ctrl + K) ─────────────
+  // ── "Just start typing" — any printable key opens spotlight ───
+  // Only fires when no input/textarea/select/contenteditable is focused
   document.addEventListener('keydown', function(e) {
+    // Cmd/Ctrl+K: toggle
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
       e.preventDefault();
       isOpen() ? close() : open();
+      return;
     }
+
+    // Esc: close
     if (e.key === 'Escape' && isOpen()) {
       e.preventDefault();
       close();
+      return;
     }
+
+    // Already open — let the overlay input handle everything
+    if (isOpen()) return;
+
+    // Modifier combos (except shift alone) — don't steal
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+    // Only printable single characters (letters, digits, common symbols)
+    if (e.key.length !== 1) return;
+
+    // Don't steal from existing inputs, textareas, selects, or contenteditable
+    var tag = document.activeElement && document.activeElement.tagName;
+    var ce  = document.activeElement && document.activeElement.isContentEditable;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || ce) return;
+
+    // Open spotlight with this character pre-filled
+    e.preventDefault();
+    open(e.key);
   });
 
   // ── Click outside to close ────────────────────────
@@ -130,7 +105,7 @@
     if (e.target === overlay) close();
   });
 
-  // ── Legacy trigger buttons (data-spotlight-open) ──
+  // ── Trigger buttons (click) ───────────────────────
   document.querySelectorAll('[data-spotlight-open]').forEach(function(btn) {
     btn.addEventListener('click', function(e) {
       e.preventDefault();
@@ -138,13 +113,10 @@
     });
   });
 
-  // ── Input handling with debounce ──────────────────
+  // ── Overlay input: typing ─────────────────────────
   input.addEventListener('input', function() {
     clearTimeout(debounceTimer);
     var q = input.value.trim();
-
-    // Mirror back to inline bar
-    if (searchBarInput) searchBarInput.value = input.value;
 
     if (q.length < 2) {
       showRecent();
@@ -153,41 +125,38 @@
     }
 
     showLoading();
-
-    debounceTimer = setTimeout(function() {
-      fetchResults(q);
-    }, 200);
+    debounceTimer = setTimeout(function() { fetchResults(q); }, 200);
   });
 
-  // ── Arrow key navigation (in overlay input) ───────
+  // ── Overlay input: arrow keys + Enter ────────────
   input.addEventListener('keydown', function(e) {
     var items = body.querySelectorAll('.mw-spotlight-item');
-    if (!items.length) return;
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      activeIndex = Math.min(activeIndex + 1, items.length - 1);
-      highlightItem(items);
+      if (items.length) {
+        activeIndex = Math.min(activeIndex + 1, items.length - 1);
+        highlightItem(items);
+      }
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      activeIndex = Math.max(activeIndex - 1, 0);
-      highlightItem(items);
+      if (items.length) {
+        activeIndex = Math.max(activeIndex - 1, 0);
+        highlightItem(items);
+      }
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      navigateToActive(items);
+      // Navigate to highlighted item, OR first item if none highlighted
+      if (items.length) {
+        var idx = activeIndex >= 0 ? activeIndex : 0;
+        var url = items[idx] && items[idx].dataset.url;
+        if (url) {
+          saveRecent(items[idx].dataset.label, url, items[idx].dataset.category);
+          window.location.href = url;
+        }
+      }
     }
   });
-
-  // Navigate to the active item, or the first item if none highlighted
-  function navigateToActive(items) {
-    if (!items.length) return;
-    var idx = activeIndex >= 0 ? activeIndex : 0;
-    var url = items[idx] && items[idx].dataset.url;
-    if (url) {
-      saveRecent(items[idx].dataset.label, url, items[idx].dataset.category);
-      window.location.href = url;
-    }
-  }
 
   function highlightItem(items) {
     items.forEach(function(item, i) {
@@ -231,7 +200,6 @@
       return;
     }
 
-    // Group by category
     var groups = {};
     results.forEach(function(r) {
       if (!groups[r.category]) groups[r.category] = [];
@@ -279,7 +247,6 @@
 
     body.innerHTML = html;
 
-    // Click handler for results
     body.querySelectorAll('.mw-spotlight-item').forEach(function(item) {
       item.addEventListener('click', function() {
         saveRecent(item.dataset.label, item.dataset.url, item.dataset.category);
@@ -299,9 +266,8 @@
 
   // ── Recent searches ───────────────────────────────
   function getRecent() {
-    try {
-      return JSON.parse(sessionStorage.getItem('mw_recent_searches') || '[]');
-    } catch(e) { return []; }
+    try { return JSON.parse(sessionStorage.getItem('mw_recent_searches') || '[]'); }
+    catch(e) { return []; }
   }
 
   function saveRecent(label, url, category) {
@@ -371,15 +337,14 @@
   }
 
   function featherIcon(name) {
-    // Inline SVG icons for the categories we use
     var icons = {
-      'user': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
-      'map-pin': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>',
-      'file-text': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>',
-      'briefcase': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>',
+      'user':        '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
+      'map-pin':     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>',
+      'file-text':   '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>',
+      'briefcase':   '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>',
       'credit-card': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>',
-      'users': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
-      'clock': '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>'
+      'users':       '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+      'clock':       '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>'
     };
     return icons[name] || icons['clock'];
   }
