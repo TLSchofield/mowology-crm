@@ -652,7 +652,9 @@ if ($view === 'day') {
             'stopId'      => (int)$stop['stop_id'],
             'lat'         => $stop['latitude'] ? (float)$stop['latitude'] : null,
             'lng'         => $stop['longitude'] ? (float)$stop['longitude'] : null,
-            'address'     => trim(($stop['property_address'] ?? '') . ', ' . ($stop['property_city'] ?? 'Vancouver') . ', BC, Canada'),
+            'address'     => !empty($stop['property_address'])
+                                ? trim($stop['property_address'] . ', ' . ($stop['property_city'] ?? 'Vancouver') . ', BC, Canada')
+                                : null,
             'routeOrder'  => (int)($stop['route_order'] ?? 999),
             'contactName' => $dayContactMap[(int)$stop['property_id']] ?? ($stop['contact_name'] ?? ''),
             'serviceType' => !empty($stop['visits']) ? ($stop['visits'][0]['service_type'] ?? '') : '',
