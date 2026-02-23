@@ -221,7 +221,8 @@
       html += '</div>';
 
       groups[cat].forEach(function(r) {
-        html += '<a href="' + escapeHtml(r.url) + '" class="mw-spotlight-item" ' +
+        // Use encodeURI for the href (preserves & correctly) and escapeHtml for data attrs
+        html += '<a href="' + r.url.replace(/"/g, '%22') + '" class="mw-spotlight-item" ' +
                 'data-url="' + escapeHtml(r.url) + '" ' +
                 'data-label="' + escapeHtml(r.label) + '" ' +
                 'data-category="' + escapeHtml(r.category) + '" ' +
