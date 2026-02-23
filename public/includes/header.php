@@ -18,7 +18,7 @@ $logoAlt = SITE_NAME;
 
 $nav = [
   ['key' => 'home',      'label' => 'Home',      'href' => '/'],
-  ['key' => 'services',  'label' => 'Services',  'href' => '/services.php'],
+  ['key' => 'services',  'label' => 'Services',  'href' => '/services'],
   ['key' => 'portfolio', 'label' => 'Portfolio', 'href' => '/portfolio.php'],
   ['key' => 'about',     'label' => 'About',     'href' => '/about.php'],
   ['key' => 'contact',   'label' => 'Contact',   'href' => '/contact.php'],

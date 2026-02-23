@@ -20,7 +20,7 @@
           <h4>Quick Links</h4>
           <ul>
             <li><a href="/">Home</a></li>
-            <li><a href="/services.php">Services</a></li>
+            <li><a href="/services">Services</a></li>
             <li><a href="/portfolio.php">Portfolio</a></li>
             <li><a href="/about.php">About Us</a></li>
             <li><a href="/contact.php">Contact</a></li>
@@ -30,10 +30,10 @@
         <div class="footer-col">
           <h4>Services</h4>
           <ul>
-            <li><a href="/services.php#property-management">Property Management</a></li>
-            <li><a href="/services.php#residential">Residential Services</a></li>
-            <li><a href="/services.php#maintenance">Weekly Maintenance</a></li>
-            <li><a href="/services.php#seasonal">Seasonal Services</a></li>
+            <li><a href="/services#property-management">Property Management</a></li>
+            <li><a href="/services#residential">Residential Services</a></li>
+            <li><a href="/services#maintenance">Weekly Maintenance</a></li>
+            <li><a href="/services#seasonal">Seasonal Services</a></li>
           </ul>
         </div>
 

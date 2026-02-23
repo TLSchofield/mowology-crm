@@ -83,7 +83,7 @@
  */
 
 if (!isset($service) || !is_array($service)) {
-    header('Location: /services.php');
+    header('Location: /services');
     exit();
 }
 
