@@ -72,6 +72,14 @@ try {
             ");
             $crew = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // seconds_ago from MySQL can be negative if pings were stored in a different TZ
+            // (Pacific-stored strings interpreted as EST appear 3h in future).
+            // Clamp to 0 minimum so the UI never shows negative values.
+            foreach ($crew as &$c) {
+                $c['seconds_ago'] = max(0, (int)$c['seconds_ago']);
+            }
+            unset($c);
+
             echo json_encode(['success' => true, 'crew' => $crew]);
 
         } elseif ($action === 'day_routes') {
@@ -94,6 +102,9 @@ try {
             $dayStart = (new DateTime($date . ' 00:00:00', $tz))->getTimestamp();
             $dayEnd   = (new DateTime($date . ' 23:59:59', $tz))->getTimestamp();
 
+            // Also get MySQL TZ offset so we can convert stored EST timestamps to Pacific for display
+            $mysqlOffsetSec = (int)$db->query("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) as o")->fetchColumn();
+
             $stmt = $db->prepare("
                 SELECT
                     clh.crew_id as user_id,
@@ -101,7 +112,8 @@ try {
                     clh.latitude as lat,
                     clh.longitude as lng,
                     clh.accuracy_meters,
-                    clh.timestamp
+                    clh.timestamp,
+                    UNIX_TIMESTAMP(clh.timestamp) as epoch
                 FROM crew_location_history clh
                 INNER JOIN users u ON u.id = clh.crew_id
                 WHERE u.is_active = 1
@@ -112,6 +124,13 @@ try {
             ");
             $stmt->execute([$dayStart, $dayEnd]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Convert a stored MySQL-TZ timestamp to Pacific using its true UTC epoch.
+            // Parse stored string as UTC, subtract mysqlOffsetSec → true UTC epoch → format Pacific.
+            $toPacific = function(string $ts, int $epoch) use ($tz, $mysqlOffsetSec): string {
+                // Use the epoch from UNIX_TIMESTAMP() — already the true UTC epoch regardless of stored TZ
+                return (new DateTime('@' . $epoch))->setTimezone($tz)->format('Y-m-d H:i:s');
+            };
 
             // Group by user
             $routes = [];
@@ -128,7 +147,7 @@ try {
                     'lat' => (float)$row['lat'],
                     'lng' => (float)$row['lng'],
                     'accuracy' => $row['accuracy_meters'] ? (int)$row['accuracy_meters'] : null,
-                    'time' => $row['timestamp']
+                    'time' => $toPacific($row['timestamp'], (int)$row['epoch'])
                 ];
             }
 
