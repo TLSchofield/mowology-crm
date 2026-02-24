@@ -53,14 +53,19 @@ if (empty($token)) {
     if (!$quote) {
         $error = 'This quote link has expired or is invalid. Please contact us for a new quote.';
     } else {
-        // Update view count
-        $stmt = $db->prepare("
-            UPDATE quotes
-            SET viewed_at = COALESCE(viewed_at, NOW()),
-                view_count = view_count + 1
-            WHERE id = ?
-        ");
-        $stmt->execute([$quote['id']]);
+        // Update view count (wrapped in try/catch — column may not exist on all environments)
+        try {
+            $stmt = $db->prepare("
+                UPDATE quotes
+                SET viewed_at = COALESCE(viewed_at, NOW()),
+                    view_count = view_count + 1
+                WHERE id = ?
+            ");
+            $stmt->execute([$quote['id']]);
+        } catch (Exception $e) {
+            // Non-critical — silently skip if column missing
+            error_log("Quote view_count update failed: " . $e->getMessage());
+        }
 
         // Get line items
         $stmt = $db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
@@ -142,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($quote) && $quote['status'] !
                             <table style='width: 100%; border-collapse: collapse;'>
                                 <tr><td style='padding: 8px 0; font-weight: bold; width: 120px;'>Quote:</td><td>{$quote['quote_number']}</td></tr>
                                 <tr><td style='padding: 8px 0; font-weight: bold;'>Customer:</td><td>" . htmlspecialchars($signatureName) . "</td></tr>
-                                <tr><td style='padding: 8px 0; font-weight: bold;'>Property:</td><td>" . htmlspecialchars($quote['property_address'] . ', ' . $quote['property_city']) . "</td></tr>
+                                <tr><td style='padding: 8px 0; font-weight: bold;'>Property:</td><td>" . htmlspecialchars(trim(($quote['property_address'] ?? '') . (($quote['property_city'] ?? '') ? ', ' . $quote['property_city'] : ''))) . "</td></tr>
                                 <tr><td style='padding: 8px 0; font-weight: bold;'>Amount:</td><td style='font-size: 18px; font-weight: bold; color: #2D8659;'>$" . number_format(floatval($quote['amount']), 2) . "</td></tr>
                             </table>
                             <div style='text-align: center; margin-top: 25px;'>
@@ -191,7 +196,7 @@ function formatCurrency($amount) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quote <?php echo isset($quote) ? htmlspecialchars($quote['quote_number']) : ''; ?> - Mowology</title>
+    <title>Quote <?php echo isset($quote) ? htmlspecialchars($quote['quote_number'] ?? '') : ''; ?> - Mowology</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
     <style>
@@ -625,7 +630,7 @@ function formatCurrency($amount) {
                         <div>
                             <?php
                                 // For residential properties, show property owner. For commercial, show company name.
-                                if ($quote['property_type'] === 'residential') {
+                                if (($quote['property_type'] ?? '') === 'residential') {
                                     // Residential: use property contact (owner)
                                     $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? '')) ?: 'Valued Customer';
                                 } else {
@@ -637,9 +642,11 @@ function formatCurrency($amount) {
                                 }
                             ?>
                             <h2 style="font-size: 24px; margin-bottom: 8px;">Quote for <?php echo htmlspecialchars($clientName); ?></h2>
+                            <?php if (!empty($quote['property_address'])): ?>
                             <p style="color: var(--forest-main);">
-                                <?php echo htmlspecialchars($quote['property_address']); ?>, <?php echo htmlspecialchars($quote['property_city']); ?>
+                                <?php echo htmlspecialchars($quote['property_address'] ?? ''); ?><?php if (!empty($quote['property_city'])): ?>, <?php echo htmlspecialchars($quote['property_city']); ?><?php endif; ?>
                             </p>
+                            <?php endif; ?>
                         </div>
                         <span class="status-badge status-<?php echo $quote['status']; ?>">
                             <?php echo ucfirst($quote['status']); ?>
@@ -678,7 +685,7 @@ function formatCurrency($amount) {
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($lineItems as $item): ?>
+                            <?php foreach (($lineItems ?? []) as $item): ?>
                                 <tr>
                                     <td><strong><?php echo htmlspecialchars($item['service_type']); ?></strong></td>
                                     <td><?php echo htmlspecialchars($item['description'] ?: '-'); ?></td>
