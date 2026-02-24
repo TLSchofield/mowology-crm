@@ -182,13 +182,17 @@ try {
             $stmt->execute([$planId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Track which (visit_id, user_id) pairs already have timer entries
-            $timerCovered = []; // key: "visitId_userId"
+            // Track which (visit_id, user_id) pairs already have COMPLETED timer entries.
+            // Active timers (no end_time) don't block GPS — GPS shows the full on-site window.
+            $timerCovered = []; // key: "visitId_userId" — only set for completed/edited entries
             $totalMinutes = 0;
             $entries = [];
 
             foreach ($rows as $r) {
-                $timerCovered[$r['visit_id'] . '_' . $r['user_id']] = true;
+                // Only block GPS for this crew+visit if their timer is actually complete with real duration
+                if (in_array($r['entry_status'] ?? '', ['completed', 'edited']) && $r['end_time']) {
+                    $timerCovered[$r['visit_id'] . '_' . $r['user_id']] = true;
+                }
 
                 // Correct timestamp if MySQL server time differs from PHP/Pacific
                 $startCorrected = $tzShiftSeconds !== 0 && $r['start_time']
