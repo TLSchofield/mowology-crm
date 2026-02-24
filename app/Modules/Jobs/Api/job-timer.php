@@ -147,27 +147,31 @@ try {
             $db = getDB();
 
             // All timestamps are displayed in America/Vancouver (Pacific) time.
-            // Stored timestamps may be in EST (legacy, before nowPacific() fix) or Pacific (new).
-            // We use UNIX_TIMESTAMP() to get the true UTC epoch of each stored value,
-            // then format it in Pacific using PHP's DateTime — this works regardless of
-            // what timezone the server stored the value in.
+            // MySQL stores timestamps in EST (UTC-5). PHP is set to Pacific (UTC-8) by config.php.
+            // strtotime() interprets strings in PHP's local timezone (Pacific), so it would
+            // incorrectly treat an EST wall-clock value as Pacific. Instead we:
+            //   1. Parse the stored string as if it were UTC via createFromFormat+UTC tz
+            //   2. Subtract mysqlOffsetSec to convert "stored as UTC" → true UTC
+            //   3. Format the true UTC epoch in Pacific
             $pacificTz = new DateTimeZone('America/Vancouver');
+            $mysqlTzRow = $db->query("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) as offset_sec")->fetch(PDO::FETCH_ASSOC);
+            $mysqlOffsetSec = (int)$mysqlTzRow['offset_sec']; // e.g. -18000 for EST (UTC-5)
 
             /**
-             * Convert any stored MySQL datetime string to a Pacific datetime string.
-             * UNIX_TIMESTAMP of the stored value gives the true UTC epoch,
-             * which we then format in Pacific time.
-             * Returns null if the input is empty/null.
+             * Convert a MySQL-stored datetime string (in MySQL server TZ = EST) to Pacific.
+             *
+             * Algorithm: parse as UTC → subtract mysqlOffsetSec → true UTC epoch → Pacific.
+             * Example: "14:57:45" stored as EST →
+             *   createFromFormat as UTC: epoch for 14:57:45 UTC
+             *   subtract -18000 (= add 18000): epoch for 19:57:45 UTC
+             *   setTimezone(Pacific): 11:57:45 Pacific ✓
              */
-            $toPacific = function(?string $ts) use ($pacificTz): ?string {
+            $toPacific = function(?string $ts) use ($pacificTz, $mysqlOffsetSec): ?string {
                 if (!$ts) return null;
-                // strtotime interprets the string using PHP's local timezone (EST on this server)
-                // which gives the correct UTC epoch for EST-stored values.
-                // For Pacific-stored values (new), strtotime also gives correct UTC epoch.
-                // Either way, formatting in Pacific via DateTime produces the correct local time.
-                $epoch = strtotime($ts);
-                if ($epoch === false) return null;
-                return (new DateTime('@' . $epoch))->setTimezone($pacificTz)->format('Y-m-d H:i:s');
+                $dt = DateTime::createFromFormat('Y-m-d H:i:s', $ts, new DateTimeZone('UTC'));
+                if (!$dt) return null;
+                $trueUtcEpoch = $dt->getTimestamp() - $mysqlOffsetSec;
+                return (new DateTime('@' . $trueUtcEpoch))->setTimezone($pacificTz)->format('Y-m-d H:i:s');
             };
 
             // Fetch all job_time_entries for this plan's visits
