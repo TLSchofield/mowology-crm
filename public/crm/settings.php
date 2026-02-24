@@ -712,21 +712,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    // Load on tab show — both native and jQuery (Bootstrap 4 fires on the element)
+    // Load on tab click (reliable cross-browser, works before Bootstrap initialises)
     var stTabEl = document.getElementById('service-types-tab');
     if (stTabEl) {
-        stTabEl.addEventListener('shown.bs.tab', function () {
+        stTabEl.addEventListener('click', function () {
+            setTimeout(function () {
+                if (!stLoaded) { stLoaded = true; loadServiceTypes(); }
+            }, 50);
+        });
+    }
+    // Also hook shown.bs.tab via jQuery (fires after Bootstrap animates in)
+    if (typeof $ !== 'undefined') {
+        $(document).on('shown.bs.tab', 'a[href="#service-types"]', function () {
             if (!stLoaded) { stLoaded = true; loadServiceTypes(); }
         });
-        if (typeof $ !== 'undefined') {
-            $(stTabEl).on('shown.bs.tab', function () {
-                if (!stLoaded) { stLoaded = true; loadServiceTypes(); }
-            });
-        }
-    }
-    // Load immediately if already on this tab
-    if (document.getElementById('service-types')?.classList.contains('active')) {
-        stLoaded = true; loadServiceTypes();
     }
 
     // Add button
@@ -898,20 +897,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             .catch(() => { loading.style.display = 'none'; empty.style.display = ''; });
     }
 
-    // Load on tab show — both native and jQuery (Bootstrap 4 fires on the element)
+    // Load on tab click (reliable cross-browser, works before Bootstrap initialises)
     var mgTabEl = document.getElementById('measurement-types-tab');
     if (mgTabEl) {
-        mgTabEl.addEventListener('shown.bs.tab', function () {
+        mgTabEl.addEventListener('click', function () {
+            setTimeout(function () {
+                if (!mgLoaded) { mgLoaded = true; loadMeasGroups(); }
+            }, 50);
+        });
+    }
+    // Also hook shown.bs.tab via jQuery
+    if (typeof $ !== 'undefined') {
+        $(document).on('shown.bs.tab', 'a[href="#measurement-types"]', function () {
             if (!mgLoaded) { mgLoaded = true; loadMeasGroups(); }
         });
-        if (typeof $ !== 'undefined') {
-            $(mgTabEl).on('shown.bs.tab', function () {
-                if (!mgLoaded) { mgLoaded = true; loadMeasGroups(); }
-            });
-        }
-    }
-    if (document.getElementById('measurement-types')?.classList.contains('active')) {
-        mgLoaded = true; loadMeasGroups();
     }
 
     // Add Group button
