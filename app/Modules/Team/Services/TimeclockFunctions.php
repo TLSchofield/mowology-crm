@@ -6,6 +6,14 @@
  */
 
 /**
+ * Return current time as a MySQL datetime string in America/Vancouver (Pacific) timezone.
+ * The server PHP timezone may be EST or UTC — always use this instead of date('Y-m-d H:i:s').
+ */
+function nowPacific(): string {
+    return (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d H:i:s');
+}
+
+/**
  * Get a time clock setting value
  */
 function getTimeClockSetting($key, $default = null) {
@@ -56,7 +64,7 @@ function clockIn($userId, $lat = null, $lng = null) {
     }
 
     $db = getDB();
-    $now = date('Y-m-d H:i:s'); // Use PHP/Pacific time, not MySQL server time
+    $now = nowPacific(); // Always use explicit Pacific time regardless of server timezone
     $stmt = $db->prepare("
         INSERT INTO time_clock_entries (user_id, clock_in, clock_in_lat, clock_in_lng)
         VALUES (?, ?, ?, ?)
@@ -74,7 +82,7 @@ function clockIn($userId, $lat = null, $lng = null) {
             $db->prepare("
                 INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
                 VALUES (?, ?, ?, NULL, NULL, ?)
-            ")->execute([$userId, $lat, $lng, date('Y-m-d H:i:s')]);
+            ")->execute([$userId, $lat, $lng, nowPacific()]);
         }
     }
 
@@ -91,7 +99,7 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
     }
 
     $db = getDB();
-    $now = date('Y-m-d H:i:s'); // Use PHP/Pacific time, not MySQL server time
+    $now = nowPacific(); // Always use explicit Pacific time regardless of server timezone
     $stmt = $db->prepare("
         UPDATE time_clock_entries
         SET clock_out = ?,
@@ -113,7 +121,7 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
             $db->prepare("
                 INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
                 VALUES (?, ?, ?, NULL, NULL, ?)
-            ")->execute([$userId, $lat, $lng, date('Y-m-d H:i:s')]);
+            ")->execute([$userId, $lat, $lng, nowPacific()]);
         }
     }
 
@@ -123,7 +131,7 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
     $row = $result->fetch(PDO::FETCH_ASSOC);
 
     // Ensure/create timesheet for this week
-    ensureTimesheetExists($userId, date('Y-m-d'));
+    ensureTimesheetExists($userId, (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d'));
 
     return (int)$row['total_minutes'];
 }
@@ -179,12 +187,12 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
     $clockEntry = getActiveClockEntry($userId);
     $clockEntryId = $clockEntry ? $clockEntry['id'] : null;
 
-    // Create time entry — use PHP/Pacific time so timestamps match crew map display
+    // Create time entry — always use Pacific time explicitly (server PHP timezone may be EST)
     $stmt = $db->prepare("
         INSERT INTO job_time_entries (visit_id, user_id, clock_entry_id, start_time, start_lat, start_lng, auto_started)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ");
-    $stmt->execute([$jobId, $userId, $clockEntryId, date('Y-m-d H:i:s'), $lat, $lng, $autoStarted ? 1 : 0]);
+    $stmt->execute([$jobId, $userId, $clockEntryId, nowPacific(), $lat, $lng, $autoStarted ? 1 : 0]);
     $entryId = (int)$db->lastInsertId();
 
     // Update visit status to in_progress if currently scheduled
@@ -223,8 +231,8 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
         throw new Exception('No active timer for this job');
     }
 
-    // Stop the timer — use PHP/Pacific time for consistency
-    $nowPhp = date('Y-m-d H:i:s');
+    // Stop the timer — always use Pacific time explicitly (server PHP timezone may be EST)
+    $nowPhp = nowPacific();
     $stmt = $db->prepare("
         UPDATE job_time_entries
         SET end_time = ?,

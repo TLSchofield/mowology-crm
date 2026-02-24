@@ -80,26 +80,19 @@ try {
                 throw new Exception('Access denied');
             }
 
-            $date = $_GET['date'] ?? date('Y-m-d');
+            $date = $_GET['date'] ?? (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d');
             // Validate date format
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
                 throw new Exception('Invalid date format. Use YYYY-MM-DD');
             }
 
             // Get all location points for tracked users on the given date.
-            // PHP runs in America/Vancouver but MySQL NOW() is in a different timezone
-            // (currently ~3h ahead). We detect the offset dynamically and convert
-            // the requested Pacific day boundaries to MySQL server timestamps.
-            $mysqlOffsetRow = $db->query("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) as offset_sec")->fetch(PDO::FETCH_ASSOC);
-            $mysqlFromUtc = (int)$mysqlOffsetRow['offset_sec']; // e.g., -18000 for EST
-            $phpFromUtc   = (int)date('Z');                      // e.g., -28800 for PST
-            $shift = $mysqlFromUtc - $phpFromUtc;                // seconds to add to Pacific → MySQL
-
-            // Convert Pacific day boundaries to MySQL server time
-            $dayStartEpoch = strtotime($date . ' 00:00:00');
-            $dayEndEpoch   = strtotime($date . ' 23:59:59');
-            $mysqlStart = date('Y-m-d H:i:s', $dayStartEpoch + $shift);
-            $mysqlEnd   = date('Y-m-d H:i:s', $dayEndEpoch + $shift);
+            // Pings are stored in Pacific time (America/Vancouver). Use PHP's strtotime
+            // with explicit Pacific day boundaries for the filter; compare via UNIX_TIMESTAMP()
+            // so the filter is timezone-agnostic against whatever is stored.
+            $tz = new DateTimeZone('America/Vancouver');
+            $dayStart = (new DateTime($date . ' 00:00:00', $tz))->getTimestamp();
+            $dayEnd   = (new DateTime($date . ' 23:59:59', $tz))->getTimestamp();
 
             $stmt = $db->prepare("
                 SELECT
@@ -113,11 +106,11 @@ try {
                 INNER JOIN users u ON u.id = clh.crew_id
                 WHERE u.is_active = 1
                   AND u.location_tracking_enabled = 1
-                  AND clh.timestamp >= ?
-                  AND clh.timestamp <= ?
+                  AND UNIX_TIMESTAMP(clh.timestamp) >= ?
+                  AND UNIX_TIMESTAMP(clh.timestamp) <= ?
                 ORDER BY clh.crew_id ASC, clh.timestamp ASC
             ");
-            $stmt->execute([$mysqlStart, $mysqlEnd]);
+            $stmt->execute([$dayStart, $dayEnd]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Group by user
@@ -212,12 +205,13 @@ try {
             exit;
         }
 
-        // Insert location
+        // Insert location — use explicit Pacific time; MySQL NOW() may be EST on this server
+        $pingTime = (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d H:i:s');
         $stmt = $db->prepare("
             INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-            VALUES (?, ?, ?, ?, NULL, NOW())
+            VALUES (?, ?, ?, ?, NULL, ?)
         ");
-        $stmt->execute([$user['id'], $lat, $lng, $accuracy]);
+        $stmt->execute([$user['id'], $lat, $lng, $accuracy, $pingTime]);
         $insertId = (int)$db->lastInsertId();
 
         // Proximity auto-start check (skip for stale offline-queued pings)

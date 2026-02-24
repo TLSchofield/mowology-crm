@@ -146,17 +146,29 @@ try {
 
             $db = getDB();
 
-            // Detect how far MySQL server time is ahead of PHP/Pacific.
-            // We compare them directly: PHP's time() vs MySQL's UNIX_TIMESTAMP().
-            // If MySQL is EST and PHP is PST, mysqlEpoch - phpEpoch ≈ +10800 (3h ahead).
-            // To convert a stored MySQL timestamp to PHP/Pacific, subtract that difference.
-            $tzRow = $db->query("SELECT UNIX_TIMESTAMP() AS mysql_epoch")->fetch(PDO::FETCH_ASSOC);
-            $phpEpoch       = time();
-            $mysqlEpoch     = (int)$tzRow['mysql_epoch'];
-            // mysqlAhead: positive means MySQL clock is ahead of PHP clock
-            $mysqlAhead     = $mysqlEpoch - $phpEpoch;
-            // To display stored timestamps in PHP/Pacific, subtract mysqlAhead
-            $tzShiftSeconds = -$mysqlAhead;
+            // All timestamps are displayed in America/Vancouver (Pacific) time.
+            // Stored timestamps may be in EST (legacy, before nowPacific() fix) or Pacific (new).
+            // We use UNIX_TIMESTAMP() to get the true UTC epoch of each stored value,
+            // then format it in Pacific using PHP's DateTime — this works regardless of
+            // what timezone the server stored the value in.
+            $pacificTz = new DateTimeZone('America/Vancouver');
+
+            /**
+             * Convert any stored MySQL datetime string to a Pacific datetime string.
+             * UNIX_TIMESTAMP of the stored value gives the true UTC epoch,
+             * which we then format in Pacific time.
+             * Returns null if the input is empty/null.
+             */
+            $toPacific = function(?string $ts) use ($pacificTz): ?string {
+                if (!$ts) return null;
+                // strtotime interprets the string using PHP's local timezone (EST on this server)
+                // which gives the correct UTC epoch for EST-stored values.
+                // For Pacific-stored values (new), strtotime also gives correct UTC epoch.
+                // Either way, formatting in Pacific via DateTime produces the correct local time.
+                $epoch = strtotime($ts);
+                if ($epoch === false) return null;
+                return (new DateTime('@' . $epoch))->setTimezone($pacificTz)->format('Y-m-d H:i:s');
+            };
 
             // Fetch all job_time_entries for this plan's visits
             $stmt = $db->prepare("
@@ -196,17 +208,13 @@ try {
                     $timerCovered[$r['visit_id'] . '_' . $r['user_id']] = true;
                 }
 
-                // Correct timestamp if MySQL server time differs from PHP/Pacific
-                $startCorrected = $tzShiftSeconds !== 0 && $r['start_time']
-                    ? date('Y-m-d H:i:s', strtotime($r['start_time']) + $tzShiftSeconds)
-                    : $r['start_time'];
-                $endCorrected = $tzShiftSeconds !== 0 && $r['end_time']
-                    ? date('Y-m-d H:i:s', strtotime($r['end_time']) + $tzShiftSeconds)
-                    : $r['end_time'];
+                // Convert stored timestamps to Pacific (works for both EST-stored and Pacific-stored values)
+                $startCorrected = $toPacific($r['start_time']);
+                $endCorrected   = $toPacific($r['end_time']);
 
-                // Recalculate duration from corrected times if needed
+                // Recalculate duration from corrected times
                 $mins = (int)($r['duration_minutes'] ?? 0);
-                if ($tzShiftSeconds !== 0 && $startCorrected && $endCorrected) {
+                if ($startCorrected && $endCorrected) {
                     $mins = (int)round((strtotime($endCorrected) - strtotime($startCorrected)) / 60);
                 }
                 $totalMinutes += $mins;
@@ -303,23 +311,25 @@ try {
                     $latDelta = 0.00135; // ~150m
                     $lngDelta = 0.00135 / max(cos(deg2rad($propLat)), 0.001);
 
-                    // MySQL TZ shift for ping timestamps
-                    $dayStart = date('Y-m-d H:i:s', strtotime($visitDate . ' 00:00:00') + $tzShiftSeconds);
-                    $dayEnd   = date('Y-m-d H:i:s', strtotime($visitDate . ' 23:59:59') + $tzShiftSeconds);
+                    // Use epoch-based day boundaries (Pacific) so filter works regardless of
+                    // whether pings are stored in EST (legacy) or Pacific (new)
+                    $pacificTz   = new DateTimeZone('America/Vancouver');
+                    $dayEpochStart = (new DateTime($visitDate . ' 00:00:00', $pacificTz))->getTimestamp();
+                    $dayEpochEnd   = (new DateTime($visitDate . ' 23:59:59', $pacificTz))->getTimestamp();
 
                     $pingStmt = $db->prepare("
                         SELECT timestamp, latitude, longitude
                         FROM crew_location_history
                         WHERE crew_id = ?
-                          AND timestamp >= ?
-                          AND timestamp <= ?
+                          AND UNIX_TIMESTAMP(timestamp) >= ?
+                          AND UNIX_TIMESTAMP(timestamp) <= ?
                           AND latitude  BETWEEN ? AND ?
                           AND longitude BETWEEN ? AND ?
                         ORDER BY timestamp ASC
                     ");
                     $pingStmt->execute([
                         $crewMember['user_id'],
-                        $dayStart, $dayEnd,
+                        $dayEpochStart, $dayEpochEnd,
                         $propLat - $latDelta, $propLat + $latDelta,
                         $propLng - $lngDelta, $propLng + $lngDelta,
                     ]);
@@ -327,15 +337,9 @@ try {
 
                     if (empty($pings)) continue;
 
-                    // Correct ping timestamps
-                    $firstPing = $pings[0]['timestamp'];
-                    $lastPing  = $pings[count($pings) - 1]['timestamp'];
-                    $firstCorrected = $tzShiftSeconds !== 0
-                        ? date('Y-m-d H:i:s', strtotime($firstPing) + $tzShiftSeconds)
-                        : $firstPing;
-                    $lastCorrected = $tzShiftSeconds !== 0
-                        ? date('Y-m-d H:i:s', strtotime($lastPing) + $tzShiftSeconds)
-                        : $lastPing;
+                    // Convert ping timestamps to Pacific (works for both EST-stored and Pacific-stored pings)
+                    $firstCorrected = $toPacific($pings[0]['timestamp']);
+                    $lastCorrected  = $toPacific($pings[count($pings) - 1]['timestamp']);
 
                     $gpsMins = (int)round((strtotime($lastCorrected) - strtotime($firstCorrected)) / 60);
                     $totalMinutes += $gpsMins;
