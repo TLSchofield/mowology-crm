@@ -712,15 +712,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    // Load on tab show
-    document.getElementById('service-types-tab')?.addEventListener('shown.bs.tab', function () {
-        if (!stLoaded) { stLoaded = true; loadServiceTypes(); }
-    });
-    // Bootstrap 4 uses jQuery events
-    if (typeof $ !== 'undefined') {
-        $('#service-types-tab').on('shown.bs.tab', function () {
+    // Load on tab show — both native and jQuery (Bootstrap 4 fires on the element)
+    var stTabEl = document.getElementById('service-types-tab');
+    if (stTabEl) {
+        stTabEl.addEventListener('shown.bs.tab', function () {
             if (!stLoaded) { stLoaded = true; loadServiceTypes(); }
         });
+        if (typeof $ !== 'undefined') {
+            $(stTabEl).on('shown.bs.tab', function () {
+                if (!stLoaded) { stLoaded = true; loadServiceTypes(); }
+            });
+        }
+    }
+    // Load immediately if already on this tab
+    if (document.getElementById('service-types')?.classList.contains('active')) {
+        stLoaded = true; loadServiceTypes();
     }
 
     // Add button
@@ -892,15 +898,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             .catch(() => { loading.style.display = 'none'; empty.style.display = ''; });
     }
 
-    // Load on tab show (Bootstrap 4 jQuery)
-    if (typeof $ !== 'undefined') {
-        $('#measurement-types-tab').on('shown.bs.tab', function () {
+    // Load on tab show — both native and jQuery (Bootstrap 4 fires on the element)
+    var mgTabEl = document.getElementById('measurement-types-tab');
+    if (mgTabEl) {
+        mgTabEl.addEventListener('shown.bs.tab', function () {
             if (!mgLoaded) { mgLoaded = true; loadMeasGroups(); }
         });
+        if (typeof $ !== 'undefined') {
+            $(mgTabEl).on('shown.bs.tab', function () {
+                if (!mgLoaded) { mgLoaded = true; loadMeasGroups(); }
+            });
+        }
     }
-    document.getElementById('measurement-types-tab')?.addEventListener('shown.bs.tab', function () {
-        if (!mgLoaded) { mgLoaded = true; loadMeasGroups(); }
-    });
+    if (document.getElementById('measurement-types')?.classList.contains('active')) {
+        mgLoaded = true; loadMeasGroups();
+    }
 
     // Add Group button
     document.getElementById('btnAddMeasGroup')?.addEventListener('click', function () {
