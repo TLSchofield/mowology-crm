@@ -276,6 +276,58 @@ try {
             ]);
             break;
 
+        /**
+         * POST generate visits for a specific plan (or all active plans)
+         * Optional: plan_id — if omitted, generates for all active plans
+         * Requires: admin role
+         */
+        case 'generate_visits':
+            if (($user['role'] ?? '') !== 'admin') {
+                http_response_code(403);
+                echo json_encode(['error' => 'Admin access required', 'success' => false]);
+                exit;
+            }
+
+            $input = json_decode(file_get_contents('php://input'), true) ?? [];
+            if (!verifyCSRFToken($input['csrf_token'] ?? $_POST['csrf_token'] ?? '')) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Invalid security token', 'success' => false]);
+                exit;
+            }
+
+            $planId = isset($input['plan_id']) ? (int)$input['plan_id'] : null;
+            $result = generateVisits($planId, 42);
+
+            echo json_encode([
+                'success'         => true,
+                'plans_processed' => $result['plans_processed'],
+                'visits_created'  => $result['visits_created'],
+                'errors'          => $result['errors'],
+            ]);
+            break;
+
+        /**
+         * GET raw job_visits rows for a plan (admin debug)
+         * Required: plan_id
+         */
+        case 'get_plan_visits':
+            if (($user['role'] ?? '') !== 'admin') {
+                http_response_code(403);
+                echo json_encode(['error' => 'Admin access required', 'success' => false]);
+                exit;
+            }
+            $db = getDB();
+            $planId = (int)($_GET['plan_id'] ?? 0);
+            if (!$planId) {
+                echo json_encode(['error' => 'plan_id required', 'success' => false]);
+                exit;
+            }
+            $stmt = $db->prepare("SELECT jv.*, cs.stop_date, cs.property_id as cs_property_id FROM job_visits jv LEFT JOIN calendar_stops cs ON cs.id = jv.stop_id WHERE jv.plan_id = ?");
+            $stmt->execute([$planId]);
+            $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            echo json_encode(['success' => true, 'visits' => $visits, 'count' => count($visits)]);
+            break;
+
         default:
             http_response_code(404);
             echo json_encode(['error' => 'Unknown action: ' . htmlspecialchars($action), 'success' => false]);

@@ -613,12 +613,13 @@ function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
                 } else {
                     // One-time plan: single visit on plan_start_date
                     $visitDate = $plan['plan_start_date'] ?: date('Y-m-d');
-                    // Check if visit already exists
-                    $checkStmt = $db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ?");
+                    // Check if a non-cancelled visit already exists (cancelled visits
+                    // don't count — the plan still needs its active visit)
+                    $checkStmt = $db->prepare("SELECT COUNT(*) FROM job_visits WHERE plan_id = ? AND status != 'cancelled'");
                     $checkStmt->execute([$plan['id']]);
                     if ((int)$checkStmt->fetchColumn() > 0) {
                         $plansProcessed++;
-                        continue; // One-time already has its visit
+                        continue; // One-time already has its active visit
                     }
                     $dates = [$visitDate];
                 }
