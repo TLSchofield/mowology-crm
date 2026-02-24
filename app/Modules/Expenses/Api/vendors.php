@@ -93,6 +93,16 @@ try {
             handleDeleteLocation($db, $input);
             break;
 
+        case 'add_vendor_product':
+            if (!$canEdit) throw new Exception('Permission denied');
+            handleAddVendorProduct($db, $input);
+            break;
+
+        case 'delete_vendor_product':
+            if (!$canEdit) throw new Exception('Permission denied');
+            handleDeleteVendorProduct($db, $input);
+            break;
+
         case 'delete':
             if (!$canEdit) throw new Exception('Permission denied');
             handleVendorDelete($db, $input);
@@ -434,6 +444,59 @@ function handleUnlinkVendorProduct(PDO $db, ?array $input): void
     $stmt->execute([$vpId]);
 
     echo json_encode(['success' => true, 'message' => 'Product unlinked']);
+}
+
+
+function handleAddVendorProduct(PDO $db, ?array $input): void
+{
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $vendorId = (int)($input['vendor_id'] ?? 0);
+    if (!$vendorId) throw new Exception('Vendor ID required');
+
+    $name = trim($input['name'] ?? '');
+    if (empty($name)) throw new Exception('Product name is required');
+
+    $stmt = $db->prepare("
+        INSERT INTO vendor_products (vendor_id, name, category, unit, price_per_unit, alt_unit, alt_price, bag_price, ocr_aliases)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ");
+    $stmt->execute([
+        $vendorId,
+        $name,
+        $input['category'] ?? null,
+        $input['unit'] ?? null,
+        !empty($input['price_per_unit']) ? (float)$input['price_per_unit'] : null,
+        $input['alt_unit'] ?? null,
+        !empty($input['alt_price']) ? (float)$input['alt_price'] : null,
+        !empty($input['bag_price']) ? (float)$input['bag_price'] : null,
+        $input['ocr_aliases'] ?? null,
+    ]);
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Product added',
+        'product_id' => (int)$db->lastInsertId(),
+    ]);
+}
+
+
+function handleDeleteVendorProduct(PDO $db, ?array $input): void
+{
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $id = (int)($input['id'] ?? 0);
+    if (!$id) throw new Exception('Product ID required');
+
+    // Soft-delete: preserve for history
+    $stmt = $db->prepare("UPDATE vendor_products SET is_active = 0 WHERE id = ?");
+    $stmt->execute([$id]);
+
+    echo json_encode(['success' => true, 'message' => 'Product removed']);
 }
 
 
