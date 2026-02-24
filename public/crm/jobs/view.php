@@ -76,6 +76,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $stmt = $db->prepare("UPDATE job_visits SET actual_amount = ? WHERE id = ?");
                 $stmt->execute([$actualAmount, $visitId]);
             }
+
+            // Stop any active timers for all crew on this visit
+            require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
+            $activeTimers = $db->prepare("
+                SELECT id, user_id FROM job_time_entries
+                WHERE visit_id = ? AND status = 'active' AND end_time IS NULL
+            ");
+            $activeTimers->execute([$visitId]);
+            foreach ($activeTimers->fetchAll(PDO::FETCH_ASSOC) as $timer) {
+                try {
+                    stopVisitTimer($visitId, $timer['user_id'], null, null, $notes ?: 'Visit completed');
+                } catch (Exception $e) {
+                    // Log but don't block the completion
+                    error_log("Timer stop failed for visit $visitId user {$timer['user_id']}: " . $e->getMessage());
+                }
+            }
+
             header("Location: view.php?id={$planId}&visit_completed=1");
             exit;
         }
