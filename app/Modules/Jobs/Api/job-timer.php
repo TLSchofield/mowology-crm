@@ -147,14 +147,19 @@ try {
             $db = getDB();
 
             // Detect MySQL server timezone vs PHP/Pacific to correct stored timestamps.
-            // Timestamps stored before the NOW() fix may be in MySQL server time (EST).
-            // Compute the shift: seconds to subtract from stored MySQL time to get Pacific.
+            // Timestamps stored before the NOW() fix are in MySQL server time (e.g. EST).
+            // We need to shift stored MySQL timestamps → PHP/Pacific for display.
+            //
+            // Example: MySQL is EST (UTC-5), PHP is PST (UTC-8).
+            //   mysqlFromUtc = -18000, phpFromUtc = -28800
+            //   A stored timestamp of 14:55 EST = 11:55 PST (subtract 3h)
+            //   shift = phpFromUtc - mysqlFromUtc = -28800 - (-18000) = -10800
+            //   strtotime("14:55") + (-10800) = 11:55 ✓
+            // After the NOW() fix both use PHP/Pacific: shift = 0.
             $tzRow = $db->query("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) AS mysql_from_utc")->fetch(PDO::FETCH_ASSOC);
-            $mysqlFromUtc = (int)$tzRow['mysql_from_utc'];  // e.g. -18000 for EST
-            $phpFromUtc   = (int)date('Z');                  // e.g. -25200 for PDT
-            // If MySQL is EST and PHP is PDT: shift = -18000 - (-25200) = +7200 (add 2h to correct EST→PDT)
-            // If both are Pacific (after the fix): shift = 0
-            $tzShiftSeconds = $mysqlFromUtc - $phpFromUtc;
+            $mysqlFromUtc   = (int)$tzRow['mysql_from_utc']; // e.g. -18000 for EST
+            $phpFromUtc     = (int)date('Z');                 // e.g. -28800 for PST
+            $tzShiftSeconds = $phpFromUtc - $mysqlFromUtc;   // negative = subtract hours from stored time
 
             // Fetch all job_time_entries for this plan's visits
             $stmt = $db->prepare("
