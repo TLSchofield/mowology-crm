@@ -1153,6 +1153,25 @@ $activePage = 'jobs';
             </div>
 
             <!-- ══════════════════════════════════════════════════════
+                 Time Log Section
+                 ══════════════════════════════════════════════════════ -->
+            <div class="card mb-4" id="timeLogCard">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i data-feather="clock" style="width:15px;height:15px;vertical-align:-2px;margin-right:4px;"></i>
+                        Time Log
+                        <span class="badge badge-secondary ml-2" id="timeLogTotal" style="display:none;"></span>
+                    </h5>
+                </div>
+                <div id="timeLogBody">
+                    <div class="card-body text-center py-4 text-muted" id="timeLogLoading">
+                        <div class="spinner-border spinner-border-sm text-primary mr-2" role="status"></div>
+                        Loading time entries…
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
                  Plan Notes Section
                  ══════════════════════════════════════════════════════ -->
 
@@ -1963,6 +1982,134 @@ $activePage = 'jobs';
             var totalEl = document.getElementById('editItemsTotal');
             if (totalEl) totalEl.textContent = '$' + sum.toFixed(2);
         }
+
+        // ── Time Log ────────────────────────────────────────────
+        (function () {
+            var planId = <?php echo (int)$plan['id']; ?>;
+
+            function fmtTime(s) {
+                if (!s) return '—';
+                var d = new Date(s.replace(' ', 'T'));
+                return d.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit', hour12: true });
+            }
+            function fmtDate(s) {
+                if (!s) return '';
+                var d = new Date(s + 'T00:00:00');
+                return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' });
+            }
+            function statusBadge(status) {
+                var map = {
+                    active:    'badge-warning',
+                    completed: 'badge-success',
+                    edited:    'badge-info',
+                    void:      'badge-secondary'
+                };
+                return '<span class="badge ' + (map[status] || 'badge-secondary') + '">' + status + '</span>';
+            }
+
+            function loadTimeLog() {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', '/crm/api/job-timer.php?action=plan_time_log&plan_id=' + planId, true);
+                xhr.onload = function () {
+                    var body = document.getElementById('timeLogBody');
+                    var totalEl = document.getElementById('timeLogTotal');
+                    if (xhr.status !== 200) {
+                        body.innerHTML = '<div class="card-body text-danger small">Failed to load time entries.</div>';
+                        return;
+                    }
+                    var data;
+                    try { data = JSON.parse(xhr.responseText); } catch(e) {
+                        body.innerHTML = '<div class="card-body text-danger small">Invalid response.</div>';
+                        return;
+                    }
+                    if (!data.success) {
+                        body.innerHTML = '<div class="card-body text-danger small">' + (data.error || 'Error') + '</div>';
+                        return;
+                    }
+
+                    // Update total badge
+                    if (data.total_minutes > 0) {
+                        totalEl.textContent = data.total_formatted;
+                        totalEl.style.display = '';
+                    }
+
+                    if (!data.entries || data.entries.length === 0) {
+                        body.innerHTML = '<div class="card-body text-center text-muted py-4">' +
+                            '<i data-feather="clock" style="width:32px;height:32px;opacity:0.25;" class="mb-2"></i>' +
+                            '<p class="mb-0 small">No time entries recorded for this plan yet.</p></div>';
+                        if (window.feather) feather.replace();
+                        return;
+                    }
+
+                    // Group by visit
+                    var byVisit = {};
+                    var visitOrder = [];
+                    data.entries.forEach(function(e) {
+                        if (!byVisit[e.visit_id]) {
+                            byVisit[e.visit_id] = { visit_number: e.visit_number, date: e.scheduled_date, visit_status: e.visit_status, entries: [] };
+                            visitOrder.push(e.visit_id);
+                        }
+                        byVisit[e.visit_id].entries.push(e);
+                    });
+
+                    var html = '<div class="table-responsive"><table class="table table-sm mb-0">' +
+                        '<thead class="thead-light"><tr>' +
+                        '<th>Visit</th><th>Crew Member</th><th>Clock In</th><th>Clock Out</th><th class="text-right">Duration</th><th>Status</th>' +
+                        '</tr></thead><tbody>';
+
+                    visitOrder.forEach(function(vid) {
+                        var v = byVisit[vid];
+                        var visitMinutes = v.entries.reduce(function(s, e) { return s + e.duration_minutes; }, 0);
+                        // Visit header row
+                        html += '<tr class="table-light">' +
+                            '<td colspan="6" class="small font-weight-bold py-1 px-3">' +
+                            '<i data-feather="calendar" style="width:12px;height:12px;margin-right:4px;vertical-align:-1px;"></i>' +
+                            v.visit_number + ' &mdash; ' + fmtDate(v.date) +
+                            ' <span class="badge badge-light border ml-1">' + v.visit_status.replace('_', ' ') + '</span>' +
+                            '<span class="text-muted ml-2 font-weight-normal">' + (visitMinutes > 0 ? formatMins(visitMinutes) + ' total' : '') + '</span>' +
+                            '</td></tr>';
+                        v.entries.forEach(function(e) {
+                            html += '<tr>' +
+                                '<td></td>' +
+                                '<td>' + esc(e.crew_name) + (e.auto_started ? ' <small class="text-muted">(auto)</small>' : '') + '</td>' +
+                                '<td class="text-nowrap">' + fmtTime(e.start_time) + '</td>' +
+                                '<td class="text-nowrap">' + (e.end_time ? fmtTime(e.end_time) : '<span class="text-warning">Active</span>') + '</td>' +
+                                '<td class="text-right text-nowrap">' + (e.duration_minutes > 0 ? e.duration_formatted : '—') + '</td>' +
+                                '<td>' + statusBadge(e.entry_status) + '</td>' +
+                                '</tr>';
+                            if (e.notes) {
+                                html += '<tr><td></td><td colspan="5" class="text-muted small py-1"><i data-feather="message-square" style="width:11px;height:11px;"></i> ' + esc(e.notes) + '</td></tr>';
+                            }
+                        });
+                    });
+
+                    // Total row
+                    html += '<tr class="table-secondary font-weight-bold">' +
+                        '<td colspan="4" class="text-right">Total Time</td>' +
+                        '<td class="text-right">' + data.total_formatted + '</td>' +
+                        '<td></td></tr>';
+
+                    html += '</tbody></table></div>';
+                    body.innerHTML = html;
+                    if (window.feather) feather.replace();
+                };
+                xhr.onerror = function () {
+                    document.getElementById('timeLogBody').innerHTML =
+                        '<div class="card-body text-danger small">Network error loading time entries.</div>';
+                };
+                xhr.send();
+            }
+
+            function esc(s) {
+                return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
+            function formatMins(m) {
+                var h = Math.floor(m / 60), min = m % 60;
+                return (h > 0 ? h + 'h ' : '') + min + 'm';
+            }
+
+            loadTimeLog();
+        })();
     </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

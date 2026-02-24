@@ -137,9 +137,78 @@ try {
             ]);
             break;
 
+        case 'plan_time_log':
+            // GET ?action=plan_time_log&plan_id=N
+            // Returns all time entries for every visit belonging to this plan
+            $planId = (int)($_GET['plan_id'] ?? 0);
+            if (!$planId) throw new Exception('plan_id is required');
+
+            $db = getDB();
+
+            // Fetch all time entries across all visits for this plan
+            $stmt = $db->prepare("
+                SELECT
+                    jte.id,
+                    jte.visit_id,
+                    jv.visit_number,
+                    jv.scheduled_date,
+                    jv.status AS visit_status,
+                    jte.user_id,
+                    u.full_name AS crew_name,
+                    jte.start_time,
+                    jte.end_time,
+                    jte.duration_minutes,
+                    jte.status AS entry_status,
+                    jte.auto_started,
+                    jte.notes,
+                    tce.clock_in,
+                    tce.clock_out
+                FROM job_time_entries jte
+                JOIN job_visits jv ON jte.visit_id = jv.id
+                JOIN users u ON jte.user_id = u.id
+                LEFT JOIN time_clock_entries tce ON jte.clock_entry_id = tce.id
+                WHERE jv.plan_id = ?
+                  AND jte.status IN ('active', 'completed', 'edited')
+                ORDER BY jte.start_time ASC
+            ");
+            $stmt->execute([$planId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Calculate total minutes
+            $totalMinutes = 0;
+            $entries = [];
+            foreach ($rows as $r) {
+                $mins = (int)($r['duration_minutes'] ?? 0);
+                $totalMinutes += $mins;
+                $entries[] = [
+                    'id'             => (int)$r['id'],
+                    'visit_id'       => (int)$r['visit_id'],
+                    'visit_number'   => $r['visit_number'],
+                    'scheduled_date' => $r['scheduled_date'],
+                    'visit_status'   => $r['visit_status'],
+                    'crew_name'      => $r['crew_name'],
+                    'start_time'     => $r['start_time'],
+                    'end_time'       => $r['end_time'],
+                    'duration_minutes' => $mins,
+                    'duration_formatted' => formatMinutesAsHours($mins),
+                    'entry_status'   => $r['entry_status'],
+                    'auto_started'   => (bool)$r['auto_started'],
+                    'notes'          => $r['notes'],
+                ];
+            }
+
+            echo json_encode([
+                'success'       => true,
+                'plan_id'       => $planId,
+                'total_minutes' => $totalMinutes,
+                'total_formatted' => formatMinutesAsHours($totalMinutes),
+                'entries'       => $entries,
+            ]);
+            break;
+
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: active, start, stop, pause']);
+            echo json_encode(['error' => 'Invalid action. Use: active, start, stop, pause, plan_time_log']);
     }
 
 } catch (Exception $e) {
