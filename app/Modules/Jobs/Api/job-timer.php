@@ -321,8 +321,10 @@ try {
                     $dayEpochStart = (new DateTime($visitDate . ' 00:00:00', $pacificTz))->getTimestamp();
                     $dayEpochEnd   = (new DateTime($visitDate . ' 23:59:59', $pacificTz))->getTimestamp();
 
+                    // Select UNIX_TIMESTAMP(timestamp) so ping times are timezone-agnostic UTC epochs.
+                    // This handles both EST-stored (legacy NOW()) and Pacific-stored pings correctly.
                     $pingStmt = $db->prepare("
-                        SELECT timestamp, latitude, longitude
+                        SELECT UNIX_TIMESTAMP(timestamp) as epoch, latitude, longitude
                         FROM crew_location_history
                         WHERE crew_id = ?
                           AND UNIX_TIMESTAMP(timestamp) >= ?
@@ -341,11 +343,11 @@ try {
 
                     if (empty($pings)) continue;
 
-                    // Convert ping timestamps to Pacific (works for both EST-stored and Pacific-stored pings)
-                    $firstCorrected = $toPacific($pings[0]['timestamp']);
-                    $lastCorrected  = $toPacific($pings[count($pings) - 1]['timestamp']);
+                    // Convert UTC epochs directly to Pacific — fully timezone-agnostic
+                    $firstCorrected = (new DateTime('@' . $pings[0]['epoch']))->setTimezone($pacificTz)->format('Y-m-d H:i:s');
+                    $lastCorrected  = (new DateTime('@' . $pings[count($pings) - 1]['epoch']))->setTimezone($pacificTz)->format('Y-m-d H:i:s');
 
-                    $gpsMins = (int)round((strtotime($lastCorrected) - strtotime($firstCorrected)) / 60);
+                    $gpsMins = (int)round(($pings[count($pings) - 1]['epoch'] - $pings[0]['epoch']) / 60);
                     $totalMinutes += $gpsMins;
                     $gpsCovered[$gpsKey] = true; // mark as attributed so duplicate visits don't re-count
 
