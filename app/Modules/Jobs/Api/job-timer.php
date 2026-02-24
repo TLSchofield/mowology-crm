@@ -257,6 +257,9 @@ try {
             // For each visit, get all assigned crew from junction table
             foreach ($visitRows as $vr) {
                 if (!$vr['stop_crew_id']) continue;
+                // Skip cancelled visits for GPS attribution — pings will be picked up
+                // by the non-cancelled visit sharing the same stop
+                if ($vr['visit_status'] === 'cancelled') continue;
 
                 $propLat = (float)$vr['prop_lat'];
                 $propLng = (float)$vr['prop_lng'];
