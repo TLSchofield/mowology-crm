@@ -52,6 +52,7 @@ try {
                     clh.longitude as lng,
                     clh.accuracy_meters,
                     clh.timestamp as last_update,
+                    UNIX_TIMESTAMP(clh.timestamp) as last_epoch,
                     (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(clh.timestamp)) as seconds_ago,
                     CASE WHEN tce.id IS NOT NULL THEN 1 ELSE 0 END as is_clocked_in
                 FROM users u
@@ -72,11 +73,11 @@ try {
             ");
             $crew = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // seconds_ago from MySQL can be negative if pings were stored in a different TZ
-            // (Pacific-stored strings interpreted as EST appear 3h in future).
-            // Clamp to 0 minimum so the UI never shows negative values.
+            // Recalculate seconds_ago using PHP time() vs the true UTC epoch from MySQL.
+            // This is reliable regardless of how the ping timestamp was stored (EST or Pacific).
+            $nowEpoch = time();
             foreach ($crew as &$c) {
-                $c['seconds_ago'] = max(0, (int)$c['seconds_ago']);
+                $c['seconds_ago'] = max(0, $nowEpoch - (int)$c['last_epoch']);
             }
             unset($c);
 
