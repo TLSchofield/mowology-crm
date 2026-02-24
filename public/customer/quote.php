@@ -50,7 +50,8 @@ if (empty($token)) {
     $stmt->execute([$token]);
     $quote = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$quote) {
+    if (empty($quote)) {
+        $quote = null;
         $error = 'This quote link has expired or is invalid. Please contact us for a new quote.';
     } else {
         // Update view count (wrapped in try/catch — column may not exist on all environments)
@@ -75,7 +76,7 @@ if (empty($token)) {
 }
 
 // Handle acceptance
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($quote) && $quote['status'] !== 'accepted') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] !== 'accepted') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'accept') {
@@ -196,7 +197,7 @@ function formatCurrency($amount) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quote <?php echo isset($quote) ? htmlspecialchars($quote['quote_number'] ?? '') : ''; ?> - Mowology</title>
+    <title>Quote <?php echo !empty($quote) ? htmlspecialchars($quote['quote_number'] ?? '') : ''; ?> - Mowology</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
     <style>
@@ -596,8 +597,8 @@ function formatCurrency($amount) {
         <div class="container">
             <div class="header-content">
                 <div class="logo">MOWOLOGY</div>
-                <?php if (isset($quote)): ?>
-                    <div class="quote-number">Quote #<?php echo htmlspecialchars($quote['quote_number']); ?></div>
+                <?php if (!empty($quote)): ?>
+                    <div class="quote-number">Quote #<?php echo htmlspecialchars($quote['quote_number'] ?? ''); ?></div>
                 <?php endif; ?>
             </div>
         </div>
@@ -605,13 +606,13 @@ function formatCurrency($amount) {
 
     <main class="main-content">
         <div class="container">
-            <?php if ($error && !isset($quote)): ?>
+            <?php if ($error && empty($quote)): ?>
                 <div class="message error">
                     <h2 style="margin-bottom: 8px;">Quote Not Found</h2>
                     <p><?php echo htmlspecialchars($error); ?></p>
                     <p style="margin-top: 16px;">Contact us at <a href="tel:7788469273">(778) 846-9273</a></p>
                 </div>
-            <?php elseif (isset($quote)): ?>
+            <?php elseif (!empty($quote)): ?>
 
                 <?php if ($success): ?>
                     <div class="message success">
@@ -635,7 +636,7 @@ function formatCurrency($amount) {
                                     $clientName = trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? '')) ?: 'Valued Customer';
                                 } else {
                                     // Commercial: use company name, fallback to property contact, then company contact
-                                    $clientName = $quote['company_name']
+                                    $clientName = ($quote['company_name'] ?? null)
                                         ?: (trim(($quote['property_contact_first'] ?? '') . ' ' . ($quote['property_contact_last'] ?? ''))
                                             ?: (trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''))
                                                 ?: 'Valued Customer'));
@@ -648,8 +649,8 @@ function formatCurrency($amount) {
                             </p>
                             <?php endif; ?>
                         </div>
-                        <span class="status-badge status-<?php echo $quote['status']; ?>">
-                            <?php echo ucfirst($quote['status']); ?>
+                        <span class="status-badge status-<?php echo $quote['status'] ?? ''; ?>">
+                            <?php echo ucfirst($quote['status'] ?? ''); ?>
                         </span>
                     </div>
 
@@ -831,7 +832,7 @@ function formatCurrency($amount) {
         </div>
     </footer>
 
-    <?php if (isset($quote) && $quote['status'] === 'sent'): ?>
+    <?php if (!empty($quote) && $quote['status'] === 'sent'): ?>
     <script>
         // Signature Pad
         const canvas = document.getElementById('signaturePad');
