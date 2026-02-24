@@ -1026,7 +1026,7 @@ Work to be completed weather permitting.</textarea>
         // Measure Map (satellite with drawing tools)
         measureMapInstance = new google.maps.Map(document.getElementById('measureMap'), {
             center: center,
-            zoom: hasCoords ? 20 : 18,
+            zoom: hasCoords ? 19 : 17,
             mapTypeId: 'satellite',
             mapTypeControl: false,
             streetViewControl: false,
@@ -1107,7 +1107,7 @@ Work to be completed weather permitting.</textarea>
                     territoryMapInstance.setCenter(loc);
                     territoryMapInstance.setZoom(16);
                     measureMapInstance.setCenter(loc);
-                    measureMapInstance.setZoom(20);
+                    measureMapInstance.setZoom(19);
 
                     new google.maps.Marker({ map: territoryMapInstance, position: loc, title: propertyAddress });
                     new google.maps.Marker({
