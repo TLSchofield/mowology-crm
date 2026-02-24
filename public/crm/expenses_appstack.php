@@ -541,6 +541,18 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
 </div><!-- /tab-content -->
 
+<!-- ═══════ INLINE JOB ASSIGN POPOVER ════════════════════════════════ -->
+<div id="jobAssignPopover" style="display:none;position:fixed;z-index:9999;background:#fff;border:1px solid #dee2e6;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);padding:12px;min-width:220px;">
+    <div style="font-size:.8rem;font-weight:600;color:var(--mw-dark);margin-bottom:8px;">
+        <i data-feather="link" style="width:13px;height:13px;vertical-align:-1px;"></i> Assign to Job Plan
+    </div>
+    <input type="hidden" id="jobPopoverExpenseId">
+    <input type="number" id="jobPopoverInput" class="form-control form-control-sm mb-2" placeholder="Plan # (blank to unlink)" min="1" style="width:100%;">
+    <div class="d-flex gap-1">
+        <button class="btn btn-sm btn-primary flex-grow-1" onclick="saveJobPopover()">Save</button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="closeJobPopover()">Cancel</button>
+    </div>
+</div>
 
 <!-- ═══════ REJECTION REASON MODAL ══════════════════════════════════ -->
 <?php if ($canApprove): ?>
@@ -2350,7 +2362,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 '<td>' + esc(vendorName) + anomalyHtml + '</td>' +
                 '<td><small>' + esc(e.accounting_category || '—') + '</small></td>' +
                 '<td class="text-end fw-bold">$' + parseFloat(e.total).toFixed(2) + '</td>' +
-                '<td>' + (e.job_id ? '<a href="#" onclick="editExpense(' + e.id + ');return false;" title="Click to reassign job">#' + e.job_id + '</a>' : '<span class="text-muted">—</span>') + '</td>' +
+                '<td>' + (e.job_id
+                    ? '<a href="#" class="mw-job-assign-link" onclick="openJobPopover(event,' + e.id + ',' + e.job_id + ');return false;" title="Click to reassign job">#' + e.job_id + '</a>'
+                    : (CAN_EDIT ? '<a href="#" class="mw-job-assign-link text-muted" onclick="openJobPopover(event,' + e.id + ',null);return false;" title="Assign to job">Assign</a>' : '<span class="text-muted">—</span>')) + '</td>' +
                 '<td><span class="badge ' + statusBadge + '">' + e.status + '</span></td>' +
                 '<td class="text-center">' + confDot + '</td>' +
                 '<td>' + receiptIcon + '</td>' +
@@ -2477,6 +2491,60 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         loadExpenses(1);
         loadStats();
     };
+
+    // ── Inline Job Assign Popover ────────────────────────────────
+    window.openJobPopover = function(evt, expenseId, currentJobId) {
+        evt.stopPropagation();
+        var pop = document.getElementById('jobAssignPopover');
+        var inp = document.getElementById('jobPopoverInput');
+        document.getElementById('jobPopoverExpenseId').value = expenseId;
+        inp.value = currentJobId || '';
+        if (window.feather) feather.replace();
+
+        // Position below the clicked element
+        var rect = evt.target.getBoundingClientRect();
+        pop.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+        pop.style.left = Math.min(rect.left, window.innerWidth - 240) + 'px';
+        pop.style.display = 'block';
+        inp.focus();
+        inp.select();
+    };
+
+    window.closeJobPopover = function() {
+        document.getElementById('jobAssignPopover').style.display = 'none';
+    };
+
+    window.saveJobPopover = async function() {
+        var expId = parseInt(document.getElementById('jobPopoverExpenseId').value);
+        var jobVal = document.getElementById('jobPopoverInput').value.trim();
+        var jobId = jobVal ? parseInt(jobVal) : null;
+        if (!expId) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reassign_job', csrf_token: CSRF, id: expId, job_id: jobId }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            closeJobPopover();
+            loadExpenses(currentPage);
+        } catch(e) { alert('Could not save: ' + e.message); }
+    };
+
+    // Close popover when clicking outside
+    document.addEventListener('click', function(e) {
+        var pop = document.getElementById('jobAssignPopover');
+        if (pop && pop.style.display !== 'none' && !pop.contains(e.target)) {
+            closeJobPopover();
+        }
+    });
+
+    // Also save on Enter key in the input
+    document.addEventListener('DOMContentLoaded', function() {
+        var inp = document.getElementById('jobPopoverInput');
+        if (inp) inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') saveJobPopover(); });
+    });
 
     // ── Edit Expense (modal) ─────────────────────────────────────
     window.editExpense = async function(id) {
