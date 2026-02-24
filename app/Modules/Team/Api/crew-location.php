@@ -205,13 +205,13 @@ try {
             exit;
         }
 
-        // Insert location — use explicit Pacific time; MySQL NOW() may be EST on this server
-        $pingTime = (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d H:i:s');
+        // Insert location — use MySQL NOW() so all GPS pings are consistently in MySQL TZ (EST).
+        // The crew map and plan_time_log convert EST→Pacific for display using toPacific().
         $stmt = $db->prepare("
             INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-            VALUES (?, ?, ?, ?, NULL, ?)
+            VALUES (?, ?, ?, ?, NULL, NOW())
         ");
-        $stmt->execute([$user['id'], $lat, $lng, $accuracy, $pingTime]);
+        $stmt->execute([$user['id'], $lat, $lng, $accuracy]);
         $insertId = (int)$db->lastInsertId();
 
         // Proximity auto-start check (skip for stale offline-queued pings)
