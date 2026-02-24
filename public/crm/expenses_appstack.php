@@ -356,10 +356,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     <!-- Expenses Table -->
     <div class="card">
+        <?php if ($canEdit): ?>
+        <div class="card-header py-2 d-flex align-items-center justify-content-between" id="bulkActionsBar" style="display:none!important;">
+            <span class="text-muted small" id="bulkSelectedCount">0 selected</span>
+            <button class="btn btn-sm btn-outline-danger" onclick="deleteSelected()" id="bulkDeleteBtn">
+                <i data-feather="trash-2" style="width:13px;height:13px;"></i> Delete Selected
+            </button>
+        </div>
+        <?php endif; ?>
         <div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
+                        <?php if ($canEdit): ?>
+                        <th style="width:32px;"><input type="checkbox" id="selectAllExpenses" title="Select all" onchange="toggleSelectAll(this.checked)"></th>
+                        <?php endif; ?>
                         <th>Date</th>
                         <th>Vendor</th>
                         <th>Category</th>
@@ -372,7 +383,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </tr>
                 </thead>
                 <tbody id="expensesTableBody">
-                    <tr><td colspan="8" class="text-center py-4 text-muted">Loading...</td></tr>
+                    <tr><td colspan="10" class="text-center py-4 text-muted">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -1723,13 +1734,28 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (scrollArea) scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
-        // ── Check for duplicate receipts at upload time ──
-        var dupTotal = p.total ? parseFloat(p.total) : null;
-        var dupDate  = p.date || new Date().toISOString().slice(0, 10);
-        var dupVendorName = s.vendor_name || p.vendor_hint || null;
-        var dupVendorId   = s.vendor_id || null;
-        if (dupTotal && dupTotal > 0) {
-            checkDuplicates(dupVendorName, dupVendorId, dupTotal, dupDate, null, 'rv');
+        // ── Warn if exact same image was already uploaded (SHA-256 match) ──
+        if (data.duplicate_image) {
+            var dupWarn = document.getElementById('rvDuplicateWarning');
+            var dupList = document.getElementById('rvDuplicateList');
+            if (dupWarn && dupList) {
+                dupList.innerHTML = '<div class="mw-duplicate-item">' +
+                    '<span class="mw-duplicate-icon"><i data-feather="copy" style="width:13px;height:13px;"></i></span>' +
+                    '<span class="mw-duplicate-detail"><strong>This exact receipt image was already uploaded.</strong> ' +
+                    'You may be about to create a duplicate expense. Please verify before saving.</span>' +
+                    '</div>';
+                dupWarn.style.display = 'block';
+                if (window.feather) feather.replace();
+            }
+        } else {
+            // ── Check for duplicate receipts by amount/date ──
+            var dupTotal = p.total ? parseFloat(p.total) : null;
+            var dupDate  = p.date || new Date().toISOString().slice(0, 10);
+            var dupVendorName = s.vendor_name || p.vendor_hint || null;
+            var dupVendorId   = s.vendor_id || null;
+            if (dupTotal && dupTotal > 0) {
+                checkDuplicates(dupVendorName, dupVendorId, dupTotal, dupDate, null, 'rv');
+            }
         }
     }
 
@@ -2263,7 +2289,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             renderMobileExpenses(d.expenses);
         } catch(e) {
             document.getElementById('expensesTableBody').innerHTML =
-                '<tr><td colspan="8" class="text-center py-4 text-danger">' + e.message + '</td></tr>';
+                '<tr><td colspan="10" class="text-center py-4 text-danger">' + e.message + '</td></tr>';
         }
     };
 
@@ -2271,7 +2297,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var tbody = document.getElementById('expensesTableBody');
 
         if (!expenses.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4 text-muted">No expenses found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-4 text-muted">No expenses found</td></tr>';
             return;
         }
 
@@ -2306,26 +2332,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 : '<span class="mw-receipt-no-img" title="No receipt"><i data-feather="image" style="width:14px;height:14px;opacity:0.3"></i></span>';
 
             var actions = '';
-            if (CAN_SEND && e.receipt_media_id && !e.forwarded_to_accounting) {
-                actions += '<button class="btn btn-sm btn-outline-success me-1" onclick="sendReceipt(' + e.id + ')" title="Send to Accounting"><i data-feather="send" style="width:14px;height:14px;"></i></button>';
-            }
             if (e.forwarded_to_accounting) {
-                actions += '<span class="badge bg-success" title="Sent to accounting">Sent</span> ';
+                actions += '<span class="badge bg-success me-1" title="Sent to accounting">Sent</span>';
             }
             if (CAN_EDIT) {
-                actions += '<button class="btn btn-sm btn-outline-primary" onclick="editExpense(' + e.id + ')" title="Edit"><i data-feather="edit-2" style="width:14px;height:14px;"></i></button>';
+                actions += '<button class="btn btn-sm btn-outline-primary me-1" onclick="editExpense(' + e.id + ')" title="Edit"><i data-feather="edit-2" style="width:14px;height:14px;"></i></button>';
+                actions += '<button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteExpense(' + e.id + ')" title="Delete"><i data-feather="trash-2" style="width:14px;height:14px;"></i></button>';
             }
 
+            var checkboxCol = CAN_EDIT
+                ? '<td><input type="checkbox" class="expense-row-check" data-id="' + e.id + '" onchange="updateBulkBar()"></td>'
+                : '';
+
             return '<tr>' +
+                checkboxCol +
                 '<td>' + e.expense_date + '</td>' +
                 '<td>' + esc(vendorName) + anomalyHtml + '</td>' +
                 '<td><small>' + esc(e.accounting_category || '—') + '</small></td>' +
                 '<td class="text-end fw-bold">$' + parseFloat(e.total).toFixed(2) + '</td>' +
-                '<td>' + (e.job_id ? '#' + e.job_id : '—') + '</td>' +
+                '<td>' + (e.job_id ? '<a href="#" onclick="editExpense(' + e.id + ');return false;" title="Click to reassign job">#' + e.job_id + '</a>' : '<span class="text-muted">—</span>') + '</td>' +
                 '<td><span class="badge ' + statusBadge + '">' + e.status + '</span></td>' +
                 '<td class="text-center">' + confDot + '</td>' +
                 '<td>' + receiptIcon + '</td>' +
-                '<td class="text-end">' + actions + '</td>' +
+                '<td class="text-end text-nowrap">' + actions + '</td>' +
             '</tr>';
         }).join('');
 
@@ -2389,6 +2418,64 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 loadSendLog();
             }
         } catch(e) { alert('Error: ' + e.message); }
+    };
+
+    // ── Delete single expense ────────────────────────────────────
+    window.confirmDeleteExpense = async function(id) {
+        if (!confirm('Delete this expense? This cannot be undone.')) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete', csrf_token: CSRF, id: id }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            loadExpenses(currentPage);
+            loadStats();
+        } catch(e) { alert('Delete failed: ' + e.message); }
+    };
+
+    // ── Bulk select / delete ────────────────────────────────────
+    function toggleSelectAll(checked) {
+        document.querySelectorAll('.expense-row-check').forEach(function(cb) { cb.checked = checked; });
+        updateBulkBar();
+    }
+
+    function updateBulkBar() {
+        var bar = document.getElementById('bulkActionsBar');
+        var countEl = document.getElementById('bulkSelectedCount');
+        if (!bar) return;
+        var checked = document.querySelectorAll('.expense-row-check:checked').length;
+        if (checked > 0) {
+            bar.style.display = 'flex';
+            countEl.textContent = checked + ' selected';
+        } else {
+            bar.style.display = 'none';
+        }
+    }
+
+    window.deleteSelected = async function() {
+        var ids = Array.from(document.querySelectorAll('.expense-row-check:checked')).map(function(cb) { return parseInt(cb.dataset.id); });
+        if (!ids.length) return;
+        if (!confirm('Delete ' + ids.length + ' expense(s)? This cannot be undone.')) return;
+        var failed = 0;
+        for (var id of ids) {
+            try {
+                var r = await fetch('/crm/api/expenses.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'delete', csrf_token: CSRF, id: id }),
+                });
+                var d = await r.json();
+                if (!d.success) failed++;
+            } catch(e) { failed++; }
+        }
+        if (failed) alert(failed + ' expense(s) could not be deleted.');
+        var selAll = document.getElementById('selectAllExpenses');
+        if (selAll) selAll.checked = false;
+        loadExpenses(1);
+        loadStats();
     };
 
     // ── Edit Expense (modal) ─────────────────────────────────────

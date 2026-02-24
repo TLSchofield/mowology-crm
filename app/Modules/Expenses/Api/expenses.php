@@ -145,6 +145,11 @@ try {
             handleQbRetry($db);
             break;
 
+        case 'reassign_job':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleReassignJob($db, $input);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -506,6 +511,24 @@ function handleCreate(PDO $db, ?array $input, array $user): void
         'message' => 'Expense created',
         'expense_id' => $expenseId,
     ]);
+}
+
+
+function handleReassignJob(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+
+    $id = (int)($input['id'] ?? 0);
+    if (!$id) throw new Exception('Expense ID required');
+
+    $jobId = isset($input['job_id']) && $input['job_id'] !== null && $input['job_id'] !== ''
+        ? (int)$input['job_id'] : null;
+
+    $stmt = $db->prepare("UPDATE expenses SET job_id = ? WHERE id = ?");
+    $stmt->execute([$jobId, $id]);
+
+    echo json_encode(['success' => true, 'job_id' => $jobId]);
 }
 
 

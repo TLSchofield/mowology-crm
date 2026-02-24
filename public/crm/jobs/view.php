@@ -1189,6 +1189,48 @@ $activePage = 'jobs';
             </div>
 
             <!-- ══════════════════════════════════════════════════════
+                 Expenses Section
+                 ══════════════════════════════════════════════════════ -->
+
+            <div class="card mb-4" id="jobExpensesCard">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i data-feather="shopping-cart" style="width:15px;height:15px;vertical-align:-2px;margin-right:4px;"></i>
+                        Expenses
+                        <span class="badge badge-secondary ml-2" id="jobExpensesTotal" style="display:none;"></span>
+                    </h5>
+                    <a href="/crm/expenses_appstack.php" class="btn btn-sm btn-outline-secondary">
+                        <i data-feather="external-link" style="width:13px;height:13px;"></i> Manage
+                    </a>
+                </div>
+                <div id="jobExpensesBody">
+                    <div class="card-body text-center py-4 text-muted" id="jobExpensesLoading">
+                        <div class="spinner-border spinner-border-sm text-primary mr-2" role="status"></div>
+                        Loading expenses…
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
+                 Reassign Expense Job Modal
+                 ══════════════════════════════════════════════════════ -->
+            <div class="mw-modal-overlay" id="reassignExpenseModal">
+                <div class="mw-modal">
+                    <h3 class="mw-modal-title">Move Expense to Another Job</h3>
+                    <p class="text-muted small">Enter the Job Plan # to reassign this expense. Leave blank to unlink from any job.</p>
+                    <input type="hidden" id="reassignExpenseId">
+                    <div class="form-group">
+                        <label class="form-label">Job Plan ID</label>
+                        <input type="number" id="reassignJobId" class="form-control" placeholder="e.g. 42 (leave blank to unlink)">
+                    </div>
+                    <div class="mw-modal-actions">
+                        <button type="button" class="btn btn-primary" onclick="doReassignExpense()">Move</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideModal('reassignExpenseModal')">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
                  Plan Notes Section
                  ══════════════════════════════════════════════════════ -->
 
@@ -2132,6 +2174,115 @@ $activePage = 'jobs';
             }
 
             loadTimeLog();
+        })();
+
+        // ── Job Expenses ─────────────────────────────────────────────
+        (function() {
+            var PLAN_ID = <?php echo (int)$planId; ?>;
+            var CSRF    = <?php echo json_encode(generateCSRFToken()); ?>;
+            var CAN_EDIT = <?php echo userHasPermission('expenses.edit') ? 'true' : 'false'; ?>;
+
+            function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+            function loadJobExpenses() {
+                fetch('/crm/api/expenses.php?action=list&job_id=' + PLAN_ID + '&per_page=50')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        var body = document.getElementById('jobExpensesBody');
+                        var totalEl = document.getElementById('jobExpensesTotal');
+                        if (!body) return;
+
+                        if (!data.success || !data.expenses || !data.expenses.length) {
+                            body.innerHTML = '<div class="card-body text-center text-muted py-3 small">No expenses linked to this job yet.</div>';
+                            if (totalEl) totalEl.style.display = 'none';
+                            return;
+                        }
+
+                        var grandTotal = data.expenses.reduce(function(s, e) { return s + parseFloat(e.total || 0); }, 0);
+                        if (totalEl) {
+                            totalEl.textContent = '$' + grandTotal.toFixed(2);
+                            totalEl.style.display = '';
+                        }
+
+                        var rows = data.expenses.map(function(e) {
+                            var vendor = esc(e.vendor_name || e.vendor_name_raw || '—');
+                            var statusCls = { draft:'badge-secondary', approved:'badge-primary', forwarded:'badge-success', rejected:'badge-danger' }[e.status] || 'badge-secondary';
+                            var receiptHtml = e.receipt_path
+                                ? '<a href="' + esc(e.receipt_path) + '" target="_blank" title="View receipt"><i data-feather="image" style="width:13px;height:13px;"></i></a>'
+                                : '<span class="text-muted" title="No receipt"><i data-feather="image" style="width:13px;height:13px;opacity:0.25;"></i></span>';
+                            var actions = CAN_EDIT
+                                ? '<button class="btn btn-sm btn-link p-0 text-muted ml-2" onclick="openReassignModal(' + e.id + ')" title="Move to a different job"><i data-feather="move" style="width:13px;height:13px;"></i></button>'
+                                + '<button class="btn btn-sm btn-link p-0 text-danger ml-1" onclick="deleteJobExpense(' + e.id + ')" title="Delete"><i data-feather="trash-2" style="width:13px;height:13px;"></i></button>'
+                                : '';
+                            return '<tr>' +
+                                '<td>' + esc(e.expense_date) + '</td>' +
+                                '<td>' + vendor + '</td>' +
+                                '<td><small class="text-muted">' + esc(e.accounting_category || '—') + '</small></td>' +
+                                '<td class="text-right font-weight-bold">$' + parseFloat(e.total).toFixed(2) + '</td>' +
+                                '<td><span class="badge ' + statusCls + '">' + esc(e.status) + '</span></td>' +
+                                '<td class="text-center">' + receiptHtml + '</td>' +
+                                '<td class="text-right text-nowrap">' + actions + '</td>' +
+                                '</tr>';
+                        }).join('');
+
+                        body.innerHTML = '<div class="table-responsive"><table class="table table-sm mb-0">' +
+                            '<thead class="thead-light"><tr>' +
+                            '<th>Date</th><th>Vendor</th><th>Category</th>' +
+                            '<th class="text-right">Total</th><th>Status</th>' +
+                            '<th class="text-center">Receipt</th><th></th>' +
+                            '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+
+                        if (window.feather) feather.replace();
+                    })
+                    .catch(function(err) {
+                        var body = document.getElementById('jobExpensesBody');
+                        if (body) body.innerHTML = '<div class="card-body text-muted small py-2">Could not load expenses.</div>';
+                    });
+            }
+
+            window.openReassignModal = function(expenseId) {
+                document.getElementById('reassignExpenseId').value = expenseId;
+                document.getElementById('reassignJobId').value = '';
+                showModal('reassignExpenseModal');
+            };
+
+            window.doReassignExpense = async function() {
+                var expId = parseInt(document.getElementById('reassignExpenseId').value);
+                var newJobId = document.getElementById('reassignJobId').value.trim();
+                if (!expId) return;
+                try {
+                    var r = await fetch('/crm/api/expenses.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'reassign_job',
+                            csrf_token: CSRF,
+                            id: expId,
+                            job_id: newJobId ? parseInt(newJobId) : null,
+                        }),
+                    });
+                    var d = await r.json();
+                    if (!d.success) throw new Error(d.error);
+                    hideModal('reassignExpenseModal');
+                    loadJobExpenses();
+                } catch(e) { alert('Could not reassign: ' + e.message); }
+            };
+
+            window.deleteJobExpense = async function(id) {
+                if (!confirm('Delete this expense? This cannot be undone.')) return;
+                try {
+                    var r = await fetch('/crm/api/expenses.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'delete', csrf_token: CSRF, id: id }),
+                    });
+                    var d = await r.json();
+                    if (!d.success) throw new Error(d.error);
+                    loadJobExpenses();
+                } catch(e) { alert('Delete failed: ' + e.message); }
+            };
+
+            loadJobExpenses();
         })();
     </script>
 
