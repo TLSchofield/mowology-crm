@@ -56,11 +56,12 @@ function clockIn($userId, $lat = null, $lng = null) {
     }
 
     $db = getDB();
+    $now = date('Y-m-d H:i:s'); // Use PHP/Pacific time, not MySQL server time
     $stmt = $db->prepare("
         INSERT INTO time_clock_entries (user_id, clock_in, clock_in_lat, clock_in_lng)
-        VALUES (?, NOW(), ?, ?)
+        VALUES (?, ?, ?, ?)
     ");
-    $stmt->execute([$userId, $lat, $lng]);
+    $stmt->execute([$userId, $now, $lat, $lng]);
     $entryId = (int)$db->lastInsertId();
 
     // Insert a GPS ping so the crew member appears on the map immediately.
@@ -72,8 +73,8 @@ function clockIn($userId, $lat = null, $lng = null) {
         if ($trackRow && $trackRow['location_tracking_enabled']) {
             $db->prepare("
                 INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-                VALUES (?, ?, ?, NULL, NULL, NOW())
-            ")->execute([$userId, $lat, $lng]);
+                VALUES (?, ?, ?, NULL, NULL, ?)
+            ")->execute([$userId, $lat, $lng, date('Y-m-d H:i:s')]);
         }
     }
 
@@ -90,17 +91,18 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
     }
 
     $db = getDB();
+    $now = date('Y-m-d H:i:s'); // Use PHP/Pacific time, not MySQL server time
     $stmt = $db->prepare("
         UPDATE time_clock_entries
-        SET clock_out = NOW(),
+        SET clock_out = ?,
             clock_out_lat = ?,
             clock_out_lng = ?,
             notes = ?,
-            total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, NOW()),
+            total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, ?),
             status = 'completed'
         WHERE id = ?
     ");
-    $stmt->execute([$lat, $lng, $notes, $entry['id']]);
+    $stmt->execute([$now, $lat, $lng, $notes, $now, $entry['id']]);
 
     // Insert a final GPS ping on clock-out so the map shows the last known position.
     if ($lat && $lng) {
@@ -110,8 +112,8 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
         if ($trackRow && $trackRow['location_tracking_enabled']) {
             $db->prepare("
                 INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
-                VALUES (?, ?, ?, NULL, NULL, NOW())
-            ")->execute([$userId, $lat, $lng]);
+                VALUES (?, ?, ?, NULL, NULL, ?)
+            ")->execute([$userId, $lat, $lng, date('Y-m-d H:i:s')]);
         }
     }
 
@@ -177,12 +179,12 @@ function startJobTimer($jobId, $userId, $lat = null, $lng = null, $autoStarted =
     $clockEntry = getActiveClockEntry($userId);
     $clockEntryId = $clockEntry ? $clockEntry['id'] : null;
 
-    // Create time entry
+    // Create time entry — use PHP/Pacific time so timestamps match crew map display
     $stmt = $db->prepare("
         INSERT INTO job_time_entries (visit_id, user_id, clock_entry_id, start_time, start_lat, start_lng, auto_started)
-        VALUES (?, ?, ?, NOW(), ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     ");
-    $stmt->execute([$jobId, $userId, $clockEntryId, $lat, $lng, $autoStarted ? 1 : 0]);
+    $stmt->execute([$jobId, $userId, $clockEntryId, date('Y-m-d H:i:s'), $lat, $lng, $autoStarted ? 1 : 0]);
     $entryId = (int)$db->lastInsertId();
 
     // Update visit status to in_progress if currently scheduled
@@ -221,18 +223,19 @@ function stopJobTimer($jobId, $userId, $lat = null, $lng = null, $notes = null, 
         throw new Exception('No active timer for this job');
     }
 
-    // Stop the timer
+    // Stop the timer — use PHP/Pacific time for consistency
+    $nowPhp = date('Y-m-d H:i:s');
     $stmt = $db->prepare("
         UPDATE job_time_entries
-        SET end_time = NOW(),
-            duration_minutes = TIMESTAMPDIFF(MINUTE, start_time, NOW()),
+        SET end_time = ?,
+            duration_minutes = TIMESTAMPDIFF(MINUTE, start_time, ?),
             end_lat = ?,
             end_lng = ?,
             notes = ?,
             status = 'completed'
         WHERE id = ?
     ");
-    $stmt->execute([$lat, $lng, $notes, $entry['id']]);
+    $stmt->execute([$nowPhp, $nowPhp, $lat, $lng, $notes, $entry['id']]);
 
     // Get duration
     $result = $db->prepare("SELECT duration_minutes FROM job_time_entries WHERE id = ?");

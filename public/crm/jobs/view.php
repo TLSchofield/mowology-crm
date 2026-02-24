@@ -2069,15 +2069,21 @@ $activePage = 'jobs';
                             '<span class="text-muted ml-2 font-weight-normal">' + (visitMinutes > 0 ? formatMins(visitMinutes) + ' total' : '') + '</span>' +
                             '</td></tr>';
                         v.entries.forEach(function(e) {
-                            html += '<tr>' +
+                            var isGps = e.source === 'gps';
+                            var sourceBadge = isGps
+                                ? ' <span class="badge badge-light border text-muted" title="Estimated from GPS pings"><i data-feather="map-pin" style="width:9px;height:9px;"></i> GPS</span>'
+                                : (e.auto_started ? ' <small class="text-muted">(auto)</small>' : '');
+                            html += '<tr' + (isGps ? ' class="text-muted"' : '') + '>' +
                                 '<td></td>' +
-                                '<td>' + esc(e.crew_name) + (e.auto_started ? ' <small class="text-muted">(auto)</small>' : '') + '</td>' +
+                                '<td>' + esc(e.crew_name) + sourceBadge + '</td>' +
                                 '<td class="text-nowrap">' + fmtTime(e.start_time) + '</td>' +
                                 '<td class="text-nowrap">' + (e.end_time ? fmtTime(e.end_time) : '<span class="text-warning">Active</span>') + '</td>' +
                                 '<td class="text-right text-nowrap">' + (e.duration_minutes > 0 ? e.duration_formatted : '—') + '</td>' +
-                                '<td>' + statusBadge(e.entry_status) + '</td>' +
+                                '<td>' + (isGps ? '<span class="badge badge-light border text-muted">gps est.</span>' : statusBadge(e.entry_status)) + '</td>' +
                                 '</tr>';
-                            if (e.notes) {
+                            if (e.notes && isGps) {
+                                html += '<tr><td></td><td colspan="5" class="text-muted small py-1"><i data-feather="map-pin" style="width:11px;height:11px;"></i> ' + esc(e.notes) + ' near property</td></tr>';
+                            } else if (e.notes) {
                                 html += '<tr><td></td><td colspan="5" class="text-muted small py-1"><i data-feather="message-square" style="width:11px;height:11px;"></i> ' + esc(e.notes) + '</td></tr>';
                             }
                         });

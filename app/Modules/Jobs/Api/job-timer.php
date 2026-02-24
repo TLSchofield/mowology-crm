@@ -139,13 +139,24 @@ try {
 
         case 'plan_time_log':
             // GET ?action=plan_time_log&plan_id=N
-            // Returns all time entries for every visit belonging to this plan
+            // Returns all time entries for every visit belonging to this plan,
+            // plus GPS-ping-derived on-site time for assigned crew without timer entries.
             $planId = (int)($_GET['plan_id'] ?? 0);
             if (!$planId) throw new Exception('plan_id is required');
 
             $db = getDB();
 
-            // Fetch all time entries across all visits for this plan
+            // Detect MySQL server timezone vs PHP/Pacific to correct stored timestamps.
+            // Timestamps stored before the NOW() fix may be in MySQL server time (EST).
+            // Compute the shift: seconds to subtract from stored MySQL time to get Pacific.
+            $tzRow = $db->query("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) AS mysql_from_utc")->fetch(PDO::FETCH_ASSOC);
+            $mysqlFromUtc = (int)$tzRow['mysql_from_utc'];  // e.g. -18000 for EST
+            $phpFromUtc   = (int)date('Z');                  // e.g. -25200 for PDT
+            // If MySQL is EST and PHP is PDT: shift = -18000 - (-25200) = +7200 (add 2h to correct EST→PDT)
+            // If both are Pacific (after the fix): shift = 0
+            $tzShiftSeconds = $mysqlFromUtc - $phpFromUtc;
+
+            // Fetch all job_time_entries for this plan's visits
             $stmt = $db->prepare("
                 SELECT
                     jte.id,
@@ -160,13 +171,10 @@ try {
                     jte.duration_minutes,
                     jte.status AS entry_status,
                     jte.auto_started,
-                    jte.notes,
-                    tce.clock_in,
-                    tce.clock_out
+                    jte.notes
                 FROM job_time_entries jte
                 JOIN job_visits jv ON jte.visit_id = jv.id
                 JOIN users u ON jte.user_id = u.id
-                LEFT JOIN time_clock_entries tce ON jte.clock_entry_id = tce.id
                 WHERE jv.plan_id = ?
                   AND jte.status IN ('active', 'completed', 'edited')
                 ORDER BY jte.start_time ASC
@@ -174,35 +182,172 @@ try {
             $stmt->execute([$planId]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Calculate total minutes
+            // Track which (visit_id, user_id) pairs already have timer entries
+            $timerCovered = []; // key: "visitId_userId"
             $totalMinutes = 0;
             $entries = [];
+
             foreach ($rows as $r) {
+                $timerCovered[$r['visit_id'] . '_' . $r['user_id']] = true;
+
+                // Correct timestamp if MySQL server time differs from PHP/Pacific
+                $startCorrected = $tzShiftSeconds !== 0 && $r['start_time']
+                    ? date('Y-m-d H:i:s', strtotime($r['start_time']) + $tzShiftSeconds)
+                    : $r['start_time'];
+                $endCorrected = $tzShiftSeconds !== 0 && $r['end_time']
+                    ? date('Y-m-d H:i:s', strtotime($r['end_time']) + $tzShiftSeconds)
+                    : $r['end_time'];
+
+                // Recalculate duration from corrected times if needed
                 $mins = (int)($r['duration_minutes'] ?? 0);
+                if ($tzShiftSeconds !== 0 && $startCorrected && $endCorrected) {
+                    $mins = (int)round((strtotime($endCorrected) - strtotime($startCorrected)) / 60);
+                }
                 $totalMinutes += $mins;
+
                 $entries[] = [
-                    'id'             => (int)$r['id'],
-                    'visit_id'       => (int)$r['visit_id'],
-                    'visit_number'   => $r['visit_number'],
-                    'scheduled_date' => $r['scheduled_date'],
-                    'visit_status'   => $r['visit_status'],
-                    'crew_name'      => $r['crew_name'],
-                    'start_time'     => $r['start_time'],
-                    'end_time'       => $r['end_time'],
+                    'id'               => (int)$r['id'],
+                    'visit_id'         => (int)$r['visit_id'],
+                    'visit_number'     => $r['visit_number'],
+                    'scheduled_date'   => $r['scheduled_date'],
+                    'visit_status'     => $r['visit_status'],
+                    'crew_name'        => $r['crew_name'],
+                    'start_time'       => $startCorrected,
+                    'end_time'         => $endCorrected,
                     'duration_minutes' => $mins,
                     'duration_formatted' => formatMinutesAsHours($mins),
-                    'entry_status'   => $r['entry_status'],
-                    'auto_started'   => (bool)$r['auto_started'],
-                    'notes'          => $r['notes'],
+                    'entry_status'     => $r['entry_status'],
+                    'auto_started'     => (bool)$r['auto_started'],
+                    'notes'            => $r['notes'],
+                    'source'           => 'timer',
                 ];
             }
 
+            // --- GPS-ping-based time for crew without timer entries ---
+            // Get all visits for this plan with property coordinates + assigned crew
+            $visitStmt = $db->prepare("
+                SELECT
+                    jv.id AS visit_id,
+                    jv.visit_number,
+                    jv.scheduled_date,
+                    jv.status AS visit_status,
+                    p.latitude AS prop_lat,
+                    p.longitude AS prop_lng,
+                    cs.crew_id AS stop_crew_id
+                FROM job_visits jv
+                JOIN job_plans jp ON jv.plan_id = jp.id
+                JOIN properties p ON jp.property_id = p.id
+                LEFT JOIN calendar_stops cs ON jv.stop_id = cs.id
+                WHERE jv.plan_id = ?
+                  AND p.latitude IS NOT NULL
+                  AND p.longitude IS NOT NULL
+                ORDER BY jv.scheduled_date ASC
+            ");
+            $visitStmt->execute([$planId]);
+            $visitRows = $visitStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // For each visit, get all assigned crew from junction table
+            foreach ($visitRows as $vr) {
+                if (!$vr['stop_crew_id']) continue;
+
+                $propLat = (float)$vr['prop_lat'];
+                $propLng = (float)$vr['prop_lng'];
+                $visitDate = $vr['scheduled_date'];
+
+                // Get all crew assigned to this stop (lead + junction)
+                $crewStmt = $db->prepare("
+                    SELECT DISTINCT u.id AS user_id, u.full_name
+                    FROM (
+                        SELECT crew_id FROM calendar_stops WHERE id = (
+                            SELECT stop_id FROM job_visits WHERE id = ?
+                        )
+                        UNION
+                        SELECT crew_id FROM calendar_stop_crew WHERE stop_id = (
+                            SELECT stop_id FROM job_visits WHERE id = ?
+                        )
+                    ) assigned
+                    JOIN users u ON u.id = assigned.crew_id
+                    WHERE u.location_tracking_enabled = 1
+                ");
+                $crewStmt->execute([$vr['visit_id'], $vr['visit_id']]);
+                $assignedCrew = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                foreach ($assignedCrew as $crewMember) {
+                    $coverKey = $vr['visit_id'] . '_' . $crewMember['user_id'];
+                    if (isset($timerCovered[$coverKey])) continue; // already have timer data
+
+                    // Fetch GPS pings for this crew member on the visit date within ~150m of property
+                    // Use Haversine approx in degrees: 150m ≈ 0.00135 degrees lat, adjust lng by cos(lat)
+                    $latDelta = 0.00135; // ~150m
+                    $lngDelta = 0.00135 / max(cos(deg2rad($propLat)), 0.001);
+
+                    // MySQL TZ shift for ping timestamps
+                    $dayStart = date('Y-m-d H:i:s', strtotime($visitDate . ' 00:00:00') + $tzShiftSeconds);
+                    $dayEnd   = date('Y-m-d H:i:s', strtotime($visitDate . ' 23:59:59') + $tzShiftSeconds);
+
+                    $pingStmt = $db->prepare("
+                        SELECT timestamp, latitude, longitude
+                        FROM crew_location_history
+                        WHERE crew_id = ?
+                          AND timestamp >= ?
+                          AND timestamp <= ?
+                          AND latitude  BETWEEN ? AND ?
+                          AND longitude BETWEEN ? AND ?
+                        ORDER BY timestamp ASC
+                    ");
+                    $pingStmt->execute([
+                        $crewMember['user_id'],
+                        $dayStart, $dayEnd,
+                        $propLat - $latDelta, $propLat + $latDelta,
+                        $propLng - $lngDelta, $propLng + $lngDelta,
+                    ]);
+                    $pings = $pingStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                    if (empty($pings)) continue;
+
+                    // Correct ping timestamps
+                    $firstPing = $pings[0]['timestamp'];
+                    $lastPing  = $pings[count($pings) - 1]['timestamp'];
+                    $firstCorrected = $tzShiftSeconds !== 0
+                        ? date('Y-m-d H:i:s', strtotime($firstPing) + $tzShiftSeconds)
+                        : $firstPing;
+                    $lastCorrected = $tzShiftSeconds !== 0
+                        ? date('Y-m-d H:i:s', strtotime($lastPing) + $tzShiftSeconds)
+                        : $lastPing;
+
+                    $gpsMins = (int)round((strtotime($lastCorrected) - strtotime($firstCorrected)) / 60);
+                    $totalMinutes += $gpsMins;
+
+                    $entries[] = [
+                        'id'               => null,
+                        'visit_id'         => (int)$vr['visit_id'],
+                        'visit_number'     => $vr['visit_number'],
+                        'scheduled_date'   => $vr['scheduled_date'],
+                        'visit_status'     => $vr['visit_status'],
+                        'crew_name'        => $crewMember['full_name'],
+                        'start_time'       => $firstCorrected,
+                        'end_time'         => $lastCorrected,
+                        'duration_minutes' => $gpsMins,
+                        'duration_formatted' => formatMinutesAsHours($gpsMins),
+                        'entry_status'     => 'completed',
+                        'auto_started'     => false,
+                        'notes'            => count($pings) . ' GPS pings',
+                        'source'           => 'gps',
+                    ];
+                }
+            }
+
+            // Sort all entries by start_time
+            usort($entries, function($a, $b) {
+                return strcmp($a['start_time'] ?? '', $b['start_time'] ?? '');
+            });
+
             echo json_encode([
-                'success'       => true,
-                'plan_id'       => $planId,
-                'total_minutes' => $totalMinutes,
+                'success'         => true,
+                'plan_id'         => $planId,
+                'total_minutes'   => $totalMinutes,
                 'total_formatted' => formatMinutesAsHours($totalMinutes),
-                'entries'       => $entries,
+                'entries'         => $entries,
             ]);
             break;
 
