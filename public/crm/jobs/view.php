@@ -1340,7 +1340,15 @@ $activePage = 'jobs';
                         <label class="form-label">Service Type</label>
                         <select name="edit_service_type" class="form-control">
                             <?php
+                            // Load from DB with fallback to hardcoded list
                             $serviceTypes = ['landscaping'=>'Landscaping','lawn_care'=>'Lawn Care','snow_removal'=>'Snow Removal','hedge_trimming'=>'Hedge Trimming','garden_maintenance'=>'Garden Maintenance','seasonal_cleanup'=>'Seasonal Cleanup'];
+                            try {
+                                $stRows = $db->query("SELECT slug, label FROM service_types WHERE is_active = 1 ORDER BY sort_order ASC, label ASC")->fetchAll(PDO::FETCH_ASSOC);
+                                if ($stRows) {
+                                    $serviceTypes = [];
+                                    foreach ($stRows as $stRow) { $serviceTypes[$stRow['slug']] = $stRow['label']; }
+                                }
+                            } catch (Exception $e) { /* use fallback */ }
                             foreach ($serviceTypes as $val => $label):
                             ?>
                                 <option value="<?php echo $val; ?>" <?php echo $plan['service_type'] === $val ? 'selected' : ''; ?>><?php echo $label; ?></option>

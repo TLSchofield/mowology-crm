@@ -65,6 +65,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <a class="nav-link" id="tags-tab" data-toggle="tab" href="#tags" role="tab">Tags</a>
     </li>
     <li class="nav-item">
+        <a class="nav-link" id="service-types-tab" data-toggle="tab" href="#service-types" role="tab">Service Types</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="measurement-types-tab" data-toggle="tab" href="#measurement-types" role="tab">Measurement Types</a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a>
     </li>
 </ul>
@@ -488,6 +494,148 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
         </div>
 
+        <!-- Service Types Tab -->
+        <div class="tab-pane fade" id="service-types" role="tabpanel">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Service Types</h5>
+                    <button type="button" class="btn btn-primary btn-sm" id="btnAddServiceType">
+                        <i data-feather="plus" style="width:14px;height:14px;"></i> Add Service Type
+                    </button>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        Manage the service types used throughout the CRM — job plans, schedule filters, job cards, and area measurement.
+                        <strong>Show in JobFlow</strong> controls whether the type appears on the public quote form (note: also update <code>validators.php</code> to accept new quote form types).
+                    </p>
+                    <div id="stLoading" class="text-center py-3" style="display:none;">
+                        <div class="spinner-border spinner-border-sm text-primary"></div> Loading...
+                    </div>
+                    <table class="table table-hover mb-0" id="stTable" style="display:none;">
+                        <thead>
+                            <tr>
+                                <th style="width:40px;">Color</th>
+                                <th>Label</th>
+                                <th>Slug</th>
+                                <th style="width:90px;">JobFlow</th>
+                                <th style="width:80px;">Active</th>
+                                <th style="width:100px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="stTableBody"></tbody>
+                    </table>
+                    <div id="stEmpty" class="text-center py-4 text-muted" style="display:none;">
+                        No service types found.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add/Edit Service Type Form -->
+            <div class="card mt-3" id="stFormCard" style="display:none;">
+                <div class="card-header"><h5 class="card-title mb-0" id="stFormTitle">Add Service Type</h5></div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="st_label" class="form-label">Label <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="st_label" maxlength="100" required placeholder="e.g. Lawn Care">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="st_slug" class="form-label">Slug <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="st_slug" maxlength="100" placeholder="e.g. lawn_care">
+                            <small class="form-text text-muted">Lowercase, underscores only. Auto-generated.</small>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="st_icon" class="form-label">Icon</label>
+                            <input type="text" class="form-control" id="st_icon" maxlength="50" placeholder="e.g. scissors">
+                            <small class="form-text text-muted">Feather icon name</small>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="st_color" class="form-label">Color</label>
+                            <div class="d-flex align-items-center">
+                                <input type="color" class="form-control form-control-color mr-2" id="st_color" value="#455A64" style="width:50px;height:38px;">
+                                <input type="text" class="form-control" id="st_color_hex" value="#455A64" maxlength="7" style="width:90px;">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-3">
+                            <label class="form-label">Show in JobFlow</label>
+                            <select class="form-control" id="st_show_in_jobflow">
+                                <option value="0">No</option>
+                                <option value="1">Yes</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Active</label>
+                            <select class="form-control" id="st_is_active">
+                                <option value="1">Yes</option>
+                                <option value="0">No</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-primary mr-2" id="btnSaveServiceType">Save</button>
+                        <button type="button" class="btn btn-secondary" id="btnCancelServiceType">Cancel</button>
+                    </div>
+                    <input type="hidden" id="st_edit_id" value="0">
+                </div>
+            </div>
+        </div>
+
+        <!-- Measurement Types Tab -->
+        <div class="tab-pane fade" id="measurement-types" role="tabpanel">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Measurement Groups &amp; Types</h5>
+                    <button type="button" class="btn btn-primary btn-sm" id="btnAddMeasGroup">
+                        <i data-feather="plus" style="width:14px;height:14px;"></i> Add Group
+                    </button>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        Measurement groups organize property area types (e.g., Lawn Area, Hard Surface) for pricing and quoting.
+                        Each group contains one or more measurement types that are assigned when drawing on the map.
+                    </p>
+                    <div id="mgLoading" class="text-center py-3" style="display:none;">
+                        <div class="spinner-border spinner-border-sm text-primary"></div> Loading...
+                    </div>
+                    <div id="mgList"></div>
+                    <div id="mgEmpty" class="text-center py-4 text-muted" style="display:none;">
+                        No measurement groups found.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add Group Form -->
+            <div class="card mt-3" id="mgFormCard" style="display:none;">
+                <div class="card-header"><h5 class="card-title mb-0">Add Measurement Group</h5></div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="mg_label" class="form-label">Group Label <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="mg_label" maxlength="100" placeholder="e.g. Lawn Area">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="mg_key" class="form-label">Group Key <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="mg_key" maxlength="50" placeholder="e.g. lawn_area">
+                            <small class="form-text text-muted">Auto-generated. Lowercase, underscores.</small>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="mg_unit" class="form-label">Unit</label>
+                            <select class="form-control" id="mg_unit">
+                                <option value="sqft">Square Feet (sqft)</option>
+                                <option value="linear_ft">Linear Feet (linear_ft)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button type="button" class="btn btn-primary mr-2" id="btnSaveMeasGroup">Save</button>
+                            <button type="button" class="btn btn-secondary" id="btnCancelMeasGroup">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Database / Migrations Tab -->
         <div class="tab-pane fade" id="database" role="tabpanel">
             <div class="card">
@@ -512,4 +660,337 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 </form>
 
 <script src="js/business-settings.js?v=2"></script>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// SERVICE TYPES — inline CRUD
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+    let stData = [];
+    let stLoaded = false;
+
+    function apiFetch(url, opts) {
+        return fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts))
+            .then(r => r.json());
+    }
+
+    function loadServiceTypes() {
+        const loading = document.getElementById('stLoading');
+        const table   = document.getElementById('stTable');
+        const empty   = document.getElementById('stEmpty');
+        const tbody   = document.getElementById('stTableBody');
+        if (!tbody) return;
+
+        loading.style.display = '';
+        table.style.display = 'none';
+        empty.style.display = 'none';
+
+        apiFetch('/crm/api/service-types.php?action=list').then(data => {
+            loading.style.display = 'none';
+            stData = data.service_types || [];
+            if (!stData.length) { empty.style.display = ''; return; }
+
+            tbody.innerHTML = stData.map(st => `
+                <tr>
+                    <td><span style="display:inline-block;width:24px;height:24px;border-radius:4px;background:${esc(st.color)};vertical-align:middle;"></span></td>
+                    <td><strong>${esc(st.label)}</strong>${st.icon ? ` <small class="text-muted ml-1">(${esc(st.icon)})</small>` : ''}</td>
+                    <td><code>${esc(st.slug)}</code></td>
+                    <td>${st.show_in_jobflow ? '<span class="badge badge-success">Yes</span>' : '<span class="badge badge-secondary">No</span>'}</td>
+                    <td>${st.is_active ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-warning">Inactive</span>'}</td>
+                    <td class="text-right">
+                        <button class="btn btn-sm btn-outline-primary mr-1" onclick="stEdit(${st.id})">Edit</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="stDelete(${st.id}, '${esc(st.label)}')">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+            table.style.display = '';
+        }).catch(() => { loading.style.display = 'none'; empty.style.display = ''; });
+    }
+
+    function esc(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Load on tab show
+    document.getElementById('service-types-tab')?.addEventListener('shown.bs.tab', function () {
+        if (!stLoaded) { stLoaded = true; loadServiceTypes(); }
+    });
+    // Bootstrap 4 uses jQuery events
+    if (typeof $ !== 'undefined') {
+        $('#service-types-tab').on('shown.bs.tab', function () {
+            if (!stLoaded) { stLoaded = true; loadServiceTypes(); }
+        });
+    }
+
+    // Add button
+    document.getElementById('btnAddServiceType')?.addEventListener('click', function () {
+        stResetForm();
+        document.getElementById('stFormCard').style.display = '';
+        document.getElementById('stFormTitle').textContent = 'Add Service Type';
+    });
+
+    // Cancel button
+    document.getElementById('btnCancelServiceType')?.addEventListener('click', function () {
+        document.getElementById('stFormCard').style.display = 'none';
+    });
+
+    // Auto-slug from label
+    document.getElementById('st_label')?.addEventListener('input', function () {
+        if (!document.getElementById('st_edit_id').value || document.getElementById('st_edit_id').value === '0') {
+            const slug = this.value.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+            document.getElementById('st_slug').value = slug;
+        }
+    });
+
+    // Color picker sync
+    document.getElementById('st_color')?.addEventListener('input', function () {
+        document.getElementById('st_color_hex').value = this.value;
+    });
+    document.getElementById('st_color_hex')?.addEventListener('input', function () {
+        if (/^#[0-9a-fA-F]{6}$/.test(this.value)) {
+            document.getElementById('st_color').value = this.value;
+        }
+    });
+
+    // Save
+    document.getElementById('btnSaveServiceType')?.addEventListener('click', function () {
+        const id    = parseInt(document.getElementById('st_edit_id').value) || 0;
+        const label = document.getElementById('st_label').value.trim();
+        const slug  = document.getElementById('st_slug').value.trim();
+        if (!label || !slug) { alert('Label and slug are required'); return; }
+
+        const payload = {
+            csrf_token:      csrf(),
+            id:              id,
+            label:           label,
+            slug:            slug,
+            color:           document.getElementById('st_color_hex').value || document.getElementById('st_color').value,
+            icon:            document.getElementById('st_icon').value.trim(),
+            is_active:       parseInt(document.getElementById('st_is_active').value),
+            show_in_jobflow: parseInt(document.getElementById('st_show_in_jobflow').value),
+        };
+
+        this.disabled = true;
+        apiFetch('/crm/api/service-types.php?action=save', { method: 'POST', body: JSON.stringify(payload) })
+            .then(data => {
+                this.disabled = false;
+                if (data.success) {
+                    document.getElementById('stFormCard').style.display = 'none';
+                    stLoaded = false;
+                    loadServiceTypes();
+                } else {
+                    alert(data.error || 'Save failed');
+                }
+            }).catch(() => { this.disabled = false; alert('Network error'); });
+    });
+
+    function stResetForm() {
+        document.getElementById('st_edit_id').value = '0';
+        document.getElementById('st_label').value = '';
+        document.getElementById('st_slug').value = '';
+        document.getElementById('st_icon').value = '';
+        document.getElementById('st_color').value = '#455A64';
+        document.getElementById('st_color_hex').value = '#455A64';
+        document.getElementById('st_is_active').value = '1';
+        document.getElementById('st_show_in_jobflow').value = '0';
+    }
+
+    window.stEdit = function (id) {
+        const st = stData.find(s => s.id === id);
+        if (!st) return;
+        document.getElementById('st_edit_id').value = id;
+        document.getElementById('st_label').value = st.label;
+        document.getElementById('st_slug').value = st.slug;
+        document.getElementById('st_icon').value = st.icon || '';
+        document.getElementById('st_color').value = st.color || '#455A64';
+        document.getElementById('st_color_hex').value = st.color || '#455A64';
+        document.getElementById('st_is_active').value = st.is_active ? '1' : '0';
+        document.getElementById('st_show_in_jobflow').value = st.show_in_jobflow ? '1' : '0';
+        document.getElementById('stFormTitle').textContent = 'Edit Service Type';
+        document.getElementById('stFormCard').style.display = '';
+        document.getElementById('stFormCard').scrollIntoView({ behavior: 'smooth' });
+    };
+
+    window.stDelete = function (id, label) {
+        if (!confirm('Delete "' + label + '"? If it\'s used in job plans it will be deactivated instead.')) return;
+        apiFetch('/crm/api/service-types.php?action=delete', {
+            method: 'POST',
+            body: JSON.stringify({ csrf_token: csrf(), id: id })
+        }).then(data => {
+            if (data.success) { stLoaded = false; loadServiceTypes(); alert(data.message); }
+            else alert(data.error || 'Delete failed');
+        });
+    };
+})();
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MEASUREMENT TYPES (Groups) — inline CRUD
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+    let mgLoaded = false;
+
+    function apiFetch(url, opts) {
+        return fetch(url, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts))
+            .then(r => r.json());
+    }
+
+    function esc(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function loadMeasGroups() {
+        const loading = document.getElementById('mgLoading');
+        const list    = document.getElementById('mgList');
+        const empty   = document.getElementById('mgEmpty');
+        if (!list) return;
+
+        loading.style.display = '';
+        list.innerHTML = '';
+        empty.style.display = 'none';
+
+        fetch('/crm/api/measurement-groups.php?action=list')
+            .then(r => r.json())
+            .then(data => {
+                loading.style.display = 'none';
+                const groups = data.groups || [];
+                if (!groups.length) { empty.style.display = ''; return; }
+
+                list.innerHTML = groups.map(g => `
+                    <div class="card mb-2" id="mg-card-${g.id}">
+                        <div class="card-header d-flex justify-content-between align-items-center py-2">
+                            <div>
+                                <span class="font-weight-bold">${esc(g.group_label)}</span>
+                                <code class="ml-2 text-muted small">${esc(g.group_key)}</code>
+                                <span class="badge badge-info ml-2">${esc(g.unit)}</span>
+                                ${!g.is_active ? '<span class="badge badge-warning ml-1">Inactive</span>' : ''}
+                            </div>
+                            <div>
+                                <button class="btn btn-sm btn-outline-secondary mr-1" onclick="mgRenamePrompt(${g.id}, '${esc(g.group_label)}')">Rename</button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="mgDelete(${g.id}, '${esc(g.group_label)}')">Delete</button>
+                            </div>
+                        </div>
+                        <div class="card-body py-2">
+                            <div class="d-flex flex-wrap align-items-center" id="mg-types-${g.id}">
+                                ${(g.types_array || []).map(t => `
+                                    <span class="badge badge-light border mr-1 mb-1" style="font-size:13px;">
+                                        ${esc(t)}
+                                        <button type="button" class="close ml-1" style="font-size:11px;line-height:1;" onclick="mgRemoveType(${g.id}, '${esc(t)}')" title="Remove type">&times;</button>
+                                    </span>
+                                `).join('')}
+                                <span class="ml-1">
+                                    <input type="text" class="form-control form-control-sm d-inline-block" id="mg-new-type-${g.id}" placeholder="new type..." style="width:120px;">
+                                    <button class="btn btn-sm btn-outline-primary ml-1" onclick="mgAddType(${g.id})">+ Add</button>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            })
+            .catch(() => { loading.style.display = 'none'; empty.style.display = ''; });
+    }
+
+    // Load on tab show (Bootstrap 4 jQuery)
+    if (typeof $ !== 'undefined') {
+        $('#measurement-types-tab').on('shown.bs.tab', function () {
+            if (!mgLoaded) { mgLoaded = true; loadMeasGroups(); }
+        });
+    }
+    document.getElementById('measurement-types-tab')?.addEventListener('shown.bs.tab', function () {
+        if (!mgLoaded) { mgLoaded = true; loadMeasGroups(); }
+    });
+
+    // Add Group button
+    document.getElementById('btnAddMeasGroup')?.addEventListener('click', function () {
+        document.getElementById('mgFormCard').style.display = '';
+        document.getElementById('mg_label').value = '';
+        document.getElementById('mg_key').value = '';
+        document.getElementById('mg_unit').value = 'sqft';
+    });
+
+    // Auto-key from label
+    document.getElementById('mg_label')?.addEventListener('input', function () {
+        const key = this.value.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+        document.getElementById('mg_key').value = key;
+    });
+
+    // Cancel
+    document.getElementById('btnCancelMeasGroup')?.addEventListener('click', function () {
+        document.getElementById('mgFormCard').style.display = 'none';
+    });
+
+    // Save group
+    document.getElementById('btnSaveMeasGroup')?.addEventListener('click', function () {
+        const label = document.getElementById('mg_label').value.trim();
+        const key   = document.getElementById('mg_key').value.trim();
+        const unit  = document.getElementById('mg_unit').value;
+        if (!label || !key) { alert('Label and key are required'); return; }
+
+        this.disabled = true;
+        const body = new URLSearchParams({ group_key: key, group_label: label, unit: unit });
+        fetch('/crm/api/measurement-groups.php?action=add', { method: 'POST', body: body })
+            .then(r => r.json())
+            .then(data => {
+                this.disabled = false;
+                if (data.success) {
+                    document.getElementById('mgFormCard').style.display = 'none';
+                    mgLoaded = false;
+                    loadMeasGroups();
+                } else {
+                    alert(data.error || 'Save failed');
+                }
+            }).catch(() => { this.disabled = false; });
+    });
+
+    window.mgRenamePrompt = function (id, current) {
+        const label = prompt('New label for this group:', current);
+        if (!label || label === current) return;
+        const body = new URLSearchParams({ group_id: id, group_label: label });
+        fetch('/crm/api/measurement-groups.php?action=update-label', { method: 'POST', body: body })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) { mgLoaded = false; loadMeasGroups(); }
+                else alert(data.error || 'Rename failed');
+            });
+    };
+
+    window.mgDelete = function (id, label) {
+        if (!confirm('Delete group "' + label + '"? It will be deactivated if measurements reference it.')) return;
+        const body = new URLSearchParams({ group_id: id });
+        fetch('/crm/api/measurement-groups.php?action=delete', { method: 'POST', body: body })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) { mgLoaded = false; loadMeasGroups(); alert(data.message); }
+                else alert(data.error || 'Delete failed');
+            });
+    };
+
+    window.mgAddType = function (groupId) {
+        const input = document.getElementById('mg-new-type-' + groupId);
+        const type  = input.value.trim();
+        if (!type) { input.focus(); return; }
+        const body = new URLSearchParams({ group_id: groupId, measurement_type: type });
+        fetch('/crm/api/measurement-groups.php?action=add-type', { method: 'POST', body: body })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) { mgLoaded = false; loadMeasGroups(); }
+                else alert(data.error || 'Failed to add type');
+            });
+    };
+
+    window.mgRemoveType = function (groupId, type) {
+        if (!confirm('Remove type "' + type + '" from this group?')) return;
+        const body = new URLSearchParams({ group_id: groupId, measurement_type: type });
+        fetch('/crm/api/measurement-groups.php?action=remove-type', { method: 'POST', body: body })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) { mgLoaded = false; loadMeasGroups(); }
+                else alert(data.error || 'Failed to remove type');
+            });
+    };
+})();
+</script>
+
 <?php include 'includes/appstack_footer.php'; ?>

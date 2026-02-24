@@ -322,20 +322,37 @@ function timeAgo($datetime) {
 }
 
 /**
- * Format service_types comma-separated string into array of display labels
+ * Format service_types comma-separated string into array of display labels.
+ * Loads from service_types DB table if available; falls back to hardcoded map.
  */
 function formatServiceTypes($services) {
     if (empty($services)) return [];
-    $labels = [
-        'maintenance' => 'Maintenance',
-        'cleanup' => 'Cleanup',
-        'hedge_trimming' => 'Hedge Trimming',
-        'lawn_care' => 'Lawn Care',
-        'snow_removal' => 'Snow Removal',
-        'landscaping' => 'Landscaping',
-        'garden_maintenance' => 'Garden Maintenance',
-        'seasonal_cleanup' => 'Seasonal Cleanup',
-    ];
+
+    // Hardcoded fallback (always current even without DB table)
+    static $labels = null;
+    if ($labels === null) {
+        $labels = [
+            'maintenance'        => 'Maintenance',
+            'cleanup'            => 'Cleanup',
+            'hedge_trimming'     => 'Hedge Trimming',
+            'lawn_care'          => 'Lawn Care',
+            'snow_removal'       => 'Snow Removal',
+            'landscaping'        => 'Landscaping',
+            'garden_maintenance' => 'Garden Maintenance',
+            'seasonal_cleanup'   => 'Seasonal Cleanup',
+        ];
+        // Merge DB labels (override + any custom additions)
+        try {
+            $db = getDB();
+            $rows = $db->query("SELECT slug, label FROM service_types WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as $r) {
+                $labels[$r['slug']] = $r['label'];
+            }
+        } catch (Exception $e) {
+            // Table doesn't exist yet — use hardcoded fallback silently
+        }
+    }
+
     $list = explode(',', $services);
     $formatted = [];
     foreach ($list as $s) {

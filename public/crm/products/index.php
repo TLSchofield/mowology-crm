@@ -67,6 +67,13 @@ $activePage = 'products';
                   <p>Organize products into categories for better organization and reporting.</p>
                   <span class="mw-badge-tag">Product Organization</span>
               </a>
+
+              <a href="measurements.php" class="mw-tool-card">
+                  <span class="mw-tool-icon">📐</span>
+                  <h3>Saved Measurements</h3>
+                  <p>View, edit, and delete all saved property measurements. Manage the area types and groups used in the measurement tool.</p>
+                  <span class="mw-badge-tag">Area Data</span>
+              </a>
           </div>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

@@ -34,16 +34,26 @@ if (!empty($stop['visits'])) {
     $visitStatus = $stop['visits'][0]['visit_status'] ?? 'scheduled';
 }
 
-// Job type color mapping (field-execution palette)
-$jobTypeColors = [
-    'lawn_care'          => '#2E7D32',
-    'hedge_trimming'     => '#6A1B9A',
-    'garden_maintenance' => '#EF6C00',
-    'snow_removal'       => '#1565C0',
-    'landscaping'        => '#2D8659',
-    'seasonal_cleanup'   => '#455A64',
-];
-$accentColor = $jobTypeColors[$primaryServiceType] ?? '#455A64';
+// Job type color mapping — use $serviceColors if passed from parent, else DB with hardcoded fallback
+if (!isset($serviceColors) || !is_array($serviceColors)) {
+    $serviceColors = [
+        'lawn_care'          => '#2E7D32',
+        'hedge_trimming'     => '#6A1B9A',
+        'garden_maintenance' => '#EF6C00',
+        'snow_removal'       => '#1565C0',
+        'landscaping'        => '#2D8659',
+        'seasonal_cleanup'   => '#455A64',
+    ];
+    try {
+        $__stDb = function_exists('getDB') ? getDB() : null;
+        if ($__stDb) {
+            $__stRows = $__stDb->query("SELECT slug, color FROM service_types WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($__stRows as $__r) { $serviceColors[$__r['slug']] = $__r['color']; }
+        }
+    } catch (Exception $__e) { /* use fallback */ }
+}
+$jobTypeColors = $serviceColors; // backward compat
+$accentColor = $serviceColors[$primaryServiceType] ?? '#455A64';
 
 // Time display
 $timeDisplay = '';

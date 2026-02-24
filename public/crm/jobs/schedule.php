@@ -76,8 +76,17 @@ if ($view === 'day') {
 $crewFilter = isset($_GET['crew']) && $_GET['crew'] !== '' ? (int)$_GET['crew'] : null;
 $staff = getStaffMembers();
 
-// ─── Service type filter ────────────────────────────────────────────
+// ─── Service type filter ─────────────────────────────────────────────
+// Load from DB with fallback to hardcoded list
 $validServiceTypes = ['landscaping', 'lawn_care', 'snow_removal', 'hedge_trimming', 'garden_maintenance', 'seasonal_cleanup'];
+$serviceTypeLabels = []; // slug => label for the filter dropdown
+try {
+    $stRows = $db->query("SELECT slug, label FROM service_types WHERE is_active = 1 ORDER BY sort_order ASC, label ASC")->fetchAll(PDO::FETCH_ASSOC);
+    if ($stRows) {
+        $validServiceTypes = array_column($stRows, 'slug');
+        foreach ($stRows as $stRow) { $serviceTypeLabels[$stRow['slug']] = $stRow['label']; }
+    }
+} catch (Exception $e) { /* use fallback */ }
 $serviceFilter = (isset($_GET['service']) && in_array($_GET['service'], $validServiceTypes, true))
     ? $_GET['service']
     : null;
