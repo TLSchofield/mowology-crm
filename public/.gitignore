@@ -23,3 +23,7 @@ cache/
 # Schema snapshots (generated data)
 storage/schema_snapshot.json
 storage/schema_history/*.json
+
+# Vendor packages — deploy via FTP, not git
+# (mpdf is already deployed; stripe added Feb 2026)
+vendor/stripe/

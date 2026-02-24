@@ -224,13 +224,15 @@ try {
             }
 
             // --- GPS-ping-based time for crew without timer entries ---
-            // Get all visits for this plan with property coordinates + assigned crew
+            // Get all visits for this plan with property coordinates + assigned crew.
+            // Prefer non-cancelled visits; order by status so active/in_progress come first.
             $visitStmt = $db->prepare("
                 SELECT
                     jv.id AS visit_id,
                     jv.visit_number,
                     jv.scheduled_date,
                     jv.status AS visit_status,
+                    jv.stop_id,
                     p.latitude AS prop_lat,
                     p.longitude AS prop_lng,
                     cs.crew_id AS stop_crew_id
@@ -241,10 +243,16 @@ try {
                 WHERE jv.plan_id = ?
                   AND p.latitude IS NOT NULL
                   AND p.longitude IS NOT NULL
-                ORDER BY jv.scheduled_date ASC
+                ORDER BY
+                    FIELD(jv.status, 'in_progress', 'scheduled', 'completed', 'skipped', 'cancelled') ASC,
+                    jv.scheduled_date ASC
             ");
             $visitStmt->execute([$planId]);
             $visitRows = $visitStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Track which crew+date combos already have GPS pings attributed
+            // to avoid counting the same pings twice across multiple visits sharing a stop
+            $gpsCovered = []; // key: "userId_date"
 
             // For each visit, get all assigned crew from junction table
             foreach ($visitRows as $vr) {
@@ -258,15 +266,15 @@ try {
                 $crewStmt = $db->prepare("
                     SELECT DISTINCT u.id AS user_id, u.full_name
                     FROM (
-                        SELECT crew_id FROM calendar_stops WHERE id = (
+                        SELECT crew_id AS uid FROM calendar_stops WHERE id = (
                             SELECT stop_id FROM job_visits WHERE id = ?
-                        )
+                        ) AND crew_id IS NOT NULL
                         UNION
-                        SELECT crew_id FROM calendar_stop_crew WHERE stop_id = (
+                        SELECT user_id AS uid FROM calendar_stop_crew WHERE stop_id = (
                             SELECT stop_id FROM job_visits WHERE id = ?
                         )
                     ) assigned
-                    JOIN users u ON u.id = assigned.crew_id
+                    JOIN users u ON u.id = assigned.uid
                     WHERE u.location_tracking_enabled = 1
                 ");
                 $crewStmt->execute([$vr['visit_id'], $vr['visit_id']]);
@@ -275,6 +283,11 @@ try {
                 foreach ($assignedCrew as $crewMember) {
                     $coverKey = $vr['visit_id'] . '_' . $crewMember['user_id'];
                     if (isset($timerCovered[$coverKey])) continue; // already have timer data
+
+                    // Skip if we already attributed GPS pings for this crew on this date
+                    // (same crew+date pings were already counted against a prior visit from the same stop)
+                    $gpsKey = $crewMember['user_id'] . '_' . $vr['scheduled_date'];
+                    if (isset($gpsCovered[$gpsKey])) continue;
 
                     // Fetch GPS pings for this crew member on the visit date within ~150m of property
                     // Use Haversine approx in degrees: 150m ≈ 0.00135 degrees lat, adjust lng by cos(lat)
@@ -317,6 +330,7 @@ try {
 
                     $gpsMins = (int)round((strtotime($lastCorrected) - strtotime($firstCorrected)) / 60);
                     $totalMinutes += $gpsMins;
+                    $gpsCovered[$gpsKey] = true; // mark as attributed so duplicate visits don't re-count
 
                     $entries[] = [
                         'id'               => null,
