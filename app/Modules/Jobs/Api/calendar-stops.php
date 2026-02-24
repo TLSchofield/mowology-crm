@@ -67,6 +67,8 @@ try {
             'route_order'       => (int)($stop['route_order'] ?? 0),
             'crew_id'           => $stop['crew_id'] ? (int)$stop['crew_id'] : null,
             'crew_name'         => $stop['crew_name'] ?? null,
+            'crew_ids'          => $stop['crew_ids'] ?? ($stop['crew_id'] ? [(int)$stop['crew_id']] : []),
+            'crew_names'        => $stop['crew_names'] ?? ($stop['crew_name'] ? [$stop['crew_name']] : []),
             'stop_status'       => $stop['stop_status'] ?? 'scheduled',
             'estimated_arrival' => $stop['estimated_arrival'] ?? null,
             'property_id'       => (int)$stop['property_id'],

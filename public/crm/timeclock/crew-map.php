@@ -1006,7 +1006,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             (time ? '<div class="mw-job-card-time">' + escapeHtml(time) + '</div>' : '') +
             '<div class="mw-job-card-addr">' + escapeHtml(addr) + '</div>' +
             (pills ? '<div class="mw-job-card-pills">' + pills + '</div>' : '') +
-            (stop.crew_name ? '<div class="mw-job-card-crew">' + escapeHtml(stop.crew_name) + '</div>' : '') +
+            ((stop.crew_names && stop.crew_names.length ? stop.crew_names.join(', ') : stop.crew_name) ? '<div class="mw-job-card-crew">' + escapeHtml(stop.crew_names && stop.crew_names.length ? stop.crew_names.join(', ') : stop.crew_name) + '</div>' : '') +
             '</div>';
     }
 
@@ -1099,9 +1099,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             html += '</div>';
         }
 
-        if (stop.crew_name) {
+        var crewLabel = (stop.crew_names && stop.crew_names.length) ? stop.crew_names.join(', ') : (stop.crew_name || '');
+        if (crewLabel) {
             html += '<p style="margin:0 0 2px 0;font-size:11px;color:#666;">' +
-                'Crew: ' + escapeHtml(stop.crew_name) + '</p>';
+                'Crew: ' + escapeHtml(crewLabel) + '</p>';
         }
 
         var statusLabel = (stop.stop_status || 'scheduled').replace(/_/g, ' ');
@@ -1164,8 +1165,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 html += '</div>';
             }
 
-            if (stop.crew_name) {
-                html += '<div class="mw-stop-crew">' + escapeHtml(stop.crew_name) + '</div>';
+            var stopCrewLabel = (stop.crew_names && stop.crew_names.length) ? stop.crew_names.join(', ') : (stop.crew_name || '');
+            if (stopCrewLabel) {
+                html += '<div class="mw-stop-crew">' + escapeHtml(stopCrewLabel) + '</div>';
             }
 
             html += '</div>';

@@ -61,7 +61,23 @@ function clockIn($userId, $lat = null, $lng = null) {
         VALUES (?, NOW(), ?, ?)
     ");
     $stmt->execute([$userId, $lat, $lng]);
-    return (int)$db->lastInsertId();
+    $entryId = (int)$db->lastInsertId();
+
+    // Insert a GPS ping so the crew member appears on the map immediately.
+    // Only if tracking is enabled and coordinates were provided.
+    if ($lat && $lng) {
+        $trackStmt = $db->prepare("SELECT location_tracking_enabled FROM users WHERE id = ?");
+        $trackStmt->execute([$userId]);
+        $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
+        if ($trackRow && $trackRow['location_tracking_enabled']) {
+            $db->prepare("
+                INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
+                VALUES (?, ?, ?, NULL, NULL, NOW())
+            ")->execute([$userId, $lat, $lng]);
+        }
+    }
+
+    return $entryId;
 }
 
 /**
@@ -85,6 +101,19 @@ function clockOut($userId, $lat = null, $lng = null, $notes = null) {
         WHERE id = ?
     ");
     $stmt->execute([$lat, $lng, $notes, $entry['id']]);
+
+    // Insert a final GPS ping on clock-out so the map shows the last known position.
+    if ($lat && $lng) {
+        $trackStmt = $db->prepare("SELECT location_tracking_enabled FROM users WHERE id = ?");
+        $trackStmt->execute([$userId]);
+        $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
+        if ($trackRow && $trackRow['location_tracking_enabled']) {
+            $db->prepare("
+                INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
+                VALUES (?, ?, ?, NULL, NULL, NOW())
+            ")->execute([$userId, $lat, $lng]);
+        }
+    }
 
     // Get the calculated total
     $result = $db->prepare("SELECT total_minutes FROM time_clock_entries WHERE id = ?");
