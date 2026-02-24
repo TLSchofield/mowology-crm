@@ -9977,6 +9977,15 @@ textarea.font-monospace {
   border-left: 2px solid #ccc;
 }
 
+.mw-job-card-client {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--mw-dark);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mw-job-card-crew {
   font-size: 8px;
   color: #94a3b8;

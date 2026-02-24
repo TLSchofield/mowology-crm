@@ -156,6 +156,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var crewMarkers = {}; // keyed by user_id
     var REFRESH_MS = 30000;
     var refreshTimer = null;
+    var routeRefreshCounter = 0; // refresh routes every 2nd crew poll (~60s)
 
     // Route trail state
     var routePolylines = {}; // keyed by user_id
@@ -254,6 +255,13 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 updateMap(data.crew || []);
                 updateList(data.crew || []);
                 updateHeader(data.crew || []);
+
+                // Refresh route trails every 2nd poll (~60s) so lines extend live
+                routeRefreshCounter++;
+                if (routesEnabled && routeRefreshCounter >= 2) {
+                    routeRefreshCounter = 0;
+                    fetchRoutes();
+                }
             })
             .catch(function() { /* silent retry next interval */ });
     }
@@ -1002,8 +1010,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         if (stop.stop_status === 'in_progress') statusClass = ' mw-job-card-active';
         else if (stop.stop_status === 'completed') statusClass = ' mw-job-card-done';
 
+        var clientName = stop.contact_name || stop.company_name || '';
         return '<div class="mw-job-map-card' + statusClass + '" style="border-left-color:' + color + ';">' +
             (time ? '<div class="mw-job-card-time">' + escapeHtml(time) + '</div>' : '') +
+            (clientName ? '<div class="mw-job-card-client">' + escapeHtml(clientName) + '</div>' : '') +
             '<div class="mw-job-card-addr">' + escapeHtml(addr) + '</div>' +
             (pills ? '<div class="mw-job-card-pills">' + pills + '</div>' : '') +
             ((stop.crew_names && stop.crew_names.length ? stop.crew_names.join(', ') : stop.crew_name) ? '<div class="mw-job-card-crew">' + escapeHtml(stop.crew_names && stop.crew_names.length ? stop.crew_names.join(', ') : stop.crew_name) + '</div>' : '') +
@@ -1076,9 +1086,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             '<h6 style="margin:0 0 4px 0;color:#0D3B2E;">' +
             escapeHtml(stop.property_address) + '</h6>';
 
-        if (stop.company_name) {
+        var infoClient = stop.contact_name || stop.company_name || '';
+        if (infoClient) {
             html += '<p style="margin:0 0 4px 0;font-size:11px;color:#666;">' +
-                escapeHtml(stop.company_name) + '</p>';
+                escapeHtml(infoClient) + '</p>';
         }
 
         if (time) {
@@ -1148,11 +1159,11 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             if (time) {
                 html += '<div class="mw-stop-time">' + escapeHtml(time) + '</div>';
             }
-            html += '<div class="mw-stop-property">' + escapeHtml(stop.property_address || 'Unknown') + '</div>';
-
-            if (stop.company_name) {
-                html += '<div class="mw-stop-client">' + escapeHtml(stop.company_name) + '</div>';
+            var clientLabel = stop.contact_name || stop.company_name || '';
+            if (clientLabel) {
+                html += '<div class="mw-stop-client">' + escapeHtml(clientLabel) + '</div>';
             }
+            html += '<div class="mw-stop-property">' + escapeHtml(stop.property_address || 'Unknown') + '</div>';
 
             if (stop.visits && stop.visits.length) {
                 html += '<div class="mw-stop-visits">';

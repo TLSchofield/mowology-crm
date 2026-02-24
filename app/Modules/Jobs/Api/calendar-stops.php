@@ -77,6 +77,7 @@ try {
             'latitude'          => $stop['latitude'] ? (float)$stop['latitude'] : null,
             'longitude'         => $stop['longitude'] ? (float)$stop['longitude'] : null,
             'company_name'      => $stop['company_name'] ?? null,
+            'contact_name'      => $stop['contact_name'] ?? null,
             'visits'            => $visits,
         ];
     }
