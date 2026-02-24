@@ -1215,7 +1215,10 @@ function getPlanDetails(int $planId): ?array {
                p.address AS property_address, p.city AS property_city,
                p.latitude, p.longitude,
                co.company_name,
-               ct.first_name, ct.last_name, ct.email AS contact_email, ct.phone AS contact_phone,
+               COALESCE(ct.first_name, pc.first_name) AS first_name,
+               COALESCE(ct.last_name, pc.last_name) AS last_name,
+               COALESCE(ct.email, pc.email) AS contact_email,
+               COALESCE(ct.phone, pc.phone) AS contact_phone,
                u.full_name AS default_crew_name,
                creator.full_name AS created_by_name,
                q.quote_number
@@ -1223,6 +1226,7 @@ function getPlanDetails(int $planId): ?array {
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN companies co ON jp.company_id = co.id
         LEFT JOIN contacts ct ON co.primary_contact_id = ct.id
+        LEFT JOIN contacts pc ON p.site_contact_id = pc.id
         LEFT JOIN users u ON jp.default_crew_id = u.id
         LEFT JOIN users creator ON jp.created_by = creator.id
         LEFT JOIN quotes q ON jp.quote_id = q.id
