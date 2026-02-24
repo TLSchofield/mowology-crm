@@ -406,13 +406,7 @@ if ($request['latitude'] && $request['longitude']) {
 
 $pageTitle = 'Quote Workflow - ' . htmlspecialchars($contactName);
 $activePage = 'quotes';
-$extraHead = '<script>
-    // Pre-declare initMaps stub so Google Maps callback doesn\'t fail
-    function initMaps() {
-        // This will be defined in the main script section below
-    }
-</script>
-<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initMaps" async defer></script>';
+$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=drawing,geometry&callback=initMaps" async defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
