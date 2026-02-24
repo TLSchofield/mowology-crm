@@ -37,8 +37,11 @@ try {
                 throw new Exception('Access denied');
             }
 
-            // Get latest location per tracked, clocked-in user
-            // MySQL 5.7 compatible: use subquery for max timestamp per user
+            // Get latest location per tracked, clocked-in user.
+            // MySQL 5.7 compatible: use subquery for max timestamp per user.
+            // Use UNIX_TIMESTAMP() for seconds_ago and window filter — this is
+            // timezone-agnostic and works whether pings are stored in MySQL time
+            // (legacy) or PHP/Pacific time (after the NOW() fix).
             $stmt = $db->query("
                 SELECT
                     u.id as user_id,
@@ -49,17 +52,18 @@ try {
                     clh.longitude as lng,
                     clh.accuracy_meters,
                     clh.timestamp as last_update,
-                    TIMESTAMPDIFF(SECOND, clh.timestamp, NOW()) as seconds_ago,
+                    (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(clh.timestamp)) as seconds_ago,
                     CASE WHEN tce.id IS NOT NULL THEN 1 ELSE 0 END as is_clocked_in
                 FROM users u
                 INNER JOIN (
-                    SELECT crew_id, MAX(timestamp) as max_ts
+                    SELECT crew_id, MAX(UNIX_TIMESTAMP(timestamp)) as max_epoch
                     FROM crew_location_history
-                    WHERE timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                    WHERE UNIX_TIMESTAMP(timestamp) > UNIX_TIMESTAMP() - 86400
                     GROUP BY crew_id
                 ) latest ON latest.crew_id = u.id
                 INNER JOIN crew_location_history clh
-                    ON clh.crew_id = latest.crew_id AND clh.timestamp = latest.max_ts
+                    ON clh.crew_id = latest.crew_id
+                    AND UNIX_TIMESTAMP(clh.timestamp) = latest.max_epoch
                 LEFT JOIN time_clock_entries tce
                     ON tce.user_id = u.id AND tce.status = 'active' AND tce.clock_out IS NULL
                 WHERE u.is_active = 1
@@ -194,9 +198,9 @@ try {
             exit;
         }
 
-        // Rate limit: reject if last entry < 10 seconds ago (use MySQL time to avoid timezone mismatch)
+        // Rate limit: reject if last entry < 10 seconds ago (use UNIX_TIMESTAMP for tz-agnostic comparison)
         $rateStmt = $db->prepare("
-            SELECT TIMESTAMPDIFF(SECOND, timestamp, NOW()) as seconds_ago
+            SELECT (UNIX_TIMESTAMP() - UNIX_TIMESTAMP(timestamp)) as seconds_ago
             FROM crew_location_history
             WHERE crew_id = ?
             ORDER BY timestamp DESC LIMIT 1
