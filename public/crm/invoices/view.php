@@ -231,7 +231,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             SET status = 'paid',
                 amount_paid = amount_paid + ?,
                 balance_due = balance_due - ?,
-                payment_date = NOW(),
+                paid_at = NOW(),
                 payment_method = ?,
                 payment_reference = ?
             WHERE id = ?
@@ -260,6 +260,12 @@ if (isset($_GET['pdf_generated'])) {
 
 $pageTitle = 'Invoice ' . htmlspecialchars($invoice['invoice_number']);
 $activePage = 'invoices';
+
+// Load Stripe.js only for invoices that can be paid online
+$isPayable = in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue']);
+$extraHead = $isPayable
+    ? '<script src="https://js.stripe.com/v3/" defer></script>'
+    : '';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -308,6 +314,9 @@ $activePage = 'invoices';
                   <?php endif; ?>
 
                   <?php if (in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue'])): ?>
+                      <button type="button" class="btn btn-primary" onclick="openStripeModal()">
+                          <i data-feather="credit-card" class="mr-1"></i> Pay Online
+                      </button>
                       <button type="button" class="btn btn-success" onclick="document.getElementById('paymentModal').style.display='flex'">
                           <i data-feather="check-circle" class="mr-1"></i> Record Payment
                       </button>
@@ -488,7 +497,7 @@ $activePage = 'invoices';
                   <?php endif; ?>
 
                   <!-- Payment Info -->
-                  <?php if ($invoice['status'] === 'paid' && !empty($invoice['payment_date'])): ?>
+                  <?php if ($invoice['status'] === 'paid' && !empty($invoice['paid_at'])): ?>
                       <div class="card">
                           <div class="card-header">
                               <h5 class="card-title mb-0">Payment Information</h5>
@@ -496,7 +505,7 @@ $activePage = 'invoices';
                           <div class="card-body">
                               <div class="mw-detail-row">
                                   <span class="mw-detail-label">Payment Date</span>
-                                  <span class="mw-detail-value"><?php echo formatDateTime($invoice['payment_date']); ?></span>
+                                  <span class="mw-detail-value"><?php echo formatDateTime($invoice['paid_at']); ?></span>
                               </div>
                               <?php if (!empty($invoice['payment_method'])): ?>
                                   <div class="mw-detail-row">
@@ -611,6 +620,57 @@ $activePage = 'invoices';
               </div>
           </div>
 
+          <!-- ═══════════════════════════════════════════════════════════════ -->
+          <!-- Stripe Online Payment Modal                                       -->
+          <!-- ═══════════════════════════════════════════════════════════════ -->
+          <?php if (in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue'])): ?>
+          <div id="stripeModal" class="mw-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="stripeModalTitle">
+              <div class="mw-modal" style="max-width:520px;">
+                  <div class="mw-modal-header">
+                      <h5 class="mb-0" id="stripeModalTitle">
+                          <i data-feather="credit-card" style="width:18px;height:18px;vertical-align:middle;margin-right:6px;"></i>
+                          Pay Invoice <?php echo h($invoice['invoice_number']); ?>
+                      </h5>
+                      <button type="button" class="mw-modal-close" onclick="closeStripeModal()" aria-label="Close">&times;</button>
+                  </div>
+                  <div class="mw-modal-body">
+
+                      <!-- Amount summary -->
+                      <div style="background:var(--mw-light);border-radius:6px;padding:12px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;">
+                          <span style="color:var(--mw-forest);font-size:14px;">Amount Due</span>
+                          <strong style="color:var(--mw-forest);font-size:22px;"><?php echo h(formatCurrency($invoice['balance_due'])); ?> CAD</strong>
+                      </div>
+
+                      <!-- Loading state -->
+                      <div id="stripeLoading" style="text-align:center;padding:40px 0;color:var(--mw-forest);">
+                          <div class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></div>
+                          Loading payment form…
+                      </div>
+
+                      <!-- Stripe Payment Element mounts here -->
+                      <div id="payment-element" style="display:none;"></div>
+
+                      <!-- Error display -->
+                      <div id="stripeError" class="alert alert-danger mt-3" style="display:none;" role="alert"></div>
+
+                  </div>
+                  <div class="mw-modal-footer" id="stripeFooter" style="display:none;">
+                      <button type="button" class="btn btn-secondary" onclick="closeStripeModal()">Cancel</button>
+                      <button id="stripePay" class="btn btn-primary" onclick="submitStripePayment()" disabled>
+                          <span id="stripePayLabel">Pay <?php echo h(formatCurrency($invoice['balance_due'])); ?></span>
+                          <span id="stripePaySpinner" style="display:none;">
+                              <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                              Processing…
+                          </span>
+                      </button>
+                  </div>
+              </div>
+          </div>
+          <?php endif; ?>
+
+          <!-- ═══════════════════════════════════════════════════════════════ -->
+          <!-- Manual Record Payment Modal                                       -->
+          <!-- ═══════════════════════════════════════════════════════════════ -->
           <!-- Payment Modal -->
           <div id="paymentModal" class="mw-modal-overlay" style="display: none;">
               <div class="mw-modal">
@@ -630,7 +690,7 @@ $activePage = 'invoices';
                           <div class="mw-form-group">
                               <label class="form-label">Payment Method</label>
                               <select name="payment_method" class="form-control">
-                                  <option value="etransfer">e-Transfer</option>
+                                  <option value="e_transfer">e-Transfer</option>
                                   <option value="cash">Cash</option>
                                   <option value="cheque">Cheque</option>
                                   <option value="credit_card">Credit Card</option>
@@ -649,5 +709,184 @@ $activePage = 'invoices';
                   </form>
               </div>
           </div>
+
+<?php if ($isPayable): ?>
+<script>
+(function () {
+    'use strict';
+
+    // ── State ──────────────────────────────────────────────────────────────────
+    var stripe        = null;
+    var elements      = null;
+    var paymentEl     = null;
+    var intentFetched = false;
+
+    // ── Open modal ─────────────────────────────────────────────────────────────
+    window.openStripeModal = function () {
+        document.getElementById('stripeModal').style.display = 'flex';
+        if (!intentFetched) {
+            initStripe();
+        }
+    };
+
+    // ── Close modal ────────────────────────────────────────────────────────────
+    window.closeStripeModal = function () {
+        document.getElementById('stripeModal').style.display = 'none';
+        clearStripeError();
+    };
+
+    // Close on overlay click
+    document.getElementById('stripeModal').addEventListener('click', function (e) {
+        if (e.target === this) { window.closeStripeModal(); }
+    });
+
+    // ── Initialise Stripe + Payment Element ────────────────────────────────────
+    function initStripe() {
+        fetch('/crm/api/stripe/create-payment-intent.php', {
+            method  : 'POST',
+            headers : { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body    : JSON.stringify({ invoice_id: <?php echo (int) $invoiceId; ?> })
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            if (data.error) {
+                showStripeError(data.error);
+                document.getElementById('stripeLoading').style.display = 'none';
+                return;
+            }
+
+            intentFetched = true;
+            stripe        = Stripe(data.publishable_key);
+
+            elements = stripe.elements({
+                clientSecret : data.client_secret,
+                appearance   : {
+                    theme     : 'stripe',
+                    variables : {
+                        colorPrimary      : '#2D8659',
+                        colorBackground   : '#ffffff',
+                        colorText         : '#1A5F4A',
+                        borderRadius      : '6px',
+                        fontFamily        : 'system-ui, -apple-system, sans-serif',
+                    }
+                }
+            });
+
+            paymentEl = elements.create('payment', { layout: 'tabs' });
+            paymentEl.mount('#payment-element');
+
+            paymentEl.on('ready', function () {
+                document.getElementById('stripeLoading').style.display  = 'none';
+                document.getElementById('payment-element').style.display = 'block';
+                document.getElementById('stripeFooter').style.display    = 'flex';
+                document.getElementById('stripePay').disabled            = false;
+            });
+
+            paymentEl.on('change', function (event) {
+                if (event.error) {
+                    showStripeError(event.error.message);
+                } else {
+                    clearStripeError();
+                }
+            });
+        })
+        .catch(function (err) {
+            console.error('[Stripe] initStripe error:', err);
+            showStripeError('Unable to load payment form. Please refresh and try again.');
+            document.getElementById('stripeLoading').style.display = 'none';
+        });
+    }
+
+    // ── Submit payment ─────────────────────────────────────────────────────────
+    window.submitStripePayment = function () {
+        if (!stripe || !elements) { return; }
+
+        clearStripeError();
+        setLoading(true);
+
+        stripe.confirmPayment({
+            elements    : elements,
+            confirmParams: {
+                // Return URL after 3DS or redirect-based methods
+                return_url: window.location.origin + window.location.pathname
+                            + '?id=<?php echo (int) $invoiceId; ?>&payment=success',
+            },
+            // Don't redirect if not required (card payments usually don't need it)
+            redirect: 'if_required',
+        })
+        .then(function (result) {
+            setLoading(false);
+            if (result.error) {
+                // Show error to customer
+                showStripeError(result.error.message);
+            } else if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
+                // Payment confirmed client-side — webhook will update DB.
+                // Show success and reload after a short delay.
+                showStripeSuccess();
+            }
+        })
+        .catch(function (err) {
+            setLoading(false);
+            console.error('[Stripe] confirmPayment error:', err);
+            showStripeError('An unexpected error occurred. Please try again.');
+        });
+    };
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
+    function showStripeError(msg) {
+        var el = document.getElementById('stripeError');
+        el.textContent = msg;
+        el.style.display = 'block';
+    }
+    function clearStripeError() {
+        var el = document.getElementById('stripeError');
+        el.textContent  = '';
+        el.style.display = 'none';
+    }
+    function setLoading(loading) {
+        var btn     = document.getElementById('stripePay');
+        var label   = document.getElementById('stripePayLabel');
+        var spinner = document.getElementById('stripePaySpinner');
+        btn.disabled       = loading;
+        label.style.display  = loading ? 'none'  : 'inline';
+        spinner.style.display = loading ? 'inline' : 'none';
+    }
+    function showStripeSuccess() {
+        var modal = document.querySelector('#stripeModal .mw-modal');
+        modal.innerHTML = [
+            '<div class="mw-modal-body" style="text-align:center;padding:40px 20px;">',
+            '<div style="color:var(--mw-green);font-size:56px;line-height:1;">&#10003;</div>',
+            '<h4 style="color:var(--mw-forest);margin-top:16px;">Payment Successful!</h4>',
+            '<p style="color:#555;">Your payment has been received. This invoice will be marked paid shortly.</p>',
+            '<p style="color:#888;font-size:13px;">Refreshing in 3 seconds…</p>',
+            '</div>'
+        ].join('');
+        setTimeout(function () {
+            window.location.href = '?id=<?php echo (int) $invoiceId; ?>&payment=success';
+        }, 3000);
+    }
+
+    // ── Show payment success message if returning from redirect ───────────────
+    <?php if (isset($_GET['payment']) && $_GET['payment'] === 'success'): ?>
+    (function () {
+        // Small delay to let the page render first
+        setTimeout(function () {
+            var msgEl = document.querySelector('.mw-message');
+            if (!msgEl) {
+                var container = document.querySelector('.container-fluid');
+                if (container) {
+                    var div = document.createElement('div');
+                    div.className = 'mw-message success';
+                    div.textContent = 'Payment submitted successfully! The invoice will be marked paid once confirmed by Stripe.';
+                    container.insertBefore(div, container.firstChild);
+                }
+            }
+        }, 200);
+    }());
+    <?php endif; ?>
+
+}());
+</script>
+<?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

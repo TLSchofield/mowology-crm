@@ -16,6 +16,10 @@ class ComposerStaticInit8b074de790491a3c1c6544cf6e9eff0a
         array (
             'setasign\\Fpdi\\' => 14,
         ),
+        'S' =>
+        array (
+            'Stripe\\' => 7,
+        ),
         'P' =>
         array (
             'Psr\\Log\\' => 8,
@@ -37,6 +41,10 @@ class ComposerStaticInit8b074de790491a3c1c6544cf6e9eff0a
         'setasign\\Fpdi\\' =>
         array (
             0 => __DIR__ . '/..' . '/setasign/fpdi/src',
+        ),
+        'Stripe\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/stripe/stripe-php/lib',
         ),
         'Psr\\Log\\' =>
         array (
