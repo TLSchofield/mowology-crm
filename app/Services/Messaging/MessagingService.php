@@ -289,25 +289,26 @@ function sendQuoteNotificationSms(
 }
 
 /**
- * Send an invoice notification SMS with a view/pay link.
+ * Send an invoice notification SMS.
+ *
+ * NO URLs in the message body — carrier email-to-SMS gateways silently drop
+ * messages containing links. Direct the customer to check their email instead.
  *
  * @param string $phoneNumber
  * @param string $invoiceNumber  e.g. INV-2026-0001
  * @param float  $balanceDue
- * @param string $invoiceUrl     Short URL (no https://)
  * @return array Result from sendSms()
  */
 function sendInvoiceNotificationSms(
     string $phoneNumber,
     string $invoiceNumber,
-    float  $balanceDue,
-    string $invoiceUrl
+    float  $balanceDue
 ): array {
     $amount  = '$' . number_format($balanceDue, 2);
-    $message = "Mowology: Invoice {$invoiceNumber} for {$amount} is ready. View & pay: {$invoiceUrl}";
+    $message = "Mowology: Invoice {$invoiceNumber} for {$amount} is ready. Check your email to view and pay. Questions? Call (778) 846-9273.";
 
     if (strlen($message) > 160) {
-        $message = "Mowology: Invoice {$invoiceNumber} ({$amount} due). View: {$invoiceUrl}";
+        $message = "Mowology: Invoice {$invoiceNumber} ({$amount} due). Check your email to pay. Call (778) 846-9273.";
     }
 
     return sendSms($phoneNumber, $message, 'Mowology');

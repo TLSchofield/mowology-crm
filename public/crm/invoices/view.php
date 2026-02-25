@@ -245,17 +245,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             }
         }
 
-        // Send SMS notifications
+        // Send SMS notifications (no URLs — carrier gateways block them)
         $smsSentTo = [];
         if (!empty($smsRecipients)) {
-            // Build the short invoice URL for the SMS
-            $shortInvoiceUrl = 'mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
             foreach ($smsRecipients as $smsR) {
                 $smsMessage = sendInvoiceNotificationSms(
                     $smsR['phone'],
                     $invoice['invoice_number'],
-                    $invoice['balance_due'],
-                    $shortInvoiceUrl
+                    $invoice['balance_due']
                 );
                 if ($smsMessage['success']) {
                     $smsSentTo[] = $smsR['name'];
