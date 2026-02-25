@@ -55,18 +55,56 @@ if (!$json) {
 }
 
 $propertyId = intval($json['property_id'] ?? 0);
-$companyId = intval($json['company_id'] ?? 0);
+$companyId  = intval($json['company_id'] ?? 0);
+$contactId  = intval($json['contact_id'] ?? 0);
 
 // Validate input
-if (!$propertyId || !$companyId) {
+if (!$propertyId) {
     http_response_code(400);
-    echo json_encode(['error' => 'property_id and company_id required']);
+    echo json_encode(['error' => 'property_id required']);
     exit;
 }
 
 try {
+    $recipients = [];
+
+    if ($companyId) {
+        // Standard path: company-based routing
+        $recipients = determineInvoiceRecipients($propertyId, $companyId);
+    }
+
+    // Fallback: load the property's site contact directly (contacts-based plans)
+    if (empty($recipients)) {
+        $db = getDB();
+        // Try property's site_contact_id, then the passed contact_id
+        $fallbackStmt = $db->prepare("
+            SELECT con.id as contact_id,
+                   CONCAT(con.first_name, ' ', con.last_name) as contact_name,
+                   con.email,
+                   con.mobile,
+                   con.receive_sms
+            FROM properties p
+            JOIN contacts con ON con.id = COALESCE(p.site_contact_id, ?)
+            WHERE p.id = ?
+            LIMIT 1
+        ");
+        $fallbackStmt->execute([$contactId ?: 0, $propertyId]);
+        $contact = $fallbackStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($contact && $contact['email']) {
+            $recipients = [[
+                'contact_id'   => $contact['contact_id'],
+                'contact_name' => $contact['contact_name'],
+                'contact_role' => 'primary_recipient',
+                'email_address'=> $contact['email'],
+                'receive_sms'  => (bool)$contact['receive_sms'],
+                'phone'        => $contact['mobile'] ?? null,
+            ]];
+        }
+    }
+
     // Determine recipients
-    $recipients = determineInvoiceRecipients($propertyId, $companyId);
+    // (already set above)
 
     // Return JSON response
     http_response_code(200);

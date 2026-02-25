@@ -25,7 +25,8 @@ if ($visitId) {
                jp.plan_number, jp.title, jp.price_per_visit, jp.estimated_amount,
                jp.property_id, jp.company_id,
                c.company_name,
-               p.address, p.city,
+               p.address, p.city, p.province, p.postal_code,
+               p.site_contact_id,
                COALESCE(con.first_name, '') as contact_first,
                COALESCE(con.last_name, '') as contact_last
         FROM job_visits jv
@@ -47,16 +48,21 @@ if ($visitId) {
         $visitAmount = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
         $contactName = trim($visit['contact_first'] . ' ' . $visit['contact_last']) ?: null;
         $prefill = [
-            'company_id'       => $visit['company_id'],
-            'property_id'      => $visit['property_id'],
-            'visit_id'         => $visitId,
-            'plan_id'          => $visit['plan_id'],
-            'description'      => $visit['title'] . ' — Visit ' . $visit['visit_number'],
-            'amount'           => $visitAmount,
-            'company_name'     => $visit['company_name'] ?: $contactName,
-            'property_address' => trim(($visit['address'] ?? '') . ($visit['city'] ? ', ' . $visit['city'] : '')),
-            'visit_number'     => $visit['visit_number'],
-            'plan_number'      => $visit['plan_number'],
+            'company_id'        => $visit['company_id'],
+            'property_id'       => $visit['property_id'],
+            'contact_id'        => $visit['site_contact_id'],
+            'visit_id'          => $visitId,
+            'plan_id'           => $visit['plan_id'],
+            'scheduled_date'    => $visit['scheduled_date'],
+            'description'       => $visit['title'] . ' — ' . date('M j, Y', strtotime($visit['scheduled_date'])),
+            'amount'            => $visitAmount,
+            'company_name'      => $visit['company_name'] ?: $contactName,
+            'service_address'   => $visit['address'] ?? '',
+            'service_city'      => $visit['city'] ?? '',
+            'service_province'  => $visit['province'] ?? 'BC',
+            'service_postal'    => $visit['postal_code'] ?? '',
+            'visit_number'      => $visit['visit_number'],
+            'plan_number'       => $visit['plan_number'],
         ];
     }
 }
@@ -298,8 +304,8 @@ if ($apiKey) {
 
                         <div class="mw-form-group">
                             <label class="form-label">Customer *</label>
-                            <?php if ($visitId && isset($prefill['company_id'])): ?>
-                                <input type="hidden" name="company_id" value="<?php echo $prefill['company_id']; ?>">
+                            <?php if ($visitId && !empty($prefill['company_name'])): ?>
+                                <input type="hidden" name="company_id" value="<?php echo (int)($prefill['company_id'] ?? 0); ?>">
                                 <input type="text" class="form-control" value="<?php echo htmlspecialchars($prefill['company_name']); ?>" readonly>
                             <?php else: ?>
                                 <select name="company_id" id="companySelect" class="form-control" required>
@@ -311,8 +317,8 @@ if ($apiKey) {
                             <?php endif; ?>
                         </div>
 
-                        <!-- Phase 2: Property & Recipient Selector -->
-                        <div class="mw-form-group">
+                        <!-- Phase 2: Property & Recipient Selector (hidden when prefilling from visit) -->
+                        <div class="mw-form-group"<?php if ($visitId && !empty($prefill['property_id'])): ?> style="display:none"<?php endif; ?>>
                             <label class="form-label">Property (optional)</label>
                             <select id="propertySelect" class="form-control">
                                 <option value="">Select property to load recipients...</option>
@@ -349,11 +355,13 @@ if ($apiKey) {
                         <div class="mw-form-row">
                             <div class="mw-form-group">
                                 <label class="form-label">Issue Date</label>
-                                <input type="date" name="issue_date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                                <input type="date" name="issue_date" class="form-control"
+                                       value="<?php echo htmlspecialchars($prefill['scheduled_date'] ?? date('Y-m-d')); ?>">
                             </div>
                             <div class="mw-form-group">
                                 <label class="form-label">Due Date</label>
-                                <input type="date" name="due_date" class="form-control" value="<?php echo date('Y-m-d', strtotime('+30 days')); ?>">
+                                <input type="date" name="due_date" class="form-control"
+                                       value="<?php echo date('Y-m-d', strtotime(($prefill['scheduled_date'] ?? 'now') . ' +30 days')); ?>">
                             </div>
                         </div>
 
@@ -364,21 +372,25 @@ if ($apiKey) {
                                 <div class="mw-form-group" style="flex: 1 1 100%;">
                                     <label class="form-label">Address</label>
                                     <input type="text" name="service_address" id="serviceAddress" class="form-control"
-                                           placeholder="Start typing an address..." autocomplete="off">
+                                           placeholder="Start typing an address..." autocomplete="off"
+                                           value="<?php echo htmlspecialchars($prefill['service_address'] ?? ''); ?>">
                                 </div>
                             </div>
                             <div class="mw-form-row">
                                 <div class="mw-form-group">
                                     <label class="form-label">City</label>
-                                    <input type="text" name="service_city" id="serviceCity" class="form-control" placeholder="Vancouver">
+                                    <input type="text" name="service_city" id="serviceCity" class="form-control" placeholder="Vancouver"
+                                           value="<?php echo htmlspecialchars($prefill['service_city'] ?? ''); ?>">
                                 </div>
                                 <div class="mw-form-group">
                                     <label class="form-label">Province</label>
-                                    <input type="text" name="service_province" id="serviceProvince" class="form-control" placeholder="BC" maxlength="2">
+                                    <input type="text" name="service_province" id="serviceProvince" class="form-control" placeholder="BC" maxlength="2"
+                                           value="<?php echo htmlspecialchars($prefill['service_province'] ?? ''); ?>">
                                 </div>
                                 <div class="mw-form-group">
                                     <label class="form-label">Postal Code</label>
-                                    <input type="text" name="service_postal_code" id="servicePostalCode" class="form-control" placeholder="V6B 1A1">
+                                    <input type="text" name="service_postal_code" id="servicePostalCode" class="form-control" placeholder="V6B 1A1"
+                                           value="<?php echo htmlspecialchars($prefill['service_postal'] ?? ''); ?>">
                                 </div>
                             </div>
                         </div>
@@ -562,7 +574,7 @@ if ($apiKey) {
                             <td>
                                 <input type="checkbox" class="recipient-checkbox" value="${recipient.contact_id}" checked>
                             </td>
-                            <td>${recipient.first_name} ${recipient.last_name}</td>
+                            <td>${recipient.contact_name || (recipient.first_name + ' ' + recipient.last_name)}</td>
                             <td><span class="badge badge-light">${roleLabel}</span></td>
                             <td><small>${recipient.email_address}</small></td>
                             <td><small>${smsIndicator}</small></td>
@@ -645,6 +657,38 @@ if ($apiKey) {
 
                 // Initialize
                 calculateTotals();
+
+                <?php if ($visitId && !empty($prefill['property_id'])): ?>
+                // Auto-load recipients from visit property
+                (function() {
+                    const propertyId = <?php echo (int)$prefill['property_id']; ?>;
+                    const companyId  = <?php echo (int)($prefill['company_id'] ?? 0); ?>;
+                    const contactId  = <?php echo (int)($prefill['contact_id'] ?? 0); ?>;
+                    propertyIdInput.value = propertyId;
+
+                    fetch('/crm/invoices/api-get-recipients.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ property_id: propertyId, company_id: companyId, contact_id: contactId })
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success && data.recipients && data.recipients.length > 0) {
+                            renderRecipientTable(data.recipients);
+                            // Auto-check all recipients
+                            document.querySelectorAll('.recipient-checkbox').forEach(cb => { cb.checked = true; });
+                            updateRecipientSummary();
+                        } else {
+                            recipientTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No email recipients found — add a contact email to send this invoice.</td></tr>';
+                        }
+                        recipientSection.style.display = 'block';
+                    })
+                    .catch(() => {
+                        recipientTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading recipients.</td></tr>';
+                        recipientSection.style.display = 'block';
+                    });
+                })();
+                <?php endif; ?>
 
                 // ── Google Places Address Autocomplete ──
                 function initAddressAutocomplete(inputId, cityId, postalId, provinceId) {
