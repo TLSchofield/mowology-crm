@@ -283,9 +283,17 @@ function fmtDate(string $d): string {
                         <div class="bill-name"><?php echo htmlspecialchars($contactName); ?></div>
                     <?php endif; ?>
                     <?php
-                    $email = $invoice['contact_email'] ?: $invoice['billing_email'] ?: '';
-                    $phone = $invoice['contact_phone'] ?: $invoice['billing_phone'] ?: '';
+                    $email       = $invoice['contact_email'] ?: $invoice['billing_email'] ?: '';
+                    $phone       = $invoice['contact_phone'] ?: $invoice['billing_phone'] ?: '';
+                    $billAddr    = trim($invoice['billing_address'] ?? '');
+                    $billCity    = trim($invoice['billing_city'] ?? '');
+                    $billProv    = trim($invoice['billing_province'] ?? '');
+                    $billPostal  = trim($invoice['billing_postal_code'] ?? '');
+                    $billAddrLine = trim($billAddr . ($billCity ? ', ' . $billCity : '') . ($billProv ? ' ' . $billProv : '') . ($billPostal ? ' ' . $billPostal : ''));
                     ?>
+                    <?php if ($billAddrLine): ?>
+                        <div class="bill-sub"><?php echo htmlspecialchars($billAddrLine); ?></div>
+                    <?php endif; ?>
                     <?php if ($email): ?>
                         <div class="bill-sub"><?php echo htmlspecialchars($email); ?></div>
                     <?php endif; ?>

@@ -26,12 +26,12 @@ $stmt = $db->prepare("
     SELECT
         i.*,
         c.company_name,
-        c.billing_email,
-        c.billing_phone,
-        c.billing_address,
-        c.billing_city,
-        c.billing_province,
-        c.billing_postal_code,
+        COALESCE(NULLIF(c.billing_email,''), NULLIF(dc.email,''), NULLIF(ct.email,'')) as billing_email,
+        COALESCE(NULLIF(c.billing_phone,''), NULLIF(dc.phone,''), NULLIF(ct.phone,'')) as billing_phone,
+        COALESCE(NULLIF(i.billing_address,''), NULLIF(c.billing_address,''))       as billing_address,
+        COALESCE(NULLIF(i.billing_city,''),    NULLIF(c.billing_city,''))           as billing_city,
+        COALESCE(NULLIF(i.billing_province,''),NULLIF(c.billing_province,''))       as billing_province,
+        COALESCE(NULLIF(i.billing_postal_code,''),NULLIF(c.billing_postal_code,'')) as billing_postal_code,
         COALESCE(ct.first_name, dc.first_name) as contact_first,
         COALESCE(ct.last_name, dc.last_name) as contact_last,
         COALESCE(ct.email, dc.email) as contact_email,
@@ -411,6 +411,23 @@ $extraHead = $isPayable
                                   <?php echo htmlspecialchars($contactFullName ?: 'N/A'); ?>
                               </span>
                           </div>
+                          <?php
+                              $billAddrParts = array_filter([
+                                  $invoice['billing_address'] ?? '',
+                                  trim(($invoice['billing_city'] ?? '') . ' ' . ($invoice['billing_province'] ?? '')),
+                                  $invoice['billing_postal_code'] ?? '',
+                              ]);
+                              $billAddrFull = implode(', ', $billAddrParts);
+                              $svcAddrFull  = !empty($invoice['property_address'])
+                                  ? trim($invoice['property_address'] . ', ' . ($invoice['property_city'] ?? ''))
+                                  : '';
+                          ?>
+                          <?php if ($billAddrFull): ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Billing Address</span>
+                              <span class="mw-detail-value"><?php echo htmlspecialchars($billAddrFull); ?></span>
+                          </div>
+                          <?php endif; ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Email</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['contact_email'] ?: $invoice['billing_email'] ?: 'N/A'); ?></span>
@@ -419,12 +436,10 @@ $extraHead = $isPayable
                               <span class="mw-detail-label">Phone</span>
                               <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['contact_phone'] ?: $invoice['billing_phone'] ?: 'N/A'); ?></span>
                           </div>
-                          <?php if (!empty($invoice['property_address'])): ?>
+                          <?php if ($svcAddrFull && $svcAddrFull !== $billAddrFull): ?>
                               <div class="mw-detail-row">
-                                  <span class="mw-detail-label">Service Location</span>
-                                  <span class="mw-detail-value">
-                                      <?php echo htmlspecialchars($invoice['property_address'] . ', ' . $invoice['property_city']); ?>
-                                  </span>
+                                  <span class="mw-detail-label">Service Address</span>
+                                  <span class="mw-detail-value"><?php echo htmlspecialchars($svcAddrFull); ?></span>
                               </div>
                           <?php endif; ?>
                       </div>
