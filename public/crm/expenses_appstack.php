@@ -544,12 +544,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 <!-- ═══════ INLINE JOB ASSIGN POPOVER ════════════════════════════════ -->
 <div id="jobAssignPopover" style="display:none;position:fixed;z-index:9999;background:#fff;border:1px solid #dee2e6;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);padding:12px;min-width:220px;">
     <div style="font-size:.8rem;font-weight:600;color:var(--mw-dark);margin-bottom:8px;">
-        <i data-feather="link" style="width:13px;height:13px;vertical-align:-1px;"></i> Assign to Job Plan
+        <i data-feather="link" style="width:13px;height:13px;vertical-align:-1px;"></i> <span id="jobPopoverTitle">Assign to Job Plan</span>
     </div>
     <input type="hidden" id="jobPopoverExpenseId">
-    <input type="number" id="jobPopoverInput" class="form-control form-control-sm mb-2" placeholder="Plan # (blank to unlink)" min="1" style="width:100%;">
+    <input type="number" id="jobPopoverInput" class="form-control form-control-sm mb-2" placeholder="Job plan #" min="1" style="width:100%;">
     <div class="d-flex gap-1">
         <button class="btn btn-sm btn-primary flex-grow-1" onclick="saveJobPopover()">Save</button>
+        <button class="btn btn-sm btn-outline-danger" id="jobPopoverUnlinkBtn" style="display:none;" onclick="unlinkJobPopover()" title="Remove job link">Unlink</button>
         <button class="btn btn-sm btn-outline-secondary" onclick="closeJobPopover()">Cancel</button>
     </div>
 </div>
@@ -2497,17 +2498,44 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         evt.stopPropagation();
         var pop = document.getElementById('jobAssignPopover');
         var inp = document.getElementById('jobPopoverInput');
+        var unlinkBtn = document.getElementById('jobPopoverUnlinkBtn');
+        var title = document.getElementById('jobPopoverTitle');
         document.getElementById('jobPopoverExpenseId').value = expenseId;
         inp.value = currentJobId || '';
+        // Show Unlink button and update title when a job is already assigned
+        if (currentJobId) {
+            title.textContent = 'Reassign Job #' + currentJobId;
+            unlinkBtn.style.display = '';
+        } else {
+            title.textContent = 'Assign to Job Plan';
+            unlinkBtn.style.display = 'none';
+        }
         if (window.feather) feather.replace();
 
         // Position below the clicked element
         var rect = evt.target.getBoundingClientRect();
         pop.style.top = (rect.bottom + window.scrollY + 4) + 'px';
-        pop.style.left = Math.min(rect.left, window.innerWidth - 240) + 'px';
+        pop.style.left = Math.min(rect.left, window.innerWidth - 260) + 'px';
         pop.style.display = 'block';
         inp.focus();
         inp.select();
+    };
+
+    window.unlinkJobPopover = async function() {
+        var expId = parseInt(document.getElementById('jobPopoverExpenseId').value);
+        if (!expId) return;
+        if (!confirm('Remove the job link from this expense?')) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reassign_job', csrf_token: CSRF, id: expId, job_id: null }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            closeJobPopover();
+            loadExpenses(currentPage);
+        } catch(e) { alert('Could not unlink: ' + e.message); }
     };
 
     window.closeJobPopover = function() {
