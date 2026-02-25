@@ -2133,18 +2133,18 @@ $activePage = 'jobs';
                 activeInput = null;
             }
 
-            // Delegated focus
+            // Delegated focus — always show full list on focus
             table.addEventListener('focusin', function(e) {
                 if (!e.target.classList.contains('mw-service-input')) return;
                 activeInput = e.target;
-                renderDD(activeInput, activeInput.value.trim().toLowerCase());
+                renderDD(activeInput, '');
             });
 
-            // Delegated input
+            // Delegated input — filter as user types
             table.addEventListener('input', function(e) {
                 if (!e.target.classList.contains('mw-service-input')) return;
                 activeInput = e.target;
-                renderDD(activeInput, activeInput.value.trim().toLowerCase());
+                renderDD(activeInput, e.target.value.trim().toLowerCase());
             });
 
             // Delegated keydown
