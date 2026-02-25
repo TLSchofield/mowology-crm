@@ -15487,3 +15487,69 @@ textarea.font-monospace {
 .mw-block-type-card:disabled { opacity: .6; cursor: not-allowed; }
 .mw-block-type-card strong { display: block; font-size: 12px; font-weight: 600; color: #212529; }
 .mw-block-type-card span   { display: block; font-size: 11px; color: #6c757d; margin-top: 2px; }
+
+/* ── Invoice Timing Selector (Edit Plan Modal) ─────────────────────────── */
+.mw-invoice-timing-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 6px;
+}
+.mw-timing-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color .15s, background-color .15s;
+    margin: 0;
+    background: #fff;
+}
+.mw-timing-option:hover {
+    border-color: var(--mw-green);
+    background-color: var(--mw-light);
+}
+.mw-timing-option.mw-timing-active {
+    border-color: var(--mw-green);
+    background-color: var(--mw-light);
+}
+.mw-timing-option input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.mw-timing-icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    background: var(--mw-green);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+}
+.mw-timing-option:not(.mw-timing-active) .mw-timing-icon {
+    background: #6c757d;
+}
+.mw-timing-icon svg {
+    width: 16px;
+    height: 16px;
+}
+.mw-timing-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.mw-timing-text strong {
+    font-size: 13px;
+    font-weight: 600;
+    color: #212529;
+}
+.mw-timing-text small {
+    font-size: 11px;
+    color: #6c757d;
+}

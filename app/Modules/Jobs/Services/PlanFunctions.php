@@ -2096,6 +2096,7 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
         $editableFields = [
             'title', 'description', 'service_type',
             'pricing_model', 'price_per_visit', 'estimated_amount',
+            'invoice_timing',
             'estimated_duration_minutes',
             'default_crew_id', 'default_time_start', 'default_time_end',
             'plan_start_date', 'plan_end_date',

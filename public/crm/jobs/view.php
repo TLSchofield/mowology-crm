@@ -212,6 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'service_type'             => $_POST['edit_service_type'] ?? 'landscaping',
             'pricing_model'            => $_POST['edit_pricing_model'] ?? 'per_visit',
             'price_per_visit'          => floatval($_POST['edit_price_per_visit'] ?? 0) ?: null,
+            'invoice_timing'           => in_array($_POST['edit_invoice_timing'] ?? '', ['after_visit','end_of_month','upfront'], true) ? $_POST['edit_invoice_timing'] : 'after_visit',
             'estimated_duration_minutes' => intval($_POST['edit_duration'] ?? 60),
             'default_crew_id'          => !empty($crewIds) ? $crewIds[0] : (!empty($_POST['edit_crew_id']) ? intval($_POST['edit_crew_id']) : null),
             'default_time_start'       => !empty($_POST['edit_time_start']) ? $_POST['edit_time_start'] : null,
@@ -1616,6 +1617,43 @@ $activePage = 'jobs';
                         <input type="number" name="edit_price_per_visit" class="form-control" step="0.01" min="0"
                                value="<?php echo $plan['price_per_visit'] ?? ''; ?>">
                     </div>
+                </div>
+
+                <hr class="my-3">
+                <h6>Billing</h6>
+
+                <div class="mw-invoice-timing-selector">
+                    <?php
+                    $invoiceTiming = $plan['invoice_timing'] ?? 'after_visit';
+                    $timingOptions = [
+                        'after_visit' => [
+                            'label' => 'After Each Visit',
+                            'desc'  => 'Invoice sent when each visit is marked complete',
+                            'icon'  => 'check-circle',
+                        ],
+                        'end_of_month' => [
+                            'label' => 'End of Month',
+                            'desc'  => 'All visits grouped into one invoice at month end',
+                            'icon'  => 'calendar',
+                        ],
+                        'upfront' => [
+                            'label' => 'Upfront / Prepay',
+                            'desc'  => 'Invoice sent before service begins',
+                            'icon'  => 'credit-card',
+                        ],
+                    ];
+                    foreach ($timingOptions as $val => $opt): ?>
+                    <label class="mw-timing-option <?php echo $invoiceTiming === $val ? 'mw-timing-active' : ''; ?>">
+                        <input type="radio" name="edit_invoice_timing" value="<?php echo $val; ?>"
+                               <?php echo $invoiceTiming === $val ? 'checked' : ''; ?>
+                               onchange="document.querySelectorAll('.mw-timing-option').forEach(el=>el.classList.remove('mw-timing-active'));this.closest('.mw-timing-option').classList.add('mw-timing-active')">
+                        <span class="mw-timing-icon"><i data-feather="<?php echo $opt['icon']; ?>"></i></span>
+                        <span class="mw-timing-text">
+                            <strong><?php echo $opt['label']; ?></strong>
+                            <small><?php echo $opt['desc']; ?></small>
+                        </span>
+                    </label>
+                    <?php endforeach; ?>
                 </div>
 
                 <div class="mw-modal-actions">
