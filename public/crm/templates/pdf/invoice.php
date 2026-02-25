@@ -11,7 +11,11 @@ $fmt = function($amount) { return '$' . number_format(floatval($amount), 2); };
 $esc = function($str) { return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8'); };
 
 $contactName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
-if (empty($contactName)) $contactName = $invoice['company_name'] ?? 'Customer';
+$companyName = $invoice['company_name'] ?? '';
+// Display company name as primary if present; contact name as secondary (or primary if no company)
+if (empty($contactName) && empty($companyName)) {
+    $contactName = 'Customer';
+}
 
 $billingLine = $esc($invoice['billing_address'] ?? '');
 if (!empty($invoice['billing_city'])) $billingLine .= ', ' . $esc($invoice['billing_city']);
@@ -203,9 +207,13 @@ $isOverdue = ($invoice['status'] === 'overdue');
         <td>
             <div class="section-title">Bill To</div>
             <div class="client-info">
-                <div class="client-name"><?php echo $esc($contactName); ?></div>
-                <?php if (!empty($invoice['company_name']) && $invoice['company_name'] !== $contactName): ?>
-                    <?php echo $esc($invoice['company_name']); ?><br>
+                <?php if ($companyName): ?>
+                    <div class="client-name"><?php echo $esc($companyName); ?></div>
+                    <?php if ($contactName): ?>
+                        <?php echo $esc($contactName); ?><br>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <div class="client-name"><?php echo $esc($contactName ?: 'Customer'); ?></div>
                 <?php endif; ?>
                 <?php if ($billingLine): ?>
                     <?php echo $billingLine; ?><br>

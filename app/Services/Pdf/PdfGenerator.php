@@ -128,20 +128,21 @@ class PdfGenerator
                     c.billing_province,
                     c.billing_postal_code,
                     c.payment_terms,
-                    ct.first_name as contact_first,
-                    ct.last_name as contact_last,
-                    ct.email as contact_email,
-                    ct.phone as contact_phone,
+                    COALESCE(ct.first_name, dc.first_name) as contact_first,
+                    COALESCE(ct.last_name,  dc.last_name)  as contact_last,
+                    COALESCE(ct.email,      dc.email)      as contact_email,
+                    COALESCE(ct.phone,      dc.phone)      as contact_phone,
                     p.address as property_address,
                     p.city as property_city,
                     p.postal_code as property_postal,
                     u.full_name as created_by_name,
                     jp.plan_number, jp.title as job_title
                 FROM invoices i
-                LEFT JOIN companies c ON i.company_id = c.id
-                LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
+                LEFT JOIN companies c  ON i.company_id = c.id
+                LEFT JOIN contacts ct  ON c.primary_contact_id = ct.id
+                LEFT JOIN contacts dc  ON i.contact_id = dc.id
                 LEFT JOIN properties p ON i.property_id = p.id
-                LEFT JOIN users u ON i.created_by = u.id
+                LEFT JOIN users u      ON i.created_by = u.id
                 LEFT JOIN job_plans jp ON i.plan_id = jp.id
                 LEFT JOIN job_visits jv ON i.visit_id = jv.id
                 WHERE i.id = ?
