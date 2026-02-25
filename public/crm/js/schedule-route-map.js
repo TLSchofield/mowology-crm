@@ -1156,10 +1156,33 @@ var MwRouteMap = (function() {
                 }
 
                 log('Schedule card route button tapped: stopId', stopId);
+                if (!stopId) return;
 
-                if (stopId) {
-                    openToStop(stopId);
+                // On mobile/touch: launch navigation directly — skip the map view.
+                // The map view intermediate screen adds friction and has more failure
+                // points (Maps JS API load, GPS fix, DirectionsService response).
+                // MwNavLauncher picks the best method: Capacitor intent on Android,
+                // Apple Maps on iOS, Google Maps web URL as fallback.
+                var isMobile = window.matchMedia('(max-width: 991px)').matches ||
+                               ('ontouchstart' in window && window.innerWidth <= 991);
+
+                if (isMobile && typeof MwNavLauncher !== 'undefined') {
+                    var stops = getStops();
+                    var target = null;
+                    for (var i = 0; i < stops.length; i++) {
+                        if (stops[i].stopId === stopId) { target = stops[i]; break; }
+                    }
+                    if (target) {
+                        log('Mobile direct nav to stop:', stopId, target);
+                        MwNavLauncher.launchNavigation(target);
+                        return;
+                    }
+                    // Stop not found in MW_ROUTE_STOPS — fall through to map view
+                    log('Stop', stopId, 'not in MW_ROUTE_STOPS, falling back to map view');
                 }
+
+                // Desktop or MwNavLauncher not loaded: open the interactive map view
+                openToStop(stopId);
             });
         });
     }
