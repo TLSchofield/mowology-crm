@@ -1086,7 +1086,15 @@ $activePage = 'jobs';
                                                 <?php echo htmlspecialchars($visit['crew_name'] ?? 'Unassigned'); ?>
                                             </td>
                                             <td>
-                                                <?php echo getStatusBadge($visit['status'], 'visit'); ?>
+                                                <?php if ($visit['status'] === 'completed' && empty($visit['invoice_id'])): ?>
+                                                    <a href="/crm/invoices/create.php?visit_id=<?php echo (int)$visit['id']; ?>"
+                                                       class="mw-unbilled-pulse" title="Invoice not raised — click to fix">
+                                                        <span class="mw-unbilled-dot"></span>
+                                                        Invoice!
+                                                    </a>
+                                                <?php else: ?>
+                                                    <?php echo getStatusBadge($visit['status'], 'visit'); ?>
+                                                <?php endif; ?>
                                                 <?php if ($visit['photo_count'] > 0): ?>
                                                     <small class="text-muted ml-1" title="<?php echo (int)$visit['photo_count']; ?> photos">
                                                         <i data-feather="camera" style="width: 12px; height: 12px;"></i>
@@ -1149,12 +1157,6 @@ $activePage = 'jobs';
                                                            class="btn btn-sm btn-outline-success" title="View invoice">
                                                             <i data-feather="file-text" style="width:12px;height:12px;"></i>
                                                             Invoiced
-                                                        </a>
-                                                    <?php else: ?>
-                                                        <a href="/crm/invoices/create.php?visit_id=<?php echo (int)$visit['id']; ?>"
-                                                           class="btn btn-sm btn-outline-warning mw-raise-invoice-btn" title="Raise invoice for this visit">
-                                                            <i data-feather="dollar-sign" style="width:12px;height:12px;"></i>
-                                                            Raise Invoice
                                                         </a>
                                                     <?php endif; ?>
                                                 <?php elseif ($visit['status'] === 'skipped'): ?>

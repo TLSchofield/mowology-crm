@@ -1881,6 +1881,29 @@ function getWorkQueueItems() {
         }
     } catch (Exception $e) {}
 
+    // Unbilled completed visits
+    try {
+        $row = $db->query("
+            SELECT COUNT(*) as cnt,
+                   SUM(COALESCE(jv.actual_amount, jp.price_per_visit, 0)) as total
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE jv.status = 'completed'
+            AND (jv.is_invoiced = 0 OR jv.invoice_id IS NULL)
+        ")->fetch(PDO::FETCH_ASSOC);
+        if ($row && $row['cnt'] > 0) {
+            $items[] = [
+                'category'    => 'critical',
+                'icon'        => 'dollar-sign',
+                'title'       => $row['cnt'] . ' Unbilled Visit' . ($row['cnt'] > 1 ? 's' : ''),
+                'description' => formatCurrency($row['total']) . ' completed but not yet invoiced',
+                'count'       => (int)$row['cnt'],
+                'link'        => 'jobs/plans_appstack.php',
+                'priority'    => 2,
+            ];
+        }
+    } catch (Exception $e) {}
+
     // Stuck visits (scheduled in the past, not completed/cancelled/skipped)
     try {
         $row = $db->query("
@@ -1897,7 +1920,7 @@ function getWorkQueueItems() {
                 'description' => 'Past-date visits still marked scheduled or in progress',
                 'count' => (int)$row['cnt'],
                 'link' => 'schedule_appstack.php',
-                'priority' => 2,
+                'priority' => 3,
             ];
         }
     } catch (Exception $e) {}

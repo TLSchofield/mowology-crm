@@ -80,6 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Invalid request. Please try again.';
     } else {
         $companyId = intval($_POST['company_id'] ?? 0);
+        $contactId = intval($_POST['contact_id'] ?? 0);
         $linkedVisitId = intval($_POST['visit_id'] ?? 0);
         $linkedPlanId = intval($_POST['plan_id'] ?? 0);
         $propertyId = intval($_POST['property_id'] ?? 0);
@@ -118,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ($servicePostalCode !== $billingPostalCode)
         ) ? 1 : 0;
 
-        if (!$companyId) {
+        if (!$companyId && !$contactId) {
             $error = 'Please select a customer.';
         } elseif ($subtotal <= 0) {
             $error = 'Please enter a valid amount.';
@@ -131,32 +132,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $invoiceNumber = generateInvoiceNumber();
                 $accessToken = generateAccessToken();
 
-                // Phase 2-3: Include address fields in invoice insert
+                // Insert using production column names (production uses invoice_date / total_amount)
                 $stmt = $db->prepare("
                     INSERT INTO invoices (
-                        invoice_number, company_id, property_id,
+                        invoice_number, company_id, contact_id, property_id,
                         plan_id, visit_id,
-                        issue_date, due_date, subtotal, tax_rate, tax_amount,
-                        total, balance_due, notes, access_token, token_expires_at,
+                        invoice_date, issue_date, due_date,
+                        subtotal, tax_rate, tax_amount,
+                        total_amount, total, balance_due,
+                        notes, access_token, token_expires_at,
                         service_address, service_city, service_province, service_postal_code,
                         billing_address, billing_city, billing_province, billing_postal_code,
                         address_differs,
                         status, created_by
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY), ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
                 ");
                 $stmt->execute([
                     $invoiceNumber,
-                    $companyId,
+                    $companyId ?: null,
+                    $contactId ?: null,
                     $propertyId ?: null,
                     $linkedPlanId ?: null,
                     $linkedVisitId ?: null,
-                    $issueDate,
+                    $issueDate,       // invoice_date (production name)
+                    $issueDate,       // issue_date (schema name alias)
                     $dueDate,
                     $subtotal,
                     $taxRate,
                     $taxAmount,
-                    $total,
-                    $total, // balance_due starts as total
+                    $total,           // total_amount (production name)
+                    $total,           // total (schema name alias)
+                    $total,           // balance_due starts as total
                     $notes,
                     $accessToken,
                     $serviceAddress,
@@ -233,7 +239,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $details .= " (SMS to: " . count($smsRecipients) . " recipients)";
                 }
 
-                logActivityExtended($user['id'], 'Invoice created', $details, $companyId, null, null, $invoiceId, $linkedPlanId ?: null, $linkedVisitId ?: null);
+                logActivityExtended($user['id'], 'Invoice created', $details, $companyId ?: null, null, null, $invoiceId, $linkedPlanId ?: null, $linkedVisitId ?: null);
 
                 // Mark the visit as invoiced
                 if ($linkedVisitId) {
@@ -296,6 +302,7 @@ if ($apiKey) {
                 <input type="hidden" name="visit_id" value="<?php echo $prefill['visit_id'] ?? ''; ?>">
                 <input type="hidden" name="plan_id" value="<?php echo $prefill['plan_id'] ?? ''; ?>">
                 <input type="hidden" name="property_id" id="propertyIdInput" value="<?php echo $prefill['property_id'] ?? ''; ?>">
+                <input type="hidden" name="contact_id" value="<?php echo (int)($prefill['contact_id'] ?? 0); ?>">
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
 
                 <div class="card">

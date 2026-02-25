@@ -15553,3 +15553,34 @@ textarea.font-monospace {
     font-size: 11px;
     color: #6c757d;
 }
+
+/* ── Unbilled Visit Pulse Indicator ────────────────────────────────────── */
+.mw-unbilled-pulse {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #dc3545;
+    text-decoration: none;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+.mw-unbilled-pulse:hover {
+    color: #a71d2a;
+    text-decoration: none;
+}
+.mw-unbilled-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #dc3545;
+    flex-shrink: 0;
+    animation: mw-pulse-red 1.4s ease-in-out infinite;
+}
+@keyframes mw-pulse-red {
+    0%   { box-shadow: 0 0 0 0 rgba(220,53,69,0.7); transform: scale(1); }
+    50%  { box-shadow: 0 0 0 6px rgba(220,53,69,0); transform: scale(1.15); }
+    100% { box-shadow: 0 0 0 0 rgba(220,53,69,0); transform: scale(1); }
+}
