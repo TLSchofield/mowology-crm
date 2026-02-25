@@ -151,6 +151,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             }
         }
 
+        // Ensure the invoice has an access_token (older invoices may not have one)
+        if (empty($invoice['access_token'])) {
+            $newToken = generateAccessToken();
+            $db->prepare("UPDATE invoices SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 90 DAY) WHERE id = ?")
+               ->execute([$newToken, $invoiceId]);
+            $invoice['access_token'] = $newToken;
+        }
+
+        // Build Bill To / view URL once (same for all recipients)
+        $billToContactName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
+        $billToCompany     = $invoice['company_name'] ?? '';
+        $billToLines       = [];
+        if ($billToCompany)     { $billToLines[] = '<strong>' . htmlspecialchars($billToCompany) . '</strong>'; }
+        if ($billToContactName) { $billToLines[] = htmlspecialchars($billToContactName); }
+        $invoiceViewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+
         // Send to each recipient
         $sentTo = [];
         $smsRecipients = [];
@@ -165,15 +181,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 : ($invoice['company_name'] ?: trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) ?: 'Valued Customer');
 
             $emailSubject = "Invoice {$invoice['invoice_number']} from Mowology";
+
             $emailBody = "
-                <h2>Invoice from Mowology</h2>
+                <h2 style='color:#0D3B2E;margin-bottom:8px;'>Invoice from Mowology</h2>
                 <p>Hi " . htmlspecialchars($recipientName) . ",</p>
                 <p>Please find your invoice details below:</p>
-                <p><strong>Invoice Number:</strong> {$invoice['invoice_number']}<br>
-                <strong>Amount Due:</strong> " . formatCurrency($invoice['balance_due']) . "<br>
-                <strong>Due Date:</strong> " . formatDate($invoice['due_date']) . "</p>
-                <p>If you have any questions about this invoice, please contact us at (778) 846-9273.</p>
-                <p>Thank you for your business!<br>The Mowology Team</p>
+
+                <table style='border-collapse:collapse;width:100%;max-width:480px;margin:16px 0;font-size:14px;'>
+                    <tr>
+                        <td style='padding:6px 12px 6px 0;color:#555;white-space:nowrap;'>Bill To</td>
+                        <td style='padding:6px 0;color:#0D3B2E;font-weight:600;'>
+                            " . (!empty($billToLines) ? implode('<br>', $billToLines) : htmlspecialchars($recipientName)) . "
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style='padding:6px 12px 6px 0;color:#555;white-space:nowrap;'>Invoice #</td>
+                        <td style='padding:6px 0;color:#0D3B2E;'><strong>{$invoice['invoice_number']}</strong></td>
+                    </tr>
+                    <tr>
+                        <td style='padding:6px 12px 6px 0;color:#555;white-space:nowrap;'>Amount Due</td>
+                        <td style='padding:6px 0;color:#0D3B2E;font-size:18px;font-weight:700;'>" . formatCurrency($invoice['balance_due']) . " CAD</td>
+                    </tr>
+                    <tr>
+                        <td style='padding:6px 12px 6px 0;color:#555;white-space:nowrap;'>Due Date</td>
+                        <td style='padding:6px 0;color:#0D3B2E;'>" . formatDate($invoice['due_date']) . "</td>
+                    </tr>
+                </table>
+            " . ($invoiceViewUrl ? "
+                <p style='margin:20px 0;'>
+                    <a href='" . htmlspecialchars($invoiceViewUrl) . "' style='display:inline-block;background:#2D8659;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:15px;'>
+                        View &amp; Pay Invoice Online
+                    </a>
+                </p>
+                <p style='font-size:12px;color:#888;margin-top:4px;'>Or copy this link: <a href='" . htmlspecialchars($invoiceViewUrl) . "' style='color:#2D8659;'>" . htmlspecialchars($invoiceViewUrl) . "</a></p>
+            " : '') . "
+                <p>If you have any questions about this invoice, please contact us at <a href='tel:+17788469273'>(778) 846-9273</a> or reply to this email.</p>
+                <p style='margin-top:20px;'>Thank you for your business!<br><strong>The Mowology Team</strong></p>
             ";
 
             // Send email
