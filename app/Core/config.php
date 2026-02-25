@@ -126,6 +126,13 @@ if (!class_exists('Database')) {
             ];
 
             self::$pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
+
+            // Align MySQL session timezone with PHP (America/Vancouver / Pacific).
+            // Use UTC offset instead of named timezone — shared hosting MySQL often
+            // lacks the timezone name tables loaded, causing "Unknown time zone" errors.
+            $utcOffset = date('P'); // e.g. "-08:00" or "-07:00" (DST-aware from PHP)
+            self::$pdo->exec("SET time_zone = '" . $utcOffset . "'");
+
             return self::$pdo;
         }
     }
