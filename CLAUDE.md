@@ -45,6 +45,16 @@ This is a critical constraint for all SQL queries and schema changes:
 6. **NEVER add npm, Webpack, Sass, or Composer.** This is a zero-dependency project using only PHP and native browser APIs.
 7. **NEVER create new CSS files without adding them to the correct import chain** (`master.css` for public site, `appstack_head.php` for CRM).
 8. **NEVER route SMS through PHPMailer.** SMS delivery MUST use native `mail()` with minimal headers. PHPMailer adds MIME headers that carrier email-to-SMS gateways silently reject. See `ARCHITECTURE.md` "Messaging Module" for full details.
+9. **ALWAYS use the built-in messaging functions for all email and SMS.** Never call `mail()` or PHPMailer directly from page code. Always use:
+   - **Email:** `sendCrmEmail()` from `/crm/includes/messaging.php` (→ `app/Services/Messaging/MessagingService.php`)
+   - **SMS:** `sendSms()` or a named wrapper like `sendInvoiceNotificationSms()` / `sendQuoteNotificationSms()` from the same service
+10. **SMS content rules — STRICT.** Canadian carrier email-to-SMS gateways silently drop messages that violate these rules:
+    - ✅ Plain text only — no HTML
+    - ✅ 160 characters max (provide a shorter fallback if the primary message may exceed this)
+    - ❌ **NO URLs of any kind** — not even short URLs, bare domains, or anything with a dot that looks like a link. Carriers block them silently.
+    - ❌ No special characters that may not survive gateway encoding
+    - ✅ Always direct the customer to **check their email** for links/attachments
+    - ✅ Always include the phone number `(778) 846-9273` as a fallback contact
 
 ---
 
