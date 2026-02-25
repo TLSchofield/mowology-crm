@@ -2065,52 +2065,39 @@ $activePage = 'jobs';
         // ── Edit Line Items ─────────────────────────────────
         var editItemIndex = <?php echo count($planLineItems); ?>;
 
-        // Service templates for the combobox
-        var mwServiceTemplates = <?php echo json_encode(array_values($serviceTemplates)); ?>;
+        // Service templates for the combobox (deduplicated by name)
+        var mwServiceTemplates = (function() {
+            var raw = <?php echo json_encode(array_values($serviceTemplates)); ?>;
+            var seen = {}, out = [];
+            raw.forEach(function(t) { if (!seen[t.name]) { seen[t.name] = true; out.push(t); } });
+            return out;
+        })();
 
-        // ── Combobox helpers ────────────────────────────────
-        function escHtml(s) {
-            return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-        }
+        // ── Combobox — event delegation on #editItemsTable ──
+        // All focus/input/keydown events bubble up; no per-input init needed.
+        (function () {
+            var table  = document.getElementById('editItemsTable');
+            var activeInput = null; // the input currently showing a dropdown
 
-        function mwInitCombobox(input) {
-            var dropdown = input.closest('.mw-service-combobox').querySelector('.mw-service-dropdown');
+            function escHtml(s) {
+                return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            }
 
-            input.addEventListener('input', function () { renderDropdown(this.value.trim().toLowerCase()); });
-            input.addEventListener('focus', function () { renderDropdown(this.value.trim().toLowerCase()); });
+            function getDD(input) {
+                return input.closest('.mw-service-combobox').querySelector('.mw-service-dropdown');
+            }
 
-            input.addEventListener('keydown', function (e) {
-                var items = dropdown.querySelectorAll('.mw-sc-item');
-                var active = dropdown.querySelector('.mw-sc-item.is-active');
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    var next = active ? (active.nextElementSibling || items[0]) : items[0];
-                    if (next) { if (active) active.classList.remove('is-active'); next.classList.add('is-active'); }
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    var prev = active ? (active.previousElementSibling || items[items.length - 1]) : items[items.length - 1];
-                    if (prev) { if (active) active.classList.remove('is-active'); prev.classList.add('is-active'); }
-                } else if (e.key === 'Enter' && active) {
-                    e.preventDefault(); pickTemplate(active, input, dropdown);
-                } else if (e.key === 'Escape') {
-                    closeDropdown(dropdown);
-                }
-            });
-
-            document.addEventListener('click', function (e) {
-                if (!input.closest('.mw-service-combobox').contains(e.target)) closeDropdown(dropdown);
-            });
-
-            function renderDropdown(q) {
-                var matches = q.length === 0
+            function renderDD(input, q) {
+                var dd = getDD(input);
+                var matches = (q === '')
                     ? mwServiceTemplates
-                    : mwServiceTemplates.filter(function (t) {
-                        return (t.name || '').toLowerCase().indexOf(q) !== -1
-                            || (t.service_type || '').toLowerCase().indexOf(q) !== -1;
+                    : mwServiceTemplates.filter(function(t) {
+                        return (t.name||'').toLowerCase().indexOf(q) !== -1
+                            || (t.service_type||'').toLowerCase().indexOf(q) !== -1;
                     });
-                if (!matches.length) { closeDropdown(dropdown); return; }
-                dropdown.innerHTML = '';
-                matches.forEach(function (t) {
+                if (!matches.length) { closeDD(dd); return; }
+                dd.innerHTML = '';
+                matches.forEach(function(t) {
                     var item = document.createElement('div');
                     item.className = 'mw-sc-item';
                     item.dataset.name  = t.name;
@@ -2119,31 +2106,78 @@ $activePage = 'jobs';
                     item.dataset.unit  = t.unit_type || 'visit';
                     item.innerHTML = '<span class="mw-sc-name">' + escHtml(t.name) + '</span>'
                         + (t.default_price ? '<span class="mw-sc-price">$' + parseFloat(t.default_price).toFixed(2) + '</span>' : '');
-                    item.addEventListener('mousedown', function (e) { e.preventDefault(); pickTemplate(item, input, dropdown); });
-                    dropdown.appendChild(item);
+                    dd.appendChild(item);
                 });
-                dropdown.classList.add('is-open');
+                dd.classList.add('is-open');
             }
 
-            function closeDropdown(dd) { dd.classList.remove('is-open'); dd.innerHTML = ''; }
-        }
+            function closeDD(dd) { dd.classList.remove('is-open'); dd.innerHTML = ''; }
 
-        function pickTemplate(item, input, dropdown) {
-            input.value = item.dataset.name;
-            var tr = input.closest('tr');
-            var descInput  = tr.querySelector('.mw-ei-desc');
-            var priceInput = tr.querySelector('.mw-ei-price');
-            var unitInput  = tr.querySelector('input[name*="[unit_type]"]');
-            if (descInput  && !descInput.value)           descInput.value  = item.dataset.desc;
-            if (priceInput && parseFloat(priceInput.value) === 0) priceInput.value = parseFloat(item.dataset.price).toFixed(2);
-            if (unitInput) unitInput.value = item.dataset.unit || 'visit';
-            recalcEditItemRow(priceInput || input);
-            dropdown.classList.remove('is-open');
-            dropdown.innerHTML = '';
-        }
+            function closeAllDD() {
+                table.querySelectorAll('.mw-service-dropdown.is-open').forEach(closeDD);
+            }
 
-        // Init comboboxes on existing rows
-        document.querySelectorAll('#editItemsBody .mw-service-input').forEach(mwInitCombobox);
+            function pickTemplate(item) {
+                if (!activeInput) return;
+                var dd = getDD(activeInput);
+                activeInput.value = item.dataset.name;
+                var tr = activeInput.closest('tr');
+                var descInput  = tr.querySelector('.mw-ei-desc');
+                var priceInput = tr.querySelector('.mw-ei-price');
+                var unitInput  = tr.querySelector('input[name*="[unit_type]"]');
+                if (descInput  && !descInput.value)                  descInput.value  = item.dataset.desc;
+                if (priceInput && parseFloat(priceInput.value) === 0) priceInput.value = parseFloat(item.dataset.price).toFixed(2);
+                if (unitInput) unitInput.value = item.dataset.unit || 'visit';
+                recalcEditItemRow(priceInput || activeInput);
+                closeDD(dd);
+                activeInput = null;
+            }
+
+            // Delegated focus
+            table.addEventListener('focusin', function(e) {
+                if (!e.target.classList.contains('mw-service-input')) return;
+                activeInput = e.target;
+                renderDD(activeInput, activeInput.value.trim().toLowerCase());
+            });
+
+            // Delegated input
+            table.addEventListener('input', function(e) {
+                if (!e.target.classList.contains('mw-service-input')) return;
+                activeInput = e.target;
+                renderDD(activeInput, activeInput.value.trim().toLowerCase());
+            });
+
+            // Delegated keydown
+            table.addEventListener('keydown', function(e) {
+                if (!e.target.classList.contains('mw-service-input')) return;
+                var input = e.target;
+                var dd = getDD(input);
+                var items = dd.querySelectorAll('.mw-sc-item');
+                var active = dd.querySelector('.mw-sc-item.is-active');
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    var next = active ? (active.nextElementSibling || items[0]) : items[0];
+                    if (next) { if (active) active.classList.remove('is-active'); next.classList.add('is-active'); }
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    var prev = active ? (active.previousElementSibling || items[items.length-1]) : items[items.length-1];
+                    if (prev) { if (active) active.classList.remove('is-active'); prev.classList.add('is-active'); }
+                } else if (e.key === 'Enter' && active) {
+                    e.preventDefault(); pickTemplate(active);
+                } else if (e.key === 'Escape') {
+                    closeDD(dd);
+                }
+            });
+
+            // Delegated mousedown on dropdown items (bubbles through the table's container)
+            document.addEventListener('mousedown', function(e) {
+                var item = e.target.closest('.mw-sc-item');
+                if (item) { e.preventDefault(); pickTemplate(item); return; }
+                // Click outside — close all dropdowns
+                if (!e.target.closest('.mw-service-combobox')) closeAllDD();
+            });
+
+        })();
 
         function addEditItem() {
             var body = document.getElementById('editItemsBody');
@@ -2162,7 +2196,6 @@ $activePage = 'jobs';
                     '<input type="hidden" name="items[' + idx + '][line_total]" class="mw-ei-total-input" value="0"></td>' +
                 '<td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeEditItemRow(this)" title="Remove">&times;</button></td>';
             body.appendChild(tr);
-            mwInitCombobox(tr.querySelector('.mw-service-input'));
             tr.querySelector('.mw-service-input').focus();
         }
 
