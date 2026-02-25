@@ -116,7 +116,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // Phase 2-3: Get all recipients from invoice_contacts table
         $stmt = $db->prepare("
             SELECT ic.id, ic.contact_id, ic.email_address, ic.contact_role,
-                   c.first_name, c.last_name, c.receive_sms
+                   c.first_name, c.last_name, c.receive_sms,
+                   COALESCE(NULLIF(c.mobile,''), NULLIF(c.phone,'')) as sms_phone
             FROM invoice_contacts ic
             LEFT JOIN contacts c ON ic.contact_id = c.id
             WHERE ic.invoice_id = ?
@@ -231,15 +232,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 ");
                 $updateStmt->execute([$recipient['id']]);
 
-                // Track SMS recipients (those who have consent)
-                if ($recipient['receive_sms']) {
+                // Track SMS recipients (those who have consent and a phone number)
+                if ($recipient['receive_sms'] && !empty($recipient['sms_phone'])) {
                     $smsRecipients[] = [
-                        'name' => $recipientName,
-                        'role' => $recipient['contact_role']
+                        'name'  => $recipientName,
+                        'role'  => $recipient['contact_role'],
+                        'phone' => $recipient['sms_phone'],
                     ];
                 }
             } else {
                 error_log("Email send failed for invoice {$invoiceId} to {$recipient['email_address']}");
+            }
+        }
+
+        // Send SMS notifications
+        $smsSentTo = [];
+        if (!empty($smsRecipients)) {
+            // Build the short invoice URL for the SMS
+            $shortInvoiceUrl = 'mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+            foreach ($smsRecipients as $smsR) {
+                $smsMessage = sendInvoiceNotificationSms(
+                    $smsR['phone'],
+                    $invoice['invoice_number'],
+                    $invoice['balance_due'],
+                    $shortInvoiceUrl
+                );
+                if ($smsMessage['success']) {
+                    $smsSentTo[] = $smsR['name'];
+                } else {
+                    error_log("Invoice SMS failed for {$smsR['name']} ({$smsR['phone']}): " . implode(', ', $smsMessage['errors'] ?? []));
+                }
             }
         }
 
@@ -248,15 +270,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         if (!empty($sentTo)) {
             $recipientList = implode(', ', $sentTo);
             $details = "Invoice sent to {$recipientList}{$attachNote}";
-            if (!empty($smsRecipients)) {
-                $details .= " (SMS pending for: " . implode(', ', array_map(fn($r) => $r['name'], $smsRecipients)) . ")";
+            if (!empty($smsSentTo)) {
+                $details .= "; SMS sent to: " . implode(', ', $smsSentTo);
             }
             logActivityExtended($user['id'], 'Invoice sent', $details, null, null, null, $invoiceId);
 
             $invoice['status'] = 'sent';
             $message = "Invoice sent successfully to " . count($sentTo) . " recipient(s)";
-            if (!empty($smsRecipients)) {
-                $message .= " and SMS pending for " . count($smsRecipients) . " contact(s)";
+            if (!empty($smsSentTo)) {
+                $message .= " and SMS sent to " . count($smsSentTo) . " contact(s)";
             }
             $messageType = 'success';
         } else {

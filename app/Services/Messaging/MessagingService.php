@@ -289,6 +289,31 @@ function sendQuoteNotificationSms(
 }
 
 /**
+ * Send an invoice notification SMS with a view/pay link.
+ *
+ * @param string $phoneNumber
+ * @param string $invoiceNumber  e.g. INV-2026-0001
+ * @param float  $balanceDue
+ * @param string $invoiceUrl     Short URL (no https://)
+ * @return array Result from sendSms()
+ */
+function sendInvoiceNotificationSms(
+    string $phoneNumber,
+    string $invoiceNumber,
+    float  $balanceDue,
+    string $invoiceUrl
+): array {
+    $amount  = '$' . number_format($balanceDue, 2);
+    $message = "Mowology: Invoice {$invoiceNumber} for {$amount} is ready. View & pay: {$invoiceUrl}";
+
+    if (strlen($message) > 160) {
+        $message = "Mowology: Invoice {$invoiceNumber} ({$amount} due). View: {$invoiceUrl}";
+    }
+
+    return sendSms($phoneNumber, $message, 'Mowology');
+}
+
+/**
  * Test email configuration — sends a test email.
  */
 function testEmailConfig(string $testEmail): array
