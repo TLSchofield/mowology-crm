@@ -12316,6 +12316,51 @@ textarea.font-monospace {
   font-size: 0.85rem;
 }
 
+/* Service combobox — Edit Services modal */
+.mw-service-combobox {
+  position: relative;
+}
+.mw-service-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 220px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  z-index: 9999;
+}
+.mw-service-dropdown.is-open {
+  display: block;
+}
+.mw-sc-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  gap: 8px;
+}
+.mw-sc-item:hover,
+.mw-sc-item.is-active {
+  background: var(--mw-light);
+}
+.mw-sc-name {
+  flex: 1;
+  color: #1a1a2e;
+}
+.mw-sc-price {
+  font-size: 0.78rem;
+  color: var(--mw-green);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Align with existing visit option */
 .mw-cfq-align-option {
   padding: 10px 14px;

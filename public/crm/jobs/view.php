@@ -337,6 +337,10 @@ $notes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 // Get staff for crew dropdown
 $staff = getStaffMembers();
 
+// Get service templates for the Edit Services combobox
+$stmtSt = $db->query("SELECT name, service_type, description, default_price, unit_type FROM service_templates WHERE is_active = 1 ORDER BY sort_order, name");
+$serviceTemplates = $stmtSt->fetchAll(PDO::FETCH_ASSOC);
+
 // ── Flash messages from redirects ────────────────────────────────────
 
 $csrfToken = generateCSRFToken();
@@ -1701,8 +1705,13 @@ $activePage = 'jobs';
                     <tbody id="editItemsBody">
                         <?php foreach ($planLineItems as $idx => $pli): ?>
                         <tr>
-                            <td><input type="text" name="items[<?php echo $idx; ?>][service_type]" class="form-control form-control-sm" value="<?php echo htmlspecialchars($pli['service_type']); ?>" required></td>
-                            <td><input type="text" name="items[<?php echo $idx; ?>][description]" class="form-control form-control-sm" value="<?php echo htmlspecialchars($pli['description'] ?? ''); ?>"></td>
+                            <td>
+                                <div class="mw-service-combobox">
+                                    <input type="text" name="items[<?php echo $idx; ?>][service_type]" class="form-control form-control-sm mw-service-input" value="<?php echo htmlspecialchars($pli['service_type']); ?>" placeholder="Search or type…" autocomplete="off" required>
+                                    <div class="mw-service-dropdown"></div>
+                                </div>
+                            </td>
+                            <td><input type="text" name="items[<?php echo $idx; ?>][description]" class="form-control form-control-sm mw-ei-desc" value="<?php echo htmlspecialchars($pli['description'] ?? ''); ?>"></td>
                             <td><input type="number" name="items[<?php echo $idx; ?>][quantity]" class="form-control form-control-sm mw-ei-qty" value="<?php echo floatval($pli['quantity']); ?>" min="0.01" step="0.01" onchange="recalcEditItemRow(this)"></td>
                             <td><input type="number" name="items[<?php echo $idx; ?>][unit_price]" class="form-control form-control-sm mw-ei-price text-right" value="<?php echo floatval($pli['unit_price']); ?>" min="0" step="0.01" onchange="recalcEditItemRow(this)">
                                 <input type="hidden" name="items[<?php echo $idx; ?>][unit_type]" value="<?php echo htmlspecialchars($pli['unit_type'] ?? 'visit'); ?>"></td>
@@ -2056,13 +2065,96 @@ $activePage = 'jobs';
         // ── Edit Line Items ─────────────────────────────────
         var editItemIndex = <?php echo count($planLineItems); ?>;
 
+        // Service templates for the combobox
+        var mwServiceTemplates = <?php echo json_encode(array_values($serviceTemplates)); ?>;
+
+        // ── Combobox helpers ────────────────────────────────
+        function escHtml(s) {
+            return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function mwInitCombobox(input) {
+            var dropdown = input.closest('.mw-service-combobox').querySelector('.mw-service-dropdown');
+
+            input.addEventListener('input', function () { renderDropdown(this.value.trim().toLowerCase()); });
+            input.addEventListener('focus', function () { renderDropdown(this.value.trim().toLowerCase()); });
+
+            input.addEventListener('keydown', function (e) {
+                var items = dropdown.querySelectorAll('.mw-sc-item');
+                var active = dropdown.querySelector('.mw-sc-item.is-active');
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    var next = active ? (active.nextElementSibling || items[0]) : items[0];
+                    if (next) { if (active) active.classList.remove('is-active'); next.classList.add('is-active'); }
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    var prev = active ? (active.previousElementSibling || items[items.length - 1]) : items[items.length - 1];
+                    if (prev) { if (active) active.classList.remove('is-active'); prev.classList.add('is-active'); }
+                } else if (e.key === 'Enter' && active) {
+                    e.preventDefault(); pickTemplate(active, input, dropdown);
+                } else if (e.key === 'Escape') {
+                    closeDropdown(dropdown);
+                }
+            });
+
+            document.addEventListener('click', function (e) {
+                if (!input.closest('.mw-service-combobox').contains(e.target)) closeDropdown(dropdown);
+            });
+
+            function renderDropdown(q) {
+                var matches = q.length === 0
+                    ? mwServiceTemplates
+                    : mwServiceTemplates.filter(function (t) {
+                        return (t.name || '').toLowerCase().indexOf(q) !== -1
+                            || (t.service_type || '').toLowerCase().indexOf(q) !== -1;
+                    });
+                if (!matches.length) { closeDropdown(dropdown); return; }
+                dropdown.innerHTML = '';
+                matches.forEach(function (t) {
+                    var item = document.createElement('div');
+                    item.className = 'mw-sc-item';
+                    item.dataset.name  = t.name;
+                    item.dataset.desc  = t.description || '';
+                    item.dataset.price = t.default_price || '0';
+                    item.dataset.unit  = t.unit_type || 'visit';
+                    item.innerHTML = '<span class="mw-sc-name">' + escHtml(t.name) + '</span>'
+                        + (t.default_price ? '<span class="mw-sc-price">$' + parseFloat(t.default_price).toFixed(2) + '</span>' : '');
+                    item.addEventListener('mousedown', function (e) { e.preventDefault(); pickTemplate(item, input, dropdown); });
+                    dropdown.appendChild(item);
+                });
+                dropdown.classList.add('is-open');
+            }
+
+            function closeDropdown(dd) { dd.classList.remove('is-open'); dd.innerHTML = ''; }
+        }
+
+        function pickTemplate(item, input, dropdown) {
+            input.value = item.dataset.name;
+            var tr = input.closest('tr');
+            var descInput  = tr.querySelector('.mw-ei-desc');
+            var priceInput = tr.querySelector('.mw-ei-price');
+            var unitInput  = tr.querySelector('input[name*="[unit_type]"]');
+            if (descInput  && !descInput.value)           descInput.value  = item.dataset.desc;
+            if (priceInput && parseFloat(priceInput.value) === 0) priceInput.value = parseFloat(item.dataset.price).toFixed(2);
+            if (unitInput) unitInput.value = item.dataset.unit || 'visit';
+            recalcEditItemRow(priceInput || input);
+            dropdown.classList.remove('is-open');
+            dropdown.innerHTML = '';
+        }
+
+        // Init comboboxes on existing rows
+        document.querySelectorAll('#editItemsBody .mw-service-input').forEach(mwInitCombobox);
+
         function addEditItem() {
             var body = document.getElementById('editItemsBody');
             var idx = editItemIndex++;
             var tr = document.createElement('tr');
             tr.innerHTML =
-                '<td><input type="text" name="items[' + idx + '][service_type]" class="form-control form-control-sm" placeholder="Service type" required></td>' +
-                '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm" placeholder="Description"></td>' +
+                '<td><div class="mw-service-combobox">' +
+                    '<input type="text" name="items[' + idx + '][service_type]" class="form-control form-control-sm mw-service-input" placeholder="Search or type…" autocomplete="off" required>' +
+                    '<div class="mw-service-dropdown"></div>' +
+                '</div></td>' +
+                '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm mw-ei-desc" placeholder="Description"></td>' +
                 '<td><input type="number" name="items[' + idx + '][quantity]" class="form-control form-control-sm mw-ei-qty" value="1" min="0.01" step="0.01" onchange="recalcEditItemRow(this)"></td>' +
                 '<td><input type="number" name="items[' + idx + '][unit_price]" class="form-control form-control-sm mw-ei-price text-right" value="0" min="0" step="0.01" onchange="recalcEditItemRow(this)">' +
                     '<input type="hidden" name="items[' + idx + '][unit_type]" value="visit"></td>' +
@@ -2070,6 +2162,8 @@ $activePage = 'jobs';
                     '<input type="hidden" name="items[' + idx + '][line_total]" class="mw-ei-total-input" value="0"></td>' +
                 '<td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeEditItemRow(this)" title="Remove">&times;</button></td>';
             body.appendChild(tr);
+            mwInitCombobox(tr.querySelector('.mw-service-input'));
+            tr.querySelector('.mw-service-input').focus();
         }
 
         function recalcEditItemRow(input) {
