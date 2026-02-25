@@ -285,26 +285,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     }
 
     if ($action === 'mark_paid') {
-        $paymentMethod = trim($_POST['payment_method'] ?? 'other');
+        $paymentMethod    = trim($_POST['payment_method'] ?? 'other');
         $paymentReference = trim($_POST['payment_reference'] ?? '');
-        $paymentAmount = floatval($_POST['payment_amount'] ?? $invoice['balance_due']);
+        $paymentAmount    = floatval($_POST['payment_amount'] ?? $invoice['balance_due']);
+        $paymentDate      = trim($_POST['payment_date'] ?? '');
+
+        // Validate date
+        $paidAtVal = 'NOW()';
+        $paidAtParam = null;
+        if ($paymentDate && preg_match('/^\d{4}-\d{2}-\d{2}$/', $paymentDate)) {
+            $paidAtVal   = '?';
+            $paidAtParam = $paymentDate . ' 12:00:00';
+        }
+
+        $newBalance = max(0, floatval($invoice['balance_due']) - $paymentAmount);
+        $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
+
+        $params = [$paymentAmount, $newBalance, $newStatus, $paymentMethod, $paymentReference];
+        if ($paidAtParam) $params[] = $paidAtParam;
+        $params[] = $invoiceId;
 
         $stmt = $db->prepare("
             UPDATE invoices
-            SET status = 'paid',
-                amount_paid = amount_paid + ?,
-                balance_due = balance_due - ?,
-                paid_at = NOW(),
-                payment_method = ?,
-                payment_reference = ?
+            SET amount_paid       = amount_paid + ?,
+                balance_due       = ?,
+                status            = ?,
+                payment_method    = ?,
+                payment_reference = ?,
+                paid_at           = {$paidAtVal}
             WHERE id = ?
         ");
-        $stmt->execute([$paymentAmount, $paymentAmount, $paymentMethod, $paymentReference, $invoiceId]);
+        $stmt->execute($params);
 
-        logActivityExtended($user['id'], 'Payment recorded', "Payment of " . formatCurrency($paymentAmount) . " recorded ({$paymentMethod})", null, null, null, $invoiceId);
+        $methodLabel = ['e_transfer'=>'e-Transfer','cash'=>'Cash','cheque'=>'Cheque','credit_card'=>'Credit Card','other'=>'Other'][$paymentMethod] ?? ucfirst($paymentMethod);
+        $detail = "Payment of " . formatCurrency($paymentAmount) . " via {$methodLabel}";
+        if ($paymentReference) $detail .= " (Ref: {$paymentReference})";
+        logActivityExtended($user['id'], 'Payment recorded', $detail, null, null, null, $invoiceId);
 
-        $invoice['status'] = 'paid';
-        $message = "Payment of " . formatCurrency($paymentAmount) . " recorded successfully.";
+        $invoice['status']      = $newStatus;
+        $invoice['balance_due'] = $newBalance;
+        $message     = "Payment of " . formatCurrency($paymentAmount) . " recorded successfully.";
         $messageType = 'success';
     }
 }
@@ -755,25 +775,59 @@ $extraHead = $isPayable
           <!-- ═══════════════════════════════════════════════════════════════ -->
           <!-- Manual Record Payment Modal                                       -->
           <!-- ═══════════════════════════════════════════════════════════════ -->
-          <!-- Payment Modal -->
-          <div id="paymentModal" class="mw-modal-overlay" style="display: none;">
-              <div class="mw-modal">
+          <div id="paymentModal" class="mw-modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="paymentModalTitle">
+              <div class="mw-modal mw-payment-modal-content">
                   <div class="mw-modal-header">
-                      <h5 class="mb-0">Record Payment</h5>
-                      <button type="button" class="mw-modal-close" onclick="document.getElementById('paymentModal').style.display='none'">&times;</button>
+                      <h5 class="mb-0" id="paymentModalTitle">
+                          <i data-feather="check-circle" style="width:18px;height:18px;vertical-align:middle;margin-right:6px;"></i>
+                          Record Payment
+                      </h5>
+                      <button type="button" class="mw-modal-close" onclick="document.getElementById('paymentModal').style.display='none'" aria-label="Close">&times;</button>
                   </div>
-                  <form method="POST">
+                  <form id="paymentForm" method="POST">
                       <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                       <input type="hidden" name="action" value="mark_paid">
                       <div class="mw-modal-body">
-                          <div class="mw-form-group">
-                              <label class="form-label">Amount</label>
-                              <input type="number" name="payment_amount" class="form-control" step="any" min="0"
-                                     value="<?php echo number_format(floatval($invoice['balance_due']), 2, '.', ''); ?>">
+
+                          <!-- Invoice summary -->
+                          <div class="mw-payment-invoice-list">
+                              <div class="mw-payment-inv-row">
+                                  <div class="mw-payment-inv-info">
+                                      <span class="mw-payment-inv-number"><?php echo h($invoice['invoice_number']); ?></span>
+                                      <span class="mw-payment-inv-client">
+                                          <?php echo h(trim(($invoice['company_name'] ?: '') . ' ' . ($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''))); ?>
+                                      </span>
+                                  </div>
+                                  <div class="mw-payment-inv-amount"><?php echo h(formatCurrency($invoice['balance_due'])); ?></div>
+                              </div>
                           </div>
+                          <div class="mw-payment-total-row">
+                              <span>Balance Due</span>
+                              <strong><?php echo h(formatCurrency($invoice['balance_due'])); ?></strong>
+                          </div>
+
+                          <div class="mw-form-row" style="margin-top:16px;">
+                              <div class="mw-form-group">
+                                  <label class="form-label" for="vm-pay-amount">Amount</label>
+                                  <div class="input-group">
+                                      <div class="input-group-prepend">
+                                          <span class="input-group-text">$</span>
+                                      </div>
+                                      <input type="number" id="vm-pay-amount" name="payment_amount" class="form-control"
+                                             step="0.01" min="0.01"
+                                             value="<?php echo number_format(floatval($invoice['balance_due']), 2, '.', ''); ?>">
+                                  </div>
+                              </div>
+                              <div class="mw-form-group">
+                                  <label class="form-label" for="vm-pay-date">Payment Date</label>
+                                  <input type="date" id="vm-pay-date" name="payment_date" class="form-control"
+                                         value="<?php echo date('Y-m-d'); ?>">
+                              </div>
+                          </div>
+
                           <div class="mw-form-group">
-                              <label class="form-label">Payment Method</label>
-                              <select name="payment_method" class="form-control">
+                              <label class="form-label" for="vm-pay-method">Payment Method</label>
+                              <select id="vm-pay-method" name="payment_method" class="form-control" onchange="vmToggleRef()">
                                   <option value="e_transfer">e-Transfer</option>
                                   <option value="cash">Cash</option>
                                   <option value="cheque">Cheque</option>
@@ -781,18 +835,37 @@ $extraHead = $isPayable
                                   <option value="other">Other</option>
                               </select>
                           </div>
+
                           <div class="mw-form-group">
-                              <label class="form-label">Reference / Notes</label>
-                              <input type="text" name="payment_reference" class="form-control" placeholder="e.g., e-Transfer confirmation #">
+                              <label class="form-label" id="vm-ref-label" for="vm-pay-ref">e-Transfer Confirmation #</label>
+                              <input type="text" id="vm-pay-ref" name="payment_reference" class="form-control"
+                                     placeholder="e.g., 123456789">
                           </div>
+
                       </div>
                       <div class="mw-modal-footer">
                           <button type="button" class="btn btn-secondary" onclick="document.getElementById('paymentModal').style.display='none'">Cancel</button>
-                          <button type="submit" class="btn btn-success">Record Payment</button>
+                          <button type="submit" class="btn btn-success">
+                              <i data-feather="check" style="width:14px;height:14px;margin-right:4px;vertical-align:middle;"></i>
+                              Record Payment
+                          </button>
                       </div>
                   </form>
               </div>
           </div>
+          <script>
+          function vmToggleRef() {
+              var m = document.getElementById('vm-pay-method').value;
+              var l = document.getElementById('vm-ref-label');
+              var i = document.getElementById('vm-pay-ref');
+              var labels = {e_transfer:'e-Transfer Confirmation #', cheque:'Cheque Number', cash:'Receipt / Notes', credit_card:'Authorization Code', other:'Reference / Notes'};
+              var phs    = {e_transfer:'e.g., 123456789', cheque:'e.g., #1042', cash:'e.g., cash received', credit_card:'e.g., auth code', other:''};
+              l.textContent = labels[m] || 'Reference';
+              i.placeholder = phs[m] || '';
+          }
+          // Close on overlay click
+          document.getElementById('paymentModal').addEventListener('click', function(e){ if(e.target===this) this.style.display='none'; });
+          </script>
 
 <?php if ($isPayable): ?>
 <script>

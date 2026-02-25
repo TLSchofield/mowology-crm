@@ -15584,3 +15584,170 @@ textarea.font-monospace {
     50%  { box-shadow: 0 0 0 6px rgba(220,53,69,0); transform: scale(1.15); }
     100% { box-shadow: 0 0 0 0 rgba(220,53,69,0); transform: scale(1); }
 }
+
+/* ── Invoice Bulk Payment UI ─────────────────────────────────────────────── */
+
+/* Checkbox column */
+.mw-col-check {
+    width: 36px;
+    padding-left: 14px !important;
+    padding-right: 6px !important;
+    vertical-align: middle;
+}
+.mw-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--mw-green);
+}
+.mw-check-placeholder {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+}
+
+/* Balance due highlight */
+.mw-balance-due {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+/* Payable row — subtle hover to invite interaction */
+.mw-payable-row:hover {
+    background-color: var(--mw-light) !important;
+}
+
+/* Bulk action bar (floats above table, slides in) */
+.mw-bulk-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--mw-forest);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    gap: 16px;
+    animation: mw-slide-in 0.18s ease;
+}
+@keyframes mw-slide-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.mw-bulk-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+.mw-bulk-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.mw-bulk-count {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--mw-lime);
+}
+.mw-bulk-total-label {
+    font-size: 14px;
+    color: rgba(255,255,255,0.8);
+}
+.mw-bulk-total-label strong {
+    color: #fff;
+}
+
+/* ── Payment modal content ───────────────────────────────────────────────── */
+.mw-payment-modal-content {
+    max-width: 540px;
+}
+
+/* Invoice list inside modal */
+.mw-payment-invoice-list {
+    background: var(--mw-light);
+    border: 1px solid rgba(45,134,89,0.15);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+.mw-payment-inv-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(45,134,89,0.1);
+    gap: 12px;
+}
+.mw-payment-inv-row:last-child {
+    border-bottom: none;
+}
+.mw-payment-inv-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.mw-payment-inv-number {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--mw-forest);
+    white-space: nowrap;
+}
+.mw-payment-inv-client {
+    font-size: 12px;
+    color: #6c757d;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mw-payment-inv-amount {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--mw-dark);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Grand total strip */
+.mw-payment-total-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--mw-forest);
+    color: #fff;
+    border-radius: 0 0 8px 8px;
+    margin-bottom: 2px;
+    font-size: 14px;
+}
+.mw-payment-total-row strong {
+    font-size: 18px;
+    color: var(--mw-lime);
+}
+
+/* Toast (invoice list) */
+.mw-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--mw-green);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+    animation: mw-toast-in 0.2s ease;
+}
+.mw-toast-success { background: var(--mw-green); }
+.mw-toast-error   { background: #dc2626; }
+@keyframes mw-toast-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
