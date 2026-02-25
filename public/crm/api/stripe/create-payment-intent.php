@@ -130,7 +130,7 @@ try {
             'company_id'     => (string) ($invoice['company_id'] ?? ''),
             'crm_source'     => 'mowology_crm',
         ],
-        'statement_descriptor'        => 'MOWOLOGY INV',
+        'statement_descriptor_suffix' => 'Mowology',
     ]);
 
     // Persist the PaymentIntent ID so we can reuse it and match it in the webhook
