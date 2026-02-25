@@ -105,9 +105,12 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             exit;
         }
         // Otherwise fall through and create a new one (e.g., amount changed or intent was cancelled)
+        // Clear the stale ID so we don't try to reuse it again
+        $db->prepare("UPDATE invoices SET stripe_payment_intent_id = NULL WHERE id = ?")->execute([$invoiceId]);
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        // Intent not found or API error — create a new one below
+        // Intent not found or API error — clear it and create a new one below
         error_log('[Stripe] Could not retrieve existing PaymentIntent: ' . $e->getMessage());
+        $db->prepare("UPDATE invoices SET stripe_payment_intent_id = NULL WHERE id = ?")->execute([$invoiceId]);
     }
 }
 
@@ -117,18 +120,17 @@ try {
     \Stripe\Stripe::setAppInfo('Mowology CRM', '1.0', 'https://mowology.ca');
 
     $intent = \Stripe\PaymentIntent::create([
-        'amount'                    => $amountCents,
-        'currency'                  => 'cad',
-        'payment_method_types'      => ['card'],
-        'description'               => 'Invoice ' . $invoice['invoice_number'] . ' — Mowology Landscaping',
-        'metadata'                  => [
+        'amount'                      => $amountCents,
+        'currency'                    => 'cad',
+        'automatic_payment_methods'   => ['enabled' => true],
+        'description'                 => 'Invoice ' . $invoice['invoice_number'] . ' — Mowology Landscaping',
+        'metadata'                    => [
             'invoice_id'     => (string) $invoice['id'],
             'invoice_number' => $invoice['invoice_number'],
-            'company_id'     => (string) $invoice['company_id'],
+            'company_id'     => (string) ($invoice['company_id'] ?? ''),
             'crm_source'     => 'mowology_crm',
         ],
-        // statement_descriptor max 22 chars, alphanumeric + spaces/dashes
-        'statement_descriptor'      => 'MOWOLOGY INV',
+        'statement_descriptor'        => 'MOWOLOGY INV',
     ]);
 
     // Persist the PaymentIntent ID so we can reuse it and match it in the webhook
@@ -163,7 +165,7 @@ try {
 } catch (\Stripe\Exception\AuthenticationException $e) {
     error_log('[Stripe] AuthenticationException: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => 'Payment service configuration error. Please contact support.']);
+    echo json_encode(['error' => 'Payment service configuration error: ' . $e->getMessage()]);
 } catch (\Stripe\Exception\ApiConnectionException $e) {
     error_log('[Stripe] ApiConnectionException: ' . $e->getMessage());
     http_response_code(503);
@@ -171,5 +173,5 @@ try {
 } catch (\Stripe\Exception\ApiErrorException $e) {
     error_log('[Stripe] ApiErrorException: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => 'Payment processing error. Please try again or contact support.']);
+    echo json_encode(['error' => 'Stripe error: ' . $e->getMessage()]);
 }
