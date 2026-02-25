@@ -923,7 +923,7 @@ foreach ($mobileStops as $s) {
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260220a" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260225b" rel="stylesheet">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -2477,6 +2477,19 @@ function getServiceLabel(type) {
         function() { /* Permission denied or unavailable — silent fail */ },
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     );
+
+    // ── Re-check on app resume (returning from Google Maps / another app) ──
+    // visibilitychange fires when the tab/PWA regains focus after switching apps.
+    // maximumAge: 0 forces a fresh GPS fix so we always have current position.
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            navigator.geolocation.getCurrentPosition(
+                promoteToHero,
+                function() { /* silent fail */ },
+                { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+            );
+        }
+    });
 
     // ── Hook up the bottom bar "Locate" button for manual re-check ──
     var locBtn = document.getElementById('mobileTrackingDot');

@@ -679,54 +679,89 @@
     }
 
     /* ════════════════════════════════════════════════════
-       HERO CARD (GPS-promoted, fills scroll area)
+       HERO CARD (GPS-promoted — fills the full scroll area)
+
+       The scroll area is flex:1 so it already fills the
+       space between the two navbars. The hero card gets
+       min-height:100% so it occupies that full height.
+       The card body uses flexbox so content distributes
+       vertically and the pill/action areas grow to fill
+       the extra space, giving large comfortable tap targets.
        ════════════════════════════════════════════════════ */
 
+    /* Scroll area: allow min-height:100% to work on children */
+    .mw-mc-scroll-area:has(.mw-mc-card-hero) {
+        padding: 0;
+    }
+
     .mw-mc-card-compact.mw-mc-card-hero {
-        border-radius: var(--mc-radius-xl);
-        box-shadow: var(--mc-shadow-active);
-        margin-bottom: 20px;
+        border-radius: 0;
+        box-shadow: none;
+        margin-bottom: 0;
         cursor: default;
+        /* Fill the full height of the scroll area */
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Card body becomes a column flex so sections spread vertically */
+    .mw-mc-card-hero .mw-mc-card-body {
+        padding: 24px 22px 20px;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
     }
 
     .mw-mc-card-hero .mw-mc-accent {
         width: 6px;
+        /* Extend accent to full card height */
+        top: 0;
+        bottom: 0;
     }
 
-    .mw-mc-card-hero .mw-mc-card-body {
-        padding: 22px 20px;
-    }
+    /* ── Header text upscaling ── */
 
-    /* Upscale the compact text to active-card sizes */
     .mw-mc-card-hero .mw-mc-compact-line1 {
-        margin-bottom: 10px;
+        margin-bottom: 6px;
     }
 
     .mw-mc-card-hero .mw-mc-compact-time {
-        font-size: 1.15rem;
+        font-size: 1.25rem;
         font-weight: 700;
     }
 
     .mw-mc-card-hero .mw-mc-compact-title {
-        font-size: 1.1rem;
+        font-size: 1.2rem;
         font-weight: 700;
         white-space: normal;
         overflow: visible;
     }
 
     .mw-mc-card-hero .mw-mc-compact-client {
-        font-size: 1.1rem;
+        font-size: 1.2rem;
         font-weight: 700;
         white-space: normal;
         overflow: visible;
     }
 
     .mw-mc-card-hero .mw-mc-compact-line2 {
-        font-size: 0.9rem;
+        font-size: 0.95rem;
         color: #6c757d;
         margin-top: 4px;
         white-space: normal;
         overflow: visible;
+    }
+
+    .mw-mc-card-hero .mw-mc-client {
+        font-size: 0.95rem;
+        margin-bottom: 8px;
+    }
+
+    .mw-mc-card-hero .mw-mc-duration-row {
+        font-size: 0.9rem;
+        margin-bottom: 10px;
     }
 
     /* Hide compact route button on hero — crew is already on-site */
@@ -734,49 +769,88 @@
         display: none;
     }
 
-    .mw-mc-card-hero .mw-mc-services {
-        margin-top: 10px;
-    }
-
-    /* Show expand-detail automatically in hero mode */
-    .mw-mc-card-hero .mw-mc-expand-detail {
-        display: block !important;
-        padding: 12px 0 0 0;
-    }
-
-    .mw-mc-card-hero .mw-mc-client {
-        font-size: 0.9rem;
-        margin-bottom: 8px;
-    }
-
-    .mw-mc-card-hero .mw-mc-duration-row {
-        font-size: 0.85rem;
-        margin-bottom: 10px;
-    }
-
     /* Hide route button on hero card — crew is already at this location */
     .mw-mc-card-hero .mw-mc-btn-route {
         display: none;
     }
 
+    /* Show expand-detail automatically in hero mode */
+    .mw-mc-card-hero .mw-mc-expand-detail {
+        display: flex !important;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        padding: 12px 0 0 0;
+    }
+
+    /* Service pills area: grows to push actions to the bottom */
+    .mw-mc-card-hero .mw-mc-services {
+        margin-top: 12px;
+        flex: 1;
+        /* Wrap pills in rows, align to start so they don't stretch */
+        align-content: flex-start;
+    }
+
+    /* ── BIG service pills ── */
+    .mw-mc-card-hero .mw-mc-pill-interactive {
+        min-height: 56px;
+        padding: 12px 18px;
+        font-size: 1rem;
+        font-weight: 700;
+        border-radius: 10px;
+        border-left-width: 4px;
+        flex: 1;               /* Equal-width pills side by side */
+        justify-content: center;
+    }
+
+    .mw-mc-card-hero .mw-mc-pill-timer {
+        font-size: 0.9rem;
+    }
+
+    /* ── Tags (gate codes, warnings) ── */
+    .mw-mc-card-hero .mw-mc-tags {
+        gap: 6px;
+        margin: 10px 0 6px;
+    }
+
+    .mw-mc-card-hero .mw-mc-tag {
+        padding: 5px 12px;
+        font-size: 0.8rem;
+    }
+
+    .mw-mc-card-hero .mw-mc-tag svg {
+        width: 14px;
+        height: 14px;
+    }
+
+    /* ── Photo thumbnails ── */
+    .mw-mc-card-hero .mw-mc-photo-thumb img {
+        height: 110px;
+    }
+
+    /* ── Action buttons: fixed at the bottom of the card ── */
     .mw-mc-card-hero .mw-mc-actions {
-        margin-top: 18px;
-        padding-top: 16px;
+        margin-top: auto;
+        padding-top: 18px;
+        border-top: 1px solid #ebe8e2;
+        flex-shrink: 0;
     }
 
     .mw-mc-card-hero .mw-mc-action-btn {
-        padding: 14px 10px;
-        font-size: 0.78rem;
+        padding: 18px 10px;
+        font-size: 0.85rem;
+        font-weight: 700;
+        border-radius: 12px;
     }
 
-    /* ── "Up Next" label inserted by JS before the remaining cards ── */
+    /* ── "Up Next" divider that separates hero from the rest ── */
     .mw-mc-hero-divider {
         font-size: 0.7rem;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 1.5px;
         color: #b0a89e;
-        padding: 16px 4px 8px;
+        padding: 20px 16px 10px;
     }
 
     /* ════════════════════════════════════════════════════
