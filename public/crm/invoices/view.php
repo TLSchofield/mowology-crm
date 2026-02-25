@@ -32,10 +32,10 @@ $stmt = $db->prepare("
         c.billing_city,
         c.billing_province,
         c.billing_postal_code,
-        ct.first_name as contact_first,
-        ct.last_name as contact_last,
-        ct.email as contact_email,
-        ct.phone as contact_phone,
+        COALESCE(ct.first_name, dc.first_name) as contact_first,
+        COALESCE(ct.last_name, dc.last_name) as contact_last,
+        COALESCE(ct.email, dc.email) as contact_email,
+        COALESCE(ct.phone, dc.phone) as contact_phone,
         p.address as property_address,
         p.city as property_city,
         p.postal_code as property_postal,
@@ -46,6 +46,7 @@ $stmt = $db->prepare("
     FROM invoices i
     LEFT JOIN companies c ON i.company_id = c.id
     LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
+    LEFT JOIN contacts dc ON i.contact_id = dc.id
     LEFT JOIN properties p ON i.property_id = p.id
     LEFT JOIN job_visits jv ON i.visit_id = jv.id
     LEFT JOIN job_plans jp ON i.plan_id = jp.id
@@ -161,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
             $recipientName = !empty($recipient['first_name'])
                 ? "{$recipient['first_name']} {$recipient['last_name']}"
-                : $invoice['company_name'];
+                : ($invoice['company_name'] ?: trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) ?: 'Valued Customer');
 
             $emailSubject = "Invoice {$invoice['invoice_number']} from Mowology";
             $emailBody = "
@@ -332,14 +333,20 @@ $extraHead = $isPayable
                           <h5 class="card-title mb-0">Bill To</h5>
                       </div>
                       <div class="card-body">
+                          <?php
+                              $contactFullName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
+                              $displayCompany = $invoice['company_name'] ?? '';
+                          ?>
+                          <?php if ($displayCompany): ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Company</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['company_name'] ?? 'N/A'); ?></span>
+                              <span class="mw-detail-value"><?php echo htmlspecialchars($displayCompany); ?></span>
                           </div>
+                          <?php endif; ?>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Contact</span>
                               <span class="mw-detail-value">
-                                  <?php echo htmlspecialchars(trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) ?: 'N/A'); ?>
+                                  <?php echo htmlspecialchars($contactFullName ?: 'N/A'); ?>
                               </span>
                           </div>
                           <div class="mw-detail-row">
@@ -415,7 +422,7 @@ $extraHead = $isPayable
                                               </td>
                                               <td>
                                                   <?php if ($recipient['invoice_sent_at']): ?>
-                                                      <small><?php echo formatDate($recipient['invoice_sent_at'], 'short'); ?></small>
+                                                      <small><?php echo formatDateTime($recipient['invoice_sent_at'], 'M j, g:i A'); ?></small>
                                                   <?php else: ?>
                                                       <span class="text-muted">Pending</span>
                                                   <?php endif; ?>
