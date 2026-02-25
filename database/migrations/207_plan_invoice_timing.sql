@@ -5,5 +5,5 @@
 -- upfront: Invoice sent before service (prepay)
 
 ALTER TABLE job_plans
-    ADD COLUMN IF NOT EXISTS invoice_timing ENUM('after_visit', 'end_of_month', 'upfront') NOT NULL DEFAULT 'after_visit'
+    ADD COLUMN invoice_timing ENUM('after_visit', 'end_of_month', 'upfront') NOT NULL DEFAULT 'after_visit'
     AFTER pricing_model;

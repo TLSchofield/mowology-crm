@@ -18,35 +18,45 @@ $visitId = isset($_GET['visit_id']) ? intval($_GET['visit_id']) : 0;
 
 if ($visitId) {
     // New path: create invoice from a completed visit
+    // LEFT JOINs on company/contact since plans may link to contacts not companies
     $stmt = $db->prepare("
         SELECT jv.id as visit_id, jv.visit_number, jv.actual_amount,
-               jv.plan_id, jv.scheduled_date,
+               jv.plan_id, jv.scheduled_date, jv.invoice_id as existing_invoice_id,
                jp.plan_number, jp.title, jp.price_per_visit, jp.estimated_amount,
                jp.property_id, jp.company_id,
                c.company_name,
-               p.address, p.city
+               p.address, p.city,
+               COALESCE(con.first_name, '') as contact_first,
+               COALESCE(con.last_name, '') as contact_last
         FROM job_visits jv
         JOIN job_plans jp ON jv.plan_id = jp.id
-        JOIN companies c ON jp.company_id = c.id
-        JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN companies c ON jp.company_id = c.id
+        LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN contacts con ON p.site_contact_id = con.id
         WHERE jv.id = ? AND jv.status = 'completed'
     ");
     $stmt->execute([$visitId]);
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($visit) {
+        // Redirect if already invoiced
+        if (!empty($visit['existing_invoice_id'])) {
+            header("Location: view.php?id={$visit['existing_invoice_id']}&already_invoiced=1");
+            exit;
+        }
         $visitAmount = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
+        $contactName = trim($visit['contact_first'] . ' ' . $visit['contact_last']) ?: null;
         $prefill = [
-            'company_id' => $visit['company_id'],
-            'property_id' => $visit['property_id'],
-            'visit_id' => $visitId,
-            'plan_id' => $visit['plan_id'],
-            'description' => $visit['title'] . ' — Visit ' . $visit['visit_number'],
-            'amount' => $visitAmount,
-            'company_name' => $visit['company_name'],
-            'property_address' => $visit['address'] . ', ' . $visit['city'],
-            'visit_number' => $visit['visit_number'],
-            'plan_number' => $visit['plan_number']
+            'company_id'       => $visit['company_id'],
+            'property_id'      => $visit['property_id'],
+            'visit_id'         => $visitId,
+            'plan_id'          => $visit['plan_id'],
+            'description'      => $visit['title'] . ' — Visit ' . $visit['visit_number'],
+            'amount'           => $visitAmount,
+            'company_name'     => $visit['company_name'] ?: $contactName,
+            'property_address' => trim(($visit['address'] ?? '') . ($visit['city'] ? ', ' . $visit['city'] : '')),
+            'visit_number'     => $visit['visit_number'],
+            'plan_number'      => $visit['plan_number'],
         ];
     }
 }
@@ -219,6 +229,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 logActivityExtended($user['id'], 'Invoice created', $details, $companyId, null, null, $invoiceId, $linkedPlanId ?: null, $linkedVisitId ?: null);
 
+                // Mark the visit as invoiced
+                if ($linkedVisitId) {
+                    $db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ?")
+                       ->execute([$invoiceId, $linkedVisitId]);
+                }
+
                 $db->commit();
 
                 header("Location: view.php?id={$invoiceId}&created=1");
@@ -265,7 +281,7 @@ if ($apiKey) {
                 <div class="mw-info-banner">
                     <strong>Creating from Visit <?php echo htmlspecialchars($visit['visit_number']); ?></strong><br>
                     Plan: <?php echo htmlspecialchars($visit['plan_number'] . ' — ' . $visit['title']); ?><br>
-                    <?php echo htmlspecialchars($visit['company_name']); ?> - <?php echo htmlspecialchars($visit['address']); ?>
+                    <?php echo htmlspecialchars($visit['company_name'] ?? $prefill['company_name'] ?? ''); ?><?php if (!empty($visit['address'])): ?> - <?php echo htmlspecialchars($visit['address']); ?><?php endif; ?>
                 </div>
             <?php endif; ?>
 

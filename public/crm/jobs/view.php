@@ -1141,9 +1141,22 @@ $activePage = 'jobs';
                                                         Complete
                                                     </button>
                                                 <?php elseif ($visit['status'] === 'completed'): ?>
-                                                    <span class="text-muted small">
+                                                    <span class="text-muted small mr-2">
                                                         <?php echo $visit['completed_at'] ? formatDateTime($visit['completed_at']) : ''; ?>
                                                     </span>
+                                                    <?php if (!empty($visit['invoice_id'])): ?>
+                                                        <a href="/crm/invoices/view.php?id=<?php echo (int)$visit['invoice_id']; ?>"
+                                                           class="btn btn-sm btn-outline-success" title="View invoice">
+                                                            <i data-feather="file-text" style="width:12px;height:12px;"></i>
+                                                            Invoiced
+                                                        </a>
+                                                    <?php else: ?>
+                                                        <a href="/crm/invoices/create.php?visit_id=<?php echo (int)$visit['id']; ?>"
+                                                           class="btn btn-sm btn-outline-warning mw-raise-invoice-btn" title="Raise invoice for this visit">
+                                                            <i data-feather="dollar-sign" style="width:12px;height:12px;"></i>
+                                                            Raise Invoice
+                                                        </a>
+                                                    <?php endif; ?>
                                                 <?php elseif ($visit['status'] === 'skipped'): ?>
                                                     <span class="text-muted small">Skipped</span>
                                                 <?php elseif ($visit['status'] === 'weather'): ?>
