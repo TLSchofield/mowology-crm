@@ -1338,8 +1338,24 @@
         display: block;
     }
 
+    /* Hero (active) card — slightly taller thumbnails */
     .mw-mc-card-hero .mw-mc-photo-thumb img {
         height: 110px;
+    }
+
+    /* Compact card — fixed-size square thumbnails so a single photo
+       never stretches to fill the full card width */
+    .mw-mc-card-compact .mw-mc-photo-strip {
+        justify-content: flex-start;
+    }
+
+    .mw-mc-card-compact .mw-mc-photo-thumb {
+        flex: 0 0 72px;
+        width: 72px;
+    }
+
+    .mw-mc-card-compact .mw-mc-photo-thumb img {
+        height: 72px;
     }
 
     .mw-mc-photo-thumb-label {
