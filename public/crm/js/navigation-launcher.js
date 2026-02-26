@@ -51,8 +51,11 @@ var MwNavLauncher = (function() {
      * Build a Google Maps navigation URL for a single stop.
      * Prefers lat/lng; falls back to address string.
      *
+     * Passing origin prevents Google Maps from stalling while it tries to
+     * acquire device GPS — the route is computed instantly on open.
+     *
      * @param {Object} stop - { lat, lng, address, label }
-     * @param {Object} [options] - { mode: 'driving'|'walking'|'bicycling', navigate: true }
+     * @param {Object} [options] - { mode: 'driving'|'walking'|'bicycling', navigate: true, origin: { lat, lng } }
      * @returns {string|null} URL or null if no location data
      */
     function buildNavigationUrl(stop, options) {
@@ -73,8 +76,16 @@ var MwNavLauncher = (function() {
             return null;
         }
 
-        var url = 'https://www.google.com/maps/dir/?api=1'
-            + '&destination=' + encodeURIComponent(destination)
+        var url = 'https://www.google.com/maps/dir/?api=1';
+
+        // Pass origin so Google Maps doesn't stall waiting for device GPS.
+        // Without this, Maps has to acquire a fresh GPS fix before it can
+        // display the route — which causes the "stalling" behaviour.
+        if (options.origin && options.origin.lat && options.origin.lng) {
+            url += '&origin=' + encodeURIComponent(options.origin.lat + ',' + options.origin.lng);
+        }
+
+        url += '&destination=' + encodeURIComponent(destination)
             + '&travelmode=' + mode;
 
         // dir_action=navigate skips the preview and starts turn-by-turn immediately
@@ -82,7 +93,8 @@ var MwNavLauncher = (function() {
             url += '&dir_action=navigate';
         }
 
-        log('Built URL:', url, 'from stop:', { lat: stop.lat, lng: stop.lng, address: stop.address });
+        log('Built URL:', url, 'from stop:', { lat: stop.lat, lng: stop.lng, address: stop.address },
+            'origin:', options.origin || 'none');
         return url;
     }
 
@@ -140,14 +152,23 @@ var MwNavLauncher = (function() {
 
     /**
      * Build an Android intent URI for Google Maps navigation.
-     * Falls back to regular URL if intent format not applicable.
+     * The google.navigation: intent does not support an explicit origin —
+     * it always uses device GPS. So we fall back to the web URL with origin
+     * when we have the user's location, which opens Maps with the route
+     * pre-computed instead of stalling on GPS acquisition.
      *
      * @param {Object} stop - { lat, lng, address }
+     * @param {Object} [origin] - { lat, lng } user's current position
      * @returns {string}
      */
-    function buildAndroidIntentUri(stop) {
+    function buildAndroidIntentUri(stop, origin) {
+        // If we have the user's GPS position, use the web URL with explicit origin.
+        // This prevents Google Maps from stalling while it acquires its own GPS fix.
+        if (origin && origin.lat && origin.lng) {
+            return buildNavigationUrl(stop, { origin: origin });
+        }
+        // No origin available — use the native intent (Maps will GPS-acquire itself)
         if (stop.lat && stop.lng) {
-            // google.navigation intent — launches turn-by-turn directly
             return 'google.navigation:q=' + stop.lat + ',' + stop.lng + '&mode=d';
         } else if (stop.address) {
             return 'google.navigation:q=' + encodeURIComponent(stop.address) + '&mode=d';
@@ -157,17 +178,26 @@ var MwNavLauncher = (function() {
 
     /**
      * Build an Apple Maps URL for iOS.
+     * saddr = source (origin), daddr = destination.
      *
      * @param {Object} stop - { lat, lng, address }
+     * @param {Object} [origin] - { lat, lng } user's current position
      * @returns {string|null}
      */
-    function buildAppleMapsUrl(stop) {
-        if (stop.lat && stop.lng) {
-            return 'http://maps.apple.com/?daddr=' + stop.lat + ',' + stop.lng + '&dirflg=d';
-        } else if (stop.address) {
-            return 'http://maps.apple.com/?daddr=' + encodeURIComponent(stop.address) + '&dirflg=d';
+    function buildAppleMapsUrl(stop, origin) {
+        var daddr = (stop.lat && stop.lng)
+            ? stop.lat + ',' + stop.lng
+            : (stop.address ? stop.address : null);
+        if (!daddr) return null;
+
+        var url = 'http://maps.apple.com/?daddr=' + encodeURIComponent(daddr) + '&dirflg=d';
+
+        // Pass saddr so Apple Maps doesn't have to acquire GPS before showing route
+        if (origin && origin.lat && origin.lng) {
+            url += '&saddr=' + encodeURIComponent(origin.lat + ',' + origin.lng);
         }
-        return null;
+
+        return url;
     }
 
     // ── Launch Helpers ──
@@ -236,8 +266,11 @@ var MwNavLauncher = (function() {
      * Launch turn-by-turn navigation to a single stop.
      * Chooses the best method for the current platform.
      *
+     * Passing options.origin (user's GPS position) prevents Google Maps /
+     * Apple Maps from stalling while they acquire a GPS fix of their own.
+     *
      * @param {Object} stop - { lat, lng, address, label }
-     * @param {Object} [options] - { mode: 'driving' }
+     * @param {Object} [options] - { mode: 'driving', origin: { lat, lng } }
      * @returns {boolean} true if launched successfully
      */
     function launchNavigation(stop, options) {
@@ -246,18 +279,22 @@ var MwNavLauncher = (function() {
             return false;
         }
 
-        // Validate we have location data
+        // Validate we have destination data
         if (!stop.lat && !stop.lng && !stop.address) {
             showToast('Missing location — tap address to set pin');
             log('BLOCKED: no lat/lng or address for stop:', stop);
             return false;
         }
 
+        options = options || {};
+        var origin = options.origin || null;
+
         log('Launching navigation:', {
             stopId: stop.stopId,
             lat: stop.lat,
             lng: stop.lng,
-            address: stop.address
+            address: stop.address,
+            origin: origin
         });
 
         showToast('Launching navigation...');
@@ -265,18 +302,19 @@ var MwNavLauncher = (function() {
         var url;
 
         if (isAndroid()) {
-            // Android Capacitor: use google.navigation intent for best Google Maps integration
-            url = buildAndroidIntentUri(stop);
+            // Android: pass origin so Maps doesn't stall on GPS acquisition.
+            // buildAndroidIntentUri falls back to web URL when origin is available.
+            url = buildAndroidIntentUri(stop, origin);
             if (url) {
-                log('Android intent URI:', url);
+                log('Android nav URL:', url);
                 openUrl(url);
                 return true;
             }
         }
 
         if (isIos()) {
-            // iOS: try Apple Maps first (opens natively), fall back to Google Maps
-            url = buildAppleMapsUrl(stop);
+            // iOS: Apple Maps with explicit saddr (source) to skip GPS stall
+            url = buildAppleMapsUrl(stop, origin);
             if (url) {
                 log('Apple Maps URL:', url);
                 openUrl(url);
@@ -284,7 +322,7 @@ var MwNavLauncher = (function() {
             }
         }
 
-        // Web / fallback: Google Maps URL with navigate action
+        // Web / fallback: Google Maps URL with origin + navigate action
         url = buildNavigationUrl(stop, options);
         if (url) {
             openUrl(url);

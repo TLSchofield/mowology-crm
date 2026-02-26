@@ -1174,7 +1174,21 @@ var MwRouteMap = (function() {
                     }
                     if (target) {
                         log('Mobile direct nav to stop:', stopId, target);
-                        MwNavLauncher.launchNavigation(target);
+
+                        // Get fresh GPS before launching so we can pass origin to
+                        // Google Maps / Apple Maps. Without it, Maps stalls while
+                        // acquiring its own GPS fix. getFreshGPS uses a 30s cache
+                        // so it's instant if the map view was recently open.
+                        getFreshGPS(function() {
+                            var navOptions = {};
+                            if (userLat && userLng) {
+                                navOptions.origin = { lat: userLat, lng: userLng };
+                                log('Launching with origin:', userLat, userLng);
+                            } else {
+                                log('No GPS available — launching without origin');
+                            }
+                            MwNavLauncher.launchNavigation(target, navOptions);
+                        });
                         return;
                     }
                     // Stop not found in MW_ROUTE_STOPS — fall through to map view
@@ -1496,9 +1510,42 @@ var MwRouteMap = (function() {
         init();
     }
 
+    /**
+     * Launch navigation to a stop by ID, fetching fresh GPS first so
+     * Google Maps / Apple Maps receives an explicit origin and doesn't
+     * stall waiting to acquire its own GPS fix.
+     * Called from compact card inline onclick handlers.
+     *
+     * @param {number} stopId
+     */
+    function launchNavToStop(stopId) {
+        if (typeof MwNavLauncher === 'undefined') {
+            // Fallback: open map view
+            openToStop(stopId);
+            return;
+        }
+        var stops = getStops();
+        var target = null;
+        for (var i = 0; i < stops.length; i++) {
+            if (stops[i].stopId === stopId) { target = stops[i]; break; }
+        }
+        if (!target) {
+            openToStop(stopId);
+            return;
+        }
+        getFreshGPS(function() {
+            var navOptions = {};
+            if (userLat && userLng) {
+                navOptions.origin = { lat: userLat, lng: userLng };
+            }
+            MwNavLauncher.launchNavigation(target, navOptions);
+        });
+    }
+
     return {
         toggle: toggle,
         openToStop: openToStop,
+        launchNavToStop: launchNavToStop,
         close: close
     };
 
