@@ -42,7 +42,7 @@ var APP_SHELL = [
   '/crm/js/time-clock-widget.js?v=20260214h',
   '/crm/js/capacitor-bridge.js?v=20260214',
   '/crm/js/navigation-launcher.js?v=20260225c',
-  '/crm/js/schedule-route-map.js?v=20260226a',
+  '/crm/js/schedule-route-map.js?v=20260226b',
   '/crm/js/schedule-pill-workflow.js?v=20260214h',
   '/crm/js/schedule-drag-drop.js',
   '/crm/js/route-engine.js?v=20260219a',

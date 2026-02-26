@@ -295,7 +295,7 @@ $stopTags = $stop['tags'] ?? [];
                 <button type="button" class="mw-mc-compact-route"
                         data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                         data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
-                        onclick="event.stopPropagation(); if(typeof MwRouteMap!=='undefined') MwRouteMap.openToStop(<?php echo (int)$stop['stop_id']; ?>);">
+                        onclick="event.stopPropagation(); (function(sid){ var isMobile=window.matchMedia('(max-width:991px)').matches||('ontouchstart' in window&&window.innerWidth<=991); if(isMobile&&typeof MwRouteMap!=='undefined'&&MwRouteMap.launchNavToStop){MwRouteMap.launchNavToStop(sid);return;} if(typeof MwRouteMap!=='undefined')MwRouteMap.openToStop(sid); })(<?php echo (int)$stop['stop_id']; ?>);">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2L4.5 20.3l.7.7L12 18l6.8 3 .7-.7z"/></svg>
                 </button>
             <?php endif; ?>
