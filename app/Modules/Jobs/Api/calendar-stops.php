@@ -78,6 +78,7 @@ try {
             'longitude'         => $stop['longitude'] ? (float)$stop['longitude'] : null,
             'company_name'      => $stop['company_name'] ?? null,
             'contact_name'      => $stop['contact_name'] ?? null,
+            'lawn_sqft'         => isset($stop['lawn_sqft']) && $stop['lawn_sqft'] > 0 ? (float)$stop['lawn_sqft'] : null,
             'visits'            => $visits,
         ];
     }

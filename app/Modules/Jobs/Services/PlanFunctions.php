@@ -973,7 +973,12 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             p.latitude,
             p.longitude,
             p.property_name,
-            COALESCE(p.total_lawn_sqft, p.lawn_size_sqft) AS lawn_sqft,
+            COALESCE(
+                p.total_lawn_sqft,
+                (SELECT SUM(pm.area_sqft) FROM property_measurements pm
+                 WHERE pm.property_id = p.id AND pm.measurement_type IN ('lawn', 'garden')),
+                p.lawn_size_sqft
+            ) AS lawn_sqft,
             co.company_name,
             ct.id AS contact_id,
             CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
@@ -1081,6 +1086,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'contact_id'    => $row['contact_id'] ? (int)$row['contact_id'] : null,
                 'contact_name'  => $row['contact_name'],
                 'property_name' => $row['property_name'],
+                'lawn_sqft'     => isset($row['lawn_sqft']) && $row['lawn_sqft'] > 0 ? (float)$row['lawn_sqft'] : null,
                 'visits'        => [],
             ];
         }
