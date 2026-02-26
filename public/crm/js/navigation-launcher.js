@@ -37,8 +37,14 @@ var MwNavLauncher = (function() {
         return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
     }
 
+    // Detect Android by user agent alone — do NOT require Capacitor.
+    // If we gate on isCapacitor() and it isn't detected (timing, PWA context,
+    // etc.) we fall through to window.open() with a web URL which opens the
+    // Maps web interface in a WebView and shows "Finding best route..." forever.
+    // The google.navigation: intent works in any Android context (Capacitor or
+    // Chrome PWA) as long as Google Maps is installed.
     function isAndroid() {
-        return isCapacitor() && /android/i.test(navigator.userAgent);
+        return /android/i.test(navigator.userAgent);
     }
 
     function isIos() {
@@ -152,23 +158,23 @@ var MwNavLauncher = (function() {
 
     /**
      * Build an Android intent URI for Google Maps navigation.
-     * The google.navigation: intent does not support an explicit origin —
-     * it always uses device GPS. So we fall back to the web URL with origin
-     * when we have the user's location, which opens Maps with the route
-     * pre-computed instead of stalling on GPS acquisition.
+     *
+     * Always use the google.navigation: intent — this opens the real Google
+     * Maps app directly into turn-by-turn mode. The web URL alternative
+     * (maps.google.com/dir/...) opens inside a WebView/browser context where
+     * it shows "Finding best route..." indefinitely or "Something went wrong".
+     *
+     * The native Maps app acquires GPS itself reliably and quickly once open,
+     * so not passing origin here is fine — the stall was caused by the web URL,
+     * not by missing origin.
      *
      * @param {Object} stop - { lat, lng, address }
-     * @param {Object} [origin] - { lat, lng } user's current position
-     * @returns {string}
+     * @param {Object} [origin] - unused, kept for API compatibility
+     * @returns {string|null}
      */
     function buildAndroidIntentUri(stop, origin) {
-        // If we have the user's GPS position, use the web URL with explicit origin.
-        // This prevents Google Maps from stalling while it acquires its own GPS fix.
-        if (origin && origin.lat && origin.lng) {
-            return buildNavigationUrl(stop, { origin: origin });
-        }
-        // No origin available — use the native intent (Maps will GPS-acquire itself)
         if (stop.lat && stop.lng) {
+            // google.navigation: intent — opens Google Maps app directly into nav
             return 'google.navigation:q=' + stop.lat + ',' + stop.lng + '&mode=d';
         } else if (stop.address) {
             return 'google.navigation:q=' + encodeURIComponent(stop.address) + '&mode=d';

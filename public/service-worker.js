@@ -40,7 +40,7 @@ var APP_SHELL = [
   /* ── Schedule page JS ── */
   '/crm/js/time-clock-widget.js?v=20260214h',
   '/crm/js/capacitor-bridge.js?v=20260214',
-  '/crm/js/navigation-launcher.js?v=20260225a',
+  '/crm/js/navigation-launcher.js?v=20260225c',
   '/crm/js/schedule-route-map.js?v=20260225a',
   '/crm/js/schedule-pill-workflow.js?v=20260214h',
   '/crm/js/schedule-drag-drop.js',
