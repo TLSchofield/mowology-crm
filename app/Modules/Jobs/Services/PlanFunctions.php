@@ -973,6 +973,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             p.latitude,
             p.longitude,
             p.property_name,
+            COALESCE(p.total_lawn_sqft, p.lawn_size_sqft) AS lawn_sqft,
             co.company_name,
             ct.id AS contact_id,
             CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,

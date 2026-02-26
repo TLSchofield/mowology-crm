@@ -105,6 +105,10 @@ if ($estimatedDuration > 0) {
     }
 }
 
+// Lawn sq ft display
+$lawnSqFt = (int)($stop['lawn_sqft'] ?? 0);
+$lawnSqFtDisplay = $lawnSqFt > 0 ? number_format($lawnSqFt) . ' sq ft' : '';
+
 // Build service label string for all visits on this stop
 $serviceLabelsStr = '';
 if (!empty($stop['visits'])) {
@@ -206,6 +210,13 @@ $stopTags = $stop['tags'] ?? [];
                 </div>
             <?php endif; ?>
 
+            <?php if ($lawnSqFtDisplay): ?>
+                <div class="mw-mc-lawn-sqft">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M9 3v18"/></svg>
+                    <?php echo htmlspecialchars($lawnSqFtDisplay); ?>
+                </div>
+            <?php endif; ?>
+
             <?php echo renderPropertyTags($stopTags, $tagIcons); ?>
 
             <?php if (!empty($stop['visits'])): ?>
@@ -241,11 +252,11 @@ $stopTags = $stop['tags'] ?? [];
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
         <div class="mw-mc-actions">
-            <button type="button" class="mw-mc-action-btn mw-mc-btn-route"
+            <button type="button" class="mw-mc-action-btn mw-mc-btn-route mw-mc-btn-go"
                     data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                     data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                <span>Route</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                <span>GO</span>
             </button>
         </div>
         <?php endif; ?>
@@ -292,11 +303,12 @@ $stopTags = $stop['tags'] ?? [];
             </div>
 
             <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-                <button type="button" class="mw-mc-compact-route"
+                <button type="button" class="mw-mc-compact-route mw-mc-compact-go"
                         data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                         data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>"
                         onclick="event.stopPropagation(); (function(sid){ var isMobile=window.matchMedia('(max-width:991px)').matches||('ontouchstart' in window&&window.innerWidth<=991); if(isMobile&&typeof MwRouteMap!=='undefined'&&MwRouteMap.launchNavToStop){MwRouteMap.launchNavToStop(sid);return;} if(typeof MwRouteMap!=='undefined')MwRouteMap.openToStop(sid); })(<?php echo (int)$stop['stop_id']; ?>);">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2L4.5 20.3l.7.7L12 18l6.8 3 .7-.7z"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                    GO
                 </button>
             <?php endif; ?>
         </div>
@@ -348,13 +360,20 @@ $stopTags = $stop['tags'] ?? [];
             </div>
         <?php endif; ?>
 
+        <?php if ($lawnSqFtDisplay): ?>
+            <div class="mw-mc-lawn-sqft">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M9 3v18"/></svg>
+                <?php echo htmlspecialchars($lawnSqFtDisplay); ?>
+            </div>
+        <?php endif; ?>
+
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
         <div class="mw-mc-actions">
-            <button type="button" class="mw-mc-action-btn mw-mc-btn-route"
+            <button type="button" class="mw-mc-action-btn mw-mc-btn-route mw-mc-btn-go"
                     data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                     data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                <span>Route</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                <span>GO</span>
             </button>
         </div>
         <?php endif; ?>

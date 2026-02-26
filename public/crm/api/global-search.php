@@ -39,7 +39,7 @@ try {
             'icon'     => 'user',
             'label'    => trim($r['first_name'] . ' ' . $r['last_name']),
             'sublabel' => $r['email'] ?: $r['phone'] ?: '',
-            'url'      => '/crm/clients_appstack.php?contact_id=' . $r['id'],
+            'url'      => '/crm/clients_appstack.php?action=view_contact&id=' . $r['id'],
         ];
     }
 } catch (PDOException $e) { /* skip silently */ }
@@ -47,7 +47,7 @@ try {
 // ── Properties ────────────────────────────────────────
 try {
     $stmt = $db->prepare("
-        SELECT p.id, p.address, p.city, p.postal_code, p.property_type,
+        SELECT p.id, p.address, p.city, p.postal_code, p.property_type, p.site_contact_id,
                c.first_name, c.last_name
         FROM properties p
         LEFT JOIN contacts c ON p.site_contact_id = c.id
@@ -61,12 +61,15 @@ try {
         $owner = trim(($r['first_name'] ?? '') . ' ' . ($r['last_name'] ?? ''));
         $sublabel = $r['city'] ?: '';
         if ($owner) $sublabel .= ($sublabel ? ' · ' : '') . $owner;
+        $contactUrl = $r['site_contact_id']
+            ? '/crm/clients_appstack.php?action=view_contact&id=' . $r['site_contact_id']
+            : '/crm/clients_appstack.php';
         $results[] = [
             'category' => 'Properties',
             'icon'     => 'map-pin',
             'label'    => $r['address'],
             'sublabel' => $sublabel,
-            'url'      => '/crm/clients_appstack.php?property_id=' . $r['id'],
+            'url'      => $contactUrl,
         ];
     }
 } catch (PDOException $e) { /* skip silently */ }

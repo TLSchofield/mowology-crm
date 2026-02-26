@@ -33,7 +33,7 @@ var APP_SHELL = [
   /* ── Core AppStack frame ── */
   '/crm/css/classic.css',
   '/crm/css/mowology-brand.css?v=20260225b',
-  '/crm/css/mobile-cards.css?v=20260225b',
+  '/crm/css/mobile-cards.css?v=20260226a',
   '/crm/css/mobile-nav.css?v=20260225a',
   '/crm/js/app.js',
   '/crm/js/feather-helper.js',
