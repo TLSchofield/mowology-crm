@@ -922,6 +922,7 @@ foreach ($mobileStops as $s) {
 
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
+$bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260225b" rel="stylesheet">';
 if ($apiKey) {
