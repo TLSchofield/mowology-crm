@@ -542,12 +542,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 </div><!-- /tab-content -->
 
 <!-- ═══════ INLINE JOB ASSIGN POPOVER ════════════════════════════════ -->
-<div id="jobAssignPopover" style="display:none;position:fixed;z-index:9999;background:#fff;border:1px solid #dee2e6;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);padding:12px;min-width:220px;">
+<div id="jobAssignPopover" style="display:none;position:fixed;z-index:9999;background:#fff;border:1px solid #dee2e6;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);padding:12px;min-width:260px;">
     <div style="font-size:.8rem;font-weight:600;color:var(--mw-dark);margin-bottom:8px;">
         <i data-feather="link" style="width:13px;height:13px;vertical-align:-1px;"></i> <span id="jobPopoverTitle">Assign to Job Plan</span>
     </div>
     <input type="hidden" id="jobPopoverExpenseId">
-    <input type="number" id="jobPopoverInput" class="form-control form-control-sm mb-2" placeholder="Job plan #" min="1" style="width:100%;">
+    <div style="position:relative;">
+        <input type="text" id="jobPopoverSearch" class="form-control form-control-sm mb-1" placeholder="Search by #, service, or address…" autocomplete="off" style="width:100%;">
+        <input type="hidden" id="jobPopoverInput">
+        <div id="jobPopoverDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:10000;background:#fff;border:1px solid #dee2e6;border-radius:4px;max-height:200px;overflow-y:auto;font-size:.8rem;box-shadow:0 2px 8px rgba(0,0,0,.1);"></div>
+    </div>
+    <div id="jobPopoverSelected" style="display:none;margin-bottom:6px;">
+        <span class="badge bg-success" id="jobPopoverSelectedBadge" style="font-size:.75rem;"></span>
+    </div>
     <div class="d-flex gap-1">
         <button class="btn btn-sm btn-primary flex-grow-1" onclick="saveJobPopover()">Save</button>
         <button class="btn btn-sm btn-outline-danger" id="jobPopoverUnlinkBtn" style="display:none;" onclick="unlinkJobPopover()" title="Remove job link">Unlink</button>
@@ -967,9 +974,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                     <label class="form-label">GBP Category</label>
                                     <select class="form-select" id="expGbpCategory"></select>
                                 </div>
-                                <div class="col-md-4">
-                                    <label class="form-label">Job #</label>
-                                    <input type="number" class="form-control" id="expJobId" placeholder="Optional">
+                                <div class="col-md-4" style="position:relative;">
+                                    <label class="form-label">Link to Job</label>
+                                    <input type="text" class="form-control" id="expJobSearch" placeholder="Search by #, service, or address…" autocomplete="off">
+                                    <input type="hidden" id="expJobId">
+                                    <div class="dropdown-menu w-100" id="jobSearchDropdown" style="max-height:220px;overflow-y:auto;font-size:.85rem;"></div>
+                                    <div id="expJobLinked" class="mt-1" style="display:none;">
+                                        <span class="badge bg-success" id="expJobLinkedBadge"></span>
+                                        <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-danger" onclick="clearJobLink()" title="Remove job link" style="line-height:1;">×</button>
+                                    </div>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Status</label>
@@ -1236,6 +1249,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         loadQbStatusWidget();
         setupVendorSearch('expVendorSearch', 'vendorDropdown', 'expVendorId', 'expAcctCategory', 'expGbpCategory');
         setupVendorSearch('rvVendorSearch', 'rvVendorDropdown', 'rvVendorId', 'rvAcctCategory', 'rvGbpCategory');
+        setupJobSearch();
 
         // Auto-calc totals (subtotal + gst + pst = total)
         ['expAmount','expGst','expPst'].forEach(function(id) {
@@ -2497,17 +2511,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     window.openJobPopover = function(evt, expenseId, currentJobId) {
         evt.stopPropagation();
         var pop = document.getElementById('jobAssignPopover');
-        var inp = document.getElementById('jobPopoverInput');
         var unlinkBtn = document.getElementById('jobPopoverUnlinkBtn');
         var title = document.getElementById('jobPopoverTitle');
+        var searchEl = document.getElementById('jobPopoverSearch');
+        var selectedEl = document.getElementById('jobPopoverSelected');
+        var badgeEl = document.getElementById('jobPopoverSelectedBadge');
+        var hiddenEl = document.getElementById('jobPopoverInput');
+
         document.getElementById('jobPopoverExpenseId').value = expenseId;
-        inp.value = currentJobId || '';
-        // Show Unlink button and update title when a job is already assigned
+
+        // Reset search state
+        searchEl.value = '';
+        document.getElementById('jobPopoverDropdown').style.display = 'none';
+
         if (currentJobId) {
-            title.textContent = 'Reassign Job #' + currentJobId;
+            title.textContent = 'Reassign Job';
+            hiddenEl.value = currentJobId;
+            badgeEl.textContent = 'Job #' + currentJobId + ' linked';
+            selectedEl.style.display = '';
             unlinkBtn.style.display = '';
         } else {
             title.textContent = 'Assign to Job Plan';
+            hiddenEl.value = '';
+            selectedEl.style.display = 'none';
             unlinkBtn.style.display = 'none';
         }
         if (window.feather) feather.replace();
@@ -2515,11 +2541,65 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Position below the clicked element
         var rect = evt.target.getBoundingClientRect();
         pop.style.top = (rect.bottom + window.scrollY + 4) + 'px';
-        pop.style.left = Math.min(rect.left, window.innerWidth - 260) + 'px';
+        pop.style.left = Math.min(rect.left, window.innerWidth - 280) + 'px';
         pop.style.display = 'block';
-        inp.focus();
-        inp.select();
+        searchEl.focus();
+
+        // Wire up search for this popover session
+        setupJobPopoverSearch();
     };
+
+    var _popoverSearchDebounce;
+    function setupJobPopoverSearch() {
+        var searchEl  = document.getElementById('jobPopoverSearch');
+        var dropdown  = document.getElementById('jobPopoverDropdown');
+        var hiddenEl  = document.getElementById('jobPopoverInput');
+        var selectedEl = document.getElementById('jobPopoverSelected');
+        var badgeEl   = document.getElementById('jobPopoverSelectedBadge');
+        // Remove old listener by replacing the element clone
+        var newSearch = searchEl.cloneNode(true);
+        searchEl.parentNode.replaceChild(newSearch, searchEl);
+        searchEl = newSearch;
+
+        searchEl.addEventListener('input', function() {
+            clearTimeout(_popoverSearchDebounce);
+            var q = this.value.trim();
+            if (q.length < 2) { dropdown.style.display = 'none'; return; }
+            _popoverSearchDebounce = setTimeout(async function() {
+                try {
+                    var r = await fetch('/crm/api/expenses.php?action=search_jobs&q=' + encodeURIComponent(q));
+                    var d = await r.json();
+                    if (d.success && d.jobs.length) {
+                        dropdown.innerHTML = d.jobs.map(function(j) {
+                            var label = esc(j.plan_number || ('#' + j.id));
+                            var sub   = [j.service_type, j.contact_name, j.address].filter(Boolean).map(esc).join(' · ');
+                            return '<div class="mw-jpop-item" data-jid="' + j.id + '" data-jlabel="' + label + '" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0;">' +
+                                '<strong>' + label + '</strong>' +
+                                (j.status === 'active' ? ' <span style="color:#2d8659;font-size:.7rem;">(active)</span>' : '') +
+                                (sub ? '<br><small style="color:#888;">' + esc(sub) + '</small>' : '') +
+                                '</div>';
+                        }).join('');
+                        dropdown.querySelectorAll('.mw-jpop-item').forEach(function(item) {
+                            item.addEventListener('mousedown', function(e) {
+                                e.preventDefault();
+                                hiddenEl.value = this.dataset.jid;
+                                badgeEl.textContent = this.dataset.jlabel + ' selected';
+                                selectedEl.style.display = '';
+                                searchEl.value = '';
+                                dropdown.style.display = 'none';
+                            });
+                            item.addEventListener('mouseover', function() { this.style.background = '#f8f9fa'; });
+                            item.addEventListener('mouseout',  function() { this.style.background = ''; });
+                        });
+                        dropdown.style.display = 'block';
+                    } else {
+                        dropdown.innerHTML = '<div style="padding:6px 10px;color:#888;font-size:.8rem;">No matching jobs</div>';
+                        dropdown.style.display = 'block';
+                    }
+                } catch(e) { dropdown.style.display = 'none'; }
+            }, 300);
+        });
+    }
 
     window.unlinkJobPopover = async function() {
         var expId = parseInt(document.getElementById('jobPopoverExpenseId').value);
@@ -2568,12 +2648,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         }
     });
 
-    // Also save on Enter key in the input
-    document.addEventListener('DOMContentLoaded', function() {
-        var inp = document.getElementById('jobPopoverInput');
-        if (inp) inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') saveJobPopover(); });
-    });
-
     // ── Edit Expense (modal) ─────────────────────────────────────
     window.editExpense = async function(id) {
         try {
@@ -2593,7 +2667,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('expTotal').value = e.total;
             document.getElementById('expAcctCategory').value = e.accounting_category || '';
             document.getElementById('expGbpCategory').value = e.gbp_category || '';
-            document.getElementById('expJobId').value = e.job_id || '';
+            // Job link — populate the search field display and hidden ID
+            var jobSub = [e.job_service_type, e.job_contact_name, e.job_address].filter(Boolean).join(' · ');
+            setJobLink(e.job_id || null, e.job_plan_number || (e.job_id ? '#' + e.job_id : null), null, jobSub || null);
             document.getElementById('expStatus').value = e.status || 'draft';
             document.getElementById('expDescription').value = e.description || '';
             document.getElementById('expNotes').value = e.notes || '';
@@ -2664,11 +2740,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             } else if (anomalySection) {
                 anomalySection.style.display = 'none';
             }
-
-            // Job margin (async load if job linked)
-            var marginSection = document.getElementById('expMarginSection');
-            if (marginSection) marginSection.style.display = 'none';
-            if (e.job_id) loadJobMargin(e.job_id);
 
             if (window.feather) feather.replace();
             $('#expenseModal').modal('show');
@@ -2765,6 +2836,88 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             }
         });
     }
+
+    // ── Job Search Autocomplete ──────────────────────────────────
+    function setupJobSearch() {
+        var input    = document.getElementById('expJobSearch');
+        var dropdown = document.getElementById('jobSearchDropdown');
+        if (!input || !dropdown) return;
+
+        var debounce;
+        input.addEventListener('input', function() {
+            clearTimeout(debounce);
+            var q = this.value.trim();
+            if (q.length < 2) { dropdown.classList.remove('show'); return; }
+            debounce = setTimeout(async function() {
+                try {
+                    var r = await fetch('/crm/api/expenses.php?action=search_jobs&q=' + encodeURIComponent(q));
+                    var d = await r.json();
+                    if (d.success && d.jobs.length) {
+                        dropdown.innerHTML = d.jobs.map(function(j) {
+                            var label = esc(j.plan_number || '#' + j.id);
+                            var sub   = [j.service_type, j.contact_name, j.address].filter(Boolean).map(esc).join(' · ');
+                            var statusBadge = j.status === 'active'
+                                ? '<span class="badge bg-success ms-1" style="font-size:.65rem;">active</span>'
+                                : '<span class="badge bg-secondary ms-1" style="font-size:.65rem;">' + esc(j.status) + '</span>';
+                            return '<a class="dropdown-item py-1" href="#" data-jid="' + j.id + '" data-jlabel="' + label + '" data-jsub="' + esc(sub) + '">' +
+                                '<strong>' + label + '</strong>' + statusBadge +
+                                (sub ? '<br><small class="text-muted">' + esc(sub) + '</small>' : '') +
+                                '</a>';
+                        }).join('');
+                        dropdown.querySelectorAll('.dropdown-item').forEach(function(item) {
+                            item.addEventListener('click', function(e) {
+                                e.preventDefault();
+                                setJobLink(this.dataset.jid, this.dataset.jlabel, null, this.dataset.jsub);
+                                dropdown.classList.remove('show');
+                            });
+                        });
+                        dropdown.classList.add('show');
+                    } else {
+                        dropdown.innerHTML = '<span class="dropdown-item-text text-muted py-1">No matching jobs found</span>';
+                        dropdown.classList.add('show');
+                    }
+                } catch(e) { dropdown.classList.remove('show'); }
+            }, 300);
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.classList.remove('show');
+            }
+        });
+    }
+
+    // Sets the job link state in the edit modal
+    window.setJobLink = function(jobId, planNumber, serviceType, sub) {
+        var hiddenId = document.getElementById('expJobId');
+        var searchEl = document.getElementById('expJobSearch');
+        var linkedEl = document.getElementById('expJobLinked');
+        var badgeEl  = document.getElementById('expJobLinkedBadge');
+        if (!hiddenId || !searchEl) return;
+
+        if (jobId) {
+            hiddenId.value = jobId;
+            searchEl.value = '';
+            var label = planNumber || ('#' + jobId);
+            if (sub) label += ' — ' + sub;
+            badgeEl.textContent = label;
+            linkedEl.style.display = '';
+            searchEl.placeholder = 'Search to change…';
+        } else {
+            hiddenId.value = '';
+            searchEl.value = '';
+            linkedEl.style.display = 'none';
+            searchEl.placeholder = 'Search by #, service, or address…';
+        }
+        // Load margin if a job is linked
+        var marginSection = document.getElementById('expMarginSection');
+        if (marginSection) marginSection.style.display = 'none';
+        if (jobId) loadJobMargin(jobId);
+    };
+
+    window.clearJobLink = function() {
+        setJobLink(null, null, null, null);
+    };
 
     // ── Vendors Tab ──────────────────────────────────────────────
     async function loadVendors() {

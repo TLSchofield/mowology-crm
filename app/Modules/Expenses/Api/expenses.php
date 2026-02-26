@@ -150,6 +150,10 @@ try {
             handleReassignJob($db, $input);
             break;
 
+        case 'search_jobs':
+            handleSearchJobs($db);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -304,11 +308,18 @@ function handleGet(PDO $db): void
                u.full_name AS created_by_name,
                ma.file_path AS receipt_path,
                ma.original_filename AS receipt_original_name,
-               ma.mime_type AS receipt_mime_type
+               ma.mime_type AS receipt_mime_type,
+               jp.plan_number AS job_plan_number,
+               jp.service_type AS job_service_type,
+               p.address AS job_address,
+               c.full_name AS job_contact_name
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
         LEFT JOIN users u ON u.id = e.created_by
         LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
+        LEFT JOIN job_plans jp ON jp.id = e.job_id
+        LEFT JOIN properties p ON p.id = jp.property_id
+        LEFT JOIN contacts c ON c.id = p.site_contact_id
         WHERE e.id = ?
     ");
     $stmt->execute([$id]);
@@ -1257,4 +1268,46 @@ function handleQbRetry(PDO $db): void
     require_once APP_ROOT . '/Services/QuickBooks/QBService.php';
     $result = qbRetryFailed($db);
     echo json_encode(['success' => true] + $result);
+}
+
+
+/**
+ * GET ?action=search_jobs&q=SearchTerm
+ * Returns matching job plans for autocomplete in the expense editor.
+ * Searches plan_number, service_type, property address, and contact name.
+ */
+function handleSearchJobs(PDO $db): void
+{
+    $q = trim($_GET['q'] ?? '');
+    if (strlen($q) < 2) {
+        echo json_encode(['success' => true, 'jobs' => []]);
+        return;
+    }
+
+    $like = '%' . $q . '%';
+    $stmt = $db->prepare("
+        SELECT
+            jp.id,
+            jp.plan_number,
+            jp.service_type,
+            jp.status,
+            p.address,
+            c.full_name AS contact_name
+        FROM job_plans jp
+        LEFT JOIN properties p ON p.id = jp.property_id
+        LEFT JOIN contacts c ON c.id = p.site_contact_id
+        WHERE jp.status IN ('active', 'completed')
+          AND (
+              jp.plan_number LIKE ?
+              OR jp.service_type LIKE ?
+              OR p.address LIKE ?
+              OR c.full_name LIKE ?
+          )
+        ORDER BY jp.status = 'active' DESC, jp.id DESC
+        LIMIT 15
+    ");
+    $stmt->execute([$like, $like, $like, $like]);
+    $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    echo json_encode(['success' => true, 'jobs' => $jobs]);
 }
