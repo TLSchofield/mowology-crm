@@ -81,12 +81,15 @@
   })();
   </script>
 
-  <!-- Service Worker Registration (PWA) -->
+  <!-- Service Worker Registration (PWA + Capacitor) -->
+  <!-- Capacitor uses a live server URL so its WebView can use a SW just
+       like a browser — this is the primary caching layer for the Android app. -->
   <script>
-  if ('serviceWorker' in navigator && !(window.Capacitor && window.Capacitor.isNativePlatform())) {
+  if ('serviceWorker' in navigator) {
     window.addEventListener('load', function() {
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
         .then(function(reg) {
+          // Check for updates every 30 minutes
           setInterval(function() { reg.update(); }, 1800000);
         })
         .catch(function() { /* SW registration failed — non-critical */ });
