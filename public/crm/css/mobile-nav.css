@@ -403,6 +403,95 @@
         opacity: 1;
     }
 
+    /* ── Clock In / Out Banner ─────────────────────────────── */
+
+    .mw-mobile-clock-banner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 0 0 16px;
+        padding: 14px 16px;
+        background: var(--mw-forest, #0D3B2E);
+        border-radius: 14px;
+    }
+
+    .mw-mobile-clock-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+    }
+
+    .mw-mobile-clock-dot {
+        flex-shrink: 0;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.25);
+        transition: background 0.3s;
+    }
+
+    .mw-mobile-clock-dot.mw-clock-dot-active {
+        background: var(--mw-lime, #7FD858);
+        box-shadow: 0 0 0 3px rgba(127, 216, 88, 0.25);
+    }
+
+    .mw-mobile-clock-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: rgba(255,255,255,0.75);
+        white-space: nowrap;
+    }
+
+    .mw-mobile-clock-timer {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: var(--mw-lime, #7FD858);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.5px;
+    }
+
+    .mw-mobile-clock-btn {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 10px 18px;
+        border: none;
+        border-radius: 10px;
+        font-size: 0.85rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.2s, transform 0.1s;
+        white-space: nowrap;
+        background: var(--mw-green, #2D8659);
+        color: #fff;
+    }
+
+    .mw-mobile-clock-btn:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+
+    .mw-mobile-clock-btn:not(:disabled):active {
+        transform: scale(0.96);
+    }
+
+    .mw-mobile-clock-btn-in {
+        background: var(--mw-green, #2D8659);
+        color: #fff;
+    }
+
+    .mw-mobile-clock-btn-out {
+        background: #dc3545;
+        color: #fff;
+    }
+
+    .mw-mobile-clock-btn svg {
+        flex-shrink: 0;
+    }
+
 } /* end @media (max-width: 991px) */
 
 /* ════════════════════════════════════════════════════════

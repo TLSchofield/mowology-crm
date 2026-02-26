@@ -49,7 +49,7 @@ $bottomNav = [
      'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>'],
     ['key' => 'clients',   'label' => 'Clients',  'href' => '/crm/clients_appstack.php',
      'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'],
-    ['key' => 'expenses',  'label' => 'Receipt',  'href' => '/crm/expenses_appstack.php?mode=quick&return=<?php echo urlencode($_SERVER["REQUEST_URI"] ?? "/crm/dashboard_appstack.php"); ?>',
+    ['key' => 'expenses',  'label' => 'Receipt',  'href' => '/crm/expenses_appstack.php?mode=quick&return=' . urlencode($_SERVER['REQUEST_URI'] ?? '/crm/dashboard_appstack.php'),
      'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>'],
     ['key' => '__menu__',  'label' => 'Menu',     'href' => '#',
      'icon' => '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>'],
@@ -128,6 +128,19 @@ $menuItems = [
             </div>
         </div>
 
+        <!-- Clock In / Out -->
+        <div class="mw-mobile-clock-banner" id="mwMobileClockBanner">
+            <div class="mw-mobile-clock-status">
+                <span class="mw-mobile-clock-dot" id="mwMobileClockDot"></span>
+                <span class="mw-mobile-clock-label" id="mwMobileClockLabelText">Loading…</span>
+                <span class="mw-mobile-clock-timer" id="mwMobileClockTimer"></span>
+            </div>
+            <button type="button" class="mw-mobile-clock-btn" id="mwMobileClockBtn" disabled>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+                <span id="mwMobileClockBtnText">Clock In</span>
+            </button>
+        </div>
+
         <!-- Nav grid -->
         <div class="mw-mobile-menu-grid">
             <?php foreach ($menuItems as $item):
@@ -200,5 +213,95 @@ $menuItems = [
             dest.appendChild(src);
         }
     });
+
+    // ── Mobile clock banner sync ────────────────────────────────────
+    // The clock widget JS replaces #btnClockIn with #btnClockOut once
+    // clocked in, and uses #clockTimer for the running elapsed time.
+    // We read state from MwTimeClock.isActive() + DOM, and delegate
+    // clicks to whichever real button is active.
+    (function() {
+        var mobileBtn   = document.getElementById('mwMobileClockBtn');
+        var mobileBtnTxt= document.getElementById('mwMobileClockBtnText');
+        var mobileDot   = document.getElementById('mwMobileClockDot');
+        var mobileLbl   = document.getElementById('mwMobileClockLabelText');
+        var mobileTimer = document.getElementById('mwMobileClockTimer');
+
+        if (!mobileBtn) return;
+
+        // Delegate click to whichever real clock button exists right now
+        mobileBtn.addEventListener('click', function() {
+            var realBtn = document.getElementById('btnClockOut') || document.getElementById('btnClockIn');
+            if (realBtn && !realBtn.disabled) {
+                realBtn.click();
+                // Re-sync after widget updates DOM (~800ms)
+                setTimeout(syncClockState, 800);
+                setTimeout(syncClockState, 1600);
+            }
+        });
+
+        function syncClockState() {
+            // Primary: use MwTimeClock API if available
+            var isActive = (typeof window.MwTimeClock !== 'undefined')
+                ? window.MwTimeClock.isActive()
+                : null;
+
+            // Fallback: infer from which button exists in DOM
+            var btnOut = document.getElementById('btnClockOut');
+            var btnIn  = document.getElementById('btnClockIn');
+
+            if (isActive === null) {
+                // Widget not loaded yet — check DOM
+                if (!btnOut && !btnIn) {
+                    // Still loading
+                    mobileLbl.textContent    = 'Loading…';
+                    mobileBtnTxt.textContent = 'Clock In';
+                    mobileTimer.textContent  = '';
+                    mobileBtn.disabled = true;
+                    mobileBtn.className = 'mw-mobile-clock-btn';
+                    mobileDot.className = 'mw-mobile-clock-dot';
+                    return;
+                }
+                isActive = !!btnOut;
+            }
+
+            mobileBtn.disabled = false;
+
+            if (isActive) {
+                // Clocked IN
+                mobileDot.className      = 'mw-mobile-clock-dot mw-clock-dot-active';
+                mobileLbl.textContent    = 'Clocked in';
+                mobileBtnTxt.textContent = 'Clock Out';
+                mobileBtn.className      = 'mw-mobile-clock-btn mw-mobile-clock-btn-out';
+                // Pull running timer from the widget's #clockTimer span
+                var timerEl = document.getElementById('clockTimer');
+                mobileTimer.textContent = timerEl ? timerEl.textContent.trim() : '';
+            } else {
+                // Clocked OUT
+                mobileDot.className      = 'mw-mobile-clock-dot';
+                mobileLbl.textContent    = 'Not clocked in';
+                mobileBtnTxt.textContent = 'Clock In';
+                mobileBtn.className      = 'mw-mobile-clock-btn mw-mobile-clock-btn-in';
+                mobileTimer.textContent  = '';
+            }
+        }
+
+        // Initial sync — run once now, then again after widget JS fires
+        syncClockState();
+        setTimeout(syncClockState, 800);
+        setTimeout(syncClockState, 2000);
+
+        // Keep timer display live while menu is open
+        setInterval(syncClockState, 5000);
+
+        // Re-sync immediately whenever menu opens
+        var menuTopBtn = document.getElementById('mwMobileMenuBtn');
+        var menuBotBtn = document.getElementById('mwMobileMenuBtnBottom');
+        [menuTopBtn, menuBotBtn].forEach(function(btn) {
+            if (btn) btn.addEventListener('click', function() {
+                syncClockState();
+                setTimeout(syncClockState, 300);
+            });
+        });
+    })();
 })();
 </script>

@@ -86,7 +86,7 @@ $bodyClass  = $bodyClass  ?? '';
   <link href="/crm/css/mowology-brand.css?v=20260225c" rel="stylesheet">
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
-  <link href="/crm/css/mobile-nav.css?v=20260225a" rel="stylesheet">
+  <link href="/crm/css/mobile-nav.css?v=20260226c" rel="stylesheet">
 
   <!-- Feather Icons (required for CRM UI) -->
   <script src="https://unpkg.com/feather-icons"></script>
