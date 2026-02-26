@@ -594,7 +594,10 @@
                         closeDrawer();
                     }
                 } else if (category === 'after') {
-                    // After after photo → show thumb briefly, then clock out
+                    // After after photo → optimistically mark completed so pill tap
+                    // doesn't re-show the camera prompt while we await the clock-out API
+                    visits[visitId].status = 'completed';
+                    // Show thumb briefly, then clock out (which will call updatePillVisual)
                     if (thumbUrl) {
                         showThumbConfirmation(card, thumbUrl, 'After', visitId, function() {
                             clockOut(visitId);
