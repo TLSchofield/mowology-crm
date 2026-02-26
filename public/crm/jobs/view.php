@@ -1694,7 +1694,7 @@ $activePage = 'jobs';
                 <table class="mw-line-items-table" id="editItemsTable">
                     <thead>
                         <tr>
-                            <th>Service</th>
+                            <th style="min-width:160px;">Service</th>
                             <th>Description</th>
                             <th style="width:70px;">Qty</th>
                             <th class="text-right" style="width:90px;">Price</th>

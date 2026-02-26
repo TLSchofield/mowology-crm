@@ -12325,13 +12325,14 @@ textarea.font-monospace {
   position: absolute;
   top: 100%;
   left: 0;
-  min-width: 220px;
-  max-height: 220px;
+  min-width: 300px;
+  max-height: 240px;
   overflow-y: auto;
+  overflow-x: hidden;
   background: #fff;
   border: 1px solid #d0d7de;
   border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
   z-index: 9999;
 }
 .mw-service-dropdown.is-open {
