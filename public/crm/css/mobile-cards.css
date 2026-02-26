@@ -1385,6 +1385,20 @@
     }
 
     /* ════════════════════════════════════════════════════
+       PHOTO LIGHTBOX (tap to expand)
+       ════════════════════════════════════════════════════ */
+
+    /* Thumbnails show a tap hint */
+    .mw-mc-photo-thumb img {
+        cursor: pointer;
+        transition: opacity 0.15s;
+    }
+
+    .mw-mc-photo-thumb img:active {
+        opacity: 0.8;
+    }
+
+    /* ════════════════════════════════════════════════════
        EXPENSES — Mobile Receipt Snapper (Premium)
        ════════════════════════════════════════════════════ */
 
@@ -3106,4 +3120,92 @@
 }
 .mw-mc-batch-btn svg {
     margin-right: 4px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   PHOTO LIGHTBOX OVERLAY — global (not inside @media block)
+   Tap a thumbnail to expand full-screen; tap scrim or X to close.
+   ════════════════════════════════════════════════════════════ */
+
+.mw-photo-lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9000;
+    align-items: center;
+    justify-content: center;
+}
+
+.mw-photo-lightbox.mw-lightbox-open {
+    display: flex;
+}
+
+.mw-photo-lightbox-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    animation: mw-lb-fade-in 0.2s ease;
+}
+
+@keyframes mw-lb-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.mw-photo-lightbox-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 20px;
+    max-width: 100vw;
+    max-height: 100dvh;
+    animation: mw-lb-slide-up 0.22s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+@keyframes mw-lb-slide-up {
+    from { opacity: 0; transform: scale(0.92) translateY(16px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+.mw-photo-lightbox-img {
+    display: block;
+    max-width: calc(100vw - 40px);
+    max-height: calc(100dvh - 120px);
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 12px;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
+.mw-photo-lightbox-label {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.mw-photo-lightbox-close {
+    position: absolute;
+    top: -4px;
+    right: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.mw-photo-lightbox-close:active {
+    background: rgba(255, 255, 255, 0.3);
 }

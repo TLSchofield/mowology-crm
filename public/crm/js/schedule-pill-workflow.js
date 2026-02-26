@@ -828,6 +828,15 @@
         }
         strip.innerHTML = html;
 
+        // Wire tap-to-expand on each thumbnail
+        strip.querySelectorAll('.mw-mc-photo-thumb img').forEach(function(img) {
+            img.style.cursor = 'pointer';
+            img.addEventListener('click', function(e) {
+                e.stopPropagation();
+                openPhotoLightbox(img.src, img.alt);
+            });
+        });
+
         console.log('[PillWorkflow] Photo strip updated for visit ' + visitId +
             ' (before: ' + (v.beforeThumb ? 'yes' : 'no') +
             ', after: ' + (v.afterThumb ? 'yes' : 'no') + ')');
@@ -1256,6 +1265,60 @@
             errBox.textContent = 'Network error. Check your connection.';
             errBox.style.display = 'block';
         });
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  PHOTO LIGHTBOX
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Open a full-screen lightbox showing the tapped photo.
+     * Tap anywhere to dismiss. Swipe-down also closes on mobile.
+     */
+    function openPhotoLightbox(src, altText) {
+        // Reuse or create the overlay element
+        var lb = document.getElementById('mwPhotoLightbox');
+        if (!lb) {
+            lb = document.createElement('div');
+            lb.id = 'mwPhotoLightbox';
+            lb.className = 'mw-photo-lightbox';
+            lb.innerHTML =
+                '<div class="mw-photo-lightbox-scrim"></div>' +
+                '<div class="mw-photo-lightbox-inner">' +
+                '  <button class="mw-photo-lightbox-close" aria-label="Close">' +
+                '    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+                '  </button>' +
+                '  <img class="mw-photo-lightbox-img" src="" alt="">' +
+                '  <span class="mw-photo-lightbox-label"></span>' +
+                '</div>';
+            document.body.appendChild(lb);
+
+            // Close on scrim click, close button, or Escape
+            lb.querySelector('.mw-photo-lightbox-scrim').addEventListener('click', closePhotoLightbox);
+            lb.querySelector('.mw-photo-lightbox-close').addEventListener('click', closePhotoLightbox);
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') closePhotoLightbox();
+            });
+
+            // Swipe-down to close
+            var touchStartY = 0;
+            lb.addEventListener('touchstart', function(e) { touchStartY = e.touches[0].clientY; }, { passive: true });
+            lb.addEventListener('touchend', function(e) {
+                if (e.changedTouches[0].clientY - touchStartY > 60) closePhotoLightbox();
+            }, { passive: true });
+        }
+
+        lb.querySelector('.mw-photo-lightbox-img').src  = src;
+        lb.querySelector('.mw-photo-lightbox-img').alt  = altText || '';
+        lb.querySelector('.mw-photo-lightbox-label').textContent = altText || '';
+        lb.classList.add('mw-lightbox-open');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closePhotoLightbox() {
+        var lb = document.getElementById('mwPhotoLightbox');
+        if (lb) lb.classList.remove('mw-lightbox-open');
+        document.body.style.overflow = '';
     }
 
     // ═══════════════════════════════════════════════════════
