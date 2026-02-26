@@ -1158,44 +1158,8 @@ var MwRouteMap = (function() {
                 log('Schedule card route button tapped: stopId', stopId);
                 if (!stopId) return;
 
-                // On mobile/touch: launch navigation directly — skip the map view.
-                // The map view intermediate screen adds friction and has more failure
-                // points (Maps JS API load, GPS fix, DirectionsService response).
-                // MwNavLauncher picks the best method: Capacitor intent on Android,
-                // Apple Maps on iOS, Google Maps web URL as fallback.
-                var isMobile = window.matchMedia('(max-width: 991px)').matches ||
-                               ('ontouchstart' in window && window.innerWidth <= 991);
-
-                if (isMobile && typeof MwNavLauncher !== 'undefined') {
-                    var stops = getStops();
-                    var target = null;
-                    for (var i = 0; i < stops.length; i++) {
-                        if (stops[i].stopId === stopId) { target = stops[i]; break; }
-                    }
-                    if (target) {
-                        log('Mobile direct nav to stop:', stopId, target);
-
-                        // Get fresh GPS before launching so we can pass origin to
-                        // Google Maps / Apple Maps. Without it, Maps stalls while
-                        // acquiring its own GPS fix. getFreshGPS uses a 30s cache
-                        // so it's instant if the map view was recently open.
-                        getFreshGPS(function() {
-                            var navOptions = {};
-                            if (userLat && userLng) {
-                                navOptions.origin = { lat: userLat, lng: userLng };
-                                log('Launching with origin:', userLat, userLng);
-                            } else {
-                                log('No GPS available — launching without origin');
-                            }
-                            MwNavLauncher.launchNavigation(target, navOptions);
-                        });
-                        return;
-                    }
-                    // Stop not found in MW_ROUTE_STOPS — fall through to map view
-                    log('Stop', stopId, 'not in MW_ROUTE_STOPS, falling back to map view');
-                }
-
-                // Desktop or MwNavLauncher not loaded: open the interactive map view
+                // Open the in-app map view with the destination card shown at the
+                // bottom. The card tray Navigate button handles external nav if needed.
                 openToStop(stopId);
             });
         });
@@ -1511,35 +1475,13 @@ var MwRouteMap = (function() {
     }
 
     /**
-     * Launch navigation to a stop by ID, fetching fresh GPS first so
-     * Google Maps / Apple Maps receives an explicit origin and doesn't
-     * stall waiting to acquire its own GPS fix.
+     * Open the in-app map view focused on a specific stop.
      * Called from compact card inline onclick handlers.
      *
      * @param {number} stopId
      */
     function launchNavToStop(stopId) {
-        if (typeof MwNavLauncher === 'undefined') {
-            // Fallback: open map view
-            openToStop(stopId);
-            return;
-        }
-        var stops = getStops();
-        var target = null;
-        for (var i = 0; i < stops.length; i++) {
-            if (stops[i].stopId === stopId) { target = stops[i]; break; }
-        }
-        if (!target) {
-            openToStop(stopId);
-            return;
-        }
-        getFreshGPS(function() {
-            var navOptions = {};
-            if (userLat && userLng) {
-                navOptions.origin = { lat: userLat, lng: userLng };
-            }
-            MwNavLauncher.launchNavigation(target, navOptions);
-        });
+        openToStop(stopId);
     }
 
     return {
