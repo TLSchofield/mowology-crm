@@ -8,7 +8,9 @@
  * it now runs as a scheduled cron job so the schedule page is never blocked.
  *
  * Recommended cPanel cron schedule: every 6 hours
- *   0 */6 * * *   php /home/mowology/app/Modules/Jobs/Cron/generate_visits.php
+ *   0 * /6 * * *   /usr/local/bin/php /home/mowology/public_html/app/Modules/Jobs/Cron/generate_visits.php
+ *   (Note: the cron expression uses asterisk-slash-6; the space is added here to avoid
+ *    closing this PHP docblock comment prematurely)
  *
  * Supports both CLI and web POST execution:
  *   CLI:  php generate_visits.php
