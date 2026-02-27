@@ -280,6 +280,9 @@ function extractLineItems(array $lines): array
         }
         if ($hitStop) break;
 
+        // Skip separator / promotional lines (e.g. "--------Buy 10 Get 10% Bagged Lime--------")
+        if (preg_match('/^[-=*]{3,}/', $line)) continue;
+
         // Skip header lines
         if (preg_match('/(?:store\s*mgr|cashier|sale\s|how\s+doers|get\s+more)/i', $line)) continue;
         if (preg_match('/^\(\d{3}\)\s*\d{3}[\-\.]\d{4}/', $line)) continue;
@@ -416,6 +419,34 @@ function extractLineItems(array $lines): array
             // Just store SKU context for next item
             $pendingItems[] = '__sku_context__';
             $pendingContext[] = ['sku_raw' => $m[1], 'quantity' => 1, 'unit_price' => null];
+            continue;
+        }
+
+        // Pattern: Home Depot "QTY@UNIT_PRICE   TOTAL[G]" — qty×unit price line
+        // e.g. "4@12.98                    51.92" or "10@14.98               149.80G"
+        if (preg_match('/^(\d+(?:\.\d+)?)\s*@\s*(\d{1,6}\.\d{2})\s+(\d{1,6}\.\d{2})\s*[A-Z]?\s*$/', $line, $m)) {
+            $qty       = (float)$m[1];
+            $unitPrice = (float)$m[2];
+            $total     = (float)$m[3];
+
+            if (!empty($pendingItems)) {
+                $itemName = array_shift($pendingItems);
+                $ctx      = array_shift($pendingContext);
+                while ($itemName === '__sku_context__' && !empty($pendingItems)) {
+                    $itemName = array_shift($pendingItems);
+                    $ctx      = array_shift($pendingContext);
+                }
+                if ($itemName !== '__sku_context__') {
+                    $items[] = [
+                        'name'       => $itemName,
+                        'amount'     => number_format($total, 2, '.', ''),
+                        'quantity'   => $qty,
+                        'unit_price' => round($unitPrice, 2),
+                        'sku_raw'    => $ctx['sku_raw'] ?? null,
+                    ];
+                    $inItemZone = true;
+                }
+            }
             continue;
         }
 
