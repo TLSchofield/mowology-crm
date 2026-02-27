@@ -64,7 +64,7 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
-    require_once APP_ROOT . '/app/Modules/Geofence/Models/GeofenceModel.php';
+    require_once APP_ROOT . '/Modules/Geofence/Models/GeofenceModel.php';
 
     requireLogin();
     $user = getCurrentUser();
@@ -402,8 +402,8 @@ try {
 } catch (InvalidArgumentException $e) {
     http_response_code(400);
     echo json_encode(['error' => $e->getMessage()]);
-} catch (Exception $e) {
+} catch (Throwable $e) {
     http_response_code(500);
-    error_log('[GeofenceApi] ' . $e->getMessage());
+    error_log('[GeofenceApi] ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     echo json_encode(['error' => 'Server error. Check logs.']);
 }
