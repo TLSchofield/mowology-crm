@@ -992,7 +992,15 @@ function showCronResult(el, ok, data, status, isTimeout) {
     var TIMEOUT_HTML = '<i data-feather="alert-circle" style="width:13px;height:13px;"></i>'
         + ' Cron timeout \u2014 normal for CLI-only crons. Check cPanel logs for results.';
 
-    if (isTimeout || status === 0 || status >= 500) {
+    if (isTimeout || status === 0) {
+        el.className = 'mw-cron-result mw-cron-result--timeout';
+        el.innerHTML = TIMEOUT_HTML;
+    } else if (status >= 500 && data && (data.error || data.message || data.msg)) {
+        // Server error with a real message — show it instead of the generic timeout banner
+        var srvErr = escapeHtml(String(data.error || data.message || data.msg));
+        el.className = 'mw-cron-result mw-cron-result--error';
+        el.innerHTML = '<i data-feather="x-circle" style="width:13px;height:13px;"></i> Server error: ' + srvErr;
+    } else if (status >= 500) {
         el.className = 'mw-cron-result mw-cron-result--timeout';
         el.innerHTML = TIMEOUT_HTML;
     } else if (ok && data && data.success !== false) {
