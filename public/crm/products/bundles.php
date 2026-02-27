@@ -259,7 +259,7 @@ let deleteBundleId = null;
 document.addEventListener('DOMContentLoaded', () => {
   loadBundles();
   loadAllProducts();
-  feather.replace();
+  hydrateFeatherIcons();
 
   // Discount type change → update suffix label
   document.getElementById('discountType').addEventListener('change', function () {
@@ -318,7 +318,7 @@ function renderBundles(bundles) {
   if (!bundles.length) {
     grid.innerHTML = '';
     empty.style.display = '';
-    feather.replace();
+    hydrateFeatherIcons();
     return;
   }
 
@@ -403,7 +403,7 @@ function renderBundles(bundles) {
 
   html += '</div>';
   grid.innerHTML = html;
-  feather.replace();
+  hydrateFeatherIcons();
 }
 
 
@@ -444,7 +444,7 @@ function openBundleModal(existingBundle) {
   recalcBundle();
   document.getElementById('productSearchResults').style.display = 'none';
   $('#bundleModal').modal('show');
-  setTimeout(() => feather.replace(), 50);
+  setTimeout(() => hydrateFeatherIcons(), 50);
 }
 
 // ── Edit bundle ───────────────────────────────────────────────────────────────
@@ -562,7 +562,7 @@ function renderBundleItems() {
   if (!bundleItems.length) {
     table.style.display   = 'none';
     emptyEl.style.display = '';
-    feather.replace();
+    hydrateFeatherIcons();
     return;
   }
 
@@ -603,7 +603,7 @@ function renderBundleItems() {
       </tr>`;
   }).join('');
 
-  feather.replace();
+  hydrateFeatherIcons();
 }
 
 // ── Recalculate pricing summary ────────────────────────────────────────────────
@@ -688,7 +688,7 @@ function saveBundle() {
     .finally(() => {
       btn.disabled = false;
       btn.innerHTML = '<i data-feather="save" style="width:14px;height:14px;"></i> Save Bundle';
-      feather.replace();
+      hydrateFeatherIcons();
     });
 }
 
