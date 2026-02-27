@@ -1441,6 +1441,31 @@
         background: #ffe0e0;
     }
 
+    /* Upload confirmed but no URL returned — green ✓ */
+    .mw-mc-photo-placeholder.mw-mc-placeholder-done {
+        background: #f0faf4;
+        border-color: var(--mw-green, #2D8659);
+        border-style: solid;
+        color: var(--mw-green, #2D8659);
+        cursor: default;
+        pointer-events: none;
+    }
+
+    /* Uploading in progress — greyed out pulsing */
+    .mw-mc-photo-placeholder.mw-mc-placeholder-uploading {
+        background: #f5f5f5;
+        border-color: #bbb;
+        color: #bbb;
+        cursor: not-allowed;
+        pointer-events: none;
+        animation: mc-placeholder-pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes mc-placeholder-pulse {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.5; }
+    }
+
     /* Hero card: taller placeholders */
     .mw-mc-card-hero .mw-mc-photo-placeholder {
         height: 110px;

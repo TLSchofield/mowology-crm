@@ -577,18 +577,65 @@
     /**
      * Trigger the camera via hidden file input
      */
+    // Track pending camera sessions to prevent double-fire on tablets
+    var pendingCamera = null; // { visitId, category, card, input, handler }
+
     function triggerCamera(visitId, category) {
         var card = visits[visitId].pill.closest('.mw-mc-card');
-        var input = card.querySelector('.mw-mc-camera-input');
-        if (!input) return;
 
-        // Set up one-time change handler
+        // Each visit gets its own dedicated camera input to avoid cross-visit handler collisions
+        // Find or create a visit-specific input
+        var inputId = 'mw-mc-cam-' + visitId;
+        var input = card.querySelector('[data-cam-visit="' + visitId + '"]');
+        if (!input) {
+            input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.setAttribute('capture', 'environment');
+            input.style.display = 'none';
+            input.setAttribute('data-cam-visit', visitId);
+            card.appendChild(input);
+        }
+
+        // Tear down any previous pending session on this input (prevents double-fire)
+        if (pendingCamera && pendingCamera.input === input) {
+            input.removeEventListener('change', pendingCamera.handler);
+            pendingCamera = null;
+        }
+        // Also nuke any legacy handlers by cloning the input
+        var fresh = input.cloneNode(false);
+        input.parentNode.replaceChild(fresh, input);
+        input = fresh;
+
         var handler = function() {
+            // Guard: only fire once
+            if (pendingCamera && pendingCamera.handler === handler) {
+                pendingCamera = null;
+            }
             input.removeEventListener('change', handler);
-            if (!input.files || !input.files.length) return;
+
+            if (!input.files || !input.files.length) {
+                // User cancelled — re-render strip so placeholders are still tappable
+                renderPhotoStrip(visitId);
+                return;
+            }
+
+            // Show uploading state immediately on the placeholder
+            var strip = card.querySelector('[data-strip-visit="' + visitId + '"]');
+            if (strip) {
+                var ph = strip.querySelector('[data-category="' + category + '"]');
+                if (ph) ph.classList.add('mw-mc-placeholder-uploading');
+            }
 
             uploadPhoto(visitId, input.files[0], category, function(success, thumbUrl) {
-                input.value = ''; // Reset for reuse
+                // Reset input value for reuse
+                try { input.value = ''; } catch(e) {}
+
+                if (!success) {
+                    // Re-render strip so placeholder returns to tappable state
+                    renderPhotoStrip(visitId);
+                    return;
+                }
 
                 if (category === 'before') {
                     var curStatus = visits[visitId].status;
@@ -597,6 +644,7 @@
                         visits[visitId].status = 'in_progress';
                         updatePillVisual(visitId, 'in_progress');
                         startPillTimer(visitId);
+                        renderPhotoStrip(visitId);
                         if (thumbUrl) {
                             showThumbConfirmation(card, thumbUrl, 'Before', visitId, function() {
                                 closeDrawer();
@@ -605,15 +653,15 @@
                             closeDrawer();
                         }
                     } else {
-                        // Placeholder tap: just save the photo, update strip
+                        // Placeholder tap outside workflow: just save + update strip
                         renderPhotoStrip(visitId);
                         if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
                     }
                 } else if (category === 'after') {
                     var curStatus2 = visits[visitId].status;
                     if (curStatus2 === 'prompt_after') {
-                        // Workflow-driven: clock out
                         visits[visitId].status = 'completed';
+                        renderPhotoStrip(visitId);
                         if (thumbUrl) {
                             showThumbConfirmation(card, thumbUrl, 'After', visitId, function() {
                                 clockOut(visitId);
@@ -622,29 +670,26 @@
                             clockOut(visitId);
                         }
                     } else {
-                        // Placeholder tap: just save the photo, update strip
                         renderPhotoStrip(visitId);
                         if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'After', visitId, null);
                     }
-                }
-                // 'during' photos: stay in working state, show thumb briefly
-                if (category === 'during' && thumbUrl) {
-                    showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
-                }
-                // 'additional' photos: append to strip, stay in current state
-                if (category === 'additional') {
-                    if (thumbUrl) {
-                        if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
-                        visits[visitId].additionalThumbs.push(thumbUrl);
-                        renderPhotoStrip(visitId);
-                        showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
-                    }
+                } else if (category === 'during') {
+                    if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
+                } else if (category === 'additional') {
+                    if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
+                    if (thumbUrl) visits[visitId].additionalThumbs.push(thumbUrl);
+                    renderPhotoStrip(visitId);
+                    if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
                 }
             });
         };
 
+        pendingCamera = { visitId: visitId, category: category, card: card, input: input, handler: handler };
         input.addEventListener('change', handler);
-        input.click();
+
+        // Small delay before click on iOS/iPadOS to avoid the file picker firing
+        // a stale change event from a previous dismissed session
+        setTimeout(function() { input.click(); }, 50);
     }
 
     /**
@@ -683,21 +728,38 @@
             body: formData
         })
         .then(function(r) { return r.json(); })
+        .then(function(r) {
+            // Guard against non-JSON responses (e.g. server error page)
+            var ct = r.headers.get('content-type') || '';
+            if (!ct.includes('application/json') && !ct.includes('text/json')) {
+                console.warn('[PillWorkflow] Non-JSON response from upload endpoint, status=' + r.status);
+                return r.text().then(function(txt) {
+                    throw new Error('Server returned non-JSON: ' + r.status + ' ' + txt.slice(0, 120));
+                });
+            }
+            return r.json();
+        })
         .then(function(data) {
             console.log('[PillWorkflow] Upload response:', JSON.stringify(data));
             if (data.success && data.total_uploaded > 0) {
-                // Store thumbnail URL for display on pill
                 var thumbUrl = null;
                 if (data.results && data.results[0]) {
                     var r = data.results[0];
                     console.log('[PillWorkflow] Upload result: thumb_url=' + r.thumb_url + ', file_path=' + r.file_path);
+                    // Prefer thumb, fall back to original path, fall back to placeholder data URI
                     thumbUrl = r.thumb_url || r.file_path || null;
+
+                    // If server gave no URL at all (variant generation failure),
+                    // create an object URL from the original file so the strip still renders
+                    if (!thumbUrl && data.results[0].success) {
+                        thumbUrl = '__uploaded__'; // sentinel: shows ✓ tile instead of image
+                    }
                 }
-                if (thumbUrl && visits[visitId]) {
+                if (visits[visitId]) {
                     if (category === 'before') {
-                        visits[visitId].beforeThumb = thumbUrl;
+                        visits[visitId].beforeThumb = thumbUrl || '__uploaded__';
                     } else if (category === 'after') {
-                        visits[visitId].afterThumb = thumbUrl;
+                        visits[visitId].afterThumb = thumbUrl || '__uploaded__';
                     }
                 }
                 flashPillFeedback(visitId, 'Photo saved');
@@ -706,13 +768,17 @@
                 var errMsg = 'Upload failed';
                 if (data.results && data.results[0] && data.results[0].errors) {
                     errMsg = data.results[0].errors.join(', ');
+                } else if (data.error) {
+                    errMsg = data.error;
                 }
-                showToast(errMsg);
+                console.warn('[PillWorkflow] Upload failed:', errMsg);
+                showToast('Photo upload failed: ' + errMsg);
                 callback(false, null);
             }
         })
         .catch(function(err) {
-            showToast('Upload failed. Check connection.');
+            console.error('[PillWorkflow] Upload error:', err.message || err);
+            showToast('Upload failed — check connection and try again.');
             callback(false, null);
         });
     }
@@ -853,13 +919,22 @@
 
         var required = v.requirePhotos;
 
+        var CHECK_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
         // ── Before thumbnail or placeholder ──
         var beforeHtml;
-        if (v.beforeThumb) {
+        if (v.beforeThumb && v.beforeThumb !== '__uploaded__') {
             beforeHtml =
                 '<div class="mw-mc-photo-thumb" data-thumb-type="before">' +
                 '  <img src="' + escHtml(v.beforeThumb) + '" alt="Before" loading="lazy">' +
                 '  <span class="mw-mc-photo-thumb-label">Before</span>' +
+                '</div>';
+        } else if (v.beforeThumb === '__uploaded__') {
+            // Upload succeeded but no URL returned — show ✓ tile
+            beforeHtml =
+                '<div class="mw-mc-photo-placeholder mw-mc-placeholder-done" data-thumb-type="before">' +
+                '  ' + CHECK_SVG +
+                '  <span>Before</span>' +
                 '</div>';
         } else {
             beforeHtml =
@@ -871,11 +946,17 @@
 
         // ── After thumbnail or placeholder ──
         var afterHtml;
-        if (v.afterThumb) {
+        if (v.afterThumb && v.afterThumb !== '__uploaded__') {
             afterHtml =
                 '<div class="mw-mc-photo-thumb" data-thumb-type="after">' +
                 '  <img src="' + escHtml(v.afterThumb) + '" alt="After" loading="lazy">' +
                 '  <span class="mw-mc-photo-thumb-label">After</span>' +
+                '</div>';
+        } else if (v.afterThumb === '__uploaded__') {
+            afterHtml =
+                '<div class="mw-mc-photo-placeholder mw-mc-placeholder-done" data-thumb-type="after">' +
+                '  ' + CHECK_SVG +
+                '  <span>After</span>' +
                 '</div>';
         } else {
             afterHtml =
