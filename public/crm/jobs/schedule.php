@@ -924,7 +924,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260226e" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260226c" rel="stylesheet">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -1269,7 +1269,7 @@ if ($apiKey) {
                       });
                   ?>
                       <?php
-                      // ─── Battle Card variables for this day ────────────────
+                      // ─── Day Summary Card variables for this day ───────────
                       $bcData    = $mcBattleCards[$dateStr] ?? [];
                       $bcMargin  = $bcData['margin']       ?? null;
                       $bcDensity = $bcData['density']      ?? 0;
@@ -1293,32 +1293,120 @@ if ($apiKey) {
                           ? ($bcVerdict === 'go' ? "All systems go · {$bcLoadPct}% capacity" : '')
                           : implode(' · ', $bcIssues);
 
-                      // Margin color class for Battle Card
+                      // ─── Day Summary Card tier + classes ───────────────────
+                      $dscTier = 'grey';
+                      if ($bcMargin !== null) {
+                          $dscTier = $bcMargin >= 30 ? 'green' : ($bcMargin >= 15 ? 'amber' : 'red');
+                      }
+                      $dscLoss = ($bcMargin !== null && $bcMargin < 0);
+
+                      // Density color class
+                      $dscDensityClass = $bcDensity >= 70 ? '' : ($bcDensity >= 40 ? 'dv-amber' : 'dv-red');
+                      if ($bcStops === 0) $dscDensityClass = 'dv-grey';
+
+                      // Drive time color (inverse: less = better)
+                      $dscDriveClass = $bcDrive <= 30 ? '' : ($bcDrive <= 60 ? 'drv-amber' : 'drv-red');
+                      if ($bcStops === 0) $dscDriveClass = 'drv-grey';
+
+                      // Margin bar fill width (0–100, clamped, negatives shown as 0)
+                      $dscMarginFill = ($bcMargin !== null) ? max(0, min(100, $bcMargin)) : 0;
+
+                      // Time load segments
+                      $dscJobMin   = (int)($mcDayStats[$dateStr]['duration_min'] ?? 0);
+                      $dscDriveMin = (int)$bcDrive;
+                      $dscTotalMin = $dscJobMin + $dscDriveMin;
+                      $dscCapacity = 480; // 8-hour day in minutes
+                      $dscJobPct   = min(85, round(($dscJobMin / max(1, $dscCapacity)) * 100));
+                      $dscDrivePct = min(85 - $dscJobPct, round(($dscDriveMin / max(1, $dscCapacity)) * 100));
+                      $dscDriveOverload = ($dscDriveMin > 0 && $dscJobMin > 0 && $dscDriveMin >= $dscJobMin);
+                      $dscTotalH   = intdiv($dscTotalMin, 60);
+                      $dscTotalM   = $dscTotalMin % 60;
+                      $dscTimeTotalLabel = $dscTotalH > 0 ? "{$dscTotalH}h {$dscTotalM}m" : "{$dscTotalM}m";
+                      $dscTimeTierClass  = $dscTotalMin <= 240 ? 'tl-green' : ($dscTotalMin <= 360 ? 'tl-amber' : 'tl-red');
+                      if ($bcStops === 0) $dscTimeTierClass = 'tl-grey';
+
+                      // Legacy values (heatmap + margin class) used by existing JS/CSS
+                      $bcHeatmapAlpha = round(($bcDensity / 100) * 0.08, 3);
                       $bcMarginClass = '';
                       if ($bcMargin !== null) {
                           $bcMarginClass = $bcMargin >= 40 ? 'bc-margin-green' : ($bcMargin >= 20 ? 'bc-margin-amber' : 'bc-margin-red');
                       }
-                      // Heatmap intensity: 0-100 based on density score
-                      $bcHeatmapAlpha = round(($bcDensity / 100) * 0.08, 3); // subtle 0–0.08 overlay
                       ?>
                       <div class="mw-day-column mw-battle-card <?php echo $isToday ? 'today' : ''; ?> <?php echo $bcMarginClass; ?>"
                            data-date="<?php echo $dateStr; ?>"
                            data-density="<?php echo $bcDensity; ?>"
                            style="--bc-heat: <?php echo $bcHeatmapAlpha; ?>">
 
-                          <!-- Battle Card header (shown when stops exist) -->
+                          <!-- ─ Day Summary Card ──────────────────────────── -->
                           <?php if ($bcStops > 0): ?>
-                          <div class="mw-bc-header">
-                              <div class="mw-bc-header-top">
-                                  <span class="mw-bc-rev">$<?php echo number_format($bcRev, 0); ?></span>
-                                  <?php if ($bcMargin !== null): ?>
-                                  <span class="mw-bc-margin <?php echo $bcMarginClass; ?>"><?php echo $bcMargin; ?>%</span>
+                          <div class="mw-dsc dsc-tier-<?php echo $dscTier; ?><?php echo $dscLoss ? ' dsc-loss' : ''; ?>"
+                               title="<?php echo htmlspecialchars("Revenue \${$bcRev} · Margin {$bcMargin}% · Density {$bcDensity}/100"); ?>">
+
+                              <!-- Row 1: Revenue + TODAY badge + stop count -->
+                              <div class="mw-dsc-top">
+                                  <span class="mw-dsc-revenue">$<?php echo number_format($bcRev, 0); ?></span>
+                                  <?php if ($isToday): ?>
+                                  <span class="mw-dsc-today-badge">Today</span>
                                   <?php endif; ?>
-                                  <?php if ($bcOutlier): ?>
-                                  <span class="mw-bc-outlier-flag" title="Low-margin job detected">⚠</span>
+                                  <?php if ($dscLoss): ?>
+                                  <span class="mw-dsc-outlier-flag" title="Loss day">&#9888;</span>
+                                  <?php elseif ($bcOutlier): ?>
+                                  <span class="mw-dsc-outlier-flag" title="Low-margin stop">&#9888;</span>
                                   <?php endif; ?>
+                                  <span class="mw-dsc-stops"><?php echo $bcStops; ?> stop<?php echo $bcStops !== 1 ? 's' : ''; ?></span>
                               </div>
+
+                              <!-- Row 2: Margin pill + fill bar -->
+                              <?php if ($bcMargin !== null): ?>
+                              <div class="mw-dsc-margin-row">
+                                  <span class="mw-dsc-margin-pill"><?php echo $bcMargin; ?>%</span>
+                                  <div class="mw-dsc-margin-bar-track">
+                                      <div class="mw-dsc-margin-bar-fill" style="width:<?php echo $dscMarginFill; ?>%"></div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
+                              <!-- Row 3: Density bar + Drive time -->
+                              <div class="mw-dsc-metrics">
+                                  <div class="mw-dsc-density">
+                                      <div class="mw-dsc-density-header">
+                                          <span class="mw-dsc-density-label">Density</span>
+                                          <span class="mw-dsc-density-val <?php echo $dscDensityClass; ?>"><?php echo $bcDensity; ?></span>
+                                      </div>
+                                      <div class="mw-dsc-density-track">
+                                          <div class="mw-dsc-density-fill" style="width:<?php echo $bcDensity; ?>%;background:<?php
+                                              echo $bcDensity >= 70 ? 'linear-gradient(90deg,#34D399,#2D8659)' :
+                                                  ($bcDensity >= 40 ? 'linear-gradient(90deg,#FCD34D,#F59E0B)' : 'linear-gradient(90deg,#F87171,#DC2626)');
+                                          ?>"></div>
+                                      </div>
+                                  </div>
+                                  <div class="mw-dsc-drive">
+                                      <span class="mw-dsc-drive-val <?php echo $dscDriveClass; ?>"><?php echo $bcDrive; ?>m</span>
+                                      <span class="mw-dsc-drive-label">
+                                          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                                          drive
+                                      </span>
+                                  </div>
+                              </div>
+
+                              <!-- Row 4: Time load segmented bar -->
+                              <?php if ($dscTotalMin > 0): ?>
+                              <div class="mw-dsc-divider"></div>
+                              <div class="mw-dsc-time-row">
+                                  <div class="mw-dsc-time-header">
+                                      <span class="mw-dsc-time-label">Time load</span>
+                                      <span class="mw-dsc-time-total <?php echo $dscTimeTierClass; ?>"><?php echo $dscTimeTotalLabel; ?></span>
+                                  </div>
+                                  <div class="mw-dsc-time-track">
+                                      <div class="mw-dsc-seg-job" style="width:<?php echo $dscJobPct; ?>%"></div>
+                                      <div class="mw-dsc-seg-drive<?php echo $dscDriveOverload ? ' is-overload' : ''; ?>" style="width:<?php echo $dscDrivePct; ?>%"></div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
+                              <!-- Feasibility verdict row -->
                               <?php if ($bcVerdict !== 'empty'): ?>
+                              <div class="mw-dsc-divider"></div>
                               <div class="mw-bc-feasibility mw-bc-feas-<?php echo $bcVerdict; ?>"
                                    title="<?php echo htmlspecialchars($bcTooltip); ?>">
                                   <span class="mw-bc-feas-icon"><?php echo $bcVerdictIcon; ?></span>
@@ -1329,33 +1417,24 @@ if ($apiKey) {
                                   <span class="mw-bc-feas-pct"><?php echo $bcLoadPct; ?>%</span>
                                   <?php endif; ?>
                                   <div class="mw-bc-feas-signals">
-                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['crew'] ?? 'grey'; ?>" title="Crew assignment">👤</span>
-                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['load'] ?? 'grey'; ?>" title="Capacity load">📊</span>
-                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['weather'] ?? 'grey'; ?>" title="Forecast weather">🌤</span>
-                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['blocked'] ?? 'grey'; ?>" title="Weather-blocked visits">🚫</span>
+                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['crew'] ?? 'grey'; ?>" title="Crew">&#128100;</span>
+                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['load'] ?? 'grey'; ?>" title="Load">&#128202;</span>
+                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['weather'] ?? 'grey'; ?>" title="Weather">&#127780;</span>
+                                      <span class="mw-bc-sig mw-bc-sig-<?php echo $bcSignals['blocked'] ?? 'grey'; ?>" title="Blocked">&#128683;</span>
                                   </div>
                               </div>
                               <?php endif; ?>
 
-                              <div class="mw-bc-header-bottom">
-                                  <!-- Density score mini bar -->
-                                  <div class="mw-bc-density" title="Density: <?php echo $bcDensity; ?>/100">
-                                      <div class="mw-bc-density-bar" style="width: <?php echo $bcDensity; ?>%"></div>
-                                  </div>
-                                  <!-- Weather risk -->
-                                  <span class="mw-bc-weather-risk mw-bc-risk-<?php echo $bcRisk; ?>"
-                                        title="Weather risk: <?php echo $bcRisk; ?>">
-                                      <?php echo $bcRisk === 'high' ? '⛈' : ($bcRisk === 'medium' ? '🌧' : '☀'); ?>
-                                  </span>
-                                  <!-- Drive time -->
-                                  <span class="mw-bc-drive" title="Est. drive time"><?php echo $bcDrive; ?>m</span>
-                              </div>
-                              <!-- Mini profit meter -->
+                              <!-- Bottom profit meter -->
                               <?php if ($bcMargin !== null): ?>
-                              <div class="mw-bc-profit-meter" title="Margin: <?php echo $bcMargin; ?>%">
-                                  <div class="mw-bc-profit-fill" style="width: <?php echo max(0, min(100, $bcMargin)); ?>%"></div>
+                              <div class="mw-dsc-profit-meter" title="Margin: <?php echo $bcMargin; ?>%">
+                                  <div class="mw-dsc-profit-fill" style="width:<?php echo $dscMarginFill; ?>%"></div>
                               </div>
                               <?php endif; ?>
+                          </div>
+                          <?php else: ?>
+                          <div class="mw-dsc dsc-empty">
+                              <div class="mw-dsc-empty-label">No stops</div>
                           </div>
                           <?php endif; ?>
 
@@ -2562,7 +2641,7 @@ var MW_ROUTE_STOPS = <?php
 <script src="../js/navigation-launcher.js?v=20260225c"></script>
 <script src="../js/route-engine.js?v=20260219a"></script>
 <script src="../js/schedule-route-map.js?v=20260226b"></script>
-<script src="../js/schedule-pill-workflow.js?v=20260226b"></script>
+<script src="../js/schedule-pill-workflow.js?v=20260226c"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php if ($view === 'day'): ?>
 <script>

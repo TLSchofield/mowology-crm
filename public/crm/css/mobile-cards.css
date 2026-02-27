@@ -576,6 +576,30 @@
         flex-shrink: 0;
     }
 
+    /* ── Corner GO button — locked top-right on active/hero cards ── */
+    .mw-mc-card-active {
+        position: relative;
+    }
+
+    .mw-mc-btn-go-corner {
+        position: absolute !important;
+        top: 14px !important;
+        right: 14px !important;
+        flex: none !important;
+        padding: 8px 14px !important;
+        font-size: 0.85rem !important;
+        gap: 5px !important;
+        border-radius: 10px !important;
+        z-index: 2;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    }
+
+    /* Hide it once the stop is in-progress or completed (crew is on-site) */
+    .mw-mc-card-active .mw-mc-btn-go-corner[style*="display: none"],
+    .mw-mc-card-hero .mw-mc-btn-go-corner {
+        display: none !important;
+    }
+
     /* ════════════════════════════════════════════════════
        STATUS BADGES
        ════════════════════════════════════════════════════ */
