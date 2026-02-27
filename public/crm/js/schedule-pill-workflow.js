@@ -727,17 +727,16 @@
             method: 'POST',
             body: formData
         })
-        .then(function(r) { return r.json(); })
-        .then(function(r) {
-            // Guard against non-JSON responses (e.g. server error page)
-            var ct = r.headers.get('content-type') || '';
+        .then(function(response) {
+            // Guard against non-JSON responses (e.g. server error page) BEFORE parsing
+            var ct = response.headers.get('content-type') || '';
             if (!ct.includes('application/json') && !ct.includes('text/json')) {
-                console.warn('[PillWorkflow] Non-JSON response from upload endpoint, status=' + r.status);
-                return r.text().then(function(txt) {
-                    throw new Error('Server returned non-JSON: ' + r.status + ' ' + txt.slice(0, 120));
+                console.warn('[PillWorkflow] Non-JSON response from upload endpoint, status=' + response.status);
+                return response.text().then(function(txt) {
+                    throw new Error('Server returned non-JSON: ' + response.status + ' ' + txt.slice(0, 120));
                 });
             }
-            return r.json();
+            return response.json();
         })
         .then(function(data) {
             console.log('[PillWorkflow] Upload response:', JSON.stringify(data));
@@ -887,7 +886,7 @@
     /**
      * Camera icon SVG (shared for placeholders)
      */
-    var CAMERA_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+    var CAMERA_SVG = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>';
     var CAMERA_SMALL_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>';
     var PLUS_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 

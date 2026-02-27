@@ -576,27 +576,31 @@
         flex-shrink: 0;
     }
 
-    /* ── Corner GO button — locked top-right on active/hero cards ── */
-    .mw-mc-card-active {
-        position: relative;
+    /* ── Top row: time/badge left, GO button right — flex row, no absolute needed ── */
+    .mw-mc-top-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 0;
+    }
+
+    .mw-mc-top-row .mw-mc-time-row {
+        flex: 1;
+        min-width: 0;
+        margin-bottom: 8px;
     }
 
     .mw-mc-btn-go-corner {
-        position: absolute !important;
-        top: 12px !important;
-        right: 12px !important;
-        flex: none !important;
-        padding: 7px 13px !important;
-        font-size: 0.8rem !important;
-        gap: 4px !important;
+        flex-shrink: 0;
+        align-self: flex-start;
+        margin-top: 2px;
+        padding: 7px 14px !important;
+        font-size: 0.82rem !important;
+        gap: 5px !important;
         border-radius: 10px !important;
-        z-index: 2;
         box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-    }
-
-    /* Card header: reserve right space so GO button doesn't overlap time/title */
-    .mw-mc-card-active .mw-mc-card-header {
-        padding-right: 72px;
+        white-space: nowrap;
     }
 
     /* Hide on completed/skipped/hero — crew is on-site or done */
