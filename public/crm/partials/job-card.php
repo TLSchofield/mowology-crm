@@ -184,21 +184,23 @@ $stopTags = $stop['tags'] ?? [];
 
     <div class="mw-mc-card-body">
         <div class="mw-mc-card-header">
-            <!-- Top row: time/badge on left, GO on right — flex row, mirrors compact card pattern -->
-            <div class="mw-mc-active-top-row">
-                <div class="mw-mc-time-row">
-                    <?php if ($timeDisplay): ?>
-                        <span class="mw-mc-time"><?php echo htmlspecialchars($timeDisplay); ?></span>
-                    <?php endif; ?>
-                    <?php if ($durationDisplay): ?>
-                        <span class="mw-mc-duration"><?php echo htmlspecialchars($durationDisplay); ?></span>
-                    <?php endif; ?>
-                    <?php if ($badge): ?>
-                        <span class="mw-mc-badge <?php echo $badge['class']; ?>"><?php echo $badge['label']; ?></span>
-                    <?php endif; ?>
+            <!-- Top row: uses exact same classes as compact card (.mw-mc-compact-main) — proven to work -->
+            <div class="mw-mc-compact-main">
+                <div class="mw-mc-compact-info">
+                    <div class="mw-mc-time-row">
+                        <?php if ($timeDisplay): ?>
+                            <span class="mw-mc-time"><?php echo htmlspecialchars($timeDisplay); ?></span>
+                        <?php endif; ?>
+                        <?php if ($durationDisplay): ?>
+                            <span class="mw-mc-duration"><?php echo htmlspecialchars($durationDisplay); ?></span>
+                        <?php endif; ?>
+                        <?php if ($badge): ?>
+                            <span class="mw-mc-badge <?php echo $badge['class']; ?>"><?php echo $badge['label']; ?></span>
+                        <?php endif; ?>
+                    </div>
                 </div>
                 <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-                <button type="button" class="mw-mc-btn-route mw-mc-compact-go mw-mc-active-go"
+                <button type="button" class="mw-mc-btn-route mw-mc-compact-route mw-mc-compact-go"
                         data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
                         data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
