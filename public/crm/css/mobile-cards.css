@@ -755,9 +755,13 @@
         white-space: nowrap;
     }
 
-    /* ── Expand detail (hidden, revealed on tap) ── */
+    /* ── Expand detail (hidden, revealed on tap) ──
+       NOTE: expand-detail is inside .mw-mc-card-body, so it inherits card-body's
+       left/right padding. Only add top spacing + a visual separator here. */
     .mw-mc-expand-detail {
-        padding: 0 14px 14px 14px;
+        padding: 10px 0 4px 0;
+        border-top: 1px solid #f0ede8;
+        margin-top: 6px;
     }
 
     /* Subtle "Optimize route" text link in expand-detail — secondary action */
@@ -908,13 +912,18 @@
         display: none;
     }
 
-    /* Show expand-detail automatically in hero mode */
+    /* Show expand-detail automatically in hero mode.
+       expand-detail is now inside card-body (a column flex container), so
+       flex:1 here means "grow vertically to fill remaining card height". */
     .mw-mc-card-hero .mw-mc-expand-detail {
         display: flex !important;
         flex-direction: column;
         flex: 1;
         min-height: 0;
-        padding: 12px 0 0 0;
+        /* Override the base border-top/margin-top so hero has clean top spacing */
+        border-top: none;
+        margin-top: 0;
+        padding: 16px 0 0 0;
     }
 
     /* Service pills area: grows to push actions to the bottom */

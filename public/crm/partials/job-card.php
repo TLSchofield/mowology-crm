@@ -343,45 +343,49 @@ $stopTags = $stop['tags'] ?? [];
                 <div class="mw-mc-profit-fill" style="width: <?php echo max(0, min(100, $compactProfitMargin)); ?>%; background: <?php echo function_exists('profitBarColor') ? profitBarColor((int)$compactProfitMargin) : '#2D8659'; ?>" data-margin="<?php echo (int)$compactProfitMargin; ?>"></div>
             </div>
         <?php endif; ?>
-    </div>
 
-    <!-- Expandable detail (hidden by default, revealed on tap) -->
-    <div class="mw-mc-expand-detail" style="display: none;">
-        <?php if ($clientName): ?>
-            <div class="mw-mc-client">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                <?php echo $clientName; ?>
-            </div>
-        <?php endif; ?>
-        <?php echo renderPropertyTags($stopTags, $tagIcons); ?>
-        <?php if ($durationDisplay): ?>
-            <div class="mw-mc-duration-row">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <?php echo htmlspecialchars($durationDisplay); ?>
-            </div>
-        <?php endif; ?>
+        <!-- Expandable detail — MUST be inside card-body (not a sibling of it).
+             The card is display:flex flex-direction:row, so any direct child of the card
+             becomes a horizontal flex item. Putting expand-detail inside card-body keeps
+             it in the normal block flow (below compact-main), not squeezing card-body width. -->
+        <div class="mw-mc-expand-detail" style="display: none;">
+            <?php if ($clientName): ?>
+                <div class="mw-mc-client">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <?php echo $clientName; ?>
+                </div>
+            <?php endif; ?>
+            <?php echo renderPropertyTags($stopTags, $tagIcons); ?>
+            <?php if ($durationDisplay): ?>
+                <div class="mw-mc-duration-row">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <?php echo htmlspecialchars($durationDisplay); ?>
+                </div>
+            <?php endif; ?>
 
-        <?php if ($lawnSqFtDisplay): ?>
-            <div class="mw-mc-lawn-sqft">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M9 3v18"/></svg>
-                <?php echo htmlspecialchars($lawnSqFtDisplay); ?>
-            </div>
-        <?php endif; ?>
+            <?php if ($lawnSqFtDisplay): ?>
+                <div class="mw-mc-lawn-sqft">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M9 3v18"/></svg>
+                    <?php echo htmlspecialchars($lawnSqFtDisplay); ?>
+                </div>
+            <?php endif; ?>
 
-        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-        <button type="button" class="mw-mc-expand-route-link mw-mc-btn-route"
-                data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
-                data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-            Optimize route
-        </button>
-        <?php endif; ?>
+            <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+            <button type="button" class="mw-mc-expand-route-link mw-mc-btn-route"
+                    data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                    data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+                Optimize route
+            </button>
+            <?php endif; ?>
 
-        <?php if (!empty($stop['visits'])): ?>
-            <!-- Photo strips rendered here (inside expand) so they don't block the card tap -->
-            <div class="mw-mc-photo-strips"></div>
-        <?php endif; ?>
-    </div>
+            <?php if (!empty($stop['visits'])): ?>
+                <!-- Photo strips rendered here (inside expand) so they don't block the card tap -->
+                <div class="mw-mc-photo-strips"></div>
+            <?php endif; ?>
+        </div>
+
+    </div><!-- /.mw-mc-card-body -->
 
     <!-- Hidden camera input for photo capture -->
     <input type="file" class="mw-mc-camera-input" accept="image/*" capture="environment"
