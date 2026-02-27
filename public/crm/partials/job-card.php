@@ -182,16 +182,15 @@ $stopTags = $stop['tags'] ?? [];
 
     <div class="mw-mc-accent" style="background: <?php echo $accentColor; ?>"></div>
 
-    <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-    <button type="button" class="mw-mc-btn-go mw-mc-btn-go-corner"
-            data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
-            data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-        <span>GO</span>
-    </button>
-    <?php endif; ?>
-
     <div class="mw-mc-card-body">
+        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+        <button type="button" class="mw-mc-btn-route mw-mc-btn-go mw-mc-btn-go-corner"
+                data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+            <span>GO</span>
+        </button>
+        <?php endif; ?>
         <div class="mw-mc-card-header">
             <div class="mw-mc-time-row">
                 <?php if ($timeDisplay): ?>

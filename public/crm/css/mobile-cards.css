@@ -576,44 +576,49 @@
         flex-shrink: 0;
     }
 
-    /* ── GO button: absolutely pinned to top-right of card ── */
-    /* Button is a direct child of .mw-mc-card so position:absolute is relative to the card.
-       It does NOT use .mw-mc-action-btn (which carries flex:1 and would fight absolute). */
+    /* ── GO button: pinned to top-right of .mw-mc-card-body (no overflow:hidden there) ── */
+    /* Button is first child of .mw-mc-card-body; card-body is the positioning context. */
+    .mw-mc-card-active .mw-mc-card-body {
+        position: relative;
+    }
+
     .mw-mc-btn-go-corner {
-        position: absolute;
-        top: 12px;
-        right: 12px;
+        position: absolute !important;
+        top: 14px !important;
+        right: 14px !important;
         z-index: 5;
-        display: inline-flex;
+        display: inline-flex !important;
         align-items: center;
-        gap: 5px;
-        padding: 7px 14px;
-        font-size: 0.82rem;
-        font-weight: 700;
-        color: #fff;
-        background: var(--mw-green);
+        gap: 5px !important;
+        padding: 7px 13px !important;
+        font-size: 0.82rem !important;
+        font-weight: 700 !important;
+        color: #fff !important;
+        background: var(--mw-green) !important;
         border: none;
-        border-radius: 10px;
+        border-radius: 10px !important;
         cursor: pointer;
         white-space: nowrap;
         box-shadow: 0 2px 8px rgba(0,0,0,0.20);
+        letter-spacing: normal !important;
         -webkit-tap-highlight-color: transparent;
+        flex-direction: row !important;
     }
 
     .mw-mc-btn-go-corner:active {
-        background: var(--mw-dark);
+        background: var(--mw-dark) !important;
         transform: scale(0.97);
     }
 
-    /* Reserve right-side space in card header so title/address don't slide under GO */
+    /* Reserve right-side space so time row / title don't flow under GO button */
     .mw-mc-card-active .mw-mc-card-header {
-        padding-right: 72px;
+        padding-right: 76px;
     }
 
     /* Hide on completed/skipped/hero */
     .mw-mc-card-completed .mw-mc-btn-go-corner,
     .mw-mc-card-hero .mw-mc-btn-go-corner {
-        display: none;
+        display: none !important;
     }
 
     /* ════════════════════════════════════════════════════
