@@ -293,6 +293,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'error';
     }
 
+    // Delete a time entry
+    if ($action === 'delete_time_entry') {
+        requirePermission('jobs.edit');
+        $entryId = intval($_POST['del_entry_id'] ?? 0);
+        if ($entryId) {
+            $eChk = $db->prepare("
+                SELECT jte.id FROM job_time_entries jte
+                JOIN job_visits jv ON jte.visit_id = jv.id
+                WHERE jte.id = ? AND jv.plan_id = ?
+            ");
+            $eChk->execute([$entryId, $planId]);
+            if ($eChk->fetch()) {
+                $db->prepare("DELETE FROM job_time_entries WHERE id = ?")->execute([$entryId]);
+                header("Location: view.php?id={$planId}&time_deleted=1");
+                exit;
+            }
+        }
+        $message = 'Could not delete time entry.';
+        $messageType = 'error';
+    }
+
     // Move time entry to a different visit (on any plan at the same property)
     if ($action === 'move_time_entry') {
         requirePermission('jobs.edit');
@@ -414,6 +435,7 @@ if (isset($_GET['items_updated'])) { $message = 'Line items updated!'; $messageT
 if (isset($_GET['visit_updated'])) { $message = 'Visit updated!'; $messageType = 'success'; }
 if (isset($_GET['time_added']))   { $message = 'Time entry added!'; $messageType = 'success'; }
 if (isset($_GET['time_moved']))   { $message = 'Time entry moved!'; $messageType = 'success'; }
+if (isset($_GET['time_deleted'])) { $message = 'Time entry deleted.'; $messageType = 'success'; }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -2476,8 +2498,10 @@ $activePage = 'jobs';
                                 ? ' <span class="badge badge-light border text-muted" title="Estimated from GPS pings"><i data-feather="map-pin" style="width:9px;height:9px;"></i> GPS</span>'
                                 : (e.auto_started ? ' <small class="text-muted">(auto)</small>' : '');
                             var moveBtn = (CAN_EDIT && !isGps && e.id)
-                                ? '<button class="btn btn-sm btn-link p-0 text-muted" title="Move to different visit" onclick="openMoveTimeEntry(' + e.id + ',' + JSON.stringify(esc(e.crew_name)) + ',' + JSON.stringify(e.start_time || '') + ')">' +
-                                  '<i data-feather="move" style="width:13px;height:13px;"></i></button>'
+                                ? '<button class="btn btn-sm btn-link p-0 text-muted mr-1" title="Move to different visit" onclick="openMoveTimeEntry(' + e.id + ',' + JSON.stringify(esc(e.crew_name)) + ',' + JSON.stringify(e.start_time || '') + ')">' +
+                                  '<i data-feather="move" style="width:13px;height:13px;"></i></button>' +
+                                  '<button class="btn btn-sm btn-link p-0 text-danger" title="Delete entry" onclick="deleteTimeEntry(' + e.id + ',' + JSON.stringify(esc(e.crew_name)) + ')">' +
+                                  '<i data-feather="trash-2" style="width:13px;height:13px;"></i></button>'
                                 : '';
                             html += '<tr' + (isGps ? ' class="text-muted"' : '') + '>' +
                                 '<td></td>' +
@@ -2524,6 +2548,16 @@ $activePage = 'jobs';
             }
 
             loadTimeLog();
+
+            window.deleteTimeEntry = function(entryId, crewName) {
+                if (!confirm('Delete time entry for ' + crewName + '? This cannot be undone.')) return;
+                var fd = new FormData();
+                fd.append('csrf_token', <?php echo json_encode($csrfToken); ?>);
+                fd.append('action', 'delete_time_entry');
+                fd.append('del_entry_id', entryId);
+                fetch('/crm/jobs/view.php?id=<?php echo (int)$planId; ?>', { method: 'POST', body: fd })
+                    .then(function() { loadTimeLog(); });
+            };
 
             window.openMoveTimeEntry = function(entryId, crewName, startTime) {
                 document.getElementById('mvEntryId').value = entryId;
