@@ -4328,6 +4328,159 @@ a:hover {
   .mw-daily-ops-day:nth-child(n+4) { display: none; }
 }
 
+/* ── Customer Typeahead Search ───────────────────────────── */
+
+.mw-customer-search-wrap {
+  position: relative;
+}
+
+.mw-customer-search-input-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.mw-customer-search-input-row .form-control {
+  padding-right: 2.5rem;
+}
+
+.mw-customer-clear-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #6c757d;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.15s, color 0.15s;
+  z-index: 2;
+}
+
+.mw-customer-clear-btn:hover {
+  background: #f0f0f0;
+  color: #dc3545;
+}
+
+.mw-customer-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 0.375rem;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+  list-style: none;
+  padding: 4px 0;
+  margin: 0;
+  z-index: 1050;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.mw-customer-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.1s;
+  border-radius: 0;
+}
+
+.mw-customer-option:hover,
+.mw-customer-option.active {
+  background: var(--mw-light);
+}
+
+.mw-customer-option.mw-customer-empty {
+  color: #6c757d;
+  font-size: 13px;
+  cursor: default;
+}
+
+.mw-customer-option.mw-customer-empty:hover {
+  background: none;
+}
+
+.mw-customer-icon {
+  color: var(--mw-green);
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.mw-customer-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.mw-customer-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #212529;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-customer-sub {
+  font-size: 12px;
+  color: #6c757d;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mw-customer-selected-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--mw-light);
+  border: 1px solid var(--mw-green);
+  border-radius: 0.375rem;
+  margin-top: 4px;
+}
+
+.mw-selected-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--mw-green);
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mw-selected-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mw-selected-info strong {
+  font-size: 14px;
+  color: #212529;
+}
+
+.mw-selected-info span {
+  font-size: 12px;
+  color: #6c757d;
+}
+
 /* ── Invoice Creation Form (Phase 2-3) ───────────────────── */
 
 .mw-recipient-section {

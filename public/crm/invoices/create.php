@@ -17,8 +17,6 @@ $prefill = [];
 $visitId = isset($_GET['visit_id']) ? intval($_GET['visit_id']) : 0;
 
 if ($visitId) {
-    // New path: create invoice from a completed visit
-    // LEFT JOINs on company/contact since plans may link to contacts not companies
     $stmt = $db->prepare("
         SELECT jv.id as visit_id, jv.visit_number, jv.actual_amount,
                jv.plan_id, jv.scheduled_date, jv.invoice_id as existing_invoice_id,
@@ -28,7 +26,10 @@ if ($visitId) {
                p.address, p.city, p.province, p.postal_code,
                p.site_contact_id,
                COALESCE(con.first_name, '') as contact_first,
-               COALESCE(con.last_name, '') as contact_last
+               COALESCE(con.last_name, '') as contact_last,
+               con.email as contact_email,
+               con.mobile as contact_mobile,
+               con.receive_sms as contact_receive_sms
         FROM job_visits jv
         JOIN job_plans jp ON jv.plan_id = jp.id
         LEFT JOIN companies c ON jp.company_id = c.id
@@ -40,13 +41,12 @@ if ($visitId) {
     $visit = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($visit) {
-        // Redirect if already invoiced
         if (!empty($visit['existing_invoice_id'])) {
             header("Location: view.php?id={$visit['existing_invoice_id']}&already_invoiced=1");
             exit;
         }
-        $visitAmount = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
-        $contactName = trim($visit['contact_first'] . ' ' . $visit['contact_last']) ?: null;
+        $visitAmount  = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
+        $contactName  = trim($visit['contact_first'] . ' ' . $visit['contact_last']) ?: null;
         $prefill = [
             'company_id'        => $visit['company_id'],
             'property_id'       => $visit['property_id'],
@@ -57,6 +57,10 @@ if ($visitId) {
             'description'       => $visit['title'] . ' — ' . date('M j, Y', strtotime($visit['scheduled_date'])),
             'amount'            => $visitAmount,
             'company_name'      => $visit['company_name'] ?: $contactName,
+            'contact_name'      => $contactName,
+            'contact_email'     => $visit['contact_email'],
+            'contact_mobile'    => $visit['contact_mobile'],
+            'contact_receive_sms' => $visit['contact_receive_sms'],
             'service_address'   => $visit['address'] ?? '',
             'service_city'      => $visit['city'] ?? '',
             'service_province'  => $visit['province'] ?? 'BC',
@@ -67,55 +71,45 @@ if ($visitId) {
     }
 }
 
-// Get companies for dropdown (if not from job)
-$companies = $db->query("
-    SELECT c.id, c.company_name, c.billing_email
-    FROM companies c
-    ORDER BY c.company_name
-")->fetchAll(PDO::FETCH_ASSOC);
-
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
         $error = 'Invalid request. Please try again.';
     } else {
-        $companyId = intval($_POST['company_id'] ?? 0);
-        $contactId = intval($_POST['contact_id'] ?? 0);
+        $companyId   = intval($_POST['company_id'] ?? 0);
+        $contactId   = intval($_POST['contact_id'] ?? 0);
         $linkedVisitId = intval($_POST['visit_id'] ?? 0);
-        $linkedPlanId = intval($_POST['plan_id'] ?? 0);
-        $propertyId = intval($_POST['property_id'] ?? 0);
-        $issueDate = $_POST['issue_date'] ?? date('Y-m-d');
-        $dueDate = $_POST['due_date'] ?? date('Y-m-d', strtotime('+30 days'));
-        $description = trim($_POST['description'] ?? '');
-        $subtotal = floatval($_POST['subtotal'] ?? 0);
-        $taxRate = 0.05;
-        $taxAmount = round($subtotal * $taxRate, 2);
-        $total = $subtotal + $taxAmount;
-        $notes = trim($_POST['notes'] ?? '');
+        $linkedPlanId  = intval($_POST['plan_id'] ?? 0);
+        $propertyId    = intval($_POST['property_id'] ?? 0);
+        $issueDate     = $_POST['issue_date'] ?? date('Y-m-d');
+        $dueDate       = $_POST['due_date'] ?? date('Y-m-d', strtotime('+30 days'));
+        $description   = trim($_POST['description'] ?? '');
+        $subtotal      = floatval($_POST['subtotal'] ?? 0);
+        $taxRate       = 0.05;
+        $taxAmount     = round($subtotal * $taxRate, 2);
+        $total         = $subtotal + $taxAmount;
+        $notes         = trim($_POST['notes'] ?? '');
 
-        // Phase 2-3: Address fields
-        $serviceAddress = trim($_POST['service_address'] ?? '');
-        $serviceCity = trim($_POST['service_city'] ?? '');
-        $serviceProvince = trim($_POST['service_province'] ?? '');
+        $serviceAddress    = trim($_POST['service_address'] ?? '');
+        $serviceCity       = trim($_POST['service_city'] ?? '');
+        $serviceProvince   = trim($_POST['service_province'] ?? '');
         $servicePostalCode = trim($_POST['service_postal_code'] ?? '');
 
-        $billingAddress = trim($_POST['billing_address'] ?? '');
-        $billingCity = trim($_POST['billing_city'] ?? '');
-        $billingProvince = trim($_POST['billing_province'] ?? '');
+        $billingAddress    = trim($_POST['billing_address'] ?? '');
+        $billingCity       = trim($_POST['billing_city'] ?? '');
+        $billingProvince   = trim($_POST['billing_province'] ?? '');
         $billingPostalCode = trim($_POST['billing_postal_code'] ?? '');
 
-        // Phase 2-3: Recipient selections (JSON array of contact IDs to include)
         $selectedRecipients = [];
         if (!empty($_POST['selected_recipients'])) {
             $selectedRecipients = json_decode($_POST['selected_recipients'], true) ?? [];
             $selectedRecipients = array_filter(array_map('intval', $selectedRecipients));
         }
 
-        // Determine if addresses differ
         $addressDiffers = (
-            ($serviceAddress !== $billingAddress) ||
-            ($serviceCity !== $billingCity) ||
-            ($serviceProvince !== $billingProvince) ||
+            ($serviceAddress  !== $billingAddress)  ||
+            ($serviceCity     !== $billingCity)      ||
+            ($serviceProvince !== $billingProvince)  ||
             ($servicePostalCode !== $billingPostalCode)
         ) ? 1 : 0;
 
@@ -130,9 +124,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $db->beginTransaction();
 
                 $invoiceNumber = generateInvoiceNumber();
-                $accessToken = generateAccessToken();
+                $accessToken   = generateAccessToken();
 
-                // Insert using production column names (production uses invoice_date / total_amount)
                 $stmt = $db->prepare("
                     INSERT INTO invoices (
                         invoice_number, company_id, contact_id, property_id,
@@ -154,15 +147,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $propertyId ?: null,
                     $linkedPlanId ?: null,
                     $linkedVisitId ?: null,
-                    $issueDate,       // invoice_date (production name)
-                    $issueDate,       // issue_date (schema name alias)
+                    $issueDate,
+                    $issueDate,
                     $dueDate,
                     $subtotal,
                     $taxRate,
                     $taxAmount,
-                    $total,           // total_amount (production name)
-                    $total,           // total (schema name alias)
-                    $total,           // balance_due starts as total
+                    $total,
+                    $total,
+                    $total,
                     $notes,
                     $accessToken,
                     $serviceAddress,
@@ -179,7 +172,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $invoiceId = $db->lastInsertId();
 
-                // Add line item
                 $stmt = $db->prepare("
                     INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id)
                     VALUES (?, ?, 1, ?, ?, ?)
@@ -192,9 +184,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $linkedVisitId ?: null
                 ]);
 
-                // Phase 2-3: Insert selected recipients into invoice_contacts table
                 $recipientContacts = $db->prepare("
-                    SELECT id, first_name, last_name, email, receive_sms
+                    SELECT id, first_name, last_name, email, mobile, receive_sms
                     FROM contacts WHERE id = ?
                 ");
 
@@ -205,34 +196,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ");
 
                 $recipientNames = [];
-                $smsRecipients = [];
+                $smsRecipients  = [];
 
-                foreach ($selectedRecipients as $contactId) {
-                    $recipientContacts->execute([$contactId]);
+                foreach ($selectedRecipients as $rcptContactId) {
+                    $recipientContacts->execute([$rcptContactId]);
                     $contact = $recipientContacts->fetch(PDO::FETCH_ASSOC);
 
                     if ($contact) {
                         $insertRecipient->execute([
                             $invoiceId,
-                            $contactId,
+                            $rcptContactId,
                             'primary_recipient',
                             $contact['email']
                         ]);
 
                         $recipientNames[] = "{$contact['first_name']} {$contact['last_name']}";
 
-                        // Track SMS recipients (those who have consent)
                         if ($contact['receive_sms']) {
                             $smsRecipients[] = [
-                                'contact_id' => $contactId,
-                                'phone' => $contact['phone'] ?? null,
-                                'email' => $contact['email']
+                                'contact_id' => $rcptContactId,
+                                'phone'      => $contact['mobile'] ?? null,
+                                'email'      => $contact['email']
                             ];
                         }
                     }
                 }
 
-                // Log with recipient details
                 $recipientList = implode(', ', $recipientNames);
                 $details = "Invoice {$invoiceNumber} created for " . ($recipientNames ? $recipientList : 'no recipients');
                 if (!empty($smsRecipients)) {
@@ -241,7 +230,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 logActivityExtended($user['id'], 'Invoice created', $details, $companyId ?: null, null, null, $invoiceId, $linkedPlanId ?: null, $linkedVisitId ?: null);
 
-                // Mark the visit as invoiced
                 if ($linkedVisitId) {
                     $db->prepare("UPDATE job_visits SET is_invoiced = 1, invoice_id = ? WHERE id = ?")
                        ->execute([$invoiceId, $linkedVisitId]);
@@ -263,9 +251,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $csrfToken = generateCSRFToken();
 
-$pageTitle = 'Create Invoice';
+$pageTitle  = 'Create Invoice';
 $activePage = 'invoices';
-$apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+$apiKey     = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+$extraHead  = '';
 if ($apiKey) {
     $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" defer></script>';
 }
@@ -278,10 +267,8 @@ if ($apiKey) {
             <p class="text-muted mb-4"><?php
                 if ($visitId && isset($visit)) {
                     echo 'Creating invoice from completed visit';
-                } elseif (!empty($jobId) && isset($job)) {
-                    echo 'Creating invoice from completed job';
                 } else {
-                    echo 'Create a new invoice';
+                    echo 'Create a new invoice manually';
                 }
             ?></p>
 
@@ -293,73 +280,81 @@ if ($apiKey) {
                 <div class="mw-info-banner">
                     <strong>Creating from Visit <?php echo htmlspecialchars($visit['visit_number']); ?></strong><br>
                     Plan: <?php echo htmlspecialchars($visit['plan_number'] . ' — ' . $visit['title']); ?><br>
-                    <?php echo htmlspecialchars($visit['company_name'] ?? $prefill['company_name'] ?? ''); ?><?php if (!empty($visit['address'])): ?> - <?php echo htmlspecialchars($visit['address']); ?><?php endif; ?>
+                    <?php echo htmlspecialchars($visit['company_name'] ?? $prefill['company_name'] ?? ''); ?><?php if (!empty($visit['address'])): ?> &mdash; <?php echo htmlspecialchars($visit['address']); ?><?php endif; ?>
                 </div>
             <?php endif; ?>
 
             <form method="POST" id="invoiceForm">
-                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                <input type="hidden" name="visit_id" value="<?php echo $prefill['visit_id'] ?? ''; ?>">
-                <input type="hidden" name="plan_id" value="<?php echo $prefill['plan_id'] ?? ''; ?>">
-                <input type="hidden" name="property_id" id="propertyIdInput" value="<?php echo $prefill['property_id'] ?? ''; ?>">
-                <input type="hidden" name="contact_id" value="<?php echo (int)($prefill['contact_id'] ?? 0); ?>">
+                <input type="hidden" name="csrf_token"          value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="visit_id"            value="<?php echo $prefill['visit_id'] ?? ''; ?>">
+                <input type="hidden" name="plan_id"             value="<?php echo $prefill['plan_id'] ?? ''; ?>">
+                <input type="hidden" name="property_id"         id="propertyIdInput"    value="<?php echo $prefill['property_id'] ?? ''; ?>">
+                <input type="hidden" name="company_id"          id="companyIdInput"     value="<?php echo (int)($prefill['company_id'] ?? 0); ?>">
+                <input type="hidden" name="contact_id"          id="contactIdInput"     value="<?php echo (int)($prefill['contact_id'] ?? 0); ?>">
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
 
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title">Invoice Details</h3>
 
+                        <!-- ── Customer Typeahead ── -->
                         <div class="mw-form-group">
                             <label class="form-label">Customer *</label>
                             <?php if ($visitId && !empty($prefill['company_name'])): ?>
-                                <input type="hidden" name="company_id" value="<?php echo (int)($prefill['company_id'] ?? 0); ?>">
+                                <!-- Pre-filled from visit — read only -->
                                 <input type="text" class="form-control" value="<?php echo htmlspecialchars($prefill['company_name']); ?>" readonly>
                             <?php else: ?>
-                                <select name="company_id" id="companySelect" class="form-control" required>
-                                    <option value="">Select customer...</option>
-                                    <?php foreach ($companies as $company): ?>
-                                        <option value="<?php echo $company['id']; ?>"><?php echo htmlspecialchars($company['company_name']); ?></option>
-                                    <?php endforeach; ?>
-                                </select>
+                                <div class="mw-customer-search-wrap" id="customerSearchWrap">
+                                    <div class="mw-customer-search-input-row">
+                                        <input type="text"
+                                               id="customerSearchInput"
+                                               class="form-control"
+                                               placeholder="Type a name or email to search customers&hellip;"
+                                               autocomplete="off"
+                                               aria-label="Search customers">
+                                        <button type="button" id="customerClearBtn" class="mw-customer-clear-btn" title="Clear selection" style="display:none;">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                        </button>
+                                    </div>
+                                    <ul id="customerDropdown" class="mw-customer-dropdown" style="display:none;" role="listbox"></ul>
+                                    <div id="customerSelectedCard" class="mw-customer-selected-card" style="display:none;"></div>
+                                </div>
                             <?php endif; ?>
                         </div>
 
-                        <!-- Phase 2: Property & Recipient Selector (hidden when prefilling from visit) -->
-                        <div class="mw-form-group"<?php if ($visitId && !empty($prefill['property_id'])): ?> style="display:none"<?php endif; ?>>
-                            <label class="form-label">Property (optional)</label>
+                        <!-- ── Property Selector (shown when customer has multiple properties) ── -->
+                        <div id="propertySection" class="mw-form-group" style="display:none;">
+                            <label class="form-label">Property <span class="text-muted">(optional — loads recipients)</span></label>
                             <select id="propertySelect" class="form-control">
-                                <option value="">Select property to load recipients...</option>
+                                <option value="">All properties / select one…</option>
                             </select>
-                            <small class="text-muted">Select a property to automatically populate invoice recipients based on their management setup</small>
                         </div>
 
-                        <!-- Phase 2: Recipient Preview Table -->
-                        <div id="recipientSection" class="mw-recipient-section" style="display: none;">
+                        <!-- ── Recipient Table ── -->
+                        <div id="recipientSection" class="mw-recipient-section" style="display:none;">
                             <label class="form-label mt-3">Invoice Recipients *</label>
                             <div class="mw-recipient-table">
-                                <table class="table table-sm table-bordered">
+                                <table class="table table-sm table-bordered mb-0">
                                     <thead class="table-light">
                                         <tr>
-                                            <th style="width: 40px;"><input type="checkbox" id="selectAllRecipients"></th>
+                                            <th style="width:40px;"><input type="checkbox" id="selectAllRecipients"></th>
                                             <th>Contact</th>
-                                            <th>Role</th>
                                             <th>Email</th>
-                                            <th style="width: 80px;">SMS</th>
+                                            <th style="width:80px;">SMS</th>
                                         </tr>
                                     </thead>
                                     <tbody id="recipientTableBody">
-                                        <tr>
-                                            <td colspan="5" class="text-center text-muted">Loading recipients...</td>
-                                        </tr>
+                                        <tr><td colspan="4" class="text-center text-muted py-3">Loading…</td></tr>
                                     </tbody>
                                 </table>
                             </div>
-                            <div id="recipientSummary" class="alert alert-info mt-2" style="display: none;">
-                                Will send invoice to: <strong id="recipientSummaryText"></strong>
+                            <div id="recipientSummary" class="alert alert-info mt-2 mb-0" style="display:none;">
+                                Will send to: <strong id="recipientSummaryText"></strong>
                             </div>
                         </div>
 
-                        <div class="mw-form-row">
+                        <!-- ── Dates ── -->
+                        <div class="mw-form-row mt-3">
                             <div class="mw-form-group">
                                 <label class="form-label">Issue Date</label>
                                 <input type="date" name="issue_date" class="form-control"
@@ -372,18 +367,18 @@ if ($apiKey) {
                             </div>
                         </div>
 
-                        <!-- Phase 2: Address Fields -->
-                        <div class="alert alert-light mt-3 pt-3 border-top">
-                            <h5 class="mb-3">Service Address (where work was performed)</h5>
+                        <!-- ── Service Address ── -->
+                        <div class="alert alert-light mt-2 pt-3 border-top">
+                            <h5 class="mb-3">Service Address <span class="text-muted fw-normal" style="font-size:.85rem;">(where work was performed)</span></h5>
                             <div class="mw-form-row">
-                                <div class="mw-form-group" style="flex: 1 1 100%;">
+                                <div class="mw-form-group full">
                                     <label class="form-label">Address</label>
                                     <input type="text" name="service_address" id="serviceAddress" class="form-control"
-                                           placeholder="Start typing an address..." autocomplete="off"
+                                           placeholder="Start typing an address…" autocomplete="off"
                                            value="<?php echo htmlspecialchars($prefill['service_address'] ?? ''); ?>">
                                 </div>
                             </div>
-                            <div class="mw-form-row">
+                            <div class="mw-form-row three">
                                 <div class="mw-form-group">
                                     <label class="form-label">City</label>
                                     <input type="text" name="service_city" id="serviceCity" class="form-control" placeholder="Vancouver"
@@ -402,24 +397,24 @@ if ($apiKey) {
                             </div>
                         </div>
 
-                        <!-- Phase 2: Billing Address (separate or same as service) -->
+                        <!-- ── Billing Address ── -->
                         <div class="alert alert-light pt-3 border-top">
                             <div class="custom-control custom-checkbox mb-3">
                                 <input type="checkbox" class="custom-control-input" id="differentBillingAddress">
                                 <label class="custom-control-label" for="differentBillingAddress">
-                                    Billing address is different from service address
+                                    Billing address differs from service address
                                 </label>
                             </div>
-                            <div id="billingAddressSection" style="display: none;">
-                                <h5 class="mb-3">Billing Address (where invoice is sent)</h5>
+                            <div id="billingAddressSection" style="display:none;">
+                                <h5 class="mb-3">Billing Address</h5>
                                 <div class="mw-form-row">
-                                    <div class="mw-form-group" style="flex: 1 1 100%;">
+                                    <div class="mw-form-group full">
                                         <label class="form-label">Address</label>
                                         <input type="text" name="billing_address" id="invBillingAddress" class="form-control"
-                                               placeholder="Start typing an address..." autocomplete="off">
+                                               placeholder="Start typing an address…" autocomplete="off">
                                     </div>
                                 </div>
-                                <div class="mw-form-row">
+                                <div class="mw-form-row three">
                                     <div class="mw-form-group">
                                         <label class="form-label">City</label>
                                         <input type="text" name="billing_city" id="invBillingCity" class="form-control" placeholder="Vancouver">
@@ -436,15 +431,17 @@ if ($apiKey) {
                             </div>
                         </div>
 
+                        <!-- ── Description & Amount ── -->
                         <div class="mw-form-group">
                             <label class="form-label">Description</label>
-                            <textarea name="description" class="form-control"
-                                      placeholder="Services rendered..."><?php echo htmlspecialchars($prefill['description'] ?? ''); ?></textarea>
+                            <textarea name="description" class="form-control" rows="2"
+                                      placeholder="Services rendered…"><?php echo htmlspecialchars($prefill['description'] ?? ''); ?></textarea>
                         </div>
 
-                        <div class="mw-form-group" style="max-width: 300px;">
+                        <div class="mw-form-group" style="max-width:300px;">
                             <label class="form-label">Amount (before tax) *</label>
-                            <input type="number" name="subtotal" id="subtotalInput" class="form-control" step="0.01" min="0" required
+                            <input type="number" name="subtotal" id="subtotalInput" class="form-control"
+                                   step="0.01" min="0" required
                                    value="<?php echo htmlspecialchars($prefill['amount'] ?? ''); ?>"
                                    oninput="calculateTotals()">
                         </div>
@@ -469,10 +466,10 @@ if ($apiKey) {
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title">Notes</h3>
-
                         <div class="mw-form-group">
                             <label class="form-label">Invoice Notes (shown to customer)</label>
-                            <textarea name="notes" class="form-control" placeholder="Payment terms, thank you message, etc.">Thank you for your business!</textarea>
+                            <textarea name="notes" class="form-control" rows="3"
+                                      placeholder="Payment terms, thank you message, etc.">Thank you for your business!</textarea>
                         </div>
                     </div>
                 </div>
@@ -483,258 +480,431 @@ if ($apiKey) {
                 </div>
             </form>
 
-            <script>
-                // ========================================
-                // PHASE 2-3: Invoice Recipient & Address Logic
-                // ========================================
+<script>
+// =====================================================
+// Customer Typeahead + Recipient Logic
+// =====================================================
 
-                const companySelect = document.getElementById('companySelect');
-                const propertySelect = document.getElementById('propertySelect');
-                const recipientSection = document.getElementById('recipientSection');
-                const recipientTableBody = document.getElementById('recipientTableBody');
-                const recipientSummary = document.getElementById('recipientSummary');
-                const recipientSummaryText = document.getElementById('recipientSummaryText');
-                const differentBillingCheckbox = document.getElementById('differentBillingAddress');
-                const billingAddressSection = document.getElementById('billingAddressSection');
-                const selectAllCheckbox = document.getElementById('selectAllRecipients');
-                const selectedRecipientsInput = document.getElementById('selectedRecipientsInput');
-                const propertyIdInput = document.getElementById('propertyIdInput');
+const customerSearchInput    = document.getElementById('customerSearchInput');
+const customerDropdown       = document.getElementById('customerDropdown');
+const customerSelectedCard   = document.getElementById('customerSelectedCard');
+const customerClearBtn       = document.getElementById('customerClearBtn');
+const companyIdInput         = document.getElementById('companyIdInput');
+const contactIdInput         = document.getElementById('contactIdInput');
+const propertyIdInput        = document.getElementById('propertyIdInput');
+const propertySection        = document.getElementById('propertySection');
+const propertySelect         = document.getElementById('propertySelect');
+const recipientSection       = document.getElementById('recipientSection');
+const recipientTableBody     = document.getElementById('recipientTableBody');
+const recipientSummary       = document.getElementById('recipientSummary');
+const recipientSummaryText   = document.getElementById('recipientSummaryText');
+const selectAllCheckbox      = document.getElementById('selectAllRecipients');
+const selectedRecipientsInput = document.getElementById('selectedRecipientsInput');
+const differentBillingCheckbox = document.getElementById('differentBillingAddress');
+const billingAddressSection  = document.getElementById('billingAddressSection');
 
-                // Load properties when company is selected
-                if (companySelect) {
-                    companySelect.addEventListener('change', function() {
-                        const companyId = this.value;
-                        if (!companyId) {
-                            propertySelect.innerHTML = '<option value="">Select property...</option>';
-                            recipientSection.style.display = 'none';
-                            return;
-                        }
+let searchTimeout = null;
+let selectedCustomer = null;
 
-                        // Load properties for this company
-                        fetch(`/crm/invoices/api-get-properties.php?company_id=${companyId}`)
-                            .then(r => r.json())
-                            .then(data => {
-                                if (data.success && data.properties) {
-                                    propertySelect.innerHTML = '<option value="">Select property...</option>';
-                                    data.properties.forEach(prop => {
-                                        const opt = document.createElement('option');
-                                        opt.value = prop.id;
-                                        opt.textContent = `${prop.address}, ${prop.city}`;
-                                        propertySelect.appendChild(opt);
-                                    });
-                                }
-                            })
-                            .catch(err => console.error('Error loading properties:', err));
+// ── Typeahead search ──
+if (customerSearchInput) {
+    customerSearchInput.addEventListener('input', function () {
+        clearTimeout(searchTimeout);
+        const q = this.value.trim();
+        if (q.length < 1) {
+            hideDropdown();
+            return;
+        }
+        searchTimeout = setTimeout(() => fetchCustomers(q), 220);
+    });
+
+    customerSearchInput.addEventListener('keydown', function (e) {
+        const items = customerDropdown.querySelectorAll('.mw-customer-option');
+        const active = customerDropdown.querySelector('.mw-customer-option.active');
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const next = active ? (active.nextElementSibling || items[0]) : items[0];
+            if (next) { active && active.classList.remove('active'); next.classList.add('active'); next.scrollIntoView({block:'nearest'}); }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const prev = active ? (active.previousElementSibling || items[items.length - 1]) : items[items.length - 1];
+            if (prev) { active && active.classList.remove('active'); prev.classList.add('active'); prev.scrollIntoView({block:'nearest'}); }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (active) active.click();
+        } else if (e.key === 'Escape') {
+            hideDropdown();
+        }
+    });
+
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('#customerSearchWrap')) hideDropdown();
+    });
+}
+
+function fetchCustomers(q) {
+    fetch(`/crm/invoices/api-search-customers.php?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(data => renderDropdown(data.results || []))
+        .catch(() => hideDropdown());
+}
+
+function renderDropdown(results) {
+    customerDropdown.innerHTML = '';
+    if (!results.length) {
+        customerDropdown.innerHTML = '<li class="mw-customer-option mw-customer-empty">No customers found</li>';
+        customerDropdown.style.display = 'block';
+        return;
+    }
+    results.forEach(item => {
+        const li = document.createElement('li');
+        li.className = 'mw-customer-option';
+        li.setAttribute('role', 'option');
+        const icon = item.type === 'company'
+            ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>'
+            : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+        li.innerHTML = `
+            <span class="mw-customer-icon">${icon}</span>
+            <span class="mw-customer-meta">
+                <span class="mw-customer-name">${escHtml(item.label)}</span>
+                ${item.sublabel ? `<span class="mw-customer-sub">${escHtml(item.sublabel)}</span>` : ''}
+            </span>
+        `;
+        li.addEventListener('click', () => selectCustomer(item));
+        customerDropdown.appendChild(li);
+    });
+    customerDropdown.style.display = 'block';
+}
+
+function hideDropdown() {
+    customerDropdown.style.display = 'none';
+}
+
+function selectCustomer(item) {
+    selectedCustomer = item;
+    hideDropdown();
+
+    // Update hidden inputs
+    if (item.type === 'contact') {
+        contactIdInput.value = item.id;
+        companyIdInput.value = 0;
+    } else {
+        companyIdInput.value = item.id;
+        contactIdInput.value = 0;
+    }
+
+    // Show selected card
+    customerSearchInput.style.display = 'none';
+    customerClearBtn.style.display = 'flex';
+    customerSelectedCard.style.display = 'flex';
+    customerSelectedCard.innerHTML = `
+        <div class="mw-selected-avatar">${escHtml(item.label.charAt(0).toUpperCase())}</div>
+        <div class="mw-selected-info">
+            <strong>${escHtml(item.label)}</strong>
+            ${item.sublabel ? `<span>${escHtml(item.sublabel)}</span>` : ''}
+        </div>
+    `;
+
+    // Load properties / recipients
+    loadCustomerContext(item);
+}
+
+function clearCustomer() {
+    selectedCustomer = null;
+    contactIdInput.value  = 0;
+    companyIdInput.value  = 0;
+    propertyIdInput.value = '';
+
+    customerSearchInput.value       = '';
+    customerSearchInput.style.display = '';
+    customerClearBtn.style.display  = 'none';
+    customerSelectedCard.style.display = 'none';
+    customerSelectedCard.innerHTML  = '';
+
+    propertySection.style.display   = 'none';
+    recipientSection.style.display  = 'none';
+    selectedRecipientsInput.value   = '[]';
+    customerSearchInput.focus();
+}
+
+if (customerClearBtn) {
+    customerClearBtn.addEventListener('click', clearCustomer);
+}
+
+function loadCustomerContext(item) {
+    // For contacts: auto-add them as recipient immediately, also fetch their properties
+    if (item.type === 'contact') {
+        // Immediately populate them as recipient (no property required)
+        const recipients = [{
+            contact_id:   item.id,
+            contact_name: item.label,
+            email_address: item.email || '',
+            receive_sms:  item.receive_sms || false,
+        }];
+        renderRecipientTable(recipients);
+        recipientSection.style.display = 'block';
+
+        // Also fetch their properties for optional address pre-fill
+        fetch(`/crm/invoices/api-get-properties.php?contact_id=${item.id}`)
+            .then(r => r.json())
+            .then(data => {
+                const props = data.properties || [];
+                if (props.length === 1) {
+                    // Auto-select single property
+                    propertyIdInput.value = props[0].id;
+                    prefillServiceAddress(props[0]);
+                } else if (props.length > 1) {
+                    // Show property selector
+                    propertySelect.innerHTML = '<option value="">Select property…</option>';
+                    props.forEach(p => {
+                        const o = document.createElement('option');
+                        o.value = p.id;
+                        o.textContent = `${p.address}, ${p.city}`;
+                        propertySelect.appendChild(o);
                     });
+                    propertySection.style.display = 'block';
                 }
+            })
+            .catch(() => {});
 
-                // Load recipients when property is selected
-                propertySelect.addEventListener('change', function() {
-                    const propertyId = this.value;
-                    const companyId = companySelect ? companySelect.value : (document.querySelector('input[name="company_id"]')?.value || 0);
-
-                    if (!propertyId || !companyId) {
-                        recipientSection.style.display = 'none';
-                        return;
-                    }
-
-                    propertyIdInput.value = propertyId;
-
-                    // Fetch recipients via AJAX
-                    fetch('/crm/invoices/api-get-recipients.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            property_id: parseInt(propertyId),
-                            company_id: parseInt(companyId)
-                        })
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success && data.recipients && data.recipients.length > 0) {
-                            renderRecipientTable(data.recipients);
-                            recipientSection.style.display = 'block';
-                        } else {
-                            recipientTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No recipients found for this property</td></tr>';
-                            recipientSection.style.display = 'block';
-                        }
-                    })
-                    .catch(err => {
-                        console.error('Error loading recipients:', err);
-                        recipientTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading recipients</td></tr>';
+    } else {
+        // Company: load properties to pick recipients
+        fetch(`/crm/invoices/api-get-properties.php?company_id=${item.id}`)
+            .then(r => r.json())
+            .then(data => {
+                const props = data.properties || [];
+                if (props.length === 0) {
+                    recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No properties found for this company.</td></tr>';
+                    recipientSection.style.display = 'block';
+                } else if (props.length === 1) {
+                    propertyIdInput.value = props[0].id;
+                    prefillServiceAddress(props[0]);
+                    loadRecipientsByProperty(props[0].id, item.id, 0);
+                } else {
+                    propertySelect.innerHTML = '<option value="">Select property…</option>';
+                    props.forEach(p => {
+                        const o = document.createElement('option');
+                        o.value = p.id;
+                        o.textContent = `${p.address}, ${p.city}`;
+                        propertySelect.appendChild(o);
                     });
-                });
-
-                // Render recipient table with checkboxes
-                function renderRecipientTable(recipients) {
-                    recipientTableBody.innerHTML = '';
-
-                    recipients.forEach(recipient => {
-                        const row = document.createElement('tr');
-                        row.className = 'recipient-row';
-                        row.dataset.contactId = recipient.contact_id;
-
-                        const roleLabel = formatRole(recipient.contact_role);
-                        const smsIndicator = recipient.receive_sms ? '✓ SMS' : '—';
-
-                        row.innerHTML = `
-                            <td>
-                                <input type="checkbox" class="recipient-checkbox" value="${recipient.contact_id}" checked>
-                            </td>
-                            <td>${recipient.contact_name || (recipient.first_name + ' ' + recipient.last_name)}</td>
-                            <td><span class="badge badge-light">${roleLabel}</span></td>
-                            <td><small>${recipient.email_address}</small></td>
-                            <td><small>${smsIndicator}</small></td>
-                        `;
-                        recipientTableBody.appendChild(row);
-                    });
-
-                    // Add event listeners to checkboxes
-                    document.querySelectorAll('.recipient-checkbox').forEach(cb => {
-                        cb.addEventListener('change', updateRecipientSummary);
-                    });
-
-                    selectAllCheckbox.addEventListener('change', function() {
-                        document.querySelectorAll('.recipient-checkbox').forEach(cb => {
-                            cb.checked = this.checked;
-                        });
-                        updateRecipientSummary();
-                    });
-
-                    updateRecipientSummary();
+                    propertySection.style.display = 'block';
                 }
+            })
+            .catch(() => {});
+    }
+}
 
-                // Update summary and hidden input with selected recipients
-                function updateRecipientSummary() {
-                    const selected = Array.from(document.querySelectorAll('.recipient-checkbox:checked'))
-                        .map(cb => ({
-                            id: cb.value,
-                            name: cb.closest('tr').cells[1].textContent.trim()
-                        }));
+// Property selector change
+if (propertySelect) {
+    propertySelect.addEventListener('change', function () {
+        const propertyId = this.value;
+        if (!propertyId) return;
+        propertyIdInput.value = propertyId;
 
-                    selectedRecipientsInput.value = JSON.stringify(selected.map(s => parseInt(s.id)));
+        // Find property details for address prefill
+        const option = this.options[this.selectedIndex];
+        if (option) {
+            // Parse address from option text (format: "address, city")
+            const parts = option.textContent.split(', ');
+            if (parts.length >= 2) {
+                document.getElementById('serviceAddress').value = parts.slice(0, -1).join(', ');
+                document.getElementById('serviceCity').value    = parts[parts.length - 1];
+            }
+        }
 
-                    if (selected.length > 0) {
-                        recipientSummaryText.textContent = selected.map(s => s.name).join(', ');
-                        recipientSummary.style.display = 'block';
-                        selectAllCheckbox.indeterminate = selected.length < document.querySelectorAll('.recipient-checkbox').length;
-                    } else {
-                        recipientSummary.style.display = 'none';
-                    }
-                }
+        const companyId = companyIdInput ? parseInt(companyIdInput.value) : 0;
+        const contactId = contactIdInput ? parseInt(contactIdInput.value) : 0;
 
-                // Format contact role for display
-                function formatRole(role) {
-                    const roles = {
-                        'primary_recipient': 'Primary',
-                        'property_manager': 'Property Manager',
-                        'owner_contact': 'Owner',
-                        'strata_manager': 'Strata Manager',
-                        'billing_contact': 'Billing',
-                        'accounting': 'Accounting'
-                    };
-                    return roles[role] || role;
-                }
+        if (selectedCustomer && selectedCustomer.type === 'contact') {
+            // For contact: property just sets address; contact is already the recipient
+        } else {
+            loadRecipientsByProperty(propertyId, companyId, contactId);
+        }
+    });
+}
 
-                // Toggle billing address section
-                differentBillingCheckbox.addEventListener('change', function() {
-                    billingAddressSection.style.display = this.checked ? 'block' : 'none';
-                });
+function prefillServiceAddress(prop) {
+    if (prop.address) document.getElementById('serviceAddress').value = prop.address;
+    if (prop.city)    document.getElementById('serviceCity').value    = prop.city;
+    if (prop.province) document.getElementById('serviceProvince').value = prop.province || 'BC';
+    if (prop.postal_code) document.getElementById('servicePostalCode').value = prop.postal_code;
+}
 
-                // Form validation
-                document.getElementById('invoiceForm').addEventListener('submit', function(e) {
-                    const selectedCount = document.querySelectorAll('.recipient-checkbox:checked').length;
-                    if (selectedCount === 0) {
-                        e.preventDefault();
-                        alert('Please select at least one invoice recipient.');
-                        return false;
-                    }
-                });
+function loadRecipientsByProperty(propertyId, companyId, contactId) {
+    recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Loading recipients…</td></tr>';
+    recipientSection.style.display = 'block';
 
-                // Calculate totals
-                function calculateTotals() {
-                    const subtotal = parseFloat(document.getElementById('subtotalInput').value) || 0;
-                    const tax = subtotal * 0.05;
-                    const total = subtotal + tax;
+    fetch('/crm/invoices/api-get-recipients.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            property_id: parseInt(propertyId),
+            company_id:  parseInt(companyId),
+            contact_id:  parseInt(contactId)
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.recipients && data.recipients.length > 0) {
+            renderRecipientTable(data.recipients);
+        } else {
+            recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No recipients found — add a contact email to send this invoice.</td></tr>';
+        }
+    })
+    .catch(() => {
+        recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-3">Error loading recipients.</td></tr>';
+    });
+}
 
-                    document.getElementById('subtotalDisplay').textContent = '$' + subtotal.toFixed(2);
-                    document.getElementById('taxDisplay').textContent = '$' + tax.toFixed(2);
-                    document.getElementById('totalDisplay').textContent = '$' + total.toFixed(2);
-                }
+function renderRecipientTable(recipients) {
+    recipientTableBody.innerHTML = '';
+    recipients.forEach(r => {
+        const row = document.createElement('tr');
+        row.className = 'recipient-row';
+        row.dataset.contactId = r.contact_id;
+        const name = r.contact_name || ((r.first_name || '') + ' ' + (r.last_name || '')).trim();
+        const smsLabel = r.receive_sms ? '<span class="badge badge-success">SMS</span>' : '<span class="text-muted">—</span>';
+        row.innerHTML = `
+            <td><input type="checkbox" class="recipient-checkbox" value="${r.contact_id}" checked></td>
+            <td>${escHtml(name)}</td>
+            <td><small class="text-muted">${escHtml(r.email_address || '')}</small></td>
+            <td>${smsLabel}</td>
+        `;
+        recipientTableBody.appendChild(row);
+    });
 
-                // Initialize
-                calculateTotals();
+    document.querySelectorAll('.recipient-checkbox').forEach(cb => cb.addEventListener('change', updateRecipientSummary));
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function () {
+            document.querySelectorAll('.recipient-checkbox').forEach(cb => { cb.checked = this.checked; });
+            updateRecipientSummary();
+        });
+    }
+    updateRecipientSummary();
+}
 
-                <?php if ($visitId && !empty($prefill['property_id'])): ?>
-                // Auto-load recipients from visit property
-                (function() {
-                    const propertyId = <?php echo (int)$prefill['property_id']; ?>;
-                    const companyId  = <?php echo (int)($prefill['company_id'] ?? 0); ?>;
-                    const contactId  = <?php echo (int)($prefill['contact_id'] ?? 0); ?>;
-                    propertyIdInput.value = propertyId;
+function updateRecipientSummary() {
+    const checked = Array.from(document.querySelectorAll('.recipient-checkbox:checked'));
+    selectedRecipientsInput.value = JSON.stringify(checked.map(cb => parseInt(cb.value)));
 
-                    fetch('/crm/invoices/api-get-recipients.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ property_id: propertyId, company_id: companyId, contact_id: contactId })
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success && data.recipients && data.recipients.length > 0) {
-                            renderRecipientTable(data.recipients);
-                            // Auto-check all recipients
-                            document.querySelectorAll('.recipient-checkbox').forEach(cb => { cb.checked = true; });
-                            updateRecipientSummary();
-                        } else {
-                            recipientTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No email recipients found — add a contact email to send this invoice.</td></tr>';
-                        }
-                        recipientSection.style.display = 'block';
-                    })
-                    .catch(() => {
-                        recipientTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading recipients.</td></tr>';
-                        recipientSection.style.display = 'block';
-                    });
-                })();
-                <?php endif; ?>
+    if (checked.length > 0) {
+        const names = checked.map(cb => cb.closest('tr').cells[1].textContent.trim());
+        recipientSummaryText.textContent = names.join(', ');
+        recipientSummary.style.display = 'block';
+        if (selectAllCheckbox) {
+            selectAllCheckbox.indeterminate = checked.length < document.querySelectorAll('.recipient-checkbox').length;
+        }
+    } else {
+        recipientSummary.style.display = 'none';
+    }
+}
 
-                // ── Google Places Address Autocomplete ──
-                function initAddressAutocomplete(inputId, cityId, postalId, provinceId) {
-                  var input = document.getElementById(inputId);
-                  if (!input) return;
-                  if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
-                    setTimeout(function() { initAddressAutocomplete(inputId, cityId, postalId, provinceId); }, 200);
-                    return;
-                  }
-                  var ac = new google.maps.places.Autocomplete(input, {
-                    types: ['address'],
-                    componentRestrictions: { country: ['ca'] },
-                    fields: ['address_components', 'geometry']
-                  });
-                  ac.addListener('place_changed', function() {
-                    var place = ac.getPlace();
-                    if (!place || !place.address_components) return;
-                    var street = '', city = '', postal = '', province = '';
-                    for (var i = 0; i < place.address_components.length; i++) {
-                      var c = place.address_components[i];
-                      if (c.types.indexOf('street_number') !== -1) street = c.long_name + ' ' + street;
-                      if (c.types.indexOf('route') !== -1) street = street + c.long_name;
-                      if (c.types.indexOf('locality') !== -1) city = c.long_name;
-                      if (c.types.indexOf('postal_code') !== -1) postal = c.long_name;
-                      if (c.types.indexOf('administrative_area_level_1') !== -1) province = c.short_name;
-                    }
-                    if (street.trim()) input.value = street.trim();
-                    var cityEl = document.getElementById(cityId);
-                    if (cityEl && city) cityEl.value = city;
-                    var postalEl = document.getElementById(postalId);
-                    if (postalEl && postal) postalEl.value = postal;
-                    if (provinceId) {
-                      var provEl = document.getElementById(provinceId);
-                      if (provEl && province) provEl.value = province;
-                    }
-                  });
-                }
-                initAddressAutocomplete('serviceAddress', 'serviceCity', 'servicePostalCode', 'serviceProvince');
-                initAddressAutocomplete('invBillingAddress', 'invBillingCity', 'invBillingPostalCode', 'invBillingProvince');
-            </script>
+// ── Billing address toggle ──
+if (differentBillingCheckbox) {
+    differentBillingCheckbox.addEventListener('change', function () {
+        billingAddressSection.style.display = this.checked ? 'block' : 'none';
+    });
+}
+
+// ── Form validation ──
+document.getElementById('invoiceForm').addEventListener('submit', function (e) {
+    const selected = document.querySelectorAll('.recipient-checkbox:checked').length;
+    if (selected === 0) {
+        e.preventDefault();
+        alert('Please select at least one invoice recipient.');
+    }
+});
+
+// ── Totals calculation ──
+function calculateTotals() {
+    const subtotal = parseFloat(document.getElementById('subtotalInput').value) || 0;
+    const tax   = subtotal * 0.05;
+    const total = subtotal + tax;
+    document.getElementById('subtotalDisplay').textContent = '$' + subtotal.toFixed(2);
+    document.getElementById('taxDisplay').textContent      = '$' + tax.toFixed(2);
+    document.getElementById('totalDisplay').textContent    = '$' + total.toFixed(2);
+}
+calculateTotals();
+
+// ── HTML escape helper ──
+function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Auto-load recipients from visit prefill ──
+<?php if ($visitId && !empty($prefill['property_id'])): ?>
+(function () {
+    const propertyId = <?php echo (int)$prefill['property_id']; ?>;
+    const companyId  = <?php echo (int)($prefill['company_id'] ?? 0); ?>;
+    const contactId  = <?php echo (int)($prefill['contact_id'] ?? 0); ?>;
+    propertyIdInput.value = propertyId;
+
+    <?php if (!empty($prefill['contact_id'])): ?>
+    // Contact-linked visit — add contact directly as recipient
+    renderRecipientTable([{
+        contact_id:    <?php echo (int)$prefill['contact_id']; ?>,
+        contact_name:  <?php echo json_encode($prefill['contact_name'] ?? ''); ?>,
+        email_address: <?php echo json_encode($prefill['contact_email'] ?? ''); ?>,
+        receive_sms:   <?php echo !empty($prefill['contact_receive_sms']) ? 'true' : 'false'; ?>,
+    }]);
+    recipientSection.style.display = 'block';
+    <?php else: ?>
+    fetch('/crm/invoices/api-get-recipients.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ property_id: propertyId, company_id: companyId, contact_id: contactId })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success && data.recipients && data.recipients.length > 0) {
+            renderRecipientTable(data.recipients);
+        } else {
+            recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No email recipients found — add a contact email to send this invoice.</td></tr>';
+        }
+        recipientSection.style.display = 'block';
+    })
+    .catch(() => {
+        recipientTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-3">Error loading recipients.</td></tr>';
+        recipientSection.style.display = 'block';
+    });
+    <?php endif; ?>
+})();
+<?php endif; ?>
+
+// ── Google Places Autocomplete ──
+function initAddressAutocomplete(inputId, cityId, postalId, provinceId) {
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+        setTimeout(function () { initAddressAutocomplete(inputId, cityId, postalId, provinceId); }, 200);
+        return;
+    }
+    var ac = new google.maps.places.Autocomplete(input, {
+        types: ['address'],
+        componentRestrictions: { country: ['ca'] },
+        fields: ['address_components', 'geometry']
+    });
+    ac.addListener('place_changed', function () {
+        var place = ac.getPlace();
+        if (!place || !place.address_components) return;
+        var street = '', city = '', postal = '', province = '';
+        place.address_components.forEach(function (c) {
+            if (c.types.indexOf('street_number') !== -1) street = c.long_name + ' ' + street;
+            if (c.types.indexOf('route')          !== -1) street = street + c.long_name;
+            if (c.types.indexOf('locality')       !== -1) city   = c.long_name;
+            if (c.types.indexOf('postal_code')    !== -1) postal = c.long_name;
+            if (c.types.indexOf('administrative_area_level_1') !== -1) province = c.short_name;
+        });
+        if (street.trim()) input.value = street.trim();
+        var el;
+        if (cityId    && (el = document.getElementById(cityId)))     el.value = city;
+        if (postalId  && (el = document.getElementById(postalId)))   el.value = postal;
+        if (provinceId && (el = document.getElementById(provinceId))) el.value = province;
+    });
+}
+initAddressAutocomplete('serviceAddress',    'serviceCity',    'servicePostalCode',    'serviceProvince');
+initAddressAutocomplete('invBillingAddress', 'invBillingCity', 'invBillingPostalCode', 'invBillingProvince');
+</script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
