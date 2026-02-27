@@ -180,8 +180,9 @@ $activePage = 'products';
                       <span class="input-group-text"><i data-feather="search" style="width:14px;height:14px;"></i></span>
                     </div>
                     <input type="text" class="form-control" id="productSearch"
-                           placeholder="Search products by name or SKU…"
-                           oninput="searchProducts(this.value)">
+                           placeholder="Click to browse all products, or type to search…"
+                           oninput="searchProducts(this.value)"
+                           onfocus="searchProducts(this.value)">
                   </div>
                   <div id="productSearchResults" class="mw-bundle-search-results" style="display:none;"></div>
                 </div>
@@ -466,21 +467,17 @@ function searchProducts(query) {
   clearTimeout(searchTimer);
   const resultsEl = document.getElementById('productSearchResults');
 
-  if (!query || query.trim().length < 1) {
-    resultsEl.style.display = 'none';
-    return;
-  }
-
   searchTimer = setTimeout(() => {
-    const q = query.toLowerCase();
+    const q = (query || '').trim().toLowerCase();
     const alreadyAdded = new Set(bundleItems.map(i => parseInt(i.product_id)));
 
-    const matches = allProducts.filter(p =>
-      !alreadyAdded.has(parseInt(p.id)) &&
-      (p.name.toLowerCase().includes(q) ||
-       (p.sku && p.sku.toLowerCase().includes(q)) ||
-       (p.category_name && p.category_name.toLowerCase().includes(q)))
-    ).slice(0, 12);
+    const matches = allProducts.filter(p => {
+      if (alreadyAdded.has(parseInt(p.id))) return false;
+      if (!q) return true;  // empty query = show all
+      return (p.name.toLowerCase().includes(q) ||
+              (p.sku && p.sku.toLowerCase().includes(q)) ||
+              (p.category_name && p.category_name.toLowerCase().includes(q)));
+    }).slice(0, 30);  // show up to 30 when browsing
 
     if (!matches.length) {
       resultsEl.innerHTML = '<div class="mw-bundle-no-results">No matching products found</div>';
