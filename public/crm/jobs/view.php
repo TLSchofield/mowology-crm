@@ -1334,6 +1334,21 @@ $activePage = 'jobs';
             </div>
 
             <!-- ══════════════════════════════════════════════════════
+                 Delete Time Entry Confirm Modal
+                 ══════════════════════════════════════════════════════ -->
+            <div class="mw-modal-overlay" id="deleteTimeEntryModal">
+                <div class="mw-modal">
+                    <h3 class="mw-modal-title">Delete Time Entry?</h3>
+                    <input type="hidden" id="delEntryId">
+                    <p class="text-muted small mb-3">This will permanently remove the time entry for <strong id="delEntryDesc"></strong>. This cannot be undone.</p>
+                    <div class="mw-modal-actions">
+                        <button type="button" class="btn btn-danger" onclick="doDeleteTimeEntry()">Delete</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideModal('deleteTimeEntryModal')">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
                  Add Manual Time Entry Modal
                  ══════════════════════════════════════════════════════ -->
             <div class="mw-modal-overlay" id="addTimeEntryModal">
@@ -2550,13 +2565,21 @@ $activePage = 'jobs';
             loadTimeLog();
 
             window.deleteTimeEntry = function(entryId, crewName) {
-                if (!confirm('Delete time entry for ' + crewName + '? This cannot be undone.')) return;
+                document.getElementById('delEntryId').value = entryId;
+                document.getElementById('delEntryDesc').textContent = crewName;
+                showModal('deleteTimeEntryModal');
+            };
+            window.doDeleteTimeEntry = function() {
+                var entryId = document.getElementById('delEntryId').value;
                 var fd = new FormData();
                 fd.append('csrf_token', <?php echo json_encode($csrfToken); ?>);
                 fd.append('action', 'delete_time_entry');
                 fd.append('del_entry_id', entryId);
                 fetch('/crm/jobs/view.php?id=<?php echo (int)$planId; ?>', { method: 'POST', body: fd })
-                    .then(function() { loadTimeLog(); });
+                    .then(function() {
+                        hideModal('deleteTimeEntryModal');
+                        loadTimeLog();
+                    });
             };
 
             window.openMoveTimeEntry = function(entryId, crewName, startTime) {
