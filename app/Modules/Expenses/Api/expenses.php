@@ -1296,8 +1296,7 @@ function handleSearchJobs(PDO $db): void
         FROM job_plans jp
         LEFT JOIN properties p ON p.id = jp.property_id
         LEFT JOIN contacts c ON c.id = p.site_contact_id
-        WHERE jp.status IN ('active', 'completed')
-          AND (
+        WHERE (
               jp.plan_number LIKE ?
               OR jp.service_type LIKE ?
               OR p.address LIKE ?
