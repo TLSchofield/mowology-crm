@@ -5473,28 +5473,74 @@ $unconvertedRequests = $db->query("
         </button>
       </div>
       <div class="modal-body p-3">
-        <p class="text-muted small mb-3">Draw a polygon around the work area. When the crew enters this zone and starts their timer, GPS tracking activates automatically.</p>
+
+        <!-- ── 3-Step Guide ──────────────────────────────────────────────── -->
+        <div class="mw-wz-steps mb-3">
+          <div class="mw-wz-step mw-wz-step--active" id="wz-step-1">
+            <div class="mw-wz-step-num">1</div>
+            <div class="mw-wz-step-body">
+              <div class="mw-wz-step-title">Select Plan</div>
+              <div class="mw-wz-step-desc">Choose which job plan this zone applies to</div>
+            </div>
+          </div>
+          <div class="mw-wz-step-connector"></div>
+          <div class="mw-wz-step" id="wz-step-2">
+            <div class="mw-wz-step-num">2</div>
+            <div class="mw-wz-step-body">
+              <div class="mw-wz-step-title">Draw Boundary</div>
+              <div class="mw-wz-step-desc">Click the map to outline the property work area</div>
+            </div>
+          </div>
+          <div class="mw-wz-step-connector"></div>
+          <div class="mw-wz-step" id="wz-step-3">
+            <div class="mw-wz-step-num">3</div>
+            <div class="mw-wz-step-body">
+              <div class="mw-wz-step-title">Save Zone</div>
+              <div class="mw-wz-step-desc">Zone activates on next crew clock-in visit</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Plan Selector ────────────────────────────────────────────── -->
         <div class="form-group mb-3">
           <label class="font-weight-bold small mb-1">Job Plan</label>
           <select id="wz-plan-select" class="form-control form-control-sm" onchange="onWZPlanChange()">
             <option value="">-- Select a plan --</option>
           </select>
-          <small class="text-muted">Work zones are saved per plan. Select the plan to load or draw its zone.</small>
+          <small class="text-muted">Work zones are saved per plan — each plan can have its own zone.</small>
         </div>
+
+        <!-- ── Map ──────────────────────────────────────────────────────── -->
         <div class="mw-wz-map-wrap">
           <div id="wz-map"></div>
           <div id="wz-map-placeholder" class="mw-wz-map-placeholder">
-            <i data-feather="map" style="width:32px;height:32px;color:#ccc;"></i>
+            <i data-feather="map" style="width:36px;height:36px;color:#ccc;"></i>
             <p class="mt-2 mb-0 text-muted small">Select a plan above to load the map</p>
           </div>
         </div>
-        <div id="wz-status" class="mw-wz-status mt-2" style="display:none;"></div>
-        <div class="mt-2">
-          <small class="text-muted">
-            <strong>How to draw:</strong> Click "Draw Zone", then click the map to place points. Double-click on the last point to close the polygon.
-            Press Esc or "Cancel" to discard an in-progress draw.
-          </small>
+
+        <!-- ── Contextual Hint ───────────────────────────────────────────── -->
+        <div id="wz-hint" class="mw-wz-hint mt-2">
+          <i class="mw-wz-hint-icon" data-feather="info" style="width:13px;height:13px;flex-shrink:0;"></i>
+          <span id="wz-hint-text">Select a job plan above to get started.</span>
         </div>
+
+        <!-- ── Status (success / error feedback) ────────────────────────── -->
+        <div id="wz-status" class="mw-wz-status mt-2" style="display:none;"></div>
+
+        <!-- ── Drawing Tips (collapsed by default, shown during draw) ────── -->
+        <div id="wz-draw-tips" class="mw-wz-draw-tips mt-2" style="display:none;">
+          <div class="mw-wz-draw-tips-title">
+            <i data-feather="crosshair" style="width:12px;height:12px;"></i> Drawing mode active
+          </div>
+          <ul class="mw-wz-draw-tips-list">
+            <li><strong>Click</strong> anywhere on the map to add a corner point</li>
+            <li><strong>Double-click</strong> the last point (or click the first) to close the shape</li>
+            <li>Aim for 4–8 points — trace the property edge, not just the house</li>
+            <li>Press <kbd>Esc</kbd> or click <strong>Cancel Draw</strong> to start over</li>
+          </ul>
+        </div>
+
       </div>
       <div class="modal-footer d-flex justify-content-between align-items-center">
         <button type="button" class="btn btn-outline-danger btn-sm" id="wz-delete-btn" disabled
@@ -5523,9 +5569,8 @@ $unconvertedRequests = $db->query("
 <script src="/crm/js/geofence/geofence-manager.js"></script>
 <script>
 (function() {
-  // Data emitted from PHP
+  // ── PHP data ─────────────────────────────────────────────────────────────
   var WZ_PLANS_BY_PROP = <?php echo json_encode($plansByProperty ?? []); ?>;
-  var WZ_PROP_COORDS   = <?php echo json_encode($propertyCoords ?? []); ?>;
   var WZ_CSRF          = <?php echo json_encode(generateCSRFToken()); ?>;
 
   var wzMgr       = null;
@@ -5545,7 +5590,7 @@ $unconvertedRequests = $db->query("
       var opt   = document.createElement('option');
       opt.value = pl.id;
       var label = pl.plan_number;
-      if (pl.title)        label += ' — ' + pl.title;
+      if (pl.title)             label += ' — ' + pl.title;
       else if (pl.service_type) label += ' — ' + pl.service_type.replace(/_/g,' ');
       if (pl.status !== 'active') label += ' (' + pl.status + ')';
       opt.textContent = label;
@@ -5557,25 +5602,32 @@ $unconvertedRequests = $db->query("
 
     wzSetControls(false);
     wzShowStatus('');
+    wzSetStep(1);
+    wzSetHint('Select a job plan above to load the map and start drawing.', 'info');
+    wzShowDrawTips(false);
     $('#workZoneModal').modal('show');
   };
 
-  // ── Modal shown — init / reinit map ──────────────────────────────────────
-  $('#workZoneModal').on('shown.bs.modal', function() {
-    wzMapReady = true;
-    var planId = parseInt(document.getElementById('wz-plan-select').value) || null;
-    if (planId) {
-      wzInitMap(planId);
-    } else {
-      wzShowMapPlaceholder(true);
-    }
-    feather.replace();
-  });
+  // ── Modal shown / hidden — bind after jQuery+Bootstrap have loaded ───────
+  document.addEventListener('DOMContentLoaded', function() {
+    $('#workZoneModal').on('shown.bs.modal', function() {
+      wzMapReady = true;
+      var planId = parseInt(document.getElementById('wz-plan-select').value) || null;
+      if (planId) {
+        wzInitMap(planId);
+      } else {
+        wzShowMapPlaceholder(true);
+        wzSetStep(1);
+        wzSetHint('Select a job plan above to load the map and start drawing.', 'info');
+      }
+      wzSafeFeather();
+    });
 
-  // ── Modal hidden — destroy map ────────────────────────────────────────────
-  $('#workZoneModal').on('hidden.bs.modal', function() {
-    wzDestroyMap();
-    wzMapReady = false;
+    $('#workZoneModal').on('hidden.bs.modal', function() {
+      wzDestroyMap();
+      wzMapReady  = false;
+      wzShowDrawTips(false);
+    });
   });
 
   // ── Plan selector changed ─────────────────────────────────────────────────
@@ -5583,11 +5635,14 @@ $unconvertedRequests = $db->query("
     if (!wzMapReady) return;
     var planId = parseInt(document.getElementById('wz-plan-select').value) || null;
     wzDestroyMap();
+    wzShowDrawTips(false);
     if (planId) {
       wzInitMap(planId);
     } else {
       wzShowMapPlaceholder(true);
       wzSetControls(false);
+      wzSetStep(1);
+      wzSetHint('Select a job plan above to load the map and start drawing.', 'info');
     }
   };
 
@@ -5602,16 +5657,39 @@ $unconvertedRequests = $db->query("
       mode:         'edit',
       center:       [wzPropLat, wzPropLng],
       zoom:         18,
-      onSave: function(id) {
-        wzShowStatus('Work zone saved — crew will auto-track when they enter this area.', 'success');
+      onLoad: function(hasPolygon) {
+        // Called after get_polygon response — show correct state
+        if (hasPolygon) {
+          wzSetStep(3, 'done');
+          wzSetHint('Zone is active — crew will auto-track when they enter this area. Click <strong>Draw Zone</strong> to redraw it.', 'success');
+        } else {
+          wzSetStep(2);
+          wzSetHint('Click <strong>Draw Zone</strong> below to start drawing the property boundary on the map.', 'info');
+        }
         wzSetControls(true);
+      },
+      onSave: function(id) {
+        wzShowStatus('Work zone saved — GPS auto-tracking activates on the next crew visit.', 'success');
+        wzSetStep(3, 'done');
+        wzSetHint('Zone saved! Crew will auto clock-in when they enter this area.', 'success');
+        wzShowDrawTips(false);
+        wzSetControls(true);
+        document.getElementById('wz-draw-btn').style.display        = 'inline-block';
+        document.getElementById('wz-cancel-draw-btn').style.display = 'none';
       },
       onDelete: function() {
         wzShowStatus('Work zone removed.', 'info');
+        wzSetStep(2);
+        wzSetHint('Zone removed. Click <strong>Draw Zone</strong> to create a new boundary.', 'info');
+        wzShowDrawTips(false);
         wzSetControls(true);
       },
     });
     wzMgr.init();
+
+    // Fallback hint while map is loading (onLoad callback will update it)
+    wzSetStep(2);
+    wzSetHint('Map loading — click <strong>Draw Zone</strong> to outline the property boundary.', 'info');
     wzSetControls(true);
   }
 
@@ -5625,7 +5703,11 @@ $unconvertedRequests = $db->query("
     wzMgr.startDraw();
     document.getElementById('wz-draw-btn').style.display        = 'none';
     document.getElementById('wz-cancel-draw-btn').style.display = 'inline-block';
-    feather.replace();
+    document.getElementById('wz-save-btn').disabled = true;
+    wzSetStep(2);
+    wzSetHint('Drawing mode active — click the map to place corners, then double-click to close the shape.', 'draw');
+    wzShowDrawTips(true);
+    wzSafeFeather();
   };
 
   window.wzCancelDraw = function() {
@@ -5633,22 +5715,57 @@ $unconvertedRequests = $db->query("
     wzMgr.cancelDraw();
     document.getElementById('wz-draw-btn').style.display        = 'inline-block';
     document.getElementById('wz-cancel-draw-btn').style.display = 'none';
-    feather.replace();
+    wzSetStep(2);
+    wzSetHint('Draw cancelled. Click <strong>Draw Zone</strong> again to start over.', 'info');
+    wzShowDrawTips(false);
+    wzSafeFeather();
   };
 
   window.wzSave = function() {
     if (!wzMgr) return;
     document.getElementById('wz-draw-btn').style.display        = 'inline-block';
     document.getElementById('wz-cancel-draw-btn').style.display = 'none';
+    wzSetHint('Saving zone\u2026', 'info');
     wzMgr.save();
-    feather.replace();
+    wzSafeFeather();
   };
 
   window.wzDeleteZone = function() {
     if (!wzMgr) return;
-    if (!confirm('Remove the work zone for this plan? The crew will no longer be auto-tracked.')) return;
+    if (!confirm('Remove the work zone for this plan?\nThe crew will no longer be auto-tracked at this property.')) return;
     wzMgr.deletePolygon();
   };
+
+  // ── Step indicator ────────────────────────────────────────────────────────
+  function wzSetStep(n, doneTo) {
+    [1, 2, 3].forEach(function(i) {
+      var el = document.getElementById('wz-step-' + i);
+      if (!el) return;
+      el.className = 'mw-wz-step';
+      if (doneTo === 'done' && i <= n) {
+        el.className += ' mw-wz-step--done';
+      } else if (i === n) {
+        el.className += ' mw-wz-step--active';
+      } else if (i < n) {
+        el.className += ' mw-wz-step--done';
+      }
+    });
+  }
+
+  // ── Contextual hint ───────────────────────────────────────────────────────
+  function wzSetHint(html, variant) {
+    var el   = document.getElementById('wz-hint');
+    var text = document.getElementById('wz-hint-text');
+    if (!el || !text) return;
+    text.innerHTML = html;
+    el.className   = 'mw-wz-hint mt-2 mw-wz-hint--' + (variant || 'info');
+  }
+
+  // ── Drawing tips panel ────────────────────────────────────────────────────
+  function wzShowDrawTips(show) {
+    var el = document.getElementById('wz-draw-tips');
+    if (el) el.style.display = show ? 'block' : 'none';
+  }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function wzSetControls(enabled) {
@@ -5677,8 +5794,13 @@ $unconvertedRequests = $db->query("
     el.textContent = msg;
     el.style.display = 'block';
   }
+
+  function wzSafeFeather() {
+    if (typeof feather !== 'undefined') feather.replace();
+  }
 })();
 </script>
+
 <?php endif; ?>
 
 <?php include 'includes/appstack_footer.php'; ?>

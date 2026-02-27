@@ -60,6 +60,7 @@ class GeofenceManager {
             fillOpacity:      0.12,
             onSave:           null,
             onDelete:         null,
+            onLoad:           null,   // (hasPolygon: bool) called after get_polygon resolves
             onInZoneChange:   null,
         }, opts);
 
@@ -142,12 +143,16 @@ class GeofenceManager {
         fetch(url, { credentials: 'same-origin' })
             .then(r => r.json())
             .then(data => {
-                if (data.polygon && data.polygon.ring) {
+                const hasPolygon = !!(data.polygon && data.polygon.ring);
+                if (hasPolygon) {
                     this._geofenceId = data.polygon.id;
                     this._ring       = data.polygon.ring;
                     this._bbox       = data.polygon.bbox || null;
                     this._renderPolygon(data.polygon.ring);
                     this._fitBounds();
+                }
+                if (typeof this._opts.onLoad === 'function') {
+                    this._opts.onLoad(hasPolygon);
                 }
             })
             .catch(err => console.warn('[GeofenceManager] Load polygon failed:', err));
