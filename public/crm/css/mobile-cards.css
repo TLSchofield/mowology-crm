@@ -723,13 +723,13 @@
         transform: scale(0.95);
     }
 
-    /* Compact GO button — RED for debugging (was green #2D8659) */
+    /* Compact GO button */
     .mw-mc-compact-go {
         width: auto !important;
         padding: 0 14px !important;
         gap: 5px;
-        background: #D32F2F !important;
-        border-color: #C62828 !important;
+        background: var(--mw-green, #2D8659) !important;
+        border-color: var(--mw-dark, #1A5F4A) !important;
         color: #fff !important;
         font-size: 0.78rem !important;
         font-weight: 800 !important;
@@ -738,7 +738,7 @@
     }
 
     .mw-mc-compact-go:active {
-        background: #B71C1C !important;
+        background: var(--mw-dark, #1A5F4A) !important;
         transform: scale(0.95);
     }
 
