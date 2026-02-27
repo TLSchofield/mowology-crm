@@ -583,19 +583,24 @@
 
     .mw-mc-btn-go-corner {
         position: absolute !important;
-        top: 14px !important;
-        right: 14px !important;
+        top: 12px !important;
+        right: 12px !important;
         flex: none !important;
-        padding: 8px 14px !important;
-        font-size: 0.85rem !important;
-        gap: 5px !important;
+        padding: 7px 13px !important;
+        font-size: 0.8rem !important;
+        gap: 4px !important;
         border-radius: 10px !important;
         z-index: 2;
         box-shadow: 0 2px 8px rgba(0,0,0,0.18);
     }
 
-    /* Hide it once the stop is in-progress or completed (crew is on-site) */
-    .mw-mc-card-active .mw-mc-btn-go-corner[style*="display: none"],
+    /* Card header: reserve right space so GO button doesn't overlap time/title */
+    .mw-mc-card-active .mw-mc-card-header {
+        padding-right: 72px;
+    }
+
+    /* Hide on completed/skipped/hero — crew is on-site or done */
+    .mw-mc-card-completed .mw-mc-btn-go-corner,
     .mw-mc-card-hero .mw-mc-btn-go-corner {
         display: none !important;
     }
