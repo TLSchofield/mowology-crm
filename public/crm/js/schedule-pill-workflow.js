@@ -908,16 +908,14 @@
         var container = card.querySelector('.mw-mc-photo-strips');
         if (!container) return;
 
-        // On compact cards: only show real captured thumbnails (no placeholders, no + button)
-        // Placeholders steal taps meant to expand the card — they're shown on the active/hero card only
+        // Compact cards: photo strips are inside .mw-mc-expand-detail (not the main card body).
+        // Only render when expanded — the expand-detail is hidden when collapsed so
+        // nothing would show anyway, but skip to avoid wasted work.
         var isCompact = card.classList.contains('mw-mc-card-compact');
-        var hasBefore = v.beforeThumb && v.beforeThumb !== null;
-        var hasAfter  = v.afterThumb  && v.afterThumb  !== null;
-        var hasAdditionals = v.additionalThumbs && v.additionalThumbs.length > 0;
+        var isExpanded = card.classList.contains('mw-mc-expanded');
 
-        if (isCompact && !hasBefore && !hasAfter && !hasAdditionals) {
-            // Nothing real to show on a compact card — clear and hide
-            container.innerHTML = '';
+        if (isCompact && !isExpanded) {
+            // Not expanded yet — renderStripsForCard() will call us again on expand
             return;
         }
 
@@ -949,15 +947,13 @@
                 '  ' + CHECK_SVG +
                 '  <span>Before</span>' +
                 '</div>';
-        } else if (!isCompact) {
-            // Placeholder only on active/hero cards, never on compact (would swallow taps)
+        } else {
+            // No before photo yet — show placeholder (tappable)
             beforeHtml =
                 '<div class="mw-mc-photo-placeholder' + (required ? ' mw-mc-placeholder-required' : '') + '" data-thumb-type="before" data-visit-id="' + visitId + '" data-category="before">' +
                 '  ' + CAMERA_SVG +
                 '  <span>Before</span>' +
                 '</div>';
-        } else {
-            beforeHtml = ''; // compact + no photo = nothing
         }
 
         // ── After thumbnail or placeholder ──
@@ -974,49 +970,31 @@
                 '  ' + CHECK_SVG +
                 '  <span>After</span>' +
                 '</div>';
-        } else if (!isCompact) {
-            // Placeholder only on active/hero cards
+        } else {
+            // No after photo yet — show placeholder (tappable)
             afterHtml =
                 '<div class="mw-mc-photo-placeholder' + (required ? ' mw-mc-placeholder-required' : '') + '" data-thumb-type="after" data-visit-id="' + visitId + '" data-category="after">' +
                 '  ' + CAMERA_SVG +
                 '  <span>After</span>' +
                 '</div>';
-        } else {
-            afterHtml = ''; // compact + no photo = nothing
         }
 
-        // ── Additionals ──
+        // ── Additionals row (before/after + button, always shown) ──
         var addThumbs = v.additionalThumbs || [];
-        var addHtml = '';
-
-        if (!isCompact) {
-            // Only show the additionals row (with + button) on active/hero cards
-            addHtml = '<div class="mw-mc-photo-additionals" data-visit-id="' + visitId + '">';
-            for (var ai = 0; ai < addThumbs.length; ai++) {
-                addHtml +=
-                    '<div class="mw-mc-photo-thumb mw-mc-photo-thumb-additional">' +
-                    '  <img src="' + escHtml(addThumbs[ai]) + '" alt="Photo ' + (ai + 1) + '" loading="lazy">' +
-                    '  <span class="mw-mc-photo-thumb-label">#' + (ai + 1) + '</span>' +
-                    '</div>';
-            }
+        var addHtml = '<div class="mw-mc-photo-additionals" data-visit-id="' + visitId + '">';
+        for (var ai = 0; ai < addThumbs.length; ai++) {
             addHtml +=
-                '<button class="mw-mc-add-photo-btn" data-visit-id="' + visitId + '" data-category="additional" type="button">' +
-                '  ' + PLUS_SVG +
-                '  <span>' + (addThumbs.length === 0 ? 'Additionals' : '+') + '</span>' +
-                '</button>';
-            addHtml += '</div>';
-        } else if (addThumbs.length > 0) {
-            // Compact: show captured additionals inline (no + button)
-            addHtml = '<div class="mw-mc-photo-additionals" data-visit-id="' + visitId + '">';
-            for (var aj = 0; aj < addThumbs.length; aj++) {
-                addHtml +=
-                    '<div class="mw-mc-photo-thumb mw-mc-photo-thumb-additional">' +
-                    '  <img src="' + escHtml(addThumbs[aj]) + '" alt="Photo ' + (aj + 1) + '" loading="lazy">' +
-                    '  <span class="mw-mc-photo-thumb-label">#' + (aj + 1) + '</span>' +
-                    '</div>';
-            }
-            addHtml += '</div>';
+                '<div class="mw-mc-photo-thumb mw-mc-photo-thumb-additional">' +
+                '  <img src="' + escHtml(addThumbs[ai]) + '" alt="Photo ' + (ai + 1) + '" loading="lazy">' +
+                '  <span class="mw-mc-photo-thumb-label">#' + (ai + 1) + '</span>' +
+                '</div>';
         }
+        addHtml +=
+            '<button class="mw-mc-add-photo-btn" data-visit-id="' + visitId + '" data-category="additional" type="button">' +
+            '  ' + PLUS_SVG +
+            '  <span>' + (addThumbs.length === 0 ? 'Additionals' : '+') + '</span>' +
+            '</button>';
+        addHtml += '</div>';
 
         strip.innerHTML = beforeHtml + afterHtml + addHtml;
 
@@ -1530,6 +1508,24 @@
         if (lb) lb.classList.remove('mw-lightbox-open');
         document.body.style.overflow = '';
     }
+
+    // ═══════════════════════════════════════════════════════
+    //  PUBLIC API  (used by schedule.php card-expand handler)
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Render photo strips for every visit pill found on a given card element.
+     * Called when a compact card is expanded so placeholders appear immediately.
+     */
+    function renderStripsForCard(card) {
+        var pills = card.querySelectorAll('.mw-mc-pill-interactive');
+        pills.forEach(function(pill) {
+            var vid = parseInt(pill.dataset.visitId, 10);
+            if (vid && visits[vid]) renderPhotoStrip(vid);
+        });
+    }
+
+    window.MwPillWorkflow = { renderStripsForCard: renderStripsForCard };
 
     // ═══════════════════════════════════════════════════════
     //  BOOT

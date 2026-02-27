@@ -332,8 +332,6 @@ $stopTags = $stop['tags'] ?? [];
             </div>
             <!-- Pill action drawer (JS populates based on tapped pill) -->
             <div class="mw-mc-pill-drawer" style="display: none;"></div>
-            <!-- Persistent photo strip (JS populates after photo capture) -->
-            <div class="mw-mc-photo-strips"></div>
         <?php endif; ?>
 
         <?php $compactProfitMargin = $stop['profit_margin'] ?? null; ?>
@@ -374,6 +372,11 @@ $stopTags = $stop['tags'] ?? [];
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
             Optimize route
         </button>
+        <?php endif; ?>
+
+        <?php if (!empty($stop['visits'])): ?>
+            <!-- Photo strips rendered here (inside expand) so they don't block the card tap -->
+            <div class="mw-mc-photo-strips"></div>
         <?php endif; ?>
     </div>
 

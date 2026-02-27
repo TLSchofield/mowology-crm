@@ -2334,11 +2334,17 @@ function getServiceLabel(type) {
 (function() {
     document.querySelectorAll('.mw-mc-card-compact').forEach(function(card) {
         card.addEventListener('click', function(e) {
-            // Don't toggle if clicking an action button, link, pill, drawer, or photo strip
+            // Don't toggle if clicking an interactive element inside the expanded detail
+            // (placeholders, + button, pills, drawer controls, links, route buttons)
+            // Photo strips are now inside expand-detail so they're safe to exclude from bail-out,
+            // but we still need to let placeholder taps through without collapsing
             if (e.target.closest('.mw-mc-action-btn') || e.target.closest('a') ||
                 e.target.closest('.mw-mc-pill-interactive') || e.target.closest('.mw-mc-pill-drawer') ||
                 e.target.closest('.mw-mc-drawer-btn') || e.target.closest('.mw-mc-drawer-camera-btn') ||
-                e.target.closest('.mw-mc-drawer-skip') || e.target.closest('.mw-mc-photo-strips')) return;
+                e.target.closest('.mw-mc-drawer-skip') ||
+                e.target.closest('.mw-mc-photo-placeholder') ||
+                e.target.closest('.mw-mc-add-photo-btn') ||
+                e.target.closest('.mw-mc-photo-thumb')) return;
 
             var detail = card.querySelector('.mw-mc-expand-detail');
             if (!detail) return;
@@ -2361,6 +2367,10 @@ function getServiceLabel(type) {
             } else {
                 card.classList.add('mw-mc-expanded');
                 detail.style.display = 'block';
+                // Trigger photo strip render so placeholders appear immediately on expand
+                if (typeof MwPillWorkflow !== 'undefined' && MwPillWorkflow.renderStripsForCard) {
+                    MwPillWorkflow.renderStripsForCard(card);
+                }
                 // Scroll expanded card into comfortable view within scroll area
                 setTimeout(function() {
                     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
