@@ -4334,36 +4334,23 @@ a:hover {
   position: relative;
 }
 
-.mw-customer-search-input-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.mw-customer-search-input-row .form-control {
-  padding-right: 2.5rem;
-}
-
 .mw-customer-clear-btn {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
+  margin-left: auto;
+  flex-shrink: 0;
   background: none;
   border: none;
   cursor: pointer;
   color: #6c757d;
-  padding: 4px;
+  padding: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
   transition: background 0.15s, color 0.15s;
-  z-index: 2;
 }
 
 .mw-customer-clear-btn:hover {
-  background: #f0f0f0;
+  background: rgba(220,53,69,0.1);
   color: #dc3545;
 }
 

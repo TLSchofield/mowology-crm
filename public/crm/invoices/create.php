@@ -305,19 +305,22 @@ if ($apiKey) {
                                 <input type="text" class="form-control" value="<?php echo htmlspecialchars($prefill['company_name']); ?>" readonly>
                             <?php else: ?>
                                 <div class="mw-customer-search-wrap" id="customerSearchWrap">
-                                    <div class="mw-customer-search-input-row">
+                                    <div id="customerInputRow">
                                         <input type="text"
                                                id="customerSearchInput"
                                                class="form-control"
                                                placeholder="Type a name or email to search customers&hellip;"
                                                autocomplete="off"
                                                aria-label="Search customers">
-                                        <button type="button" id="customerClearBtn" class="mw-customer-clear-btn" title="Clear selection" style="display:none;">
+                                    </div>
+                                    <ul id="customerDropdown" class="mw-customer-dropdown" style="display:none;" role="listbox"></ul>
+                                    <div id="customerSelectedCard" class="mw-customer-selected-card" style="display:none;">
+                                        <div class="mw-selected-avatar" id="selectedAvatar"></div>
+                                        <div class="mw-selected-info" id="selectedInfo"></div>
+                                        <button type="button" id="customerClearBtn" class="mw-customer-clear-btn" title="Clear selection">
                                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                                         </button>
                                     </div>
-                                    <ul id="customerDropdown" class="mw-customer-dropdown" style="display:none;" role="listbox"></ul>
-                                    <div id="customerSelectedCard" class="mw-customer-selected-card" style="display:none;"></div>
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -486,8 +489,11 @@ if ($apiKey) {
 // =====================================================
 
 const customerSearchInput    = document.getElementById('customerSearchInput');
+const customerInputRow       = document.getElementById('customerInputRow');
 const customerDropdown       = document.getElementById('customerDropdown');
 const customerSelectedCard   = document.getElementById('customerSelectedCard');
+const selectedAvatar         = document.getElementById('selectedAvatar');
+const selectedInfo           = document.getElementById('selectedInfo');
 const customerClearBtn       = document.getElementById('customerClearBtn');
 const companyIdInput         = document.getElementById('companyIdInput');
 const contactIdInput         = document.getElementById('contactIdInput');
@@ -593,17 +599,11 @@ function selectCustomer(item) {
         contactIdInput.value = 0;
     }
 
-    // Show selected card
-    customerSearchInput.style.display = 'none';
-    customerClearBtn.style.display = 'flex';
+    // Show selected card, hide input row
+    customerInputRow.style.display = 'none';
     customerSelectedCard.style.display = 'flex';
-    customerSelectedCard.innerHTML = `
-        <div class="mw-selected-avatar">${escHtml(item.label.charAt(0).toUpperCase())}</div>
-        <div class="mw-selected-info">
-            <strong>${escHtml(item.label)}</strong>
-            ${item.sublabel ? `<span>${escHtml(item.sublabel)}</span>` : ''}
-        </div>
-    `;
+    selectedAvatar.textContent = item.label.charAt(0).toUpperCase();
+    selectedInfo.innerHTML = `<strong>${escHtml(item.label)}</strong>${item.sublabel ? `<span>${escHtml(item.sublabel)}</span>` : ''}`;
 
     // Load properties / recipients
     loadCustomerContext(item);
@@ -615,11 +615,11 @@ function clearCustomer() {
     companyIdInput.value  = 0;
     propertyIdInput.value = '';
 
-    customerSearchInput.value       = '';
-    customerSearchInput.style.display = '';
-    customerClearBtn.style.display  = 'none';
+    customerSearchInput.value          = '';
+    customerInputRow.style.display     = '';
     customerSelectedCard.style.display = 'none';
-    customerSelectedCard.innerHTML  = '';
+    selectedAvatar.textContent         = '';
+    selectedInfo.innerHTML             = '';
 
     propertySection.style.display   = 'none';
     recipientSection.style.display  = 'none';
