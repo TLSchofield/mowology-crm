@@ -287,6 +287,77 @@ function variantInsertRecord(PDO $db, int $mediaId, string $variantType, string 
 }
 
 /**
+ * Generate only the square thumbnail for a media asset — fast path for field contexts.
+ *
+ * Used for job_visit, quote_visit, and field_observation uploads where only the
+ * card thumbnail is needed immediately. Full responsive variants can be generated
+ * later if required (e.g. by a cron). Reduces GD work from ~26 ops to 2.
+ *
+ * @param int    $mediaId      media_assets.id
+ * @param string $originalPath Absolute path to the original file
+ * @return array Summary matching generateMediaVariants() structure
+ */
+function generateMediaThumbOnly(int $mediaId, string $originalPath): array
+{
+    if (!file_exists($originalPath)) {
+        error_log("generateMediaThumbOnly: source not found: $originalPath");
+        return ['success' => false, 'error' => 'Source file not found'];
+    }
+
+    $imgInfo = @getimagesize($originalPath);
+    if (!$imgInfo) {
+        error_log("generateMediaThumbOnly: invalid image: $originalPath");
+        return ['success' => false, 'error' => 'Invalid image'];
+    }
+
+    $db = getDB();
+    $stmt = $db->prepare('SELECT uuid, created_at FROM media_assets WHERE id = ?');
+    $stmt->execute([$mediaId]);
+    $media = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$media) {
+        return ['success' => false, 'error' => 'Media record not found'];
+    }
+
+    $uuid = $media['uuid'];
+    $yearMonth = date('Y/m', strtotime($media['created_at']));
+    $thumbsDir = MEDIA_ROOT . '/thumbs/' . $yearMonth;
+    if (!is_dir($thumbsDir)) mkdir($thumbsDir, 0755, true);
+
+    $generated = [];
+    $totalBytes = 0;
+
+    // JPEG thumbnail
+    $thumbJpg = $thumbsDir . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
+    $thumbJpgWeb = '/_media/thumbs/' . $yearMonth . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.jpg';
+    if (variantCropSquare($originalPath, $thumbJpg, VARIANT_THUMB_SIZE, 'jpeg')) {
+        $size = filesize($thumbJpg);
+        variantInsertRecord($db, $mediaId, 'thumb_square', 'jpeg', VARIANT_THUMB_SIZE, VARIANT_THUMB_SIZE, $thumbJpgWeb, $size, VARIANT_JPEG_QUALITY);
+        $generated[] = $thumbJpgWeb;
+        $totalBytes += $size;
+    }
+
+    // WebP thumbnail
+    $thumbWebp = $thumbsDir . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.webp';
+    $thumbWebpWeb = '/_media/thumbs/' . $yearMonth . '/' . $uuid . '_sq' . VARIANT_THUMB_SIZE . '.webp';
+    if (variantCropSquare($originalPath, $thumbWebp, VARIANT_THUMB_SIZE, 'webp')) {
+        $size = filesize($thumbWebp);
+        variantInsertRecord($db, $mediaId, 'thumb_square', 'webp', VARIANT_THUMB_SIZE, VARIANT_THUMB_SIZE, $thumbWebpWeb, $size, VARIANT_WEBP_QUALITY);
+        $generated[] = $thumbWebpWeb;
+        $totalBytes += $size;
+    }
+
+    $db->prepare('UPDATE media_assets SET status = ? WHERE id = ?')->execute(['ready', $mediaId]);
+
+    return [
+        'success' => true,
+        'variants_count' => count($generated),
+        'total_bytes' => $totalBytes,
+        'thumb_url' => $thumbJpgWeb ?? null,
+        'variants' => $generated,
+    ];
+}
+
+/**
  * Get the square thumbnail URL for a media asset.
  */
 function getMediaThumbUrl(int $mediaId): ?string

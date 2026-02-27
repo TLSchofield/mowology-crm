@@ -143,10 +143,17 @@ foreach ($files as $file) {
     }
 
     // Generate variants (skip for duplicates — they already have variants)
+    // Field contexts only need the thumbnail immediately; full variants are expensive
+    // (~26 GD ops on a full-resolution phone photo) and not needed for card display.
     $variantResult = null;
     if (!$isDuplicate) {
         $originalAbsPath = PUBLIC_ROOT . $uploadResult['file_path'];
-        $variantResult = generateMediaVariants($mediaId, $originalAbsPath);
+        $thumbOnlyContexts = ['job_visit', 'quote_visit', 'field_observation'];
+        if (in_array($contextType, $thumbOnlyContexts)) {
+            $variantResult = generateMediaThumbOnly($mediaId, $originalAbsPath);
+        } else {
+            $variantResult = generateMediaVariants($mediaId, $originalAbsPath);
+        }
     }
 
     // Generate PoW stamp if requested and applicable
