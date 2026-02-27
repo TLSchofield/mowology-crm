@@ -9,7 +9,7 @@
  * Active page keys: 'dashboard', 'clients', 'map', 'quotes', 'products', 'jobs',
  *                   'invoices', 'expenses', 'profitability', 'schedule', 'timeclock',
  *                   'team', 'portfolio', 'cms', 'media', 'marketing', 'settings',
- *                   'database', 'users'
+ *                   'database', 'mobile-preview', 'users'
  *
  * Each nav item can optionally specify a 'perm' key — the permission required to see it.
  * If omitted, the item is always visible. The server still enforces on the page itself;
@@ -86,6 +86,15 @@ $navItems = [
                 <a class="sidebar-link" href="/crm/database_appstack.php">
                     <i class="align-middle" data-feather="database"></i>
                     <span class="align-middle">Database</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <?php if (!function_exists('userHasPermission') || userHasPermission('settings.edit')): ?>
+            <li class="sidebar-item<?php echo ($activePage === 'mobile-preview') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/mobile-preview_appstack.php">
+                    <i class="align-middle" data-feather="smartphone"></i>
+                    <span class="align-middle">Mobile Preview</span>
                 </a>
             </li>
             <?php endif; ?>
