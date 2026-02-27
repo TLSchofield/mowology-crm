@@ -37,13 +37,23 @@ if (is_dir($savePath) && is_writable($savePath)) {
     // If this fails, your host-level config must be corrected in cPanel.
 }
 
+// Session lifetime — 8 hours (matches Android/PWA usage patterns).
+// The server GC window (gc_maxlifetime) must be >= cookie lifetime or the
+// session file gets deleted while the browser still holds a valid cookie,
+// causing silent logouts on Android/PWA when the screen is locked for >24 min.
+$sessionLifetime = 8 * 3600; // 8 hours in seconds
+
+// Override the host's php.ini gc_maxlifetime (cPanel sets it to 1440 = 24 min)
+// so session files survive at least as long as the cookie.
+ini_set('session.gc_maxlifetime', (string)$sessionLifetime);
+
 // Cookie hardening
 $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
 
 session_name('MOWOSESS');
 
 session_set_cookie_params([
-    'lifetime' => 0,
+    'lifetime' => $sessionLifetime,
     'path' => '/',
     'domain' => '',
     'secure' => $secure,
