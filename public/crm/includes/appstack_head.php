@@ -83,7 +83,7 @@ $bodyClass  = $bodyClass  ?? '';
   <link href="/crm/css/classic.css" rel="stylesheet">
 
   <!-- Mowology brand override -->
-  <link href="/crm/css/mowology-brand.css?v=20260227b" rel="stylesheet">
+  <link href="/crm/css/mowology-brand.css?v=20260227c" rel="stylesheet">
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="/crm/css/mobile-nav.css?v=20260226c" rel="stylesheet">
