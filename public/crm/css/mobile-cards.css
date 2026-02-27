@@ -576,48 +576,29 @@
         flex-shrink: 0;
     }
 
-    /* ── GO button: pinned to top-right of .mw-mc-card-body (no overflow:hidden there) ── */
-    /* Button is first child of .mw-mc-card-body; card-body is the positioning context. */
-    .mw-mc-card-active .mw-mc-card-body {
-        position: relative;
+    /* ── Active card top row: time/badge left, GO right — same flex pattern as compact card ── */
+    .mw-mc-active-top-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-bottom: 8px;
     }
 
-    .mw-mc-btn-go-corner {
-        position: absolute !important;
-        top: 14px !important;
-        right: 14px !important;
-        z-index: 5;
-        display: inline-flex !important;
-        align-items: center;
-        gap: 5px !important;
-        padding: 7px 13px !important;
-        font-size: 0.82rem !important;
-        font-weight: 700 !important;
-        color: #fff !important;
-        background: var(--mw-green) !important;
-        border: none;
-        border-radius: 10px !important;
-        cursor: pointer;
-        white-space: nowrap;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.20);
-        letter-spacing: normal !important;
-        -webkit-tap-highlight-color: transparent;
-        flex-direction: row !important;
+    .mw-mc-active-top-row .mw-mc-time-row {
+        flex: 1;
+        min-width: 0;
+        margin-bottom: 0;
     }
 
-    .mw-mc-btn-go-corner:active {
-        background: var(--mw-dark) !important;
-        transform: scale(0.97);
+    /* Active GO button — flex-shrink:0 so it stays at natural size on the right */
+    .mw-mc-active-go {
+        flex-shrink: 0;
+        align-self: flex-start;
+        margin-top: 1px;
     }
 
-    /* Reserve right-side space so time row / title don't flow under GO button */
-    .mw-mc-card-active .mw-mc-card-header {
-        padding-right: 76px;
-    }
-
-    /* Hide on completed/skipped/hero */
-    .mw-mc-card-completed .mw-mc-btn-go-corner,
-    .mw-mc-card-hero .mw-mc-btn-go-corner {
+    /* Hide on hero (crew is on-site) */
+    .mw-mc-card-hero .mw-mc-active-go {
         display: none !important;
     }
 
