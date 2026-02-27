@@ -968,6 +968,7 @@ if ($action === 'view_contact' && $clientId) {
             $stmt = $db->prepare("
                 SELECT jp.id, jp.plan_number, jp.title, jp.service_type, jp.status,
                        jp.is_recurring, jp.recurrence_pattern, jp.price_per_visit,
+                       jp.property_id,
                        p.address AS property_address,
                        (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id) AS visit_count,
                        (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'completed') AS completed_count,
@@ -1129,6 +1130,32 @@ if ($action === 'view_contact' && $clientId) {
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
         if ($apiKey) {
             $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places" defer></script>';
+        }
+        // Leaflet — needed for the Work Zone (geofence) polygon editor
+        $extraHead .= '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
+        $extraHead .= '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>';
+
+        // Build property → plans map for the geofence modal (keyed by property_id)
+        $plansByProperty = [];
+        $propertyCoords  = [];
+        foreach ($contactProperties as $cp) {
+            $propertyCoords[(int)$cp['id']] = [
+                'lat'  => floatval($cp['latitude']  ?? 49.2827),
+                'lng'  => floatval($cp['longitude'] ?? -123.1207),
+                'addr' => $cp['address'] ?? '',
+            ];
+        }
+        foreach ($contactPlans as $pl) {
+            $propId = (int)($pl['property_id'] ?? 0);
+            if (!$propId) continue;
+            if (!isset($plansByProperty[$propId])) $plansByProperty[$propId] = [];
+            $plansByProperty[$propId][] = [
+                'id'           => (int)$pl['id'],
+                'plan_number'  => $pl['plan_number'],
+                'title'        => $pl['title'] ?? '',
+                'service_type' => $pl['service_type'] ?? '',
+                'status'       => $pl['status'],
+            ];
         }
     }
 }
@@ -2086,6 +2113,9 @@ $unconvertedRequests = $db->query("
                               <a href="jobs/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn" title="Create job plan for this property">
                                 <i data-feather="clipboard" style="width: 11px; height: 11px;"></i> Create Plan
                               </a>
+                              <button type="button" class="mw-prop-action-btn mw-prop-action-geofence" title="Draw work zone for auto clock-in" onclick="openWorkZoneModal(<?php echo (int)$prop['id']; ?>, <?php echo floatval($prop['latitude'] ?? 0); ?>, <?php echo floatval($prop['longitude'] ?? 0); ?>)">
+                                <i data-feather="map-pin" style="width: 11px; height: 11px;"></i> Work Zone
+                              </button>
                             </div>
                           </div>
                           <div class="d-flex align-items-center" onclick="event.stopPropagation();">
@@ -5428,5 +5458,227 @@ $unconvertedRequests = $db->query("
               return div.innerHTML;
             }
           </script>
+
+<?php if ($action === 'view_contact' && $viewContact): ?>
+<!-- ── Work Zone (Geofence) Modal ─────────────────────────────────────────── -->
+<div class="modal fade" id="workZoneModal" tabindex="-1" role="dialog" aria-labelledby="workZoneModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="workZoneModalLabel">
+          <i data-feather="map-pin" style="width:18px;height:18px;"></i> Work Zone — Auto Clock-In Area
+        </h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body p-3">
+        <p class="text-muted small mb-3">Draw a polygon around the work area. When the crew enters this zone and starts their timer, GPS tracking activates automatically.</p>
+        <div class="form-group mb-3">
+          <label class="font-weight-bold small mb-1">Job Plan</label>
+          <select id="wz-plan-select" class="form-control form-control-sm" onchange="onWZPlanChange()">
+            <option value="">-- Select a plan --</option>
+          </select>
+          <small class="text-muted">Work zones are saved per plan. Select the plan to load or draw its zone.</small>
+        </div>
+        <div class="mw-wz-map-wrap">
+          <div id="wz-map"></div>
+          <div id="wz-map-placeholder" class="mw-wz-map-placeholder">
+            <i data-feather="map" style="width:32px;height:32px;color:#ccc;"></i>
+            <p class="mt-2 mb-0 text-muted small">Select a plan above to load the map</p>
+          </div>
+        </div>
+        <div id="wz-status" class="mw-wz-status mt-2" style="display:none;"></div>
+        <div class="mt-2">
+          <small class="text-muted">
+            <strong>How to draw:</strong> Click "Draw Zone", then click the map to place points. Double-click on the last point to close the polygon.
+            Press Esc or "Cancel" to discard an in-progress draw.
+          </small>
+        </div>
+      </div>
+      <div class="modal-footer d-flex justify-content-between align-items-center">
+        <button type="button" class="btn btn-outline-danger btn-sm" id="wz-delete-btn" disabled
+                onclick="wzDeleteZone()">
+          <i data-feather="trash-2" style="width:14px;height:14px;"></i> Delete Zone
+        </button>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-secondary btn-sm mr-2" id="wz-cancel-draw-btn"
+                  style="display:none" onclick="wzCancelDraw()">
+            Cancel Draw
+          </button>
+          <button type="button" class="btn btn-outline-primary btn-sm mr-2" id="wz-draw-btn" disabled
+                  onclick="wzStartDraw()">
+            <i data-feather="edit-2" style="width:14px;height:14px;"></i> Draw Zone
+          </button>
+          <button type="button" class="btn btn-success btn-sm" id="wz-save-btn" disabled
+                  onclick="wzSave()">
+            <i data-feather="save" style="width:14px;height:14px;"></i> Save Zone
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/crm/js/geofence/geofence-manager.js"></script>
+<script>
+(function() {
+  // Data emitted from PHP
+  var WZ_PLANS_BY_PROP = <?php echo json_encode($plansByProperty ?? []); ?>;
+  var WZ_PROP_COORDS   = <?php echo json_encode($propertyCoords ?? []); ?>;
+  var WZ_CSRF          = <?php echo json_encode(generateCSRFToken()); ?>;
+
+  var wzMgr       = null;
+  var wzPropLat   = 49.2827;
+  var wzPropLng   = -123.1207;
+  var wzMapReady  = false;
+
+  // ── Open modal ────────────────────────────────────────────────────────────
+  window.openWorkZoneModal = function(propId, lat, lng) {
+    wzPropLat = lat && lat !== 0 ? lat : 49.2827;
+    wzPropLng = lng && lng !== 0 ? lng : -123.1207;
+
+    var plans = WZ_PLANS_BY_PROP[propId] || [];
+    var sel   = document.getElementById('wz-plan-select');
+    sel.innerHTML = '<option value="">-- Select a plan --</option>';
+    plans.forEach(function(pl) {
+      var opt   = document.createElement('option');
+      opt.value = pl.id;
+      var label = pl.plan_number;
+      if (pl.title)        label += ' — ' + pl.title;
+      else if (pl.service_type) label += ' — ' + pl.service_type.replace(/_/g,' ');
+      if (pl.status !== 'active') label += ' (' + pl.status + ')';
+      opt.textContent = label;
+      sel.appendChild(opt);
+    });
+
+    // Auto-select if exactly one plan
+    if (plans.length === 1) sel.value = plans[0].id;
+
+    wzSetControls(false);
+    wzShowStatus('');
+    $('#workZoneModal').modal('show');
+  };
+
+  // ── Modal shown — init / reinit map ──────────────────────────────────────
+  $('#workZoneModal').on('shown.bs.modal', function() {
+    wzMapReady = true;
+    var planId = parseInt(document.getElementById('wz-plan-select').value) || null;
+    if (planId) {
+      wzInitMap(planId);
+    } else {
+      wzShowMapPlaceholder(true);
+    }
+    feather.replace();
+  });
+
+  // ── Modal hidden — destroy map ────────────────────────────────────────────
+  $('#workZoneModal').on('hidden.bs.modal', function() {
+    wzDestroyMap();
+    wzMapReady = false;
+  });
+
+  // ── Plan selector changed ─────────────────────────────────────────────────
+  window.onWZPlanChange = function() {
+    if (!wzMapReady) return;
+    var planId = parseInt(document.getElementById('wz-plan-select').value) || null;
+    wzDestroyMap();
+    if (planId) {
+      wzInitMap(planId);
+    } else {
+      wzShowMapPlaceholder(true);
+      wzSetControls(false);
+    }
+  };
+
+  function wzInitMap(planId) {
+    wzShowMapPlaceholder(false);
+    if (wzMgr) { wzMgr.destroy(); wzMgr = null; }
+
+    wzMgr = new GeofenceManager({
+      mapContainer: 'wz-map',
+      planId:       planId,
+      csrfToken:    WZ_CSRF,
+      mode:         'edit',
+      center:       [wzPropLat, wzPropLng],
+      zoom:         18,
+      onSave: function(id) {
+        wzShowStatus('Work zone saved — crew will auto-track when they enter this area.', 'success');
+        wzSetControls(true);
+      },
+      onDelete: function() {
+        wzShowStatus('Work zone removed.', 'info');
+        wzSetControls(true);
+      },
+    });
+    wzMgr.init();
+    wzSetControls(true);
+  }
+
+  function wzDestroyMap() {
+    if (wzMgr) { wzMgr.destroy(); wzMgr = null; }
+  }
+
+  // ── Button actions ────────────────────────────────────────────────────────
+  window.wzStartDraw = function() {
+    if (!wzMgr) return;
+    wzMgr.startDraw();
+    document.getElementById('wz-draw-btn').style.display        = 'none';
+    document.getElementById('wz-cancel-draw-btn').style.display = 'inline-block';
+    feather.replace();
+  };
+
+  window.wzCancelDraw = function() {
+    if (!wzMgr) return;
+    wzMgr.cancelDraw();
+    document.getElementById('wz-draw-btn').style.display        = 'inline-block';
+    document.getElementById('wz-cancel-draw-btn').style.display = 'none';
+    feather.replace();
+  };
+
+  window.wzSave = function() {
+    if (!wzMgr) return;
+    document.getElementById('wz-draw-btn').style.display        = 'inline-block';
+    document.getElementById('wz-cancel-draw-btn').style.display = 'none';
+    wzMgr.save();
+    feather.replace();
+  };
+
+  window.wzDeleteZone = function() {
+    if (!wzMgr) return;
+    if (!confirm('Remove the work zone for this plan? The crew will no longer be auto-tracked.')) return;
+    wzMgr.deletePolygon();
+  };
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function wzSetControls(enabled) {
+    ['wz-draw-btn', 'wz-save-btn', 'wz-delete-btn'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.disabled = !enabled;
+    });
+    if (!enabled) {
+      document.getElementById('wz-cancel-draw-btn').style.display = 'none';
+      document.getElementById('wz-draw-btn').style.display        = 'inline-block';
+    }
+  }
+
+  function wzShowMapPlaceholder(show) {
+    var map = document.getElementById('wz-map');
+    var ph  = document.getElementById('wz-map-placeholder');
+    if (map) map.style.display = show ? 'none' : 'block';
+    if (ph)  ph.style.display  = show ? 'flex'  : 'none';
+  }
+
+  function wzShowStatus(msg, type) {
+    var el = document.getElementById('wz-status');
+    if (!el) return;
+    if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+    el.className = 'mw-wz-status mt-2 alert alert-' + (type === 'success' ? 'success' : type === 'info' ? 'info' : 'secondary');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+})();
+</script>
+<?php endif; ?>
 
 <?php include 'includes/appstack_footer.php'; ?>
