@@ -28,7 +28,8 @@ $allowedPages = [
     '/crm/dashboard_appstack.php'=> 'Dashboard',
 ];
 
-$iframeSrc = $allowedPages[$targetPage] ?? '/crm/jobs/schedule.php';
+// $targetPage is the validated path key; $allowedPages[key] = label
+$iframeSrc = array_key_exists($targetPage, $allowedPages) ? $targetPage : '/crm/jobs/schedule.php';
 $iframeUrl = $iframeSrc . '?preview=1&date=' . urlencode($targetDate);
 
 // Read deployed CSS/SW version for the info panel
