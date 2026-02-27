@@ -16504,6 +16504,49 @@ textarea.font-monospace {
     border: 1px solid var(--mw-light);
 }
 
+/* Bundle card image banner */
+.mw-bundle-card-img {
+    width: 100%;
+    height: 130px;
+    overflow: hidden;
+    border-radius: 8px 8px 0 0;
+    background: var(--mw-forest);
+}
+.mw-bundle-card-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform .3s;
+}
+.mw-bundle-card:hover .mw-bundle-card-img img {
+    transform: scale(1.04);
+}
+
+/* Modal image picker */
+.mw-bundle-img-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+.mw-bundle-img-preview {
+    width: 72px;
+    height: 72px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    border: 2px dashed #cbd5e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: border-color .2s;
+}
+.mw-bundle-img-preview:has(img) {
+    border-style: solid;
+    border-color: var(--mw-green);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    MOBILE PREVIEW — Device Frame Simulator
    Page: /crm/mobile-preview_appstack.php

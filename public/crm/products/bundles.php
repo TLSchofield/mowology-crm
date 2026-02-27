@@ -77,6 +77,26 @@ $activePage = 'products';
               <div class="card-header"><strong>Bundle Details</strong></div>
               <div class="card-body">
 
+                <!-- Bundle Image -->
+                <div class="form-group">
+                  <label>Bundle Image</label>
+                  <input type="hidden" id="bundleImageUrl" value="">
+                  <div class="mw-bundle-img-row">
+                    <div id="bundleImgPreview" class="mw-bundle-img-preview">
+                      <i data-feather="image" style="width:28px;height:28px;color:#94a3b8;"></i>
+                    </div>
+                    <div>
+                      <button type="button" class="btn btn-sm btn-outline-primary" onclick="openBundleMediaBrowser()">
+                        <i data-feather="grid" style="width:13px;height:13px;"></i> Browse Library
+                      </button>
+                      <button type="button" class="btn btn-sm btn-outline-secondary ml-1" id="clearBundleImgBtn" onclick="clearBundleImage()" style="display:none;">
+                        <i data-feather="x" style="width:13px;height:13px;"></i> Clear
+                      </button>
+                      <div id="bundleImgPath" class="small text-muted mt-1" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="form-group">
                   <label>Bundle Name <span class="text-danger">*</span></label>
                   <input type="text" class="form-control" id="bundleName"
@@ -248,9 +268,42 @@ $activePage = 'products';
 </div>
 
 
+<!-- ══════════════════════════════════════════════════════════════════════
+     MEDIA BROWSER MODAL (for bundle image)
+══════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="bundleMediaModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Choose Bundle Image</h5>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <div class="input-group">
+            <input type="text" class="form-control" id="bundleMediaSearch" placeholder="Search by filename or alt text…">
+            <div class="input-group-append">
+              <button class="btn btn-outline-secondary" type="button" onclick="searchBundleMedia()">Search</button>
+              <button class="btn btn-outline-secondary" type="button" onclick="loadAllBundleMedia()">Show All</button>
+            </div>
+          </div>
+        </div>
+        <div id="bundleMediaGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;max-height:420px;overflow-y:auto;padding:4px;">
+          <div class="text-center text-muted py-5 w-100" style="grid-column:1/-1;">Click "Show All" to browse your media library.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
 const API_URL = '/crm/products/api-products.php';
+const MEDIA_URL = '/crm/products/api-media-browse.php';
 let allProducts  = [];   // full product catalog (loaded once)
 let bundleItems  = [];   // items currently in the open modal: [{product_id, product_name, base_price, quantity_multiplier, override_price, sort_order}]
 let searchTimer  = null;
@@ -352,6 +405,7 @@ function renderBundles(bundles) {
     html += `
       <div class="col-lg-4 col-md-6 mb-4">
         <div class="card mw-bundle-card h-100 ${!b.is_active ? 'mw-bundle-card--inactive' : ''}">
+          ${b.image_url ? `<div class="mw-bundle-card-img"><img src="${escHtml(b.image_url)}" alt="${escHtml(b.bundle_name)}"></div>` : ''}
           <div class="card-header d-flex align-items-start justify-content-between">
             <div>
               <h5 class="card-title mb-1">${escHtml(b.bundle_name)}</h5>
@@ -421,6 +475,10 @@ function openBundleModal(existingBundle) {
   document.getElementById('discountValue').value     = existingBundle ? existingBundle.discount_value : '0';
   document.getElementById('bundleActive').checked    = existingBundle ? !!parseInt(existingBundle.is_active) : true;
   document.getElementById('productSearch').value     = '';
+
+  // Image
+  const imgUrl = existingBundle && existingBundle.image_url ? existingBundle.image_url : '';
+  setBundleImage(imgUrl);
 
   // Trigger suffix label update
   const isPct = document.getElementById('discountType').value === 'percentage';
@@ -638,6 +696,82 @@ function recalcBundle() {
   }
 }
 
+// ── Bundle image helpers ───────────────────────────────────────────────────────
+function setBundleImage(url) {
+  const hidden  = document.getElementById('bundleImageUrl');
+  const preview = document.getElementById('bundleImgPreview');
+  const path    = document.getElementById('bundleImgPath');
+  const clearBtn = document.getElementById('clearBundleImgBtn');
+
+  hidden.value = url || '';
+
+  if (url) {
+    preview.innerHTML = `<img src="${escHtml(url)}" style="width:100%;height:100%;object-fit:cover;border-radius:4px;">`;
+    path.textContent = url.split('/').pop();
+    clearBtn.style.display = '';
+  } else {
+    preview.innerHTML = '<i data-feather="image" style="width:28px;height:28px;color:#94a3b8;"></i>';
+    path.textContent = '';
+    clearBtn.style.display = 'none';
+    hydrateFeatherIcons();
+  }
+}
+
+function clearBundleImage() {
+  setBundleImage('');
+}
+
+function openBundleMediaBrowser() {
+  document.getElementById('bundleMediaSearch').value = '';
+  document.getElementById('bundleMediaGrid').innerHTML =
+    '<div class="text-center text-muted py-5 w-100" style="grid-column:1/-1;">Click "Show All" to browse your media library.</div>';
+  // Auto-load all media when opening
+  loadAllBundleMedia();
+  $('#bundleMediaModal').modal('show');
+}
+
+function searchBundleMedia() {
+  const q = document.getElementById('bundleMediaSearch').value.trim();
+  fetchBundleMedia(q);
+}
+
+function loadAllBundleMedia() {
+  document.getElementById('bundleMediaSearch').value = '';
+  fetchBundleMedia('');
+}
+
+function fetchBundleMedia(search) {
+  const grid = document.getElementById('bundleMediaGrid');
+  grid.innerHTML = '<div class="text-center py-4 w-100" style="grid-column:1/-1;"><div class="spinner-border spinner-border-sm text-success"></div></div>';
+
+  const url = MEDIA_URL + '?type=image&limit=100' + (search ? '&search=' + encodeURIComponent(search) : '');
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.success || !data.media || !data.media.length) {
+        grid.innerHTML = '<div class="text-center text-muted py-4 w-100" style="grid-column:1/-1;">No images found. Upload images via the Media Library.</div>';
+        return;
+      }
+      grid.innerHTML = data.media.map(m => `
+        <div onclick="selectBundleMedia('${escHtml(m.file_path)}')"
+             style="cursor:pointer;border:2px solid transparent;border-radius:6px;overflow:hidden;background:#f8f9fa;aspect-ratio:1;"
+             onmouseover="this.style.borderColor='var(--mw-green)'"
+             onmouseout="this.style.borderColor='transparent'"
+             title="${escHtml(m.alt_text || m.original_filename || '')}">
+          <img src="${escHtml(m.file_path)}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">
+        </div>
+      `).join('');
+    })
+    .catch(() => {
+      grid.innerHTML = '<div class="text-center text-muted py-4 w-100" style="grid-column:1/-1;">Failed to load media library.</div>';
+    });
+}
+
+function selectBundleMedia(filePath) {
+  setBundleImage(filePath);
+  $('#bundleMediaModal').modal('hide');
+}
+
 // ── Save bundle ────────────────────────────────────────────────────────────────
 function saveBundle() {
   const name = document.getElementById('bundleName').value.trim();
@@ -652,6 +786,7 @@ function saveBundle() {
     id:             document.getElementById('bundleId').value || null,
     bundle_name:    name,
     description:    document.getElementById('bundleDescription').value.trim(),
+    image_url:      document.getElementById('bundleImageUrl').value || null,
     tier:           document.getElementById('bundleTier').value,
     discount_type:  document.getElementById('discountType').value,
     discount_value: parseFloat(document.getElementById('discountValue').value) || 0,

@@ -761,6 +761,12 @@ try {
     // ── Product Bundles ────────────────────────────────────
 
     } elseif ($action === 'get-bundles') {
+        // Ensure image_url column exists (added later than initial migration)
+        try {
+            $db->query("SHOW COLUMNS FROM product_bundles LIKE 'image_url'")
+               ->rowCount() === 0 && $db->exec("ALTER TABLE product_bundles ADD COLUMN image_url varchar(500) DEFAULT NULL AFTER description");
+        } catch (Exception $e) { /* ignore */ }
+
         $stmt = $db->query("
             SELECT b.*, GROUP_CONCAT(bi.product_id ORDER BY bi.sort_order) as product_ids
             FROM product_bundles b
@@ -801,34 +807,68 @@ try {
         $discountType = (isset($data['discount_type']) && in_array($data['discount_type'], $validDiscountTypes))
             ? $data['discount_type'] : 'percentage';
 
+        // Check if image_url column exists
+        $hasImageUrl = false;
+        try {
+            $hasImageUrl = $db->query("SHOW COLUMNS FROM product_bundles LIKE 'image_url'")->rowCount() > 0;
+        } catch (Exception $e) { /* ignore */ }
+
+        $imageUrl = !empty($data['image_url']) ? $data['image_url'] : null;
+
         $db->beginTransaction();
         try {
             if (!empty($data['id'])) {
-                $stmt = $db->prepare("
-                    UPDATE product_bundles SET
-                        bundle_name = ?, tier = ?, description = ?,
-                        discount_type = ?, discount_value = ?, is_active = ?, sort_order = ?
-                    WHERE id = ?
-                ");
-                $stmt->execute([
-                    $data['bundle_name'], $tier, $data['description'] ?? null,
-                    $discountType, $data['discount_value'] ?? 0,
-                    $data['is_active'] ?? 1, $data['sort_order'] ?? 0, $data['id'],
-                ]);
+                if ($hasImageUrl) {
+                    $stmt = $db->prepare("
+                        UPDATE product_bundles SET
+                            bundle_name = ?, tier = ?, description = ?, image_url = ?,
+                            discount_type = ?, discount_value = ?, is_active = ?, sort_order = ?
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([
+                        $data['bundle_name'], $tier, $data['description'] ?? null, $imageUrl,
+                        $discountType, $data['discount_value'] ?? 0,
+                        $data['is_active'] ?? 1, $data['sort_order'] ?? 0, $data['id'],
+                    ]);
+                } else {
+                    $stmt = $db->prepare("
+                        UPDATE product_bundles SET
+                            bundle_name = ?, tier = ?, description = ?,
+                            discount_type = ?, discount_value = ?, is_active = ?, sort_order = ?
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([
+                        $data['bundle_name'], $tier, $data['description'] ?? null,
+                        $discountType, $data['discount_value'] ?? 0,
+                        $data['is_active'] ?? 1, $data['sort_order'] ?? 0, $data['id'],
+                    ]);
+                }
                 $bundleId = $data['id'];
 
                 // Clear existing items
                 $db->prepare("DELETE FROM product_bundle_items WHERE bundle_id = ?")->execute([$bundleId]);
             } else {
-                $stmt = $db->prepare("
-                    INSERT INTO product_bundles (bundle_name, tier, description, discount_type, discount_value, is_active, sort_order)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ");
-                $stmt->execute([
-                    $data['bundle_name'], $tier, $data['description'] ?? null,
-                    $discountType, $data['discount_value'] ?? 0,
-                    $data['is_active'] ?? 1, $data['sort_order'] ?? 0,
-                ]);
+                if ($hasImageUrl) {
+                    $stmt = $db->prepare("
+                        INSERT INTO product_bundles (bundle_name, tier, description, image_url, discount_type, discount_value, is_active, sort_order)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmt->execute([
+                        $data['bundle_name'], $tier, $data['description'] ?? null, $imageUrl,
+                        $discountType, $data['discount_value'] ?? 0,
+                        $data['is_active'] ?? 1, $data['sort_order'] ?? 0,
+                    ]);
+                } else {
+                    $stmt = $db->prepare("
+                        INSERT INTO product_bundles (bundle_name, tier, description, discount_type, discount_value, is_active, sort_order)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmt->execute([
+                        $data['bundle_name'], $tier, $data['description'] ?? null,
+                        $discountType, $data['discount_value'] ?? 0,
+                        $data['is_active'] ?? 1, $data['sort_order'] ?? 0,
+                    ]);
+                }
                 $bundleId = $db->lastInsertId();
             }
 
