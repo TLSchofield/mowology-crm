@@ -72,6 +72,7 @@ ini_set('log_errors', '1');
 
 try {
     require_once PUBLIC_ROOT . '/app_config/config.php';
+    require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/seo-functions.php';
 } catch (Throwable $e) {
     if ($isCli) {
