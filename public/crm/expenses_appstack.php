@@ -893,35 +893,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-modal-receipt-preview" onclick="openLightbox(this.querySelector('img')?.src)">
                             <img id="expReceiptImg" src="" alt="Receipt">
                         </div>
-                        <!-- Line Items — always visible, editable -->
-                        <div class="mw-line-items-section mt-2" id="expLineItemsSection">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <span class="mw-line-items-label">
-                                    <i data-feather="list" style="width:12px;height:12px;"></i>
-                                    Line Items <span id="expLineItemsCount" class="badge bg-secondary ms-1">0</span>
-                                </span>
-                                <?php if ($canEdit): ?>
-                                <button type="button" class="btn btn-xs btn-outline-secondary mw-add-item-btn" onclick="showAddLineItemRow()" title="Manually add a line item OCR missed">
-                                    <i data-feather="plus" style="width:11px;height:11px;"></i> Add Item
-                                </button>
-                                <?php endif; ?>
-                            </div>
-                            <div id="expLineItemsList">
-                                <table class="mw-line-items-table w-100" id="expLineItemsTable"></table>
-                                <!-- Add item inline form (hidden by default) -->
-                                <div id="expAddItemRow" style="display:none;" class="mw-add-item-row">
-                                    <input type="text"   class="form-control form-control-sm" id="newItemName"      placeholder="Item name (e.g. Moss Control)">
-                                    <input type="number" class="form-control form-control-sm" id="newItemQty"       placeholder="Qty" min="1" step="1" value="1" style="width:60px;">
-                                    <input type="number" class="form-control form-control-sm" id="newItemUnitPrice" placeholder="$/unit" min="0" step="0.01" style="width:80px;">
-                                    <input type="number" class="form-control form-control-sm" id="newItemTotal"     placeholder="Total" min="0" step="0.01" style="width:80px;">
-                                    <button type="button" class="btn btn-sm btn-primary"   onclick="commitAddLineItem()"><i data-feather="check" style="width:12px;height:12px;"></i></button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelAddLineItem()"><i data-feather="x" style="width:12px;height:12px;"></i></button>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                     <!-- Right: Form Fields -->
-                    <div id="expFormCol">
+                    <div class="col-lg-7" id="expFormCol">
                         <!-- Section: Purchase Details -->
                         <div class="mw-expense-form-section">
                             <h6 class="mw-expense-form-section-title"><i data-feather="shopping-bag"></i> Purchase Details</h6>
@@ -1093,6 +1067,33 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 <strong>Smart Match:</strong>
                                 <span id="matchConfidenceText"></span>
                                 <span class="badge bg-primary ms-2" id="matchConfidenceBadge"></span>
+                            </div>
+                        </div>
+
+                        <!-- Line Items — always visible when receipt exists, editable -->
+                        <div class="mw-line-items-section mt-2" id="expLineItemsSection" style="display:none;">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="mw-line-items-label">
+                                    <i data-feather="list" style="width:12px;height:12px;"></i>
+                                    Line Items <span id="expLineItemsCount" class="badge bg-secondary ms-1">0</span>
+                                </span>
+                                <?php if ($canEdit): ?>
+                                <button type="button" class="btn btn-xs btn-outline-secondary mw-add-item-btn" onclick="showAddLineItemRow()" title="Manually add a line item OCR missed">
+                                    <i data-feather="plus" style="width:11px;height:11px;"></i> Add Item
+                                </button>
+                                <?php endif; ?>
+                            </div>
+                            <div id="expLineItemsList">
+                                <table class="mw-line-items-table w-100" id="expLineItemsTable"></table>
+                                <!-- Add item inline form (hidden by default) -->
+                                <div id="expAddItemRow" style="display:none;" class="mw-add-item-row">
+                                    <input type="text"   class="form-control form-control-sm" id="newItemName"      placeholder="Item name (e.g. Moss Control)">
+                                    <input type="number" class="form-control form-control-sm" id="newItemQty"       placeholder="Qty" min="1" step="1" value="1" style="width:60px;">
+                                    <input type="number" class="form-control form-control-sm" id="newItemUnitPrice" placeholder="$/unit" min="0" step="0.01" style="width:80px;">
+                                    <input type="number" class="form-control form-control-sm" id="newItemTotal"     placeholder="Total" min="0" step="0.01" style="width:80px;">
+                                    <button type="button" class="btn btn-sm btn-primary"   onclick="commitAddLineItem()"><i data-feather="check" style="width:12px;height:12px;"></i></button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelAddLineItem()"><i data-feather="x" style="width:12px;height:12px;"></i></button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2738,13 +2739,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 if (rescanBtn) rescanBtn.style.display = 'none';
             }
 
-            // Line items — always show, always expanded
+            // Line items — show when receipt exists or items are present
             var lineItems = e.line_items || e.parsed_line_items || [];
             var isStored = e.line_items_stored || false;
+            var liSection = document.getElementById('expLineItemsSection');
             var countEl = document.getElementById('expLineItemsCount');
             var tableEl = document.getElementById('expLineItemsTable');
             if (countEl) countEl.textContent = lineItems.length || '0';
             if (tableEl) tableEl.innerHTML = renderLineItemsTable(lineItems, isStored);
+            if (liSection) liSection.style.display = (e.receipt_path || lineItems.length > 0) ? 'block' : 'none';
             // Cancel any in-progress add row
             cancelAddLineItem();
 
@@ -4406,8 +4409,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var isStored  = d.line_items_stored || false;
             var tableEl   = document.getElementById('expLineItemsTable');
             var countEl   = document.getElementById('expLineItemsCount');
+            var liSection = document.getElementById('expLineItemsSection');
             if (tableEl) tableEl.innerHTML = renderLineItemsTable(lineItems, isStored);
             if (countEl) countEl.textContent = lineItems.length || '0';
+            if (liSection) liSection.style.display = 'block';
 
             // Show a brief success badge on the button
             var itemLabel = lineItems.length ? ' · ' + lineItems.length + ' item' + (lineItems.length !== 1 ? 's' : '') : '';
