@@ -797,8 +797,8 @@ $activePage = 'products';
                   </form>
                 </div>
                 <div class="modal-footer">
-                  <button class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                  <button class="btn btn-primary" onclick="saveProduct()">Save Product</button>
+                  <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                  <button type="button" class="btn btn-primary" onclick="saveProduct()">Save Product</button>
                 </div>
               </div>
             </div>
