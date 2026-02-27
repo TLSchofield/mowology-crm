@@ -33,6 +33,13 @@ $activePage = 'products';
                   <span class="mw-badge-tag">Product Management</span>
               </a>
 
+              <a href="bundles.php" class="mw-tool-card">
+                  <span class="mw-tool-icon">🎁</span>
+                  <h3>Service Bundles</h3>
+                  <p>Create multi-service packages at a bundle price — e.g., a Fertilization Program combining pre-emergent, fertilizer, and lime applications.</p>
+                  <span class="mw-badge-tag">Bundle Pricing</span>
+              </a>
+
               <a href="area-measurement.php" class="mw-tool-card">
                   <span class="mw-tool-icon">🗺️</span>
                   <h3>Area Measurement</h3>
