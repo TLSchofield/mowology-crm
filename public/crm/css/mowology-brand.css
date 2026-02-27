@@ -15938,3 +15938,25 @@ textarea.font-monospace {
     from { opacity: 0; transform: translateX(-50%) translateY(12px); }
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* ── Card on File Badge ──────────────────────────────────────── */
+.mw-card-on-file-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: var(--mw-light);
+    color: var(--mw-dark);
+    border: 1px solid #c8e2d8;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 7px;
+    margin-left: 6px;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.mw-card-on-file-badge svg {
+    width: 10px;
+    height: 10px;
+    stroke: var(--mw-green);
+}

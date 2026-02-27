@@ -193,6 +193,27 @@ function fmtDate(string $d): string {
         #payment-element { display: none; }
         .alert-danger { background: #fee2e2; border: 1px solid #fca5a5; border-radius: 6px; padding: 10px 14px; color: #dc2626; font-size: 14px; margin-top: 12px; }
 
+        /* ── Save card checkbox ── */
+        .save-card-wrap { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 12px 14px; background: #f8fffe; border: 1px solid #c8e2d8; border-radius: 6px; }
+        .save-card-wrap input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--green); flex-shrink: 0; cursor: pointer; }
+        .save-card-wrap label { font-size: 13px; color: #1A5F4A; cursor: pointer; line-height: 1.4; }
+        .save-card-wrap label strong { display: block; font-size: 14px; }
+
+        /* ── Saved card display ── */
+        #savedCardSection { margin-bottom: 16px; }
+        .saved-card-box { background: var(--light); border: 2px solid var(--green); border-radius: 8px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+        .saved-card-icon { font-size: 28px; line-height: 1; flex-shrink: 0; }
+        .saved-card-info { flex: 1; }
+        .saved-card-info strong { display: block; font-size: 15px; color: var(--forest); text-transform: capitalize; }
+        .saved-card-info span { font-size: 13px; color: #555; }
+        .saved-card-badge { background: var(--green); color: #fff; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+        .btn-use-saved { background: var(--green); color: #fff; border: none; border-radius: 6px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .15s; }
+        .btn-use-saved:hover { background: var(--dark); }
+        .btn-use-saved:disabled { opacity: .6; cursor: default; }
+        .btn-enter-new { background: none; border: none; color: var(--green); font-size: 13px; cursor: pointer; text-decoration: underline; margin-top: 8px; display: block; }
+        .btn-enter-new:hover { color: var(--dark); }
+        .saved-card-actions { display: flex; flex-direction: column; align-items: flex-end; }
+
         /* ── Notes ── */
         .inv-notes { font-size: 14px; color: #555; white-space: pre-line; line-height: 1.6; }
 
@@ -407,10 +428,33 @@ function fmtDate(string $d): string {
                     <span>Amount Due</span>
                     <strong><?php echo fmt(floatval($invoice['balance_due'])); ?> CAD</strong>
                 </div>
+
+                <!-- Saved card section (shown when customer has a card on file) -->
+                <div id="savedCardSection" style="display:none;">
+                    <div class="saved-card-box">
+                        <div class="saved-card-icon" id="savedCardIcon">💳</div>
+                        <div class="saved-card-info">
+                            <strong id="savedCardBrand">Visa</strong>
+                            <span id="savedCardDesc">ending in ••••1234 &mdash; expires 12/28</span>
+                        </div>
+                        <div class="saved-card-actions">
+                            <span class="saved-card-badge">Card on file</span>
+                            <button class="btn-enter-new" onclick="showNewCardForm()">Use a different card</button>
+                        </div>
+                    </div>
+                </div>
+
                 <div id="stripeLoading">
                     <span>Loading secure payment form&hellip;</span>
                 </div>
-                <div id="payment-element"></div>
+                <div id="payment-element" style="display:none;"></div>
+                <div id="saveCardWrap" class="save-card-wrap" style="display:none;">
+                    <input type="checkbox" id="saveCardCheck" name="save_card">
+                    <label for="saveCardCheck">
+                        <strong>Save card for future invoices</strong>
+                        Securely store your card so you can pay future invoices with one click.
+                    </label>
+                </div>
                 <div id="stripeError" class="alert-danger" style="display:none;"></div>
             </div>
             <div class="inv-modal-footer" id="stripeFooter" style="display:none;">
@@ -418,6 +462,14 @@ function fmtDate(string $d): string {
                 <button id="stripePay" class="btn-pay" onclick="submitPayment()" disabled>
                     <span id="stripePayLabel">Pay <?php echo fmt(floatval($invoice['balance_due'])); ?></span>
                     <span id="stripePaySpinner" style="display:none;">Processing&hellip;</span>
+                </button>
+            </div>
+            <!-- Saved card quick-pay footer (shown when using card on file) -->
+            <div class="inv-modal-footer" id="savedCardFooter" style="display:none;">
+                <button class="btn-cancel" onclick="closePayModal()">Cancel</button>
+                <button id="savedCardPay" class="btn-pay" onclick="submitSavedCardPayment()" disabled>
+                    <span id="savedCardPayLabel">Pay <?php echo fmt(floatval($invoice['balance_due'])); ?></span>
+                    <span id="savedCardPaySpinner" style="display:none;">Processing&hellip;</span>
                 </button>
             </div>
         </div>
@@ -428,6 +480,15 @@ function fmtDate(string $d): string {
         'use strict';
 
         var stripe = null, elements = null, paymentEl = null, fetched = false;
+        var intentData = null; // full API response
+        var usingNewCard = false; // true when customer chose "use different card"
+
+        // Card brand icons (emoji fallbacks — clean and mobile-friendly)
+        var brandIcons = {
+            visa: '💳', mastercard: '💳', amex: '💳',
+            discover: '💳', jcb: '💳', diners: '💳',
+            unionpay: '💳', unknown: '💳'
+        };
 
         window.openPayModal = function () {
             document.getElementById('payModal').classList.add('open');
@@ -445,7 +506,10 @@ function fmtDate(string $d): string {
             fetch('/customer/api/invoice-payment-intent.php', {
                 method : 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body   : JSON.stringify({ token: <?php echo json_encode($token); ?> })
+                body   : JSON.stringify({
+                    token    : <?php echo json_encode($token); ?>,
+                    save_card: false
+                })
             })
             .then(function (r) { return r.json(); })
             .then(function (data) {
@@ -455,30 +519,15 @@ function fmtDate(string $d): string {
                     return;
                 }
                 fetched = true;
-                stripe  = Stripe(data.publishable_key);
-                elements = stripe.elements({
-                    clientSecret: data.client_secret,
-                    appearance  : {
-                        theme    : 'stripe',
-                        variables: {
-                            colorPrimary   : '#2D8659',
-                            colorText      : '#1A5F4A',
-                            borderRadius   : '6px',
-                            fontFamily     : 'system-ui, -apple-system, sans-serif',
-                        }
-                    }
-                });
-                paymentEl = elements.create('payment', { layout: 'tabs' });
-                paymentEl.mount('#payment-element');
-                paymentEl.on('ready', function () {
-                    document.getElementById('stripeLoading').style.display  = 'none';
-                    document.getElementById('payment-element').style.display = 'block';
-                    document.getElementById('stripeFooter').style.display   = 'flex';
-                    document.getElementById('stripePay').disabled            = false;
-                });
-                paymentEl.on('change', function (e) {
-                    if (e.error) showError(e.error.message); else clearError();
-                });
+                intentData = data;
+                stripe = Stripe(data.publishable_key);
+
+                // ── Show saved card UI if customer has one ────────────────────
+                if (data.has_saved_card && data.default_payment_method && !usingNewCard) {
+                    showSavedCardUI(data);
+                } else {
+                    mountNewCardForm(data);
+                }
             })
             .catch(function (err) {
                 console.error(err);
@@ -487,27 +536,161 @@ function fmtDate(string $d): string {
             });
         }
 
+        // ── Show saved card section ───────────────────────────────────────────
+        function showSavedCardUI(data) {
+            var brand   = (data.saved_card_brand  || 'card').toLowerCase();
+            var last4   = data.saved_card_last4   || '????';
+            var exp     = data.saved_card_exp     || '';
+
+            // Format expiry: "2028-12" → "12/28"  or "12/2028" → "12/28"
+            var expFormatted = '';
+            if (exp) {
+                var parts = exp.split('/');
+                if (parts.length === 2) {
+                    // already MM/YYYY or MM/YY
+                    expFormatted = parts[0] + '/' + parts[1].slice(-2);
+                } else if (exp.indexOf('-') !== -1) {
+                    var dp = exp.split('-');
+                    expFormatted = dp[1] + '/' + dp[0].slice(-2);
+                } else {
+                    expFormatted = exp;
+                }
+            }
+
+            document.getElementById('savedCardBrand').textContent = brand.charAt(0).toUpperCase() + brand.slice(1);
+            document.getElementById('savedCardDesc').innerHTML     = 'ending in \u2022\u2022\u2022\u2022' + last4 + (expFormatted ? ' &mdash; expires ' + expFormatted : '');
+            document.getElementById('savedCardIcon').textContent   = brandIcons[brand] || '💳';
+
+            document.getElementById('savedCardSection').style.display = 'block';
+            document.getElementById('stripeLoading').style.display    = 'none';
+            document.getElementById('savedCardFooter').style.display  = 'flex';
+            document.getElementById('savedCardPay').disabled          = false;
+
+            // Hide new card elements
+            document.getElementById('payment-element').style.display = 'none';
+            document.getElementById('stripeFooter').style.display    = 'none';
+            document.getElementById('saveCardWrap').style.display     = 'none';
+        }
+
+        // ── Show new card form ────────────────────────────────────────────────
+        function mountNewCardForm(data) {
+            elements = stripe.elements({
+                clientSecret: data.client_secret,
+                appearance  : {
+                    theme    : 'stripe',
+                    variables: {
+                        colorPrimary : '#2D8659',
+                        colorText    : '#1A5F4A',
+                        borderRadius : '6px',
+                        fontFamily   : 'system-ui, -apple-system, sans-serif',
+                    }
+                }
+            });
+            paymentEl = elements.create('payment', { layout: 'tabs' });
+            paymentEl.mount('#payment-element');
+            paymentEl.on('ready', function () {
+                document.getElementById('stripeLoading').style.display  = 'none';
+                document.getElementById('payment-element').style.display = 'block';
+                document.getElementById('stripeFooter').style.display   = 'flex';
+                document.getElementById('stripePay').disabled            = false;
+                // Show "save card" checkbox for new card entry
+                document.getElementById('saveCardWrap').style.display   = 'flex';
+            });
+            paymentEl.on('change', function (e) {
+                if (e.error) showError(e.error.message); else clearError();
+            });
+        }
+
+        // ── Customer clicked "Use a different card" ───────────────────────────
+        window.showNewCardForm = function () {
+            usingNewCard = true;
+            document.getElementById('savedCardSection').style.display = 'none';
+            document.getElementById('savedCardFooter').style.display  = 'none';
+            document.getElementById('stripeLoading').style.display    = 'block';
+
+            if (intentData && elements === null) {
+                // Elements not yet created — mount fresh
+                mountNewCardForm(intentData);
+            } else if (elements !== null) {
+                // Already mounted, just show it
+                document.getElementById('stripeLoading').style.display  = 'none';
+                document.getElementById('payment-element').style.display = 'block';
+                document.getElementById('stripeFooter').style.display   = 'flex';
+                document.getElementById('saveCardWrap').style.display   = 'flex';
+            }
+        };
+
+        // ── Pay with new card ─────────────────────────────────────────────────
         window.submitPayment = function () {
             if (!stripe || !elements) return;
             clearError();
+
+            // If customer checked "save card", we need a fresh intent with setup_future_usage
+            var wantsSaveCard = document.getElementById('saveCardCheck').checked;
             setLoading(true);
-            stripe.confirmPayment({
-                elements      : elements,
-                confirmParams : {
-                    return_url: window.location.href + '&payment=success'
-                },
-                redirect: 'if_required'
+
+            var doConfirm = function () {
+                stripe.confirmPayment({
+                    elements      : elements,
+                    confirmParams : { return_url: window.location.href + '&payment=success' },
+                    redirect      : 'if_required'
+                })
+                .then(function (result) {
+                    setLoading(false);
+                    if (result.error) {
+                        showError(result.error.message);
+                    } else if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
+                        showSuccess();
+                    }
+                })
+                .catch(function () {
+                    setLoading(false);
+                    showError('An unexpected error occurred. Please try again.');
+                });
+            };
+
+            if (wantsSaveCard && intentData) {
+                // Re-fetch intent with save_card=true to attach setup_future_usage
+                fetch('/customer/api/invoice-payment-intent.php', {
+                    method : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body   : JSON.stringify({ token: <?php echo json_encode($token); ?>, save_card: true })
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (newData) {
+                    if (newData.error) { setLoading(false); showError(newData.error); return; }
+                    // Update elements with new client_secret
+                    elements.fetchUpdates().then(doConfirm).catch(doConfirm);
+                })
+                .catch(function () { doConfirm(); }); // fallback: confirm without save
+            } else {
+                doConfirm();
+            }
+        };
+
+        // ── Pay with saved card ───────────────────────────────────────────────
+        window.submitSavedCardPayment = function () {
+            if (!stripe || !intentData || !intentData.default_payment_method) return;
+            clearError();
+            setSavedCardLoading(true);
+
+            stripe.confirmCardPayment(intentData.client_secret, {
+                payment_method: intentData.default_payment_method
             })
             .then(function (result) {
-                setLoading(false);
+                setSavedCardLoading(false);
                 if (result.error) {
                     showError(result.error.message);
+                    // If saved card declined, offer new card entry
+                    if (result.error.code === 'card_declined' || result.error.code === 'expired_card') {
+                        showNewCardForm();
+                    }
                 } else if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
                     showSuccess();
                 }
             })
             .catch(function () {
-                setLoading(false);
+                setSavedCardLoading(false);
                 showError('An unexpected error occurred. Please try again.');
             });
         };
@@ -522,9 +705,14 @@ function fmtDate(string $d): string {
             el.textContent = ''; el.style.display = 'none';
         }
         function setLoading(on) {
-            document.getElementById('stripePay').disabled               = on;
-            document.getElementById('stripePayLabel').style.display     = on ? 'none'   : 'inline';
-            document.getElementById('stripePaySpinner').style.display   = on ? 'inline' : 'none';
+            document.getElementById('stripePay').disabled             = on;
+            document.getElementById('stripePayLabel').style.display   = on ? 'none'   : 'inline';
+            document.getElementById('stripePaySpinner').style.display = on ? 'inline' : 'none';
+        }
+        function setSavedCardLoading(on) {
+            document.getElementById('savedCardPay').disabled              = on;
+            document.getElementById('savedCardPayLabel').style.display    = on ? 'none'   : 'inline';
+            document.getElementById('savedCardPaySpinner').style.display  = on ? 'inline' : 'none';
         }
         function showSuccess() {
             document.querySelector('#payModal .inv-modal').innerHTML = [

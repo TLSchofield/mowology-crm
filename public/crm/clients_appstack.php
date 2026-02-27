@@ -1366,6 +1366,11 @@ try {
 
     $prospectCol = $hasProspectStatus ? "ct.prospect_status" : "'prospect' as prospect_status";
 
+    // Check if stripe_card_last4 column exists
+    $stripeCardCols = $db->query("SHOW COLUMNS FROM contacts LIKE 'stripe_card_last4'")->fetchAll();
+    $hasStripeCard = count($stripeCardCols) > 0;
+    $stripeCardCol = $hasStripeCard ? "ct.stripe_card_last4, ct.stripe_card_brand" : "NULL as stripe_card_last4, NULL as stripe_card_brand";
+
     $standaloneContacts = $db->query("
         SELECT
             ct.id,
@@ -1376,7 +1381,8 @@ try {
             ct.is_active,
             {$prospectCol},
             ct.created_at,
-            ct.notes
+            ct.notes,
+            {$stripeCardCol}
         FROM contacts ct
         WHERE ct.id NOT IN ({$excludeSubquery})
         AND ct.is_active = 1
@@ -4474,6 +4480,11 @@ $unconvertedRequests = $db->query("
                               <a href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>" class="mw-client-name-link">
                                 <strong><?php echo h(trim($ct['first_name'] . ' ' . ($ct['last_name'] ?? ''))); ?></strong>
                               </a>
+                              <?php if (!empty($ct['stripe_card_last4'])): ?>
+                                <span class="mw-card-on-file-badge" title="Card on file: <?php echo h(ucfirst($ct['stripe_card_brand'] ?? 'Card')); ?> ••••<?php echo h($ct['stripe_card_last4']); ?>">
+                                  <i data-feather="credit-card"></i> ••••<?php echo h($ct['stripe_card_last4']); ?>
+                                </span>
+                              <?php endif; ?>
                             </td>
                             <td><?php echo h($ct['email'] ?? '—'); ?></td>
                             <td><?php echo h($ct['phone'] ?? '—'); ?></td>
