@@ -67,7 +67,7 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
     $result['card_last4']     = $paymentInfo['card_last4'];
     $result['payment_method'] = $paymentInfo['payment_method'];
 
-    // Line items — try position-aware extraction first, fall back to raw text lines
+    // Line items — try position-aware extraction first (groups words by Y-coordinate)
     $positionLines = null;
     if ($rawResponse !== null) {
         $positionLines = reconstructLinesFromVisionResponse($rawResponse);
@@ -75,9 +75,26 @@ function parseReceiptText(string $ocrText, ?array $rawResponse = null): array
     if (!empty($positionLines)) {
         $result['line_items'] = extractLineItems($positionLines);
     }
-    // Fallback: if position-aware extraction found no items, try raw text lines
-    if (empty($result['line_items'])) {
-        $result['line_items'] = extractLineItems($lines);
+    // Always also run plain-text extraction (fullTextAnnotation reads left column then right,
+    // so qty@unit and total appear on separate lines — different items than position-aware).
+    // Merge in any items found by plain text that position-aware missed.
+    $plainItems = extractLineItems($lines);
+    if (!empty($plainItems)) {
+        if (empty($result['line_items'])) {
+            $result['line_items'] = $plainItems;
+        } else {
+            // Merge: add plain-text items not already found by position-aware (dedup by name)
+            $existingNames = array_map(function ($it) {
+                return strtoupper(trim($it['name']));
+            }, $result['line_items']);
+            foreach ($plainItems as $pi) {
+                $piName = strtoupper(trim($pi['name']));
+                if (!in_array($piName, $existingNames, true)) {
+                    $result['line_items'][] = $pi;
+                    $existingNames[]        = $piName;
+                }
+            }
+        }
     }
 
     // Fallback: handle column-separated OCR where labels and amounts are in separate blocks
