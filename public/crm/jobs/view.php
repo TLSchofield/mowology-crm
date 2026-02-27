@@ -264,6 +264,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'error';
     }
 
+    // Add manual time entry
+    if ($action === 'add_time_entry') {
+        requirePermission('jobs.edit');
+        $visitId   = intval($_POST['te_visit_id'] ?? 0);
+        $userId    = intval($_POST['te_user_id'] ?? 0);
+        $startTime = trim($_POST['te_start_time'] ?? '');
+        $endTime   = trim($_POST['te_end_time'] ?? '');
+        $teNotes   = trim($_POST['te_notes'] ?? '');
+
+        if ($visitId && $userId && $startTime && $endTime) {
+            // Validate visit belongs to this plan
+            $vChk = $db->prepare("SELECT id FROM job_visits WHERE id = ? AND plan_id = ?");
+            $vChk->execute([$visitId, $planId]);
+            if ($vChk->fetch()) {
+                $dur = $db->prepare("
+                    INSERT INTO job_time_entries
+                        (visit_id, user_id, start_time, end_time, duration_minutes, status, notes, auto_started)
+                    VALUES
+                        (?, ?, ?, ?, TIMESTAMPDIFF(MINUTE, ?, ?), 'edited', ?, 0)
+                ");
+                $dur->execute([$visitId, $userId, $startTime, $endTime, $startTime, $endTime, $teNotes ?: null]);
+                header("Location: view.php?id={$planId}&time_added=1");
+                exit;
+            }
+        }
+        $message = 'Could not add time entry. Check all fields.';
+        $messageType = 'error';
+    }
+
+    // Move time entry to a different visit (on any plan at the same property)
+    if ($action === 'move_time_entry') {
+        requirePermission('jobs.edit');
+        $entryId    = intval($_POST['mv_entry_id'] ?? 0);
+        $newVisitId = intval($_POST['mv_visit_id'] ?? 0);
+
+        if ($entryId && $newVisitId) {
+            // Verify the entry currently belongs to a visit on this plan
+            $eChk = $db->prepare("
+                SELECT jte.id FROM job_time_entries jte
+                JOIN job_visits jv ON jte.visit_id = jv.id
+                WHERE jte.id = ? AND jv.plan_id = ?
+            ");
+            $eChk->execute([$entryId, $planId]);
+            if ($eChk->fetch()) {
+                $db->prepare("UPDATE job_time_entries SET visit_id = ? WHERE id = ?")
+                   ->execute([$newVisitId, $entryId]);
+                header("Location: view.php?id={$planId}&time_moved=1");
+                exit;
+            }
+        }
+        $message = 'Could not move time entry.';
+        $messageType = 'error';
+    }
+
     // Edit visit
     if ($action === 'edit_visit') {
         $visitId = intval($_POST['edit_visit_id'] ?? 0);
@@ -358,6 +412,8 @@ if (isset($_GET['plan_updated'])) {
 }
 if (isset($_GET['items_updated'])) { $message = 'Line items updated!'; $messageType = 'success'; }
 if (isset($_GET['visit_updated'])) { $message = 'Visit updated!'; $messageType = 'success'; }
+if (isset($_GET['time_added']))   { $message = 'Time entry added!'; $messageType = 'success'; }
+if (isset($_GET['time_moved']))   { $message = 'Time entry moved!'; $messageType = 'success'; }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -1199,6 +1255,11 @@ $activePage = 'jobs';
                         Time Log
                         <span class="badge badge-secondary ml-2" id="timeLogTotal" style="display:none;"></span>
                     </h5>
+                    <?php if (userHasPermission('jobs.edit')): ?>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showModal('addTimeEntryModal')">
+                        <i data-feather="plus" style="width:13px;height:13px;"></i> Add Entry
+                    </button>
+                    <?php endif; ?>
                 </div>
                 <div id="timeLogBody">
                     <div class="card-body text-center py-4 text-muted" id="timeLogLoading">
@@ -1247,6 +1308,105 @@ $activePage = 'jobs';
                         <button type="button" class="btn btn-primary" onclick="doReassignExpense()">Move</button>
                         <button type="button" class="btn btn-secondary" onclick="hideModal('reassignExpenseModal')">Cancel</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
+                 Add Manual Time Entry Modal
+                 ══════════════════════════════════════════════════════ -->
+            <div class="mw-modal-overlay" id="addTimeEntryModal">
+                <div class="mw-modal">
+                    <h3 class="mw-modal-title">
+                        <i data-feather="plus-circle" style="width:16px;height:16px;vertical-align:-2px;margin-right:6px;"></i>
+                        Add Time Entry
+                    </h3>
+                    <p class="text-muted small mb-3">Manually log time for a crew member against a visit on this plan.</p>
+                    <form method="POST" action="view.php?id=<?php echo (int)$planId; ?>">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                        <input type="hidden" name="action" value="add_time_entry">
+                        <div class="form-group">
+                            <label class="form-label font-weight-bold">Visit</label>
+                            <select name="te_visit_id" class="form-control" required>
+                                <option value="">— select visit —</option>
+                                <?php foreach ($visits as $v): ?>
+                                <option value="<?php echo (int)$v['id']; ?>">
+                                    <?php echo htmlspecialchars($v['visit_number']); ?>
+                                    &mdash; <?php echo htmlspecialchars(date('M j, Y', strtotime($v['scheduled_date']))); ?>
+                                    (<?php echo htmlspecialchars($v['status']); ?>)
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label font-weight-bold">Crew Member</label>
+                            <select name="te_user_id" class="form-control" required>
+                                <option value="">— select crew —</option>
+                                <?php foreach ($staff as $s): ?>
+                                <option value="<?php echo (int)$s['id']; ?>"><?php echo htmlspecialchars($s['full_name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-6">
+                                <label class="form-label font-weight-bold">Clock In</label>
+                                <input type="datetime-local" name="te_start_time" class="form-control" required
+                                       step="60">
+                            </div>
+                            <div class="form-group col-6">
+                                <label class="form-label font-weight-bold">Clock Out</label>
+                                <input type="datetime-local" name="te_end_time" class="form-control" required
+                                       step="60">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                            <input type="text" name="te_notes" class="form-control" placeholder="e.g. Manual entry — GPS confirmed on-site">
+                        </div>
+                        <div class="mw-modal-actions">
+                            <button type="submit" class="btn btn-primary">Add Entry</button>
+                            <button type="button" class="btn btn-secondary" onclick="hideModal('addTimeEntryModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
+                 Move Time Entry Modal
+                 ══════════════════════════════════════════════════════ -->
+            <div class="mw-modal-overlay" id="moveTimeEntryModal">
+                <div class="mw-modal">
+                    <h3 class="mw-modal-title">
+                        <i data-feather="move" style="width:16px;height:16px;vertical-align:-2px;margin-right:6px;"></i>
+                        Move Time Entry
+                    </h3>
+                    <p class="text-muted small mb-3">Reassign this time entry to a different visit. Enter the visit ID from any plan at this property.</p>
+                    <form method="POST" action="view.php?id=<?php echo (int)$planId; ?>">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                        <input type="hidden" name="action" value="move_time_entry">
+                        <input type="hidden" name="mv_entry_id" id="mvEntryId">
+                        <div class="form-group">
+                            <label class="form-label font-weight-bold">Current Entry</label>
+                            <div class="form-control-plaintext small text-muted" id="mvEntryDesc">—</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label font-weight-bold">Move to Visit</label>
+                            <select name="mv_visit_id" class="form-control" required>
+                                <option value="">— select visit —</option>
+                                <?php foreach ($visits as $v): ?>
+                                <option value="<?php echo (int)$v['id']; ?>">
+                                    <?php echo htmlspecialchars($v['visit_number']); ?>
+                                    &mdash; <?php echo htmlspecialchars(date('M j, Y', strtotime($v['scheduled_date']))); ?>
+                                    (<?php echo htmlspecialchars($v['status']); ?>)
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small class="form-text text-muted">Only visits on this plan are listed. For a different plan, first move the crew member there manually.</small>
+                        </div>
+                        <div class="mw-modal-actions">
+                            <button type="submit" class="btn btn-primary">Move Entry</button>
+                            <button type="button" class="btn btn-secondary" onclick="hideModal('moveTimeEntryModal')">Cancel</button>
+                        </div>
+                    </form>
                 </div>
             </div>
 
@@ -2291,9 +2451,12 @@ $activePage = 'jobs';
                         byVisit[e.visit_id].entries.push(e);
                     });
 
+                    var CAN_EDIT = <?php echo userHasPermission('jobs.edit') ? 'true' : 'false'; ?>;
+
                     var html = '<div class="table-responsive"><table class="table table-sm mb-0">' +
                         '<thead class="thead-light"><tr>' +
                         '<th>Visit</th><th>Crew Member</th><th>Clock In</th><th>Clock Out</th><th class="text-right">Duration</th><th>Status</th>' +
+                        (CAN_EDIT ? '<th></th>' : '') +
                         '</tr></thead><tbody>';
 
                     visitOrder.forEach(function(vid) {
@@ -2312,6 +2475,10 @@ $activePage = 'jobs';
                             var sourceBadge = isGps
                                 ? ' <span class="badge badge-light border text-muted" title="Estimated from GPS pings"><i data-feather="map-pin" style="width:9px;height:9px;"></i> GPS</span>'
                                 : (e.auto_started ? ' <small class="text-muted">(auto)</small>' : '');
+                            var moveBtn = (CAN_EDIT && !isGps && e.id)
+                                ? '<button class="btn btn-sm btn-link p-0 text-muted" title="Move to different visit" onclick="openMoveTimeEntry(' + e.id + ',' + JSON.stringify(esc(e.crew_name)) + ',' + JSON.stringify(e.start_time || '') + ')">' +
+                                  '<i data-feather="move" style="width:13px;height:13px;"></i></button>'
+                                : '';
                             html += '<tr' + (isGps ? ' class="text-muted"' : '') + '>' +
                                 '<td></td>' +
                                 '<td>' + esc(e.crew_name) + sourceBadge + '</td>' +
@@ -2319,6 +2486,7 @@ $activePage = 'jobs';
                                 '<td class="text-nowrap">' + (e.end_time ? fmtTime(e.end_time) : '<span class="text-warning">Active</span>') + '</td>' +
                                 '<td class="text-right text-nowrap">' + (e.duration_minutes > 0 ? e.duration_formatted : '—') + '</td>' +
                                 '<td>' + (isGps ? '<span class="badge badge-light border text-muted">gps est.</span>' : statusBadge(e.entry_status)) + '</td>' +
+                                (CAN_EDIT ? '<td class="text-right text-nowrap">' + moveBtn + '</td>' : '') +
                                 '</tr>';
                             if (e.notes && isGps) {
                                 html += '<tr><td></td><td colspan="5" class="text-muted small py-1"><i data-feather="map-pin" style="width:11px;height:11px;"></i> ' + esc(e.notes) + ' near property</td></tr>';
@@ -2332,7 +2500,9 @@ $activePage = 'jobs';
                     html += '<tr class="table-secondary font-weight-bold">' +
                         '<td colspan="4" class="text-right">Total Time</td>' +
                         '<td class="text-right">' + data.total_formatted + '</td>' +
-                        '<td></td></tr>';
+                        '<td></td>' +
+                        (CAN_EDIT ? '<td></td>' : '') +
+                        '</tr>';
 
                     html += '</tbody></table></div>';
                     body.innerHTML = html;
@@ -2354,6 +2524,18 @@ $activePage = 'jobs';
             }
 
             loadTimeLog();
+
+            window.openMoveTimeEntry = function(entryId, crewName, startTime) {
+                document.getElementById('mvEntryId').value = entryId;
+                var desc = crewName;
+                if (startTime) {
+                    var d = new Date(startTime.replace(' ', 'T'));
+                    desc += ' &mdash; ' + d.toLocaleDateString('en-CA', {month:'short', day:'numeric'}) +
+                            ' ' + d.toLocaleTimeString('en-CA', {hour:'2-digit', minute:'2-digit', hour12:true});
+                }
+                document.getElementById('mvEntryDesc').innerHTML = desc;
+                showModal('moveTimeEntryModal');
+            };
         })();
 
         // ── Job Expenses ─────────────────────────────────────────────
