@@ -312,7 +312,7 @@ function handleGet(PDO $db): void
                jp.plan_number AS job_plan_number,
                jp.service_type AS job_service_type,
                p.address AS job_address,
-               c.full_name AS job_contact_name
+               CONCAT(c.first_name, ' ', c.last_name) AS job_contact_name
         FROM expenses e
         LEFT JOIN vendors v ON v.id = e.vendor_id
         LEFT JOIN users u ON u.id = e.created_by
@@ -1292,7 +1292,7 @@ function handleSearchJobs(PDO $db): void
             jp.service_type,
             jp.status,
             p.address,
-            c.full_name AS contact_name
+            CONCAT(c.first_name, ' ', c.last_name) AS contact_name
         FROM job_plans jp
         LEFT JOIN properties p ON p.id = jp.property_id
         LEFT JOIN contacts c ON c.id = p.site_contact_id
@@ -1301,7 +1301,7 @@ function handleSearchJobs(PDO $db): void
               jp.plan_number LIKE ?
               OR jp.service_type LIKE ?
               OR p.address LIKE ?
-              OR c.full_name LIKE ?
+              OR CONCAT(c.first_name, ' ', c.last_name) LIKE ?
           )
         ORDER BY jp.status = 'active' DESC, jp.id DESC
         LIMIT 15
