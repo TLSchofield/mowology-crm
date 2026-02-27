@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v18';
+var CACHE_VERSION = 'mw-v19';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -32,7 +32,7 @@ var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
 var APP_SHELL = [
   /* ── Core AppStack frame ── */
   '/crm/css/classic.css',
-  '/crm/css/mowology-brand.css?v=20260225b',
+  '/crm/css/mowology-brand.css?v=20260227b',
   '/crm/css/mobile-cards.css?v=20260227b',
   '/crm/css/mobile-nav.css?v=20260225a',
   '/crm/js/app.js',
@@ -62,12 +62,12 @@ var APP_SHELL = [
 
 /**
  * PHP pages to warm into the page cache on install.
- * These load fast from cache and refresh silently in the background.
+ * NOTE: Authenticated pages are intentionally NOT pre-cached here.
+ * Pre-caching schedule.php before login stores the login-page HTML under
+ * the schedule URL key, causing stale-while-revalidate to serve wrong content.
+ * Pages are cached on-demand after first successful (logged-in) visit instead.
  */
-var WARM_PAGES = [
-  '/crm/jobs/schedule.php',
-  '/crm/timeclock/my-schedule.php'
-];
+var WARM_PAGES = [];
 
 // ── Install: pre-cache the app shell + warm key pages ──
 self.addEventListener('install', function(event) {
@@ -141,13 +141,13 @@ self.addEventListener('fetch', function(event) {
     return;
   }
 
-  // ── Schedule / timeclock pages → stale-while-revalidate ──
-  // Serve instantly from cache, update silently in the background.
-  // This is the key fix for perceived slowness — the page renders
-  // immediately from cache while fresh HTML is fetched and stored
-  // for the NEXT load.
+  // ── Schedule / timeclock pages → network-first with cache fallback ──
+  // Must use network-first (not stale-while-revalidate) for authenticated pages.
+  // staleWhileRevalidate would serve stale login-page HTML after session expiry,
+  // trapping users in a redirect loop. Network-first ensures the user always
+  // sees the right page; the cache provides offline fallback only.
   if (isSchedulePage(pathname)) {
-    event.respondWith(staleWhileRevalidate(request, PAGE_CACHE));
+    event.respondWith(networkFirst(request, PAGE_CACHE));
     return;
   }
 
@@ -263,7 +263,9 @@ function cacheFirst(request, cacheName) {
   return caches.match(request).then(function(cached) {
     if (cached) return cached;
 
-    return fetch(request).then(function(response) {
+    // Use redirect:'follow' — navigation requests have redirect:'manual' by spec,
+    // which would return an opaque redirect response and cause ERR_FAILED in Chrome.
+    return fetch(request, { redirect: 'follow' }).then(function(response) {
       if (response.ok) {
         var clone = response.clone();
         caches.open(cacheName).then(function(cache) { cache.put(request, clone); });
@@ -281,7 +283,9 @@ function cacheFirst(request, cacheName) {
  * Best for PHP pages — user sees content immediately, next load is fresh.
  */
 function staleWhileRevalidate(request, cacheName) {
-  var networkFetch = fetch(request).then(function(response) {
+  // Use redirect:'follow' — navigation requests have redirect:'manual' by spec,
+  // which would return an opaque redirect response and cause ERR_FAILED in Chrome.
+  var networkFetch = fetch(request, { redirect: 'follow' }).then(function(response) {
     if (response.ok) {
       var clone = response.clone();
       caches.open(cacheName).then(function(cache) { cache.put(request, clone); });
@@ -302,7 +306,9 @@ function staleWhileRevalidate(request, cacheName) {
  * Best for API calls where stale data could be misleading.
  */
 function networkFirst(request, cacheName) {
-  return fetch(request).then(function(response) {
+  // Use redirect:'follow' — navigation requests have redirect:'manual' by spec,
+  // which would return an opaque redirect response and cause ERR_FAILED in Chrome.
+  return fetch(request, { redirect: 'follow' }).then(function(response) {
     if (response.ok) {
       var clone = response.clone();
       caches.open(cacheName).then(function(cache) { cache.put(request, clone); });

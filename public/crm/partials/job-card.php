@@ -109,6 +109,25 @@ if ($estimatedDuration > 0) {
 $lawnSqFt = (int)($stop['lawn_sqft'] ?? 0);
 $lawnSqFtDisplay = $lawnSqFt > 0 ? number_format($lawnSqFt) . ' sq ft' : '';
 
+// Last completed visit display
+$lastVisitDisplay = '';
+if (!empty($stop['last_completed_date'])) {
+    $lv = new DateTime($stop['last_completed_date']);
+    $now = new DateTime('today');
+    $diffDays = (int)$now->diff($lv)->days;
+    if ($diffDays === 0) {
+        $lastVisitDisplay = 'Earlier today';
+    } elseif ($diffDays === 1) {
+        $lastVisitDisplay = 'Yesterday';
+    } elseif ($diffDays <= 14) {
+        $lastVisitDisplay = $diffDays . ' days ago';
+    } elseif ($lv->format('Y') === $now->format('Y')) {
+        $lastVisitDisplay = $lv->format('M j');
+    } else {
+        $lastVisitDisplay = $lv->format('M j, Y');
+    }
+}
+
 // Build service label string for all visits on this stop
 $serviceLabelsStr = '';
 if (!empty($stop['visits'])) {
@@ -227,6 +246,13 @@ $stopTags = $stop['tags'] ?? [];
                 <div class="mw-mc-lawn-sqft">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M9 3v18"/></svg>
                     <?php echo htmlspecialchars($lawnSqFtDisplay); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($lastVisitDisplay): ?>
+                <div class="mw-mc-last-visit">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    Last visit: <?php echo htmlspecialchars($lastVisitDisplay); ?>
                 </div>
             <?php endif; ?>
 
@@ -367,6 +393,13 @@ $stopTags = $stop['tags'] ?? [];
                 <div class="mw-mc-lawn-sqft">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 9h18M9 3v18"/></svg>
                     <?php echo htmlspecialchars($lawnSqFtDisplay); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($lastVisitDisplay): ?>
+                <div class="mw-mc-last-visit">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    Last visit: <?php echo htmlspecialchars($lastVisitDisplay); ?>
                 </div>
             <?php endif; ?>
 

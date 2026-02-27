@@ -979,6 +979,9 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                  WHERE pm.property_id = p.id AND pm.measurement_type IN ('lawn', 'garden')),
                 p.lawn_size_sqft
             ) AS lawn_sqft,
+            (SELECT MAX(cs2.stop_date) FROM calendar_stops cs2
+             WHERE cs2.property_id = p.id AND cs2.status = 'completed'
+             AND cs2.stop_date < cs.stop_date) AS last_completed_date,
             co.company_name,
             ct.id AS contact_id,
             CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
@@ -1087,6 +1090,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'contact_name'  => $row['contact_name'],
                 'property_name' => $row['property_name'],
                 'lawn_sqft'     => isset($row['lawn_sqft']) && $row['lawn_sqft'] > 0 ? (float)$row['lawn_sqft'] : null,
+                'last_completed_date' => $row['last_completed_date'] ?? null,
                 'visits'        => [],
             ];
         }
