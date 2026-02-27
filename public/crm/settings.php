@@ -140,6 +140,115 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                 </div>
             </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><h5 class="card-title">Tax Settings</h5></div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="gst_rate" class="form-label">GST Rate (%)</label>
+                            <input type="number" class="form-control" id="gst_rate" min="0" max="100" step="0.01" placeholder="5.00">
+                            <small class="form-text text-muted">Federal Goods &amp; Services Tax — 5% Canada-wide</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="pst_rate" class="form-label">PST Rate (%) <small class="text-muted">optional</small></label>
+                            <input type="number" class="form-control" id="pst_rate" min="0" max="100" step="0.01" placeholder="0.00">
+                            <small class="form-text text-muted">Provincial Sales Tax — 7% in BC, 0 if not registered</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="show_tax_on_invoices" class="form-label">Show Tax on Invoices &amp; Quotes</label>
+                            <select class="form-control" id="show_tax_on_invoices">
+                                <option value="1">Yes — show tax line</option>
+                                <option value="0">No — hide tax breakdown</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><h5 class="card-title">Business Hours</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Set your regular operating hours. Used for scheduling constraints and optional display on client documents.</p>
+                    <div id="businessHoursTable">
+                        <div class="text-center py-3"><div class="spinner-border spinner-border-sm text-primary"></div> Loading hours...</div>
+                    </div>
+                    <div class="mt-3">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="bh_show_on_invoices" data-bh-ignore="1">
+                            <label class="form-check-label" for="bh_show_on_invoices">Show on invoices</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="bh_show_on_quotes" data-bh-ignore="1">
+                            <label class="form-check-label" for="bh_show_on_quotes">Show on quotes</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><h5 class="card-title">Regional Settings</h5></div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="country" class="form-label">Country</label>
+                            <select class="form-control" id="country">
+                                <option value="Canada">Canada</option>
+                                <option value="United States">United States</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="timezone" class="form-label">Timezone</label>
+                            <select class="form-control" id="timezone">
+                                <optgroup label="Canada">
+                                    <option value="America/Vancouver">Pacific — Vancouver, BC</option>
+                                    <option value="America/Edmonton">Mountain — Calgary, AB</option>
+                                    <option value="America/Winnipeg">Central — Winnipeg, MB</option>
+                                    <option value="America/Toronto">Eastern — Toronto, ON</option>
+                                    <option value="America/Halifax">Atlantic — Halifax, NS</option>
+                                    <option value="America/St_Johns">Newfoundland — St. John's, NL</option>
+                                </optgroup>
+                                <optgroup label="United States">
+                                    <option value="America/Los_Angeles">Pacific — US West</option>
+                                    <option value="America/Denver">Mountain — US</option>
+                                    <option value="America/Chicago">Central — US</option>
+                                    <option value="America/New_York">Eastern — US East</option>
+                                </optgroup>
+                                <optgroup label="Other">
+                                    <option value="UTC">UTC</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="date_format" class="form-label">Date Format</label>
+                            <select class="form-control" id="date_format">
+                                <option value="M j, Y">Jan 15, 2026</option>
+                                <option value="F j, Y">January 15, 2026</option>
+                                <option value="Y-m-d">2026-01-15 (ISO)</option>
+                                <option value="m/d/Y">01/15/2026 (US)</option>
+                                <option value="d/m/Y">15/01/2026 (EU/CA)</option>
+                                <option value="d-m-Y">15-01-2026</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="time_format" class="form-label">Time Format</label>
+                            <select class="form-control" id="time_format">
+                                <option value="12h">12-hour (3:30 PM)</option>
+                                <option value="24h">24-hour (15:30)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="first_day_of_week" class="form-label">First Day of Week</label>
+                            <select class="form-control" id="first_day_of_week">
+                                <option value="1">Monday</option>
+                                <option value="0">Sunday</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Branding Tab -->

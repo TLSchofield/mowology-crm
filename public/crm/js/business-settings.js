@@ -137,19 +137,23 @@
     formEl.addEventListener('submit', (e) => {
       e.preventDefault();
 
-      // Collect form data
+      // Collect all input, textarea, and select fields —
+      // excluding: color display-only fields, receipt fields (saved separately),
+      // and business-hours fields (saved separately via ops_settings)
       const settings = {};
-      const inputs = formEl.querySelectorAll('input, textarea');
-
+      const inputs = formEl.querySelectorAll('input, textarea, select');
       inputs.forEach((input) => {
-        if (input.id && input.id !== 'brand_color_primary_text' && input.id !== 'brand_color_secondary_text'
-            && RECEIPT_KEYS.indexOf(input.id) === -1) {
-          settings[input.id] = input.value;
-        }
+        if (!input.id) return;
+        if (input.id === 'brand_color_primary_text') return;
+        if (input.id === 'brand_color_secondary_text') return;
+        if (RECEIPT_KEYS.indexOf(input.id) !== -1) return;
+        if (input.dataset.bhIgnore) return; // skip business hours fields
+        settings[input.id] = input.value;
       });
 
-      // Save business settings + receipt forwarding ops_settings
+      // Save business settings + receipt forwarding + business hours
       saveReceiptSettings();
+      saveBusinessHours();
       saveSettings(settings);
     });
   }
@@ -913,6 +917,114 @@
     }
   }
 
+  // ── Business Hours ──────────────────────────────────────────
+
+  var BH_DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+  var BH_DAY_LABELS = {
+    monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
+    thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday'
+  };
+
+  function buildBusinessHoursTable(hoursData) {
+    var container = document.getElementById('businessHoursTable');
+    if (!container) return;
+
+    var html = '<table class="table table-sm mb-0" style="max-width:480px;">';
+    html += '<thead class="thead-light"><tr>';
+    html += '<th style="width:120px;">Day</th>';
+    html += '<th style="width:70px; text-align:center;">Open</th>';
+    html += '<th>Opens</th><th>Closes</th>';
+    html += '</tr></thead><tbody>';
+
+    BH_DAYS.forEach(function(day) {
+      var h = hoursData && hoursData.hours && hoursData.hours[day]
+          ? hoursData.hours[day]
+          : { open: (day !== 'saturday' && day !== 'sunday'), start: '08:00', end: '17:00' };
+      var isOpen = h.open ? true : false;
+      var disAttr = isOpen ? '' : ' disabled';
+
+      html += '<tr>';
+      html += '<td class="align-middle font-weight-medium">' + BH_DAY_LABELS[day] + '</td>';
+      html += '<td class="align-middle text-center">';
+      html += '<div class="custom-control custom-switch d-inline-block">';
+      html += '<input type="checkbox" class="custom-control-input bh-open-check"';
+      html += ' id="bh_' + day + '_open" data-bh-ignore="1" data-day="' + day + '"';
+      html += isOpen ? ' checked' : '';
+      html += '>';
+      html += '<label class="custom-control-label" for="bh_' + day + '_open"></label>';
+      html += '</div></td>';
+      html += '<td><input type="time" class="form-control form-control-sm"';
+      html += ' id="bh_' + day + '_start" data-bh-ignore="1" value="' + (h.start || '08:00') + '"';
+      html += ' style="width:110px;"' + disAttr + '></td>';
+      html += '<td><input type="time" class="form-control form-control-sm"';
+      html += ' id="bh_' + day + '_end" data-bh-ignore="1" value="' + (h.end || '17:00') + '"';
+      html += ' style="width:110px;"' + disAttr + '></td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    // Set show-on checkboxes
+    var showInvEl = document.getElementById('bh_show_on_invoices');
+    var showQtEl  = document.getElementById('bh_show_on_quotes');
+    if (showInvEl) showInvEl.checked = hoursData && hoursData.show_on_invoices ? true : false;
+    if (showQtEl)  showQtEl.checked  = hoursData && hoursData.show_on_quotes  ? true : false;
+
+    // Wire toggles — enable/disable time pickers when day is toggled open/closed
+    container.querySelectorAll('.bh-open-check').forEach(function(chk) {
+      chk.addEventListener('change', function() {
+        var d = chk.dataset.day;
+        var sEl = document.getElementById('bh_' + d + '_start');
+        var eEl = document.getElementById('bh_' + d + '_end');
+        if (sEl) sEl.disabled = !chk.checked;
+        if (eEl) eEl.disabled = !chk.checked;
+      });
+    });
+  }
+
+  function loadBusinessHours() {
+    fetch('/crm/api/ops-settings.php?action=get&key=business_hours')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        buildBusinessHoursTable(data.success && data.exists ? data.value : null);
+      })
+      .catch(function() { buildBusinessHoursTable(null); });
+  }
+
+  function collectBusinessHours() {
+    var showInvEl = document.getElementById('bh_show_on_invoices');
+    var showQtEl  = document.getElementById('bh_show_on_quotes');
+    var hours = {};
+    BH_DAYS.forEach(function(day) {
+      var openEl  = document.getElementById('bh_' + day + '_open');
+      var startEl = document.getElementById('bh_' + day + '_start');
+      var endEl   = document.getElementById('bh_' + day + '_end');
+      hours[day] = {
+        open:  openEl  ? openEl.checked  : false,
+        start: startEl ? startEl.value   : '08:00',
+        end:   endEl   ? endEl.value     : '17:00'
+      };
+    });
+    return {
+      show_on_invoices: showInvEl ? showInvEl.checked : false,
+      show_on_quotes:   showQtEl  ? showQtEl.checked  : false,
+      hours: hours
+    };
+  }
+
+  function saveBusinessHours() {
+    return fetch('/crm/api/ops-settings.php?action=save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key:         'business_hours',
+        value:       collectBusinessHours(),
+        description: 'Company business hours schedule'
+      })
+    }).catch(function() { /* non-fatal — main settings save still proceeds */ });
+  }
+
   /**
    * Initialize
    */
@@ -920,6 +1032,7 @@
     showLoading();
     loadSettings();
     loadReceiptSettings();
+    loadBusinessHours();
     setupColorPickers();
     setupLogoPreview();
     setupFormSubmit();
