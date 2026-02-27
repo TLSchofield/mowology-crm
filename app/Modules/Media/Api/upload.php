@@ -80,7 +80,7 @@ $altText = $_POST['alt_text'] ?? null;
 $powStamp = ($_POST['pow_stamp'] ?? '0') === '1';
 
 // Validate context_type against allowed values
-$allowedContextTypes = ['cms', 'job_visit', 'quote_visit', 'job_plan', 'property', 'portfolio', 'marketing_general', 'client_general', 'internal_general'];
+$allowedContextTypes = ['cms', 'job_visit', 'quote_visit', 'job_plan', 'property', 'portfolio', 'marketing_general', 'client_general', 'internal_general', 'field_observation'];
 if (!in_array($contextType, $allowedContextTypes)) {
     $contextType = 'marketing_general';
 }

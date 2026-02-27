@@ -575,50 +575,77 @@
     // ═══════════════════════════════════════════════════════
 
     /**
-     * Trigger the camera via hidden file input
+     * Trigger the device camera / file picker for a visit photo.
+     *
+     * PLATFORM NOTES:
+     *   iOS Safari (PWA + browser): input.click() MUST be called synchronously
+     *   within the same JS call stack as the originating user gesture.
+     *   Any setTimeout — even 0ms — breaks the "trusted gesture" chain and the
+     *   file picker silently refuses to open.
+     *
+     *   Android Chrome / Capacitor WebView: same rule applies; synchronous click
+     *   is safe and correct on both platforms.
+     *
+     *   overflow:hidden: the input is appended to document.body (not the card)
+     *   to avoid any overflow:hidden ancestor interfering with picker activation.
+     *   It is styled with opacity:0 + position:fixed (NOT display:none) because
+     *   some iOS versions do not honour .click() on display:none file inputs.
      */
     // Track pending camera sessions to prevent double-fire on tablets
     var pendingCamera = null; // { visitId, category, card, input, handler }
 
     function triggerCamera(visitId, category) {
-        var card = visits[visitId].pill.closest('.mw-mc-card');
+        console.log('[PillWorkflow] triggerCamera: visit=' + visitId + ' cat=' + category);
 
-        // Each visit gets its own dedicated camera input to avoid cross-visit handler collisions
-        // Find or create a visit-specific input
-        var inputId = 'mw-mc-cam-' + visitId;
-        var input = card.querySelector('[data-cam-visit="' + visitId + '"]');
-        if (!input) {
-            input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.setAttribute('capture', 'environment');
-            input.style.display = 'none';
-            input.setAttribute('data-cam-visit', visitId);
-            card.appendChild(input);
-        }
+        var v = visits[visitId];
+        if (!v) { console.warn('[PillWorkflow] triggerCamera: visit ' + visitId + ' not registered'); return; }
 
-        // Tear down any previous pending session on this input (prevents double-fire)
-        if (pendingCamera && pendingCamera.input === input) {
-            input.removeEventListener('change', pendingCamera.handler);
+        var card = v.pill.closest('.mw-mc-card');
+        if (!card) { console.warn('[PillWorkflow] triggerCamera: no card found for visit ' + visitId); return; }
+
+        // Clean up any prior pending session (prevents ghost inputs in body)
+        if (pendingCamera) {
+            if (pendingCamera.input) {
+                pendingCamera.input.removeEventListener('change', pendingCamera.handler);
+                if (pendingCamera.input.parentNode) {
+                    pendingCamera.input.parentNode.removeChild(pendingCamera.input);
+                }
+            }
             pendingCamera = null;
         }
-        // Also nuke any legacy handlers by cloning the input
-        var fresh = input.cloneNode(false);
-        input.parentNode.replaceChild(fresh, input);
-        input = fresh;
+
+        // Create a fresh <input type=file> each time.
+        // Append to document.body to avoid overflow:hidden on the card container.
+        // Use opacity:0 + position:fixed (not display:none) for reliable iOS activation.
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.setAttribute('capture', 'environment');
+        input.setAttribute('data-cam-visit', String(visitId));
+        input.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;';
+        document.body.appendChild(input);
 
         var handler = function() {
-            // Guard: only fire once
-            if (pendingCamera && pendingCamera.handler === handler) {
-                pendingCamera = null;
-            }
+            // Remove input from DOM immediately
             input.removeEventListener('change', handler);
+            if (input.parentNode) input.parentNode.removeChild(input);
+            pendingCamera = null;
+
+            if (MW_PHOTO_DEBUG) {
+                console.log('[PillWorkflow:DEBUG] change event fired: files=' +
+                    (input.files ? input.files.length : 'null') +
+                    ' visit=' + visitId + ' cat=' + category);
+            }
 
             if (!input.files || !input.files.length) {
                 // User cancelled — re-render strip so placeholders are still tappable
                 renderPhotoStrip(visitId);
                 return;
             }
+
+            var file = input.files[0];
+            console.log('[PillWorkflow] Photo captured: visit=' + visitId +
+                ' cat=' + category + ' size=' + file.size + ' type=' + file.type);
 
             // Show uploading state immediately on the placeholder
             var strip = card.querySelector('[data-strip-visit="' + visitId + '"]');
@@ -627,10 +654,7 @@
                 if (ph) ph.classList.add('mw-mc-placeholder-uploading');
             }
 
-            uploadPhoto(visitId, input.files[0], category, function(success, thumbUrl) {
-                // Reset input value for reuse
-                try { input.value = ''; } catch(e) {}
-
+            uploadPhoto(visitId, file, category, function(success, thumbUrl) {
                 if (!success) {
                     // Re-render strip so placeholder returns to tappable state
                     renderPhotoStrip(visitId);
@@ -687,14 +711,17 @@
         pendingCamera = { visitId: visitId, category: category, card: card, input: input, handler: handler };
         input.addEventListener('change', handler);
 
-        // Small delay before click on iOS/iPadOS to avoid the file picker firing
-        // a stale change event from a previous dismissed session
-        setTimeout(function() { input.click(); }, 50);
+        // CRITICAL: input.click() must be called synchronously here — in the same JS
+        // call stack as the user's tap event. iOS Safari and Capacitor WebView both
+        // enforce this; any setTimeout (even 0ms) breaks picker activation silently.
+        console.log('[PillWorkflow] Calling input.click() synchronously');
+        input.click();
     }
 
     /**
-     * Upload a photo to the media system
-     * Photos use visibility=client_visible so they populate the client portal
+     * Upload a photo to the media system.
+     * Photos use visibility=client_visible so they populate the client portal.
+     * On network failure, saves to the offline IndexedDB queue for automatic retry.
      */
     function uploadPhoto(visitId, file, category, callback) {
         var formData = new FormData();
@@ -722,7 +749,7 @@
         // Show uploading feedback on pill
         flashPillFeedback(visitId, 'Uploading...');
 
-        console.log('[PillWorkflow] Uploading photo: visit=' + visitId + ', category=' + category);
+        console.log('[PillWorkflow] Uploading photo: visit=' + visitId + ' category=' + category);
         fetch('/crm/api/media-upload.php', {
             method: 'POST',
             body: formData
@@ -744,14 +771,16 @@
                 var thumbUrl = null;
                 if (data.results && data.results[0]) {
                     var r = data.results[0];
-                    console.log('[PillWorkflow] Upload result: thumb_url=' + r.thumb_url + ', file_path=' + r.file_path);
-                    // Prefer thumb, fall back to original path, fall back to placeholder data URI
+                    if (MW_PHOTO_DEBUG) {
+                        console.log('[PillWorkflow:DEBUG] Upload result: thumb_url=' + r.thumb_url + ' file_path=' + r.file_path);
+                    }
+                    // Prefer thumb, fall back to original path, fall back to placeholder sentinel
                     thumbUrl = r.thumb_url || r.file_path || null;
 
                     // If server gave no URL at all (variant generation failure),
-                    // create an object URL from the original file so the strip still renders
+                    // create a sentinel so the strip still shows a ✓ tile
                     if (!thumbUrl && data.results[0].success) {
-                        thumbUrl = '__uploaded__'; // sentinel: shows ✓ tile instead of image
+                        thumbUrl = '__uploaded__';
                     }
                 }
                 if (visits[visitId]) {
@@ -777,8 +806,22 @@
         })
         .catch(function(err) {
             console.error('[PillWorkflow] Upload error:', err.message || err);
-            showToast('Upload failed — check connection and try again.');
-            callback(false, null);
+            // Save to offline queue so the photo is preserved when signal is lost
+            if (photoQueueDb) {
+                saveToPhotoQueue(visitId, file, category, function(queueId) {
+                    if (queueId !== null) {
+                        showToast(navigator.onLine
+                            ? 'Upload failed \u2014 will retry automatically'
+                            : 'No signal \u2014 photo saved for later');
+                    } else {
+                        showToast('Upload failed \u2014 check connection and try again.');
+                    }
+                    callback(false, null);
+                });
+            } else {
+                showToast('Upload failed \u2014 check connection and try again.');
+                callback(false, null);
+            }
         });
     }
 
@@ -978,7 +1021,7 @@
                 '</div>';
         }
 
-        // ── Additionals row (before/after + button, always shown) ──
+        // ── Additionals row (thumbnails + button, always shown) ──
         var addThumbs = v.additionalThumbs || [];
         var addHtml = '<div class="mw-mc-photo-additionals" data-visit-id="' + visitId + '">';
         for (var ai = 0; ai < addThumbs.length; ai++) {
@@ -1023,10 +1066,12 @@
             });
         });
 
-        console.log('[PillWorkflow] Photo strip rendered for visit ' + visitId +
-            ' (before: ' + (v.beforeThumb ? 'yes' : 'no') +
-            ', after: ' + (v.afterThumb ? 'yes' : 'no') +
-            ', additionals: ' + addThumbs.length + ')');
+        if (MW_PHOTO_DEBUG) {
+            console.log('[PillWorkflow:DEBUG] Photo strip rendered for visit ' + visitId +
+                ' (before: ' + (v.beforeThumb ? 'yes' : 'no') +
+                ', after: ' + (v.afterThumb ? 'yes' : 'no') +
+                ', additionals: ' + addThumbs.length + ')');
+        }
     }
 
     /**
@@ -1157,6 +1202,280 @@
             },
             { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
         );
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  OFFLINE PHOTO QUEUE  (IndexedDB)
+    //
+    //  Photos captured while offline (or when upload fails due to poor
+    //  signal / app backgrounding) are stored as ArrayBuffers in IndexedDB.
+    //  They are automatically retried when the network comes back online.
+    //
+    //  Debug: localStorage.setItem('mw_photo_debug','1') then reload.
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Debug flag — enable extra console logging for photo capture + upload.
+     * Set: localStorage.setItem('mw_photo_debug', '1') then reload.
+     * Clear: localStorage.removeItem('mw_photo_debug') then reload.
+     */
+    var MW_PHOTO_DEBUG = (function() {
+        try { return localStorage.getItem('mw_photo_debug') === '1'; } catch (e) { return false; }
+    })();
+
+    var photoQueueDb    = null;
+    var queueProcessing = false;
+
+    // Open the IndexedDB photo queue immediately (async, doesn't block rendering)
+    (function openPhotoQueueDb() {
+        try {
+            var req = indexedDB.open('mw_photo_queue_v1', 1);
+
+            req.onupgradeneeded = function(e) {
+                var db = e.target.result;
+                if (!db.objectStoreNames.contains('queue')) {
+                    var store = db.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
+                    store.createIndex('status',  'status',  { unique: false });
+                    store.createIndex('visitId', 'visitId', { unique: false });
+                }
+            };
+
+            req.onsuccess = function(e) {
+                photoQueueDb = e.target.result;
+                if (MW_PHOTO_DEBUG) console.log('[PillWorkflow] Photo queue IDB ready');
+                // Attempt to upload any photos queued during a previous session
+                processPhotoQueue();
+            };
+
+            req.onerror = function() {
+                console.warn('[PillWorkflow] Photo queue IDB failed to open — offline queuing disabled');
+            };
+        } catch (err) {
+            console.warn('[PillWorkflow] Photo queue IDB unavailable:', err && err.message);
+        }
+    })();
+
+    // Retry queued photos as soon as network is restored
+    window.addEventListener('online', function() {
+        console.log('[PillWorkflow] Network restored — processing offline photo queue');
+        processPhotoQueue();
+    });
+
+    /**
+     * Persist a captured File into the offline queue.
+     * Converts to ArrayBuffer (survives page reloads / session restarts).
+     * Calls callback(queueId) on success, callback(null) on failure.
+     */
+    function saveToPhotoQueue(visitId, file, category, callback) {
+        if (!photoQueueDb) {
+            if (MW_PHOTO_DEBUG) console.log('[PillWorkflow] IDB unavailable — cannot queue photo');
+            if (callback) callback(null);
+            return;
+        }
+
+        var reader = new FileReader();
+
+        reader.onload = function(ev) {
+            var item = {
+                visitId:     visitId,
+                category:    category,
+                blobData:    ev.target.result,            // ArrayBuffer
+                filename:    file.name    || 'photo.jpg',
+                mimeType:    file.type    || 'image/jpeg',
+                createdAt:   Date.now(),
+                status:      'pending',
+                retries:     0,
+                lastAttempt: 0,
+                csrf:        state.csrf,
+                gpsLat:      cachedGps ? cachedGps.lat : null,
+                gpsLng:      cachedGps ? cachedGps.lng : null,
+                powStamp:    (category === 'before' || category === 'after')
+            };
+
+            try {
+                var tx  = photoQueueDb.transaction('queue', 'readwrite');
+                var put = tx.objectStore('queue').add(item);
+
+                put.onsuccess = function() {
+                    console.log('[PillWorkflow] Photo queued id=' + put.result +
+                        ' visit=' + visitId + ' cat=' + category);
+                    if (callback) callback(put.result);
+                };
+                put.onerror = function() {
+                    console.warn('[PillWorkflow] Failed to write photo to IDB queue');
+                    if (callback) callback(null);
+                };
+            } catch (err) {
+                console.warn('[PillWorkflow] IDB write error:', err && err.message);
+                if (callback) callback(null);
+            }
+        };
+
+        reader.onerror = function() {
+            console.warn('[PillWorkflow] FileReader error while queueing photo');
+            if (callback) callback(null);
+        };
+
+        reader.readAsArrayBuffer(file);
+    }
+
+    /**
+     * Upload all pending items in the offline queue.
+     * Only runs when online; prevents concurrent processing batches.
+     */
+    function processPhotoQueue() {
+        if (!photoQueueDb || queueProcessing) return;
+        if (!navigator.onLine) {
+            if (MW_PHOTO_DEBUG) console.log('[PillWorkflow] Offline — skipping queue processing');
+            return;
+        }
+
+        queueProcessing = true;
+
+        try {
+            var tx  = photoQueueDb.transaction('queue', 'readonly');
+            var req = tx.objectStore('queue').index('status').getAll('pending');
+
+            req.onsuccess = function() {
+                var items = req.result || [];
+                if (!items.length) { queueProcessing = false; return; }
+                console.log('[PillWorkflow] Photo queue: processing ' + items.length + ' pending item(s)');
+                processQueueItems(items, 0, function() { queueProcessing = false; });
+            };
+
+            req.onerror = function() { queueProcessing = false; };
+        } catch (err) {
+            queueProcessing = false;
+            console.warn('[PillWorkflow] Queue read error:', err && err.message);
+        }
+    }
+
+    /**
+     * Recursively process each queued item in order.
+     */
+    function processQueueItems(items, idx, done) {
+        if (idx >= items.length) { done(); return; }
+
+        var item       = items[idx];
+        var MAX_RETRY  = 3;
+
+        if (item.retries >= MAX_RETRY) {
+            console.warn('[PillWorkflow] Dropping queued photo after ' + MAX_RETRY +
+                ' retries: visit=' + item.visitId + ' cat=' + item.category);
+            updateQueueItemStatus(item.id, { status: 'failed' }, function() {
+                processQueueItems(items, idx + 1, done);
+            });
+            return;
+        }
+
+        updateQueueItemStatus(item.id, { status: 'uploading', lastAttempt: Date.now() }, function() {
+            var blob = new Blob([item.blobData], { type: item.mimeType });
+            var file = new File([blob], item.filename, { type: item.mimeType });
+
+            var fd = new FormData();
+            fd.append('files[]',      file);
+            fd.append('csrf_token',   item.csrf || state.csrf);
+            fd.append('context_type', 'job_visit');
+            fd.append('context_id',   String(item.visitId));
+            fd.append('category',     item.category);
+            fd.append('visibility',   'client_visible');
+            if (item.gpsLat !== null && item.gpsLng !== null) {
+                fd.append('gps_lat', String(item.gpsLat));
+                fd.append('gps_lng', String(item.gpsLng));
+            }
+            if (item.powStamp) fd.append('pow_stamp', '1');
+
+            if (MW_PHOTO_DEBUG) {
+                console.log('[PillWorkflow:DEBUG] Uploading queued photo id=' + item.id +
+                    ' visit=' + item.visitId + ' cat=' + item.category);
+            }
+
+            fetch('/crm/api/media-upload.php', { method: 'POST', body: fd })
+            .then(function(r) {
+                var ct = r.headers.get('content-type') || '';
+                if (!ct.includes('application/json') && !ct.includes('text/json')) {
+                    return r.text().then(function(t) {
+                        throw new Error('Non-JSON: ' + r.status + ' ' + t.slice(0, 80));
+                    });
+                }
+                return r.json();
+            })
+            .then(function(data) {
+                if (data.success && data.total_uploaded > 0) {
+                    updateQueueItemStatus(item.id, { status: 'done' }, function() {
+                        console.log('[PillWorkflow] Queued photo uploaded: visit=' +
+                            item.visitId + ' cat=' + item.category);
+
+                        // Refresh UI strip so thumbnail appears if visit is still on screen
+                        if (visits[item.visitId]) {
+                            var res      = data.results && data.results[0];
+                            var thumbUrl = (res && (res.thumb_url || res.file_path)) || '__uploaded__';
+
+                            if (item.category === 'before') {
+                                visits[item.visitId].beforeThumb = thumbUrl;
+                            } else if (item.category === 'after') {
+                                visits[item.visitId].afterThumb = thumbUrl;
+                            } else if (item.category === 'additional') {
+                                if (!visits[item.visitId].additionalThumbs) {
+                                    visits[item.visitId].additionalThumbs = [];
+                                }
+                                if (thumbUrl !== '__uploaded__') {
+                                    visits[item.visitId].additionalThumbs.push(thumbUrl);
+                                }
+                            }
+                            renderPhotoStrip(item.visitId);
+                        }
+
+                        processQueueItems(items, idx + 1, done);
+                    });
+                } else {
+                    var errMsg = (data.results && data.results[0] && data.results[0].errors)
+                        ? data.results[0].errors.join(', ')
+                        : (data.error || 'Upload rejected');
+                    console.warn('[PillWorkflow] Queue upload rejected:', errMsg);
+                    updateQueueItemStatus(item.id, { status: 'pending', retries: item.retries + 1 }, function() {
+                        processQueueItems(items, idx + 1, done);
+                    });
+                }
+            })
+            .catch(function(err) {
+                console.warn('[PillWorkflow] Queue upload network error:', err && err.message);
+                updateQueueItemStatus(item.id, { status: 'pending', retries: item.retries + 1 }, function() {
+                    processQueueItems(items, idx + 1, done);
+                });
+            });
+        });
+    }
+
+    /**
+     * Read-modify-write a single queue item in IDB.
+     */
+    function updateQueueItemStatus(id, updates, callback) {
+        if (!photoQueueDb) { if (callback) callback(); return; }
+
+        try {
+            var tx    = photoQueueDb.transaction('queue', 'readwrite');
+            var store = tx.objectStore('queue');
+            var getR  = store.get(id);
+
+            getR.onsuccess = function() {
+                var item = getR.result;
+                if (!item) { if (callback) callback(); return; }
+
+                var keys = Object.keys(updates);
+                for (var ki = 0; ki < keys.length; ki++) {
+                    item[keys[ki]] = updates[keys[ki]];
+                }
+
+                var putR = store.put(item);
+                putR.onsuccess = function() { if (callback) callback(); };
+                putR.onerror   = function() { if (callback) callback(); };
+            };
+
+            getR.onerror = function() { if (callback) callback(); };
+        } catch (err) {
+            if (callback) callback();
+        }
     }
 
     // ═══════════════════════════════════════════════════════
@@ -1386,7 +1705,7 @@
      */
     function uploadObservationPhoto(file, visitId, onSuccess, onError) {
         var formData = new FormData();
-        formData.append('photos[]', file);
+        formData.append('files[]', file);   // must match the field name expected by upload.php
         formData.append('context_type', 'field_observation');
         formData.append('context_id', visitId);
         formData.append('category', 'observation');
