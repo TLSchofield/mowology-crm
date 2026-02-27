@@ -216,8 +216,12 @@ function getVisionAccessToken(string $credPath): array
 {
     global $_visionTokenCache;
 
+    // Ensure cache is initialised (may be null if included in an unusual context)
+    if (!is_array($_visionTokenCache)) {
+        $_visionTokenCache = ['token' => null, 'expires' => 0];
+    }
     // Return cached token if still valid (with 60s buffer)
-    if ($_visionTokenCache['token'] && $_visionTokenCache['expires'] > time() + 60) {
+    if (!empty($_visionTokenCache['token']) && ($_visionTokenCache['expires'] ?? 0) > time() + 60) {
         return ['success' => true, 'token' => $_visionTokenCache['token'], 'error' => null];
     }
 
