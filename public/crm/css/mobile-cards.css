@@ -1308,6 +1308,11 @@
 
     /* Persistent photo strips container (outside drawer, not cleared) */
     .mw-mc-photo-strips {
+        padding: 0;
+    }
+
+    /* Only show padding when there's actual content */
+    .mw-mc-photo-strips:not(:empty) {
         padding: 8px 0 2px 0;
     }
 

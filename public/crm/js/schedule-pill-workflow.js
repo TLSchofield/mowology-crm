@@ -908,6 +908,19 @@
         var container = card.querySelector('.mw-mc-photo-strips');
         if (!container) return;
 
+        // On compact cards: only show real captured thumbnails (no placeholders, no + button)
+        // Placeholders steal taps meant to expand the card — they're shown on the active/hero card only
+        var isCompact = card.classList.contains('mw-mc-card-compact');
+        var hasBefore = v.beforeThumb && v.beforeThumb !== null;
+        var hasAfter  = v.afterThumb  && v.afterThumb  !== null;
+        var hasAdditionals = v.additionalThumbs && v.additionalThumbs.length > 0;
+
+        if (isCompact && !hasBefore && !hasAfter && !hasAdditionals) {
+            // Nothing real to show on a compact card — clear and hide
+            container.innerHTML = '';
+            return;
+        }
+
         // Find or create this visit's strip div
         var strip = container.querySelector('[data-strip-visit="' + visitId + '"]');
         if (!strip) {
@@ -936,12 +949,15 @@
                 '  ' + CHECK_SVG +
                 '  <span>Before</span>' +
                 '</div>';
-        } else {
+        } else if (!isCompact) {
+            // Placeholder only on active/hero cards, never on compact (would swallow taps)
             beforeHtml =
                 '<div class="mw-mc-photo-placeholder' + (required ? ' mw-mc-placeholder-required' : '') + '" data-thumb-type="before" data-visit-id="' + visitId + '" data-category="before">' +
                 '  ' + CAMERA_SVG +
                 '  <span>Before</span>' +
                 '</div>';
+        } else {
+            beforeHtml = ''; // compact + no photo = nothing
         }
 
         // ── After thumbnail or placeholder ──
@@ -958,35 +974,49 @@
                 '  ' + CHECK_SVG +
                 '  <span>After</span>' +
                 '</div>';
-        } else {
+        } else if (!isCompact) {
+            // Placeholder only on active/hero cards
             afterHtml =
                 '<div class="mw-mc-photo-placeholder' + (required ? ' mw-mc-placeholder-required' : '') + '" data-thumb-type="after" data-visit-id="' + visitId + '" data-category="after">' +
                 '  ' + CAMERA_SVG +
                 '  <span>After</span>' +
                 '</div>';
+        } else {
+            afterHtml = ''; // compact + no photo = nothing
         }
 
         // ── Additionals ──
-        var addHtml = '<div class="mw-mc-photo-additionals" data-visit-id="' + visitId + '">';
-
-        // Already captured additionals
         var addThumbs = v.additionalThumbs || [];
-        for (var ai = 0; ai < addThumbs.length; ai++) {
+        var addHtml = '';
+
+        if (!isCompact) {
+            // Only show the additionals row (with + button) on active/hero cards
+            addHtml = '<div class="mw-mc-photo-additionals" data-visit-id="' + visitId + '">';
+            for (var ai = 0; ai < addThumbs.length; ai++) {
+                addHtml +=
+                    '<div class="mw-mc-photo-thumb mw-mc-photo-thumb-additional">' +
+                    '  <img src="' + escHtml(addThumbs[ai]) + '" alt="Photo ' + (ai + 1) + '" loading="lazy">' +
+                    '  <span class="mw-mc-photo-thumb-label">#' + (ai + 1) + '</span>' +
+                    '</div>';
+            }
             addHtml +=
-                '<div class="mw-mc-photo-thumb mw-mc-photo-thumb-additional">' +
-                '  <img src="' + escHtml(addThumbs[ai]) + '" alt="Photo ' + (ai + 1) + '" loading="lazy">' +
-                '  <span class="mw-mc-photo-thumb-label">#' + (ai + 1) + '</span>' +
-                '</div>';
+                '<button class="mw-mc-add-photo-btn" data-visit-id="' + visitId + '" data-category="additional" type="button">' +
+                '  ' + PLUS_SVG +
+                '  <span>' + (addThumbs.length === 0 ? 'Additionals' : '+') + '</span>' +
+                '</button>';
+            addHtml += '</div>';
+        } else if (addThumbs.length > 0) {
+            // Compact: show captured additionals inline (no + button)
+            addHtml = '<div class="mw-mc-photo-additionals" data-visit-id="' + visitId + '">';
+            for (var aj = 0; aj < addThumbs.length; aj++) {
+                addHtml +=
+                    '<div class="mw-mc-photo-thumb mw-mc-photo-thumb-additional">' +
+                    '  <img src="' + escHtml(addThumbs[aj]) + '" alt="Photo ' + (aj + 1) + '" loading="lazy">' +
+                    '  <span class="mw-mc-photo-thumb-label">#' + (aj + 1) + '</span>' +
+                    '</div>';
+            }
+            addHtml += '</div>';
         }
-
-        // The + button to snap another additional
-        addHtml +=
-            '<button class="mw-mc-add-photo-btn" data-visit-id="' + visitId + '" data-category="additional" type="button">' +
-            '  ' + PLUS_SVG +
-            '  <span>' + (addThumbs.length === 0 ? 'Additionals' : '+') + '</span>' +
-            '</button>';
-
-        addHtml += '</div>';
 
         strip.innerHTML = beforeHtml + afterHtml + addHtml;
 
