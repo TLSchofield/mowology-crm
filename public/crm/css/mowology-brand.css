@@ -12122,6 +12122,36 @@ textarea.font-monospace {
   background: var(--mw-light);
 }
 
+/* ── Line Items — label & add-item controls ─────────── */
+.mw-line-items-label {
+  font-size: 0.78rem;
+  color: #666;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mw-add-item-btn {
+  font-size: 0.7rem;
+  padding: 1px 7px;
+  line-height: 1.6;
+}
+.mw-add-item-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 0 4px;
+  border-top: 1px dashed #dee2e6;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.mw-add-item-row .form-control {
+  flex: 1;
+  min-width: 0;
+}
+.mw-add-item-row .btn {
+  flex-shrink: 0;
+}
+
 /* ── Confidence Dots in List ──────────────────────── */
 .mw-conf-dot-sm {
   display: inline-block;

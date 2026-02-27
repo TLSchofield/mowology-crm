@@ -154,6 +154,21 @@ try {
             handleSearchJobs($db);
             break;
 
+        case 'rescan':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleRescan($db, $input, $user);
+            break;
+
+        case 'add_line_item':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleAddLineItem($db, $input);
+            break;
+
+        case 'delete_line_item':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleDeleteLineItem($db, $input);
+            break;
+
         default:
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
@@ -886,8 +901,12 @@ function handleLinkProduct(PDO $db, ?array $input): void
         ? (int)$input['product_id']
         : null;
 
-    // Fetch current line item
-    $stmt = $db->prepare("SELECT id, product_id, quantity FROM expense_line_items WHERE id = ?");
+    // Fetch current line item (with name for training)
+    $stmt = $db->prepare("SELECT eli.id, eli.product_id, eli.quantity, eli.name, eli.expense_id,
+                                 e.vendor_id
+                          FROM expense_line_items eli
+                          LEFT JOIN expenses e ON e.id = eli.expense_id
+                          WHERE eli.id = ?");
     $stmt->execute([$lineItemId]);
     $li = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$li) throw new Exception('Line item not found');
@@ -907,6 +926,19 @@ function handleLinkProduct(PDO $db, ?array $input): void
     // Apply new product inventory
     if ($newProductId) {
         updateProductInventory($db, $newProductId, $qty);
+    }
+
+    // ── Train as you link ────────────────────────────────────────────
+    // When office staff links a line item name to a product, teach the
+    // vendor_products catalog so future receipts from the same vendor
+    // auto-match without manual linking.
+    if ($newProductId && !empty($li['vendor_id']) && !empty($li['name'])) {
+        try {
+            teachVendorProduct($db, (int)$li['vendor_id'], $li['name'], $newProductId);
+        } catch (Throwable $trainErr) {
+            error_log('Train-as-you-link error: ' . $trainErr->getMessage());
+            // Non-fatal — linking still succeeds
+        }
     }
 
     // Return updated line item with product details
@@ -1309,4 +1341,238 @@ function handleSearchJobs(PDO $db): void
     $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     echo json_encode(['success' => true, 'jobs' => $jobs]);
+}
+
+
+/**
+ * Re-run OCR on an already-stored receipt image for an existing expense.
+ * The image is already in media_assets — we just re-process it through
+ * the full receipt pipeline and return the parsed results.
+ */
+function handleRescan(PDO $db, ?array $input, array $user): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $expenseId = (int)($input['expense_id'] ?? 0);
+    if (!$expenseId) throw new Exception('Expense ID required');
+
+    // Fetch the expense to get the stored receipt image path
+    $stmt = $db->prepare("
+        SELECT e.id, e.receipt_media_id, e.vendor_id, e.job_id,
+               ma.file_path, ma.stored_filename
+        FROM expenses e
+        LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
+        WHERE e.id = ?
+    ");
+    $stmt->execute([$expenseId]);
+    $expense = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$expense) throw new Exception('Expense not found');
+    if (empty($expense['file_path'])) throw new Exception('No receipt image found for this expense. Upload a receipt first.');
+
+    // Resolve the absolute file path on disk
+    $filePath = PUBLIC_ROOT . '/' . ltrim($expense['file_path'], '/');
+    // Some receipts may be stored with an absolute path already
+    if (!file_exists($filePath)) {
+        $filePath = $expense['file_path'];
+    }
+    if (!file_exists($filePath)) {
+        throw new Exception('Receipt image file not found on disk. It may have been moved or deleted.');
+    }
+
+    // Load OCR + parsing services
+    require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
+    require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+    require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+    require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+    require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
+    require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+
+    // Pre-screen with Tesseract (cost-saving)
+    $preScreen = tesseractPreScreen($filePath);
+    $preScreenDecision = $preScreen['decision'];
+
+    $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
+    $ocrSource  = 'none';
+
+    if ($preScreenDecision === 'use_tesseract') {
+        $ocrResult = ['success' => true, 'text' => $preScreen['text'], 'raw_response' => null, 'error' => null];
+        $ocrSource = 'tesseract';
+    } elseif ($preScreenDecision === 'use_vision') {
+        $ocrResult = extractTextFromImage($filePath);
+        $ocrSource = 'vision';
+    }
+
+    $ocrAvailable = $ocrResult['success'];
+    $ocrText = $ocrResult['text'] ?? '';
+
+    $parsed = [];
+    $suggestions = [];
+
+    if ($ocrAvailable && !empty($ocrText)) {
+        $rawResponse = $ocrResult['raw_response'] ?? null;
+        $parsed = parseReceiptText($ocrText, $rawResponse);
+        $suggestions = suggestReceiptMeta($ocrText, null, null, $expense['job_id'] ?? null);
+
+        $vendorIdForMatch = !empty($suggestions['vendor_id']) ? (int)$suggestions['vendor_id']
+                          : (!empty($expense['vendor_id']) ? (int)$expense['vendor_id'] : 0);
+
+        if ($vendorIdForMatch) {
+            $parsed = applyLearnedPatterns($vendorIdForMatch, $parsed, $ocrText);
+            $parsed = matchVendorProducts($vendorIdForMatch, $ocrText, $parsed);
+        }
+    }
+
+    // Persist the fresh OCR text back to the expense (so future opens show it)
+    if ($ocrAvailable && !empty($ocrText)) {
+        $rawJson = $ocrResult['raw_response'] ? json_encode($ocrResult['raw_response']) : $ocrText;
+        $upd = $db->prepare("UPDATE expenses SET raw_ocr_json = ? WHERE id = ?");
+        $upd->execute([$rawJson, $expenseId]);
+    }
+
+    echo json_encode([
+        'success'       => true,
+        'ocr_available' => $ocrAvailable,
+        'ocr_source'    => $ocrSource,
+        'ocr_text'      => $ocrText,
+        'parsed'        => $parsed,
+        'suggestions'   => $suggestions,
+        'pre_screen'    => $preScreen,
+    ]);
+}
+
+
+/**
+ * Add a single manual line item to an expense (office staff can type items
+ * that OCR missed, then link them to products).
+ */
+function handleAddLineItem(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $expenseId = (int)($input['expense_id'] ?? 0);
+    if (!$expenseId) throw new Exception('Expense ID required');
+
+    $name = trim($input['name'] ?? '');
+    if (!$name) throw new Exception('Item name required');
+
+    $qty       = (float)($input['quantity'] ?? 1);
+    $unitPrice = isset($input['unit_price']) && $input['unit_price'] !== '' ? (float)$input['unit_price'] : null;
+    $lineTotal = isset($input['line_total']) && $input['line_total'] !== '' ? (float)$input['line_total']
+               : ($unitPrice !== null ? $unitPrice * $qty : 0.0);
+    $productId = !empty($input['product_id']) ? (int)$input['product_id'] : null;
+
+    // Get next sort_order
+    $sortStmt = $db->prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM expense_line_items WHERE expense_id = ?");
+    $sortStmt->execute([$expenseId]);
+    $sortOrder = (int)$sortStmt->fetchColumn();
+
+    $ins = $db->prepare("
+        INSERT INTO expense_line_items (expense_id, product_id, name, quantity, unit_price, line_total, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ");
+    $ins->execute([$expenseId, $productId, $name, $qty, $unitPrice, $lineTotal, $sortOrder]);
+    $newId = (int)$db->lastInsertId();
+
+    if ($productId) {
+        updateProductInventory($db, $productId, $qty);
+
+        // Also teach vendor catalog if vendor known
+        $vendorStmt = $db->prepare("SELECT vendor_id FROM expenses WHERE id = ?");
+        $vendorStmt->execute([$expenseId]);
+        $vendorId = (int)$vendorStmt->fetchColumn();
+        if ($vendorId) {
+            try { teachVendorProduct($db, $vendorId, $name, $productId); } catch (Throwable $e) {}
+        }
+    }
+
+    $result = $db->prepare("
+        SELECT eli.*, p.name AS product_name, p.sku AS product_sku
+        FROM expense_line_items eli
+        LEFT JOIN products p ON p.id = eli.product_id
+        WHERE eli.id = ?
+    ");
+    $result->execute([$newId]);
+    $item = $result->fetch(PDO::FETCH_ASSOC);
+
+    echo json_encode(['success' => true, 'line_item' => $item]);
+}
+
+
+/**
+ * Delete a single line item from an expense.
+ */
+function handleDeleteLineItem(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+        throw new Exception('Invalid security token');
+    }
+
+    $lineItemId = (int)($input['line_item_id'] ?? 0);
+    if (!$lineItemId) throw new Exception('Line item ID required');
+
+    // Reverse inventory
+    $stmt = $db->prepare("SELECT product_id, quantity FROM expense_line_items WHERE id = ?");
+    $stmt->execute([$lineItemId]);
+    $li = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($li && $li['product_id']) {
+        updateProductInventory($db, (int)$li['product_id'], -(float)$li['quantity']);
+    }
+
+    $del = $db->prepare("DELETE FROM expense_line_items WHERE id = ?");
+    $del->execute([$lineItemId]);
+
+    echo json_encode(['success' => true]);
+}
+
+
+/**
+ * Teach the vendor_products catalog: when office staff manually links a
+ * line item name → product, record it so future receipts from the same
+ * vendor auto-match without any manual work.
+ *
+ * Logic:
+ *  - If a vendor_products row already exists for this vendor+product, add
+ *    the OCR name as an alias (comma-sep in ocr_aliases).
+ *  - If no row exists yet, create one.
+ */
+function teachVendorProduct(PDO $db, int $vendorId, string $ocrName, int $productId): void
+{
+    $ocrNameNorm = strtoupper(trim($ocrName));
+    if (!$ocrNameNorm) return;
+
+    // Check if this vendor already has a mapping for this product
+    $check = $db->prepare("SELECT id, ocr_aliases FROM vendor_products WHERE vendor_id = ? AND product_id = ? LIMIT 1");
+    $check->execute([$vendorId, $productId]);
+    $existing = $check->fetch(PDO::FETCH_ASSOC);
+
+    if ($existing) {
+        // Add OCR name to aliases if not already there
+        $aliases = array_filter(array_map('trim', explode(',', $existing['ocr_aliases'] ?? '')));
+        if (!in_array($ocrNameNorm, array_map('strtoupper', $aliases), true)) {
+            $aliases[] = $ocrNameNorm;
+            $upd = $db->prepare("UPDATE vendor_products SET ocr_aliases = ? WHERE id = ?");
+            $upd->execute([implode(',', $aliases), $existing['id']]);
+        }
+    } else {
+        // Fetch product name to use as the catalog entry name
+        $pStmt = $db->prepare("SELECT name, sku FROM products WHERE id = ?");
+        $pStmt->execute([$productId]);
+        $product = $pStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$product) return;
+
+        // Create a new vendor_products entry
+        $ins = $db->prepare("
+            INSERT INTO vendor_products (vendor_id, product_id, name, category, ocr_aliases, is_active)
+            VALUES (?, ?, ?, 'Materials', ?, 1)
+        ");
+        $ins->execute([$vendorId, $productId, $product['name'], $ocrNameNorm]);
+    }
 }

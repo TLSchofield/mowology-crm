@@ -868,7 +868,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <h5 class="modal-title fw-bold mb-0" id="expenseModalTitle">Edit Expense</h5>
                     <small class="text-muted" id="expenseModalSubtitle"></small>
                 </div>
-                <button type="button" class="btn-close" data-dismiss="modal"></button>
+                <div class="d-flex align-items-center gap-2">
+                    <?php if ($canEdit): ?>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="expRescanBtn" onclick="rescanReceipt()" title="Re-run OCR on the receipt image to detect items" style="display:none;">
+                        <i data-feather="refresh-cw" style="width:13px;height:13px;margin-right:4px;"></i> Rescan
+                    </button>
+                    <?php endif; ?>
+                    <button type="button" class="btn-close" data-dismiss="modal"></button>
+                </div>
             </div>
             <div class="modal-body pt-3">
                 <input type="hidden" id="expenseId">
@@ -878,14 +885,30 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-modal-receipt-preview" onclick="openLightbox(this.querySelector('img')?.src)">
                             <img id="expReceiptImg" src="" alt="Receipt">
                         </div>
-                        <!-- Line Items -->
-                        <div class="mw-line-items-section" id="expLineItemsSection" style="display:none;">
-                            <button type="button" class="mw-line-items-toggle" onclick="toggleLineItems('exp')">
-                                <i data-feather="list" style="width:12px;height:12px;"></i>
-                                <span id="expLineItemsCount">0</span> items detected
-                            </button>
-                            <div id="expLineItemsList" style="display:none;">
-                                <table class="mw-line-items-table w-100"></table>
+                        <!-- Line Items — always visible, editable -->
+                        <div class="mw-line-items-section mt-2" id="expLineItemsSection">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="mw-line-items-label">
+                                    <i data-feather="list" style="width:12px;height:12px;"></i>
+                                    Line Items <span id="expLineItemsCount" class="badge bg-secondary ms-1">0</span>
+                                </span>
+                                <?php if ($canEdit): ?>
+                                <button type="button" class="btn btn-xs btn-outline-secondary mw-add-item-btn" onclick="showAddLineItemRow()" title="Manually add a line item OCR missed">
+                                    <i data-feather="plus" style="width:11px;height:11px;"></i> Add Item
+                                </button>
+                                <?php endif; ?>
+                            </div>
+                            <div id="expLineItemsList">
+                                <table class="mw-line-items-table w-100" id="expLineItemsTable"></table>
+                                <!-- Add item inline form (hidden by default) -->
+                                <div id="expAddItemRow" style="display:none;" class="mw-add-item-row">
+                                    <input type="text"   class="form-control form-control-sm" id="newItemName"      placeholder="Item name (e.g. Moss Control)">
+                                    <input type="number" class="form-control form-control-sm" id="newItemQty"       placeholder="Qty" min="1" step="1" value="1" style="width:60px;">
+                                    <input type="number" class="form-control form-control-sm" id="newItemUnitPrice" placeholder="$/unit" min="0" step="0.01" style="width:80px;">
+                                    <input type="number" class="form-control form-control-sm" id="newItemTotal"     placeholder="Total" min="0" step="0.01" style="width:80px;">
+                                    <button type="button" class="btn btn-sm btn-primary"   onclick="commitAddLineItem()"><i data-feather="check" style="width:12px;height:12px;"></i></button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelAddLineItem()"><i data-feather="x" style="width:12px;height:12px;"></i></button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2687,31 +2710,30 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             setVal('expFuelPrice', e.fuel_price_per_litre);
             calcFuelEconomy();
 
-            // Receipt image
+            // Receipt image — also show/hide Rescan button
             var receiptCol = document.getElementById('expReceiptCol');
             var formCol = document.getElementById('expFormCol');
+            var rescanBtn = document.getElementById('expRescanBtn');
             if (e.receipt_path) {
                 document.getElementById('expReceiptImg').src = e.receipt_path;
                 receiptCol.style.display = 'block';
                 formCol.className = 'col-lg-7';
+                if (rescanBtn) rescanBtn.style.display = '';
             } else {
                 receiptCol.style.display = 'none';
                 formCol.className = 'col-12';
+                if (rescanBtn) rescanBtn.style.display = 'none';
             }
 
-            // Line items
+            // Line items — always show, always expanded
             var lineItems = e.line_items || e.parsed_line_items || [];
             var isStored = e.line_items_stored || false;
-            var liSection = document.getElementById('expLineItemsSection');
-            if (lineItems.length > 0) {
-                document.getElementById('expLineItemsCount').textContent = lineItems.length;
-                document.getElementById('expLineItemsList').querySelector('table').innerHTML =
-                    renderLineItemsTable(lineItems, isStored);
-                document.getElementById('expLineItemsList').style.display = 'none';
-                liSection.style.display = 'block';
-            } else {
-                liSection.style.display = 'none';
-            }
+            var countEl = document.getElementById('expLineItemsCount');
+            var tableEl = document.getElementById('expLineItemsTable');
+            if (countEl) countEl.textContent = lineItems.length || '0';
+            if (tableEl) tableEl.innerHTML = renderLineItemsTable(lineItems, isStored);
+            // Cancel any in-progress add row
+            cancelAddLineItem();
 
             if (e.match_confidence > 0) {
                 document.getElementById('matchConfidenceRow').style.display = 'block';
@@ -4098,42 +4120,51 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     };
 
     function renderLineItemsTable(items, stored) {
-        if (!items || !items.length) return '';
+        if (!items || !items.length) {
+            return '<tr><td colspan="5" class="text-muted text-center py-2" style="font-size:.8rem;">No items detected — use <strong>Rescan</strong> or <strong>+ Add Item</strong></td></tr>';
+        }
         var hasQty = items.some(function(i) { return i.quantity && parseFloat(i.quantity) !== 1; });
-        var hasUp = items.some(function(i) { return i.unit_price && parseFloat(i.unit_price) > 0; });
+        var hasUp  = items.some(function(i) { return i.unit_price && parseFloat(i.unit_price) > 0; });
 
         var header = '<tr class="mw-li-header"><th>Item</th>';
         if (hasQty) header += '<th class="text-center">Qty</th>';
-        if (hasUp) header += '<th class="text-end">Unit $</th>';
+        if (hasUp)  header += '<th class="text-end">Unit $</th>';
         header += '<th class="text-end">Total</th>';
-        if (stored) header += '<th class="text-center">Product</th>';
+        header += '<th class="text-center">CRM Product</th>';  // Always show
+        header += '<th></th>';                                  // Delete col
         header += '</tr>';
 
-        var rows = items.map(function(item, idx) {
+        var rows = items.map(function(item) {
             var total = parseFloat(item.line_total || item.amount || 0);
-            var qty = parseFloat(item.quantity || 1);
-            var up = item.unit_price ? parseFloat(item.unit_price) : null;
+            var qty   = parseFloat(item.quantity || 1);
+            var up    = item.unit_price ? parseFloat(item.unit_price) : null;
             var totalClass = total < 0 ? 'text-danger' : '';
-            var liId = item.id || '';
+            var liId  = item.id || '';
 
             var row = '<tr data-li-id="' + liId + '">';
             row += '<td>' + esc(item.name);
             if (item.sku_raw) row += ' <small class="text-muted">(' + esc(item.sku_raw) + ')</small>';
             row += '</td>';
             if (hasQty) row += '<td class="text-center">' + (qty !== 1 ? qty : '') + '</td>';
-            if (hasUp) row += '<td class="text-end">' + (up ? '$' + up.toFixed(2) : '') + '</td>';
+            if (hasUp)  row += '<td class="text-end">'  + (up ? '$' + up.toFixed(2) : '') + '</td>';
             row += '<td class="text-end ' + totalClass + '">$' + total.toFixed(2) + '</td>';
 
-            if (stored) {
-                row += '<td class="text-center">';
-                if (item.product_id) {
-                    row += '<span class="badge bg-success mw-li-product-badge">' + esc(item.product_name || 'Linked') + '</span>';
-                    row += ' <button type="button" class="btn btn-link btn-sm p-0 mw-li-unlink" onclick="unlinkProduct(' + liId + ')" title="Unlink">&times;</button>';
-                } else if (liId) {
-                    row += '<button type="button" class="btn btn-outline-secondary btn-sm mw-li-link" onclick="showProductSearch(' + liId + ', this)">Link</button>';
-                }
-                row += '</td>';
+            // Product link column — always present
+            row += '<td class="text-center" style="min-width:90px;">';
+            if (item.product_id) {
+                row += '<span class="badge bg-success mw-li-product-badge" title="' + esc(item.product_name || '') + '">' + esc(item.product_name || 'Linked') + '</span>';
+                if (liId) row += ' <button type="button" class="btn btn-link btn-sm p-0 mw-li-unlink" onclick="unlinkProduct(' + liId + ')" title="Unlink">&times;</button>';
+            } else if (liId) {
+                row += '<button type="button" class="btn btn-outline-secondary btn-sm mw-li-link" style="font-size:.7rem;padding:1px 6px;" onclick="showProductSearch(' + liId + ', this)">Link</button>';
+            } else {
+                row += '<span class="text-muted" style="font-size:.75rem;">Save first</span>';
             }
+            row += '</td>';
+
+            // Delete column — only for stored items
+            row += '<td class="text-center">';
+            if (liId) row += '<button type="button" class="btn btn-link btn-sm p-0 text-danger" onclick="deleteLineItem(' + liId + ')" title="Remove"><i data-feather="trash-2" style="width:12px;height:12px;"></i></button>';
+            row += '</td>';
 
             row += '</tr>';
             return row;
@@ -4250,6 +4281,128 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var expId = document.getElementById('expenseId').value;
             if (expId) editExpense(parseInt(expId));
         } catch(e) { alert('Unlink failed: ' + e.message); }
+    };
+
+    // ── Rescan Receipt ──────────────────────────────────────────────
+    window.rescanReceipt = async function() {
+        var expId = document.getElementById('expenseId').value;
+        if (!expId) return;
+        var btn = document.getElementById('expRescanBtn');
+        var origHtml = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Scanning…'; }
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'rescan', csrf_token: CSRF, expense_id: parseInt(expId) }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Rescan failed');
+
+            var msg = 'Rescan complete';
+            if (d.ocr_source) msg += ' (via ' + d.ocr_source + ')';
+
+            // Apply parsed suggestions to the form
+            if (d.parsed) {
+                var p = d.parsed;
+                if (p.date)    { var df = document.getElementById('expDate');   if(df && !df.value) df.value = p.date; }
+                if (p.total)   { var tf = document.getElementById('expTotal');  if(tf && !tf.value) tf.value = p.total; }
+                if (p.gst)     { var gf = document.getElementById('expGst');    if(gf && !gf.value) gf.value = p.gst; }
+                if (p.subtotal){ var sf = document.getElementById('expAmount'); if(sf && !sf.value) sf.value = p.subtotal; }
+            }
+            if (d.suggestions && d.suggestions.accounting_category) {
+                var cf = document.getElementById('expAcctCategory');
+                if (cf && !cf.value) cf.value = d.suggestions.accounting_category;
+            }
+
+            // Update line items table from rescan results
+            var lineItems = (d.parsed && d.parsed.line_items) ? d.parsed.line_items : [];
+            var tableEl = document.getElementById('expLineItemsTable');
+            var countEl = document.getElementById('expLineItemsCount');
+            if (tableEl) tableEl.innerHTML = renderLineItemsTable(lineItems, false);
+            if (countEl) countEl.textContent = lineItems.length || '0';
+            if (window.feather) feather.replace();
+
+            // Show a brief success badge on the button
+            if (btn) {
+                btn.innerHTML = '<i data-feather="check" style="width:12px;height:12px;margin-right:3px;"></i> Done';
+                btn.classList.replace('btn-outline-secondary', 'btn-outline-success');
+                setTimeout(function() {
+                    btn.innerHTML = origHtml;
+                    btn.disabled = false;
+                    btn.classList.replace('btn-outline-success', 'btn-outline-secondary');
+                    if (window.feather) feather.replace();
+                    // Fully reload the expense to show stored line items with Link buttons
+                    editExpense(parseInt(expId));
+                }, 1800);
+            }
+        } catch(err) {
+            alert('Rescan error: ' + err.message);
+            if (btn) { btn.disabled = false; btn.innerHTML = origHtml; if(window.feather) feather.replace(); }
+        }
+    };
+
+    // ── Add Line Item (manual) ──────────────────────────────────────
+    window.showAddLineItemRow = function() {
+        var row = document.getElementById('expAddItemRow');
+        if (row) { row.style.display = 'flex'; document.getElementById('newItemName').focus(); }
+    };
+
+    window.cancelAddLineItem = function() {
+        var row = document.getElementById('expAddItemRow');
+        if (row) {
+            row.style.display = 'none';
+            ['newItemName','newItemQty','newItemUnitPrice','newItemTotal'].forEach(function(id) {
+                var el = document.getElementById(id); if (el) el.value = id === 'newItemQty' ? '1' : '';
+            });
+        }
+    };
+
+    window.commitAddLineItem = async function() {
+        var expId = document.getElementById('expenseId').value;
+        if (!expId) return;
+        var name = (document.getElementById('newItemName').value || '').trim();
+        if (!name) { document.getElementById('newItemName').focus(); return; }
+        var qty  = parseFloat(document.getElementById('newItemQty').value) || 1;
+        var up   = document.getElementById('newItemUnitPrice').value;
+        var tot  = document.getElementById('newItemTotal').value;
+        // Auto-calc total if blank
+        if (!tot && up) tot = (parseFloat(up) * qty).toFixed(2);
+
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'add_line_item',
+                    csrf_token: CSRF,
+                    expense_id: parseInt(expId),
+                    name: name,
+                    quantity: qty,
+                    unit_price: up || null,
+                    line_total: tot || null,
+                }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            // Reload modal to show new item with Link button
+            editExpense(parseInt(expId));
+        } catch(err) { alert('Could not add item: ' + err.message); }
+    };
+
+    window.deleteLineItem = async function(lineItemId) {
+        if (!confirm('Remove this line item?')) return;
+        var expId = document.getElementById('expenseId').value;
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'delete_line_item', csrf_token: CSRF, line_item_id: lineItemId }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            if (expId) editExpense(parseInt(expId));
+        } catch(err) { alert('Delete failed: ' + err.message); }
     };
 
     // ── GST Math Auto-fix ─────────────────────────────────────────
