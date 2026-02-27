@@ -154,6 +154,16 @@ foreach ($files as $file) {
         } else {
             $variantResult = generateMediaVariants($mediaId, $originalAbsPath);
         }
+
+        // 1d. Mark failed variant generation in DB so stale 'processing' records don't accumulate
+        if ($variantResult && empty($variantResult['success'])) {
+            try {
+                getDB()->prepare('UPDATE media_assets SET status = ? WHERE id = ?')
+                       ->execute(['error', $mediaId]);
+            } catch (PDOException $e) {
+                error_log('upload.php: failed to mark media error status: ' . $e->getMessage());
+            }
+        }
     }
 
     // Generate PoW stamp if requested and applicable

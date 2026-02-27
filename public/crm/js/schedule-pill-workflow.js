@@ -644,6 +644,16 @@
             }
 
             var file = input.files[0];
+
+            // 1a. Client-side size check — catch oversized files before upload.
+            // Mirrors the 15 MB server limit in MediaUploadService.php.
+            var MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+            if (file.size > MAX_UPLOAD_BYTES) {
+                showToast('Photo too large (max 15 MB). Reduce camera quality in Settings and try again.');
+                renderPhotoStrip(visitId);
+                return;
+            }
+
             console.log('[PillWorkflow] Photo captured: visit=' + visitId +
                 ' cat=' + category + ' size=' + file.size + ' type=' + file.type);
 
@@ -721,9 +731,24 @@
     /**
      * Upload a photo to the media system.
      * Photos use visibility=client_visible so they populate the client portal.
-     * On network failure, saves to the offline IndexedDB queue for automatic retry.
+     *
+     * Error routing:
+     *  - Network error (TypeError) or 30s timeout → offline IDB queue
+     *  - HTTP 403 + CSRF message → fetch fresh token, retry once
+     *  - HTTP 5xx → error toast, do NOT queue (server errors won't clear on retry)
+     *  - HTTP 4xx other → error toast, do NOT queue
      */
     function uploadPhoto(visitId, file, category, callback) {
+        doUploadPhoto(visitId, file, category, false, callback);
+    }
+
+    function doUploadPhoto(visitId, file, category, isRetry, callback) {
+        // 1b. AbortController for 30-second fetch timeout
+        var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        var timeoutId  = controller
+            ? setTimeout(function() { controller.abort(); }, 30000)
+            : null;
+
         var formData = new FormData();
         formData.append('files[]', file);
         formData.append('csrf_token', state.csrf);
@@ -749,23 +774,71 @@
         // Show uploading feedback on pill
         flashPillFeedback(visitId, 'Uploading...');
 
-        console.log('[PillWorkflow] Uploading photo: visit=' + visitId + ' category=' + category);
-        fetch('/crm/api/media-upload.php', {
-            method: 'POST',
-            body: formData
-        })
+        console.log('[PillWorkflow] Uploading photo: visit=' + visitId + ' category=' + category +
+            (isRetry ? ' (CSRF retry)' : ''));
+
+        var fetchOpts = { method: 'POST', body: formData };
+        if (controller) fetchOpts.signal = controller.signal;
+
+        fetch('/crm/api/media-upload.php', fetchOpts)
         .then(function(response) {
-            // Guard against non-JSON responses (e.g. server error page) BEFORE parsing
+            if (timeoutId) clearTimeout(timeoutId);
+
+            var status = response.status;
+
+            // 1c. CSRF token stale (common in PWA with stale-while-revalidate cache):
+            // fetch a fresh token and retry the upload exactly once.
+            if (status === 403 && !isRetry) {
+                return response.json().then(function(body) {
+                    if (body && body.error && body.error.indexOf('CSRF') !== -1) {
+                        console.log('[PillWorkflow] CSRF token stale — refreshing and retrying');
+                        return fetch('/crm/api/get-csrf.php', { method: 'GET' })
+                            .then(function(r) { return r.json(); })
+                            .then(function(d) {
+                                if (d && d.token) {
+                                    state.csrf = d.token;
+                                    console.log('[PillWorkflow] CSRF token refreshed');
+                                }
+                                doUploadPhoto(visitId, file, category, true, callback);
+                            })
+                            .catch(function() {
+                                showToast('Session expired. Reload the page and try again.');
+                                callback(false, null);
+                            });
+                    }
+                    // Non-CSRF 403 (e.g. role denied)
+                    showToast('Access denied. Check your login and try again.');
+                    callback(false, null);
+                }).catch(function() {
+                    showToast('Access denied. Check your login and try again.');
+                    callback(false, null);
+                });
+            }
+
+            // 1c. Server errors (5xx): do NOT queue — same error will recur on retry
+            if (status >= 500) {
+                return response.text().then(function(txt) {
+                    console.error('[PillWorkflow] Server error ' + status + ':', txt.slice(0, 200));
+                    showToast('Server error (' + status + '). Check connection and try again.');
+                    callback(false, null);
+                });
+            }
+
+            // Guard against non-JSON before parsing
             var ct = response.headers.get('content-type') || '';
             if (!ct.includes('application/json') && !ct.includes('text/json')) {
-                console.warn('[PillWorkflow] Non-JSON response from upload endpoint, status=' + response.status);
                 return response.text().then(function(txt) {
-                    throw new Error('Server returned non-JSON: ' + response.status + ' ' + txt.slice(0, 120));
+                    console.warn('[PillWorkflow] Non-JSON response status=' + status + ':', txt.slice(0, 120));
+                    showToast('Unexpected server response. Try again.');
+                    callback(false, null);
                 });
             }
             return response.json();
         })
         .then(function(data) {
+            if (!data) return; // handled inline above
+            if (timeoutId) clearTimeout(timeoutId);
+
             console.log('[PillWorkflow] Upload response:', JSON.stringify(data));
             if (data.success && data.total_uploaded > 0) {
                 var thumbUrl = null;
@@ -788,6 +861,11 @@
                         visits[visitId].beforeThumb = thumbUrl || '__uploaded__';
                     } else if (category === 'after') {
                         visits[visitId].afterThumb = thumbUrl || '__uploaded__';
+                    } else if (category === 'additional') {
+                        if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
+                        if (thumbUrl && thumbUrl !== '__uploaded__') {
+                            visits[visitId].additionalThumbs.push(thumbUrl);
+                        }
                     }
                 }
                 flashPillFeedback(visitId, 'Photo saved');
@@ -805,9 +883,18 @@
             }
         })
         .catch(function(err) {
-            console.error('[PillWorkflow] Upload error:', err.message || err);
-            // Save to offline queue so the photo is preserved when signal is lost
-            if (photoQueueDb) {
+            if (timeoutId) clearTimeout(timeoutId);
+            var isAbort   = err && err.name === 'AbortError';
+            var isNetwork = err && err.name === 'TypeError';
+
+            if (isAbort) {
+                console.warn('[PillWorkflow] Upload timed out after 30s');
+            } else {
+                console.error('[PillWorkflow] Upload error:', err.message || err);
+            }
+
+            // Only queue on genuine network/timeout errors — not server errors
+            if ((isNetwork || isAbort) && photoQueueDb) {
                 saveToPhotoQueue(visitId, file, category, function(queueId) {
                     if (queueId !== null) {
                         showToast(navigator.onLine
@@ -819,7 +906,9 @@
                     callback(false, null);
                 });
             } else {
-                showToast('Upload failed \u2014 check connection and try again.');
+                showToast(isAbort
+                    ? 'Upload timed out. Check your signal and try again.'
+                    : 'Upload failed \u2014 check connection and try again.');
                 callback(false, null);
             }
         });
@@ -1245,6 +1334,8 @@
                 if (MW_PHOTO_DEBUG) console.log('[PillWorkflow] Photo queue IDB ready');
                 // Attempt to upload any photos queued during a previous session
                 processPhotoQueue();
+                // Show queue badges for any pending/failed items on the visible cards
+                refreshQueueBadges();
             };
 
             req.onerror = function() {
@@ -1259,7 +1350,81 @@
     window.addEventListener('online', function() {
         console.log('[PillWorkflow] Network restored — processing offline photo queue');
         processPhotoQueue();
+        refreshQueueBadges();
     });
+
+    /**
+     * Read IDB queue counts (per visit) and render amber/red badges on each strip.
+     * Runs on page load and after any queue change.
+     */
+    function refreshQueueBadges() {
+        if (!photoQueueDb) return;
+        try {
+            var tx  = photoQueueDb.transaction('queue', 'readonly');
+            var req = tx.objectStore('queue').getAll();
+
+            req.onsuccess = function() {
+                var all = req.result || [];
+                // Aggregate by visitId
+                var countsByVisit = {}; // visitId → { pending: N, failed: N }
+                all.forEach(function(item) {
+                    if (!countsByVisit[item.visitId]) {
+                        countsByVisit[item.visitId] = { pending: 0, failed: 0 };
+                    }
+                    if (item.status === 'pending' || item.status === 'uploading') {
+                        countsByVisit[item.visitId].pending++;
+                    } else if (item.status === 'failed') {
+                        countsByVisit[item.visitId].failed++;
+                    }
+                });
+
+                // Update badge in each visible strip
+                for (var vid in visits) {
+                    if (!visits.hasOwnProperty(vid)) continue;
+                    var numVid = parseInt(vid, 10);
+                    var counts = countsByVisit[numVid] || { pending: 0, failed: 0 };
+                    renderQueueBadge(numVid, counts.pending, counts.failed);
+                }
+            };
+        } catch (err) {
+            console.warn('[PillWorkflow] refreshQueueBadges error:', err && err.message);
+        }
+    }
+
+    function renderQueueBadge(visitId, pendingCount, failedCount) {
+        var v = visits[visitId];
+        if (!v || !v.pill) return;
+        var card = v.pill.closest('.mw-mc-card');
+        if (!card) return;
+        var strip = card.querySelector('[data-strip-visit="' + visitId + '"]');
+        if (!strip) return;
+
+        // Remove any existing badge row
+        var existing = strip.querySelector('.mw-mc-queue-badge-row');
+        if (existing) existing.parentNode.removeChild(existing);
+
+        if (pendingCount === 0 && failedCount === 0) return;
+
+        var row  = document.createElement('div');
+        row.className = 'mw-mc-queue-badge-row';
+
+        if (pendingCount > 0) {
+            var badge = document.createElement('span');
+            badge.className = 'mw-mc-queue-badge';
+            badge.textContent = '\u23F3 ' + pendingCount +
+                ' photo' + (pendingCount > 1 ? 's' : '') + ' queued';
+            row.appendChild(badge);
+        }
+        if (failedCount > 0) {
+            var failBadge = document.createElement('span');
+            failBadge.className = 'mw-mc-queue-badge mw-mc-queue-failed';
+            failBadge.textContent = '\u26A0 ' + failedCount +
+                ' photo' + (failedCount > 1 ? 's' : '') + ' failed to upload';
+            row.appendChild(failBadge);
+        }
+
+        strip.appendChild(row);
+    }
 
     /**
      * Persist a captured File into the offline queue.
@@ -1273,50 +1438,74 @@
             return;
         }
 
-        var reader = new FileReader();
+        // 1e. Check available storage before writing to IDB.
+        // If less than 3 MB headroom remains after this file, warn the user.
+        var doSave = function() {
+            var reader = new FileReader();
 
-        reader.onload = function(ev) {
-            var item = {
-                visitId:     visitId,
-                category:    category,
-                blobData:    ev.target.result,            // ArrayBuffer
-                filename:    file.name    || 'photo.jpg',
-                mimeType:    file.type    || 'image/jpeg',
-                createdAt:   Date.now(),
-                status:      'pending',
-                retries:     0,
-                lastAttempt: 0,
-                csrf:        state.csrf,
-                gpsLat:      cachedGps ? cachedGps.lat : null,
-                gpsLng:      cachedGps ? cachedGps.lng : null,
-                powStamp:    (category === 'before' || category === 'after')
+            reader.onload = function(ev) {
+                var item = {
+                    visitId:     visitId,
+                    category:    category,
+                    blobData:    ev.target.result,        // ArrayBuffer
+                    filename:    file.name    || 'photo.jpg',
+                    mimeType:    file.type    || 'image/jpeg',
+                    createdAt:   Date.now(),
+                    status:      'pending',
+                    retries:     0,
+                    lastAttempt: 0,
+                    csrf:        state.csrf,
+                    gpsLat:      cachedGps ? cachedGps.lat : null,
+                    gpsLng:      cachedGps ? cachedGps.lng : null,
+                    powStamp:    (category === 'before' || category === 'after')
+                };
+
+                try {
+                    var tx  = photoQueueDb.transaction('queue', 'readwrite');
+                    var put = tx.objectStore('queue').add(item);
+
+                    put.onsuccess = function() {
+                        console.log('[PillWorkflow] Photo queued id=' + put.result +
+                            ' visit=' + visitId + ' cat=' + category);
+                        if (callback) callback(put.result);
+                    };
+                    put.onerror = function() {
+                        console.warn('[PillWorkflow] Failed to write photo to IDB queue');
+                        if (callback) callback(null);
+                    };
+                } catch (err) {
+                    console.warn('[PillWorkflow] IDB write error:', err && err.message);
+                    if (callback) callback(null);
+                }
             };
 
-            try {
-                var tx  = photoQueueDb.transaction('queue', 'readwrite');
-                var put = tx.objectStore('queue').add(item);
-
-                put.onsuccess = function() {
-                    console.log('[PillWorkflow] Photo queued id=' + put.result +
-                        ' visit=' + visitId + ' cat=' + category);
-                    if (callback) callback(put.result);
-                };
-                put.onerror = function() {
-                    console.warn('[PillWorkflow] Failed to write photo to IDB queue');
-                    if (callback) callback(null);
-                };
-            } catch (err) {
-                console.warn('[PillWorkflow] IDB write error:', err && err.message);
+            reader.onerror = function() {
+                console.warn('[PillWorkflow] FileReader error while queueing photo');
                 if (callback) callback(null);
-            }
+            };
+
+            reader.readAsArrayBuffer(file);
         };
 
-        reader.onerror = function() {
-            console.warn('[PillWorkflow] FileReader error while queueing photo');
-            if (callback) callback(null);
-        };
-
-        reader.readAsArrayBuffer(file);
+        if (navigator.storage && navigator.storage.estimate) {
+            navigator.storage.estimate().then(function(est) {
+                var free = (est.quota || 0) - (est.usage || 0);
+                var HEADROOM = 3 * 1024 * 1024; // 3 MB buffer
+                if (free > 0 && (file.size + HEADROOM) > free) {
+                    console.warn('[PillWorkflow] Storage quota near limit — free=' + free +
+                        ' needed=' + (file.size + HEADROOM));
+                    showToast('Device storage is full. Free space and try again.');
+                    if (callback) callback(null);
+                } else {
+                    doSave();
+                }
+            }).catch(function() {
+                // estimate() failed — proceed anyway
+                doSave();
+            });
+        } else {
+            doSave();
+        }
     }
 
     /**
@@ -1363,6 +1552,7 @@
             console.warn('[PillWorkflow] Dropping queued photo after ' + MAX_RETRY +
                 ' retries: visit=' + item.visitId + ' cat=' + item.category);
             updateQueueItemStatus(item.id, { status: 'failed' }, function() {
+                refreshQueueBadges();
                 processQueueItems(items, idx + 1, done);
             });
             return;
@@ -1405,6 +1595,7 @@
                     updateQueueItemStatus(item.id, { status: 'done' }, function() {
                         console.log('[PillWorkflow] Queued photo uploaded: visit=' +
                             item.visitId + ' cat=' + item.category);
+                        refreshQueueBadges();
 
                         // Refresh UI strip so thumbnail appears if visit is still on screen
                         if (visits[item.visitId]) {

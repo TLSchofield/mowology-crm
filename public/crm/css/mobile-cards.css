@@ -1502,19 +1502,60 @@
         pointer-events: none;
     }
 
-    /* Uploading in progress — greyed out pulsing */
+    /* Uploading in progress — show spinning ring instead of camera icon */
     .mw-mc-photo-placeholder.mw-mc-placeholder-uploading {
-        background: #f5f5f5;
-        border-color: #bbb;
-        color: #bbb;
+        background: #f0f7f4;
+        border-color: var(--mw-green, #2D8659);
+        color: transparent;      /* hide camera icon during upload */
         cursor: not-allowed;
         pointer-events: none;
-        animation: mc-placeholder-pulse 1s ease-in-out infinite;
+        position: relative;
     }
 
-    @keyframes mc-placeholder-pulse {
-        0%, 100% { opacity: 1; }
-        50%       { opacity: 0.5; }
+    /* Spinner ring overlay */
+    .mw-mc-photo-placeholder.mw-mc-placeholder-uploading::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 28px;
+        height: 28px;
+        border: 3px solid rgba(45, 134, 89, 0.2);
+        border-top-color: var(--mw-green, #2D8659);
+        border-radius: 50%;
+        animation: mc-spin 0.8s linear infinite;
+    }
+
+    @keyframes mc-spin {
+        to { transform: rotate(360deg); }
+    }
+
+    /* Offline queue badge — amber dot with count on the photo strip */
+    .mw-mc-queue-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 8px;
+        border-radius: 10px;
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        color: #856404;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .mw-mc-queue-badge.mw-mc-queue-failed {
+        background: #f8d7da;
+        border-color: #dc3545;
+        color: #842029;
+    }
+
+    .mw-mc-queue-badge-row {
+        display: flex;
+        align-items: center;
+        padding: 4px 0 0;
+        width: 100%;
     }
 
     /* Hero card: taller placeholders */

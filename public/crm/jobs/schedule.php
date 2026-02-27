@@ -815,19 +815,27 @@ if (!empty($allVisitIds)) {
             AND mv.variant_type = 'thumb_square' AND mv.format = 'jpeg'
         WHERE ml.context_type = 'job_visit'
             AND ml.context_id IN ({$vPlaceholders})
-            AND ml.category IN ('before', 'after')
+            AND ml.category IN ('before', 'after', 'additional')
         ORDER BY ml.context_id, ml.category, ml.created_at ASC
     ");
     $photoStmt->execute($allVisitIds);
     while ($pRow = $photoStmt->fetch(PDO::FETCH_ASSOC)) {
         $vid = (int)$pRow['visit_id'];
-        $cat = $pRow['category']; // 'before' or 'after'
+        $cat = $pRow['category'];
         if (!isset($visitPhotoMap[$vid])) {
             $visitPhotoMap[$vid] = [];
         }
-        // Keep the first one per category (ASC order = oldest first)
-        if (!isset($visitPhotoMap[$vid][$cat])) {
-            $visitPhotoMap[$vid][$cat] = $pRow['thumb_url'];
+        if ($cat === 'additional') {
+            // Additionals are an array — collect all of them
+            if (!isset($visitPhotoMap[$vid]['additionals'])) {
+                $visitPhotoMap[$vid]['additionals'] = [];
+            }
+            $visitPhotoMap[$vid]['additionals'][] = $pRow['thumb_url'];
+        } else {
+            // Keep the first before/after per category (ASC = oldest first)
+            if (!isset($visitPhotoMap[$vid][$cat])) {
+                $visitPhotoMap[$vid][$cat] = $pRow['thumb_url'];
+            }
         }
     }
 }
