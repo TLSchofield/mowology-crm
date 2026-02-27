@@ -576,37 +576,44 @@
         flex-shrink: 0;
     }
 
-    /* ── Top row: time/badge left, GO button right — flex row, no absolute needed ── */
-    .mw-mc-top-row {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 8px;
-        margin-bottom: 0;
-    }
-
-    .mw-mc-top-row .mw-mc-time-row {
-        flex: 1;
-        min-width: 0;
-        margin-bottom: 8px;
-    }
-
+    /* ── GO button: absolutely pinned to top-right of card ── */
+    /* Button is a direct child of .mw-mc-card so position:absolute is relative to the card.
+       It does NOT use .mw-mc-action-btn (which carries flex:1 and would fight absolute). */
     .mw-mc-btn-go-corner {
-        flex-shrink: 0;
-        align-self: flex-start;
-        margin-top: 2px;
-        padding: 7px 14px !important;
-        font-size: 0.82rem !important;
-        gap: 5px !important;
-        border-radius: 10px !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 5;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 7px 14px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #fff;
+        background: var(--mw-green);
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
         white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.20);
+        -webkit-tap-highlight-color: transparent;
     }
 
-    /* Hide on completed/skipped/hero — crew is on-site or done */
+    .mw-mc-btn-go-corner:active {
+        background: var(--mw-dark);
+        transform: scale(0.97);
+    }
+
+    /* Reserve right-side space in card header so title/address don't slide under GO */
+    .mw-mc-card-active .mw-mc-card-header {
+        padding-right: 72px;
+    }
+
+    /* Hide on completed/skipped/hero */
     .mw-mc-card-completed .mw-mc-btn-go-corner,
     .mw-mc-card-hero .mw-mc-btn-go-corner {
-        display: none !important;
+        display: none;
     }
 
     /* ════════════════════════════════════════════════════
