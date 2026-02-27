@@ -481,6 +481,9 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                     <button type="button" class="btn btn-outline-secondary" id="addCustomLineBtn">
                                         + Add Custom Line
                                     </button>
+                                    <button type="button" class="btn btn-outline-primary" id="addBundleBtn" onclick="openBundlePicker()">
+                                        <i data-feather="package" style="width:13px;height:13px;vertical-align:middle;margin-right:3px;"></i>+ Add Bundle
+                                    </button>
                                 </div>
 
                                 <div class="mw-totals">
@@ -595,6 +598,9 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
         const container = document.getElementById('lineItemsContainer');
         const templates = <?php echo json_encode($templates); ?>;
 
+        // Bundle names for group headers: bundle_id → name (populated as bundles are added)
+        const bundleNames = {};
+
         function formatCurrency(amount) {
             return '$' + parseFloat(amount).toFixed(2);
         }
@@ -621,10 +627,21 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
 
         function renderLineItems() {
             container.innerHTML = '';
+            const seenBundles = new Set();
 
             lineItems.forEach((item, index) => {
+                // Bundle group header — show once per bundle_id
+                if (item.bundle_id && !seenBundles.has(item.bundle_id)) {
+                    seenBundles.add(item.bundle_id);
+                    const hdr = document.createElement('div');
+                    hdr.className = 'mw-bundle-group-header';
+                    hdr.innerHTML = '<i data-feather="package" style="width:13px;height:13px;margin-right:5px;vertical-align:middle;"></i>'
+                        + escapeHtml(bundleNames[item.bundle_id] || 'Service Bundle');
+                    container.appendChild(hdr);
+                }
+
                 const row = document.createElement('div');
-                row.className = 'mw-line-item';
+                row.className = 'mw-line-item' + (item.bundle_id ? ' mw-bundle-item' : '');
                 row.dataset.index = index;
 
                 row.innerHTML = `
@@ -643,6 +660,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 container.appendChild(row);
             });
 
+            hydrateFeatherIcons(container);
             calculateTotals();
             updateFormInput();
         }
@@ -1115,10 +1133,187 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             .catch(err => alert('Error: ' + err.message));
         }
 
+        // ── Bundle Picker ─────────────────────────────────────────────────────────
+        const BUNDLE_PREVIEW_URL = '../api/quote-autofill.php';
+        const PRODUCTS_API_URL   = '../products/api-products.php';
+
+        async function openBundlePicker() {
+            $('#addBundleModal').modal('show');
+            const grid = document.getElementById('bundlePickerGrid');
+            grid.innerHTML = '<p class="text-muted text-center py-3">Loading bundles…</p>';
+
+            try {
+                const res  = await fetch(PRODUCTS_API_URL + '?action=get-bundles');
+                const data = await res.json();
+
+                if (!data.success || !data.bundles || data.bundles.length === 0) {
+                    grid.innerHTML = '<p class="text-muted text-center">No bundles available. Create one in <a href="../products/bundles.php" target="_blank">Service Bundles</a>.</p>';
+                    return;
+                }
+
+                const hasProperty = !!(propertySelect && propertySelect.value);
+                let html = '';
+
+                if (!hasProperty) {
+                    html += '<div class="alert alert-info py-2 mb-3" style="font-size:13px;">'
+                          + '<i data-feather="info" style="width:13px;height:13px;vertical-align:middle;margin-right:4px;"></i>'
+                          + 'No property selected — prices shown are base rates. Select a property with measurements for auto-calculated pricing.'
+                          + '</div>';
+                }
+
+                data.bundles.forEach(b => {
+                    const tierColors = { good: '#16a34a', better: '#2563eb', best: '#9333ea', custom: '#64748b' };
+                    const tierColor  = tierColors[b.tier] || '#64748b';
+                    const itemCount  = b.items ? b.items.length : 0;
+
+                    // Calculate display price from items
+                    let listTotal = 0;
+                    let itemHtml  = '';
+                    if (b.items && b.items.length) {
+                        b.items.forEach(it => {
+                            const price = parseFloat(it.override_price || it.base_price || 0);
+                            listTotal += price;
+                            itemHtml += '<div class="mw-bp-item">'
+                                + '<span>' + escapeHtml(it.product_name) + '</span>'
+                                + '<span>' + formatCurrency(price) + '</span>'
+                                + '</div>';
+                        });
+                    }
+
+                    let discountDisplay = '';
+                    if (parseFloat(b.discount_value) > 0) {
+                        discountDisplay = b.discount_type === 'percentage'
+                            ? '−' + parseFloat(b.discount_value).toFixed(0) + '%'
+                            : '−$' + parseFloat(b.discount_value).toFixed(2);
+                    }
+
+                    html += '<div class="mw-bp-card">'
+                        + '<div class="mw-bp-header">'
+                            + '<div>'
+                                + '<span class="mw-bp-tier" style="background:' + tierColor + '">' + escapeHtml(b.tier.charAt(0).toUpperCase() + b.tier.slice(1)) + '</span>'
+                                + '<strong class="ml-2">' + escapeHtml(b.bundle_name) + '</strong>'
+                            + '</div>'
+                            + (discountDisplay ? '<span class="mw-bp-discount">' + discountDisplay + ' off</span>' : '')
+                        + '</div>'
+                        + (b.description ? '<div class="mw-bp-desc">' + escapeHtml(b.description) + '</div>' : '')
+                        + '<div class="mw-bp-items">' + itemHtml + '</div>'
+                        + (hasProperty
+                            ? '<button type="button" class="btn btn-sm btn-primary btn-block mt-2" onclick="addBundleToQuote(' + b.id + ', \'' + escapeHtml(b.bundle_name).replace(/'/g,"&#39;") + '\')" data-bundle-id="' + b.id + '">'
+                              + 'Add to Quote (calculating…)'
+                              + '</button>'
+                            : '<button type="button" class="btn btn-sm btn-primary btn-block mt-2" onclick="addBundleToQuote(' + b.id + ', \'' + escapeHtml(b.bundle_name).replace(/'/g,"&#39;") + '\')">'
+                              + 'Add to Quote (base prices)'
+                              + '</button>')
+                        + '</div>';
+                });
+
+                grid.innerHTML = html;
+                hydrateFeatherIcons(grid);
+
+                // If property is selected, pre-calculate prices for each bundle
+                if (hasProperty) {
+                    data.bundles.forEach(b => {
+                        previewBundlePrice(b.id, propertySelect.value);
+                    });
+                }
+
+            } catch (err) {
+                grid.innerHTML = '<p class="text-danger">Error loading bundles. Please try again.</p>';
+                console.error('[Bundle Picker]', err);
+            }
+        }
+
+        async function previewBundlePrice(bundleId, propertyId) {
+            try {
+                const params = new URLSearchParams({ action: 'preview-bundle', bundle_id: bundleId, property_id: propertyId });
+                const res  = await fetch(BUNDLE_PREVIEW_URL, { method: 'POST', body: params });
+                const data = await res.json();
+                if (!data.success) return;
+
+                // Sum all item totals
+                let total = 0;
+                data.items.forEach(it => { total += parseFloat(it.line_total || 0); });
+
+                // Update the button label
+                const btn = document.querySelector('#bundlePickerGrid button[data-bundle-id="' + bundleId + '"]');
+                if (btn) btn.textContent = 'Add to Quote — ' + formatCurrency(total);
+            } catch (e) { /* silent */ }
+        }
+
+        async function addBundleToQuote(bundleId, bundleName) {
+            const propId = propertySelect ? (propertySelect.value || 0) : 0;
+
+            const btn = document.querySelector('#bundlePickerGrid button[data-bundle-id="' + bundleId + '"], #bundlePickerGrid button[onclick*="addBundleToQuote(' + bundleId + '"]');
+            if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+
+            try {
+                const params = new URLSearchParams({ action: 'preview-bundle', bundle_id: bundleId, property_id: propId });
+                const res  = await fetch(BUNDLE_PREVIEW_URL, { method: 'POST', body: params });
+                const data = await res.json();
+
+                if (!data.success) {
+                    alert('Could not load bundle: ' + (data.error || 'Unknown error'));
+                    if (btn) { btn.disabled = false; btn.textContent = 'Add to Quote'; }
+                    return;
+                }
+
+                // Store bundle name for group header
+                bundleNames[bundleId] = bundleName;
+
+                // Push items into quote line items
+                data.items.forEach(item => {
+                    lineItems.push({
+                        id:                    ++itemIdCounter,
+                        product_id:            item.product_id             || null,
+                        pricing_rule_id:       item.pricing_rule_id        || null,
+                        measurement_group_key: item.measurement_group_key  || null,
+                        service_type:          item.service_type           || '',
+                        description:           item.description            || '',
+                        quantity:              parseFloat(item.quantity    ?? 1),
+                        unit_type:             item.unit_type              || 'each',
+                        unit_price:            parseFloat(item.unit_price  ?? 0),
+                        line_total:            parseFloat(item.line_total  ?? 0),
+                        is_optional:           item.is_optional            || false,
+                        units_used:            item.units_used             || null,
+                        price_per_unit:        item.price_per_unit         || null,
+                        minimum_applied:       item.minimum_applied        || 0,
+                        included_units:        item.included_units         || null,
+                        pricing_snapshot:      item.pricing_snapshot       || null,
+                        bundle_id:             parseInt(bundleId),
+                        is_upsell:             item.is_upsell              || 0,
+                    });
+                });
+
+                $('#addBundleModal').modal('hide');
+                renderLineItems();
+
+                if (data.warnings && data.warnings.length) {
+                    const msg = document.getElementById('bundleWarningMsg');
+                    if (msg) {
+                        msg.textContent = '⚠ ' + data.warnings.join(' · ');
+                        msg.style.display = 'block';
+                        setTimeout(() => { msg.style.display = 'none'; }, 6000);
+                    }
+                }
+            } catch (err) {
+                alert('Error adding bundle: ' + err.message);
+                console.error('[addBundleToQuote]', err);
+                if (btn) { btn.disabled = false; btn.textContent = 'Add to Quote'; }
+            }
+        }
+
         // Initialize
         if (lineItems.length === 0) {
             // Add empty line for new quotes
         }
+
+        // Restore bundle names from existing line items (edit mode)
+        lineItems.forEach(item => {
+            if (item.bundle_id && !bundleNames[item.bundle_id]) {
+                bundleNames[item.bundle_id] = 'Bundle #' + item.bundle_id;
+            }
+        });
+
         renderLineItems();
 
         // If a client is pre-selected (edit mode / from request), trigger property change
@@ -1282,5 +1477,36 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             }
         }
     </script>
+
+<!-- ── Bundle Picker Modal ─────────────────────────────────────────────── -->
+<div class="modal fade" id="addBundleModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i data-feather="package" style="width:16px;height:16px;vertical-align:middle;margin-right:6px;"></i>
+          Add Service Bundle
+        </h5>
+        <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+      </div>
+      <div class="modal-body">
+        <div id="bundlePickerGrid" class="mw-bp-grid">
+          <p class="text-muted text-center py-3">Loading…</p>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <small class="text-muted">
+          <a href="<?php echo htmlspecialchars(dirname($_SERVER['PHP_SELF']) . '/../products/bundles.php'); ?>" target="_blank">
+            Manage Bundles <i data-feather="external-link" style="width:11px;height:11px;vertical-align:middle;"></i>
+          </a>
+        </small>
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bundle warning toast (shown below line items area) -->
+<div id="bundleWarningMsg" class="alert alert-warning py-2 mt-2" style="display:none;font-size:13px;"></div>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

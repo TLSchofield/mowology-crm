@@ -102,9 +102,10 @@ try {
 
     } elseif ($action === 'preview-bundle') {
         // POST: Preview a bundle applied to property measurements
+        // property_id is optional — if 0 or missing, prices fall back to override_price / base_price
         $bundleId   = intval($_POST['bundle_id'] ?? 0);
         $propertyId = intval($_POST['property_id'] ?? 0);
-        if (!$bundleId || !$propertyId) throw new Exception('Bundle ID and Property ID are required');
+        if (!$bundleId) throw new Exception('Bundle ID is required');
 
         $result = calculateBundleLineItems($bundleId, $propertyId);
 

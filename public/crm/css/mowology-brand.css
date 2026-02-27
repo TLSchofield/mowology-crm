@@ -16602,6 +16602,94 @@ textarea.font-monospace {
 
 
 /* ══════════════════════════════════════════════════════════════════════════════
+   BUNDLE IN QUOTES — group header + picker modal
+   /crm/quotes/create.php
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.mw-bundle-group-header {
+    background: var(--mw-light);
+    border: 1px solid var(--mw-light);
+    border-left: 3px solid var(--mw-green);
+    border-radius: 5px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--mw-dark);
+    margin-top: 10px;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+}
+
+.mw-line-item.mw-bundle-item {
+    border-left: 3px solid var(--mw-lime);
+    padding-left: 10px;
+    background: #fafffe;
+}
+
+.mw-bp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.mw-bp-card {
+    border: 1px solid var(--mw-light);
+    border-radius: 8px;
+    padding: 14px;
+    background: #fff;
+}
+
+.mw-bp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.mw-bp-tier {
+    display: inline-block;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 7px;
+    border-radius: 12px;
+    vertical-align: middle;
+}
+
+.mw-bp-discount {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--mw-green);
+    background: var(--mw-light);
+    padding: 2px 7px;
+    border-radius: 12px;
+}
+
+.mw-bp-desc {
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 8px;
+}
+
+.mw-bp-items {
+    border-top: 1px solid var(--mw-light);
+    padding-top: 6px;
+    margin-bottom: 6px;
+}
+
+.mw-bp-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 2px 0;
+    color: #334155;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
    SERVICE BUNDLES MANAGER
    /crm/products/bundles.php
 ══════════════════════════════════════════════════════════════════════════════ */

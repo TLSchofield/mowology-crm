@@ -428,6 +428,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 center: initialCenter,
                 zoom: initialZoom,
                 mapTypeId: 'satellite',
+                tilt: 0,
                 mapTypeControl: false,
                 streetViewControl: true,
                 fullscreenControl: true

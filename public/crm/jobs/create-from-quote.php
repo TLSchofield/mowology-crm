@@ -59,6 +59,18 @@ if (!$quote) {
 // ─── Load quote line items with conversion status ───
 $lineItems = getQuoteLineItemsWithStatus($quoteId);
 
+// ─── Build bundle names map for right-panel grouping ───
+$bundleNamesMap = [];
+$bundleIdsInQuote = array_unique(array_filter(array_column($lineItems, 'bundle_id')));
+if (!empty($bundleIdsInQuote)) {
+    $placeholders = implode(',', array_fill(0, count($bundleIdsInQuote), '?'));
+    $bundleStmt = $db->prepare("SELECT id, bundle_name FROM product_bundles WHERE id IN ($placeholders)");
+    $bundleStmt->execute(array_values($bundleIdsInQuote));
+    foreach ($bundleStmt->fetchAll(PDO::FETCH_ASSOC) as $b) {
+        $bundleNamesMap[(int)$b['id']] = $b['bundle_name'];
+    }
+}
+
 // Count unconverted items
 $unconvertedCount = 0;
 foreach ($lineItems as $li) {
@@ -342,9 +354,14 @@ if ($propLat && $propLng && $apiKey) {
                       <div class="card">
                           <div class="card-header d-flex justify-content-between align-items-center">
                               <h5 class="card-title mb-0">Plan Items</h5>
-                              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addManualItem()">
-                                  <i data-feather="plus" style="width:14px;height:14px;"></i> Add Item
-                              </button>
+                              <div class="d-flex" style="gap:6px;">
+                                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="openPlanBundlePicker()">
+                                      <i data-feather="package" style="width:13px;height:13px;vertical-align:middle;margin-right:2px;"></i> Add Bundle
+                                  </button>
+                                  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addManualItem()">
+                                      <i data-feather="plus" style="width:14px;height:14px;"></i> Add Item
+                                  </button>
+                              </div>
                           </div>
                           <div class="card-body">
                               <div class="mw-cfq-items-empty" id="itemsEmpty">
@@ -586,9 +603,19 @@ if ($propLat && $propLng && $apiKey) {
                               <h6 class="mb-2">Line Items</h6>
                               <p class="text-muted small mb-3">Click available items to add them to the plan.</p>
 
-                              <?php foreach ($lineItems as $li): ?>
-                                  <?php $isConverted = !empty($li['plan_id']); ?>
-                                  <div class="mw-cfq-quote-item <?php echo $isConverted ? 'mw-cfq-converted' : 'mw-cfq-available'; ?>"
+                              <?php
+                              $prevBundleId = null;
+                              foreach ($lineItems as $li):
+                                  $isConverted = !empty($li['plan_id']);
+                                  $liBundleId = !empty($li['bundle_id']) ? (int)$li['bundle_id'] : null;
+                                  if ($liBundleId && $liBundleId !== $prevBundleId):
+                                      $bundleName = $bundleNamesMap[$liBundleId] ?? 'Service Bundle';
+                              ?>
+                                  <div class="mw-bundle-group-header" style="margin-top:8px;margin-bottom:2px;">
+                                      <i data-feather="package" style="width:12px;height:12px;margin-right:4px;"></i><?php echo htmlspecialchars($bundleName); ?>
+                                  </div>
+                              <?php endif; $prevBundleId = $liBundleId; ?>
+                                  <div class="mw-cfq-quote-item <?php echo $isConverted ? 'mw-cfq-converted' : 'mw-cfq-available'; ?><?php echo $liBundleId ? ' mw-bundle-item' : ''; ?>"
                                        <?php if (!$isConverted): ?>
                                            onclick="addQuoteItem(this)"
                                            data-id="<?php echo (int)$li['id']; ?>"
@@ -743,6 +770,7 @@ if ($propLat && $propLng && $apiKey) {
               var itemIndex = 0;
               var addedQuoteItemIds = {};
               var nextVisitDate = <?php echo json_encode($nextVisitDate); ?>;
+              var planPropertyId = <?php echo (int)$quote['property_id']; ?>;
 
               /**
                * Add a quote line item to the plan form
@@ -1084,6 +1112,136 @@ if ($propLat && $propLng && $apiKey) {
                   }
               });
 
+              // ── Bundle Picker ────────────────────────────────
+              var BUNDLE_API_BASE = '../api/quote-autofill.php';
+              var PRODUCTS_API    = '../products/api-products.php';
+
+              window.openPlanBundlePicker = function() {
+                  var modal = document.getElementById('addBundleModalPlan');
+                  if (!modal) return;
+                  $(modal).modal('show');
+
+                  var grid = document.getElementById('planBundlePickerGrid');
+                  grid.innerHTML = '<p class="text-muted">Loading bundles&hellip;</p>';
+
+                  fetch(PRODUCTS_API + '?action=get-bundles')
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (!data.success || !data.bundles || !data.bundles.length) {
+                              grid.innerHTML = '<p class="text-muted text-center">No bundles available. <a href="../products/bundles.php" target="_blank">Create one</a>.</p>';
+                              return;
+                          }
+                          renderPlanBundleCards(data.bundles, grid);
+                      })
+                      .catch(function() {
+                          grid.innerHTML = '<p class="text-danger">Failed to load bundles.</p>';
+                      });
+              };
+
+              function renderPlanBundleCards(bundles, grid) {
+                  var tierLabels = { good: 'Good', better: 'Better', best: 'Best', custom: 'Custom' };
+                  var tierColors = { good: '#6B7280', better: '#2D8659', best: '#7FD858', custom: '#e85d04' };
+
+                  var html = '';
+                  bundles.forEach(function(b) {
+                      var tierLabel = tierLabels[b.tier] || b.tier;
+                      var tierColor = tierColors[b.tier] || '#6B7280';
+                      var discountHtml = '';
+                      if (parseFloat(b.discount_value) > 0) {
+                          var dStr = b.discount_type === 'percentage'
+                              ? parseFloat(b.discount_value).toFixed(0) + '% off'
+                              : '$' + parseFloat(b.discount_value).toFixed(2) + ' off';
+                          discountHtml = '<span class="mw-bp-discount">' + esc(dStr) + '</span>';
+                      }
+                      var itemsHtml = '';
+                      if (b.items && b.items.length) {
+                          itemsHtml = '<div class="mw-bp-items">';
+                          b.items.slice(0, 4).forEach(function(item) {
+                              itemsHtml += '<div class="mw-bp-item"><span>' + esc(item.product_name || '') + '</span></div>';
+                          });
+                          if (b.items.length > 4) {
+                              itemsHtml += '<div class="mw-bp-item" style="color:var(--mw-green);font-style:italic;">+' + (b.items.length - 4) + ' more</div>';
+                          }
+                          itemsHtml += '</div>';
+                      }
+                      html +=
+                          '<div class="mw-bp-card">' +
+                              '<div class="mw-bp-header">' +
+                                  '<strong>' + esc(b.bundle_name) + '</strong>' +
+                                  '<div style="display:flex;gap:4px;align-items:center;">' +
+                                      '<span class="mw-bp-tier" style="background:' + tierColor + ';">' + esc(tierLabel) + '</span>' +
+                                      discountHtml +
+                                  '</div>' +
+                              '</div>' +
+                              itemsHtml +
+                              '<button type="button" class="btn btn-sm btn-primary btn-block mt-2" id="planBundleBtn_' + b.id + '" onclick="addBundleToPlan(' + b.id + ', \'' + esc(b.bundle_name).replace(/'/g,'&#39;') + '\')">' +
+                                  'Add to Plan' +
+                              '</button>' +
+                          '</div>';
+                  });
+                  grid.innerHTML = html;
+
+                  // Fetch prices in background if we have a property
+                  if (planPropertyId) {
+                      bundles.forEach(function(b) {
+                          var btn = document.getElementById('planBundleBtn_' + b.id);
+                          if (!btn) return;
+                          var form = new URLSearchParams({ action: 'preview-bundle', bundle_id: b.id, property_id: planPropertyId });
+                          fetch(BUNDLE_API_BASE, { method: 'POST', body: form })
+                              .then(function(r) { return r.json(); })
+                              .then(function(data) {
+                                  if (data.success && data.items && data.items.length) {
+                                      var total = data.items.reduce(function(s, i) { return s + (parseFloat(i.line_total) || 0); }, 0);
+                                      if (total > 0 && btn) btn.textContent = 'Add to Plan — $' + total.toFixed(2);
+                                  }
+                              })
+                              .catch(function() {});
+                      });
+                  }
+              }
+
+              window.addBundleToPlan = function(bundleId, bundleName) {
+                  var btn = document.getElementById('planBundleBtn_' + bundleId);
+                  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+
+                  var form = new URLSearchParams({ action: 'preview-bundle', bundle_id: bundleId, property_id: planPropertyId || 0 });
+                  fetch(BUNDLE_API_BASE, { method: 'POST', body: form })
+                      .then(function(r) { return r.json(); })
+                      .then(function(data) {
+                          if (!data.success) {
+                              alert(data.error || 'Failed to load bundle');
+                              return;
+                          }
+                          data.items.forEach(function(item) {
+                              addItemRow({
+                                  quoteLineItemId: '',
+                                  service: item.service_type || item.description || '',
+                                  desc: item.description || '',
+                                  qty: String(parseFloat(item.quantity) || 1),
+                                  unit: item.unit_type || 'visit',
+                                  price: String(parseFloat(item.unit_price) || 0),
+                                  total: String(parseFloat(item.line_total) || 0)
+                              });
+                          });
+                          if (data.warnings && data.warnings.length) {
+                              var w = document.getElementById('planBundleWarningMsg');
+                              if (w) {
+                                  w.textContent = data.warnings.join(' · ');
+                                  w.style.display = '';
+                                  setTimeout(function() { w.style.display = 'none'; }, 8000);
+                              }
+                          }
+                          $('#addBundleModalPlan').modal('hide');
+                          updateTotals();
+                      })
+                      .catch(function() {
+                          alert('Network error — please try again');
+                      })
+                      .finally(function() {
+                          if (btn) { btn.disabled = false; }
+                      });
+              };
+
               // Helpers
               function esc(str) {
                   if (!str) return '';
@@ -1307,5 +1465,32 @@ if ($propLat && $propLng && $apiKey) {
           })();
           </script>
           <?php endif; ?>
+
+          <!-- Bundle Picker Modal (Plan) -->
+          <div class="modal fade" id="addBundleModalPlan" tabindex="-1" role="dialog" aria-labelledby="addBundleModalPlanLabel">
+              <div class="modal-dialog modal-lg" role="document">
+                  <div class="modal-content">
+                      <div class="modal-header">
+                          <h5 class="modal-title" id="addBundleModalPlanLabel">
+                              <i data-feather="package" style="width:18px;height:18px;margin-right:6px;vertical-align:middle;"></i>
+                              Add Service Bundle to Plan
+                          </h5>
+                          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                              <span aria-hidden="true">&times;</span>
+                          </button>
+                      </div>
+                      <div class="modal-body">
+                          <div id="planBundlePickerGrid" class="mw-bp-grid">
+                              <p class="text-muted">Loading&hellip;</p>
+                          </div>
+                      </div>
+                      <div class="modal-footer justify-content-between">
+                          <small class="text-muted"><a href="../products/bundles.php" target="_blank" rel="noopener">Manage Bundles</a></small>
+                          <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+          <div id="planBundleWarningMsg" class="alert alert-warning mt-2" style="display:none;"></div>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
