@@ -576,10 +576,11 @@
         flex-shrink: 0;
     }
 
-    /* ── Active card top row: time/badge left, GO right — same flex pattern as compact card ── */
+    /* ── Active card top row: time/badge left, GO right — mirrors compact card pattern ── */
     .mw-mc-active-top-row {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
+        justify-content: space-between;
         gap: 10px;
         margin-bottom: 8px;
     }
@@ -588,13 +589,23 @@
         flex: 1;
         min-width: 0;
         margin-bottom: 0;
+        flex-wrap: wrap;
     }
 
-    /* Active GO button — flex-shrink:0 so it stays at natural size on the right */
+    /* Active GO button — standalone green pill, all needed base styles included
+       (compact-go provides color/padding/radius but not display/height/-webkit) */
     .mw-mc-active-go {
         flex-shrink: 0;
-        align-self: flex-start;
-        margin-top: 1px;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        height: 36px;
+        border: none;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        -webkit-tap-highlight-color: transparent;
+        white-space: nowrap;
     }
 
     /* Hide on hero (crew is on-site) */
