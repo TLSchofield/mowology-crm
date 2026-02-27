@@ -723,13 +723,13 @@
         transform: scale(0.95);
     }
 
-    /* Compact GO button — green pill with text */
+    /* Compact GO button — RED for debugging (was green #2D8659) */
     .mw-mc-compact-go {
         width: auto !important;
         padding: 0 14px !important;
         gap: 5px;
-        background: #2D8659 !important;
-        border-color: #1A5F4A !important;
+        background: #D32F2F !important;
+        border-color: #C62828 !important;
         color: #fff !important;
         font-size: 0.78rem !important;
         font-weight: 800 !important;
@@ -738,7 +738,7 @@
     }
 
     .mw-mc-compact-go:active {
-        background: #1A5F4A !important;
+        background: #B71C1C !important;
         transform: scale(0.95);
     }
 
