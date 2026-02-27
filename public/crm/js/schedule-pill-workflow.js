@@ -32,7 +32,7 @@
     console.log('[PillWorkflow] Initializing...', MW_SCHEDULE_STATE);
 
     var state = MW_SCHEDULE_STATE;
-    var visits = {};        // visitId -> { status, pill, serviceLabel, entryId, startTime, timerInterval, beforeThumb, afterThumb }
+    var visits = {};        // visitId -> { status, pill, serviceLabel, entryId, startTime, timerInterval, beforeThumb, afterThumb, additionalThumbs[] }
     var activeDrawer = null;
     var activeDrawerVisitId = null;
     var cachedGps = null;
@@ -69,7 +69,8 @@
                 startTime: null,
                 timerInterval: null,
                 beforeThumb: null,
-                afterThumb: null
+                afterThumb: null,
+                additionalThumbs: []
             };
 
             // Restore in-progress timer from page load state
@@ -114,10 +115,20 @@
                         visits[numVid].afterThumb = photos.after;
                         photoCount++;
                     }
-                    renderPhotoStrip(numVid);
+                    if (photos.additionals && Array.isArray(photos.additionals)) {
+                        visits[numVid].additionalThumbs = photos.additionals;
+                        photoCount += photos.additionals.length;
+                    }
                 }
             }
             console.log('[PillWorkflow] Pre-loaded ' + photoCount + ' existing photo thumbnails');
+        }
+
+        // Render photo strips for all visits (shows placeholders even before photos taken)
+        for (var initVid in visits) {
+            if (visits.hasOwnProperty(initVid)) {
+                renderPhotoStrip(parseInt(initVid, 10));
+            }
         }
 
         // Pre-fetch GPS for later use
@@ -580,35 +591,54 @@
                 input.value = ''; // Reset for reuse
 
                 if (category === 'before') {
-                    // After before photo → go to working state with thumb preview
-                    visits[visitId].status = 'in_progress';
-                    updatePillVisual(visitId, 'in_progress');
-                    startPillTimer(visitId);
-
-                    // Show before thumb in drawer briefly, then close
-                    if (thumbUrl) {
-                        showThumbConfirmation(card, thumbUrl, 'Before', visitId, function() {
+                    var curStatus = visits[visitId].status;
+                    if (curStatus === 'prompt_before') {
+                        // Workflow-driven: go to working state
+                        visits[visitId].status = 'in_progress';
+                        updatePillVisual(visitId, 'in_progress');
+                        startPillTimer(visitId);
+                        if (thumbUrl) {
+                            showThumbConfirmation(card, thumbUrl, 'Before', visitId, function() {
+                                closeDrawer();
+                            });
+                        } else {
                             closeDrawer();
-                        });
+                        }
                     } else {
-                        closeDrawer();
+                        // Placeholder tap: just save the photo, update strip
+                        renderPhotoStrip(visitId);
+                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Before', visitId, null);
                     }
                 } else if (category === 'after') {
-                    // After after photo → optimistically mark completed so pill tap
-                    // doesn't re-show the camera prompt while we await the clock-out API
-                    visits[visitId].status = 'completed';
-                    // Show thumb briefly, then clock out (which will call updatePillVisual)
-                    if (thumbUrl) {
-                        showThumbConfirmation(card, thumbUrl, 'After', visitId, function() {
+                    var curStatus2 = visits[visitId].status;
+                    if (curStatus2 === 'prompt_after') {
+                        // Workflow-driven: clock out
+                        visits[visitId].status = 'completed';
+                        if (thumbUrl) {
+                            showThumbConfirmation(card, thumbUrl, 'After', visitId, function() {
+                                clockOut(visitId);
+                            });
+                        } else {
                             clockOut(visitId);
-                        });
+                        }
                     } else {
-                        clockOut(visitId);
+                        // Placeholder tap: just save the photo, update strip
+                        renderPhotoStrip(visitId);
+                        if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'After', visitId, null);
                     }
                 }
                 // 'during' photos: stay in working state, show thumb briefly
                 if (category === 'during' && thumbUrl) {
                     showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
+                }
+                // 'additional' photos: append to strip, stay in current state
+                if (category === 'additional') {
+                    if (thumbUrl) {
+                        if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
+                        visits[visitId].additionalThumbs.push(thumbUrl);
+                        renderPhotoStrip(visitId);
+                        showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
+                    }
                 }
             });
         };
@@ -789,24 +819,30 @@
     }
 
     /**
+     * Camera icon SVG (shared for placeholders)
+     */
+    var CAMERA_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+    var CAMERA_SMALL_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>';
+    var PLUS_SVG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+
+    /**
      * Render/update a persistent before/after thumbnail strip for a visit.
-     * Uses .mw-mc-photo-strips container (outside the drawer) so it persists.
-     * Called after every photo capture — incrementally adds thumbs.
+     * Always shows: Before placeholder, After placeholder, Additionals row.
+     * Placeholders are red (alert) if photos are required and not yet taken.
+     * Tapping a placeholder triggers the camera for that category.
+     * Additionals support multi-snap (tap + button repeatedly).
      */
     function renderPhotoStrip(visitId) {
         var v = visits[visitId];
         if (!v) return;
-        if (!v.beforeThumb && !v.afterThumb) return;
 
         var card = v.pill.closest('.mw-mc-card');
         if (!card) return;
 
-        // Use the persistent photo strips container (NOT the drawer)
         var container = card.querySelector('.mw-mc-photo-strips');
         if (!container) return;
 
         // Find or create this visit's strip div
-        var stripId = 'photo-strip-' + visitId;
         var strip = container.querySelector('[data-strip-visit="' + visitId + '"]');
         if (!strip) {
             strip = document.createElement('div');
@@ -815,34 +851,94 @@
             container.appendChild(strip);
         }
 
-        // Rebuild strip contents
-        var html = '';
-        if (v.beforeThumb) {
-            html += '<div class="mw-mc-photo-thumb">' +
-                    '  <img src="' + escHtml(v.beforeThumb) + '" alt="Before" loading="lazy">' +
-                    '  <span class="mw-mc-photo-thumb-label">Before</span>' +
-                    '</div>';
-        }
-        if (v.afterThumb) {
-            html += '<div class="mw-mc-photo-thumb">' +
-                    '  <img src="' + escHtml(v.afterThumb) + '" alt="After" loading="lazy">' +
-                    '  <span class="mw-mc-photo-thumb-label">After</span>' +
-                    '</div>';
-        }
-        strip.innerHTML = html;
+        var required = v.requirePhotos;
 
-        // Wire tap-to-expand on each thumbnail
+        // ── Before thumbnail or placeholder ──
+        var beforeHtml;
+        if (v.beforeThumb) {
+            beforeHtml =
+                '<div class="mw-mc-photo-thumb" data-thumb-type="before">' +
+                '  <img src="' + escHtml(v.beforeThumb) + '" alt="Before" loading="lazy">' +
+                '  <span class="mw-mc-photo-thumb-label">Before</span>' +
+                '</div>';
+        } else {
+            beforeHtml =
+                '<div class="mw-mc-photo-placeholder' + (required ? ' mw-mc-placeholder-required' : '') + '" data-thumb-type="before" data-visit-id="' + visitId + '" data-category="before">' +
+                '  ' + CAMERA_SVG +
+                '  <span>Before</span>' +
+                '</div>';
+        }
+
+        // ── After thumbnail or placeholder ──
+        var afterHtml;
+        if (v.afterThumb) {
+            afterHtml =
+                '<div class="mw-mc-photo-thumb" data-thumb-type="after">' +
+                '  <img src="' + escHtml(v.afterThumb) + '" alt="After" loading="lazy">' +
+                '  <span class="mw-mc-photo-thumb-label">After</span>' +
+                '</div>';
+        } else {
+            afterHtml =
+                '<div class="mw-mc-photo-placeholder' + (required ? ' mw-mc-placeholder-required' : '') + '" data-thumb-type="after" data-visit-id="' + visitId + '" data-category="after">' +
+                '  ' + CAMERA_SVG +
+                '  <span>After</span>' +
+                '</div>';
+        }
+
+        // ── Additionals ──
+        var addHtml = '<div class="mw-mc-photo-additionals" data-visit-id="' + visitId + '">';
+
+        // Already captured additionals
+        var addThumbs = v.additionalThumbs || [];
+        for (var ai = 0; ai < addThumbs.length; ai++) {
+            addHtml +=
+                '<div class="mw-mc-photo-thumb mw-mc-photo-thumb-additional">' +
+                '  <img src="' + escHtml(addThumbs[ai]) + '" alt="Photo ' + (ai + 1) + '" loading="lazy">' +
+                '  <span class="mw-mc-photo-thumb-label">#' + (ai + 1) + '</span>' +
+                '</div>';
+        }
+
+        // The + button to snap another additional
+        addHtml +=
+            '<button class="mw-mc-add-photo-btn" data-visit-id="' + visitId + '" data-category="additional" type="button">' +
+            '  ' + PLUS_SVG +
+            '  <span>' + (addThumbs.length === 0 ? 'Additionals' : '+') + '</span>' +
+            '</button>';
+
+        addHtml += '</div>';
+
+        strip.innerHTML = beforeHtml + afterHtml + addHtml;
+
+        // Wire placeholders → camera
+        strip.querySelectorAll('.mw-mc-photo-placeholder').forEach(function(ph) {
+            ph.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var cat = ph.dataset.category;
+                triggerCamera(visitId, cat);
+            });
+        });
+
+        // Wire add-photo button → camera (additional)
+        var addBtn = strip.querySelector('.mw-mc-add-photo-btn');
+        if (addBtn) {
+            addBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                triggerCamera(visitId, 'additional');
+            });
+        }
+
+        // Wire tap-to-expand on real thumbnails
         strip.querySelectorAll('.mw-mc-photo-thumb img').forEach(function(img) {
-            img.style.cursor = 'pointer';
             img.addEventListener('click', function(e) {
                 e.stopPropagation();
                 openPhotoLightbox(img.src, img.alt);
             });
         });
 
-        console.log('[PillWorkflow] Photo strip updated for visit ' + visitId +
+        console.log('[PillWorkflow] Photo strip rendered for visit ' + visitId +
             ' (before: ' + (v.beforeThumb ? 'yes' : 'no') +
-            ', after: ' + (v.afterThumb ? 'yes' : 'no') + ')');
+            ', after: ' + (v.afterThumb ? 'yes' : 'no') +
+            ', additionals: ' + addThumbs.length + ')');
     }
 
     /**

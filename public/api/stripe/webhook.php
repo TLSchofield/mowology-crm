@@ -142,18 +142,21 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
     }
 
     // ── Extract card details (for saving on file) ─────────────────────────────
+    // Stripe SDK key must be set here for PaymentMethod retrieval
+    \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
+
     $paymentMethodId = $intent->payment_method ?? null;
     $cardBrand   = null;
     $cardLast4   = null;
     $cardExpiry  = null;
     $stripeCustomerIdFromIntent = is_string($intent->customer) ? $intent->customer : ($intent->customer->id ?? null);
 
-    // setup_future_usage being set means customer opted in to save card
-    $hasSaveFutureUsage = !empty($intent->setup_future_usage);
-
-    if ($paymentMethodId && ($hasSaveFutureUsage || $stripeCustomerIdFromIntent)) {
+    // Always fetch card details when there's a payment method + customer
+    // (setup_future_usage is cleared by Stripe after payment succeeds, so we
+    //  instead check whether the stripe_payments record was created with a
+    //  customer_id, which means the customer went through our save-card flow)
+    if ($paymentMethodId) {
         try {
-            \Stripe\Stripe::setApiKey(STRIPE_SECRET_KEY);
             $pm = \Stripe\PaymentMethod::retrieve($paymentMethodId);
             if (!empty($pm->card)) {
                 $cardBrand  = $pm->card->brand  ?? null;
@@ -226,29 +229,28 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
 
         // ── Save card details to contact (if applicable) ──────────────────────
         $contactId = (int) ($intent->metadata['contact_id'] ?? 0);
-        if ($contactId > 0 && $cardLast4) {
-            // Only update if this is a save-card scenario OR if we're upgrading existing card info
-            if ($hasSaveFutureUsage || $stripeCustomerIdFromIntent) {
-                $updateContact = $db->prepare("
-                    UPDATE contacts SET
-                        stripe_customer_id = COALESCE(stripe_customer_id, ?),
-                        stripe_card_brand  = ?,
-                        stripe_card_last4  = ?,
-                        stripe_card_exp    = ?
-                    WHERE id = ?
-                ");
-                $updateContact->execute([
-                    $stripeCustomerIdFromIntent,
-                    $cardBrand,
-                    $cardLast4,
-                    $cardExpiry,
-                    $contactId,
-                ]);
-                error_log(sprintf(
-                    '[Stripe Webhook] Saved card on file for contact %d: %s ••••%s exp %s',
-                    $contactId, $cardBrand ?? 'unknown', $cardLast4, $cardExpiry ?? ''
-                ));
-            }
+        if ($contactId > 0 && $cardLast4 && $stripeCustomerIdFromIntent) {
+            // Persist card details whenever a Stripe customer is attached
+            // (covers both save_card=true and subsequent payments with saved card)
+            $updateContact = $db->prepare("
+                UPDATE contacts SET
+                    stripe_customer_id = COALESCE(stripe_customer_id, ?),
+                    stripe_card_brand  = ?,
+                    stripe_card_last4  = ?,
+                    stripe_card_exp    = ?
+                WHERE id = ?
+            ");
+            $updateContact->execute([
+                $stripeCustomerIdFromIntent,
+                $cardBrand,
+                $cardLast4,
+                $cardExpiry,
+                $contactId,
+            ]);
+            error_log(sprintf(
+                '[Stripe Webhook] Saved card on file for contact %d: %s ••••%s exp %s',
+                $contactId, $cardBrand ?? 'unknown', $cardLast4, $cardExpiry ?? ''
+            ));
         }
 
         // ── Activity log ──────────────────────────────────────────────────────

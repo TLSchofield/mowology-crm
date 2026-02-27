@@ -1308,16 +1308,14 @@
 
     /* Persistent photo strips container (outside drawer, not cleared) */
     .mw-mc-photo-strips {
-        padding: 0;
-    }
-
-    .mw-mc-photo-strips:not(:empty) {
         padding: 8px 0 2px 0;
     }
 
     /* Before/After thumbnail strip shown on completed pills */
     .mw-mc-photo-strip {
         display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
         gap: 8px;
         padding: 4px 0;
     }
@@ -1398,6 +1396,116 @@
         font-size: 0.82rem;
         font-weight: 600;
         color: var(--mw-green, #2D8659);
+    }
+
+    /* ── Photo placeholders (before/after not yet taken) ── */
+    .mw-mc-photo-placeholder {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        height: 80px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #f0f0f0;
+        border: 2px dashed #ccc;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        cursor: pointer;
+        color: #999;
+        transition: background 0.15s, border-color 0.15s;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-mc-photo-placeholder span {
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .mw-mc-photo-placeholder:active {
+        background: #e8e8e8;
+    }
+
+    /* Required = red alert */
+    .mw-mc-photo-placeholder.mw-mc-placeholder-required {
+        background: #fff2f2;
+        border-color: #e53935;
+        color: #e53935;
+    }
+
+    .mw-mc-photo-placeholder.mw-mc-placeholder-required:active {
+        background: #ffe0e0;
+    }
+
+    /* Hero card: taller placeholders */
+    .mw-mc-card-hero .mw-mc-photo-placeholder {
+        height: 110px;
+    }
+
+    /* Compact card: fixed-size squares */
+    .mw-mc-card-compact .mw-mc-photo-placeholder {
+        flex: 0 0 72px;
+        width: 72px;
+        height: 72px;
+    }
+
+    /* ── Additionals row ── */
+    .mw-mc-photo-additionals {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        gap: 6px;
+        align-items: center;
+        width: 100%;
+        padding: 4px 0 0 0;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Additional photo thumbs: compact squares */
+    .mw-mc-photo-thumb-additional {
+        flex: 0 0 60px;
+        width: 60px;
+        height: 60px;
+    }
+
+    .mw-mc-photo-thumb-additional img {
+        height: 60px;
+    }
+
+    /* + button to snap another additional */
+    .mw-mc-add-photo-btn {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        min-width: 60px;
+        height: 60px;
+        border-radius: 8px;
+        border: 2px dashed #ccc;
+        background: #f7f7f7;
+        color: #888;
+        cursor: pointer;
+        padding: 0 8px;
+        font-size: 0.58rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+        -webkit-tap-highlight-color: transparent;
+        white-space: nowrap;
+    }
+
+    .mw-mc-add-photo-btn:active {
+        background: #efefef;
+        border-color: #aaa;
+        color: #555;
     }
 
     /* ════════════════════════════════════════════════════
