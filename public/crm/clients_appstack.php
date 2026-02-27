@@ -1131,9 +1131,9 @@ if ($action === 'view_contact' && $clientId) {
         if ($apiKey) {
             $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . '&libraries=geometry,places" defer></script>';
         }
-        // Leaflet — needed for the Work Zone (geofence) polygon editor
-        $extraHead .= '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">';
-        $extraHead .= '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>';
+        // Leaflet — needed for the Work Zone (geofence) polygon editor (hosted locally, CDN blocked by CSP)
+        $extraHead .= '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">';
+        $extraHead .= '<script src="/crm/js/leaflet/leaflet.min.js"></script>';
 
         // Build property → plans map for the geofence modal (keyed by property_id)
         $plansByProperty = [];
