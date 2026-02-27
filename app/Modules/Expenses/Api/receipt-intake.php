@@ -92,6 +92,67 @@ try {
         error_log('Rate limit check error (non-fatal): ' . $rlEx->getMessage());
     }
 
+    // ── Rescan mode: re-OCR an already-stored media asset ───────────
+    // When rescan_media_id is provided, skip file upload and re-run the
+    // OCR pipeline on the existing image. Used by the review panel's
+    // "Rescan" button before the expense has been saved.
+    if (!empty($_POST['rescan_media_id'])) {
+        $rescanMediaId = (int)$_POST['rescan_media_id'];
+        $db = getDB();
+        $mStmt = $db->prepare("SELECT id, file_path, stored_filename FROM media_assets WHERE id = ?");
+        $mStmt->execute([$rescanMediaId]);
+        $mRow = $mStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$mRow) {
+            echo json_encode(['success' => false, 'error' => 'Media asset not found']);
+            exit;
+        }
+        $filePath = PUBLIC_ROOT . '/' . ltrim($mRow['file_path'], '/');
+        if (!file_exists($filePath)) $filePath = $mRow['file_path'];
+        if (!file_exists($filePath)) {
+            echo json_encode(['success' => false, 'error' => 'Receipt image file not found on disk']);
+            exit;
+        }
+        // Run the full OCR + parse + match pipeline and return results
+        require_once APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
+        require_once APP_ROOT . '/Services/Receipts/ReceiptParser.php';
+        require_once APP_ROOT . '/Services/Receipts/ReceiptSmartMatch.php';
+        require_once APP_ROOT . '/Services/Receipts/ReceiptLearning.php';
+        require_once APP_ROOT . '/Services/Receipts/VendorProductMatch.php';
+        require_once APP_ROOT . '/Services/Receipts/TesseractPreScreen.php';
+
+        $preScreen = tesseractPreScreen($filePath);
+        $ocrResult = ['success' => false, 'text' => '', 'raw_response' => null, 'error' => null];
+        $ocrSource = 'none';
+        if ($preScreen['decision'] === 'use_tesseract') {
+            $ocrResult = ['success' => true, 'text' => $preScreen['text'], 'raw_response' => null, 'error' => null];
+            $ocrSource = 'tesseract';
+        } elseif ($preScreen['decision'] === 'use_vision') {
+            $ocrResult = extractTextFromImage($filePath);
+            $ocrSource = 'vision';
+        }
+        $ocrText = $ocrResult['text'] ?? '';
+        $parsed = [];
+        $suggestions = [];
+        if ($ocrResult['success'] && !empty($ocrText)) {
+            $parsed      = parseReceiptText($ocrText, $ocrResult['raw_response'] ?? null);
+            $suggestions = suggestReceiptMeta($ocrText, null, null, null);
+            if (!empty($suggestions['vendor_id'])) {
+                $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
+                $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
+            }
+        }
+        echo json_encode([
+            'success'       => true,
+            'media_id'      => $rescanMediaId,
+            'ocr_available' => $ocrResult['success'],
+            'ocr_source'    => $ocrSource,
+            'ocr_text'      => $ocrText,
+            'parsed'        => $parsed,
+            'suggestions'   => $suggestions,
+        ]);
+        exit;
+    }
+
     // Validate file
     if (empty($_FILES['receipt_photo']) || $_FILES['receipt_photo']['error'] !== UPLOAD_ERR_OK) {
         $errCode = $_FILES['receipt_photo']['error'] ?? UPLOAD_ERR_NO_FILE;

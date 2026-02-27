@@ -1045,16 +1045,53 @@ function handleBudgetStatus(PDO $db): void
 {
     require_once APP_ROOT . '/Services/Receipts/BudgetService.php';
 
-    $month = $_GET['month'] ?? date('Y-m-01');
-    // Normalize to first of month
-    $month = date('Y-m-01', strtotime($month));
+    $month = $_GET['month'] ?? date('Y-m');
+    // Normalise to YYYY-MM
+    $monthKey = date('Y-m', strtotime($month . '-01'));
+    $monthStart = $monthKey . '-01';
+    $monthEnd   = date('Y-m-t', strtotime($monthStart));
 
-    $variances = getAllBudgetVariances($month, $db);
+    // Get budget-configured variances first
+    $variances = getAllBudgetVariances($monthKey, $db);
+
+    // Also get actual spending by category for this month (regardless of budgets)
+    // This powers the "no budget set" cards — show spend even without a limit
+    $spendStmt = $db->prepare("
+        SELECT accounting_category AS category,
+               SUM(total) AS spent,
+               COUNT(*) AS expense_count
+        FROM expenses
+        WHERE expense_date BETWEEN ? AND ?
+          AND accounting_category IS NOT NULL
+          AND accounting_category != ''
+          AND status != 'rejected'
+        GROUP BY accounting_category
+        ORDER BY spent DESC
+    ");
+    $spendStmt->execute([$monthStart, $monthEnd]);
+    $spendRows = $spendStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Merge: categories with budgets already have full variance info.
+    // For categories without budgets, synthesize a "spend-only" card.
+    $budgetCategories = array_column($variances, 'category');
+    foreach ($spendRows as $row) {
+        if (!in_array($row['category'], $budgetCategories, true)) {
+            $variances[] = [
+                'category'      => $row['category'],
+                'budget'        => null,          // no limit set
+                'spent'         => (float)$row['spent'],
+                'remaining'     => null,
+                'pct'           => null,
+                'status'        => 'no_budget',
+                'expense_count' => (int)$row['expense_count'],
+            ];
+        }
+    }
 
     echo json_encode([
-        'success'   => true,
-        'month'     => $month,
-        'budgets'   => $variances,
+        'success' => true,
+        'month'   => $monthKey,
+        'budgets' => $variances,
     ]);
 }
 
@@ -1433,14 +1470,38 @@ function handleRescan(PDO $db, ?array $input, array $user): void
         $upd->execute([$rawJson, $expenseId]);
     }
 
+    // Re-persist line items from fresh parse — clear old OCR-derived items
+    // (keep items that already have a product link, those were manually verified)
+    $freshItems = $parsed['line_items'] ?? [];
+    if (!empty($freshItems)) {
+        // Delete only unlinked line items (no product_id) — preserve manually linked ones
+        $delUnlinked = $db->prepare("DELETE FROM expense_line_items WHERE expense_id = ? AND product_id IS NULL");
+        $delUnlinked->execute([$expenseId]);
+        // Insert fresh items (they start unlinked; office can re-link via Link button)
+        saveLineItems($db, $expenseId, $freshItems);
+        // Re-fetch stored items to return accurate line_items_stored data
+        $liStmt = $db->prepare("
+            SELECT eli.*, p.name AS product_name, p.sku AS product_sku
+            FROM expense_line_items eli
+            LEFT JOIN products p ON p.id = eli.product_id
+            WHERE eli.expense_id = ?
+            ORDER BY eli.sort_order, eli.id
+        ");
+        $liStmt->execute([$expenseId]);
+        $storedItems = $liStmt->fetchAll(PDO::FETCH_ASSOC);
+        $parsed['line_items'] = $storedItems;
+        $parsed['line_items_stored'] = true;
+    }
+
     echo json_encode([
-        'success'       => true,
-        'ocr_available' => $ocrAvailable,
-        'ocr_source'    => $ocrSource,
-        'ocr_text'      => $ocrText,
-        'parsed'        => $parsed,
-        'suggestions'   => $suggestions,
-        'pre_screen'    => $preScreen,
+        'success'            => true,
+        'ocr_available'      => $ocrAvailable,
+        'ocr_source'         => $ocrSource,
+        'ocr_text'           => $ocrText,
+        'parsed'             => $parsed,
+        'suggestions'        => $suggestions,
+        'pre_screen'         => $preScreen,
+        'line_items_stored'  => !empty($freshItems),
     ]);
 }
 

@@ -89,6 +89,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <img id="receiptPreviewImg" src="" alt="Receipt" class="mw-receipt-preview-img">
                 </div>
                 <div id="ocrStatusBadge" class="mt-2 text-center"></div>
+                <?php if ($canEdit): ?>
+                <div class="text-center mt-1" id="rvRescanArea" style="display:none;">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="rvRescanBtn" onclick="rescanFromReview()">
+                        <i data-feather="refresh-cw" style="width:12px;height:12px;margin-right:3px;"></i> Rescan
+                    </button>
+                    <small class="text-muted d-block mt-1" style="font-size:.7rem;">Re-run OCR if items weren't detected</small>
+                </div>
+                <?php endif; ?>
             </div>
             <!-- Right: Pre-filled Form -->
             <div class="col-md-7">
@@ -1537,14 +1545,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('intakeOcrText').value = data.ocr_text || '';
         document.getElementById('intakeOcrParsed').value = data.parsed ? JSON.stringify(data.parsed) : '';
 
-        // OCR status badge
-        var statusEl = document.getElementById('ocrStatusBadge');
+        // OCR status badge + show rescan button
+        var statusEl   = document.getElementById('ocrStatusBadge');
+        var rescanArea = document.getElementById('rvRescanArea');
         if (data.ocr_available && data.ocr_text) {
-            statusEl.innerHTML = '<span class="badge bg-success">OCR extracted text</span>';
+            var srcLabel = data.ocr_source === 'tesseract' ? ' (local)' : data.ocr_source === 'vision' ? ' (AI)' : '';
+            statusEl.innerHTML = '<span class="badge bg-success">OCR extracted' + srcLabel + '</span>';
+            if (rescanArea) rescanArea.style.display = 'block';
         } else if (data.ocr_available && !data.ocr_text) {
             statusEl.innerHTML = '<span class="badge bg-warning text-dark">No text detected</span>';
+            if (rescanArea) rescanArea.style.display = 'block';
         } else {
-            statusEl.innerHTML = '<span class="badge bg-secondary">OCR not available — fill manually</span>';
+            statusEl.innerHTML = '<span class="badge bg-secondary">OCR unavailable — fill manually</span>';
+            if (rescanArea) rescanArea.style.display = 'none';
         }
 
         // Pre-fill form from parsed + suggestions
@@ -4283,6 +4296,78 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         } catch(e) { alert('Unlink failed: ' + e.message); }
     };
 
+    // ── Rescan from Review Panel (re-OCR before saving) ────────────
+    // Uses the expense API's rescan action against the already-saved expense.
+    // Falls back to re-invoking the intake endpoint if the expense isn't saved yet.
+    window.rescanFromReview = async function() {
+        var mediaId = document.getElementById('intakeMediaId').value;
+        if (!mediaId) return;
+        var btn = document.getElementById('rvRescanBtn');
+        var origHtml = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Scanning…'; }
+        try {
+            // Re-POST to receipt-intake with existing media_id to re-run OCR pipeline
+            var formData = new FormData();
+            formData.append('csrf_token', CSRF);
+            formData.append('rescan_media_id', mediaId);
+            var r = await fetch('/crm/api/receipt-intake.php', { method: 'POST', body: formData });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Rescan failed');
+
+            // Update OCR badge
+            var statusEl = document.getElementById('ocrStatusBadge');
+            if (d.ocr_available && d.ocr_text) {
+                var srcLabel = d.ocr_source === 'tesseract' ? ' (local)' : d.ocr_source === 'vision' ? ' (AI)' : '';
+                statusEl.innerHTML = '<span class="badge bg-success">OCR extracted' + srcLabel + '</span>';
+            }
+
+            // Re-fill form fields (only blank fields — don't clobber manual edits)
+            var p = d.parsed || {};
+            var s = d.suggestions || {};
+            if (p.date    && !document.getElementById('rvDate').value)   document.getElementById('rvDate').value   = safeDate(p.date);
+            if (p.total   && !document.getElementById('rvTotal').value)  document.getElementById('rvTotal').value  = p.total;
+            if (p.gst     && !document.getElementById('rvGst').value)    document.getElementById('rvGst').value    = p.gst;
+            if (p.subtotal && !document.getElementById('rvAmount').value) document.getElementById('rvAmount').value = p.subtotal;
+            if (s.vendor_name && !document.getElementById('rvVendorSearch').value) {
+                document.getElementById('rvVendorSearch').value = s.vendor_name;
+                document.getElementById('rvVendorId').value    = s.vendor_id || '';
+            }
+            if (s.accounting_category && !document.getElementById('rvAcctCategory').value)
+                document.getElementById('rvAcctCategory').value = s.accounting_category;
+
+            // Update stored OCR text
+            document.getElementById('intakeOcrText').value   = d.ocr_text || '';
+            document.getElementById('intakeOcrParsed').value = d.parsed ? JSON.stringify(d.parsed) : '';
+
+            // Refresh line items in review panel
+            var lineItems = (p.line_items) ? p.line_items : [];
+            window.currentReviewLineItems = lineItems;
+            var liSection = document.getElementById('rvLineItemsSection');
+            var liList    = document.getElementById('rvLineItemsList');
+            if (lineItems.length > 0 && liSection && liList) {
+                document.getElementById('rvLineItemsCount').textContent = lineItems.length;
+                liList.querySelector('table').innerHTML = renderLineItemsTable(lineItems, false);
+                liSection.style.display = 'block';
+            }
+            if (window.feather) feather.replace();
+
+            if (btn) {
+                btn.innerHTML = '<i data-feather="check" style="width:12px;height:12px;margin-right:3px;"></i> Updated';
+                btn.classList.replace('btn-outline-secondary', 'btn-outline-success');
+                if (window.feather) feather.replace();
+                setTimeout(function() {
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                    btn.classList.replace('btn-outline-success', 'btn-outline-secondary');
+                    if (window.feather) feather.replace();
+                }, 2500);
+            }
+        } catch(err) {
+            alert('Rescan failed: ' + err.message);
+            if (btn) { btn.disabled = false; btn.innerHTML = origHtml; if (window.feather) feather.replace(); }
+        }
+    };
+
     // ── Rescan Receipt ──────────────────────────────────────────────
     window.rescanReceipt = async function() {
         var expId = document.getElementById('expenseId').value;
@@ -4315,26 +4400,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 if (cf && !cf.value) cf.value = d.suggestions.accounting_category;
             }
 
-            // Update line items table from rescan results
+            // Update line items table — items are now persisted server-side,
+            // so render with stored=true to show Link buttons immediately
             var lineItems = (d.parsed && d.parsed.line_items) ? d.parsed.line_items : [];
-            var tableEl = document.getElementById('expLineItemsTable');
-            var countEl = document.getElementById('expLineItemsCount');
-            if (tableEl) tableEl.innerHTML = renderLineItemsTable(lineItems, false);
+            var isStored  = d.line_items_stored || false;
+            var tableEl   = document.getElementById('expLineItemsTable');
+            var countEl   = document.getElementById('expLineItemsCount');
+            if (tableEl) tableEl.innerHTML = renderLineItemsTable(lineItems, isStored);
             if (countEl) countEl.textContent = lineItems.length || '0';
-            if (window.feather) feather.replace();
 
             // Show a brief success badge on the button
+            var itemLabel = lineItems.length ? ' · ' + lineItems.length + ' item' + (lineItems.length !== 1 ? 's' : '') : '';
             if (btn) {
-                btn.innerHTML = '<i data-feather="check" style="width:12px;height:12px;margin-right:3px;"></i> Done';
+                btn.innerHTML = '<i data-feather="check" style="width:12px;height:12px;margin-right:3px;"></i> Done' + itemLabel;
                 btn.classList.replace('btn-outline-secondary', 'btn-outline-success');
+                if (window.feather) feather.replace();
                 setTimeout(function() {
                     btn.innerHTML = origHtml;
                     btn.disabled = false;
                     btn.classList.replace('btn-outline-success', 'btn-outline-secondary');
                     if (window.feather) feather.replace();
-                    // Fully reload the expense to show stored line items with Link buttons
-                    editExpense(parseInt(expId));
-                }, 1800);
+                }, 3000);
+            } else {
+                if (window.feather) feather.replace();
             }
         } catch(err) {
             alert('Rescan error: ' + err.message);
@@ -4523,17 +4611,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             cardsEl.innerHTML = d.budgets.map(function(b) {
                 var pct = parseFloat(b.pct || 0);
-                var barClass = b.status === 'critical' ? 'bg-danger' : b.status === 'warning' ? 'bg-warning' : 'bg-success';
+                var isNoBudget = b.status === 'no_budget';
+                var barClass = b.status === 'critical' ? 'bg-danger' : b.status === 'warning' ? 'bg-warning' : isNoBudget ? 'bg-secondary' : 'bg-success';
+                var spentLabel = '$' + parseFloat(b.spent || 0).toFixed(0);
+                var budgetLabel = isNoBudget ? '<span class="text-muted" style="font-size:0.7rem;">no limit</span>' : ('/ $' + parseFloat(b.budget).toFixed(0));
                 return '<div class="col-md-3 col-6 mb-2">' +
                     '<div class="card mw-budget-card">' +
                         '<div class="card-body py-2 px-3">' +
-                            '<div class="d-flex justify-content-between">' +
+                            '<div class="d-flex justify-content-between align-items-center">' +
                                 '<small class="text-muted">' + esc(b.category) + '</small>' +
-                                '<small class="fw-bold">$' + parseFloat(b.spent).toFixed(0) + ' / $' + parseFloat(b.budget).toFixed(0) + '</small>' +
+                                '<small class="fw-bold">' + spentLabel + ' ' + budgetLabel + '</small>' +
                             '</div>' +
-                            '<div class="progress mt-1" style="height:6px;">' +
-                                '<div class="progress-bar ' + barClass + '" style="width:' + Math.min(pct, 100) + '%;"></div>' +
-                            '</div>' +
+                            (isNoBudget
+                                ? '<div class="mt-1" style="height:6px;background:#e9ecef;border-radius:3px;"><div style="width:100%;height:100%;background:#6c757d;border-radius:3px;opacity:0.4;"></div></div>'
+                                : '<div class="progress mt-1" style="height:6px;"><div class="progress-bar ' + barClass + '" style="width:' + Math.min(pct, 100) + '%;"></div></div>'
+                            ) +
                         '</div>' +
                     '</div>' +
                 '</div>';
