@@ -82,12 +82,22 @@ function getWeatherForecast(string $city = 'Vancouver', string $province = 'BC',
 }
 
 /**
- * Get 7-day forecast for location (returns cached object)
- * Cache key format: weather_week_vancouver_bc
+ * Get 7-day forecast for location (page-load safe — never blocks on live API).
+ * Returns stale cached data if available; only fetches live on first ever load.
+ * Use getWeekForecastFresh() in crons to force an actual API refresh.
  */
 function getWeekForecast(string $city = 'Vancouver', string $province = 'BC'): array
 {
-    return getWeekForecastCached($city, $province);
+    return getWeekForecastCached($city, $province, true);
+}
+
+/**
+ * Force-refresh the 7-day forecast from live APIs regardless of cache state.
+ * Use this in cron jobs to keep the cache populated. Never call from page loads.
+ */
+function getWeekForecastFresh(string $city = 'Vancouver', string $province = 'BC'): array
+{
+    return getWeekForecastCached($city, $province, false);
 }
 
 /**
@@ -95,13 +105,17 @@ function getWeekForecast(string $city = 'Vancouver', string $province = 'BC'): a
  * Uses Environment Canada as primary source (matches Weather Network),
  * with Open-Meteo filling in days 4-7 that EC doesn't cover.
  * Caches the merged result for 1 hour.
+ *
+ * @param bool $allowStale When true, returns expired cache data rather than
+ *   blocking on a live API call. Use this for page loads. The weather cron
+ *   (getWeekForecastFresh) handles actual cache refreshes.
  */
-function getWeekForecastCached(string $city = 'Vancouver', string $province = 'BC'): array
+function getWeekForecastCached(string $city = 'Vancouver', string $province = 'BC', bool $allowStale = false): array
 {
     $cacheKey = "weather_week_" . strtolower($city) . "_" . strtolower($province);
 
-    // Try cache first
-    $cached = getWeatherCache($cacheKey);
+    // Try cache first (stale data accepted on page loads to avoid blocking)
+    $cached = getWeatherCache($cacheKey, $allowStale);
     if ($cached !== null) {
         $decoded = json_decode($cached, true);
         if (is_array($decoded) && !empty($decoded)) {
@@ -626,7 +640,7 @@ function wmoCodeToCondition(int $code): string
 /**
  * Get weather cache
  */
-function getWeatherCache(string $key): ?string
+function getWeatherCache(string $key, bool $returnStaleData = false): ?string
 {
     ensureCacheDirectory(WEATHER_CACHE_DIR);
 
@@ -641,6 +655,11 @@ function getWeatherCache(string $key): ?string
     if (file_exists($expFile)) {
         $expiry = (int)file_get_contents($expFile);
         if ($expiry <= time()) {
+            if ($returnStaleData) {
+                // Return stale data rather than blocking on a live API call.
+                // The weather cron will refresh this on its next run.
+                return file_get_contents($cacheFile);
+            }
             @unlink($cacheFile);
             @unlink($expFile);
             return null;

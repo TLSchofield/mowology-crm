@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v17';
+var CACHE_VERSION = 'mw-v18';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -74,7 +74,10 @@ self.addEventListener('install', function(event) {
   event.waitUntil(
     Promise.all([
       caches.open(SHELL_CACHE).then(function(cache) {
-        return cache.addAll(APP_SHELL);
+        // Cache each asset individually — one 404 won't abort the whole install
+        return Promise.all(APP_SHELL.map(function(url) {
+          return cache.add(url).catch(function() { /* skip, will fetch on demand */ });
+        }));
       }),
       caches.open(PAGE_CACHE).then(function(cache) {
         // Warm the schedule pages — best-effort, don't fail install if offline

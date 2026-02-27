@@ -391,8 +391,8 @@ function runSaltAlerts(PDO $db): array
         $alert48hr = $config['alert_48hr'] ?? true;
         $alert24hr = $config['alert_24hr'] ?? true;
 
-        // Get 7-day forecast
-        $weekForecast = getWeekForecast('Vancouver', 'BC');
+        // Get 7-day forecast — force-refresh from live API (cron, not page load)
+        $weekForecast = getWeekForecastFresh('Vancouver', 'BC');
 
         // Determine which days need salting
         $saltDays = [];
