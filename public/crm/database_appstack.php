@@ -378,7 +378,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <p class="mw-cron-desc">Generate future visits 42 days ahead for all active recurring plans. Removed from schedule.php page load in Phase 1.</p>
                         <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-1">php /home/mowology/app/Modules/Jobs/Cron/generate_visits.php</code>
+                            <code class="mw-cron-command" id="cmd-1">/usr/local/bin/php /home/mowology/public_html/app/Modules/Jobs/Cron/generate_visits.php</code>
                             <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-1').textContent)" title="Copy to clipboard">
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
@@ -419,7 +419,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <p class="mw-cron-desc">Roll past-due recurring visits forward 1 day. Cleans up orphaned calendar stops afterward.</p>
                         <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-2">php /home/mowology/app/Modules/Jobs/Cron/auto_rollover.php</code>
+                            <code class="mw-cron-command" id="cmd-2">/usr/local/bin/php /home/mowology/public_html/app/Modules/Jobs/Cron/auto_rollover.php</code>
                             <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-2').textContent)" title="Copy to clipboard">
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
@@ -460,7 +460,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <p class="mw-cron-desc">Evaluate upcoming visits against weather forecasts. Auto-reschedules NOT_OK visits and sends SMS salt alerts for freezing/snow conditions.</p>
                         <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-3">php /home/mowology/app/Modules/Jobs/Cron/weather_schedule_guard.php</code>
+                            <code class="mw-cron-command" id="cmd-3">/usr/local/bin/php /home/mowology/public_html/app/Modules/Jobs/Cron/weather_schedule_guard.php</code>
                             <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-3').textContent)" title="Copy to clipboard">
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
@@ -501,7 +501,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <p class="mw-cron-desc">Capture live DB structure (tables, columns, indexes, FKs) to storage for drift detection and schema authority.</p>
                         <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-4">php /home/mowology/crm/cron/schema_snapshot.php</code>
+                            <code class="mw-cron-command" id="cmd-4">/usr/local/bin/php /home/mowology/public_html/crm/cron/schema_snapshot.php</code>
                             <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-4').textContent)" title="Copy to clipboard">
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
@@ -542,7 +542,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <p class="mw-cron-desc">Refresh contact&rarr;product history table, lifecycle stages, last service date, and total lifetime value from quotes and plans.</p>
                         <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-5">php /home/mowology/crm/cron/refresh_purchase_history.php</code>
+                            <code class="mw-cron-command" id="cmd-5">/usr/local/bin/php /home/mowology/public_html/crm/cron/refresh_purchase_history.php</code>
                             <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-5').textContent)" title="Copy to clipboard">
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
@@ -583,7 +583,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <p class="mw-cron-desc">Read Google Search Console query stats (last 28 days), score opportunities, generate and update SEO recommendations.</p>
                         <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-6">php /home/mowology/crm/cron/seo_recommendations.php</code>
+                            <code class="mw-cron-command" id="cmd-6">/usr/local/bin/php /home/mowology/public_html/crm/cron/seo_recommendations.php</code>
                             <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-6').textContent)" title="Copy to clipboard">
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
@@ -624,7 +624,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <p class="mw-cron-desc">Aggregate monthly expense averages per accounting category (last 2 years) into baselines used by the anomaly detector.</p>
                         <div class="mw-cron-command-wrap mb-3">
-                            <code class="mw-cron-command" id="cmd-7">php /home/mowology/crm/cron/expense_baselines.php</code>
+                            <code class="mw-cron-command" id="cmd-7">/usr/local/bin/php /home/mowology/public_html/crm/cron/expense_baselines.php</code>
                             <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-7').textContent)" title="Copy to clipboard">
                                 <i data-feather="clipboard" style="width:13px;height:13px;"></i>
                             </button>
