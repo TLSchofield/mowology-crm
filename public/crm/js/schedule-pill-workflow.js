@@ -710,10 +710,11 @@
                 } else if (category === 'during') {
                     if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
                 } else if (category === 'additional') {
-                    if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
-                    if (thumbUrl) visits[visitId].additionalThumbs.push(thumbUrl);
+                    // additionalThumbs was already updated in doUploadPhoto() — don't double-push.
+                    // Skip showThumbConfirmation: the drawer overlay blocks the "+" button for 1.5s
+                    // making it impossible to snap a second additional photo in quick succession.
+                    // Just re-render the strip (shows new thumb) and flash brief pill feedback.
                     renderPhotoStrip(visitId);
-                    if (thumbUrl) showThumbConfirmation(card, thumbUrl, 'Photo', visitId, null);
                 }
             });
         };
