@@ -810,6 +810,11 @@ try {
             $db->query("SHOW COLUMNS FROM product_bundles LIKE 'image_url'")
                ->rowCount() === 0 && $db->exec("ALTER TABLE product_bundles ADD COLUMN image_url varchar(500) DEFAULT NULL AFTER description");
         } catch (Exception $e) { /* ignore */ }
+        // Ensure is_obsidian_root column exists
+        try {
+            $db->query("SHOW COLUMNS FROM product_bundles LIKE 'is_obsidian_root'")
+               ->rowCount() === 0 && $db->exec("ALTER TABLE product_bundles ADD COLUMN is_obsidian_root TINYINT(1) NOT NULL DEFAULT 0");
+        } catch (Exception $e) { /* ignore */ }
 
         $stmt = $db->query("
             SELECT b.*, GROUP_CONCAT(bi.product_id ORDER BY bi.sort_order) as product_ids
@@ -936,6 +941,15 @@ try {
                 $db->prepare("UPDATE product_bundles SET application_count = ?, seasonal_schedule = ? WHERE id = ?")
                    ->execute([$appCount, $seasonalJson, $bundleId]);
             }
+
+            // Set is_obsidian_root flag if column exists
+            try {
+                if ($db->query("SHOW COLUMNS FROM product_bundles LIKE 'is_obsidian_root'")->rowCount() > 0) {
+                    $isOR = isset($data['is_obsidian_root']) ? (int)$data['is_obsidian_root'] : 0;
+                    $db->prepare("UPDATE product_bundles SET is_obsidian_root = ? WHERE id = ?")
+                       ->execute([$isOR, $bundleId]);
+                }
+            } catch (Exception $e) { /* ignore */ }
 
             // Insert bundle items
             if (!empty($data['items']) && is_array($data['items'])) {

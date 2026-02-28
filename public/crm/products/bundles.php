@@ -151,6 +151,17 @@ $activePage = 'products';
                   </label>
                 </div>
 
+                <!-- Obsidian Root™ Program Flag -->
+                <div class="form-group mt-2">
+                  <div class="mw-or-program-box">
+                    <label class="mw-product-checkbox-label d-flex align-items-center gap-2 mb-1">
+                      <input type="checkbox" id="bundleIsObsidianRoot" style="width:16px;height:16px;flex-shrink:0;">
+                      <strong>Obsidian Root™ Program</strong>
+                    </label>
+                    <p class="text-muted small mb-0" style="padding-left:20px;">Mark this bundle as an Obsidian Root™ fertilizer/chemical program. The icon appears on stop cards and bundle listings.</p>
+                  </div>
+                </div>
+
                 <!-- Fertilizer / Prepaid Bundle Schedule -->
                 <div class="form-group mt-3">
                   <label class="d-flex align-items-center gap-2 mb-2">
@@ -438,6 +449,7 @@ function renderBundles(bundles) {
               <h5 class="card-title mb-1">${escHtml(b.bundle_name)}</h5>
               <span class="badge badge-${tierColor}">${escHtml(tierLabel)}</span>
               ${!b.is_active ? '<span class="badge badge-secondary ml-1">Inactive</span>' : ''}
+              ${parseInt(b.is_obsidian_root) ? '<span class="mw-or-program-badge ml-1" title="Obsidian Root™ Program"><span style="font-size:.75rem;">●</span> Obsidian Root™</span>' : ''}
             </div>
             <div class="btn-group btn-group-sm">
               <button class="btn btn-outline-secondary btn-sm" onclick="editBundle(${b.id})" title="Edit">
@@ -500,8 +512,9 @@ function openBundleModal(existingBundle) {
   document.getElementById('bundleTier').value        = existingBundle ? existingBundle.tier  : 'custom';
   document.getElementById('discountType').value      = existingBundle ? existingBundle.discount_type  : 'percentage';
   document.getElementById('discountValue').value     = existingBundle ? existingBundle.discount_value : '0';
-  document.getElementById('bundleActive').checked    = existingBundle ? !!parseInt(existingBundle.is_active) : true;
-  document.getElementById('productSearch').value     = '';
+  document.getElementById('bundleActive').checked          = existingBundle ? !!parseInt(existingBundle.is_active) : true;
+  document.getElementById('bundleIsObsidianRoot').checked  = existingBundle ? !!parseInt(existingBundle.is_obsidian_root) : false;
+  document.getElementById('productSearch').value           = '';
 
   // Prepaid bundle / seasonal schedule
   const isPrepaid = existingBundle && parseInt(existingBundle.application_count) > 0;
@@ -885,6 +898,7 @@ function saveBundle() {
     discount_type:     document.getElementById('discountType').value,
     discount_value:    parseFloat(document.getElementById('discountValue').value) || 0,
     is_active:         document.getElementById('bundleActive').checked ? 1 : 0,
+    is_obsidian_root:  document.getElementById('bundleIsObsidianRoot').checked ? 1 : 0,
     application_count: isPrepaid ? appCount : null,
     seasonal_schedule: isPrepaid && seasonalSchedule.length ? JSON.stringify(seasonalSchedule) : null,
     items:             bundleItems.map((item, idx) => ({

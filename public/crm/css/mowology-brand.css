@@ -17061,6 +17061,35 @@ textarea.font-monospace {
     border-color: var(--mw-green);
 }
 
+/* ── Obsidian Root™ Program — bundle card badge ── */
+.mw-or-program-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: .7rem;
+    font-weight: 700;
+    color: #c00;
+    letter-spacing: .04em;
+    background: rgba(204,0,0,.07);
+    border: 1px solid rgba(204,0,0,.2);
+    border-radius: 6px;
+    padding: 2px 7px 2px 4px;
+    white-space: nowrap;
+}
+.mw-or-program-badge img {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+    display: block;
+}
+/* Toggle box in create/edit modal */
+.mw-or-program-box {
+    border: 1px solid rgba(204,0,0,.15);
+    border-radius: 6px;
+    padding: .65rem .85rem;
+    background: rgba(204,0,0,.03);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    MOBILE PREVIEW — Device Frame Simulator
    Page: /crm/mobile-preview_appstack.php
