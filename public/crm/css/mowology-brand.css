@@ -18186,3 +18186,198 @@ textarea.font-monospace {
         grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
     }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Marketing Automation Engine — Section Tabs, Automations, Analytics, Opt-In
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Section navigation tabs ──────────────────────────────────────────── */
+.mw-marketing-tabs { border-bottom: 2px solid #e2e8f0; }
+.mw-marketing-tabs .nav-link {
+    color: #64748b;
+    border: none;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.15s;
+}
+.mw-marketing-tabs .nav-link:hover { color: var(--mw-green); text-decoration: none; }
+.mw-marketing-tabs .nav-link.active {
+    color: var(--mw-green);
+    border-bottom-color: var(--mw-green);
+    background: none;
+}
+
+/* ── Automation cards grid ────────────────────────────────────────────── */
+.mw-auto-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 1rem;
+}
+.mw-auto-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1rem;
+    transition: box-shadow 0.15s, border-color 0.15s;
+}
+.mw-auto-card--enabled { border-left-color: var(--mw-green); }
+.mw-auto-card--disabled { border-left-color: #cbd5e1; opacity: 0.75; }
+.mw-auto-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+
+.mw-auto-card-header { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.75rem; }
+.mw-auto-card-info { flex: 1; min-width: 0; }
+.mw-auto-card-name { margin: 0 0 4px; font-size: 0.95rem; font-weight: 600; color: #1a202c; }
+.mw-auto-card-desc { margin: 4px 0 0; font-size: 0.78rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.mw-auto-trigger-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: var(--mw-light);
+    color: var(--mw-dark);
+    border-radius: 20px;
+}
+
+.mw-auto-card-stats {
+    display: flex;
+    gap: 1.5rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid #f1f5f9;
+    border-bottom: 1px solid #f1f5f9;
+    margin-bottom: 0.75rem;
+}
+.mw-auto-card-stats .num { font-size: 1rem; font-weight: 700; color: #1a202c; display: block; }
+.mw-auto-card-stats .lbl { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
+
+/* ── Toggle switch ────────────────────────────────────────────────────── */
+.mw-toggle-switch {
+    width: 36px; height: 20px;
+    background: #cbd5e1;
+    border-radius: 20px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.mw-toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 14px; height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    transition: left 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.mw-toggle-switch.on { background: var(--mw-green); }
+.mw-toggle-switch.on::after { left: 19px; }
+
+/* ── Rule builder sections ───────────────────────────────────────────── */
+.mw-rule-section {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+.mw-rule-section-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--mw-dark);
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.mw-rule-row { flex-wrap: wrap; gap: 4px; }
+.mw-rule-action-row {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 0.75rem;
+}
+
+/* ── Analytics cards ─────────────────────────────────────────────────── */
+.mw-analytics-card {
+    border-left: 4px solid var(--mw-green);
+    transition: box-shadow 0.15s;
+}
+.mw-analytics-card.revenue { border-left-color: var(--mw-orange); }
+.mw-analytics-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.mw-anl-num { font-size: 1.6rem; font-weight: 700; color: #1a202c; line-height: 1.2; }
+.mw-anl-lbl { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
+
+/* ── Conversion funnel ───────────────────────────────────────────────── */
+.mw-funnel { padding: 4px 0; }
+.mw-funnel-stage { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+.mw-funnel-bar {
+    height: 28px;
+    background: var(--mw-green);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    transition: width 0.4s ease;
+    min-width: 32px;
+}
+.mw-funnel-count { color: #fff; font-size: 0.8rem; font-weight: 600; }
+.mw-funnel-label { font-size: 0.85rem; color: #475569; white-space: nowrap; }
+
+/* ── Hour-of-day chart ───────────────────────────────────────────────── */
+.mw-hourly-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 120px;
+    padding-bottom: 20px;
+    position: relative;
+}
+.mw-hour-bar {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    height: 100%;
+    position: relative;
+    cursor: default;
+}
+.mw-hour-fill {
+    width: 100%;
+    background: var(--mw-green);
+    border-radius: 2px 2px 0 0;
+    transition: height 0.3s;
+    min-height: 2px;
+}
+.mw-hour-lbl {
+    position: absolute;
+    bottom: -18px;
+    font-size: 0.55rem;
+    color: #94a3b8;
+    white-space: nowrap;
+    transform: rotate(-45deg);
+    transform-origin: top left;
+}
+
+/* ── Period selector buttons ─────────────────────────────────────────── */
+.mw-period-btn.active { background: var(--mw-green); color: #fff; border-color: var(--mw-green); }
+
+/* ── Responsive adjustments ──────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .mw-auto-grid { grid-template-columns: 1fr; }
+    .mw-marketing-tabs .nav-link { padding: 0.4rem 0.6rem; font-size: 0.8rem; }
+    .mw-anl-num { font-size: 1.3rem; }
+}
