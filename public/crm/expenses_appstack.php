@@ -19,7 +19,7 @@ $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260217" rel="stylesheet">'
-           . '<script src="/crm/js/offline-receipts.js?v=20260217" defer></script>';
+           . '<script src="/crm/js/offline-receipts.js?v=20260227" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -1476,55 +1476,67 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         compressReceiptImage(file).then(function(uploadFile) {
             if (spinLabel) spinLabel.textContent = 'Uploading…';
 
-            var formData = new FormData();
-            formData.append('receipt_photo', uploadFile);
-            formData.append('csrf_token', CSRF);
-            if (currentGpsLat !== null) formData.append('lat', currentGpsLat);
-            if (currentGpsLng !== null) formData.append('lng', currentGpsLng);
+            // Save to IDB before attempting upload — photo survives any network failure
+            var idbId = null;
+            var preQueue = window.OfflineReceipts
+                ? OfflineReceipts.queue(uploadFile, currentGpsLat, currentGpsLng, CSRF)
+                    .then(function(id) { idbId = id; })
+                    .catch(function() { /* IDB unavailable — proceed without local backup */ })
+                : Promise.resolve();
 
-            fetch('/crm/api/receipt-intake.php', {
-                method: 'POST',
-                body: formData,
-            })
-            .then(function(r) {
-                return r.json().catch(function() {
-                    throw new Error('Server returned an unexpected response (status ' + r.status + '). Please try again.');
-                });
-            })
-            .then(function(data) {
-                if (!data.success) throw new Error(data.error || 'Upload failed');
+            preQueue.then(function() {
+                var formData = new FormData();
+                formData.append('receipt_photo', uploadFile);
+                formData.append('csrf_token', CSRF);
+                if (currentGpsLat !== null) formData.append('lat', currentGpsLat);
+                if (currentGpsLng !== null) formData.append('lng', currentGpsLng);
 
-                // Phase 2.2: Check if OCR is async (processing) or sync (ready)
-                if (data.ocr_status === 'processing') {
-                    // File stored, OCR running in background — start polling
-                    if (spinLabel) spinLabel.textContent = 'Analyzing receipt…';
-                    pollOcrStatus(data.media_id, uploadFile, 0);
-                } else {
-                    // Synchronous response (OCR complete or not available) — show immediately
-                    if (typeof haptic === 'function') haptic('save');
-                    showReviewPanel(data, uploadFile);
-                }
-            })
-            .catch(function(err) {
-                // Offline? Queue for later upload
-                if (!navigator.onLine && window.OfflineReceipts) {
-                    OfflineReceipts.queue(uploadFile, currentGpsLat, currentGpsLng, CSRF).then(function() {
-                        if (typeof haptic === 'function') haptic('save');
-                        alert('You\'re offline. Receipt queued and will upload automatically when you reconnect.');
-                        resetCapture();
-                        mobileResetReview();
-                        OfflineReceipts.updatePendingBadge();
-                    }).catch(function() {
-                        alert('Error: Could not queue receipt. ' + err.message);
-                        resetCapture();
-                        mobileResetReview();
+                fetch('/crm/api/receipt-intake.php', {
+                    method: 'POST',
+                    body: formData,
+                })
+                .then(function(r) {
+                    return r.json().catch(function() {
+                        throw new Error('Server returned an unexpected response (status ' + r.status + '). Please try again.');
                     });
-                } else {
-                    if (typeof haptic === 'function') haptic('error');
-                    alert('Error: ' + err.message);
-                    resetCapture();
-                    mobileResetReview();
-                }
+                })
+                .then(function(data) {
+                    if (!data.success) throw new Error(data.error || 'Upload failed');
+
+                    // Server confirmed — remove local IDB backup (no longer needed)
+                    if (idbId !== null && window.OfflineReceipts && OfflineReceipts.remove) {
+                        OfflineReceipts.remove(idbId);
+                    }
+
+                    // Phase 2.2: Check if OCR is async (processing) or sync (ready)
+                    if (data.ocr_status === 'processing') {
+                        // File stored, OCR running in background — start polling
+                        if (spinLabel) spinLabel.textContent = 'Analyzing receipt…';
+                        pollOcrStatus(data.media_id, uploadFile, 0);
+                    } else {
+                        // Synchronous response (OCR complete or not available) — show immediately
+                        if (typeof haptic === 'function') haptic('save');
+                        showReviewPanel(data, uploadFile);
+                    }
+                })
+                .catch(function(err) {
+                    // Upload failed — photo is already saved in IDB if available
+                    if (idbId !== null && window.OfflineReceipts) {
+                        if (typeof haptic === 'function') haptic('save');
+                        OfflineReceipts.updatePendingBadge();
+                        var msg = navigator.onLine
+                            ? 'Upload failed. Photo saved locally — tap "Retry" when ready.'
+                            : 'You\'re offline. Receipt saved locally and will upload automatically when you reconnect.';
+                        alert(msg);
+                        resetCapture();
+                        mobileResetReview();
+                    } else {
+                        if (typeof haptic === 'function') haptic('error');
+                        alert('Error: ' + err.message);
+                        resetCapture();
+                        mobileResetReview();
+                    }
+                });
             });
         });
     }

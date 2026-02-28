@@ -345,6 +345,7 @@
     window.OfflineReceipts = {
         init: init,
         queue: queue,
+        remove: deleteRecord,
         getPendingCount: getPendingCount,
         syncNow: syncNow,
         updatePendingBadge: updatePendingBadge

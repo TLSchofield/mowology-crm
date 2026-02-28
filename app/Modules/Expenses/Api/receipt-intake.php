@@ -46,6 +46,7 @@ try {
     requireLogin();
     $user = getCurrentUser();
     requirePermission('expenses.edit');
+    session_write_close(); // Release session lock — no session writes needed beyond this point
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);
