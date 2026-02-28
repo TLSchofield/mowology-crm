@@ -126,7 +126,7 @@ try {
         }
 
         // Normalize checkbox values: "on" → 1, missing/falsy → 0
-        $boolFields = ['uses_cost_calculator', 'taxable', 'track_inventory', 'active', 'featured'];
+        $boolFields = ['uses_cost_calculator', 'taxable', 'track_inventory', 'active', 'featured', 'is_sold'];
         foreach ($boolFields as $field) {
             $val = $data[$field] ?? null;
             $data[$field] = ($val === 'on' || $val === '1' || $val === 1 || $val === true) ? 1 : 0;
@@ -173,6 +173,15 @@ try {
         try {
             $piCheck = $db->query("SHOW COLUMNS FROM products LIKE 'sds_sheet_url'");
             $hasProductIntel = ($piCheck->rowCount() > 0);
+        } catch (Exception $e) {
+            // Ignore
+        }
+
+        // Check if icon system columns exist (migration 502)
+        $hasIconSystem = false;
+        try {
+            $icCheck = $db->query("SHOW COLUMNS FROM products LIKE 'icon_base_path'");
+            $hasIconSystem = ($icCheck->rowCount() > 0);
         } catch (Exception $e) {
             // Ignore
         }
@@ -286,6 +295,13 @@ try {
                 $params[] = !empty($data['crew_talking_points']) ? $data['crew_talking_points'] : null;
             }
 
+            if ($hasIconSystem) {
+                $columns .= ", is_sold";
+                $placeholders .= ", ?";
+                $params[] = $data['is_sold'];
+                // icon_base_path is written by api-product-icons.php on upload, not by save-product
+            }
+
             $stmt = $db->prepare("INSERT INTO products ({$columns}) VALUES ({$placeholders})");
             $stmt->execute($params);
 
@@ -372,6 +388,12 @@ try {
                 $params[] = !empty($data['application_rate']) ? $data['application_rate'] : null;
                 $params[] = !empty($data['safety_warnings']) ? $data['safety_warnings'] : null;
                 $params[] = !empty($data['crew_talking_points']) ? $data['crew_talking_points'] : null;
+            }
+
+            if ($hasIconSystem) {
+                $setClauses .= ", is_sold = ?";
+                $params[] = $data['is_sold'];
+                // icon_base_path is written directly by api-product-icons.php on upload
             }
 
             $params[] = $data['id'];

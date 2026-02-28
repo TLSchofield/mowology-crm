@@ -201,6 +201,47 @@ $activePage = 'products';
                           <div id="suggestionsRow" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
                         </div>
                       </div>
+
+                      <!-- Icon Set Generator -->
+                      <div class="mw-icon-upload-block">
+                        <div class="d-flex align-items-center flex-wrap" style="gap:0.5rem;">
+                          <button type="button" class="btn btn-sm btn-outline-success" id="uploadIconBtn" onclick="triggerIconUpload()">
+                            <i data-feather="upload-cloud"></i> Generate Icon Set
+                          </button>
+                          <button type="button" class="btn btn-sm btn-outline-danger" id="deleteIconsBtn" onclick="deleteIconSet()" style="display:none;">
+                            <i data-feather="trash-2"></i> Remove Icons
+                          </button>
+                          <span id="iconUploadStatus" class="small text-muted"></span>
+                        </div>
+                        <input type="file" id="iconFileInput" accept=".jpg,.jpeg,.png,.webp" style="display:none;" onchange="handleIconFileSelected(this)">
+                        <!-- Icon preview row: sold (colour) + unsold (greyscale) -->
+                        <div id="iconPreviewRow" class="mw-icon-preview-row" style="display:none;">
+                          <div class="mw-icon-preview-item">
+                            <img id="iconPreviewSold" src="" alt="Colour (sold)" width="64" height="64">
+                            <span class="mw-icon-preview-label mw-icon-preview-sold">Sold</span>
+                          </div>
+                          <div class="mw-icon-preview-item">
+                            <img id="iconPreviewUnsold" src="" alt="Greyscale (unsold)" width="64" height="64">
+                            <span class="mw-icon-preview-label mw-icon-preview-unsold">Unsold</span>
+                          </div>
+                          <small class="text-muted align-self-center ml-1">14 sizes auto-generated &bull; 7 colour + 7 greyscale</small>
+                        </div>
+                        <small class="form-text text-muted">
+                          Upload a JPG, PNG, or WEBP (max 5 MB). Generates a full icon set — optimised for website, PWA, tablet, and favicon use.
+                          Save the product first before uploading icons.
+                        </small>
+                      </div>
+
+                      <!-- Sold Status Toggle -->
+                      <div class="form-group mt-2">
+                        <label class="mw-product-checkbox-label">
+                          <input type="checkbox" name="is_sold" id="isSoldToggle">
+                          <strong>Mark as Sold / Available</strong>
+                        </label>
+                        <small class="form-text text-muted">
+                          When checked, product cards show the full-colour icon. When unchecked, a greyscale icon is shown to indicate unavailable/pending.
+                        </small>
+                      </div>
                     </div>
 
                     <!-- Pricing & Costing -->
@@ -842,6 +883,9 @@ $activePage = 'products';
           </div>
 
           <script>
+            // CSRF token (PHP-injected, used by icon upload)
+            const _CSRF_TOKEN = <?= json_encode(generateCSRFToken()) ?>;
+
             // State
             let allCategories = [];
             let allProducts = [];
@@ -1073,10 +1117,7 @@ $activePage = 'products';
                   <input type="checkbox" class="mw-bulk-card-checkbox" data-id="${p.id}" ${mwProductsBulkSelected.has(parseInt(p.id)) ? 'checked' : ''} onchange="toggleProductSelection(${p.id}, this.checked)">
                   ${p.is_archived ? '<div class="mw-product-archived-badge">ARCHIVED</div>' : ''}
                   <div class="mw-product-image">
-                    ${p.image_url
-                      ? `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" style="width:100%;height:100%;object-fit:cover;">`
-                      : `<i data-feather="package" style="width:48px;height:48px;color:#94a3b8;"></i>`
-                    }
+                    ${buildProductCardImage(p)}
                   </div>
                   <div class="mw-product-info">
                     <div class="mw-product-category">${escapeHtml(p.category_name || 'Uncategorized')}</div>
@@ -1162,6 +1203,10 @@ $activePage = 'products';
               document.getElementById('productForm').reset();
               clearProductImage();
               document.getElementById('imageSuggestions').style.display = 'none';
+              hideIconPreviews();
+              document.getElementById('isSoldToggle').checked = false;
+              document.getElementById('deleteIconsBtn').style.display = 'none';
+              document.getElementById('iconUploadStatus').textContent = '';
               currentPricingRules = [];
               currentUpsells = [];
               renderPricingRules();
@@ -1261,6 +1306,18 @@ $activePage = 'products';
                 clearProductImage();
               }
 
+              // Sold toggle
+              document.getElementById('isSoldToggle').checked = product.is_sold == 1;
+
+              // Icon previews
+              if (product.icon_base_path) {
+                showIconPreviews(product.icon_base_path, product.is_sold == 1);
+                document.getElementById('deleteIconsBtn').style.display = '';
+              } else {
+                hideIconPreviews();
+                document.getElementById('deleteIconsBtn').style.display = 'none';
+              }
+
               // Auto-load image suggestions from product name
               if (product.name) {
                 loadInlineSuggestions(product.name);
@@ -1295,6 +1352,9 @@ $activePage = 'products';
               data.require_clock_in = form.elements['require_clock_in'] && form.elements['require_clock_in'].checked ? 1 : 0;
               data.require_gps = form.elements['require_gps'] && form.elements['require_gps'].checked ? 1 : 0;
               data.require_photos = form.elements['require_photos'] && form.elements['require_photos'].checked ? 1 : 0;
+
+              // Icon system fields
+              data.is_sold = form.elements['is_sold'] && form.elements['is_sold'].checked ? 1 : 0;
 
               // Product intelligence fields
               data.sds_sheet_url = form.elements['sds_sheet_url'].value || null;
@@ -1430,6 +1490,156 @@ $activePage = 'products';
               document.getElementById('clearImageBtn').style.display = 'none';
               document.getElementById('imagePathDisplay').textContent = '';
               hydrateFeatherIcons();
+            }
+
+            // ============================================================
+            // Icon Set Generator
+            // ============================================================
+
+            /**
+             * Build the card image HTML, preferring the generated icon set.
+             * Priority: icon_base_path > image_url > feather placeholder
+             */
+            function buildProductCardImage(p) {
+              if (p.icon_base_path) {
+                const v   = p.is_sold ? 'sold' : 'unsold';
+                const b   = escapeHtml(p.icon_base_path);
+                const alt = escapeHtml(p.name);
+                return `<img
+                  src="${b}icon_256_${v}.png"
+                  srcset="${b}icon_128_${v}.png 128w, ${b}icon_192_${v}.png 192w, ${b}icon_256_${v}.png 256w, ${b}icon_512_${v}.png 512w"
+                  sizes="(max-width:480px) 128px, (max-width:1024px) 192px, 256px"
+                  alt="${alt}"
+                  loading="lazy"
+                  width="256" height="256"
+                  style="width:100%;height:100%;object-fit:cover;"
+                  class="${p.is_sold ? '' : 'mw-icon-unsold'}">`;
+              }
+              if (p.image_url) {
+                return `<img src="${escapeHtml(p.image_url)}" alt="${escapeHtml(p.name)}" style="width:100%;height:100%;object-fit:cover;" loading="lazy">`;
+              }
+              return `<i data-feather="package" style="width:48px;height:48px;color:#94a3b8;"></i>`;
+            }
+
+            /** Trigger the hidden file input for icon upload */
+            function triggerIconUpload() {
+              const productId = parseInt(document.querySelector('[name="id"]').value, 10);
+              if (!productId) {
+                document.getElementById('iconUploadStatus').textContent = 'Save the product first, then upload icons.';
+                document.getElementById('iconUploadStatus').style.color = '#dc2626';
+                return;
+              }
+              document.getElementById('iconFileInput').click();
+            }
+
+            /** Called by the file input when a file is chosen */
+            function handleIconFileSelected(input) {
+              const file = input.files[0];
+              if (!file) return;
+
+              const productId = parseInt(document.querySelector('[name="id"]').value, 10);
+              if (!productId) {
+                alert('Please save the product before uploading icons.');
+                input.value = '';
+                return;
+              }
+
+              // Client-side size check
+              if (file.size > 5 * 1024 * 1024) {
+                alert('File is too large. Maximum size is 5 MB.');
+                input.value = '';
+                return;
+              }
+
+              const statusEl = document.getElementById('iconUploadStatus');
+              statusEl.textContent = 'Generating icons…';
+              statusEl.style.color = '#6c757d';
+              document.getElementById('uploadIconBtn').disabled = true;
+
+              const fd = new FormData();
+              fd.append('action', 'upload-icon');
+              fd.append('product_id', productId);
+              fd.append('csrf_token', getCsrfToken());
+              fd.append('file', file);
+
+              fetch('api-product-icons.php', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(result => {
+                  if (result.success) {
+                    statusEl.textContent = '✓ Icon set generated (14 sizes)';
+                    statusEl.style.color = '#166534';
+                    showIconPreviews(result.icon_base_path, document.getElementById('isSoldToggle').checked);
+                    document.getElementById('deleteIconsBtn').style.display = '';
+                    // Reload cards to reflect new icons
+                    loadProducts();
+                  } else {
+                    statusEl.textContent = 'Error: ' + (result.error || 'Unknown error');
+                    statusEl.style.color = '#dc2626';
+                  }
+                })
+                .catch(err => {
+                  statusEl.textContent = 'Upload failed: ' + err.message;
+                  statusEl.style.color = '#dc2626';
+                })
+                .finally(() => {
+                  document.getElementById('uploadIconBtn').disabled = false;
+                  input.value = '';
+                });
+            }
+
+            /** Delete the icon set for the current product */
+            function deleteIconSet() {
+              const productId = parseInt(document.querySelector('[name="id"]').value, 10);
+              if (!productId) return;
+              if (!confirm('Remove all generated icons for this product? You can re-upload anytime.')) return;
+
+              fetch('api-product-icons.php', {
+                method: 'POST',
+                body: new URLSearchParams({
+                  action: 'delete-icons',
+                  product_id: productId,
+                  csrf_token: getCsrfToken()
+                })
+              })
+              .then(r => r.json())
+              .then(result => {
+                if (result.success) {
+                  hideIconPreviews();
+                  document.getElementById('deleteIconsBtn').style.display = 'none';
+                  document.getElementById('iconUploadStatus').textContent = 'Icons removed.';
+                  document.getElementById('iconUploadStatus').style.color = '#6c757d';
+                  loadProducts();
+                } else {
+                  alert('Error: ' + (result.error || 'Unknown error'));
+                }
+              })
+              .catch(err => alert('Error: ' + err.message));
+            }
+
+            /** Show the sold + unsold preview row */
+            function showIconPreviews(iconBasePath, isSold) {
+              const row       = document.getElementById('iconPreviewRow');
+              const soldImg   = document.getElementById('iconPreviewSold');
+              const unsoldImg = document.getElementById('iconPreviewUnsold');
+              const base      = iconBasePath.endsWith('/') ? iconBasePath : iconBasePath + '/';
+
+              // Cache-bust so the browser shows the freshly-generated images
+              const cb = '?v=' + Date.now();
+              soldImg.src   = base + 'icon_64_sold.png' + cb;
+              unsoldImg.src = base + 'icon_64_unsold.png' + cb;
+              row.style.display = 'flex';
+            }
+
+            /** Hide the icon preview row */
+            function hideIconPreviews() {
+              document.getElementById('iconPreviewRow').style.display = 'none';
+              document.getElementById('iconPreviewSold').src   = '';
+              document.getElementById('iconPreviewUnsold').src = '';
+            }
+
+            /** Return the CSRF token injected by PHP */
+            function getCsrfToken() {
+              return _CSRF_TOKEN || '';
             }
 
             // Open media browser modal — always load library, score by product name

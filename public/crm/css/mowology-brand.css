@@ -17171,3 +17171,116 @@ textarea.font-monospace {
 @media (max-width: 900px) {
     .mw-dp-stage { grid-template-columns: 1fr; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Product Icon System
+   ─────────────────────────────────────────────────────────────────────────
+   Styles for the icon upload block (admin edit modal) and the sold/unsold
+   display state on product cards.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Icon Upload Block (modal) ────────────────────────────────────────── */
+
+.mw-icon-upload-block {
+    padding: 0.75rem 1rem;
+    background: #f8fafc;
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+}
+
+.mw-icon-upload-block .btn-outline-success {
+    color: var(--mw-green);
+    border-color: var(--mw-green);
+}
+.mw-icon-upload-block .btn-outline-success:hover,
+.mw-icon-upload-block .btn-outline-success:focus {
+    background: var(--mw-green);
+    color: #fff;
+}
+
+/* ── Icon Preview Row (sold + unsold thumbnails) ──────────────────────── */
+
+.mw-icon-preview-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.625rem;
+    flex-wrap: wrap;
+}
+
+.mw-icon-preview-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.mw-icon-preview-item img {
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid #e2e8f0;
+    background: #f1f5f9;
+}
+
+.mw-icon-preview-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.mw-icon-preview-sold   { color: var(--mw-green); }
+.mw-icon-preview-unsold { color: #94a3b8; }
+
+/* ── Product Card — Unsold (greyscale) indicator ──────────────────────── */
+
+/* The JS already serves the greyscale image; this CSS reinforces the feel
+   with a subtle desaturation filter as a CSS-level fallback/enhancement.   */
+.mw-product-image img.mw-icon-unsold {
+    filter: grayscale(100%) brightness(1.07);
+    opacity: 0.82;
+    transition: filter 0.2s, opacity 0.2s;
+}
+
+/* On hover, reveal colour briefly so admin can preview the sold version */
+.mw-product-card:hover .mw-product-image img.mw-icon-unsold {
+    filter: grayscale(40%) brightness(1.03);
+    opacity: 0.95;
+}
+
+/* ── Sold badge on card ──────────────────────────────────────────────── */
+
+.mw-product-sold-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--mw-green);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 4px;
+    pointer-events: none;
+    line-height: 1.4;
+}
+
+.mw-product-unsold-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: #94a3b8;
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 4px;
+    pointer-events: none;
+    line-height: 1.4;
+}
