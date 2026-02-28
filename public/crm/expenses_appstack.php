@@ -19,7 +19,7 @@ $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260217" rel="stylesheet">'
-           . '<script src="/crm/js/offline-receipts.js?v=20260227" defer></script>';
+           . '<script src="/crm/js/offline-receipts.js?v=20260227b" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -1524,7 +1524,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     if (idbId !== null && window.OfflineReceipts) {
                         if (typeof haptic === 'function') haptic('save');
                         OfflineReceipts.updatePendingBadge();
-                        var msg = navigator.onLine
+                        var _online = (window.MwNative && window.MwNative.network)
+                            ? window.MwNative.network.isOnline !== false
+                            : navigator.onLine !== false;
+                        var msg = _online
                             ? 'Upload failed. Photo saved locally — tap "Retry" when ready.'
                             : 'You\'re offline. Receipt saved locally and will upload automatically when you reconnect.';
                         alert(msg);

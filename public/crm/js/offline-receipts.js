@@ -258,14 +258,29 @@
     }
 
     /**
+     * Returns true if the device appears to be online.
+     * Prefers MwNative.network.isOnline (Capacitor Network plugin — reliable on Android)
+     * over navigator.onLine which is unreliable in Android WebView.
+     */
+    function isOnline() {
+        if (window.MwNative && typeof window.MwNative.network === 'object') {
+            return window.MwNative.network.isOnline !== false;
+        }
+        return navigator.onLine !== false;
+    }
+
+    /**
      * Initialize: open DB, attach online/offline listeners,
      * listen for service worker sync messages.
      *
      * iOS PWA note: Background Sync API is not supported on iOS Safari/PWA.
+     * Android Capacitor note: navigator.onLine is unreliable in WebView; use
+     * MwNative.network.onStatusChange() instead (bridged below).
      * We compensate by triggering syncNow() on:
-     *   - window 'online' event
-     *   - document 'visibilitychange' (app foregrounded)
-     *   - window 'focus' (app regains focus)
+     *   - window 'online' event (browser / iOS PWA)
+     *   - MwNative.network.onStatusChange (Android Capacitor)
+     *   - document 'visibilitychange' (app foregrounded — all platforms)
+     *   - window 'focus' (desktop + some mobile browsers)
      * This ensures pending receipts are uploaded as soon as the device has
      * connectivity and the user returns to the app, even without a service worker.
      */
@@ -274,7 +289,7 @@
             // IndexedDB not available — offline receipts disabled
         });
 
-        // ── Online / Offline events ──
+        // ── Online / Offline events (browser / iOS PWA) ──
         window.addEventListener('online', function() {
             var banner = document.getElementById('mw-offline-banner');
             if (banner) {
@@ -302,11 +317,42 @@
             }
         });
 
-        // ── iOS PWA fix: sync when app is foregrounded ──
-        // document.visibilitychange fires when the user switches back to the app.
-        // This is the primary mechanism on iOS PWA where Background Sync is unavailable.
+        // ── Android Capacitor: bridge MwNative.network → sync trigger ──
+        // navigator.onLine is unreliable in Android WebView; the Capacitor Network
+        // plugin fires MwNative.network.onStatusChange() reliably instead.
+        // capacitor-bridge.js loads before this script, but MwNative.network.init()
+        // runs synchronously so onStatusChange is safe to call here.
+        if (window.MwNative && window.MwNative.network) {
+            window.MwNative.network.onStatusChange(function(connected) {
+                var banner = document.getElementById('mw-offline-banner');
+                if (connected) {
+                    if (banner) {
+                        banner.classList.remove('mw-offline-offline');
+                        banner.classList.add('mw-offline-syncing');
+                    }
+                    updatePendingBadge(); // will trigger syncNow() if pending items exist
+                } else {
+                    if (banner) {
+                        banner.style.display = 'flex';
+                        banner.classList.add('mw-offline-offline');
+                        banner.classList.remove('mw-offline-syncing', 'mw-offline-success');
+                        var bannerText = banner.querySelector('.mw-offline-text');
+                        if (bannerText) {
+                            getPendingCount().then(function(count) {
+                                bannerText.textContent = count > 0
+                                    ? 'Offline — ' + count + ' receipt(s) pending'
+                                    : 'Offline — receipts will queue automatically';
+                            });
+                        }
+                    }
+                }
+            });
+        }
+
+        // ── iOS PWA / Android: sync when app is foregrounded ──
+        // visibilitychange fires when the user switches back to the app.
         document.addEventListener('visibilitychange', function() {
-            if (document.visibilityState === 'visible' && navigator.onLine) {
+            if (document.visibilityState === 'visible' && isOnline()) {
                 getPendingCount().then(function(count) {
                     if (count > 0) {
                         updatePendingBadge(); // Will trigger syncNow() if online + pending
@@ -317,7 +363,7 @@
 
         // ── Additional fallback: window focus (desktop + some mobile browsers) ──
         window.addEventListener('focus', function() {
-            if (navigator.onLine) {
+            if (isOnline()) {
                 getPendingCount().then(function(count) {
                     if (count > 0) {
                         updatePendingBadge();
