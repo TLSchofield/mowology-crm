@@ -151,6 +151,33 @@ $activePage = 'products';
                   </label>
                 </div>
 
+                <!-- Fertilizer / Prepaid Bundle Schedule -->
+                <div class="form-group mt-3">
+                  <label class="d-flex align-items-center gap-2 mb-2">
+                    <input type="checkbox" id="bundleIsPrepaid" style="width:16px;height:16px;">
+                    <strong>Prepaid Bundle</strong>
+                    <span class="badge badge-pill" style="background:var(--mw-green);color:#fff;font-size:10px;">Fertilizer / Chemical Programs</span>
+                  </label>
+                  <p class="text-muted small mb-2" id="prepaidHelpText" style="display:none;">
+                    Set the number of applications and suggested seasonal schedule. When a plan is created from this bundle, visits auto-generate on these dates with materials pre-calculated from property measurements.
+                  </p>
+                  <div id="prepaidScheduleBlock" style="display:none;">
+                    <div class="row">
+                      <div class="col-5">
+                        <label class="small font-weight-bold">Number of Applications</label>
+                        <input type="number" id="bundleApplicationCount" class="form-control form-control-sm" min="1" max="12" placeholder="e.g. 3">
+                      </div>
+                    </div>
+                    <div class="mt-2">
+                      <label class="small font-weight-bold">Seasonal Schedule</label>
+                      <div id="seasonalScheduleRows"></div>
+                      <button type="button" class="btn btn-sm btn-outline-secondary mt-1" onclick="addScheduleRow()">
+                        <i data-feather="plus" style="width:12px;height:12px;"></i> Add Application
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
 
@@ -476,6 +503,19 @@ function openBundleModal(existingBundle) {
   document.getElementById('bundleActive').checked    = existingBundle ? !!parseInt(existingBundle.is_active) : true;
   document.getElementById('productSearch').value     = '';
 
+  // Prepaid bundle / seasonal schedule
+  const isPrepaid = existingBundle && parseInt(existingBundle.application_count) > 0;
+  document.getElementById('bundleIsPrepaid').checked = isPrepaid;
+  document.getElementById('bundleApplicationCount').value = existingBundle ? (existingBundle.application_count || '') : '';
+  document.getElementById('prepaidScheduleBlock').style.display = isPrepaid ? 'block' : 'none';
+  document.getElementById('prepaidHelpText').style.display      = isPrepaid ? 'block' : 'none';
+  // Populate schedule rows
+  let existingSchedule = [];
+  if (existingBundle && existingBundle.seasonal_schedule) {
+    try { existingSchedule = JSON.parse(existingBundle.seasonal_schedule); } catch(e) {}
+  }
+  renderScheduleRows(existingSchedule);
+
   // Image
   const imgUrl = existingBundle && existingBundle.image_url ? existingBundle.image_url : '';
   setBundleImage(imgUrl);
@@ -772,6 +812,47 @@ function selectBundleMedia(filePath) {
   $('#bundleMediaModal').modal('hide');
 }
 
+// ── Prepaid / Seasonal Schedule helpers ──────────────────────────────────────
+const MONTHS = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+
+document.getElementById('bundleIsPrepaid').addEventListener('change', function() {
+  document.getElementById('prepaidScheduleBlock').style.display = this.checked ? 'block' : 'none';
+  document.getElementById('prepaidHelpText').style.display      = this.checked ? 'block' : 'none';
+});
+
+document.getElementById('bundleApplicationCount').addEventListener('change', function() {
+  const count = parseInt(this.value) || 0;
+  const rows = document.querySelectorAll('.schedule-row');
+  if (count > rows.length) {
+    for (let i = rows.length; i < count; i++) addScheduleRow();
+  }
+});
+
+function renderScheduleRows(schedule) {
+  const container = document.getElementById('seasonalScheduleRows');
+  container.innerHTML = '';
+  (schedule || []).forEach(entry => addScheduleRow(entry.month, entry.label));
+}
+
+function addScheduleRow(month, label) {
+  const container = document.getElementById('seasonalScheduleRows');
+  const idx = container.children.length + 1;
+  const row = document.createElement('div');
+  row.className = 'schedule-row d-flex align-items-center gap-2 mb-1';
+  row.innerHTML = `
+    <span class="text-muted small" style="width:20px;text-align:right;">${idx}</span>
+    <select class="form-control form-control-sm schedule-month" style="width:130px;">
+      ${MONTHS.slice(1).map((m,i) => `<option value="${i+1}"${(month&&month==i+1)?' selected':''}>${m}</option>`).join('')}
+    </select>
+    <input type="text" class="form-control form-control-sm schedule-label" placeholder="Label (e.g. Spring Feed)" value="${escHtml(label||'')}" style="flex:1;">
+    <button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="this.closest('.schedule-row').remove()" title="Remove">
+      <i data-feather="x" style="width:14px;height:14px;"></i>
+    </button>
+  `;
+  container.appendChild(row);
+  hydrateFeatherIcons();
+}
+
 // ── Save bundle ────────────────────────────────────────────────────────────────
 function saveBundle() {
   const name = document.getElementById('bundleName').value.trim();
@@ -782,16 +863,31 @@ function saveBundle() {
   }
   document.getElementById('bundleName').classList.remove('is-invalid');
 
+  // Build seasonal schedule from rows
+  const scheduleRows = document.querySelectorAll('.schedule-row');
+  const seasonalSchedule = [];
+  scheduleRows.forEach(row => {
+    const month = parseInt(row.querySelector('.schedule-month').value);
+    const label = row.querySelector('.schedule-label').value.trim();
+    if (month >= 1 && month <= 12 && label) {
+      seasonalSchedule.push({ month, label });
+    }
+  });
+  const isPrepaid = document.getElementById('bundleIsPrepaid').checked;
+  const appCount  = parseInt(document.getElementById('bundleApplicationCount').value) || null;
+
   const payload = {
-    id:             document.getElementById('bundleId').value || null,
-    bundle_name:    name,
-    description:    document.getElementById('bundleDescription').value.trim(),
-    image_url:      document.getElementById('bundleImageUrl').value || null,
-    tier:           document.getElementById('bundleTier').value,
-    discount_type:  document.getElementById('discountType').value,
-    discount_value: parseFloat(document.getElementById('discountValue').value) || 0,
-    is_active:      document.getElementById('bundleActive').checked ? 1 : 0,
-    items:          bundleItems.map((item, idx) => ({
+    id:                document.getElementById('bundleId').value || null,
+    bundle_name:       name,
+    description:       document.getElementById('bundleDescription').value.trim(),
+    image_url:         document.getElementById('bundleImageUrl').value || null,
+    tier:              document.getElementById('bundleTier').value,
+    discount_type:     document.getElementById('discountType').value,
+    discount_value:    parseFloat(document.getElementById('discountValue').value) || 0,
+    is_active:         document.getElementById('bundleActive').checked ? 1 : 0,
+    application_count: isPrepaid ? appCount : null,
+    seasonal_schedule: isPrepaid && seasonalSchedule.length ? JSON.stringify(seasonalSchedule) : null,
+    items:             bundleItems.map((item, idx) => ({
       product_id:          item.product_id,
       quantity_multiplier: item.quantity_multiplier,
       override_price:      item.override_price,

@@ -193,7 +193,7 @@ function createJobPlan(array $planData, int $userId): array {
                 plan_start_date, plan_end_date, blackout_dates,
                 default_crew_id, default_crew_size, estimated_duration_minutes,
                 default_time_start, default_time_end,
-                horizon_days, status, created_by
+                horizon_days, is_prepaid_bundle, source_bundle_id, status, created_by
             ) VALUES (
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
@@ -205,7 +205,7 @@ function createJobPlan(array $planData, int $userId): array {
                 ?, ?, ?,
                 ?, ?, ?,
                 ?, ?,
-                ?, 'active', ?
+                ?, ?, ?, 'active', ?
             )
         ");
 
@@ -243,6 +243,8 @@ function createJobPlan(array $planData, int $userId): array {
             $planData['default_time_start'] ?? null,
             $planData['default_time_end'] ?? null,
             $planData['horizon_days'] ?? 28,
+            !empty($planData['is_prepaid_bundle']) ? 1 : 0,
+            $planData['source_bundle_id'] ?? null,
             $userId
         ]);
 
@@ -266,7 +268,11 @@ function createJobPlan(array $planData, int $userId): array {
         }
 
         // Generate initial visits (outside transaction for clarity)
-        generateVisits($planId);
+        if (!empty($planData['is_prepaid_bundle']) && !empty($planData['fertilizer_dates'])) {
+            generateFertilizerVisits($planId, $planData['fertilizer_dates']);
+        } else {
+            generateVisits($planId);
+        }
 
         return ['success' => true, 'plan_id' => $planId, 'plan_number' => $planNumber, 'errors' => []];
 
@@ -1183,6 +1189,34 @@ function updateVisitStatus(int $visitId, string $newStatus, int $userId, ?string
             }
         }
 
+        // Completion hooks: profitability snapshot + fertilizer notification
+        if ($newStatus === 'completed') {
+            // Snapshot labor/material/drive costs (VisitCompletionService)
+            if (class_exists('VisitCompletionService')) {
+                try {
+                    VisitCompletionService::capture($visitId, $userId);
+                } catch (Throwable $e) {
+                    error_log("VisitCompletionService::capture failed for visit {$visitId}: " . $e->getMessage());
+                }
+            }
+
+            // Fertilizer notification for prepaid bundle plans
+            $completedVisit = getVisitWithPlan($visitId);
+            if ($completedVisit && !empty($completedVisit['is_prepaid_bundle'])) {
+                try {
+                    if (function_exists('sendFertilizerCompletionNotification')) {
+                        sendFertilizerCompletionNotification($visitId);
+                    }
+                    // Increment application counter
+                    $db->prepare(
+                        "UPDATE job_plans SET bundle_applications_used = bundle_applications_used + 1 WHERE id = ?"
+                    )->execute([$completedVisit['plan_id']]);
+                } catch (Throwable $e) {
+                    error_log("Fertilizer notification failed for visit {$visitId}: " . $e->getMessage());
+                }
+            }
+        }
+
         return true;
     } catch (Exception $e) {
         error_log("updateVisitStatus error: " . $e->getMessage());
@@ -1198,6 +1232,8 @@ function getVisitWithPlan(int $visitId): ?array {
     $stmt = $db->prepare("
         SELECT jv.*, jp.plan_number, jp.title AS plan_title, jp.service_type,
                jp.property_id, jp.company_id, jp.price_per_visit,
+               jp.quote_id AS plan_quote_id,
+               jp.is_prepaid_bundle, jp.source_bundle_id, jp.bundle_applications_used,
                jp.checklist_template, jp.photo_types_required,
                jp.gps_enforcement, jp.checklist_blocks_completion, jp.photos_block_completion,
                p.address AS property_address, p.city AS property_city,
@@ -2391,4 +2427,164 @@ function getUnscheduledVisits(): array
         error_log('getUnscheduledVisits error: ' . $e->getMessage());
         return [];
     }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FERTILIZER BUNDLE FUNCTIONS
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Generate visits for a pre-sold fertilizer bundle using explicit dates.
+ * Called by createJobPlan() when is_prepaid_bundle=1 and fertilizer_dates[] provided.
+ *
+ * Each visit is created with actual_amount=0.00 (pre-sold, no charge) and
+ * materials_json auto-calculated from the plan's product application_rate × property area.
+ *
+ * @param int   $planId  The plan id
+ * @param array $dates   Ordered array of 'Y-m-d' date strings (one per application)
+ */
+function generateFertilizerVisits(int $planId, array $dates): void {
+    $db = getDB();
+
+    // Load plan + property
+    $planStmt = $db->prepare("
+        SELECT jp.*, p.id AS prop_id,
+               p.address AS property_address, p.city AS property_city
+        FROM job_plans jp
+        JOIN properties p ON jp.property_id = p.id
+        WHERE jp.id = ?
+    ");
+    $planStmt->execute([$planId]);
+    $plan = $planStmt->fetch(PDO::FETCH_ASSOC);
+    if (!$plan) return;
+
+    // Auto-calculate materials once (shared across all visits in this plan)
+    $materialsJson = calculateMaterialsForVisit($planId);
+
+    $visitNumber = 1;
+    foreach ($dates as $dateStr) {
+        $dateStr = trim($dateStr);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStr)) continue;
+
+        $visitNum = generateVisitNumber($plan['plan_number'], $visitNumber);
+
+        try {
+            $insertStmt = $db->prepare("
+                INSERT IGNORE INTO job_visits (
+                    visit_number, plan_id, scheduled_date, sequence_index,
+                    status, actual_amount, materials_json,
+                    assigned_crew_id,
+                    scheduled_time_start, scheduled_time_end
+                ) VALUES (
+                    ?, ?, ?, ?,
+                    'scheduled', 0.00, ?,
+                    ?,
+                    ?, ?
+                )
+            ");
+            $insertStmt->execute([
+                $visitNum,
+                $planId,
+                $dateStr,
+                $visitNumber,
+                $materialsJson ?: null,
+                $plan['default_crew_id'] ?? null,
+                $plan['default_time_start'] ?? null,
+                $plan['default_time_end'] ?? null,
+            ]);
+
+            // Ensure calendar stop for routing
+            ensureCalendarStop(
+                (int)$plan['property_id'],
+                $dateStr,
+                $plan['default_crew_id'] ? (int)$plan['default_crew_id'] : null,
+                $plan['default_time_start'] ?? null,
+                $plan['default_time_end'] ?? null
+            );
+        } catch (Throwable $e) {
+            error_log("generateFertilizerVisits: visit {$visitNum} on {$dateStr} failed: " . $e->getMessage());
+        }
+
+        $visitNumber++;
+    }
+
+    // Update visits_generated_through watermark
+    if (!empty($dates)) {
+        $lastDate = max($dates);
+        try {
+            $db->prepare("UPDATE job_plans SET visits_generated_through = ? WHERE id = ?")
+               ->execute([$lastDate, $planId]);
+        } catch (Throwable $e) { /* non-critical */ }
+    }
+}
+
+/**
+ * Auto-calculate materials JSON for a fertilizer visit using the plan's
+ * product application_rate and the property's measured lawn area.
+ *
+ * Returns a JSON string for job_visits.materials_json, or null if no product data.
+ *
+ * @param int $planId
+ * @return string|null JSON array: [{"product_id":N,"product_name":"...","qty":2,"unit":"bags",...}]
+ */
+function calculateMaterialsForVisit(int $planId): ?string {
+    $db = getDB();
+
+    // Get plan's primary product via plan_line_items (first item with a product_id)
+    $productStmt = $db->prepare("
+        SELECT pli.product_id, p.name AS product_name,
+               p.application_rate, p.sku
+        FROM plan_line_items pli
+        JOIN products p ON pli.product_id = p.id
+        WHERE pli.plan_id = ?
+          AND pli.product_id IS NOT NULL
+        ORDER BY pli.sort_order ASC
+        LIMIT 1
+    ");
+    $productStmt->execute([$planId]);
+    $product = $productStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$product || empty($product['application_rate'])) return null;
+
+    // Get property's lawn area from measurements
+    $planRow = $db->prepare("SELECT property_id FROM job_plans WHERE id = ?");
+    $planRow->execute([$planId]);
+    $propertyId = (int)$planRow->fetchColumn();
+
+    $areaStmt = $db->prepare("
+        SELECT SUM(area_sqft) AS total_sqft
+        FROM property_measurements
+        WHERE property_id = ?
+          AND measurement_group_key IN ('lawn_area', 'lawn', 'garden')
+        GROUP BY property_id
+    ");
+    $areaStmt->execute([$propertyId]);
+    $areaSqft = (float)($areaStmt->fetchColumn() ?: 0);
+
+    // Parse application_rate to compute quantity
+    // Supports formats like: "2 bags per 4000 sqft", "1 bag per 5000 sq ft", "3 kg per 1000 sqft"
+    $qty = null;
+    $unit = 'bags';
+    $rateStr = strtolower(trim($product['application_rate']));
+
+    if (preg_match('/^(\d+\.?\d*)\s+(\w+)\s+per\s+(\d+\.?\d*)\s+sq/i', $rateStr, $m)) {
+        $rateQty   = (float)$m[1];
+        $unit      = $m[2];
+        $rateArea  = (float)$m[3];
+        if ($rateArea > 0 && $areaSqft > 0) {
+            $qty = round(($areaSqft / $rateArea) * $rateQty, 1);
+        }
+    }
+
+    $materials = [[
+        'product_id'       => (int)$product['product_id'],
+        'product_name'     => $product['product_name'],
+        'sku'              => $product['sku'] ?? '',
+        'qty'              => $qty ?? 1,
+        'unit'             => $unit,
+        'area_sqft'        => (int)$areaSqft,
+        'application_rate' => $product['application_rate'],
+    ]];
+
+    return json_encode($materials, JSON_UNESCAPED_UNICODE);
 }

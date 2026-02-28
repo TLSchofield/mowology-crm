@@ -187,6 +187,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     $horizonDays      = intval($_POST['horizon_days'] ?? 28);
     $description      = trim($_POST['description'] ?? '');
 
+    // Fertilizer / prepaid bundle fields
+    $isPrepaidBundle  = !empty($_POST['is_prepaid_bundle']) && $_POST['is_prepaid_bundle'] === '1';
+    $sourceBundleId   = $isPrepaidBundle && !empty($_POST['source_bundle_id']) ? intval($_POST['source_bundle_id']) : null;
+    $fertilizerDates  = [];
+    if ($isPrepaidBundle && !empty($_POST['fertilizer_dates']) && is_array($_POST['fertilizer_dates'])) {
+        foreach ($_POST['fertilizer_dates'] as $d) {
+            $d = trim($d);
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) {
+                $fertilizerDates[] = $d;
+            }
+        }
+    }
+
     // Crew assignments (multi-staff)
     $crewIds = [];
     if (!empty($_POST['crew_ids']) && is_array($_POST['crew_ids'])) {
@@ -237,6 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 'unit_type'          => $item['unit_type'] ?? 'visit',
                 'unit_price'         => floatval($item['unit_price'] ?? 0),
                 'line_total'         => floatval($item['line_total'] ?? 0),
+                'product_id'         => !empty($item['product_id']) ? intval($item['product_id']) : null,
             ];
         }
     }
@@ -271,6 +285,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'horizon_days'             => $horizonDays,
             'line_items'               => $formItems,
             'crew_ids'                 => $crewIds,
+            'is_prepaid_bundle'        => $isPrepaidBundle ? 1 : 0,
+            'source_bundle_id'         => $sourceBundleId,
+            'fertilizer_dates'         => $fertilizerDates,
         ];
 
         $result = createJobPlan($planData, (int)$user['id']);
@@ -565,6 +582,24 @@ if ($propLat && $propLng && $apiKey) {
                           </div>
                       </div>
 
+                      <!-- Fertilizer / Prepaid Bundle Dates (hidden unless prepaid bundle added) -->
+                      <div class="card mt-3" id="fertDatesCard" style="display:none;border-left:3px solid var(--mw-green);">
+                          <div class="card-header" style="background:var(--mw-light);">
+                              <h5 class="card-title mb-0 d-flex align-items-center" style="gap:8px;">
+                                  <i data-feather="calendar" style="width:16px;height:16px;color:var(--mw-green);"></i>
+                                  Application Dates
+                                  <span class="badge badge-pill" style="background:var(--mw-green);color:#fff;font-size:10px;" id="fertAppCountBadge"></span>
+                              </h5>
+                              <small class="text-muted">Dates auto-suggested from the bundle's seasonal schedule. Adjust as needed.</small>
+                          </div>
+                          <div class="card-body">
+                              <p class="text-muted small mb-2">Each application will be created as a <strong>$0 pre-paid visit</strong>. Materials are auto-calculated from property measurements and product application rates.</p>
+                              <div id="fertDateRows"></div>
+                              <input type="hidden" name="is_prepaid_bundle" id="isPrepaidBundle" value="0">
+                              <input type="hidden" name="source_bundle_id" id="sourceBundleId" value="">
+                          </div>
+                      </div>
+
                       <div class="mw-form-actions">
                           <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
                               <i data-feather="check" class="mr-1"></i> Create Plan
@@ -840,6 +875,7 @@ if ($propLat && $propLng && $apiKey) {
                   tr.innerHTML =
                       '<td>' +
                           '<input type="hidden" name="items[' + idx + '][quote_line_item_id]" value="' + esc(data.quoteLineItemId) + '">' +
+                          '<input type="hidden" name="items[' + idx + '][product_id]" value="' + esc(data.productId || '') + '">' +
                           '<input type="text" name="items[' + idx + '][service_type]" class="form-control form-control-sm" value="' + esc(data.service) + '" placeholder="Service type" required>' +
                       '</td>' +
                       '<td><input type="text" name="items[' + idx + '][description]" class="form-control form-control-sm" value="' + esc(data.desc) + '" placeholder="Description"></td>' +
@@ -1116,6 +1152,9 @@ if ($propLat && $propLng && $apiKey) {
               var BUNDLE_API_BASE = '../api/quote-autofill.php';
               var PRODUCTS_API    = '../products/api-products.php';
 
+              // Store bundle metadata keyed by bundle id for prepaid detection
+              var bundleMetaMap = {};
+
               window.openPlanBundlePicker = function() {
                   var modal = document.getElementById('addBundleModalPlan');
                   if (!modal) return;
@@ -1131,6 +1170,13 @@ if ($propLat && $propLng && $apiKey) {
                               grid.innerHTML = '<p class="text-muted text-center">No bundles available. <a href="../products/bundles.php" target="_blank">Create one</a>.</p>';
                               return;
                           }
+                          // Index bundle metadata for use in addBundleToPlan
+                          data.bundles.forEach(function(b) {
+                              bundleMetaMap[b.id] = {
+                                  application_count: parseInt(b.application_count) || 0,
+                                  seasonal_schedule: b.seasonal_schedule || null
+                              };
+                          });
                           renderPlanBundleCards(data.bundles, grid);
                       })
                       .catch(function() {
@@ -1220,7 +1266,8 @@ if ($propLat && $propLng && $apiKey) {
                                   qty: String(parseFloat(item.quantity) || 1),
                                   unit: item.unit_type || 'visit',
                                   price: String(parseFloat(item.unit_price) || 0),
-                                  total: String(parseFloat(item.line_total) || 0)
+                                  total: String(parseFloat(item.line_total) || 0),
+                                  productId: item.product_id || ''
                               });
                           });
                           if (data.warnings && data.warnings.length) {
@@ -1231,6 +1278,13 @@ if ($propLat && $propLng && $apiKey) {
                                   setTimeout(function() { w.style.display = 'none'; }, 8000);
                               }
                           }
+
+                          // Show fertilizer dates section if this is a prepaid bundle
+                          var meta = bundleMetaMap[bundleId] || {};
+                          if (meta.application_count > 0) {
+                              showFertilizerDatesSection(bundleId, meta.application_count, meta.seasonal_schedule);
+                          }
+
                           $('#addBundleModalPlan').modal('hide');
                           updateTotals();
                       })
@@ -1241,6 +1295,53 @@ if ($propLat && $propLng && $apiKey) {
                           if (btn) { btn.disabled = false; }
                       });
               };
+
+              // Show / populate the fertilizer application dates card
+              function showFertilizerDatesSection(bundleId, appCount, seasonalScheduleJson) {
+                  var card = document.getElementById('fertDatesCard');
+                  var rowsDiv = document.getElementById('fertDateRows');
+                  var badge = document.getElementById('fertAppCountBadge');
+                  if (!card) return;
+
+                  document.getElementById('isPrepaidBundle').value = '1';
+                  document.getElementById('sourceBundleId').value  = bundleId;
+
+                  badge.textContent = appCount + ' applications';
+
+                  // Parse seasonal schedule for suggested dates
+                  var schedule = [];
+                  if (seasonalScheduleJson) {
+                      try { schedule = JSON.parse(seasonalScheduleJson); } catch(e) {}
+                  }
+
+                  // Build date rows — one per application
+                  var html = '';
+                  var year = new Date().getFullYear();
+                  var now  = new Date();
+                  var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+                  for (var i = 0; i < appCount; i++) {
+                      var entry     = schedule[i] || {};
+                      var month     = parseInt(entry.month) || (i + 4); // fallback: April, May, June…
+                      var label     = entry.label || ('Application ' + (i + 1));
+                      // Target mid-month; if date already passed this year, use next year
+                      var targetDate = new Date(year, month - 1, 15);
+                      if (targetDate < now) targetDate = new Date(year + 1, month - 1, 15);
+                      var yyyy  = targetDate.getFullYear();
+                      var mm    = String(targetDate.getMonth() + 1).padStart(2, '0');
+                      var dd    = '15';
+                      var dateVal = yyyy + '-' + mm + '-' + dd;
+
+                      html += '<div class="d-flex align-items-center mb-2" style="gap:8px;">' +
+                          '<span class="badge" style="background:var(--mw-green);color:#fff;min-width:22px;text-align:center;">' + (i+1) + '</span>' +
+                          '<span style="flex:1;font-size:13px;">' + esc(label) + '</span>' +
+                          '<input type="date" name="fertilizer_dates[]" class="form-control form-control-sm" style="width:160px;" value="' + dateVal + '" required>' +
+                      '</div>';
+                  }
+                  rowsDiv.innerHTML = html;
+                  card.style.display = 'block';
+                  if (window.hydrateFeatherIcons) hydrateFeatherIcons();
+              }
 
               // Helpers
               function esc(str) {

@@ -36,6 +36,7 @@ if (!$error) {
             v.*,
             p.plan_number, p.title AS plan_title, p.service_type AS plan_service_type,
             p.id AS plan_db_id,
+            p.is_prepaid_bundle, p.bundle_applications_used, p.source_bundle_id,
             pr.address AS property_address, pr.city AS property_city,
             pr.province AS property_province, pr.postal_code AS property_postal,
             c.first_name AS contact_first, c.last_name AS contact_last,
@@ -99,6 +100,32 @@ if (!$error && $visit) {
     $checklist = !empty($visit['checklist_json'])       ? json_decode($visit['checklist_json'], true)       : [];
     $confBox   = !empty($visit['confidence_box_json'])  ? json_decode($visit['confidence_box_json'], true)  : [];
     $materials = !empty($visit['materials_json'])       ? json_decode($visit['materials_json'], true)       : [];
+
+    // Fertilizer card extras: product + plan visits for progress indicator
+    $fertProduct  = null;
+    $fertAllVisits = [];
+    if (!empty($visit['is_prepaid_bundle'])) {
+        $pliStmt = $db->prepare("
+            SELECT pr.name AS product_name, pr.application_notes,
+                   pr.icon_base_path, pr.is_sold AS product_is_sold,
+                   pr.application_rate
+            FROM plan_line_items pli
+            JOIN products pr ON pli.product_id = pr.id
+            WHERE pli.plan_id = ? AND pli.product_id IS NOT NULL
+            ORDER BY pli.sort_order ASC LIMIT 1
+        ");
+        $pliStmt->execute([$visit['plan_db_id']]);
+        $fertProduct = $pliStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        $avStmt = $db->prepare("
+            SELECT id, scheduled_date, status, sequence_index
+            FROM job_visits
+            WHERE plan_id = ?
+            ORDER BY sequence_index ASC, scheduled_date ASC
+        ");
+        $avStmt->execute([$visit['plan_db_id']]);
+        $fertAllVisits = $avStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
 
 $clientName  = $visit ? trim(($visit['contact_first']??'') . ' ' . ($visit['contact_last']??'')) : 'Client';
@@ -363,6 +390,89 @@ $serviceLabel = [
         </div>
         <?php endif; ?>
       </div>
+    </div>
+    <?php endif; ?>
+
+    <?php if (!empty($visit['is_prepaid_bundle'])): ?>
+    <?php
+        // Fertilizer card data
+        $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+        $totalApps  = count($fertAllVisits);
+        $completedApps = (int)($visit['bundle_applications_used'] ?? 0);
+        $nextAppDate = null;
+        foreach ($fertAllVisits as $av) {
+            if ($av['status'] === 'scheduled') { $nextAppDate = $av['scheduled_date']; break; }
+        }
+        // GPS times
+        $arrTime  = !empty($visit['started_at'])   ? date('g:ia', strtotime($visit['started_at']))   : '';
+        $depTime  = !empty($visit['completed_at']) ? date('g:ia', strtotime($visit['completed_at'])) : '';
+        $durMins  = (int)($visit['actual_duration_minutes'] ?? 0);
+        $durStr   = $durMins >= 60 ? floor($durMins/60) . 'h ' . ($durMins%60) . 'm' : ($durMins > 0 ? $durMins . 'min' : '');
+        // Icon
+        $iconUrl = '';
+        if ($fertProduct && !empty($fertProduct['icon_base_path'])) {
+            $iconFile = !empty($fertProduct['product_is_sold']) ? 'icon-full.png' : 'icon-grey.png';
+            $iconUrl  = $siteUrl . '/' . ltrim(rtrim($fertProduct['icon_base_path'], '/') . '/' . $iconFile, '/');
+        }
+    ?>
+    <!-- ── Fertilizer Bundle Card ─────────────────────────────────────────── -->
+    <div class="portal-section" style="border-left:3px solid #2D8659;padding-left:20px;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+        <?php if ($iconUrl): ?>
+        <img src="<?= htmlspecialchars($iconUrl) ?>" alt="" style="width:56px;height:56px;object-fit:contain;" onerror="this.style.display='none'">
+        <?php endif; ?>
+        <div>
+          <h2 style="margin:0 0 2px;"><?= htmlspecialchars($visit['plan_title'] ?: 'Fertilizer Program') ?></h2>
+          <?php if (!empty($visit['sequence_index'])): ?>
+          <div style="font-size:13px;color:#2D8659;font-weight:bold;">Application <?= (int)$visit['sequence_index'] ?> of <?= $totalApps ?></div>
+          <?php endif; ?>
+        </div>
+      </div>
+
+      <?php if (!empty($fertProduct['application_notes'])): ?>
+      <p style="font-size:13px;color:#555;margin:0 0 16px;line-height:1.5;"><?= htmlspecialchars($fertProduct['application_notes']) ?></p>
+      <?php endif; ?>
+
+      <?php if (!empty($materials)): ?>
+      <div style="background:#f0f7f4;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#666;margin-bottom:8px;">What Was Applied</div>
+        <?php foreach ($materials as $mat): ?>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;">
+          <span style="color:#333;"><?= htmlspecialchars($mat['product_name'] ?? '') ?></span>
+          <strong style="color:#1A5F4A;"><?= htmlspecialchars($mat['qty'] . ' ' . ($mat['unit'] ?? 'bags')) ?></strong>
+        </div>
+        <?php if (!empty($mat['area_sqft'])): ?>
+        <div style="font-size:11px;color:#888;padding-bottom:4px;"><?= number_format($mat['area_sqft']) ?> sq ft covered</div>
+        <?php endif; ?>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($arrTime || $depTime): ?>
+      <div style="font-size:13px;color:#555;margin-bottom:16px;">
+        <span style="font-weight:bold;color:#2D8659;">✓ GPS Verified</span><br>
+        <?php if ($arrTime): ?>Arrived <strong><?= $arrTime ?></strong><?php endif; ?>
+        <?php if ($arrTime && $depTime): ?> &middot; <?php endif; ?>
+        <?php if ($depTime): ?>Departed <strong><?= $depTime ?></strong><?php endif; ?>
+        <?php if ($durStr): ?> <span style="color:#999;">(<?= $durStr ?>)</span><?php endif; ?>
+        <?php if (!empty($visit['property_address'])): ?>
+        <br><span style="color:#888;"><?= htmlspecialchars($visit['property_address'] . ', ' . ($visit['property_city'] ?? '')) ?></span>
+        <?php endif; ?>
+      </div>
+      <?php endif; ?>
+
+      <?php if ($totalApps > 1): ?>
+      <div style="background:#f0f7f4;border-radius:8px;padding:12px 16px;">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#666;margin-bottom:6px;">Your Program</div>
+        <div style="font-size:24px;letter-spacing:5px;color:#2D8659;line-height:1;">
+          <?php for ($i = 0; $i < $totalApps; $i++) echo $i < $completedApps ? '●' : '○'; ?>
+        </div>
+        <div style="font-size:13px;color:#555;margin-top:6px;">
+          <?= $completedApps ?> of <?= $totalApps ?> applications complete
+          <?php if ($nextAppDate): ?> &middot; Next: <?= date('F Y', strtotime($nextAppDate)) ?><?php endif; ?>
+        </div>
+      </div>
+      <?php endif; ?>
     </div>
     <?php endif; ?>
 

@@ -802,7 +802,9 @@ try {
         // Load items for each bundle
         foreach ($bundles as &$bundle) {
             $itemStmt = $db->prepare("
-                SELECT bi.*, p.name as product_name, p.base_price, p.description as product_description
+                SELECT bi.*, p.name as product_name, p.base_price,
+                       p.description as product_description,
+                       p.application_rate, p.icon_base_path
                 FROM product_bundle_items bi
                 JOIN products p ON bi.product_id = p.id
                 WHERE bi.bundle_id = ?
@@ -892,6 +894,19 @@ try {
                     ]);
                 }
                 $bundleId = $db->lastInsertId();
+            }
+
+            // Set fertilizer bundle fields (application_count, seasonal_schedule) if columns exist
+            $hasSeasonalFields = false;
+            try {
+                $hasSeasonalFields = $db->query("SHOW COLUMNS FROM product_bundles LIKE 'application_count'")->rowCount() > 0;
+            } catch (Exception $e) { /* ignore */ }
+            if ($hasSeasonalFields) {
+                $appCount = isset($data['application_count']) && $data['application_count'] !== null
+                    ? (int)$data['application_count'] : null;
+                $seasonalJson = !empty($data['seasonal_schedule']) ? $data['seasonal_schedule'] : null;
+                $db->prepare("UPDATE product_bundles SET application_count = ?, seasonal_schedule = ? WHERE id = ?")
+                   ->execute([$appCount, $seasonalJson, $bundleId]);
             }
 
             // Insert bundle items

@@ -315,6 +315,284 @@ function sendInvoiceNotificationSms(
 }
 
 /**
+ * Send a fertilizer application completion notification to the customer.
+ *
+ * Fires automatically when a visit on a prepaid bundle plan is marked complete.
+ * Sends both SMS (plain text, no URLs) and a rich HTML email with:
+ *  - Product icon, application details, auto-calculated materials
+ *  - Visit photos (before/after)
+ *  - GPS arrival/departure timestamps
+ *  - Bundle progress indicator
+ *  - Link to customer proof-of-work portal
+ *
+ * Guards against double-send via job_visits.notification_sent_at.
+ *
+ * @param int $visitId
+ * @return bool True if both SMS and email were sent
+ */
+function sendFertilizerCompletionNotification(int $visitId): bool
+{
+    $db = getDB();
+
+    // ── Load visit + plan + contact + product ────────────────────
+    $stmt = $db->prepare("
+        SELECT v.*,
+               jp.plan_number, jp.title AS plan_title, jp.quote_id,
+               jp.is_prepaid_bundle, jp.source_bundle_id,
+               jp.bundle_applications_used, jp.property_id,
+               p.address AS property_address, p.city AS property_city,
+               p.province AS property_province,
+               COALESCE(ct.first_name, '') AS contact_first,
+               COALESCE(ct.last_name, '')  AS contact_last,
+               COALESCE(ct.email, '')       AS contact_email,
+               COALESCE(ct.phone, COALESCE(ct.mobile, '')) AS contact_phone,
+               q.access_token,
+               pr.name AS product_name, pr.application_notes,
+               pr.icon_base_path, pr.is_sold AS product_is_sold
+        FROM job_visits v
+        JOIN job_plans jp ON v.plan_id = jp.id
+        LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+        LEFT JOIN quotes q ON jp.quote_id = q.id
+        LEFT JOIN plan_line_items pli ON pli.plan_id = jp.id
+            AND pli.product_id IS NOT NULL
+        LEFT JOIN products pr ON pli.product_id = pr.id
+        WHERE v.id = ?
+        LIMIT 1
+    ");
+    $stmt->execute([$visitId]);
+    $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$visit) return false;
+
+    // Guard: already sent
+    if (!empty($visit['notification_sent_at'])) return false;
+
+    // Guard: no contact email
+    if (empty($visit['contact_email'])) return false;
+
+    // ── Load photos ───────────────────────────────────────────────
+    $photoStmt = $db->prepare("
+        SELECT filename, photo_type, caption
+        FROM visit_photos
+        WHERE visit_id = ?
+          AND photo_type IN ('before', 'after', 'during', 'label')
+        ORDER BY FIELD(photo_type,'before','label','during','after'), id ASC
+        LIMIT 6
+    ");
+    $photoStmt->execute([$visitId]);
+    $photos = $photoStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // ── Load all visits in this plan for progress indicator ───────
+    $allVisitsStmt = $db->prepare("
+        SELECT id, scheduled_date, status, sequence_index
+        FROM job_visits
+        WHERE plan_id = ?
+        ORDER BY sequence_index ASC, scheduled_date ASC
+    ");
+    $allVisitsStmt->execute([$visit['plan_id']]);
+    $allVisits = $allVisitsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // ── Parse materials ───────────────────────────────────────────
+    $materials = [];
+    if (!empty($visit['materials_json'])) {
+        $materials = json_decode($visit['materials_json'], true) ?: [];
+    }
+
+    // ── Build visit label ─────────────────────────────────────────
+    $visitLabel = $visit['plan_title'] ?: 'Fertilizer Application';
+    if (!empty($visit['sequence_index'])) {
+        $visitLabel .= ' — Application ' . $visit['sequence_index'];
+    }
+
+    // ── Format GPS timestamps ─────────────────────────────────────
+    $arrivalTime   = '';
+    $departureTime = '';
+    if (!empty($visit['started_at'])) {
+        $arrivalTime = date('g:ia', strtotime($visit['started_at']));
+    }
+    if (!empty($visit['completed_at'])) {
+        $departureTime = date('g:ia', strtotime($visit['completed_at']));
+    }
+
+    // Duration
+    $durationStr = '';
+    if (!empty($visit['actual_duration_minutes']) && $visit['actual_duration_minutes'] > 0) {
+        $mins = (int)$visit['actual_duration_minutes'];
+        $durationStr = $mins >= 60
+            ? floor($mins / 60) . 'h ' . ($mins % 60) . 'm'
+            : $mins . 'min';
+    }
+
+    // ── Build portal URL ──────────────────────────────────────────
+    $portalUrl  = '';
+    $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+    if (!empty($visit['access_token'])) {
+        $portalUrl = $siteUrl . '/customer/pow.php?token=' . urlencode($visit['access_token']) . '&visit_id=' . $visitId;
+    }
+
+    // ── Build bundle progress dots ────────────────────────────────
+    $totalApps    = count($allVisits);
+    $completedApp = (int)($visit['bundle_applications_used'] ?? 0); // will be incremented AFTER this call
+    $progressDots = '';
+    for ($i = 0; $i < $totalApps; $i++) {
+        $progressDots .= $i < $completedApp ? '●' : '○';
+    }
+    // Next application
+    $nextAppLabel = '';
+    foreach ($allVisits as $av) {
+        if ($av['status'] === 'scheduled') {
+            $nextAppLabel = date('F', strtotime($av['scheduled_date']));
+            break;
+        }
+    }
+
+    // ── Product icon URL ──────────────────────────────────────────
+    $iconHtml = '';
+    if (!empty($visit['icon_base_path'])) {
+        $isSold    = !empty($visit['product_is_sold']);
+        $iconFile  = $isSold ? 'icon-full.png' : 'icon-grey.png';
+        $iconPath  = rtrim($visit['icon_base_path'], '/') . '/' . $iconFile;
+        $iconUrl   = $siteUrl . '/' . ltrim($iconPath, '/');
+        $iconHtml  = '<img src="' . htmlspecialchars($iconUrl) . '" alt="" style="width:64px;height:64px;object-fit:contain;" onerror="this.style.display=\'none\'">';
+    }
+
+    // ── Build photos HTML ─────────────────────────────────────────
+    $photosHtml = '';
+    if (!empty($photos)) {
+        $photosHtml = '<tr><td colspan="2" style="padding:16px 0 8px;"><strong style="color:#1A5F4A;">Photos</strong></td></tr>
+        <tr><td colspan="2" style="padding-bottom:16px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">';
+        foreach ($photos as $photo) {
+            $photoUrl = $siteUrl . '/uploads/photos/' . rawurlencode($photo['filename']);
+            $photosHtml .= '<img src="' . htmlspecialchars($photoUrl) . '" alt="' . htmlspecialchars($photo['photo_type']) . '" style="width:120px;height:90px;object-fit:cover;border-radius:6px;" onerror="this.style.display=\'none\'">';
+        }
+        $photosHtml .= '</div></td></tr>';
+    }
+
+    // ── Build materials HTML ──────────────────────────────────────
+    $materialsHtml = '';
+    if (!empty($materials)) {
+        $materialsHtml = '<tr><td colspan="2" style="padding:16px 0 8px;"><strong style="color:#1A5F4A;">What We Applied</strong></td></tr>';
+        foreach ($materials as $mat) {
+            $materialsHtml .= '<tr>
+              <td style="padding:4px 0;color:#555;">' . htmlspecialchars($mat['product_name'] ?? '') . '</td>
+              <td style="padding:4px 0;text-align:right;color:#333;"><strong>'
+                . htmlspecialchars($mat['qty'] . ' ' . ($mat['unit'] ?? 'bags'))
+                . '</strong>'
+                . (!empty($mat['area_sqft']) ? '<br><small style="color:#888;">' . number_format($mat['area_sqft']) . ' sq ft</small>' : '')
+              . '</td>
+            </tr>';
+        }
+    } elseif (!empty($visit['product_name'])) {
+        $materialsHtml = '<tr><td colspan="2" style="padding:16px 0 8px;"><strong style="color:#1A5F4A;">What We Applied</strong></td></tr>
+        <tr><td style="padding:4px 0;color:#555;">' . htmlspecialchars($visit['product_name']) . '</td><td></td></tr>';
+    }
+
+    // ── Progress section ──────────────────────────────────────────
+    $progressHtml = '';
+    if ($totalApps > 1) {
+        $progressHtml = '<tr><td colspan="2" style="padding:16px 0 0;">
+          <div style="background:#f0f7f4;border-radius:8px;padding:12px 16px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#666;margin-bottom:4px;">Your Program</div>
+            <div style="font-size:22px;letter-spacing:4px;color:#2D8659;">' . $progressDots . '</div>
+            <div style="font-size:13px;color:#555;margin-top:4px;">Application ' . $completedApp . ' of ' . $totalApps . ' complete'
+                . ($nextAppLabel ? ' · Next: ' . $nextAppLabel : '') . '</div>
+          </div>
+        </td></tr>';
+    }
+
+    // ── GPS / time section ────────────────────────────────────────
+    $gpsHtml = '';
+    if ($arrivalTime || $departureTime) {
+        $gpsHtml = '<tr><td colspan="2" style="padding:16px 0 8px;"><strong style="color:#1A5F4A;">We Were There ✓</strong></td></tr>
+        <tr><td colspan="2" style="padding:4px 0;color:#555;font-size:13px;">';
+        if ($arrivalTime)   $gpsHtml .= 'Arrived <strong>' . $arrivalTime . '</strong>';
+        if ($arrivalTime && $departureTime) $gpsHtml .= ' &middot; ';
+        if ($departureTime) $gpsHtml .= 'Departed <strong>' . $departureTime . '</strong>';
+        if ($durationStr)   $gpsHtml .= ' <span style="color:#888;">(' . $durationStr . ')</span>';
+        if (!empty($visit['property_address'])) {
+            $gpsHtml .= '<br>' . htmlspecialchars($visit['property_address'] . ', ' . ($visit['property_city'] ?? ''));
+        }
+        $gpsHtml .= '</td></tr>';
+    }
+
+    // ── CTA Button ────────────────────────────────────────────────
+    $ctaHtml = '';
+    if ($portalUrl) {
+        $ctaHtml = '<tr><td colspan="2" style="padding:20px 0 0;text-align:center;">
+          <a href="' . htmlspecialchars($portalUrl) . '" style="display:inline-block;background:#2D8659;color:#fff;padding:12px 28px;border-radius:6px;font-size:14px;font-weight:bold;text-decoration:none;">
+            View Full Report →
+          </a>
+        </td></tr>';
+    }
+
+    // ── Compose HTML email ────────────────────────────────────────
+    $htmlBody = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' . htmlspecialchars($visitLabel) . '</title></head>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:10px;overflow:hidden;max-width:600px;">
+
+        <!-- Header -->
+        <tr><td style="background:#1A5F4A;padding:24px;text-align:center;">
+          ' . ($iconHtml ? '<div style="margin-bottom:12px;">' . $iconHtml . '</div>' : '') . '
+          <h1 style="color:#fff;margin:0;font-size:22px;">' . htmlspecialchars($visitLabel) . '</h1>
+          <p style="color:#7FD858;margin:6px 0 0;font-size:14px;">' . date('l, F j, Y') . '</p>
+        </td></tr>
+
+        <!-- Body -->
+        <tr><td style="padding:24px;">
+          <p style="margin:0 0 8px;color:#555;">Hi ' . htmlspecialchars($visit['contact_first']) . ',</p>
+          <p style="margin:0 0 20px;color:#555;">Your lawn application has been completed. Here\'s a summary of what was done today.</p>
+
+          <table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #eee;">
+            ' . $materialsHtml . '
+            ' . $photosHtml . '
+            ' . $gpsHtml . '
+            ' . $progressHtml . '
+            ' . $ctaHtml . '
+          </table>
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="background:#f9f9f9;padding:16px 24px;text-align:center;border-top:1px solid #eee;">
+          <p style="margin:0;color:#999;font-size:12px;">Questions? Call us at <strong>(778) 846-9273</strong> or reply to this email.</p>
+          <p style="margin:6px 0 0;color:#ccc;font-size:11px;">Mowology Landscaping · mowology.ca</p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body></html>';
+
+    // ── Send email ────────────────────────────────────────────────
+    $emailResult = sendEmail(
+        $visit['contact_email'],
+        'Your ' . $visitLabel . ' is Complete!',
+        $htmlBody
+    );
+
+    // ── Send SMS (no URL, 160 chars) ──────────────────────────────
+    $smsResult = ['success' => false];
+    if (!empty($visit['contact_phone'])) {
+        $smsMsg = 'Mowology: Your ' . ($visit['plan_title'] ?: 'fertilizer application') . ' is done! Check your email for photos and details. Questions? (778) 846-9273';
+        if (strlen($smsMsg) > 160) {
+            $smsMsg = 'Mowology: Lawn application complete! Check your email for the report. (778) 846-9273';
+        }
+        $smsResult = sendSms($visit['contact_phone'], $smsMsg);
+    }
+
+    // ── Mark notification sent ────────────────────────────────────
+    if ($emailResult['success'] || $smsResult['success']) {
+        $db->prepare("UPDATE job_visits SET notification_sent_at = NOW() WHERE id = ?")
+           ->execute([$visitId]);
+    }
+
+    return $emailResult['success'];
+}
+
+/**
  * Test email configuration — sends a test email.
  */
 function testEmailConfig(string $testEmail): array
