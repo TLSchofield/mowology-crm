@@ -495,10 +495,12 @@ $splitVisits = splitVisits($visits);
 $pageTitle = 'Plan ' . htmlspecialchars($plan['plan_number']);
 $activePage = 'jobs';
 
-// Include Leaflet CSS if this plan has a property with coordinates
+// Include Leaflet if this plan has a property with coordinates
 $hasPropCoords = !empty($plan['latitude']) && !empty($plan['longitude']);
 if ($hasPropCoords) {
-    $extraHead = '<link rel="stylesheet" href="/crm/css/leaflet/leaflet.css">';
+    // Load Leaflet in <head> (same as clients_appstack.php) so it's ready before modal JS
+    $extraHead  = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">';
+    $extraHead .= '<script src="/crm/js/leaflet/leaflet.min.js"></script>';
 }
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
@@ -2822,7 +2824,6 @@ if ($hasPropCoords) {
     </div>
 </div>
 
-<script src="/crm/js/leaflet/leaflet.js"></script>
 <script src="/crm/js/geofence/geofence-manager.js"></script>
 <script>
 (function() {
