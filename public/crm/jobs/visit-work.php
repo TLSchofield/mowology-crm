@@ -301,7 +301,7 @@ $activePage = 'jobs';
         <label class="mw-photo-btn mw-photo-btn--additional">
           <i data-feather="plus-square"></i>
           <span>Additional</span>
-          <input type="file" accept="image/*" capture="environment"
+          <input type="file" accept="image/*" multiple
                  class="photo-trigger" data-type="additional" style="display:none">
         </label>
       </div>
@@ -811,105 +811,109 @@ $activePage = 'jobs';
     grid.appendChild(tile);
   }
 
-  // Photo capture: optimistic upload
+  // Photo capture: optimistic upload (supports multiple files for Additional)
   document.querySelectorAll('.photo-trigger').forEach(function(input) {
     input.addEventListener('change', function() {
       var photoType = this.dataset.type;
-      var file      = this.files[0];
-      if (!file) return;
+      var files     = Array.from(this.files);
+      if (!files.length) return;
 
       // Ensure photos container is visible
       photosLoaded = true;
       document.getElementById('photos-loading').style.display = 'none';
       document.getElementById('photos-container').style.display = 'block';
 
-      // ── Optimistic: blob preview immediately ──────────────────────────
-      var blobUrl = URL.createObjectURL(file);
-      var bucket  = ['before','after','additional'].indexOf(photoType) >= 0 ? photoType : 'additional';
-      var grid    = document.getElementById('grid-' + bucket);
+      // Upload each selected file (one at a time, each with its own progress tile)
+      files.forEach(function(file) { uploadPhotoFile(file, photoType); });
 
-      photoCounts[bucket] = (photoCounts[bucket] || 0) + 1;
-      updatePhotoBadge();
-
-      var tile = document.createElement('div');
-      tile.className = 'mw-photo-tile mw-photo-tile--uploading';
-      tile.innerHTML =
-        '<img src="' + blobUrl + '" alt="Uploading…">' +
-        '<div class="mw-photo-tile-overlay">' +
-          '<div class="mw-upload-ring"></div>' +
-        '</div>';
-      grid.appendChild(tile);
-
-      // ── XHR upload ────────────────────────────────────────────────────
-      var fd = new FormData();
-      fd.append('photo',      file);
-      fd.append('visit_id',   VISIT_ID);
-      fd.append('action',     'upload_photo');
-      fd.append('csrf_token', CSRF);
-      fd.append('photo_type', photoType);
-
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', API_ACTIONS, true);
-      xhr.withCredentials = true;
-
-      xhr.upload.onprogress = function(e) {
-        if (e.lengthComputable) {
-          var pct = Math.round(e.loaded / e.total * 100);
-          var ring = tile.querySelector('.mw-upload-ring');
-          if (ring) ring.style.setProperty('--pct', pct + '%');
-        }
-      };
-
-      xhr.onload = function() {
-        var res = {};
-        try { res = JSON.parse(xhr.responseText); } catch(e) {}
-        URL.revokeObjectURL(blobUrl);
-
-        if (res.success) {
-          // Replace blob URL with server thumb, remove uploading state
-          tile.classList.remove('mw-photo-tile--uploading');
-          tile.dataset.photoId  = res.photo_id || '';
-          tile.dataset.viewUrl  = res.view_url  || res.orig_url || '';
-          var img = tile.querySelector('img');
-          if (img) img.src = res.thumb_url || res.orig_url || '';
-          var overlay = tile.querySelector('.mw-photo-tile-overlay');
-          if (overlay) overlay.innerHTML = '';
-          tile.addEventListener('click', function() {
-            openLightbox(tile.dataset.viewUrl, photoType, null, res.photo_id);
-          });
-          showToast('Photo saved', 'success');
-        } else {
-          // Mark as failed
-          tile.classList.remove('mw-photo-tile--uploading');
-          tile.classList.add('mw-photo-tile--failed');
-          var overlay2 = tile.querySelector('.mw-photo-tile-overlay');
-          if (overlay2) {
-            overlay2.innerHTML =
-              '<button class="mw-photo-retry-btn" title="Retry">↺</button>';
-            overlay2.querySelector('.mw-photo-retry-btn').addEventListener('click', function(e) {
-              e.stopPropagation();
-              tile.remove();
-              photoCounts[bucket]--;
-              updatePhotoBadge();
-              showToast('Photo removed. Please try again.', 'warning');
-            });
-          }
-          showToast(res.error || 'Upload failed', 'danger');
-        }
-      };
-
-      xhr.onerror = function() {
-        URL.revokeObjectURL(blobUrl);
-        tile.classList.add('mw-photo-tile--failed');
-        var ov = tile.querySelector('.mw-photo-tile-overlay');
-        if (ov) ov.innerHTML = '<button class="mw-photo-retry-btn" title="Error">✕</button>';
-        showToast('Network error — photo not saved', 'danger');
-      };
-
-      xhr.send(fd);
-      this.value = ''; // Reset input for next capture
+      this.value = ''; // Reset so the same file(s) can be selected again if needed
     });
   });
+
+  function uploadPhotoFile(file, photoType) {
+    var bucket  = ['before','after','additional'].indexOf(photoType) >= 0 ? photoType : 'additional';
+    var grid    = document.getElementById('grid-' + bucket);
+
+    // ── Optimistic: blob preview immediately ──────────────────────────────
+    var blobUrl = URL.createObjectURL(file);
+
+    photoCounts[bucket] = (photoCounts[bucket] || 0) + 1;
+    updatePhotoBadge();
+
+    var tile = document.createElement('div');
+    tile.className = 'mw-photo-tile mw-photo-tile--uploading';
+    tile.innerHTML =
+      '<img src="' + blobUrl + '" alt="Uploading…">' +
+      '<div class="mw-photo-tile-overlay">' +
+        '<div class="mw-upload-ring"></div>' +
+      '</div>';
+    grid.appendChild(tile);
+
+    // ── XHR upload ────────────────────────────────────────────────────────
+    var fd = new FormData();
+    fd.append('photo',      file);
+    fd.append('visit_id',   VISIT_ID);
+    fd.append('action',     'upload_photo');
+    fd.append('csrf_token', CSRF);
+    fd.append('photo_type', photoType);
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', API_ACTIONS, true);
+    xhr.withCredentials = true;
+
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable) {
+        var pct  = Math.round(e.loaded / e.total * 100);
+        var ring = tile.querySelector('.mw-upload-ring');
+        if (ring) ring.style.setProperty('--pct', pct + '%');
+      }
+    };
+
+    xhr.onload = function() {
+      var res = {};
+      try { res = JSON.parse(xhr.responseText); } catch(e) {}
+      URL.revokeObjectURL(blobUrl);
+
+      if (res.success) {
+        tile.classList.remove('mw-photo-tile--uploading');
+        tile.dataset.photoId = res.photo_id || '';
+        tile.dataset.viewUrl = res.view_url  || res.orig_url || '';
+        var img = tile.querySelector('img');
+        if (img) img.src = res.thumb_url || res.orig_url || '';
+        var overlay = tile.querySelector('.mw-photo-tile-overlay');
+        if (overlay) overlay.innerHTML = '';
+        tile.addEventListener('click', function() {
+          openLightbox(tile.dataset.viewUrl, photoType, null, res.photo_id);
+        });
+        showToast('Photo saved', 'success');
+      } else {
+        tile.classList.remove('mw-photo-tile--uploading');
+        tile.classList.add('mw-photo-tile--failed');
+        var overlay2 = tile.querySelector('.mw-photo-tile-overlay');
+        if (overlay2) {
+          overlay2.innerHTML = '<button class="mw-photo-retry-btn" title="Retry">↺</button>';
+          overlay2.querySelector('.mw-photo-retry-btn').addEventListener('click', function(e) {
+            e.stopPropagation();
+            tile.remove();
+            photoCounts[bucket]--;
+            updatePhotoBadge();
+            showToast('Photo removed. Please try again.', 'warning');
+          });
+        }
+        showToast(res.error || 'Upload failed', 'danger');
+      }
+    };
+
+    xhr.onerror = function() {
+      URL.revokeObjectURL(blobUrl);
+      tile.classList.add('mw-photo-tile--failed');
+      var ov = tile.querySelector('.mw-photo-tile-overlay');
+      if (ov) ov.innerHTML = '<button class="mw-photo-retry-btn" title="Error">✕</button>';
+      showToast('Network error — photo not saved', 'danger');
+    };
+
+    xhr.send(fd);
+  }
 
   // ── Minimal lightbox ──────────────────────────────────────────────────────
   var lightbox = null;
