@@ -494,6 +494,12 @@ $splitVisits = splitVisits($visits);
 
 $pageTitle = 'Plan ' . htmlspecialchars($plan['plan_number']);
 $activePage = 'jobs';
+
+// Include Leaflet CSS if this plan has a property with coordinates
+$hasPropCoords = !empty($plan['latitude']) && !empty($plan['longitude']);
+if ($hasPropCoords) {
+    $extraHead = '<link rel="stylesheet" href="/crm/css/leaflet/leaflet.css">';
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -532,6 +538,12 @@ $activePage = 'jobs';
                     </div>
                 </div>
                 <div class="mw-header-actions">
+                    <?php if ($hasPropCoords): ?>
+                        <button type="button" class="btn btn-outline-secondary"
+                                data-toggle="modal" data-target="#planWorkZoneModal">
+                            <i data-feather="map-pin" style="width:14px;height:14px;"></i> Work Zone
+                        </button>
+                    <?php endif; ?>
                     <?php if (in_array($plan['status'], ['active', 'paused'])): ?>
                         <button type="button" class="btn btn-outline-primary" onclick="showModal('editPlanModal')">
                             <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit Plan
@@ -2704,5 +2716,271 @@ $activePage = 'jobs';
             loadJobExpenses();
         })();
     </script>
+
+<?php if ($hasPropCoords): ?>
+<!-- ══════════════════════════════════════════════════════
+     WORK ZONE MODAL — Geofence for auto clock-in tracking
+     ══════════════════════════════════════════════════════ -->
+<div class="modal fade" id="planWorkZoneModal" tabindex="-1" role="dialog" aria-labelledby="planWorkZoneModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="planWorkZoneModalLabel">
+                    <i data-feather="map-pin" style="width:16px;height:16px;vertical-align:-2px;color:var(--mw-green);"></i>
+                    Work Zone — Auto Clock-In Area
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body p-3">
+
+                <!-- ── Plan Badge (Step 1 already done — plan is this page) ─── -->
+                <div class="mw-wz-steps mb-3">
+                    <div class="mw-wz-step mw-wz-step--done" id="pwz-step-1">
+                        <div class="mw-wz-step-num">1</div>
+                        <div class="mw-wz-step-body">
+                            <div class="mw-wz-step-title">Plan Selected</div>
+                            <div class="mw-wz-step-desc">
+                                <?php echo htmlspecialchars($plan['plan_number']); ?>
+                                <?php if (!empty($plan['title'])): ?>— <?php echo htmlspecialchars($plan['title']); ?><?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mw-wz-step-connector"></div>
+                    <div class="mw-wz-step mw-wz-step--active" id="pwz-step-2">
+                        <div class="mw-wz-step-num">2</div>
+                        <div class="mw-wz-step-body">
+                            <div class="mw-wz-step-title">Draw Boundary</div>
+                            <div class="mw-wz-step-desc">Click the map to outline the property work area</div>
+                        </div>
+                    </div>
+                    <div class="mw-wz-step-connector"></div>
+                    <div class="mw-wz-step" id="pwz-step-3">
+                        <div class="mw-wz-step-num">3</div>
+                        <div class="mw-wz-step-body">
+                            <div class="mw-wz-step-title">Save Zone</div>
+                            <div class="mw-wz-step-desc">Zone activates on next crew clock-in visit</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── Property Info ─────────────────────────────────────────── -->
+                <div class="mb-2 small text-muted">
+                    <i data-feather="home" style="width:12px;height:12px;"></i>
+                    <?php echo htmlspecialchars(($plan['property_address'] ?? '') . ', ' . ($plan['property_city'] ?? '')); ?>
+                    — Work zones are tied to this plan.
+                </div>
+
+                <!-- ── Map ──────────────────────────────────────────────────── -->
+                <div class="mw-wz-map-wrap">
+                    <div id="pwz-map"></div>
+                </div>
+
+                <!-- ── Contextual Hint ───────────────────────────────────────── -->
+                <div id="pwz-hint" class="mw-wz-hint mt-2 mw-wz-hint--info">
+                    <i class="mw-wz-hint-icon" data-feather="info" style="width:13px;height:13px;flex-shrink:0;"></i>
+                    <span id="pwz-hint-text">Loading map…</span>
+                </div>
+
+                <!-- ── Status feedback ────────────────────────────────────────── -->
+                <div id="pwz-status" class="mw-wz-status mt-2" style="display:none;"></div>
+
+                <!-- ── Drawing Tips (shown only during draw mode) ─────────────── -->
+                <div id="pwz-draw-tips" class="mw-wz-draw-tips mt-2" style="display:none;">
+                    <div class="mw-wz-draw-tips-title">
+                        <i data-feather="crosshair" style="width:12px;height:12px;"></i> Drawing mode active
+                    </div>
+                    <ul class="mw-wz-draw-tips-list">
+                        <li><strong>Click</strong> anywhere on the map to add a corner point</li>
+                        <li><strong>Double-click</strong> the last point (or click the first) to close the shape</li>
+                        <li>Aim for 4–8 points — trace the property edge, not just the house</li>
+                        <li>Press <kbd>Esc</kbd> or click <strong>Cancel Draw</strong> to start over</li>
+                    </ul>
+                </div>
+
+            </div>
+            <div class="modal-footer d-flex justify-content-between align-items-center">
+                <button type="button" class="btn btn-outline-danger btn-sm" id="pwz-delete-btn" disabled
+                        onclick="pwzDeleteZone()">
+                    <i data-feather="trash-2" style="width:13px;height:13px;"></i> Delete Zone
+                </button>
+                <div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="pwz-cancel-draw-btn"
+                            style="display:none;" onclick="pwzCancelDraw()">Cancel Draw</button>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="pwz-draw-btn"
+                            disabled onclick="pwzStartDraw()">
+                        <i data-feather="edit-3" style="width:13px;height:13px;"></i> Draw Zone
+                    </button>
+                    <button type="button" class="btn btn-success btn-sm" id="pwz-save-btn"
+                            disabled onclick="pwzSave()">
+                        <i data-feather="save" style="width:13px;height:13px;"></i> Save Zone
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/crm/js/leaflet/leaflet.js"></script>
+<script src="/crm/js/geofence/geofence-manager.js"></script>
+<script>
+(function() {
+    var PWZ_PLAN_ID  = <?php echo (int)$plan['id']; ?>;
+    var PWZ_PROP_LAT = <?php echo (float)($plan['latitude']  ?? 49.2827); ?>;
+    var PWZ_PROP_LNG = <?php echo (float)($plan['longitude'] ?? -123.1207); ?>;
+    var PWZ_CSRF     = <?php echo json_encode(generateCSRFToken()); ?>;
+
+    var pwzMgr      = null;
+    var pwzMapReady = false;
+
+    // ── Open: init map ────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', function() {
+        $('#planWorkZoneModal').on('shown.bs.modal', function() {
+            pwzMapReady = true;
+            pwzInitMap();
+            pwzSafeFeather();
+        });
+        $('#planWorkZoneModal').on('hidden.bs.modal', function() {
+            pwzDestroyMap();
+            pwzMapReady = false;
+            pwzShowDrawTips(false);
+        });
+    });
+
+    function pwzInitMap() {
+        pwzDestroyMap();
+        pwzMgr = new GeofenceManager({
+            mapContainer: 'pwz-map',
+            apiBase:      '/crm/api/geofence.php',
+            csrfToken:    PWZ_CSRF,
+            planId:       PWZ_PLAN_ID,
+            mode:         'edit',
+            center:       [PWZ_PROP_LAT, PWZ_PROP_LNG],
+            zoom:         18,
+            onLoad: function(hasPolygon) {
+                if (hasPolygon) {
+                    pwzSetStep(3, 'done');
+                    pwzSetHint('Zone is active — crew will auto-track when they enter this area. Click <strong>Draw Zone</strong> to redraw it.', 'success');
+                } else {
+                    pwzSetStep(2);
+                    pwzSetHint('Click <strong>Draw Zone</strong> below to start drawing the property boundary on the map.', 'info');
+                }
+                pwzSetControls(true);
+            },
+            onSave: function(id) {
+                pwzShowStatus('Work zone saved — GPS auto-tracking activates on the next crew visit.', 'success');
+                pwzSetStep(3, 'done');
+                pwzSetHint('Zone saved! Crew will auto clock-in when they enter this area.', 'success');
+                pwzShowDrawTips(false);
+                pwzSetControls(true);
+                document.getElementById('pwz-draw-btn').style.display        = 'inline-block';
+                document.getElementById('pwz-cancel-draw-btn').style.display = 'none';
+            },
+            onDelete: function() {
+                pwzShowStatus('Work zone removed.', 'info');
+                pwzSetStep(2);
+                pwzSetHint('Zone removed. Click <strong>Draw Zone</strong> to create a new boundary.', 'info');
+                pwzShowDrawTips(false);
+                pwzSetControls(true);
+            },
+        });
+        pwzMgr.init();
+        pwzSetHint('Map loading — click <strong>Draw Zone</strong> to outline the property boundary.', 'info');
+        pwzSetControls(true);
+    }
+
+    function pwzDestroyMap() {
+        if (pwzMgr) { pwzMgr.destroy(); pwzMgr = null; }
+    }
+
+    window.pwzStartDraw = function() {
+        if (!pwzMgr) return;
+        pwzMgr.startDraw();
+        document.getElementById('pwz-draw-btn').style.display        = 'none';
+        document.getElementById('pwz-cancel-draw-btn').style.display = 'inline-block';
+        document.getElementById('pwz-save-btn').disabled = true;
+        pwzSetStep(2);
+        pwzSetHint('Drawing mode active — click the map to place corners, then double-click to close the shape.', 'draw');
+        pwzShowDrawTips(true);
+        pwzSafeFeather();
+    };
+
+    window.pwzCancelDraw = function() {
+        if (!pwzMgr) return;
+        pwzMgr.cancelDraw();
+        document.getElementById('pwz-draw-btn').style.display        = 'inline-block';
+        document.getElementById('pwz-cancel-draw-btn').style.display = 'none';
+        pwzSetStep(2);
+        pwzSetHint('Draw cancelled. Click <strong>Draw Zone</strong> again to start over.', 'info');
+        pwzShowDrawTips(false);
+        pwzSafeFeather();
+    };
+
+    window.pwzSave = function() {
+        if (!pwzMgr) return;
+        document.getElementById('pwz-draw-btn').style.display        = 'inline-block';
+        document.getElementById('pwz-cancel-draw-btn').style.display = 'none';
+        pwzSetHint('Saving zone\u2026', 'info');
+        pwzMgr.save();
+        pwzSafeFeather();
+    };
+
+    window.pwzDeleteZone = function() {
+        if (!pwzMgr) return;
+        if (!confirm('Remove the work zone for this plan?\nThe crew will no longer be auto-tracked at this property.')) return;
+        pwzMgr.deletePolygon();
+    };
+
+    // ── Step indicator ────────────────────────────────────────────────
+    function pwzSetStep(n, doneTo) {
+        [1, 2, 3].forEach(function(i) {
+            var el = document.getElementById('pwz-step-' + i);
+            if (!el) return;
+            el.className = 'mw-wz-step';
+            if (doneTo === 'done' && i <= n) { el.className += ' mw-wz-step--done'; }
+            else if (i === n)  { el.className += ' mw-wz-step--active'; }
+            else if (i < n)    { el.className += ' mw-wz-step--done'; }
+        });
+    }
+
+    // ── Hint bar ──────────────────────────────────────────────────────
+    function pwzSetHint(html, variant) {
+        var el   = document.getElementById('pwz-hint');
+        var text = document.getElementById('pwz-hint-text');
+        if (!el || !text) return;
+        text.innerHTML = html;
+        el.className   = 'mw-wz-hint mt-2 mw-wz-hint--' + (variant || 'info');
+    }
+
+    // ── Drawing tips panel ────────────────────────────────────────────
+    function pwzShowDrawTips(show) {
+        var el = document.getElementById('pwz-draw-tips');
+        if (el) el.style.display = show ? 'block' : 'none';
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────
+    function pwzSetControls(enabled) {
+        ['pwz-draw-btn', 'pwz-save-btn', 'pwz-delete-btn'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.disabled = !enabled;
+        });
+    }
+
+    function pwzShowStatus(msg, type) {
+        var el = document.getElementById('pwz-status');
+        if (!el) return;
+        el.className   = 'mw-wz-status mt-2 ' + (type || 'success');
+        el.textContent = msg;
+        el.style.display = 'block';
+        setTimeout(function() { el.style.display = 'none'; }, 4000);
+    }
+
+    function pwzSafeFeather() {
+        if (typeof feather !== 'undefined') feather.replace();
+    }
+})();
+</script>
+<?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
