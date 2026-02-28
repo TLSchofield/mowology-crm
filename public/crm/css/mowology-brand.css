@@ -16319,8 +16319,12 @@ textarea.font-monospace {
     border: 1px solid #dee2e6;
 }
 #wz-map, #pwz-map {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     width: 100%;
-    height: 100%;
 }
 .mw-wz-map-placeholder {
     position: absolute;
