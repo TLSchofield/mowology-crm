@@ -13,6 +13,7 @@ LOCAL_DEV_SETUP.md
 # Database backups
 *.sql
 !database/migrations/*.sql
+!public/database/migrations/*.sql
 crm/backup/
 
 # Composer vendor directory — committed to repo for cPanel hosting (no CLI access)
