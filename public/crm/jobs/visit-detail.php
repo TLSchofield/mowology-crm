@@ -18,7 +18,7 @@ if (!$visitId) {
     exit;
 }
 
-$db = getDB();
+$db      = getDB();
 $isAdmin = ($user['role'] ?? '') === 'admin' || userHasPermission('jobs.edit');
 
 // Load visit with plan, property, contact, crew
@@ -47,17 +47,15 @@ if (!$visit) {
     exit;
 }
 
-// AuthZ: crew can only view their own visits
 $isMyCrew = (int)($visit['assigned_crew_id'] ?? 0) === (int)$user['id'];
 if (!$isAdmin && !$isMyCrew) {
     header('Location: index.php');
     exit;
 }
 
-// Merge service_type
 $visit['service_type'] = $visit['service_type'] ?? $visit['plan_service_type'] ?? 'general';
 
-// Load GPS points summary
+// Load GPS summary
 $stmtGps = $db->prepare("
     SELECT COUNT(*) AS pt_count,
            MIN(ts) AS first_ts, MAX(ts) AS last_ts,
@@ -67,7 +65,7 @@ $stmtGps = $db->prepare("
 $stmtGps->execute([$visitId]);
 $gpsSummary = $stmtGps->fetch(PDO::FETCH_ASSOC);
 
-// Load recent GPS points for mini-preview (last 200)
+// Load GPS points for mini-preview
 $stmtPts = $db->prepare("
     SELECT lat, lng, accuracy_m, ts FROM visit_gps_points
     WHERE visit_id = ? ORDER BY ts ASC LIMIT 200
@@ -75,17 +73,46 @@ $stmtPts = $db->prepare("
 $stmtPts->execute([$visitId]);
 $gpsPoints = $stmtPts->fetchAll(PDO::FETCH_ASSOC);
 
-// Load photos
+// Load photos (with variant paths, exclude soft-deleted)
 $stmtPhotos = $db->prepare("
-    SELECT id, photo_type, filename, caption, uploaded_at,
-           u.full_name AS uploader
+    SELECT vp.id, vp.photo_type, vp.filename, vp.caption, vp.sort_order,
+           vp.thumb_path, vp.grid_path, vp.view_path,
+           vp.uploaded_at, u.full_name AS uploader
     FROM visit_photos vp
     LEFT JOIN users u ON vp.uploaded_by = u.id
-    WHERE vp.visit_id = ?
-    ORDER BY photo_type, uploaded_at
+    WHERE vp.visit_id = ? AND vp.deleted_at IS NULL
+    ORDER BY
+        FIELD(vp.photo_type,'before','after','additional','during','issue','other'),
+        vp.sort_order ASC, vp.uploaded_at ASC
 ");
 $stmtPhotos->execute([$visitId]);
 $photos = $stmtPhotos->fetchAll(PDO::FETCH_ASSOC);
+
+// Group photos
+$photoGroups = ['before' => [], 'after' => [], 'additional' => [], 'other' => []];
+foreach ($photos as $p) {
+    $bucket = in_array($p['photo_type'], ['before','after','additional']) ? $p['photo_type'] : 'other';
+    // Compute display URLs with fallback to original
+    $origUrl = '/uploads/photos/' . $p['filename'];
+    $p['_orig_url']  = $origUrl;
+    $p['_thumb_url'] = $p['thumb_path'] ?? $origUrl;
+    $p['_grid_url']  = $p['grid_path']  ?? $origUrl;
+    $p['_view_url']  = $p['view_path']  ?? $origUrl;
+    $photoGroups[$bucket][] = $p;
+}
+$photoCount = count($photos);
+
+// Load share token status
+$stmtToken = $db->prepare("
+    SELECT token_preview, created_at, expires_at, revoked_at, access_count
+    FROM visit_share_tokens WHERE visit_id = ?
+");
+$stmtToken->execute([$visitId]);
+$shareToken = $stmtToken->fetch(PDO::FETCH_ASSOC);
+$hasActiveToken = $shareToken
+    && $shareToken['revoked_at'] === null
+    && ($shareToken['expires_at'] === null || strtotime($shareToken['expires_at']) > time());
+$siteUrl = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
 
 // Load notes
 $stmtNotes = $db->prepare("
@@ -111,12 +138,10 @@ $stmtAudit->execute([$visitId]);
 $auditLog = $stmtAudit->fetchAll(PDO::FETCH_ASSOC);
 
 // Decode JSON fields
-$checklist   = !empty($visit['checklist_json'])    ? json_decode($visit['checklist_json'], true)    : [];
-$materials   = !empty($visit['materials_json'])    ? json_decode($visit['materials_json'], true)    : [];
-$svcData     = !empty($visit['service_data_json']) ? json_decode($visit['service_data_json'], true) : [];
+$checklist   = !empty($visit['checklist_json'])     ? json_decode($visit['checklist_json'], true)     : [];
+$materials   = !empty($visit['materials_json'])     ? json_decode($visit['materials_json'], true)     : [];
+$svcData     = !empty($visit['service_data_json'])  ? json_decode($visit['service_data_json'], true)  : [];
 $confBox     = !empty($visit['confidence_box_json'])? json_decode($visit['confidence_box_json'], true): [];
-
-// Plan checklist template as fallback default for checklist widget
 $checklistTemplate = !empty($visit['checklist_template'])
     ? json_decode($visit['checklist_template'], true) : [];
 
@@ -149,15 +174,6 @@ $csrfToken = generateCSRFToken();
 
 $pageTitle  = 'Visit ' . ($visit['visit_number'] ?? $visitId);
 $activePage = 'jobs';
-
-$extraHead = <<<HTML
-<style>
-/* Visit detail — inline overrides for data density */
-.pow-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 10px; }
-.pow-photo-item img { width: 100%; height: 120px; object-fit: cover; border-radius: 6px; border: 1px solid var(--mw-light); cursor: pointer; }
-.pow-photo-item .badge { font-size: 10px; }
-</style>
-HTML;
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -288,44 +304,188 @@ HTML;
     </div>
 
     <!-- ── Photos Card ────────────────────────────────────────────────── -->
-    <div class="card mw-card mb-4">
+    <div class="card mw-card mb-4" id="photos-card">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="card-title mb-0"><i data-feather="image" class="mr-2"></i>Site Photos (<?= count($photos) ?>)</h5>
+        <h5 class="card-title mb-0">
+          <i data-feather="image" class="mr-2"></i>Site Photos
+          <span class="badge badge-<?= $photoCount > 0 ? 'success' : 'secondary' ?> ml-1"
+                id="photo-total-count"><?= $photoCount ?></span>
+        </h5>
         <?php if (!$isLocked || $isAdmin): ?>
-        <label class="btn btn-sm btn-outline-primary mb-0">
-          <i data-feather="upload" class="mr-1"></i>Upload Photo
-          <input type="file" id="photo-upload-input" accept="image/*" multiple style="display:none">
-        </label>
+        <div class="d-flex gap-2">
+          <label class="btn btn-sm btn-outline-info mb-0 mw-upload-typed-btn" data-type="before">
+            <i data-feather="camera" style="width:14px;height:14px;"></i> Before
+            <input type="file" accept="image/*" multiple class="mw-detail-upload-input" data-type="before" style="display:none">
+          </label>
+          <label class="btn btn-sm btn-outline-success mb-0 mw-upload-typed-btn" data-type="after">
+            <i data-feather="camera" style="width:14px;height:14px;"></i> After
+            <input type="file" accept="image/*" multiple class="mw-detail-upload-input" data-type="after" style="display:none">
+          </label>
+          <label class="btn btn-sm btn-outline-warning mb-0 mw-upload-typed-btn" data-type="additional">
+            <i data-feather="plus" style="width:14px;height:14px;"></i> Additional
+            <input type="file" accept="image/*" multiple class="mw-detail-upload-input" data-type="additional" style="display:none">
+          </label>
+        </div>
         <?php endif; ?>
       </div>
       <div class="card-body">
+
         <?php if (empty($photos)): ?>
-        <p class="text-muted text-center py-3 mb-0">No photos uploaded yet.</p>
-        <?php else: ?>
-        <div class="pow-photo-grid" id="photos-container">
-          <?php foreach ($photos as $ph): ?>
-          <div class="pow-photo-item">
-            <a href="/uploads/photos/<?= htmlspecialchars($ph['filename']) ?>" target="_blank">
-              <img src="/uploads/photos/<?= htmlspecialchars($ph['filename']) ?>"
-                   alt="<?= htmlspecialchars($ph['photo_type']) ?>"
-                   onerror="this.src='/crm/img/photo-error.svg'">
-            </a>
-            <div class="mt-1">
-              <span class="badge badge-<?= $ph['photo_type']==='before'?'info':($ph['photo_type']==='after'?'success':'secondary') ?>">
-                <?= htmlspecialchars($ph['photo_type']) ?>
-              </span>
-              <?php if (!empty($ph['caption'])): ?>
-              <div class="small text-muted"><?= htmlspecialchars($ph['caption']) ?></div>
-              <?php endif; ?>
+        <p class="text-muted text-center py-3 mb-0" id="no-photos-msg">No photos uploaded yet.</p>
+        <?php endif; ?>
+
+        <!-- ── Before / After side-by-side ── -->
+        <?php if (!empty($photoGroups['before']) || !empty($photoGroups['after'])): ?>
+        <div class="mw-ba-row" id="ba-row">
+
+          <?php foreach (['before' => 'info', 'after' => 'success'] as $baType => $baColor): ?>
+          <?php if (!empty($photoGroups[$baType])): ?>
+          <div class="mw-ba-col">
+            <div class="mw-ba-header mw-ba-header--<?= $baType ?>">
+              <?= ucfirst($baType) ?>
+              <span class="badge badge-<?= $baColor ?> ml-1"><?= count($photoGroups[$baType]) ?></span>
+            </div>
+            <div class="mw-photo-grid" id="grid-detail-<?= $baType ?>">
+              <?php foreach ($photoGroups[$baType] as $ph): ?>
+              <div class="mw-photo-tile"
+                   data-photo-id="<?= $ph['id'] ?>"
+                   data-view-url="<?= htmlspecialchars($ph['_view_url']) ?>"
+                   data-type="<?= htmlspecialchars($ph['photo_type']) ?>"
+                   data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>">
+                <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
+                     loading="lazy"
+                     alt="<?= htmlspecialchars($ph['photo_type']) ?>"
+                     onerror="this.src='/crm/img/img-error.svg'">
+                <div class="mw-photo-tile-overlay">
+                  <?php if ($isAdmin): ?>
+                  <button class="mw-photo-delete-btn" data-photo-id="<?= $ph['id'] ?>"
+                          title="Delete photo" aria-label="Delete">✕</button>
+                  <?php endif; ?>
+                </div>
+              </div>
+              <?php endforeach; ?>
             </div>
           </div>
+          <?php endif; ?>
           <?php endforeach; ?>
+
         </div>
         <?php endif; ?>
-        <!-- Upload queue UI -->
+
+        <!-- ── Additional photos grid ── -->
+        <?php if (!empty($photoGroups['additional'])): ?>
+        <div class="mw-additional-section" id="section-additional">
+          <div class="mw-ba-header mw-ba-header--additional">
+            Additional
+            <span class="badge badge-warning ml-1"><?= count($photoGroups['additional']) ?></span>
+          </div>
+          <div class="mw-photo-grid" id="grid-detail-additional">
+            <?php foreach ($photoGroups['additional'] as $ph): ?>
+            <div class="mw-photo-tile"
+                 data-photo-id="<?= $ph['id'] ?>"
+                 data-view-url="<?= htmlspecialchars($ph['_view_url']) ?>"
+                 data-type="<?= htmlspecialchars($ph['photo_type']) ?>"
+                 data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>">
+              <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
+                   loading="lazy"
+                   alt="additional"
+                   onerror="this.src='/crm/img/img-error.svg'">
+              <div class="mw-photo-tile-overlay">
+                <?php if ($isAdmin): ?>
+                <button class="mw-photo-delete-btn" data-photo-id="<?= $ph['id'] ?>"
+                        title="Delete photo" aria-label="Delete">✕</button>
+                <?php endif; ?>
+              </div>
+            </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <?php endif; ?>
+
+        <!-- ── Other photos (legacy types) ── -->
+        <?php if (!empty($photoGroups['other'])): ?>
+        <div class="mt-3" id="section-other">
+          <div class="mw-ba-header mw-ba-header--other">Other</div>
+          <div class="mw-photo-grid" id="grid-detail-other">
+            <?php foreach ($photoGroups['other'] as $ph): ?>
+            <div class="mw-photo-tile"
+                 data-photo-id="<?= $ph['id'] ?>"
+                 data-view-url="<?= htmlspecialchars($ph['_view_url']) ?>"
+                 data-type="<?= htmlspecialchars($ph['photo_type']) ?>"
+                 data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>">
+              <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
+                   loading="lazy"
+                   alt="<?= htmlspecialchars($ph['photo_type']) ?>"
+                   onerror="this.src='/crm/img/img-error.svg'">
+              <div class="mw-photo-tile-overlay">
+                <span class="badge badge-secondary" style="font-size:9px;"><?= htmlspecialchars($ph['photo_type']) ?></span>
+                <?php if ($isAdmin): ?>
+                <button class="mw-photo-delete-btn" data-photo-id="<?= $ph['id'] ?>"
+                        title="Delete photo" aria-label="Delete">✕</button>
+                <?php endif; ?>
+              </div>
+            </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <?php endif; ?>
+
+        <!-- Upload queue progress -->
         <div id="upload-queue" class="mt-3" style="display:none;"></div>
       </div>
     </div>
+
+    <!-- ── Share Gallery Card (admin) ─────────────────────────────────── -->
+    <?php if ($isAdmin): ?>
+    <div class="card mw-card mb-4" id="share-gallery-card">
+      <div class="card-header">
+        <h5 class="card-title mb-0"><i data-feather="share-2" class="mr-2"></i>Client Gallery Link</h5>
+      </div>
+      <div class="card-body">
+        <?php if ($hasActiveToken): ?>
+        <div class="d-flex align-items-center mb-3" id="token-active-row">
+          <div class="mw-token-status mw-token-status--active mr-3">
+            <i data-feather="check-circle" style="width:16px;height:16px;"></i> Active
+          </div>
+          <div class="flex-grow-1">
+            <div class="mw-token-preview-label">Token: <code><?= htmlspecialchars(($shareToken['token_preview'] ?? '') . '…') ?></code></div>
+            <?php if ($shareToken['expires_at']): ?>
+            <div class="small text-muted">Expires: <?= htmlspecialchars(date('M j, Y', strtotime($shareToken['expires_at']))) ?></div>
+            <?php else: ?>
+            <div class="small text-muted">No expiry</div>
+            <?php endif; ?>
+            <div class="small text-muted">Accessed <?= (int)($shareToken['access_count'] ?? 0) ?> time<?= (int)($shareToken['access_count'] ?? 0) !== 1 ? 's' : '' ?></div>
+          </div>
+        </div>
+        <p class="small text-muted mb-2">Share this link with your client:</p>
+        <div class="input-group input-group-sm mb-3" id="share-url-group" style="display:none;">
+          <input type="text" class="form-control" id="share-url-input" readonly>
+          <div class="input-group-append">
+            <button class="btn btn-outline-secondary" id="btn-copy-link" type="button">
+              <i data-feather="copy" style="width:14px;height:14px;"></i> Copy
+            </button>
+          </div>
+        </div>
+        <?php else: ?>
+        <p class="text-muted small mb-3" id="no-token-msg">
+          No active share link. Generate one to give your client access to their photo gallery.
+        </p>
+        <?php endif; ?>
+
+        <div class="d-flex gap-2 flex-wrap">
+          <button class="btn btn-sm btn-success" id="btn-generate-token">
+            <i data-feather="link" class="mr-1"></i>
+            <?= $hasActiveToken ? 'Regenerate Link' : 'Generate Share Link' ?>
+          </button>
+          <?php if ($hasActiveToken): ?>
+          <button class="btn btn-sm btn-outline-danger" id="btn-revoke-token">
+            <i data-feather="x-circle" class="mr-1"></i> Revoke Link
+          </button>
+          <?php endif; ?>
+        </div>
+      </div>
+    </div>
+    <?php endif; ?>
 
   </div><!-- /col-8 -->
 
@@ -488,13 +648,32 @@ HTML;
 </div>
 <?php endif; ?>
 
+<!-- ── Lightbox ─────────────────────────────────────────────────────────── -->
+<div id="mw-lightbox" class="mw-lightbox" style="display:none;" role="dialog" aria-modal="true">
+  <div class="mw-lightbox-backdrop" id="lb-backdrop"></div>
+  <div class="mw-lightbox-content">
+    <button class="mw-lightbox-close" id="lb-close" aria-label="Close">✕</button>
+    <div class="mw-lightbox-type-label" id="lb-type"></div>
+    <img class="mw-lightbox-img" id="lb-img" src="" alt="">
+    <div class="mw-lightbox-caption" id="lb-caption"></div>
+    <?php if ($isAdmin): ?>
+    <div class="mw-lightbox-actions">
+      <button class="btn btn-sm btn-outline-danger" id="lb-delete-btn" data-photo-id="">
+        <i data-feather="trash-2" style="width:14px;height:14px;"></i> Delete
+      </button>
+    </div>
+    <?php endif; ?>
+  </div>
+</div>
+
 <!-- ── Hidden state ─────────────────────────────────────────────────────── -->
 <input type="hidden" id="pow-visit-id" value="<?= $visitId ?>">
 <input type="hidden" id="pow-csrf" value="<?= htmlspecialchars($csrfToken) ?>">
 <input type="hidden" id="pow-locked" value="<?= $isLocked ? '1' : '0' ?>">
 <input type="hidden" id="pow-is-admin" value="<?= $isAdmin ? '1' : '0' ?>">
+<input type="hidden" id="pow-site-url" value="<?= htmlspecialchars($siteUrl) ?>">
 
-<!-- ── Unlock Modal ─────────────────────────────────────────────────────── -->
+<!-- ── Modals ────────────────────────────────────────────────────────────── -->
 <div class="modal fade" id="unlockModal" tabindex="-1">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
@@ -511,7 +690,6 @@ HTML;
   </div>
 </div>
 
-<!-- ── Email PoW Modal ───────────────────────────────────────────────────── -->
 <div class="modal fade" id="emailPowModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -536,35 +714,6 @@ HTML;
   </div>
 </div>
 
-<!-- ── Photo type modal ──────────────────────────────────────────────────── -->
-<div class="modal fade" id="photoTypeModal" tabindex="-1">
-  <div class="modal-dialog modal-sm">
-    <div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">Photo Type</h5><button type="button" class="close" data-dismiss="modal">&times;</button></div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="small font-weight-600">Type</label>
-          <select id="photo-type-select" class="form-control">
-            <option value="before">Before</option>
-            <option value="during">During</option>
-            <option value="after" selected>After</option>
-            <option value="issue">Issue</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-        <div class="form-group mb-0">
-          <label class="small font-weight-600">Caption (optional)</label>
-          <input type="text" id="photo-caption-input" class="form-control" placeholder="Brief description…">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary btn-sm" data-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary btn-sm" id="btn-confirm-photo-type">Upload</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <script>
 (function() {
   'use strict';
@@ -573,14 +722,19 @@ HTML;
   var CSRF     = document.getElementById('pow-csrf').value;
   var LOCKED   = document.getElementById('pow-locked').value === '1';
   var IS_ADMIN = document.getElementById('pow-is-admin').value === '1';
+  var SITE_URL = document.getElementById('pow-site-url').value;
   var API_BASE = '/crm/api/pow-actions.php';
+  var API_PHOTO = '/crm/api/job-photo.php';
+  var API_TOKEN = '/crm/api/visit-share-token.php';
+
+  var totalCount = parseInt(document.getElementById('photo-total-count').textContent, 10) || 0;
 
   function showAlert(msg, type) {
     var d = document.createElement('div');
     d.className = 'alert alert-' + type + ' alert-dismissible fade show';
     d.innerHTML = msg + '<button type="button" class="close" data-dismiss="alert">&times;</button>';
     document.querySelector('.mw-page-header').insertAdjacentElement('afterend', d);
-    setTimeout(function() { $(d).alert('close'); }, 5000);
+    setTimeout(function() { if (typeof $ !== 'undefined') $(d).alert('close'); else d.remove(); }, 5000);
   }
 
   function powPost(action, extra) {
@@ -591,6 +745,194 @@ HTML;
       credentials: 'same-origin',
       body: JSON.stringify(body)
     }).then(function(r) { return r.json(); });
+  }
+
+  function apiPost(url, data) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(Object.assign({ visit_id: VISIT_ID, csrf_token: CSRF }, data))
+    }).then(function(r) { return r.json(); });
+  }
+
+  // ── Lightbox ──────────────────────────────────────────────────────────────
+  var lb        = document.getElementById('mw-lightbox');
+  var lbImg     = document.getElementById('lb-img');
+  var lbType    = document.getElementById('lb-type');
+  var lbCaption = document.getElementById('lb-caption');
+  var lbDelete  = document.getElementById('lb-delete-btn');
+
+  function openLightbox(tile) {
+    var viewUrl = tile.dataset.viewUrl;
+    var type    = tile.dataset.type || '';
+    var caption = tile.dataset.caption || '';
+    var photoId = tile.dataset.photoId || '';
+    if (!viewUrl) return;
+
+    lbImg.src = viewUrl;
+    lbType.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+    lbCaption.textContent = caption;
+    if (lbDelete) lbDelete.dataset.photoId = photoId;
+    lb.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeLightbox() {
+    lb.style.display = 'none';
+    lbImg.src = '';
+    document.body.style.overflow = '';
+  }
+
+  if (lb) {
+    document.getElementById('lb-backdrop').addEventListener('click', closeLightbox);
+    document.getElementById('lb-close').addEventListener('click', closeLightbox);
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLightbox(); });
+  }
+
+  // Delete from lightbox
+  if (lbDelete) {
+    lbDelete.addEventListener('click', function() {
+      var photoId = parseInt(this.dataset.photoId, 10);
+      if (!photoId) return;
+      if (!confirm('Delete this photo? This cannot be undone.')) return;
+      deletePhoto(photoId, function() { closeLightbox(); });
+    });
+  }
+
+  // ── Photo tile click → lightbox ───────────────────────────────────────────
+  document.addEventListener('click', function(e) {
+    var tile = e.target.closest('.mw-photo-tile');
+    if (tile && !e.target.classList.contains('mw-photo-delete-btn')) {
+      openLightbox(tile);
+    }
+  });
+
+  // ── Inline delete buttons ─────────────────────────────────────────────────
+  document.addEventListener('click', function(e) {
+    if (!e.target.classList.contains('mw-photo-delete-btn')) return;
+    e.stopPropagation();
+    var photoId = parseInt(e.target.dataset.photoId, 10);
+    if (!photoId) return;
+    if (!confirm('Delete this photo?')) return;
+    deletePhoto(photoId, function() {
+      var tile = e.target.closest('.mw-photo-tile');
+      if (tile) {
+        tile.style.transition = 'opacity 0.2s';
+        tile.style.opacity = '0';
+        setTimeout(function() { tile.remove(); }, 200);
+      }
+      totalCount--;
+      var badge = document.getElementById('photo-total-count');
+      if (badge) badge.textContent = totalCount;
+    });
+  });
+
+  function deletePhoto(photoId, onSuccess) {
+    apiPost(API_PHOTO, { action: 'delete', photo_id: photoId })
+      .then(function(res) {
+        if (res.success) {
+          if (onSuccess) onSuccess();
+        } else {
+          showAlert(res.error || 'Delete failed', 'danger');
+        }
+      });
+  }
+
+  // ── Upload from detail page ───────────────────────────────────────────────
+  document.querySelectorAll('.mw-detail-upload-input').forEach(function(input) {
+    input.addEventListener('change', function() {
+      var photoType = this.dataset.type;
+      var files     = Array.from(this.files);
+      if (!files.length) return;
+
+      var queue = document.getElementById('upload-queue');
+      queue.style.display = 'block';
+
+      files.forEach(function(file, idx) {
+        var bar = document.createElement('div');
+        bar.className = 'mb-2';
+        bar.id = 'up-bar-wrap-' + idx;
+        bar.innerHTML = '<div class="small text-muted text-truncate">' + file.name + '</div>'
+                      + '<div class="progress" style="height:4px;">'
+                      + '<div class="progress-bar" id="up-bar-' + idx + '" style="width:0%"></div>'
+                      + '</div>';
+        queue.appendChild(bar);
+
+        var fd = new FormData();
+        fd.append('photo',       file);
+        fd.append('visit_id',    VISIT_ID);
+        fd.append('action',      'upload_photo');
+        fd.append('csrf_token',  CSRF);
+        fd.append('photo_type',  photoType);
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', API_BASE, true);
+        xhr.withCredentials = true;
+        xhr.upload.onprogress = function(e) {
+          if (e.lengthComputable) {
+            document.getElementById('up-bar-' + idx).style.width =
+              Math.round(e.loaded / e.total * 100) + '%';
+          }
+        };
+        xhr.onload = function() {
+          var res = {};
+          try { res = JSON.parse(xhr.responseText); } catch(err) {}
+
+          var pb = document.getElementById('up-bar-' + idx);
+          if (res.success) {
+            if (pb) pb.classList.add('bg-success');
+            // Add tile to appropriate grid
+            addTileToGrid(res, photoType);
+            totalCount++;
+            var badge = document.getElementById('photo-total-count');
+            if (badge) badge.textContent = totalCount;
+            // Remove "no photos" message if present
+            var nop = document.getElementById('no-photos-msg');
+            if (nop) nop.remove();
+          } else {
+            if (pb) pb.classList.add('bg-danger');
+            showAlert(res.error || 'Upload failed', 'danger');
+          }
+          if (idx === files.length - 1) {
+            setTimeout(function() { queue.style.display = 'none'; queue.innerHTML = ''; }, 3000);
+          }
+        };
+        xhr.send(fd);
+      });
+
+      this.value = '';
+    });
+  });
+
+  function addTileToGrid(res, photoType) {
+    var bucket = ['before','after','additional'].indexOf(photoType) >= 0 ? photoType : 'other';
+    var gridId = 'grid-detail-' + bucket;
+    var grid   = document.getElementById(gridId);
+
+    // If section doesn't exist yet, we need to create it
+    if (!grid) {
+      // Reload page to render the new section properly
+      setTimeout(function() { location.reload(); }, 1500);
+      return;
+    }
+
+    var thumbUrl = res.thumb_url || res.orig_url || '';
+    var viewUrl  = res.view_url  || res.orig_url || '';
+
+    var tile = document.createElement('div');
+    tile.className = 'mw-photo-tile';
+    tile.dataset.photoId  = res.photo_id || '';
+    tile.dataset.viewUrl  = viewUrl;
+    tile.dataset.type     = photoType;
+    tile.dataset.caption  = '';
+    tile.innerHTML =
+      '<img src="' + escHtml(thumbUrl) + '" loading="lazy" alt="' + escHtml(photoType) + '"' +
+           ' onerror="this.src=\'/crm/img/img-error.svg\'">' +
+      '<div class="mw-photo-tile-overlay">' +
+        (IS_ADMIN ? '<button class="mw-photo-delete-btn" data-photo-id="' + (res.photo_id || '') + '" title="Delete">✕</button>' : '') +
+      '</div>';
+    grid.appendChild(tile);
   }
 
   // ── Generate PDF ─────────────────────────────────────────────────────────
@@ -614,7 +956,7 @@ HTML;
     });
   }
 
-  // ── Lock ─────────────────────────────────────────────────────────────────
+  // ── Lock / Unlock ─────────────────────────────────────────────────────────
   var btnLock = document.getElementById('btn-lock');
   if (btnLock) {
     btnLock.addEventListener('click', function() {
@@ -626,19 +968,18 @@ HTML;
     });
   }
 
-  // ── Unlock ───────────────────────────────────────────────────────────────
   var btnUnlock = document.getElementById('btn-unlock');
   if (btnUnlock) {
     btnUnlock.addEventListener('click', function() {
       document.getElementById('unlock-reason').value = '';
-      $('#unlockModal').modal('show');
+      if (typeof $ !== 'undefined') $('#unlockModal').modal('show');
     });
   }
   var btnConfirmUnlock = document.getElementById('btn-confirm-unlock');
   if (btnConfirmUnlock) {
     btnConfirmUnlock.addEventListener('click', function() {
       var reason = document.getElementById('unlock-reason').value.trim();
-      $('#unlockModal').modal('hide');
+      if (typeof $ !== 'undefined') $('#unlockModal').modal('hide');
       powPost('unlock_visit', { reason: reason }).then(function(res) {
         if (res.success) { location.reload(); }
         else showAlert(res.error || 'Unlock failed', 'danger');
@@ -669,94 +1010,67 @@ HTML;
     });
   }
 
-  // ── Photo Upload ──────────────────────────────────────────────────────────
-  var pendingFiles = [];
-  var photoInput  = document.getElementById('photo-upload-input');
-  if (photoInput) {
-    photoInput.addEventListener('change', function() {
-      pendingFiles = Array.from(this.files);
-      if (pendingFiles.length > 0) {
-        document.getElementById('photo-type-select').value = 'after';
-        document.getElementById('photo-caption-input').value = '';
-        $('#photoTypeModal').modal('show');
-      }
-    });
-  }
+  // ── Share Token ───────────────────────────────────────────────────────────
+  var btnGenToken = document.getElementById('btn-generate-token');
+  if (btnGenToken) {
+    btnGenToken.addEventListener('click', function() {
+      var self = this;
+      self.disabled = true;
+      self.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span>Generating…';
 
-  var btnConfirmPhoto = document.getElementById('btn-confirm-photo-type');
-  if (btnConfirmPhoto) {
-    btnConfirmPhoto.addEventListener('click', function() {
-      var photoType = document.getElementById('photo-type-select').value;
-      var caption   = document.getElementById('photo-caption-input').value;
-      $('#photoTypeModal').modal('hide');
-      uploadPhotos(pendingFiles, photoType, caption);
-    });
-  }
-
-  function uploadPhotos(files, photoType, caption) {
-    var queue = document.getElementById('upload-queue');
-    queue.style.display = 'block';
-    queue.innerHTML = '';
-
-    files.forEach(function(file, idx) {
-      var bar = document.createElement('div');
-      bar.className = 'mb-2';
-      bar.innerHTML = '<div class="small text-muted">' + file.name + '</div>'
-                    + '<div class="progress" style="height:6px;"><div class="progress-bar" id="up-bar-' + idx + '" style="width:0%"></div></div>';
-      queue.appendChild(bar);
-
-      var fd = new FormData();
-      fd.append('photo',       file);
-      fd.append('visit_id',    VISIT_ID);
-      fd.append('action',      'upload_photo');
-      fd.append('csrf_token',  CSRF);
-      fd.append('photo_type',  photoType);
-      fd.append('caption',     caption);
-
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', API_BASE, true);
-      xhr.withCredentials = true;
-      xhr.upload.onprogress = function(e) {
-        if (e.lengthComputable) {
-          document.getElementById('up-bar-' + idx).style.width = Math.round(e.loaded/e.total*100) + '%';
-        }
-      };
-      xhr.onload = function() {
-        var res = JSON.parse(xhr.responseText || '{}');
-        if (res.success) {
-          document.getElementById('up-bar-' + idx).classList.add('bg-success');
-          // Append to photo grid
-          var grid = document.getElementById('photos-container');
-          if (!grid) {
-            var cb = document.querySelector('.card-body');
-            grid = document.createElement('div');
-            grid.id = 'photos-container';
-            grid.className = 'pow-photo-grid';
-            cb.prepend(grid);
+      apiPost(API_TOKEN, { action: 'generate' }).then(function(res) {
+        if (res.success && res.token) {
+          var url = SITE_URL + '/client/proof.php?token=' + res.token + '&visit=' + VISIT_ID;
+          // Show the URL in the input and copy group
+          var grp = document.getElementById('share-url-group');
+          var inp = document.getElementById('share-url-input');
+          if (grp && inp) {
+            inp.value = url;
+            grp.style.display = '';
           }
-          var item = document.createElement('div');
-          item.className = 'pow-photo-item';
-          var url = '/uploads/photos/' + res.filename;
-          item.innerHTML = '<a href="' + url + '" target="_blank"><img src="' + url + '" style="width:100%;height:120px;object-fit:cover;border-radius:6px;"></a>'
-                         + '<div class="mt-1"><span class="badge badge-secondary">' + photoType + '</span></div>';
-          grid.appendChild(item);
+          showAlert('Share link generated! Copy the link to send to your client.', 'success');
+          setTimeout(function() { location.reload(); }, 3000);
         } else {
-          document.getElementById('up-bar-' + idx).classList.add('bg-danger');
+          showAlert(res.error || 'Failed to generate token', 'danger');
         }
-        if (idx === files.length - 1) {
-          setTimeout(function() { queue.style.display = 'none'; }, 2000);
-        }
-      };
-      xhr.send(fd);
+        self.disabled = false;
+        self.innerHTML = '<i data-feather="link" class="mr-1"></i>Regenerate Link';
+        if (typeof feather !== 'undefined') feather.replace();
+      });
+    });
+  }
+
+  var btnRevokeToken = document.getElementById('btn-revoke-token');
+  if (btnRevokeToken) {
+    btnRevokeToken.addEventListener('click', function() {
+      if (!confirm('Revoke the share link? The client will no longer be able to view their gallery with the current link.')) return;
+      apiPost(API_TOKEN, { action: 'revoke' }).then(function(res) {
+        if (res.success) { location.reload(); }
+        else showAlert(res.error || 'Revoke failed', 'danger');
+      });
+    });
+  }
+
+  var btnCopyLink = document.getElementById('btn-copy-link');
+  if (btnCopyLink) {
+    btnCopyLink.addEventListener('click', function() {
+      var inp = document.getElementById('share-url-input');
+      if (inp && inp.value) {
+        navigator.clipboard.writeText(inp.value).then(function() {
+          showAlert('Link copied to clipboard.', 'success');
+        }).catch(function() {
+          inp.select();
+          document.execCommand('copy');
+          showAlert('Link copied.', 'success');
+        });
+      }
     });
   }
 
   // ── Email PoW ─────────────────────────────────────────────────────────────
   var btnEmail = document.getElementById('btn-email-pow');
-  if (btnEmail) {
-    btnEmail.addEventListener('click', function() {
-      $('#emailPowModal').modal('show');
-    });
+  if (btnEmail && typeof $ !== 'undefined') {
+    btnEmail.addEventListener('click', function() { $('#emailPowModal').modal('show'); });
   }
   var btnConfirmEmail = document.getElementById('btn-confirm-email');
   if (btnConfirmEmail) {
@@ -773,16 +1087,19 @@ HTML;
         credentials: 'same-origin',
         body: JSON.stringify({ visit_id: VISIT_ID, csrf_token: CSRF, recipient: recipient, message: message })
       }).then(function(r) { return r.json(); }).then(function(res) {
-        $('#emailPowModal').modal('hide');
-        if (res.success) {
-          showAlert('Email sent to ' + recipient, 'success');
-        } else {
-          showAlert(res.error || 'Email failed.', 'danger');
-        }
+        if (typeof $ !== 'undefined') $('#emailPowModal').modal('hide');
+        if (res.success) showAlert('Email sent to ' + recipient, 'success');
+        else showAlert(res.error || 'Email failed.', 'danger');
         self.disabled = false;
         self.textContent = 'Send Email';
       });
     });
+  }
+
+  function escHtml(str) {
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(str || ''));
+    return d.innerHTML;
   }
 
 })();

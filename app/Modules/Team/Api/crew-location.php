@@ -29,6 +29,9 @@ try {
     $db = getDB();
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        // GET never writes to $_SESSION — release lock immediately so concurrent page
+        // navigations aren't blocked waiting for this query to complete.
+        session_write_close();
         $action = $_GET['action'] ?? '';
 
         if ($action === 'live') {
@@ -103,9 +106,6 @@ try {
             $dayStart = (new DateTime($date . ' 00:00:00', $tz))->getTimestamp();
             $dayEnd   = (new DateTime($date . ' 23:59:59', $tz))->getTimestamp();
 
-            // Also get MySQL TZ offset so we can convert stored EST timestamps to Pacific for display
-            $mysqlOffsetSec = (int)$db->query("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) as o")->fetchColumn();
-
             $stmt = $db->prepare("
                 SELECT
                     clh.crew_id as user_id,
@@ -126,10 +126,8 @@ try {
             $stmt->execute([$dayStart, $dayEnd]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Convert a stored MySQL-TZ timestamp to Pacific using its true UTC epoch.
-            // Parse stored string as UTC, subtract mysqlOffsetSec → true UTC epoch → format Pacific.
-            $toPacific = function(string $ts, int $epoch) use ($tz, $mysqlOffsetSec): string {
-                // Use the epoch from UNIX_TIMESTAMP() — already the true UTC epoch regardless of stored TZ
+            // UNIX_TIMESTAMP() returns true UTC epoch — convert directly to Pacific.
+            $toPacific = function(string $ts, int $epoch) use ($tz): string {
                 return (new DateTime('@' . $epoch))->setTimezone($tz)->format('Y-m-d H:i:s');
             };
 
@@ -225,8 +223,7 @@ try {
             exit;
         }
 
-        // Insert location — use MySQL NOW() so all GPS pings are consistently in MySQL TZ (EST).
-        // The crew map and plan_time_log convert EST→Pacific for display using toPacific().
+        // Insert location — MySQL NOW() is Pacific (session TZ set in Database::pdo()).
         $stmt = $db->prepare("
             INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
             VALUES (?, ?, ?, ?, NULL, NOW())
@@ -242,14 +239,24 @@ try {
                 $_SESSION['proximity_check_counter'] = 0;
             }
             $_SESSION['proximity_check_counter']++;
-
-            if ($_SESSION['proximity_check_counter'] >= 3) {
+            $runProximityNow = ($_SESSION['proximity_check_counter'] >= 3);
+            if ($runProximityNow) {
                 $_SESSION['proximity_check_counter'] = 0;
+            }
+            // All session writes are done — release the lock BEFORE the heavy proximity
+            // check (multiple DB queries + haversine calcs). Without this, the session
+            // file lock is held across checkProximityAutoStart() and blocks concurrent
+            // page navigations at session_start(), causing ERR_FAILED on Android.
+            session_write_close();
+
+            if ($runProximityNow) {
                 require_once CRM_INCLUDES . '/plan-functions.php';
                 $autoStartResult = checkProximityAutoStart(
                     (int)$user['id'], $lat, $lng, (float)($accuracy ?? 50)
                 );
             }
+        } else {
+            session_write_close(); // Queued pings — no session writes needed
         }
 
         echo json_encode([

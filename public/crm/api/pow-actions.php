@@ -15,7 +15,7 @@
  *  generate_pdf      — Generate (or regenerate) the PoW PDF
  *  lock_visit        — Admin: lock the visit (makes PDF final)
  *  unlock_visit      — Admin: unlock for edits (logged in audit)
- *  upload_photo      — Save a photo to visit_photos
+ *  upload_photo      — Save a photo to visit_photos, generate variants
  *
  * Returns: { "success": bool, "error"?: string, ... }
  */
@@ -314,7 +314,6 @@ try {
             }
             $file     = $_FILES['photo'];
             $allowed  = ['image/jpeg','image/png','image/gif','image/webp','image/heic'];
-            $mime     = $file['type'] ?? '';
             $finfo    = finfo_open(FILEINFO_MIME_TYPE);
             $realMime = finfo_file($finfo, $file['tmp_name']);
             finfo_close($finfo);
@@ -327,28 +326,49 @@ try {
             }
 
             $photoType = $input['photo_type'] ?? 'after';
-            $allowed_types = ['before','during','after','issue','other'];
+            $allowed_types = ['before','after','additional','during','issue','other'];
             if (!in_array($photoType, $allowed_types)) $photoType = 'other';
 
-            $caption = substr(strip_tags($input['caption'] ?? ''), 0, 255);
+            $caption   = substr(strip_tags($input['caption'] ?? ''), 0, 255);
+            $sortOrder = isset($input['sort_order']) ? (int)$input['sort_order'] : 0;
 
             $uploadDir = PUBLIC_ROOT . '/uploads/photos/';
             if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
 
-            $ext      = pathinfo($file['name'], PATHINFO_EXTENSION) ?: 'jpg';
-            $filename = 'pow_' . $visitId . '_' . $photoType . '_' . uniqid() . '.' . strtolower($ext);
-            move_uploaded_file($file['tmp_name'], $uploadDir . $filename);
+            $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION) ?: 'jpg');
+            $base     = 'pow_' . $visitId . '_' . $photoType . '_' . bin2hex(random_bytes(8));
+            $filename = $base . '.' . $ext;
+            $fullPath = $uploadDir . $filename;
+            move_uploaded_file($file['tmp_name'], $fullPath);
+
+            // ── Generate image variants ──────────────────────────────────
+            $variants = generatePhotoVariants($fullPath, $visitId, $base, $realMime);
 
             $db->prepare("
-                INSERT INTO visit_photos (visit_id, photo_type, filename, original_filename, file_size, mime_type, caption, uploaded_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO visit_photos
+                    (visit_id, photo_type, filename, original_filename, file_size,
+                     mime_type, caption, sort_order, thumb_path, grid_path, view_path, uploaded_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ")->execute([
                 $visitId, $photoType, $filename, $file['name'],
-                $file['size'], $realMime, $caption, $user['id']
+                $file['size'], $realMime, $caption, $sortOrder,
+                $variants['thumb_path'], $variants['grid_path'], $variants['view_path'],
+                $user['id'],
             ]);
+            $photoId = (int)$db->lastInsertId();
 
             addAuditLog($db, $visitId, (int)$user['id'], 'photo_upload', ['type' => $photoType, 'file' => $filename], $ip);
-            echo json_encode(['success' => true, 'filename' => $filename]);
+
+            echo json_encode([
+                'success'    => true,
+                'photo_id'   => $photoId,
+                'filename'   => $filename,
+                'thumb_url'  => $variants['thumb_path'] ?? ('/uploads/photos/' . $filename),
+                'grid_url'   => $variants['grid_path']  ?? ('/uploads/photos/' . $filename),
+                'view_url'   => $variants['view_path']  ?? ('/uploads/photos/' . $filename),
+                'orig_url'   => '/uploads/photos/' . $filename,
+                'photo_type' => $photoType,
+            ]);
             break;
 
         default:
@@ -387,4 +407,138 @@ function addAuditLog(PDO $db, int $visitId, int $userId, string $action, ?array 
         $payload ? json_encode($payload) : null,
         $ip ? substr($ip, 0, 45) : null,
     ]);
+}
+
+/**
+ * Generate thumb (256px sq), grid (512px), and view (1280px) variants.
+ * Auto-corrects EXIF orientation. Strips EXIF by re-encoding through GD.
+ * Generates WebP if imagewebp() is available, otherwise JPEG.
+ *
+ * @return array ['thumb_path' => string|null, 'grid_path' => string|null, 'view_path' => string|null]
+ *               Paths are web-relative (e.g. '/uploads/photos/t/42/pow_42_before_abc_t.webp').
+ */
+function generatePhotoVariants(string $srcPath, int $visitId, string $baseName, string $mime): array
+{
+    $result = ['thumb_path' => null, 'grid_path' => null, 'view_path' => null];
+
+    // Only process formats GD can open
+    $gd = null;
+    switch ($mime) {
+        case 'image/jpeg': $gd = @imagecreatefromjpeg($srcPath); break;
+        case 'image/png':  $gd = @imagecreatefrompng($srcPath);  break;
+        case 'image/webp': if (function_exists('imagecreatefromwebp')) $gd = @imagecreatefromwebp($srcPath); break;
+        case 'image/gif':  $gd = @imagecreatefromgif($srcPath);  break;
+        default: return $result; // HEIC, etc. — skip variants
+    }
+
+    if (!$gd) {
+        error_log("generatePhotoVariants: GD could not open {$srcPath}");
+        return $result;
+    }
+
+    // Auto-orient via EXIF (JPEG only)
+    if ($mime === 'image/jpeg' && function_exists('exif_read_data')) {
+        $exif = @exif_read_data($srcPath);
+        $orientation = (int)($exif['Orientation'] ?? 1);
+        $gd = gdAutoOrient($gd, $orientation);
+    }
+
+    $origW = imagesx($gd);
+    $origH = imagesy($gd);
+
+    // Decide output format
+    $canWebP = function_exists('imagewebp');
+    $outExt  = $canWebP ? 'webp' : 'jpg';
+
+    // Create variant subdirectories
+    $tDir = PUBLIC_ROOT . '/uploads/photos/t/' . $visitId . '/';
+    $gDir = PUBLIC_ROOT . '/uploads/photos/g/' . $visitId . '/';
+    $vDir = PUBLIC_ROOT . '/uploads/photos/v/' . $visitId . '/';
+    foreach ([$tDir, $gDir, $vDir] as $d) {
+        if (!is_dir($d)) @mkdir($d, 0755, true);
+    }
+
+    // ── Thumb: 256×256 square center-crop ────────────────────────────────
+    $thumbSize = 256;
+    $shortSide = min($origW, $origH);
+    $cropX = (int)(($origW - $shortSide) / 2);
+    $cropY = (int)(($origH - $shortSide) / 2);
+    $thumb = imagecreatetruecolor($thumbSize, $thumbSize);
+    gdFillTransparent($thumb, $thumbSize, $thumbSize);
+    imagecopyresampled($thumb, $gd, 0, 0, $cropX, $cropY, $thumbSize, $thumbSize, $shortSide, $shortSide);
+    $tFile = $baseName . '_t.' . $outExt;
+    gdSave($thumb, $tDir . $tFile, $outExt, 65); // 65 quality — thumbs
+    imagedestroy($thumb);
+    $result['thumb_path'] = '/uploads/photos/t/' . $visitId . '/' . $tFile;
+
+    // ── Grid: 512px max (contain, no upscale) ────────────────────────────
+    [$gridW, $gridH] = gdScaleDimensions($origW, $origH, 512);
+    $grid = imagecreatetruecolor($gridW, $gridH);
+    gdFillTransparent($grid, $gridW, $gridH);
+    imagecopyresampled($grid, $gd, 0, 0, 0, 0, $gridW, $gridH, $origW, $origH);
+    $gFile = $baseName . '_g.' . $outExt;
+    gdSave($grid, $gDir . $gFile, $outExt, 70); // 70 quality — grid
+    imagedestroy($grid);
+    $result['grid_path'] = '/uploads/photos/g/' . $visitId . '/' . $gFile;
+
+    // ── View: 1280px max (contain, no upscale) ───────────────────────────
+    [$viewW, $viewH] = gdScaleDimensions($origW, $origH, 1280);
+    $view = imagecreatetruecolor($viewW, $viewH);
+    gdFillTransparent($view, $viewW, $viewH);
+    imagecopyresampled($view, $gd, 0, 0, 0, 0, $viewW, $viewH, $origW, $origH);
+    $vFile = $baseName . '_v.' . $outExt;
+    gdSave($view, $vDir . $vFile, $outExt, 78); // 78 quality — view
+    imagedestroy($view);
+    $result['view_path'] = '/uploads/photos/v/' . $visitId . '/' . $vFile;
+
+    imagedestroy($gd);
+    return $result;
+}
+
+/** Auto-orient a GD resource based on EXIF orientation value (1–8). */
+function gdAutoOrient($gd, int $orientation)
+{
+    switch ($orientation) {
+        case 2: imageflip($gd, IMG_FLIP_HORIZONTAL); break;
+        case 3: $gd = imagerotate($gd, 180, 0); break;
+        case 4: imageflip($gd, IMG_FLIP_VERTICAL); break;
+        case 5: $gd = imagerotate($gd, -90, 0); imageflip($gd, IMG_FLIP_HORIZONTAL); break;
+        case 6: $gd = imagerotate($gd, -90, 0); break;
+        case 7: $gd = imagerotate($gd, 90, 0);  imageflip($gd, IMG_FLIP_HORIZONTAL); break;
+        case 8: $gd = imagerotate($gd, 90, 0);  break;
+    }
+    return $gd;
+}
+
+/** Fill a GD canvas with transparency (for PNG/WebP). */
+function gdFillTransparent($gd, int $w, int $h): void
+{
+    imagealphablending($gd, false);
+    imagesavealpha($gd, true);
+    $transparent = imagecolorallocatealpha($gd, 0, 0, 0, 127);
+    imagefilledrectangle($gd, 0, 0, $w - 1, $h - 1, $transparent);
+    imagealphablending($gd, true);
+}
+
+/**
+ * Scale dimensions to fit within maxSide, never upscale.
+ * @return int[] [width, height]
+ */
+function gdScaleDimensions(int $w, int $h, int $maxSide): array
+{
+    if ($w <= $maxSide && $h <= $maxSide) {
+        return [$w, $h];
+    }
+    $scale = min($maxSide / $w, $maxSide / $h);
+    return [(int)round($w * $scale), (int)round($h * $scale)];
+}
+
+/** Save GD image to a path. $format is 'webp' or 'jpg'. */
+function gdSave($gd, string $path, string $format, int $quality): void
+{
+    if ($format === 'webp' && function_exists('imagewebp')) {
+        imagewebp($gd, $path, $quality);
+    } else {
+        imagejpeg($gd, $path, $quality);
+    }
 }

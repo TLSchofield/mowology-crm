@@ -17172,6 +17172,370 @@ textarea.font-monospace {
     .mw-dp-stage { grid-template-columns: 1fr; }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   Photo System — visit-work.php + visit-detail.php
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Capture buttons row (visit-work.php photos tab) ─────────────────────── */
+.mw-photo-capture-row {
+    display: flex;
+    gap: 10px;
+    padding: 14px 14px 10px;
+}
+
+.mw-photo-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 14px 8px;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+.mw-photo-btn:active { transform: scale(0.96); }
+.mw-photo-btn svg, .mw-photo-btn [data-feather] { pointer-events: none; }
+.mw-photo-btn [data-feather] { width: 22px; height: 22px; }
+
+.mw-photo-btn--before {
+    background: rgba(0,123,255,0.06);
+    border-color: rgba(0,123,255,0.3);
+    color: #0056b3;
+}
+.mw-photo-btn--before:hover { background: rgba(0,123,255,0.12); border-color: #007bff; }
+
+.mw-photo-btn--after {
+    background: rgba(45,134,89,0.06);
+    border-color: rgba(45,134,89,0.3);
+    color: var(--mw-dark);
+}
+.mw-photo-btn--after:hover { background: rgba(45,134,89,0.12); border-color: var(--mw-green); }
+
+.mw-photo-btn--additional {
+    background: rgba(232,93,4,0.06);
+    border-color: rgba(232,93,4,0.3);
+    color: #c04a00;
+}
+.mw-photo-btn--additional:hover { background: rgba(232,93,4,0.12); border-color: var(--mw-orange); }
+
+/* ── Photo sections (Before / After / Additional) ────────────────────────── */
+.mw-photo-section {
+    display: none; /* shown via JS when count > 0 */
+    padding: 0 14px 10px;
+}
+
+.mw-photo-section-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #555;
+    padding: 10px 0 8px;
+    border-bottom: 1px solid var(--mw-light);
+    margin-bottom: 10px;
+}
+
+.mw-photo-type-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.mw-photo-type-dot--before     { background: #007bff; }
+.mw-photo-type-dot--after      { background: var(--mw-green); }
+.mw-photo-type-dot--additional { background: var(--mw-orange); }
+
+.mw-photo-section-count {
+    margin-left: auto;
+    background: var(--mw-light);
+    color: var(--mw-dark);
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 10px;
+    padding: 1px 7px;
+}
+
+/* ── Photo grid (shared: work + detail) ──────────────────────────────────── */
+.mw-photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    gap: 8px;
+}
+
+/* ── Photo tile ──────────────────────────────────────────────────────────── */
+.mw-photo-tile {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    aspect-ratio: 1 / 1;
+    background: var(--mw-light);
+    cursor: pointer;
+    line-height: 0;
+}
+.mw-photo-tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: opacity 0.2s;
+}
+.mw-photo-tile:hover img { opacity: 0.9; }
+
+.mw-photo-tile-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 4px;
+    pointer-events: none;
+}
+.mw-photo-tile:hover .mw-photo-tile-overlay { background: rgba(0,0,0,0.08); }
+.mw-photo-tile-overlay > * { pointer-events: auto; }
+
+/* ── Upload ring (spinning progress indicator) ───────────────────────────── */
+.mw-photo-tile--uploading img { opacity: 0.5; }
+.mw-photo-tile--uploading .mw-photo-tile-overlay {
+    background: rgba(0,0,0,0.25);
+    align-items: center;
+    justify-content: center;
+}
+
+.mw-upload-ring {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.25);
+    border-top-color: #fff;
+    animation: mw-spin 0.8s linear infinite;
+}
+@keyframes mw-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Failed tile ─────────────────────────────────────────────────────────── */
+.mw-photo-tile--failed img { opacity: 0.3; filter: grayscale(1); }
+.mw-photo-tile--failed .mw-photo-tile-overlay {
+    background: rgba(220,53,69,0.3);
+    align-items: center;
+    justify-content: center;
+}
+
+.mw-photo-retry-btn {
+    background: rgba(220,53,69,0.85);
+    border: none;
+    color: #fff;
+    font-size: 16px;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+/* ── Delete button on tile (admin, visit-detail) ─────────────────────────── */
+.mw-photo-delete-btn {
+    background: rgba(220,53,69,0.85);
+    border: none;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: auto;
+}
+.mw-photo-tile:hover .mw-photo-delete-btn { opacity: 1; }
+
+/* ── Before / After columns (visit-detail.php) ───────────────────────────── */
+.mw-ba-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 0;
+}
+.mw-ba-col { }
+
+.mw-ba-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    padding: 0 0 8px;
+    margin-bottom: 10px;
+    border-bottom: 2px solid var(--mw-light);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.mw-ba-header--before  { color: #0056b3; border-color: rgba(0,123,255,0.25); }
+.mw-ba-header--after   { color: var(--mw-dark); border-color: rgba(45,134,89,0.25); }
+.mw-ba-header--additional { color: #c04a00; border-color: rgba(232,93,4,0.25); }
+.mw-ba-header--other   { color: #555; border-color: #ddd; }
+
+.mw-additional-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--mw-light);
+}
+
+/* Detail page grid is a bit larger than mobile */
+#grid-detail-before,
+#grid-detail-after,
+#grid-detail-additional,
+#grid-detail-other {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+}
+
+/* ── Token status (share gallery section) ────────────────────────────────── */
+.mw-token-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 20px;
+}
+.mw-token-status--active {
+    background: rgba(45,134,89,0.1);
+    color: var(--mw-dark);
+}
+.mw-token-status--revoked {
+    background: rgba(220,53,69,0.1);
+    color: #dc3545;
+}
+.mw-token-preview-label {
+    font-size: 12px;
+    color: #555;
+}
+.mw-token-preview-label code {
+    font-size: 12px;
+    background: var(--mw-light);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--mw-dark);
+}
+
+/* ── Lightbox (CRM pages) ────────────────────────────────────────────────── */
+.mw-lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9050;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.92);
+}
+.mw-lightbox.is-open { display: flex; }
+
+.mw-lightbox-backdrop {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+}
+
+.mw-lightbox-content {
+    position: relative;
+    z-index: 1;
+    max-width: 92vw;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.mw-lightbox-close {
+    position: fixed;
+    top: 16px; right: 20px;
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 28px;
+    cursor: pointer;
+    line-height: 1;
+    z-index: 2;
+    opacity: 0.8;
+    transition: opacity 0.15s;
+}
+.mw-lightbox-close:hover { opacity: 1; }
+
+.mw-lightbox-img {
+    max-width: 88vw;
+    max-height: 78vh;
+    object-fit: contain;
+    border-radius: 4px;
+    display: block;
+}
+
+.mw-lightbox-type-label {
+    position: fixed;
+    top: 16px; left: 20px;
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 12px;
+    border-radius: 20px;
+}
+
+.mw-lightbox-caption {
+    color: rgba(255,255,255,0.65);
+    font-size: 13px;
+    text-align: center;
+    min-height: 16px;
+}
+
+.mw-lightbox-actions {
+    margin-top: 4px;
+}
+
+/* ── Responsive adjustments ──────────────────────────────────────────────── */
+@media (max-width: 576px) {
+    .mw-ba-row {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+    .mw-photo-capture-row {
+        gap: 8px;
+        padding: 10px 10px 8px;
+    }
+    .mw-photo-btn {
+        padding: 12px 6px;
+        font-size: 11px;
+    }
+    #grid-detail-before,
+    #grid-detail-after,
+    #grid-detail-additional,
+    #grid-detail-other {
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    }
+}
+/* ══════════════════════════════════════════════════════════════════════════════
+   End Photo System
+   ══════════════════════════════════════════════════════════════════════════════ */
+
 /* ══════════════════════════════════════════════════════════════════════════
    Product Icon System
    ─────────────────────────────────────────────────────────────────────────
@@ -17283,4 +17647,366 @@ textarea.font-monospace {
     border-radius: 4px;
     pointer-events: none;
     line-height: 1.4;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Photo System — Visit Work + Visit Detail + Client Gallery
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Photo capture buttons row (visit-work.php) ─────────────────────── */
+
+.mw-photo-capture-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 0 6px;
+}
+
+.mw-photo-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+    white-space: nowrap;
+    color: #fff;
+}
+.mw-photo-btn:active { transform: scale(0.96); }
+.mw-photo-btn svg   { flex-shrink: 0; }
+
+.mw-photo-btn--before     { background: #2563eb; }
+.mw-photo-btn--after      { background: var(--mw-green); }
+.mw-photo-btn--additional { background: var(--mw-orange); }
+
+/* ── Photo section headers ──────────────────────────────────────────── */
+
+.mw-photo-section {
+    margin-top: 14px;
+}
+
+.mw-photo-section-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #64748b;
+    margin-bottom: 8px;
+}
+
+.mw-photo-type-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.mw-photo-type-dot--before     { background: #2563eb; }
+.mw-photo-type-dot--after      { background: var(--mw-green); }
+.mw-photo-type-dot--additional { background: var(--mw-orange); }
+.mw-photo-type-dot--other      { background: #94a3b8; }
+
+/* ── Photo grid ─────────────────────────────────────────────────────── */
+
+.mw-photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    gap: 6px;
+}
+
+/* ── Photo tile ─────────────────────────────────────────────────────── */
+
+.mw-photo-tile {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #f1f5f9;
+    cursor: pointer;
+}
+
+.mw-photo-tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.2s;
+}
+
+.mw-photo-tile:hover img {
+    transform: scale(1.04);
+}
+
+.mw-photo-tile-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.0);
+    transition: background 0.2s;
+}
+.mw-photo-tile:hover .mw-photo-tile-overlay {
+    background: rgba(0,0,0,0.18);
+}
+
+/* Uploading state */
+.mw-photo-tile--uploading img {
+    opacity: 0.55;
+}
+
+.mw-upload-ring {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.mw-upload-ring::after {
+    content: '';
+    width: 28px;
+    height: 28px;
+    border: 3px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: mw-spin 0.7s linear infinite;
+}
+
+@keyframes mw-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Failed state */
+.mw-photo-tile--failed {
+    border: 2px solid #ef4444;
+}
+.mw-photo-tile--failed img {
+    opacity: 0.35;
+}
+
+.mw-photo-retry-btn {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(239,68,68,0.15);
+    color: #ef4444;
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    width: 100%;
+}
+
+/* ── Delete button on tile ──────────────────────────────────────────── */
+
+.mw-photo-delete-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.65);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+    padding: 0;
+    z-index: 2;
+}
+
+.mw-photo-tile:hover .mw-photo-delete-btn {
+    opacity: 1;
+}
+
+.mw-photo-delete-btn:hover {
+    background: rgba(239,68,68,0.9);
+}
+
+/* ── Before / After two-column layout ──────────────────────────────── */
+
+.mw-ba-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.mw-ba-col {
+    min-width: 0;
+}
+
+.mw-ba-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px 8px;
+    border-radius: 6px 6px 0 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+    color: #fff;
+}
+
+.mw-ba-header--before { background: #2563eb; }
+.mw-ba-header--after  { background: var(--mw-green); }
+
+.mw-ba-upload-btn {
+    margin-left: auto;
+    background: rgba(255,255,255,0.22);
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    padding: 2px 7px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.mw-ba-upload-btn:hover { background: rgba(255,255,255,0.35); }
+
+/* ── Share token status badges ──────────────────────────────────────── */
+
+.mw-token-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 20px;
+}
+
+.mw-token-status--active  { background: #dcfce7; color: #15803d; }
+.mw-token-status--revoked { background: #fee2e2; color: #b91c1c; }
+.mw-token-status--none    { background: #f1f5f9; color: #64748b; }
+
+/* ── Lightbox ───────────────────────────────────────────────────────── */
+
+.mw-lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+}
+
+.mw-lightbox.is-open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mw-lightbox-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    cursor: pointer;
+}
+
+.mw-lightbox-content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: min(92vw, 1100px);
+    max-height: 92vh;
+}
+
+.mw-lightbox-img {
+    max-width: 100%;
+    max-height: 80vh;
+    border-radius: 4px;
+    object-fit: contain;
+    display: block;
+}
+
+.mw-lightbox-type-label {
+    color: rgba(255,255,255,0.7);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 10px;
+}
+
+.mw-lightbox-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.mw-lightbox-btn {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #fff;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.mw-lightbox-btn:hover { background: rgba(255,255,255,0.22); }
+.mw-lightbox-btn--danger:hover { background: rgba(239,68,68,0.7); border-color: #ef4444; }
+
+.mw-lightbox-close {
+    position: absolute;
+    top: -36px;
+    right: 0;
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    font-size: 1.4rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px 8px;
+}
+.mw-lightbox-close:hover { color: #fff; }
+
+.mw-lightbox-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #fff;
+    font-size: 1.5rem;
+    padding: 8px 14px;
+    cursor: pointer;
+    border-radius: 6px;
+    z-index: 2;
+    transition: background 0.15s;
+}
+.mw-lightbox-nav:hover { background: rgba(255,255,255,0.22); }
+.mw-lightbox-nav--prev { left: -50px; }
+.mw-lightbox-nav--next { right: -50px; }
+
+/* ── Responsive ─────────────────────────────────────────────────────── */
+
+@media (max-width: 576px) {
+    .mw-ba-row {
+        grid-template-columns: 1fr;
+    }
+
+    .mw-lightbox-nav--prev { left: 4px; }
+    .mw-lightbox-nav--next { right: 4px; }
+
+    .mw-photo-grid {
+        grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+    }
 }

@@ -135,7 +135,7 @@ $activePage = 'jobs';
     <li class="nav-item"><a class="nav-link active" href="#tab-checklist" data-toggle="tab"><i data-feather="check-square"></i><br><small>Checklist</small></a></li>
     <li class="nav-item"><a class="nav-link" href="#tab-materials" data-toggle="tab"><i data-feather="package"></i><br><small>Materials</small></a></li>
     <li class="nav-item"><a class="nav-link" href="#tab-service" data-toggle="tab"><i data-feather="tool"></i><br><small>Details</small></a></li>
-    <li class="nav-item"><a class="nav-link" href="#tab-photos" data-toggle="tab"><i data-feather="camera"></i><br><small>Photos</small></a></li>
+    <li class="nav-item"><a class="nav-link" href="#tab-photos" data-toggle="tab" id="photos-tab-link"><i data-feather="camera"></i><br><small>Photos <span id="photo-count-badge" class="badge badge-success" style="display:none;">0</span></small></a></li>
     <li class="nav-item"><a class="nav-link" href="#tab-notes" data-toggle="tab"><i data-feather="edit-3"></i><br><small>Notes</small></a></li>
   </ul>
 
@@ -279,31 +279,60 @@ $activePage = 'jobs';
 
     <!-- ── PHOTOS TAB ────────────────────────────────────────────────── -->
     <div class="tab-pane fade" id="tab-photos">
-      <div class="pow-tab-header"><strong>Site Photos</strong></div>
-      <div class="p-3">
-        <div class="row mb-3">
-          <div class="col-4 px-1">
-            <label class="btn btn-outline-info btn-sm btn-block">
-              <i data-feather="camera"></i><br><small>Before</small>
-              <input type="file" accept="image/*" capture="environment" class="photo-trigger" data-type="before" style="display:none">
-            </label>
+      <div class="pow-tab-header">
+        <strong>Site Photos</strong>
+        <span class="text-muted small" id="photo-upload-status"></span>
+      </div>
+
+      <!-- Capture buttons: Before / After / Additional -->
+      <div class="mw-photo-capture-row">
+        <label class="mw-photo-btn mw-photo-btn--before">
+          <i data-feather="camera"></i>
+          <span>Before</span>
+          <input type="file" accept="image/*" capture="environment"
+                 class="photo-trigger" data-type="before" style="display:none">
+        </label>
+        <label class="mw-photo-btn mw-photo-btn--after">
+          <i data-feather="camera"></i>
+          <span>After</span>
+          <input type="file" accept="image/*" capture="environment"
+                 class="photo-trigger" data-type="after" style="display:none">
+        </label>
+        <label class="mw-photo-btn mw-photo-btn--additional">
+          <i data-feather="plus-square"></i>
+          <span>Additional</span>
+          <input type="file" accept="image/*" capture="environment"
+                 class="photo-trigger" data-type="additional" style="display:none">
+        </label>
+      </div>
+
+      <!-- Loading state while fetching existing photos -->
+      <div id="photos-loading" class="text-center p-3 text-muted small">
+        <span class="spinner-border spinner-border-sm mr-1"></span> Loading photos…
+      </div>
+
+      <!-- Photo sections: Before, After, Additional -->
+      <div id="photos-container" style="display:none;">
+        <div class="mw-photo-section" id="section-before">
+          <div class="mw-photo-section-title">
+            <span class="mw-photo-type-dot mw-photo-type-dot--before"></span>Before
+            <span class="mw-photo-section-count" id="count-before">0</span>
           </div>
-          <div class="col-4 px-1">
-            <label class="btn btn-outline-warning btn-sm btn-block">
-              <i data-feather="camera"></i><br><small>During</small>
-              <input type="file" accept="image/*" capture="environment" class="photo-trigger" data-type="during" style="display:none">
-            </label>
-          </div>
-          <div class="col-4 px-1">
-            <label class="btn btn-outline-success btn-sm btn-block">
-              <i data-feather="camera"></i><br><small>After</small>
-              <input type="file" accept="image/*" capture="environment" class="photo-trigger" data-type="after" style="display:none">
-            </label>
-          </div>
+          <div class="mw-photo-grid" id="grid-before"></div>
         </div>
-        <div id="photos-preview" class="row"></div>
-        <div id="upload-progress" class="mt-2" style="display:none;">
-          <div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" id="upload-pb" style="width:0%"></div></div>
+        <div class="mw-photo-section" id="section-after">
+          <div class="mw-photo-section-title">
+            <span class="mw-photo-type-dot mw-photo-type-dot--after"></span>After
+            <span class="mw-photo-section-count" id="count-after">0</span>
+          </div>
+          <div class="mw-photo-grid" id="grid-after"></div>
+        </div>
+        <div class="mw-photo-section" id="section-additional">
+          <div class="mw-photo-section-title">
+            <span class="mw-photo-type-dot mw-photo-type-dot--additional"></span>Additional
+            <span class="mw-photo-section-count" id="count-additional">0</span>
+          </div>
+          <div class="mw-photo-grid" id="grid-additional"></div>
         </div>
       </div>
     </div>
@@ -365,6 +394,7 @@ $activePage = 'jobs';
   var STARTED_AT  = document.getElementById('pow-started-at').value;
   var API_ACTIONS = '/crm/api/pow-actions.php';
   var API_GPS     = '/crm/api/pow-gps-sync.php';
+  var API_PHOTOS  = '/crm/api/job-photo.php';
 
   // ── GPS Buffer (IndexedDB-backed) ─────────────────────────────────────────
   var gpsBuffer = [];
@@ -412,16 +442,14 @@ $activePage = 'jobs';
       if (statusDot) statusDot.style.background = '#ccc';
       return;
     }
-    if (statusDot) statusDot.style.background = '#ffc107'; // yellow = starting
+    if (statusDot) statusDot.style.background = '#ffc107';
 
-    // Prefer native Capacitor background GPS
     if (window.MwNative && window.MwNative.isNative) {
       window.MwNative.geo.startBackgroundTracking(function(pos, err) {
         if (err || !pos) return;
         acceptPosition(pos.lat, pos.lng, pos.accuracy, pos.speed, pos.heading);
       }, { distanceFilter: 5 });
     } else {
-      // Browser geolocation
       watchId = navigator.geolocation.watchPosition(function(p) {
         acceptPosition(p.coords.latitude, p.coords.longitude, p.coords.accuracy,
                        p.coords.speed, p.coords.heading);
@@ -431,7 +459,6 @@ $activePage = 'jobs';
       }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
     }
 
-    // Sync every 30 seconds
     syncTimer = setInterval(flushGpsBuffer, 30000);
   }
 
@@ -439,55 +466,43 @@ $activePage = 'jobs';
     if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     if (window.MwNative && window.MwNative.isNative) window.MwNative.geo.stopBackgroundTracking();
     clearInterval(syncTimer);
-    flushGpsBuffer(); // Final flush
+    flushGpsBuffer();
   }
 
   function acceptPosition(lat, lng, accuracy, speed, heading) {
-    if (accuracy && accuracy > 50) return; // too inaccurate
-    if (statusDot) statusDot.style.background = '#2D8659'; // green = good fix
+    if (accuracy && accuracy > 50) return;
+    if (statusDot) statusDot.style.background = '#2D8659';
 
     var accEl = document.getElementById('accuracy-display');
     if (accEl && accuracy) accEl.textContent = Math.round(accuracy) + 'm';
 
     if (lastPos) {
       var d = haversine(lastPos.lat, lastPos.lng, lat, lng);
-      if (d < 2) return; // jitter filter
+      if (d < 2) return;
       totalDist += d;
     }
     lastPos = { lat: lat, lng: lng };
 
     gpsBuffer.push({
-      lat:       lat,
-      lng:       lng,
-      accuracy:  accuracy,
-      speed:     speed || 0,
-      heading:   heading || 0,
-      timestamp: Date.now(),
-      source:    'fused'
+      lat: lat, lng: lng, accuracy: accuracy,
+      speed: speed || 0, heading: heading || 0,
+      timestamp: Date.now(), source: 'fused'
     });
     gpsCount++;
     updateStats();
-
-    // Persist to IndexedDB
     saveToIndexedDB({ lat: lat, lng: lng, accuracy: accuracy, speed: speed, heading: heading, timestamp: Date.now() });
   }
 
   function flushGpsBuffer() {
-    if (!isOnline || gpsBuffer.length === 0) {
-      updatePendingBanner();
-      return;
-    }
-    var toSend = gpsBuffer.splice(0, 100); // Batch up to 100 at a time
+    if (!isOnline || gpsBuffer.length === 0) { updatePendingBanner(); return; }
+    var toSend = gpsBuffer.splice(0, 100);
     fetch(API_GPS, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       body: JSON.stringify({ action: 'sync_points', visit_id: VISIT_ID, points: toSend })
     }).then(function(r) { return r.json(); }).then(function(res) {
-      if (!res.success) {
-        // Put back on failure
-        gpsBuffer = toSend.concat(gpsBuffer);
-      }
+      if (!res.success) gpsBuffer = toSend.concat(gpsBuffer);
       updatePendingBanner();
     }).catch(function() {
       gpsBuffer = toSend.concat(gpsBuffer);
@@ -507,7 +522,7 @@ $activePage = 'jobs';
     }
   }
 
-  // ── IndexedDB persistence ────────────────────────────────────────────────
+  // ── IndexedDB ─────────────────────────────────────────────────────────────
   var db_idb = null;
   (function initIDB() {
     var req = indexedDB.open('mow_pow_v1', 1);
@@ -579,7 +594,6 @@ $activePage = 'jobs';
             document.getElementById('pow-started-at').value = res.started_at;
             STARTED_AT = res.started_at;
             STATUS     = 'in_progress';
-            // Reload to show work tabs
             location.reload();
           } else {
             alert(res.error || 'Could not start visit');
@@ -599,45 +613,31 @@ $activePage = 'jobs';
     });
   }
 
-  // ── Auto-start GPS if visit already in progress ───────────────────────────
-  if (STATUS === 'in_progress') {
-    startGPS();
-  }
+  if (STATUS === 'in_progress') startGPS();
 
-  // ── Native GPS bridge integration ─────────────────────────────────────────
-  // If running in Capacitor, the bridge emits 'mw-visit-gps-point' events.
-  // Feed them directly into acceptPosition() so they bypass the browser
-  // geolocation watcher (which may not have background permission).
   document.addEventListener('mw-visit-gps-point', function(e) {
     var p = e.detail;
-    if (p.visit_id && p.visit_id !== VISIT_ID) return; // Wrong visit
+    if (p.visit_id && p.visit_id !== VISIT_ID) return;
     acceptPosition(p.lat, p.lng, p.accuracy, p.speed, p.heading);
   });
 
-  // ── Checklist save ────────────────────────────────────────────────────────
+  // ── Checklist ─────────────────────────────────────────────────────────────
   var btnSaveCheck = document.getElementById('btn-save-checklist');
   if (btnSaveCheck) {
     btnSaveCheck.addEventListener('click', function() {
       var items = [];
       document.querySelectorAll('.pow-checklist-row').forEach(function(row) {
-        var idx  = row.dataset.idx;
         var cb   = row.querySelector('.check-item');
         var note = row.querySelector('.check-note');
         var text = row.querySelector('span');
-        items.push({
-          item:    text ? text.textContent : '',
-          checked: cb   ? cb.checked       : false,
-          note:    note ? note.value        : ''
-        });
+        items.push({ item: text ? text.textContent : '', checked: cb ? cb.checked : false, note: note ? note.value : '' });
       });
       powPost('save_checklist', { items: items }).then(function(res) {
-        showToast(res.success ? 'Checklist saved' : (res.error || 'Save failed'),
-                  res.success ? 'success' : 'danger');
+        showToast(res.success ? 'Checklist saved' : (res.error || 'Save failed'), res.success ? 'success' : 'danger');
       });
     });
   }
 
-  // ── Add checklist item ────────────────────────────────────────────────────
   var btnAddCheck = document.getElementById('btn-add-check');
   if (btnAddCheck) {
     btnAddCheck.addEventListener('click', function() {
@@ -672,9 +672,7 @@ $activePage = 'jobs';
     });
   }
   document.addEventListener('click', function(e) {
-    if (e.target.classList.contains('mat-remove')) {
-      e.target.closest('.pow-material-row').remove();
-    }
+    if (e.target.classList.contains('mat-remove')) e.target.closest('.pow-material-row').remove();
   });
 
   var btnSaveMat = document.getElementById('btn-save-materials');
@@ -690,13 +688,12 @@ $activePage = 'jobs';
         });
       });
       powPost('save_materials', { items: items }).then(function(res) {
-        showToast(res.success ? 'Materials saved' : (res.error || 'Save failed'),
-                  res.success ? 'success' : 'danger');
+        showToast(res.success ? 'Materials saved' : (res.error || 'Save failed'), res.success ? 'success' : 'danger');
       });
     });
   }
 
-  // ── Service data save ─────────────────────────────────────────────────────
+  // ── Service data ──────────────────────────────────────────────────────────
   var btnSvcSave = document.getElementById('btn-save-service');
   if (btnSvcSave) {
     btnSvcSave.addEventListener('click', function() {
@@ -733,15 +730,117 @@ $activePage = 'jobs';
     });
   }
 
-  // ── Photo upload ──────────────────────────────────────────────────────────
+  // ── Photo system ──────────────────────────────────────────────────────────
+  var photoCounts = { before: 0, after: 0, additional: 0 };
+
+  // Load existing photos when tab is focused
+  var photosTabLink = document.getElementById('photos-tab-link');
+  var photosLoaded  = false;
+  if (photosTabLink) {
+    photosTabLink.addEventListener('shown.bs.tab', loadPhotos);
+    photosTabLink.addEventListener('show.bs.tab', loadPhotos); // Bootstrap 4
+  }
+  // Also load on jQuery tab event (Bootstrap 4 uses jQuery)
+  if (typeof $ !== 'undefined') {
+    $(document).on('shown.bs.tab', 'a[href="#tab-photos"]', loadPhotos);
+  }
+
+  function loadPhotos() {
+    if (photosLoaded) return;
+    photosLoaded = true;
+    fetch(API_PHOTOS + '?action=list&visit_id=' + VISIT_ID, { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        document.getElementById('photos-loading').style.display = 'none';
+        document.getElementById('photos-container').style.display = 'block';
+        if (res.success && res.photos) {
+          res.photos.forEach(function(ph) { appendServerPhoto(ph); });
+          updatePhotoBadge();
+        }
+      })
+      .catch(function() {
+        document.getElementById('photos-loading').style.display = 'none';
+        document.getElementById('photos-container').style.display = 'block';
+      });
+  }
+
+  // If photos tab is already active on load (e.g., user navigated directly), load now
+  if (document.getElementById('tab-photos') &&
+      document.getElementById('tab-photos').classList.contains('active')) {
+    loadPhotos();
+  }
+
+  // Update the photo count badge on the tab
+  function updatePhotoBadge() {
+    var total = photoCounts.before + photoCounts.after + photoCounts.additional;
+    var badge = document.getElementById('photo-count-badge');
+    if (badge) {
+      badge.textContent = total;
+      badge.style.display = total > 0 ? 'inline' : 'none';
+    }
+    ['before','after','additional'].forEach(function(type) {
+      var countEl = document.getElementById('count-' + type);
+      if (countEl) countEl.textContent = photoCounts[type];
+      var section = document.getElementById('section-' + type);
+      if (section) section.style.display = photoCounts[type] > 0 ? 'block' : 'none';
+    });
+  }
+
+  // Append a server-confirmed photo tile to the correct grid
+  function appendServerPhoto(ph) {
+    var type   = ph.type || 'additional';
+    var bucket = ['before','after','additional'].indexOf(type) >= 0 ? type : 'additional';
+    var grid   = document.getElementById('grid-' + bucket);
+    if (!grid) return;
+
+    photoCounts[bucket] = (photoCounts[bucket] || 0) + 1;
+
+    var tile  = document.createElement('div');
+    tile.className = 'mw-photo-tile';
+    tile.dataset.photoId   = ph.id || '';
+    tile.dataset.photoType = type;
+    tile.dataset.viewUrl   = ph.view_url || ph.orig_url || '';
+    tile.innerHTML =
+      '<img src="' + escHtml(ph.thumb_url || ph.orig_url || '') + '"' +
+           ' loading="lazy" alt="' + escHtml(type) + '"' +
+           ' onerror="this.src=\'/crm/img/img-error.svg\'">' +
+      '<div class="mw-photo-tile-overlay"></div>';
+    tile.addEventListener('click', function() {
+      openLightbox(tile.dataset.viewUrl, type, null, ph.id);
+    });
+    grid.appendChild(tile);
+  }
+
+  // Photo capture: optimistic upload
   document.querySelectorAll('.photo-trigger').forEach(function(input) {
     input.addEventListener('change', function() {
       var photoType = this.dataset.type;
       var file      = this.files[0];
       if (!file) return;
-      var pb = document.getElementById('upload-pb');
-      document.getElementById('upload-progress').style.display = 'block';
 
+      // Ensure photos container is visible
+      photosLoaded = true;
+      document.getElementById('photos-loading').style.display = 'none';
+      document.getElementById('photos-container').style.display = 'block';
+
+      // ── Optimistic: blob preview immediately ──────────────────────────
+      var blobUrl = URL.createObjectURL(file);
+      var bucket  = ['before','after','additional'].indexOf(photoType) >= 0 ? photoType : 'additional';
+      var grid    = document.getElementById('grid-' + bucket);
+
+      photoCounts[bucket] = (photoCounts[bucket] || 0) + 1;
+      updatePhotoBadge();
+
+      var tile = document.createElement('div');
+      tile.className = 'mw-photo-tile mw-photo-tile--uploading';
+      tile.innerHTML =
+        '<img src="' + blobUrl + '" alt="Uploading…">' +
+        '<div class="mw-photo-tile-overlay">' +
+          '<div class="mw-upload-ring"></div>' +
+        '</div>';
+      grid.appendChild(tile);
+
+      // ── XHR upload ────────────────────────────────────────────────────
       var fd = new FormData();
       fd.append('photo',      file);
       fd.append('visit_id',   VISIT_ID);
@@ -752,24 +851,100 @@ $activePage = 'jobs';
       var xhr = new XMLHttpRequest();
       xhr.open('POST', API_ACTIONS, true);
       xhr.withCredentials = true;
+
       xhr.upload.onprogress = function(e) {
-        if (e.lengthComputable) pb.style.width = Math.round(e.loaded/e.total*100)+'%';
+        if (e.lengthComputable) {
+          var pct = Math.round(e.loaded / e.total * 100);
+          var ring = tile.querySelector('.mw-upload-ring');
+          if (ring) ring.style.setProperty('--pct', pct + '%');
+        }
       };
+
       xhr.onload = function() {
-        var res = JSON.parse(xhr.responseText||'{}');
-        document.getElementById('upload-progress').style.display = 'none';
+        var res = {};
+        try { res = JSON.parse(xhr.responseText); } catch(e) {}
+        URL.revokeObjectURL(blobUrl);
+
         if (res.success) {
-          var preview = document.getElementById('photos-preview');
-          var col = document.createElement('div');
-          col.className = 'col-4 mb-2';
-          col.innerHTML = '<img src="/uploads/photos/' + res.filename + '" class="img-fluid rounded" style="height:80px;object-fit:cover;">'
-                         + '<div class="text-center"><small class="badge badge-secondary">' + photoType + '</small></div>';
-          preview.appendChild(col);
-          showToast('Photo uploaded', 'success');
-        } else showToast(res.error || 'Upload failed', 'danger');
+          // Replace blob URL with server thumb, remove uploading state
+          tile.classList.remove('mw-photo-tile--uploading');
+          tile.dataset.photoId  = res.photo_id || '';
+          tile.dataset.viewUrl  = res.view_url  || res.orig_url || '';
+          var img = tile.querySelector('img');
+          if (img) img.src = res.thumb_url || res.orig_url || '';
+          var overlay = tile.querySelector('.mw-photo-tile-overlay');
+          if (overlay) overlay.innerHTML = '';
+          tile.addEventListener('click', function() {
+            openLightbox(tile.dataset.viewUrl, photoType, null, res.photo_id);
+          });
+          showToast('Photo saved', 'success');
+        } else {
+          // Mark as failed
+          tile.classList.remove('mw-photo-tile--uploading');
+          tile.classList.add('mw-photo-tile--failed');
+          var overlay2 = tile.querySelector('.mw-photo-tile-overlay');
+          if (overlay2) {
+            overlay2.innerHTML =
+              '<button class="mw-photo-retry-btn" title="Retry">↺</button>';
+            overlay2.querySelector('.mw-photo-retry-btn').addEventListener('click', function(e) {
+              e.stopPropagation();
+              tile.remove();
+              photoCounts[bucket]--;
+              updatePhotoBadge();
+              showToast('Photo removed. Please try again.', 'warning');
+            });
+          }
+          showToast(res.error || 'Upload failed', 'danger');
+        }
       };
+
+      xhr.onerror = function() {
+        URL.revokeObjectURL(blobUrl);
+        tile.classList.add('mw-photo-tile--failed');
+        var ov = tile.querySelector('.mw-photo-tile-overlay');
+        if (ov) ov.innerHTML = '<button class="mw-photo-retry-btn" title="Error">✕</button>';
+        showToast('Network error — photo not saved', 'danger');
+      };
+
       xhr.send(fd);
+      this.value = ''; // Reset input for next capture
     });
+  });
+
+  // ── Minimal lightbox ──────────────────────────────────────────────────────
+  var lightbox = null;
+
+  function openLightbox(imgUrl, type, caption, photoId) {
+    if (!imgUrl) return;
+    if (!lightbox) {
+      lightbox = document.createElement('div');
+      lightbox.className = 'mw-lightbox';
+      lightbox.innerHTML =
+        '<div class="mw-lightbox-backdrop"></div>' +
+        '<div class="mw-lightbox-content">' +
+          '<button class="mw-lightbox-close" aria-label="Close">✕</button>' +
+          '<div class="mw-lightbox-type-label"></div>' +
+          '<img class="mw-lightbox-img" src="" alt="">' +
+          '<div class="mw-lightbox-caption"></div>' +
+        '</div>';
+      document.body.appendChild(lightbox);
+      lightbox.querySelector('.mw-lightbox-backdrop').addEventListener('click', closeLightbox);
+      lightbox.querySelector('.mw-lightbox-close').addEventListener('click', closeLightbox);
+    }
+    lightbox.querySelector('.mw-lightbox-img').src = imgUrl;
+    lightbox.querySelector('.mw-lightbox-type-label').textContent = type ? type.charAt(0).toUpperCase() + type.slice(1) : '';
+    lightbox.querySelector('.mw-lightbox-caption').textContent = caption || '';
+    lightbox.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeLightbox() {
+    if (lightbox) lightbox.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeLightbox();
   });
 
   // ── End Visit ─────────────────────────────────────────────────────────────
@@ -802,16 +977,15 @@ $activePage = 'jobs';
     });
   }
 
-  // ── Generate PDF (admin quick action) ─────────────────────────────────────
+  // ── Generate PDF ──────────────────────────────────────────────────────────
   var btnPdfWork = document.getElementById('btn-generate-pdf-work');
   if (btnPdfWork) {
     btnPdfWork.addEventListener('click', function() {
       this.disabled = true;
       this.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span>Generating…';
       powPost('generate_pdf', {}).then(function(res) {
-        if (res.success && res.path) {
-          window.open(res.path, '_blank');
-        } else showToast(res.error || 'PDF generation failed', 'danger');
+        if (res.success && res.path) window.open(res.path, '_blank');
+        else showToast(res.error || 'PDF generation failed', 'danger');
         btnPdfWork.disabled = false;
         btnPdfWork.innerHTML = '<i data-feather="file-text" class="mr-1"></i>Generate PoW PDF';
         feather.replace();
@@ -819,7 +993,7 @@ $activePage = 'jobs';
     });
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Shared helpers ────────────────────────────────────────────────────────
   function powPost(action, extra) {
     var body = Object.assign({ action: action, visit_id: VISIT_ID, csrf_token: CSRF }, extra || {});
     return fetch(API_ACTIONS, {
@@ -837,6 +1011,12 @@ $activePage = 'jobs';
     document.body.appendChild(d);
     setTimeout(function() { d.classList.add('pow-toast-show'); }, 10);
     setTimeout(function() { d.classList.remove('pow-toast-show'); setTimeout(function(){d.remove();}, 300); }, 3000);
+  }
+
+  function escHtml(str) {
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(str || ''));
+    return d.innerHTML;
   }
 
 })();

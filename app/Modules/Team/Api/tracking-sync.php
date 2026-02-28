@@ -33,6 +33,11 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    // Release session lock immediately — this endpoint never writes to $_SESSION.
+    // Without this, the WorkManager SyncWorker (which loops 100+ DB queries per batch)
+    // holds the session file lock for 2–5 seconds, causing concurrent page navigations
+    // to block at session_start() and time out with ERR_FAILED on Android.
+    session_write_close();
     $db = getDB();
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
