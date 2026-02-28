@@ -88,8 +88,8 @@ $bodyClass  = $bodyClass  ?? '';
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="/crm/css/mobile-nav.css?v=20260226c" rel="stylesheet">
 
-  <!-- Feather Icons (required for CRM UI) -->
-  <script src="https://unpkg.com/feather-icons"></script>
+  <!-- Feather Icons (self-hosted — no CDN dependency) -->
+  <script src="/crm/js/feather.min.js"></script>
 
   <!-- Global Spotlight Search -->
   <script src="/crm/js/global-search.js?v=1" defer></script>
