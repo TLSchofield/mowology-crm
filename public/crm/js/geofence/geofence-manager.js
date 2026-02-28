@@ -53,8 +53,9 @@ class GeofenceManager {
             mode:             'view',   // 'edit' | 'view'
             center:           [49.2827, -123.1207],
             zoom:             17,
-            tileUrl:          'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            tileAttrib:       '© OpenStreetMap contributors',
+            tileUrl:          'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            tileAttrib:       'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+            labelsUrl:        'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
             strokeColor:      '#2D8659',
             fillColor:        '#2D8659',
             fillOpacity:      0.12,
@@ -128,6 +129,15 @@ class GeofenceManager {
             attribution: this._opts.tileAttrib,
             maxZoom:     19,
         }).addTo(this._map);
+
+        // Hybrid: street names + boundaries on top of satellite
+        if (this._opts.labelsUrl) {
+            L.tileLayer(this._opts.labelsUrl, {
+                attribution: '',
+                maxZoom:     19,
+                opacity:     0.85,
+            }).addTo(this._map);
+        }
 
         if (this._opts.mode === 'edit') {
             this._map.on('click', (e) => this._onMapClick(e));
