@@ -110,6 +110,27 @@ if ($contact && !$error) {
     } catch (Exception $e) {
         $completedVisits = [];
     }
+
+    // Photos for all completed visits
+    $visitPhotos = [];
+    if (!empty($completedVisits)) {
+        $visitIds = array_column($completedVisits, 'id');
+        $placeholders = implode(',', array_fill(0, count($visitIds), '?'));
+        try {
+            $stmt = $db->prepare("
+                SELECT visit_id, id, filename, photo_type, caption
+                FROM visit_photos
+                WHERE visit_id IN ($placeholders)
+                ORDER BY photo_type, uploaded_at
+            ");
+            $stmt->execute($visitIds);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $photo) {
+                $visitPhotos[$photo['visit_id']][] = $photo;
+            }
+        } catch (Exception $e) {
+            // photos unavailable — silently skip
+        }
+    }
 }
 
 $contactName = $contact ? trim(htmlspecialchars($contact['first_name'] . ' ' . ($contact['last_name'] ?? ''))) : 'Client';
@@ -221,6 +242,24 @@ function statusBadge(string $status, bool $overdue = false): string {
     .visit-badge-done { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; color: #fff; background: #2D8659; }
     .visit-duration { font-size: 0.78rem; color: #9ca3af; }
     .visit-amount { font-size: 0.82rem; color: #374151; font-weight: 600; }
+
+    /* Visit photos */
+    .visit-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .visit-photo-thumb { width: 72px; height: 72px; border-radius: 7px; overflow: hidden; border: 1px solid #e5e7eb; flex-shrink: 0; cursor: pointer; }
+    .visit-photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity 0.15s; }
+    .visit-photo-thumb:hover img { opacity: 0.85; }
+    .visit-photo-more { width: 72px; height: 72px; border-radius: 7px; border: 1px solid #e5e7eb; background: #f9fafb; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 600; color: #6b7280; cursor: pointer; flex-shrink: 0; }
+
+    /* Lightbox */
+    .lb-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 10000; align-items: center; justify-content: center; }
+    .lb-overlay.open { display: flex; }
+    .lb-inner { position: relative; max-width: 92vw; max-height: 90vh; }
+    .lb-inner img { max-width: 92vw; max-height: 88vh; border-radius: 6px; display: block; }
+    .lb-caption { color: #e5e7eb; font-size: 0.82rem; text-align: center; margin-top: 8px; }
+    .lb-close { position: absolute; top: -14px; right: -14px; width: 30px; height: 30px; border-radius: 50%; background: #fff; border: none; font-size: 1.1rem; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .lb-prev, .lb-next { position: fixed; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.15); border: none; color: #fff; font-size: 1.5rem; padding: 12px 16px; cursor: pointer; border-radius: 6px; }
+    .lb-prev { left: 12px; }
+    .lb-next { right: 12px; }
 
     @media (max-width: 500px) {
       .doc-card { flex-wrap: wrap; }
@@ -386,6 +425,35 @@ function statusBadge(string $status, bool $overdue = false): string {
                     <span class="visit-amount"><?php echo htmlspecialchars($amt); ?></span>
                   <?php endif; ?>
                 </div>
+                <?php
+                  $vPhotos = $visitPhotos[$v['id']] ?? [];
+                  $showMax = 5;
+                  $extra   = count($vPhotos) - $showMax;
+                ?>
+                <?php if (!empty($vPhotos)): ?>
+                  <?php
+                    // Build JSON of all photo URLs for lightbox
+                    $photoUrls = array_map(fn($p) => [
+                        'src'     => '/uploads/photos/' . $p['filename'],
+                        'caption' => $p['caption'] ?? ucfirst($p['photo_type']),
+                    ], $vPhotos);
+                    $photoJson = htmlspecialchars(json_encode($photoUrls), ENT_QUOTES);
+                  ?>
+                  <div class="visit-photos">
+                    <?php foreach (array_slice($vPhotos, 0, $showMax) as $pi => $ph): ?>
+                      <div class="visit-photo-thumb" onclick="openLightbox(<?php echo htmlspecialchars($photoJson, ENT_QUOTES); ?>, <?php echo $pi; ?>)">
+                        <img src="/uploads/photos/<?php echo htmlspecialchars($ph['filename']); ?>"
+                             alt="<?php echo htmlspecialchars($ph['photo_type']); ?>"
+                             loading="lazy">
+                      </div>
+                    <?php endforeach; ?>
+                    <?php if ($extra > 0): ?>
+                      <div class="visit-photo-more" onclick="openLightbox(<?php echo htmlspecialchars($photoJson, ENT_QUOTES); ?>, <?php echo $showMax; ?>)">
+                        +<?php echo $extra; ?>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                <?php endif; ?>
               </div>
             </li>
           <?php endforeach; ?>
@@ -403,6 +471,52 @@ function statusBadge(string $status, bool $overdue = false): string {
 <?php endif; ?>
 
 <div class="toast" id="toast">Link copied!</div>
+
+<!-- Lightbox -->
+<div class="lb-overlay" id="lb" onclick="closeLightboxOnBg(event)">
+  <button class="lb-prev" onclick="lbStep(-1)">&#8249;</button>
+  <div class="lb-inner">
+    <button class="lb-close" onclick="closeLightbox()">&#x2715;</button>
+    <img id="lb-img" src="" alt="">
+    <div class="lb-caption" id="lb-cap"></div>
+  </div>
+  <button class="lb-next" onclick="lbStep(1)">&#8250;</button>
+</div>
+
+<script>
+var lbPhotos = [], lbIdx = 0;
+function openLightbox(photosJson, idx) {
+  lbPhotos = typeof photosJson === 'string' ? JSON.parse(photosJson) : photosJson;
+  lbIdx = idx || 0;
+  lbShow();
+  document.getElementById('lb').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function lbShow() {
+  var p = lbPhotos[lbIdx];
+  document.getElementById('lb-img').src = p.src;
+  document.getElementById('lb-cap').textContent = p.caption || '';
+  document.querySelector('.lb-prev').style.display = lbPhotos.length > 1 ? '' : 'none';
+  document.querySelector('.lb-next').style.display = lbPhotos.length > 1 ? '' : 'none';
+}
+function lbStep(dir) {
+  lbIdx = (lbIdx + dir + lbPhotos.length) % lbPhotos.length;
+  lbShow();
+}
+function closeLightbox() {
+  document.getElementById('lb').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function closeLightboxOnBg(e) {
+  if (e.target === document.getElementById('lb')) closeLightbox();
+}
+document.addEventListener('keydown', function(e) {
+  if (!document.getElementById('lb').classList.contains('open')) return;
+  if (e.key === 'ArrowLeft') lbStep(-1);
+  else if (e.key === 'ArrowRight') lbStep(1);
+  else if (e.key === 'Escape') closeLightbox();
+});
+</script>
 
 <script>
 function copyLink(url, btn) {

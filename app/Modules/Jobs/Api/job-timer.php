@@ -146,33 +146,9 @@ try {
 
             $db = getDB();
 
-            // All timestamps are displayed in America/Vancouver (Pacific) time.
-            // MySQL stores timestamps in EST (UTC-5). PHP is set to Pacific (UTC-8) by config.php.
-            // strtotime() interprets strings in PHP's local timezone (Pacific), so it would
-            // incorrectly treat an EST wall-clock value as Pacific. Instead we:
-            //   1. Parse the stored string as if it were UTC via createFromFormat+UTC tz
-            //   2. Subtract mysqlOffsetSec to convert "stored as UTC" → true UTC
-            //   3. Format the true UTC epoch in Pacific
+            // MySQL session TZ is set to America/Vancouver in Database::pdo() (config.php),
+            // so NOW() and stored timestamps are already Pacific. No conversion needed.
             $pacificTz = new DateTimeZone('America/Vancouver');
-            $mysqlTzRow = $db->query("SELECT TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), NOW()) as offset_sec")->fetch(PDO::FETCH_ASSOC);
-            $mysqlOffsetSec = (int)$mysqlTzRow['offset_sec']; // e.g. -18000 for EST (UTC-5)
-
-            /**
-             * Convert a MySQL-stored datetime string (in MySQL server TZ = EST) to Pacific.
-             *
-             * Algorithm: parse as UTC → subtract mysqlOffsetSec → true UTC epoch → Pacific.
-             * Example: "14:57:45" stored as EST →
-             *   createFromFormat as UTC: epoch for 14:57:45 UTC
-             *   subtract -18000 (= add 18000): epoch for 19:57:45 UTC
-             *   setTimezone(Pacific): 11:57:45 Pacific ✓
-             */
-            $toPacific = function(?string $ts) use ($pacificTz, $mysqlOffsetSec): ?string {
-                if (!$ts) return null;
-                $dt = DateTime::createFromFormat('Y-m-d H:i:s', $ts, new DateTimeZone('UTC'));
-                if (!$dt) return null;
-                $trueUtcEpoch = $dt->getTimestamp() - $mysqlOffsetSec;
-                return (new DateTime('@' . $trueUtcEpoch))->setTimezone($pacificTz)->format('Y-m-d H:i:s');
-            };
 
             // Fetch all job_time_entries for this plan's visits
             $stmt = $db->prepare("
@@ -212,9 +188,9 @@ try {
                     $timerCovered[$r['visit_id'] . '_' . $r['user_id']] = true;
                 }
 
-                // Convert stored timestamps to Pacific (works for both EST-stored and Pacific-stored values)
-                $startCorrected = $toPacific($r['start_time']);
-                $endCorrected   = $toPacific($r['end_time']);
+                // Timestamps already stored in Pacific (MySQL session TZ = America/Vancouver)
+                $startCorrected = $r['start_time'];
+                $endCorrected   = $r['end_time'];
 
                 // Recalculate duration from corrected times
                 $mins = (int)($r['duration_minutes'] ?? 0);
@@ -343,7 +319,7 @@ try {
 
                     if (empty($pings)) continue;
 
-                    // Convert UTC epochs directly to Pacific — fully timezone-agnostic
+                    // UNIX_TIMESTAMP() returns true UTC epoch — convert directly to Pacific
                     $firstCorrected = (new DateTime('@' . $pings[0]['epoch']))->setTimezone($pacificTz)->format('Y-m-d H:i:s');
                     $lastCorrected  = (new DateTime('@' . $pings[count($pings) - 1]['epoch']))->setTimezone($pacificTz)->format('Y-m-d H:i:s');
 
@@ -384,9 +360,161 @@ try {
             ]);
             break;
 
+        case 'gps_pings':
+            // GET ?action=gps_pings&plan_id=N
+            // Returns raw GPS pings for all crew assigned to this plan, filtered
+            // to within ~200m of the property. Used to render a map alongside the time log.
+            $planId = (int)($_GET['plan_id'] ?? 0);
+            if (!$planId) throw new Exception('plan_id is required');
+
+            $db = getDB();
+
+            // Get property coordinates via plan → property
+            $propRow = $db->prepare("
+                SELECT p.latitude, p.longitude
+                FROM job_plans jp
+                JOIN properties p ON jp.property_id = p.id
+                WHERE jp.id = ?
+            ");
+            $propRow->execute([$planId]);
+            $prop = $propRow->fetch(PDO::FETCH_ASSOC);
+
+            if (!$prop || !$prop['latitude'] || !$prop['longitude']) {
+                echo json_encode(['success' => true, 'pings' => [], 'prop_lat' => null, 'prop_lng' => null]);
+                break;
+            }
+
+            $propLat = (float)$prop['latitude'];
+            $propLng = (float)$prop['longitude'];
+
+            // ~300m bounding box
+            $latDelta = 0.0027;
+            $lngDelta = 0.0027 / max(cos(deg2rad($propLat)), 0.001);
+
+            // Use actual workers from time entries (not just stop-assigned crew).
+            // This handles cases where an admin or unlisted worker did the job.
+            $crewStmt = $db->prepare("
+                SELECT DISTINCT u.id, u.full_name
+                FROM job_time_entries jte
+                JOIN job_visits jv ON jte.visit_id = jv.id
+                JOIN users u ON u.id = jte.user_id
+                WHERE jv.plan_id = ?
+                  AND u.location_tracking_enabled = 1
+            ");
+            $crewStmt->execute([$planId]);
+            $crew = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Also include stop-assigned crew with tracking enabled
+            $assignedStmt = $db->prepare("
+                SELECT DISTINCT u.id, u.full_name
+                FROM job_visits jv
+                LEFT JOIN calendar_stops cs ON jv.stop_id = cs.id
+                LEFT JOIN calendar_stop_crew scc ON jv.stop_id = scc.stop_id
+                JOIN users u ON u.id = COALESCE(cs.crew_id, scc.user_id)
+                WHERE jv.plan_id = ?
+                  AND u.location_tracking_enabled = 1
+            ");
+            $assignedStmt->execute([$planId]);
+            $assignedCrew = $assignedStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Merge, deduplicate by user id
+            $crewById = [];
+            foreach (array_merge($crew, $assignedCrew) as $c) {
+                $crewById[$c['id']] = $c['full_name'];
+            }
+
+            if (empty($crewById)) {
+                echo json_encode(['success' => true, 'pings' => [], 'prop_lat' => $propLat, 'prop_lng' => $propLng]);
+                break;
+            }
+
+            $crewIds   = array_keys($crewById);
+            $crewNames = $crewById;
+
+            $pacificTz = new DateTimeZone('America/Vancouver');
+
+            // Build date ranges from actual time entry dates (not just scheduled dates).
+            // This handles timers that ran on a different calendar day than the scheduled visit.
+            $dateStmt = $db->prepare("
+                SELECT DISTINCT DATE(jte.start_time) AS entry_date
+                FROM job_time_entries jte
+                JOIN job_visits jv ON jte.visit_id = jv.id
+                WHERE jv.plan_id = ?
+                  AND jte.start_time IS NOT NULL
+                ORDER BY entry_date DESC
+                LIMIT 50
+            ");
+            $dateStmt->execute([$planId]);
+            $entryDates = array_column($dateStmt->fetchAll(PDO::FETCH_ASSOC), 'entry_date');
+
+            // Also include scheduled visit dates as fallback
+            $schedStmt = $db->prepare("
+                SELECT DISTINCT scheduled_date FROM job_visits WHERE plan_id = ? ORDER BY scheduled_date DESC LIMIT 50
+            ");
+            $schedStmt->execute([$planId]);
+            $schedDates = array_column($schedStmt->fetchAll(PDO::FETCH_ASSOC), 'scheduled_date');
+
+            $allDates = array_unique(array_merge($entryDates, $schedDates));
+
+            if (empty($allDates)) {
+                echo json_encode(['success' => true, 'pings' => [], 'prop_lat' => $propLat, 'prop_lng' => $propLng]);
+                break;
+            }
+
+            $dateConditions = [];
+            $dateParams = [];
+            foreach ($allDates as $vDate) {
+                $start = (new DateTime($vDate . ' 00:00:00', $pacificTz))->getTimestamp();
+                $end   = (new DateTime($vDate . ' 23:59:59', $pacificTz))->getTimestamp();
+                $dateConditions[] = "(UNIX_TIMESTAMP(timestamp) BETWEEN ? AND ?)";
+                $dateParams[] = $start;
+                $dateParams[] = $end;
+            }
+
+            $placeholders = implode(',', array_fill(0, count($crewIds), '?'));
+            $dateSql = implode(' OR ', $dateConditions);
+
+            $pingStmt = $db->prepare("
+                SELECT crew_id, UNIX_TIMESTAMP(timestamp) AS epoch, latitude, longitude
+                FROM crew_location_history
+                WHERE crew_id IN ($placeholders)
+                  AND latitude  BETWEEN ? AND ?
+                  AND longitude BETWEEN ? AND ?
+                  AND ($dateSql)
+                ORDER BY timestamp ASC
+            ");
+
+            $params = array_merge(
+                $crewIds,
+                [$propLat - $latDelta, $propLat + $latDelta, $propLng - $lngDelta, $propLng + $lngDelta],
+                $dateParams
+            );
+            $pingStmt->execute($params);
+            $rawPings = $pingStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $pings = [];
+            foreach ($rawPings as $p) {
+                $ts = (new DateTime('@' . $p['epoch']))->setTimezone($pacificTz)->format('Y-m-d H:i:s');
+                $pings[] = [
+                    'crew_id'    => (int)$p['crew_id'],
+                    'crew_name'  => $crewNames[$p['crew_id']] ?? 'Unknown',
+                    'lat'        => (float)$p['latitude'],
+                    'lng'        => (float)$p['longitude'],
+                    'time'       => $ts,
+                ];
+            }
+
+            echo json_encode([
+                'success'  => true,
+                'prop_lat' => $propLat,
+                'prop_lng' => $propLng,
+                'pings'    => $pings,
+            ]);
+            break;
+
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: active, start, stop, pause, plan_time_log']);
+            echo json_encode(['error' => 'Invalid action. Use: active, start, stop, pause, plan_time_log, gps_pings']);
     }
 
 } catch (Exception $e) {

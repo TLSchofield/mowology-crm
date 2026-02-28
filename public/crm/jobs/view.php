@@ -339,6 +339,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'error';
     }
 
+    // Edit an existing time entry (adjust start/end times)
+    if ($action === 'edit_time_entry') {
+        requirePermission('jobs.edit');
+        $entryId   = intval($_POST['ed_entry_id'] ?? 0);
+        $startTime = trim($_POST['ed_start_time'] ?? '');
+        $endTime   = trim($_POST['ed_end_time'] ?? '');
+        $edNotes   = trim($_POST['ed_notes'] ?? '');
+
+        if ($entryId && $startTime && $endTime) {
+            $eChk = $db->prepare("
+                SELECT jte.id FROM job_time_entries jte
+                JOIN job_visits jv ON jte.visit_id = jv.id
+                WHERE jte.id = ? AND jv.plan_id = ?
+            ");
+            $eChk->execute([$entryId, $planId]);
+            if ($eChk->fetch()) {
+                $db->prepare("
+                    UPDATE job_time_entries
+                    SET start_time = ?, end_time = ?,
+                        duration_minutes = TIMESTAMPDIFF(MINUTE, ?, ?),
+                        status = 'edited',
+                        notes = ?
+                    WHERE id = ?
+                ")->execute([$startTime, $endTime, $startTime, $endTime, $edNotes ?: null, $entryId]);
+                header("Location: view.php?id={$planId}&time_edited=1");
+                exit;
+            }
+        }
+        $message = 'Could not edit time entry. Check all fields.';
+        $messageType = 'error';
+    }
+
     // Edit visit
     if ($action === 'edit_visit') {
         $visitId = intval($_POST['edit_visit_id'] ?? 0);
@@ -436,6 +468,7 @@ if (isset($_GET['visit_updated'])) { $message = 'Visit updated!'; $messageType =
 if (isset($_GET['time_added']))   { $message = 'Time entry added!'; $messageType = 'success'; }
 if (isset($_GET['time_moved']))   { $message = 'Time entry moved!'; $messageType = 'success'; }
 if (isset($_GET['time_deleted'])) { $message = 'Time entry deleted.'; $messageType = 'success'; }
+if (isset($_GET['time_edited']))  { $message = 'Time entry updated!'; $messageType = 'success'; }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -1282,27 +1315,48 @@ if ($hasPropCoords) {
             </div>
 
             <!-- ══════════════════════════════════════════════════════
-                 Time Log Section
+                 Time Log + GPS Map Row
                  ══════════════════════════════════════════════════════ -->
-            <div class="card mb-4" id="timeLogCard">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="card-title mb-0">
-                        <i data-feather="clock" style="width:15px;height:15px;vertical-align:-2px;margin-right:4px;"></i>
-                        Time Log
-                        <span class="badge badge-secondary ml-2" id="timeLogTotal" style="display:none;"></span>
-                    </h5>
-                    <?php if (userHasPermission('jobs.edit')): ?>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showModal('addTimeEntryModal')">
-                        <i data-feather="plus" style="width:13px;height:13px;"></i> Add Entry
-                    </button>
-                    <?php endif; ?>
-                </div>
-                <div id="timeLogBody">
-                    <div class="card-body text-center py-4 text-muted" id="timeLogLoading">
-                        <div class="spinner-border spinner-border-sm text-primary mr-2" role="status"></div>
-                        Loading time entries…
+            <div class="row mb-4">
+                <!-- Time Log -->
+                <div class="<?php echo $hasPropCoords ? 'col-lg-8' : 'col-12'; ?>">
+                    <div class="card h-100" id="timeLogCard">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">
+                                <i data-feather="clock" style="width:15px;height:15px;vertical-align:-2px;margin-right:4px;"></i>
+                                Time Log
+                                <span class="badge badge-secondary ml-2" id="timeLogTotal" style="display:none;"></span>
+                            </h5>
+                            <?php if (userHasPermission('jobs.edit')): ?>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="showModal('addTimeEntryModal')">
+                                <i data-feather="plus" style="width:13px;height:13px;"></i> Add Entry
+                            </button>
+                            <?php endif; ?>
+                        </div>
+                        <div id="timeLogBody">
+                            <div class="card-body text-center py-4 text-muted" id="timeLogLoading">
+                                <div class="spinner-border spinner-border-sm text-primary mr-2" role="status"></div>
+                                Loading time entries…
+                            </div>
+                        </div>
                     </div>
                 </div>
+                <?php if ($hasPropCoords): ?>
+                <!-- GPS On-site Map -->
+                <div class="col-lg-4">
+                    <div class="card h-100">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i data-feather="map-pin" style="width:15px;height:15px;vertical-align:-2px;margin-right:4px;"></i>
+                                On-site GPS Tracks
+                            </h5>
+                        </div>
+                        <div class="card-body p-0">
+                            <div id="gpsTrackMap" style="height:380px;width:100%;border-radius:0 0 4px 4px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <?php endif; ?>
             </div>
 
             <!-- ══════════════════════════════════════════════════════
@@ -1456,6 +1510,42 @@ if ($hasPropCoords) {
                         <div class="mw-modal-actions">
                             <button type="submit" class="btn btn-primary">Move Entry</button>
                             <button type="button" class="btn btn-secondary" onclick="hideModal('moveTimeEntryModal')">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
+                 Edit Time Entry Modal
+                 ══════════════════════════════════════════════════════ -->
+            <div class="mw-modal-overlay" id="editTimeEntryModal">
+                <div class="mw-modal">
+                    <h3 class="mw-modal-title">
+                        <i data-feather="edit-2" style="width:16px;height:16px;vertical-align:-2px;margin-right:6px;"></i>
+                        Edit Time Entry
+                    </h3>
+                    <p class="text-muted small mb-3" id="edEntryDesc">Adjust the clock-in and clock-out times for this entry.</p>
+                    <form method="POST" action="view.php?id=<?php echo (int)$planId; ?>">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                        <input type="hidden" name="action" value="edit_time_entry">
+                        <input type="hidden" name="ed_entry_id" id="edEntryId">
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label class="form-label font-weight-bold">Clock In</label>
+                                <input type="datetime-local" name="ed_start_time" id="edStartTime" class="form-control" required>
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label class="form-label font-weight-bold">Clock Out</label>
+                                <input type="datetime-local" name="ed_end_time" id="edEndTime" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label font-weight-bold">Notes <small class="text-muted font-weight-normal">(optional)</small></label>
+                            <input type="text" name="ed_notes" id="edNotes" class="form-control" placeholder="Reason for edit, e.g. timer failed to stop">
+                        </div>
+                        <div class="mw-modal-actions">
+                            <button type="submit" class="btn btn-primary">Save Changes</button>
+                            <button type="button" class="btn btn-secondary" onclick="hideModal('editTimeEntryModal')">Cancel</button>
                         </div>
                     </form>
                 </div>
@@ -2503,6 +2593,9 @@ if ($hasPropCoords) {
                     });
 
                     var CAN_EDIT = <?php echo userHasPermission('jobs.edit') ? 'true' : 'false'; ?>;
+                    // Encode a value as JSON safe for embedding in an HTML onclick="..." attribute.
+                    // JSON.stringify uses raw " which breaks HTML attribute parsing — replace with &quot;
+                    function qj(v) { return JSON.stringify(String(v == null ? '' : v)).replace(/"/g, '&quot;'); }
 
                     var html = '<div class="table-responsive"><table class="table table-sm mb-0">' +
                         '<thead class="thead-light"><tr>' +
@@ -2527,9 +2620,11 @@ if ($hasPropCoords) {
                                 ? ' <span class="badge badge-light border text-muted" title="Estimated from GPS pings"><i data-feather="map-pin" style="width:9px;height:9px;"></i> GPS</span>'
                                 : (e.auto_started ? ' <small class="text-muted">(auto)</small>' : '');
                             var moveBtn = (CAN_EDIT && !isGps && e.id)
-                                ? '<button class="btn btn-sm btn-link p-0 text-muted mr-1" title="Move to different visit" onclick="openMoveTimeEntry(' + e.id + ',' + JSON.stringify(esc(e.crew_name)) + ',' + JSON.stringify(e.start_time || '') + ')">' +
+                                ? '<button class="btn btn-sm btn-link p-0 text-muted mr-1" title="Edit times" onclick="openEditTimeEntry(' + e.id + ',' + qj(e.crew_name) + ',' + qj(e.start_time) + ',' + qj(e.end_time) + ',' + qj(e.notes) + ')">' +
+                                  '<i data-feather="edit-2" style="width:13px;height:13px;"></i></button>' +
+                                  '<button class="btn btn-sm btn-link p-0 text-muted mr-1" title="Move to different visit" onclick="openMoveTimeEntry(' + e.id + ',' + qj(e.crew_name) + ',' + qj(e.start_time) + ')">' +
                                   '<i data-feather="move" style="width:13px;height:13px;"></i></button>' +
-                                  '<button class="btn btn-sm btn-link p-0 text-danger" title="Delete entry" onclick="deleteTimeEntry(' + e.id + ',' + JSON.stringify(esc(e.crew_name)) + ')">' +
+                                  '<button class="btn btn-sm btn-link p-0 text-danger" title="Delete entry" onclick="deleteTimeEntry(' + e.id + ',' + qj(e.crew_name) + ')">' +
                                   '<i data-feather="trash-2" style="width:13px;height:13px;"></i></button>'
                                 : '';
                             html += '<tr' + (isGps ? ' class="text-muted"' : '') + '>' +
@@ -2607,7 +2702,75 @@ if ($hasPropCoords) {
                 document.getElementById('mvEntryDesc').innerHTML = desc;
                 showModal('moveTimeEntryModal');
             };
+
+            window.openEditTimeEntry = function(entryId, crewName, startTime, endTime, notes) {
+                document.getElementById('edEntryId').value = entryId;
+                document.getElementById('edEntryDesc').textContent = 'Editing entry for ' + crewName;
+                // Convert "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM" for datetime-local input
+                function toLocal(ts) {
+                    if (!ts) return '';
+                    return ts.replace(' ', 'T').substring(0, 16);
+                }
+                document.getElementById('edStartTime').value = toLocal(startTime);
+                document.getElementById('edEndTime').value = toLocal(endTime);
+                document.getElementById('edNotes').value = notes || '';
+                showModal('editTimeEntryModal');
+            };
         })();
+
+        <?php if ($hasPropCoords): ?>
+        // ── GPS On-site Map ──────────────────────────────────────────
+        (function () {
+            var planId = <?php echo (int)$plan['id']; ?>;
+            var mapEl = document.getElementById('gpsTrackMap');
+            if (!mapEl || typeof L === 'undefined') return;
+
+            var map = L.map('gpsTrackMap', { zoomControl: true, scrollWheelZoom: false });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+
+            // Crew colour palette (cycles if >6 crew)
+            var palette = ['#2D8659','#e85d04','#3a86ff','#8338ec','#fb5607','#06d6a0'];
+            var crewColors = {};
+            var colorIdx = 0;
+
+            fetch('/crm/api/job-timer.php?action=gps_pings&plan_id=' + planId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data.success || !data.prop_lat) return;
+
+                    // Property marker
+                    var propLatLng = [data.prop_lat, data.prop_lng];
+                    L.circle(propLatLng, { radius: 200, color: '#2D8659', fillColor: '#2D8659', fillOpacity: 0.08, weight: 1, dashArray: '4' }).addTo(map);
+                    L.marker(propLatLng, {
+                        icon: L.divIcon({ className: '', html: '<div style="width:10px;height:10px;background:#2D8659;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.4);"></div>', iconSize:[10,10], iconAnchor:[5,5] })
+                    }).bindTooltip('Property').addTo(map);
+
+                    var bounds = [propLatLng];
+
+                    if (data.pings && data.pings.length) {
+                        data.pings.forEach(function(p) {
+                            if (!crewColors[p.crew_id]) {
+                                crewColors[p.crew_id] = palette[colorIdx % palette.length];
+                                colorIdx++;
+                            }
+                            var color = crewColors[p.crew_id];
+                            var ll = [p.lat, p.lng];
+                            bounds.push(ll);
+                            L.circleMarker(ll, { radius: 5, color: color, fillColor: color, fillOpacity: 0.8, weight: 1.5 })
+                                .bindTooltip(p.crew_name + '<br><small>' + p.time + '</small>', { direction: 'top' })
+                                .addTo(map);
+                        });
+                        map.fitBounds(bounds, { padding: [20, 20] });
+                    } else {
+                        map.setView(propLatLng, 17);
+                    }
+                })
+                .catch(function() { mapEl.innerHTML = '<div class="p-3 text-muted small">Could not load GPS data.</div>'; });
+        })();
+        <?php endif; ?>
 
         // ── Job Expenses ─────────────────────────────────────────────
         (function() {
