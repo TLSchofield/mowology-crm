@@ -3465,3 +3465,90 @@
 .mw-photo-lightbox-close:active {
     background: rgba(255, 255, 255, 0.3);
 }
+
+/* ════════════════════════════════════════════════════
+   CARD ACTION FOOTER (Clock In / Timer + Complete Job)
+   ════════════════════════════════════════════════════ */
+
+.mw-mc-card-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px 14px 14px;
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    margin-top: 4px;
+}
+
+.mw-mc-footer-timer {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--mw-green, #2D8659);
+    background: rgba(45, 134, 89, 0.08);
+    padding: 6px 10px;
+    border-radius: 8px;
+    white-space: nowrap;
+}
+
+.mw-mc-footer-timer svg {
+    flex-shrink: 0;
+    color: var(--mw-green, #2D8659);
+}
+
+.mw-mc-footer-elapsed {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+}
+
+.mw-mc-footer-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 40px;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.mw-mc-footer-btn:active {
+    transform: scale(0.97);
+}
+
+.mw-mc-footer-btn-clockin {
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+}
+
+.mw-mc-footer-btn-clockin:active {
+    background: var(--mw-dark, #1A5F4A);
+}
+
+.mw-mc-footer-btn-complete {
+    background: #EDF7F0;
+    color: var(--mw-green, #2D8659);
+    border: 1.5px solid rgba(45, 134, 89, 0.3);
+}
+
+.mw-mc-footer-btn-complete:active {
+    background: #D6EFDF;
+}
+
+/* When timer is running, the complete button gets a stronger finish style */
+.mw-mc-card-footer.is-timing .mw-mc-footer-btn-complete {
+    background: #FFF3E0;
+    color: #E65100;
+    border-color: #FFE0B2;
+}
+
+.mw-mc-card-footer.is-timing .mw-mc-footer-btn-complete:active {
+    background: #FFE0B2;
+}

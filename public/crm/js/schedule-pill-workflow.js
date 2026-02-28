@@ -178,7 +178,14 @@
                     scrollArea.scrollTop = 0;
                 }
             }
+
+            // Sync footer to timer state
+            var stopIdForFooter = card ? parseInt(card.dataset.stopId, 10) : 0;
+            if (stopIdForFooter) footerSetTiming(stopIdForFooter, visitId);
         });
+
+        // Init card footers after all pills are registered
+        initCardFooters();
     }
 
     /**
@@ -488,9 +495,13 @@
                     // Update pill to show it's been activated
                     updatePillVisual(visitId, 'in_progress');
 
-                    // Show before photo prompt in drawer
+                    // Sync card footer to show running timer immediately on clock-in
                     var card = visits[visitId].pill.closest('.mw-mc-card');
-                    var drawer = card.querySelector('.mw-mc-pill-drawer');
+                    var stopIdForTimer = card ? parseInt(card.dataset.stopId, 10) : 0;
+                    if (stopIdForTimer) footerSetTiming(stopIdForTimer, visitId);
+
+                    // Show before photo prompt in drawer
+                    var drawer = card ? card.querySelector('.mw-mc-pill-drawer') : null;
                     if (drawer) {
                         renderPhotoPrompt(drawer, visitId, 'before');
                         drawer.style.display = 'block';
@@ -556,6 +567,14 @@
                     // Check if ALL visits on this stop are now completed
                     var card = visits[visitId].pill.closest('.mw-mc-card');
                     checkStopComplete(card);
+
+                    // Sync footer to completed state
+                    var stopIdForFooter = card ? parseInt(card.dataset.stopId, 10) : 0;
+                    if (stopIdForFooter) {
+                        footerSetIdle(stopIdForFooter);
+                        var footerComplete = document.querySelector('[data-footer-complete="' + stopIdForFooter + '"]');
+                        if (footerComplete) footerComplete.style.display = 'none';
+                    }
 
                     // Show completion feedback
                     var duration = data.duration_formatted || (data.duration_minutes + 'm');
@@ -2017,6 +2036,299 @@
         var lb = document.getElementById('mwPhotoLightbox');
         if (lb) lb.classList.remove('mw-lightbox-open');
         document.body.style.overflow = '';
+    }
+
+    // ═══════════════════════════════════════════════════════
+    //  CARD ACTION FOOTER (Clock In / Timer + Complete Job)
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Initialise all card footer elements after pill registration is complete.
+     * Each footer shows either:
+     *   - A running timer display + styled "Complete Job" button (is-timing state)
+     *   - A "Clock In" button + default "Complete Job" button (no active timer)
+     */
+    function initCardFooters() {
+        var footers = document.querySelectorAll('.mw-mc-card-footer');
+        footers.forEach(function(footer) {
+            var stopId = parseInt(footer.dataset.footerStop, 10);
+            var primaryVisitId = parseInt(footer.dataset.footerVisit, 10);
+            if (!stopId) return;
+
+            var clockInBtn  = footer.querySelector('[data-footer-clockin]');
+            var completeBtn = footer.querySelector('[data-footer-complete]');
+            var timerEl     = footer.querySelector('[data-footer-timer]');
+
+            // Determine the schedulable visit to use for clock-in
+            // (the primary visit from the card, or the first scheduled one)
+            var clockInVisitId = getSchedulableVisitForStop(stopId, primaryVisitId);
+
+            // Determine if a timer is running for any visit on this stop's card
+            var card = footer.closest('.mw-mc-card');
+            var runningVisitId = getRunningVisitForCard(card);
+
+            if (runningVisitId) {
+                // A timer is active: show the timer, hide clock-in
+                footer.classList.add('is-timing');
+                if (timerEl) timerEl.style.display = 'flex';
+                if (clockInBtn) clockInBtn.style.display = 'none';
+                startFooterTimer(stopId, runningVisitId);
+            } else if (clockInVisitId) {
+                // No timer: show clock-in button
+                footer.classList.remove('is-timing');
+                if (timerEl) timerEl.style.display = 'none';
+                if (clockInBtn) {
+                    clockInBtn.style.display = 'flex';
+                    clockInBtn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        handleFooterClockIn(stopId, clockInVisitId, footer);
+                    });
+                }
+            }
+
+            // Complete Job button — always wired
+            if (completeBtn) {
+                completeBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    handleFooterComplete(stopId, footer);
+                });
+            }
+        });
+    }
+
+    /**
+     * Find the best visit ID to use for clock-in from a stop's card.
+     * Returns the first scheduled visit, or the primary visit if none scheduled.
+     */
+    function getSchedulableVisitForStop(stopId, primaryVisitId) {
+        // Scan all pills on cards with this stop ID
+        var cards = document.querySelectorAll('.mw-mc-card[data-stop-id="' + stopId + '"]');
+        var found = null;
+        cards.forEach(function(card) {
+            if (found) return;
+            var pills = card.querySelectorAll('.mw-mc-pill-interactive');
+            pills.forEach(function(p) {
+                if (found) return;
+                var vid = parseInt(p.dataset.visitId, 10);
+                if (vid && visits[vid] && visits[vid].status === 'scheduled') {
+                    found = vid;
+                }
+            });
+        });
+        return found || (visits[primaryVisitId] ? primaryVisitId : null);
+    }
+
+    /**
+     * Find if any visit on a card has a running timer.
+     * Returns the visit ID with a running timer, or null.
+     */
+    function getRunningVisitForCard(card) {
+        if (!card) return null;
+        var pills = card.querySelectorAll('.mw-mc-pill-interactive');
+        var result = null;
+        pills.forEach(function(p) {
+            if (result) return;
+            var vid = parseInt(p.dataset.visitId, 10);
+            if (vid && visits[vid] && visits[vid].status === 'in_progress' && visits[vid].startTime) {
+                result = vid;
+            }
+        });
+        return result;
+    }
+
+    /**
+     * Keep the footer elapsed time display updated every second.
+     */
+    var footerTimerIntervals = {}; // stopId -> intervalId
+
+    function startFooterTimer(stopId, visitId) {
+        if (footerTimerIntervals[stopId]) clearInterval(footerTimerIntervals[stopId]);
+        function tick() {
+            var v = visits[visitId];
+            if (!v || !v.startTime) return;
+            var elapsed = Math.floor((Date.now() - v.startTime.getTime()) / 1000);
+            var m = Math.floor(elapsed / 60);
+            var s = elapsed % 60;
+            var timeStr = m + ':' + (s < 10 ? '0' : '') + s;
+            var els = document.querySelectorAll('[data-footer-elapsed="' + stopId + '"]');
+            els.forEach(function(el) { el.textContent = timeStr; });
+        }
+        tick();
+        footerTimerIntervals[stopId] = setInterval(tick, 1000);
+    }
+
+    function stopFooterTimer(stopId) {
+        if (footerTimerIntervals[stopId]) {
+            clearInterval(footerTimerIntervals[stopId]);
+            delete footerTimerIntervals[stopId];
+        }
+    }
+
+    /**
+     * Switch footer to "timer running" mode after clock-in.
+     */
+    function footerSetTiming(stopId, visitId) {
+        var footers = document.querySelectorAll('[data-footer-stop="' + stopId + '"]');
+        footers.forEach(function(footer) {
+            var timerEl    = footer.querySelector('[data-footer-timer]');
+            var clockInBtn = footer.querySelector('[data-footer-clockin]');
+            footer.classList.add('is-timing');
+            if (timerEl)    timerEl.style.display    = 'flex';
+            if (clockInBtn) clockInBtn.style.display = 'none';
+        });
+        startFooterTimer(stopId, visitId);
+    }
+
+    /**
+     * Switch footer back to idle (no timer) mode after completion.
+     */
+    function footerSetIdle(stopId) {
+        stopFooterTimer(stopId);
+        var footers = document.querySelectorAll('[data-footer-stop="' + stopId + '"]');
+        footers.forEach(function(footer) {
+            footer.classList.remove('is-timing');
+            // Hide everything — stop is done, JS will handle card completion
+        });
+    }
+
+    /**
+     * Clock-in via footer button.
+     * Delegates to the existing clockIn() and syncs footer state on success.
+     */
+    function handleFooterClockIn(stopId, visitId, footer) {
+        var clockInBtn = footer.querySelector('[data-footer-clockin]');
+        if (clockInBtn) {
+            clockInBtn.disabled = true;
+            clockInBtn.innerHTML = '<span>Starting...</span>';
+        }
+
+        // Temporarily open a virtual drawer so clockIn() can update it
+        // (clockIn reads activeDrawer for the button loading state).
+        // We use null — clockIn already guards against null activeDrawer.
+        getGps(function(lat, lng) {
+            fetch('/crm/api/job-timer.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'start', visit_id: visitId, lat: lat, lng: lng })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    visits[visitId].entryId = data.entry_id;
+                    visits[visitId].startTime = new Date();
+                    visits[visitId].status = 'prompt_before';
+                    if (data.tracking_level) visits[visitId].trackingLevel = data.tracking_level;
+                    if (data.require_photos !== undefined) visits[visitId].requirePhotos = data.require_photos;
+
+                    if (window.MwTimeClock) {
+                        window.MwTimeClock.notifyJobTimerStarted();
+                        if (data.tracking_level === 'heightened') window.MwTimeClock.setTrackingInterval('heightened');
+                    }
+                    updatePillVisual(visitId, 'in_progress');
+                    startPillTimer(visitId);
+                    footerSetTiming(stopId, visitId);
+
+                    // Open the pill drawer for before-photo prompt on the card
+                    var card = visits[visitId].pill.closest('.mw-mc-card');
+                    var drawer = card ? card.querySelector('.mw-mc-pill-drawer') : null;
+                    if (drawer) {
+                        renderPhotoPrompt(drawer, visitId, 'before');
+                        drawer.style.display = 'block';
+                        activeDrawer = drawer;
+                        activeDrawerVisitId = visitId;
+                    }
+                } else {
+                    showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
+                    if (clockInBtn) {
+                        clockInBtn.disabled = false;
+                        clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                    }
+                }
+            })
+            .catch(function() {
+                showToast('Network error. Check your connection.');
+                if (clockInBtn) {
+                    clockInBtn.disabled = false;
+                    clockInBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+                }
+            });
+        });
+    }
+
+    /**
+     * Complete Job via footer button.
+     * If a timer is running → stop it + complete the visit.
+     * If no timer → directly mark the visit completed via end_visit.
+     */
+    function handleFooterComplete(stopId, footer) {
+        var completeBtn = footer.querySelector('[data-footer-complete]');
+        if (completeBtn) {
+            completeBtn.disabled = true;
+            completeBtn.innerHTML = '<span>Completing...</span>';
+        }
+
+        // Find the running or primary visit for this stop
+        var card = footer.closest('.mw-mc-card');
+        var runningVisitId = getRunningVisitForCard(card);
+        var primaryVisitId = parseInt(footer.dataset.footerVisit, 10);
+        var targetVisitId = runningVisitId || primaryVisitId;
+
+        if (!targetVisitId) {
+            if (completeBtn) { completeBtn.disabled = false; completeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Complete Job'; }
+            return;
+        }
+
+        if (runningVisitId) {
+            // Timer is running → stop it and mark complete (same as clockOut)
+            clockOut(runningVisitId);
+            // clockOut handles the visual updates; also update footer
+            setTimeout(function() {
+                footerSetIdle(stopId);
+                if (completeBtn) completeBtn.style.display = 'none';
+            }, 500);
+        } else {
+            // No timer → directly complete via end_visit
+            getGps(function(lat, lng) {
+                fetch('/crm/api/pow-actions.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'end_visit',
+                        visit_id: targetVisitId,
+                        lat: lat,
+                        lng: lng,
+                        csrf_token: state.csrf
+                    })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        // Mark visit complete in local state
+                        if (visits[targetVisitId]) {
+                            visits[targetVisitId].status = 'completed';
+                            updatePillVisual(targetVisitId, 'completed');
+                        }
+                        footerSetIdle(stopId);
+                        if (completeBtn) completeBtn.style.display = 'none';
+                        if (card) checkStopComplete(card);
+                        showToast('Job completed');
+                    } else {
+                        showToast('Could not complete: ' + (data.error || 'Unknown error'));
+                        if (completeBtn) {
+                            completeBtn.disabled = false;
+                            completeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Complete Job';
+                        }
+                    }
+                })
+                .catch(function() {
+                    showToast('Network error. Check your connection.');
+                    if (completeBtn) {
+                        completeBtn.disabled = false;
+                        completeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Complete Job';
+                    }
+                });
+            });
+        }
     }
 
     // ═══════════════════════════════════════════════════════

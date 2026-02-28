@@ -932,7 +932,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260227b" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260228a" rel="stylesheet">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -2663,7 +2663,7 @@ var MW_ROUTE_STOPS = <?php
 <script src="../js/navigation-launcher.js?v=20260225c"></script>
 <script src="../js/route-engine.js?v=20260219a"></script>
 <script src="../js/schedule-route-map.js?v=20260226b"></script>
-<script src="../js/schedule-pill-workflow.js?v=20260226e"></script>
+<script src="../js/schedule-pill-workflow.js?v=20260228a"></script>
 <script src="../js/schedule-drag-drop.js"></script>
 <?php if ($view === 'day'): ?>
 <script>
