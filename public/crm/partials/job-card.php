@@ -431,8 +431,53 @@ $stopTags = $stop['tags'] ?? [];
             <?php endif; ?>
 
             <?php if (!empty($stop['visits'])): ?>
-                <!-- Photo strips rendered here (inside expand) so they don't block the card tap -->
-                <div class="mw-mc-photo-strips"></div>
+                <?php $multiVisit = count($stop['visits']) > 1; ?>
+                <?php foreach ($stop['visits'] as $ev):
+                    $evId     = (int)($ev['visit_id'] ?? 0);
+                    $evStatus = $ev['visit_status'] ?? 'scheduled';
+                    $evDone   = ($evStatus === 'completed' || $evStatus === 'skipped');
+                    $evColor  = $serviceColors[$ev['service_type'] ?? ''] ?? '#455A64';
+                    $evLabel  = ucfirst(str_replace('_', ' ', $ev['service_type'] ?? ''));
+                    $evPillCls = 'mw-mc-pill-' . (($evStatus === 'completed') ? 'done' : (($evStatus === 'in_progress') ? 'active' : 'scheduled'));
+                ?>
+                <div class="mw-mc-visit-section" data-section-visit="<?php echo $evId; ?>">
+                    <?php if ($multiVisit): ?>
+                    <div class="mw-mc-visit-section-header">
+                        <span class="mw-mc-service-pill <?php echo $evPillCls; ?>"
+                              data-section-pill="<?php echo $evId; ?>"
+                              style="--pill-color: <?php echo $evColor; ?>; border-left-color: <?php echo $evColor; ?>">
+                            <?php if ($evStatus === 'completed'): ?>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                            <?php endif; ?>
+                            <?php echo htmlspecialchars($evLabel); ?>
+                        </span>
+                    </div>
+                    <?php endif; ?>
+
+                    <!-- Photo strip for this specific visit -->
+                    <div class="mw-mc-photo-strips" data-visit-strip="<?php echo $evId; ?>"></div>
+
+                    <?php if (!$evDone && $stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+                    <!-- Per-visit action footer — only visible when card is expanded -->
+                    <div class="mw-mc-pv-footer" data-pv-footer="<?php echo $evId; ?>">
+                        <div class="mw-mc-footer-timer" data-pv-timer="<?php echo $evId; ?>" style="display:none;">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            <span class="mw-mc-footer-elapsed" data-pv-elapsed="<?php echo $evId; ?>">0:00</span>
+                        </div>
+                        <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-clockin"
+                                data-pv-clockin="<?php echo $evId; ?>" style="display:none;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            Clock In
+                        </button>
+                        <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-complete"
+                                data-pv-complete="<?php echo $evId; ?>">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                            Complete Job
+                        </button>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
             <?php endif; ?>
         </div>
 

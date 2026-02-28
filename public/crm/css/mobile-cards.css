@@ -3552,3 +3552,44 @@
 .mw-mc-card-footer.is-timing .mw-mc-footer-btn-complete:active {
     background: #FFE0B2;
 }
+
+/* ══════════════════════════════════════════════════════════
+   PER-VISIT SECTIONS (inside expand-detail)
+   Each section: [service pill] → [photo strip] → [action footer]
+   ══════════════════════════════════════════════════════════ */
+
+/* Hide the shared card-footer when expanded — per-visit footers take over */
+.mw-mc-card-compact.mw-mc-expanded .mw-mc-card-footer {
+    display: none;
+}
+
+/* Visit section container */
+.mw-mc-visit-section {
+    padding-top: 10px;
+}
+
+/* Separator between sections for multi-visit stops */
+.mw-mc-visit-section + .mw-mc-visit-section {
+    border-top: 1px solid #f0ede8;
+    margin-top: 10px;
+}
+
+/* Pill used as section heading label */
+.mw-mc-visit-section-header {
+    margin-bottom: 8px;
+}
+
+.mw-mc-visit-section-header .mw-mc-service-pill {
+    pointer-events: none;  /* Section-header pills are visual only — tappable pill is in the services row */
+    cursor: default;
+}
+
+/* Per-visit footer — mirrors .mw-mc-card-footer but inside expand-detail */
+.mw-mc-pv-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 4px 0;
+    margin-top: 6px;
+    border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
