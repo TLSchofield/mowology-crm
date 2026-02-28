@@ -2271,8 +2271,9 @@ function getServiceLabel(type) {
         });
 
         card.addEventListener('mouseup', function(e) {
-            // Don't open modal on pin button clicks
+            // Don't open modal on pin button clicks or risk octagon trigger
             if (e.target.closest('.mw-dv-pin-btn')) return;
+            if (e.target.closest('.mw-pro-trigger')) return;
             // If mouse moved more than 5px, it was a drag — don't open modal
             var dx = Math.abs(e.clientX - downX);
             var dy = Math.abs(e.clientY - downY);
