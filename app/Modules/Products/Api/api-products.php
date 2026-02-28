@@ -177,6 +177,15 @@ try {
             // Ignore
         }
 
+        // Check if spreader coverage columns exist (migration 601)
+        $hasSpreaderData = false;
+        try {
+            $spCheck = $db->query("SHOW COLUMNS FROM products LIKE 'coverage_sqft_per_unit'");
+            $hasSpreaderData = ($spCheck->rowCount() > 0);
+        } catch (Exception $e) {
+            // Ignore
+        }
+
         // Check if icon system columns exist (migration 502)
         $hasIconSystem = false;
         try {
@@ -295,6 +304,13 @@ try {
                 $params[] = !empty($data['crew_talking_points']) ? $data['crew_talking_points'] : null;
             }
 
+            if ($hasSpreaderData) {
+                $columns .= ", coverage_sqft_per_unit, scotts_spreader_setting";
+                $placeholders .= ", ?, ?";
+                $params[] = isset($data['coverage_sqft_per_unit']) && $data['coverage_sqft_per_unit'] !== '' ? (float)$data['coverage_sqft_per_unit'] : null;
+                $params[] = isset($data['scotts_spreader_setting']) && $data['scotts_spreader_setting'] !== '' ? (float)$data['scotts_spreader_setting'] : null;
+            }
+
             if ($hasIconSystem) {
                 $columns .= ", is_sold";
                 $placeholders .= ", ?";
@@ -388,6 +404,12 @@ try {
                 $params[] = !empty($data['application_rate']) ? $data['application_rate'] : null;
                 $params[] = !empty($data['safety_warnings']) ? $data['safety_warnings'] : null;
                 $params[] = !empty($data['crew_talking_points']) ? $data['crew_talking_points'] : null;
+            }
+
+            if ($hasSpreaderData) {
+                $setClauses .= ", coverage_sqft_per_unit = ?, scotts_spreader_setting = ?";
+                $params[] = isset($data['coverage_sqft_per_unit']) && $data['coverage_sqft_per_unit'] !== '' ? (float)$data['coverage_sqft_per_unit'] : null;
+                $params[] = isset($data['scotts_spreader_setting']) && $data['scotts_spreader_setting'] !== '' ? (float)$data['scotts_spreader_setting'] : null;
             }
 
             if ($hasIconSystem) {

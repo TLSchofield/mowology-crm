@@ -572,8 +572,37 @@ $activePage = 'products';
                         </div>
                         <div class="col-md-6">
                           <div class="form-group">
-                            <label>Application Rate</label>
+                            <label>Application Rate <small class="text-muted">(label only)</small></label>
                             <input type="text" class="form-control" name="application_rate" placeholder="e.g., 50 lbs per 1000 sq ft">
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="row">
+                        <div class="col-md-4">
+                          <div class="form-group">
+                            <label>Coverage <small class="text-muted">(sq ft per unit)</small></label>
+                            <input type="number" class="form-control" name="coverage_sqft_per_unit" id="coverageSqftPerUnit" min="0" step="1" placeholder="e.g., 1000" oninput="updateSpreaderCalc()">
+                            <small class="form-text text-muted">How many sq ft does 1 bag/unit cover?</small>
+                          </div>
+                        </div>
+                        <div class="col-md-3">
+                          <div class="form-group">
+                            <label>Scotts Spreader Setting</label>
+                            <input type="number" class="form-control" name="scotts_spreader_setting" id="scottssSpreaderSetting" min="1" max="12" step="0.5" placeholder="e.g., 8" oninput="updateSpreaderCalc()">
+                            <small class="form-text text-muted">Setting 1–12</small>
+                          </div>
+                        </div>
+                        <div class="col-md-5">
+                          <div class="form-group">
+                            <label>Test Calculator</label>
+                            <div class="input-group">
+                              <input type="number" class="form-control" id="spreaderTestArea" min="0" step="100" placeholder="Lawn sq ft" oninput="updateSpreaderCalc()">
+                              <div class="input-group-append">
+                                <span class="input-group-text">sq ft</span>
+                              </div>
+                            </div>
+                            <div id="spreaderCalcResult" class="mt-1" style="font-size:0.85rem;min-height:1.4rem;"></div>
                           </div>
                         </div>
                       </div>
@@ -1138,6 +1167,11 @@ $activePage = 'products';
                         <div style="font-weight:600;color:#dc2626;font-size:0.9rem;">$${parseFloat(p.min_price).toFixed(2)}</div>
                       </div>` : ''}
                     </div>
+                    ${(p.coverage_sqft_per_unit || p.scotts_spreader_setting) ? `
+                    <div class="mw-spreader-info">
+                      ${p.coverage_sqft_per_unit ? `<span class="mw-spreader-chip"><i data-feather="maximize-2"></i> ${parseFloat(p.coverage_sqft_per_unit).toLocaleString()} sq ft/unit</span>` : ''}
+                      ${p.scotts_spreader_setting ? `<span class="mw-spreader-chip mw-spreader-chip-setting"><i data-feather="settings"></i> Scotts: ${p.scotts_spreader_setting}</span>` : ''}
+                    </div>` : ''}
                     <div class="mw-product-actions">
                       <button class="btn btn-secondary btn-sm" onclick="editProduct(${p.id})">Edit</button>
                       ${!p.is_archived ?
@@ -1216,6 +1250,8 @@ $activePage = 'products';
               document.getElementById('trackingCustomOptions').style.display = 'none';
               // Reset product intelligence fields
               clearSdsSheet();
+              document.getElementById('spreaderTestArea').value = '';
+              document.getElementById('spreaderCalcResult').innerHTML = '';
               setSelectedSeasons('');
               // Reset vendor supply panel for new products
               document.getElementById('vendorSupplyList').innerHTML =
@@ -1273,8 +1309,11 @@ $activePage = 'products';
               form.elements['sds_sheet_url'].value = product.sds_sheet_url || '';
               form.elements['dilution_rate'].value = product.dilution_rate || '';
               form.elements['application_rate'].value = product.application_rate || '';
+              form.elements['coverage_sqft_per_unit'].value = product.coverage_sqft_per_unit || '';
+              form.elements['scotts_spreader_setting'].value = product.scotts_spreader_setting || '';
               form.elements['ph_range_min'].value = product.ph_range_min || '';
               form.elements['ph_range_max'].value = product.ph_range_max || '';
+              updateSpreaderCalc();
               form.elements['safety_warnings'].value = product.safety_warnings || '';
               form.elements['application_notes'].value = product.application_notes || '';
 
@@ -1360,6 +1399,8 @@ $activePage = 'products';
               data.sds_sheet_url = form.elements['sds_sheet_url'].value || null;
               data.dilution_rate = form.elements['dilution_rate'].value || null;
               data.application_rate = form.elements['application_rate'].value || null;
+              data.coverage_sqft_per_unit = form.elements['coverage_sqft_per_unit'].value || null;
+              data.scotts_spreader_setting = form.elements['scotts_spreader_setting'].value || null;
               data.ph_range_min = form.elements['ph_range_min'].value || null;
               data.ph_range_max = form.elements['ph_range_max'].value || null;
               data.safety_warnings = form.elements['safety_warnings'].value || null;
@@ -1397,6 +1438,37 @@ $activePage = 'products';
                 }
               })
               .catch(err => alert('Error: ' + err.message));
+            }
+
+            // ============================================================
+            // Spreader Calculator
+            // ============================================================
+
+            function updateSpreaderCalc() {
+              var coverage = parseFloat(document.getElementById('coverageSqftPerUnit').value) || 0;
+              var setting = parseFloat(document.getElementById('scottssSpreaderSetting').value) || 0;
+              var area = parseFloat(document.getElementById('spreaderTestArea').value) || 0;
+              var el = document.getElementById('spreaderCalcResult');
+
+              if (!coverage || !area) {
+                el.innerHTML = coverage && setting
+                  ? '<span class="text-muted">Enter a lawn size to calculate</span>'
+                  : '';
+                return;
+              }
+
+              var raw = area / coverage;
+              var qty = Math.round(raw * 2) / 2; // round to nearest 0.5
+
+              var unitLabel = qty === 1 ? 'bag/unit' : 'bags/units';
+              var settingHtml = setting
+                ? ' — <strong>Scotts setting ' + setting + '</strong>'
+                : '';
+
+              el.innerHTML = '<span style="color:var(--mw-green);font-weight:600;">'
+                + qty.toLocaleString() + ' ' + unitLabel
+                + '</span> for ' + area.toLocaleString() + ' sq ft'
+                + settingHtml;
             }
 
             // ============================================================

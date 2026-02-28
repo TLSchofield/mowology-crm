@@ -2612,6 +2612,38 @@ a:hover {
   color: #dc2626;
 }
 
+.mw-spreader-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.mw-spreader-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--mw-light);
+  color: var(--mw-dark);
+  border: 1px solid #c6dfd6;
+}
+
+.mw-spreader-chip svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.mw-spreader-chip-setting {
+  background: #fff8e6;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
 .mw-product-actions {
   display: flex;
   gap: 0.5rem;
