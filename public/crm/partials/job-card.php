@@ -296,7 +296,7 @@ $stopTags = $stop['tags'] ?? [];
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <span class="mw-mc-footer-elapsed" data-footer-elapsed="<?php echo (int)$stop['stop_id']; ?>">0:00</span>
             </div>
-            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-clockin" data-footer-clockin="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">
+            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-clockin" data-footer-clockin="<?php echo (int)$stop['stop_id']; ?>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 Clock In
             </button>
@@ -443,7 +443,7 @@ $stopTags = $stop['tags'] ?? [];
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <span class="mw-mc-footer-elapsed" data-footer-elapsed="<?php echo (int)$stop['stop_id']; ?>">0:00</span>
             </div>
-            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-clockin" data-footer-clockin="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">
+            <button type="button" class="mw-mc-footer-btn mw-mc-footer-btn-clockin" data-footer-clockin="<?php echo (int)$stop['stop_id']; ?>">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                 Clock In
             </button>
