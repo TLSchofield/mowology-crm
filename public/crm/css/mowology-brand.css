@@ -16318,7 +16318,7 @@ textarea.font-monospace {
     overflow: hidden;
     border: 1px solid #dee2e6;
 }
-#wz-map {
+#wz-map, #pwz-map {
     width: 100%;
     height: 100%;
 }

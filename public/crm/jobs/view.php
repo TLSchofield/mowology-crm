@@ -542,7 +542,7 @@ if ($hasPropCoords) {
                 <div class="mw-header-actions">
                     <?php if ($hasPropCoords): ?>
                         <button type="button" class="btn btn-outline-secondary"
-                                data-toggle="modal" data-target="#planWorkZoneModal">
+                                onclick="$('#planWorkZoneModal').modal('show')">
                             <i data-feather="map-pin" style="width:14px;height:14px;"></i> Work Zone
                         </button>
                     <?php endif; ?>
