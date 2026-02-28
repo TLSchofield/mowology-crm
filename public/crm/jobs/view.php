@@ -668,56 +668,83 @@ if ($hasPropCoords) {
                 </div>
                 <div class="card-body">
                     <div class="row">
-                        <!-- LEFT: SVG Gauge -->
+                        <!-- LEFT: Radial Donut Chart -->
                         <div class="col-lg-5 text-center">
-                            <div class="mw-gauge-container">
-                                <svg viewBox="0 0 200 130" class="mw-gauge-svg" data-margin="<?php echo $profitability['margin_pct']; ?>">
-                                    <defs>
-                                        <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                                            <stop offset="0%" stop-color="#DC2626"/>
-                                            <stop offset="35%" stop-color="#F59E0B"/>
-                                            <stop offset="65%" stop-color="#2D8659"/>
-                                            <stop offset="100%" stop-color="#16A34A"/>
-                                        </linearGradient>
-                                    </defs>
-                                    <!-- Background track -->
-                                    <path d="M 20 105 A 80 80 0 0 1 180 105" fill="none" stroke="#E5E7EB" stroke-width="14" stroke-linecap="round"/>
-                                    <!-- Colored fill arc (animated via JS) -->
-                                    <path d="M 20 105 A 80 80 0 0 1 180 105" fill="none" stroke="url(#gaugeGradient)" stroke-width="14" stroke-linecap="round" class="mw-gauge-arc"/>
-                                    <!-- Tick marks -->
-                                    <line x1="20" y1="105" x2="20" y2="115" stroke="#D1D5DB" stroke-width="1"/>
-                                    <line x1="60" y1="38" x2="57" y2="48" stroke="#D1D5DB" stroke-width="1"/>
-                                    <line x1="100" y1="25" x2="100" y2="35" stroke="#D1D5DB" stroke-width="1"/>
-                                    <line x1="140" y1="38" x2="143" y2="48" stroke="#D1D5DB" stroke-width="1"/>
-                                    <line x1="180" y1="105" x2="180" y2="115" stroke="#D1D5DB" stroke-width="1"/>
-                                    <!-- Needle -->
-                                    <line x1="100" y1="105" x2="100" y2="35" stroke="#1F2937" stroke-width="2.5" stroke-linecap="round" class="mw-gauge-needle"/>
-                                    <!-- Center dot -->
-                                    <circle cx="100" cy="105" r="5" fill="#1F2937"/>
-                                    <circle cx="100" cy="105" r="2.5" fill="#fff"/>
-                                    <!-- Scale labels -->
-                                    <text x="15" y="125" font-size="8" fill="#9CA3AF" text-anchor="middle">0%</text>
-                                    <text x="60" y="52" font-size="8" fill="#9CA3AF" text-anchor="middle">25%</text>
-                                    <text x="100" y="18" font-size="8" fill="#9CA3AF" text-anchor="middle">50%</text>
-                                    <text x="140" y="52" font-size="8" fill="#9CA3AF" text-anchor="middle">75%</text>
-                                    <text x="185" y="125" font-size="8" fill="#9CA3AF" text-anchor="middle">100%</text>
-                                </svg>
-                                <div class="mw-gauge-value">
-                                    <span class="mw-gauge-number"><?php echo $profitability['margin_pct']; ?></span>
-                                    <span class="mw-gauge-unit">%</span>
+                            <?php
+                            $rev = max(1, $profitability['revenue']);
+                            $rSectors = [
+                                ['label' => 'Labor',    'amount' => $profitability['labor_cost'],    'color' => '#3B82F6'],
+                                ['label' => 'Expenses', 'amount' => $profitability['expense_cost'],  'color' => '#F59E0B'],
+                                ['label' => 'Overhead', 'amount' => $profitability['overhead_cost'], 'color' => '#8B5CF6'],
+                            ];
+                            if ($profitability['profit'] > 0) {
+                                $rSectors[] = ['label' => 'Profit', 'amount' => $profitability['profit'], 'color' => '#2D8659'];
+                            }
+                            $rTotal = array_sum(array_column($rSectors, 'amount'));
+                            if ($rTotal <= 0) $rTotal = 1;
+                            $profColor = $profitability['profit'] >= 0 ? '#2D8659' : '#DC2626';
+                            $rCx = 90; $rCy = 90; $rIn = 40; $rOut = 70;
+                            $rAngle = -90.0;
+                            ?>
+                            <svg viewBox="0 0 180 180" class="mw-radial-svg">
+                                <!-- Background ring -->
+                                <circle cx="90" cy="90" r="70" fill="none" stroke="#F3F4F6" stroke-width="30"/>
+                                <?php foreach ($rSectors as $ri => $rSec):
+                                    $rPct  = $rSec['amount'] / $rTotal;
+                                    $rSwp  = $rPct * 360;
+                                    $rEnd  = $rAngle + $rSwp;
+                                    $rA1   = deg2rad($rAngle);
+                                    $rA2   = deg2rad($rEnd);
+                                    $rLg   = $rSwp > 180 ? 1 : 0;
+                                    $rx1=$rCx+$rIn*cos($rA1); $ry1=$rCy+$rIn*sin($rA1);
+                                    $rx2=$rCx+$rOut*cos($rA1);$ry2=$rCy+$rOut*sin($rA1);
+                                    $rx3=$rCx+$rOut*cos($rA2);$ry3=$rCy+$rOut*sin($rA2);
+                                    $rx4=$rCx+$rIn*cos($rA2); $ry4=$rCy+$rIn*sin($rA2);
+                                    $rPath = sprintf(
+                                        "M%.2f,%.2f L%.2f,%.2f A%d,%d 0 %d,1 %.2f,%.2f L%.2f,%.2f A%d,%d 0 %d,0 %.2f,%.2f Z",
+                                        $rx1,$ry1,$rx2,$ry2,$rOut,$rOut,$rLg,$rx3,$ry3,
+                                        $rx4,$ry4,$rIn,$rIn,$rLg,$rx1,$ry1
+                                    );
+                                    $rAngle = $rEnd;
+                                ?>
+                                <path d="<?php echo $rPath; ?>" fill="<?php echo $rSec['color']; ?>"
+                                      stroke="#fff" stroke-width="2"
+                                      class="mw-radial-sector"
+                                      style="animation-delay:<?php echo number_format($ri * 0.12, 2); ?>s"/>
+                                <?php endforeach; ?>
+                                <!-- White center -->
+                                <circle cx="90" cy="90" r="38" fill="white"/>
+                                <text x="90" y="77" font-size="6" fill="#9CA3AF" text-anchor="middle" letter-spacing="0.8">NET PROFIT</text>
+                                <text x="90" y="93" font-size="13" font-weight="800" fill="<?php echo $profColor; ?>" text-anchor="middle"><?php echo formatCurrency($profitability['profit']); ?></text>
+                                <text x="90" y="106" font-size="9" font-weight="700" fill="<?php echo $profColor; ?>" text-anchor="middle"><?php echo $profitability['margin_pct']; ?>%</text>
+                                <text x="90" y="116" font-size="6" fill="#9CA3AF" text-anchor="middle" letter-spacing="0.5">MARGIN</text>
+                            </svg>
+                            <!-- Legend chips -->
+                            <div class="mw-radial-legend">
+                                <?php foreach ([
+                                    ['color' => '#3B82F6', 'label' => 'Labor',    'pct' => round(($profitability['labor_cost']    / $rev) * 100, 1)],
+                                    ['color' => '#F59E0B', 'label' => 'Expenses', 'pct' => round(($profitability['expense_cost']   / $rev) * 100, 1)],
+                                    ['color' => '#8B5CF6', 'label' => 'Overhead', 'pct' => round(($profitability['overhead_cost']  / $rev) * 100, 1)],
+                                    ['color' => '#2D8659', 'label' => 'Profit',   'pct' => $profitability['margin_pct']],
+                                ] as $rLeg): ?>
+                                <div class="mw-radial-legend-item">
+                                    <span class="mw-radial-dot" style="background:<?php echo $rLeg['color']; ?>"></span>
+                                    <span><?php echo $rLeg['label']; ?></span>
+                                    <span class="mw-radial-legend-pct"><?php echo $rLeg['pct']; ?>%</span>
                                 </div>
-                                <div class="mw-gauge-label">Profit Margin</div>
-                                <div class="mw-gauge-sublabel">
-                                    <?php if ($profitability['margin_pct'] >= 40): ?>
-                                        <span style="color: var(--mw-green);">Exceeding Target</span>
-                                    <?php elseif ($profitability['margin_pct'] >= 20): ?>
-                                        <span style="color: #F59E0B;">On Target</span>
-                                    <?php elseif ($profitability['margin_pct'] >= 0): ?>
-                                        <span style="color: #DC2626;">Below Target</span>
-                                    <?php else: ?>
-                                        <span style="color: #DC2626;">Losing Money</span>
-                                    <?php endif; ?>
-                                </div>
+                                <?php endforeach; ?>
+                            </div>
+                            <!-- Status label -->
+                            <div class="mw-radial-status mt-2">
+                                <?php if ($profitability['margin_pct'] >= 40): ?>
+                                    <span style="color:var(--mw-green);">Exceeding Target</span>
+                                <?php elseif ($profitability['margin_pct'] >= 20): ?>
+                                    <span style="color:#F59E0B;">On Target</span>
+                                <?php elseif ($profitability['margin_pct'] >= 0): ?>
+                                    <span style="color:#DC2626;">Below Target</span>
+                                <?php else: ?>
+                                    <span style="color:#DC2626;">Losing Money</span>
+                                <?php endif; ?>
                             </div>
                         </div>
 
@@ -1537,6 +1564,7 @@ if ($hasPropCoords) {
                             <div class="form-group col-md-6">
                                 <label class="form-label font-weight-bold">Clock Out</label>
                                 <input type="datetime-local" name="ed_end_time" id="edEndTime" class="form-control" required>
+                                <div id="edGpsHint" class="small text-muted mt-1" style="display:none;"></div>
                             </div>
                         </div>
                         <div class="form-group">
@@ -2089,41 +2117,7 @@ if ($hasPropCoords) {
          JAVASCRIPT
          ══════════════════════════════════════════════════════ -->
     <script>
-        // ── Profitability Gauge Animation ────────────────────
-        (function() {
-            var gauge = document.querySelector('.mw-gauge-svg');
-            if (!gauge) return;
-
-            var margin = parseFloat(gauge.getAttribute('data-margin')) || 0;
-            var arc = gauge.querySelector('.mw-gauge-arc');
-            var needle = gauge.querySelector('.mw-gauge-needle');
-            if (!arc || !needle) return;
-
-            // Arc total length for a semi-circle with radius 80
-            var totalLength = Math.PI * 80; // ~251.3
-
-            // Set initial state
-            arc.style.strokeDasharray = totalLength;
-            arc.style.strokeDashoffset = totalLength;
-
-            // Clamp to 0-100 range for display
-            var clamped = Math.max(0, Math.min(100, margin));
-            var normalized = clamped / 100;
-
-            var targetOffset = totalLength * (1 - normalized);
-            // Needle: -90° (left, 0%) to +90° (right, 100%)
-            var targetAngle = -90 + (normalized * 180);
-
-            // Animate after a brief delay
-            setTimeout(function() {
-                arc.style.transition = 'stroke-dashoffset 1.4s cubic-bezier(0.4, 0, 0.2, 1)';
-                arc.style.strokeDashoffset = targetOffset;
-
-                needle.style.transition = 'transform 1.4s cubic-bezier(0.4, 0, 0.2, 1)';
-                needle.style.transformOrigin = '100px 105px';
-                needle.style.transform = 'rotate(' + targetAngle + 'deg)';
-            }, 400);
-        })();
+        // ── Radial chart sectors animate via CSS (see mw-radial-sector) ──
 
         // ── Modal helpers ─────────────────────────────────────
         function showModal(id) {
@@ -2714,6 +2708,32 @@ if ($hasPropCoords) {
                 document.getElementById('edStartTime').value = toLocal(startTime);
                 document.getElementById('edEndTime').value = toLocal(endTime);
                 document.getElementById('edNotes').value = notes || '';
+
+                // Show GPS departure hints — one "Use" button per tracked crew/vehicle on-site
+                var hintEl = document.getElementById('edGpsHint');
+                if (hintEl) {
+                    var deps = window._gpsDeparture || {};
+                    var entries = Object.entries(deps);
+                    if (entries.length) {
+                        // Sort earliest to latest so truck departure (usually earliest) comes first
+                        entries.sort(function(a,b) { return a[1] < b[1] ? -1 : 1; });
+                        var rows = entries.map(function(kv) {
+                            var name = kv[0], ts = kv[1];
+                            var label = ts.substring(11, 16);
+                            var dtVal = toLocal(ts);
+                            return '<span class="mr-3 text-nowrap"><i data-feather="map-pin" style="width:10px;height:10px;vertical-align:-1px;"></i> ' +
+                                name + ' left <strong>' + label + '</strong> ' +
+                                '<button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:11px;" ' +
+                                'onclick="document.getElementById(\'edEndTime\').value=\'' + dtVal + '\'">Use</button></span>';
+                        });
+                        hintEl.style.display = '';
+                        hintEl.innerHTML = rows.join('');
+                        if (window.feather) feather.replace();
+                    } else {
+                        hintEl.style.display = 'none';
+                    }
+                }
+
                 showModal('editTimeEntryModal');
             };
         })();
@@ -2736,10 +2756,21 @@ if ($hasPropCoords) {
             var crewColors = {};
             var colorIdx = 0;
 
+            // GPS departure index: keyed by crew_name → last ping timestamp near property
+            // Exposed globally so openEditTimeEntry can show a "Use GPS departure" hint.
+            window._gpsDeparture = {};
+
             fetch('/crm/api/job-timer.php?action=gps_pings&plan_id=' + planId)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (!data.success || !data.prop_lat) return;
+
+                    // Build departure index from pings (last ping per crew = departure)
+                    if (data.pings && data.pings.length) {
+                        data.pings.forEach(function(p) {
+                            window._gpsDeparture[p.crew_name] = p.time; // overwrite → last wins
+                        });
+                    }
 
                     // Property marker
                     var propLatLng = [data.prop_lat, data.prop_lng];

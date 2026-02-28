@@ -2547,13 +2547,47 @@ $unconvertedRequests = $db->query("
                 </div>
 
                 <!-- Profitability Card -->
-                <?php if ($totalRevenue > 0 || $totalExpenses > 0): ?>
+                <?php if ($totalRevenue > 0 || $totalExpenses > 0):
+                  $cProfit  = $totalRevenue - $totalExpenses;
+                  $cMargin  = $totalRevenue > 0 ? ($cProfit / $totalRevenue) * 100 : 0;
+                  $cProfColor = $cProfit >= 0 ? '#2D8659' : '#DC2626';
+                  $cSectors = [['label'=>'Expenses','amount'=>max(0,$totalExpenses),'color'=>'#F59E0B']];
+                  if ($cProfit > 0) $cSectors[] = ['label'=>'Profit','amount'=>$cProfit,'color'=>'#2D8659'];
+                  $cTotal = array_sum(array_column($cSectors,'amount')); if($cTotal<=0)$cTotal=1;
+                  $cAngle = -90.0; $cCx=75; $cCy=75; $cIn=33; $cOut=58;
+                ?>
                 <div class="card mb-3">
                   <div class="card-header">
                     <h5 class="card-title mb-0"><i data-feather="trending-up"></i> Profitability</h5>
                   </div>
                   <div class="card-body py-2">
-                    <?php $profit = $totalRevenue - $totalExpenses; $margin = $totalRevenue > 0 ? ($profit / $totalRevenue) * 100 : 0; ?>
+                    <!-- Mini donut chart -->
+                    <svg viewBox="0 0 150 150" class="mw-radial-svg" style="max-width:150px;">
+                      <circle cx="75" cy="75" r="58" fill="none" stroke="#F3F4F6" stroke-width="25"/>
+                      <?php foreach ($cSectors as $ci => $cSec):
+                        $cPct=$cSec['amount']/$cTotal; $cSwp=$cPct*360; $cEnd=$cAngle+$cSwp;
+                        $cA1=deg2rad($cAngle); $cA2=deg2rad($cEnd); $cLg=$cSwp>180?1:0;
+                        $cx1=$cCx+$cIn*cos($cA1);  $cy1=$cCy+$cIn*sin($cA1);
+                        $cx2=$cCx+$cOut*cos($cA1); $cy2=$cCy+$cOut*sin($cA1);
+                        $cx3=$cCx+$cOut*cos($cA2); $cy3=$cCy+$cOut*sin($cA2);
+                        $cx4=$cCx+$cIn*cos($cA2);  $cy4=$cCy+$cIn*sin($cA2);
+                        $cPath=sprintf("M%.2f,%.2f L%.2f,%.2f A%d,%d 0 %d,1 %.2f,%.2f L%.2f,%.2f A%d,%d 0 %d,0 %.2f,%.2f Z",
+                          $cx1,$cy1,$cx2,$cy2,$cOut,$cOut,$cLg,$cx3,$cy3,$cx4,$cy4,$cIn,$cIn,$cLg,$cx1,$cy1);
+                        $cAngle=$cEnd;
+                      ?>
+                      <path d="<?php echo $cPath; ?>" fill="<?php echo $cSec['color']; ?>" stroke="#fff" stroke-width="2"
+                            class="mw-radial-sector" style="animation-delay:<?php echo number_format($ci*0.15,2); ?>s"/>
+                      <?php endforeach; ?>
+                      <circle cx="75" cy="75" r="31" fill="white"/>
+                      <text x="75" y="68" font-size="5.5" fill="#9CA3AF" text-anchor="middle" letter-spacing="0.5">NET PROFIT</text>
+                      <text x="75" y="81" font-size="11" font-weight="800" fill="<?php echo $cProfColor; ?>" text-anchor="middle"><?php echo formatCurrency($cProfit); ?></text>
+                      <text x="75" y="93" font-size="8" font-weight="700" fill="<?php echo $cProfColor; ?>" text-anchor="middle"><?php echo number_format($cMargin,0); ?>%</text>
+                    </svg>
+                    <!-- Legend + rows -->
+                    <div class="mw-radial-legend mb-2">
+                      <div class="mw-radial-legend-item"><span class="mw-radial-dot" style="background:#F59E0B"></span><span>Expenses</span></div>
+                      <div class="mw-radial-legend-item"><span class="mw-radial-dot" style="background:#2D8659"></span><span>Profit</span></div>
+                    </div>
                     <div class="mw-detail-row">
                       <span class="mw-detail-label">Revenue</span>
                       <span class="font-weight-bold text-success"><?php echo formatCurrency($totalRevenue); ?></span>
@@ -2564,9 +2598,9 @@ $unconvertedRequests = $db->query("
                     </div>
                     <div class="mw-detail-row" style="border-top: 2px solid #dee2e6;">
                       <span class="mw-detail-label font-weight-bold">Profit</span>
-                      <span class="font-weight-bold <?php echo $profit >= 0 ? 'text-success' : 'text-danger'; ?>">
-                        <?php echo formatCurrency($profit); ?>
-                        <small class="text-muted">(<?php echo number_format($margin, 0); ?>%)</small>
+                      <span class="font-weight-bold <?php echo $cProfit >= 0 ? 'text-success' : 'text-danger'; ?>">
+                        <?php echo formatCurrency($cProfit); ?>
+                        <small class="text-muted">(<?php echo number_format($cMargin, 0); ?>%)</small>
                       </span>
                     </div>
                     <?php if ($totalQuoted > 0 && $totalQuoted != $totalRevenue): ?>

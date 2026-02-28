@@ -13850,78 +13850,58 @@ textarea.font-monospace {
   /* Color set via inline style from PHP based on margin value */
 }
 
-/* ── Job View: SVG Gauge ──────────────────────────── */
-.mw-gauge-container {
-  position: relative;
-  max-width: 260px;
-  margin: 0 auto;
-  padding-bottom: 8px;
-}
-
-.mw-gauge-svg {
+/* ── Job View: Radial Donut Chart ────────────────── */
+.mw-radial-svg {
   width: 100%;
+  max-width: 200px;
   height: auto;
   display: block;
+  margin: 0 auto;
 }
 
-.mw-gauge-arc {
-  stroke-dasharray: 251.3;
-  stroke-dashoffset: 251.3;
+.mw-radial-sector {
+  opacity: 0;
+  animation: mwRadialIn 0.35s ease forwards;
 }
 
-.mw-gauge-needle {
-  transform-origin: 100px 100px;
-  transform: rotate(-90deg);
+@keyframes mwRadialIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-.mw-gauge-value {
-  position: absolute;
-  bottom: 36px;
-  left: 50%;
-  transform: translateX(-50%);
-  text-align: center;
-  line-height: 1;
-}
-
-.mw-gauge-number {
-  font-size: 2.4rem;
-  font-weight: 800;
-  color: #1F2937;
-}
-
-.mw-gauge-unit {
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: #6B7280;
-}
-
-.mw-gauge-label {
-  text-align: center;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: #9CA3AF;
-  margin-top: 2px;
-}
-
-.mw-gauge-sublabel {
-  text-align: center;
-  font-size: 0.85rem;
-  font-weight: 600;
-  margin-top: 2px;
-}
-
-/* Scale ticks under gauge */
-.mw-gauge-ticks {
+.mw-radial-legend {
   display: flex;
-  justify-content: space-between;
-  padding: 0 12px;
-  margin-top: -2px;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 10px;
+  margin: 10px auto 0;
+  max-width: 200px;
 }
 
-.mw-gauge-tick {
-  font-size: 0.6rem;
-  color: #9CA3AF;
+.mw-radial-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: #374151;
+}
+
+.mw-radial-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mw-radial-legend-pct {
+  color: #6B7280;
+  font-size: 0.68rem;
+}
+
+.mw-radial-status {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: center;
 }
 
 /* ── Job View: Cost Breakdown Rows ────────────────── */
@@ -13989,12 +13969,7 @@ textarea.font-monospace {
 .mw-visit-profit-badge.profit-bad { background: #FEE2E2; color: #991B1B; }
 
 @media (max-width: 768px) {
-  .mw-gauge-container {
-    max-width: 200px;
-    margin-bottom: 16px;
-  }
-  .mw-gauge-number { font-size: 1.8rem; }
-  .mw-gauge-value { bottom: 30px; }
+  .mw-radial-svg { max-width: 160px; }
   .mw-profit-row-label { width: 90px; font-size: 0.8rem; }
   .mw-profit-row-amount { width: 70px; font-size: 0.8rem; }
   .mw-profit-row-bar { height: 10px; }
