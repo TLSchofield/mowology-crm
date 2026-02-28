@@ -821,12 +821,18 @@ try {
         ");
         $bundles = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Check which optional product columns exist on this installation
+        $hasAppRate   = $db->query("SHOW COLUMNS FROM products LIKE 'application_rate'")->rowCount() > 0;
+        $hasIconPath  = $db->query("SHOW COLUMNS FROM products LIKE 'icon_base_path'")->rowCount() > 0;
+        $extraCols    = ($hasAppRate  ? ', p.application_rate'  : '')
+                      . ($hasIconPath ? ', p.icon_base_path'    : '');
+
         // Load items for each bundle
         foreach ($bundles as &$bundle) {
             $itemStmt = $db->prepare("
                 SELECT bi.*, p.name as product_name, p.base_price,
-                       p.description as product_description,
-                       p.application_rate, p.icon_base_path
+                       p.description as product_description
+                       {$extraCols}
                 FROM product_bundle_items bi
                 JOIN products p ON bi.product_id = p.id
                 WHERE bi.bundle_id = ?
