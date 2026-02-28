@@ -2115,7 +2115,9 @@
                 }
             });
         });
-        return found || (visits[primaryVisitId] ? primaryVisitId : null);
+        // Fall back to primaryVisitId even if not in the visits registry
+        // (card may have no pills in admin/compact view)
+        return found || primaryVisitId || null;
     }
 
     /**
@@ -2214,28 +2216,41 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success) {
-                    visits[visitId].entryId = data.entry_id;
-                    visits[visitId].startTime = new Date();
-                    visits[visitId].status = 'prompt_before';
-                    if (data.tracking_level) visits[visitId].trackingLevel = data.tracking_level;
-                    if (data.require_photos !== undefined) visits[visitId].requirePhotos = data.require_photos;
-
+                    if (visits[visitId]) {
+                        visits[visitId].entryId = data.entry_id;
+                        visits[visitId].startTime = new Date();
+                        visits[visitId].status = 'prompt_before';
+                        if (data.tracking_level) visits[visitId].trackingLevel = data.tracking_level;
+                        if (data.require_photos !== undefined) visits[visitId].requirePhotos = data.require_photos;
+                    }
+                    // Update global active timer state regardless of pill registration
+                    if (MW_SCHEDULE_STATE) {
+                        MW_SCHEDULE_STATE.activeTimer = {
+                            visit_id: visitId,
+                            start_time: new Date().toISOString(),
+                            elapsed_seconds: 0
+                        };
+                    }
                     if (window.MwTimeClock) {
                         window.MwTimeClock.notifyJobTimerStarted();
                         if (data.tracking_level === 'heightened') window.MwTimeClock.setTrackingInterval('heightened');
                     }
-                    updatePillVisual(visitId, 'in_progress');
-                    startPillTimer(visitId);
+                    if (visits[visitId]) {
+                        updatePillVisual(visitId, 'in_progress');
+                        startPillTimer(visitId);
+                    }
                     footerSetTiming(stopId, visitId);
 
-                    // Open the pill drawer for before-photo prompt on the card
-                    var card = visits[visitId].pill.closest('.mw-mc-card');
-                    var drawer = card ? card.querySelector('.mw-mc-pill-drawer') : null;
-                    if (drawer) {
-                        renderPhotoPrompt(drawer, visitId, 'before');
-                        drawer.style.display = 'block';
-                        activeDrawer = drawer;
-                        activeDrawerVisitId = visitId;
+                    // Open the pill drawer for before-photo prompt (only if pill registered)
+                    if (visits[visitId] && visits[visitId].pill) {
+                        var card = visits[visitId].pill.closest('.mw-mc-card');
+                        var drawer = card ? card.querySelector('.mw-mc-pill-drawer') : null;
+                        if (drawer) {
+                            renderPhotoPrompt(drawer, visitId, 'before');
+                            drawer.style.display = 'block';
+                            activeDrawer = drawer;
+                            activeDrawerVisitId = visitId;
+                        }
                     }
                 } else {
                     showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
