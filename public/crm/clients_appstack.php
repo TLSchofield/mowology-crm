@@ -1935,6 +1935,9 @@ $unconvertedRequests = $db->query("
                 </span>
               </div>
               <div class="mw-contact-actions">
+                <a href="/customer/portal.php?contact_id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-outline-primary" target="_blank">
+                  <i data-feather="external-link"></i> Client Portal
+                </a>
                 <a href="?action=edit_contact&id=<?php echo (int)$viewContact['id']; ?>" class="btn btn-primary">
                   <i data-feather="edit-2"></i> Edit
                 </a>
