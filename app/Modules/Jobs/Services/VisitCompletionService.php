@@ -153,6 +153,53 @@ class VisitCompletionService
                 ));
             }
 
+            // ── 12. Populate job_visits.actual_duration_minutes from timer entries ─
+            // Sum all completed/edited timer entries for this visit so the column
+            // reflects reality rather than staying NULL.
+            $db->prepare("
+                UPDATE job_visits
+                SET actual_duration_minutes = (
+                    SELECT COALESCE(SUM(duration_minutes), 0)
+                    FROM job_time_entries
+                    WHERE visit_id = ? AND status IN ('completed', 'edited')
+                )
+                WHERE id = ?
+            ")->execute([$visitId, $visitId]);
+
+            // ── 13. Update plan's estimated_duration_minutes with rolling average ──
+            // Average per-visit actual timer totals across all completed visits that
+            // have real timer data. Rounds to nearest minute. This continuously
+            // improves scheduling accuracy as real visit times accumulate.
+            $rollAvgStmt = $db->prepare("
+                SELECT AVG(visit_total) AS avg_duration
+                FROM (
+                    SELECT SUM(jte.duration_minutes) AS visit_total
+                    FROM job_visits jv
+                    JOIN job_time_entries jte ON jte.visit_id = jv.id
+                    WHERE jv.plan_id = ?
+                      AND jv.status = 'completed'
+                      AND jte.status IN ('completed', 'edited')
+                    GROUP BY jv.id
+                    HAVING SUM(jte.duration_minutes) > 0
+                ) AS per_visit
+            ");
+            $rollAvgStmt->execute([$visit['plan_id']]);
+            $rollAvgRow = $rollAvgStmt->fetch(PDO::FETCH_ASSOC);
+            $newEstimate = ($rollAvgRow && $rollAvgRow['avg_duration'] !== null)
+                ? (int)round((float)$rollAvgRow['avg_duration'])
+                : 0;
+
+            if ($newEstimate > 0) {
+                $db->prepare("
+                    UPDATE job_plans SET estimated_duration_minutes = ? WHERE id = ?
+                ")->execute([$newEstimate, $visit['plan_id']]);
+                error_log(sprintf(
+                    '[VisitCompletion] Duration avg updated — plan #%d: %d min',
+                    $visit['plan_id'],
+                    $newEstimate
+                ));
+            }
+
         } catch (Throwable $e) {
             // Never let this block visit completion — just log
             error_log('[VisitCompletionService] Error capturing snapshot for visit ' . $visitId . ': ' . $e->getMessage());

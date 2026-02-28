@@ -427,6 +427,19 @@ $visits = getPlanVisits($planId, null, 200, 0);
 // Get plan line items
 $planLineItems = getPlanLineItems($planId);
 
+// Count completed visits with actual timer data (used to label the averaged duration estimate)
+$durAvgCountStmt = $db->prepare("
+    SELECT COUNT(DISTINCT jv.id)
+    FROM job_visits jv
+    JOIN job_time_entries jte ON jte.visit_id = jv.id
+    WHERE jv.plan_id = ?
+      AND jv.status = 'completed'
+      AND jte.status IN ('completed', 'edited')
+      AND jte.duration_minutes > 0
+");
+$durAvgCountStmt->execute([$planId]);
+$durAvgCount = (int)($durAvgCountStmt->fetchColumn() ?: 0);
+
 // Get tracking requirements (resolved: plan overrides > product defaults)
 $trackingReqs = resolveTrackingRequirementsForPlan($planId);
 
@@ -882,6 +895,9 @@ if ($hasPropCoords) {
                                 <span class="mw-detail-label">Duration</span>
                                 <span class="mw-detail-value">
                                     <?php echo (int)$plan['estimated_duration_minutes']; ?> min
+                                    <?php if ($durAvgCount > 0): ?>
+                                        <small class="text-muted">· avg of <?php echo $durAvgCount; ?> visit<?php echo $durAvgCount !== 1 ? 's' : ''; ?></small>
+                                    <?php endif; ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
