@@ -387,49 +387,26 @@ try {
             $propLat = (float)$prop['latitude'];
             $propLng = (float)$prop['longitude'];
 
-            // ~300m bounding box
-            $latDelta = 0.0027;
-            $lngDelta = 0.0027 / max(cos(deg2rad($propLat)), 0.001);
+            // ~200m bounding box — captures on-site pings without pulling in
+            // an entire neighbourhood driving route from service vehicles.
+            $latDelta = 0.0018;
+            $lngDelta = 0.0018 / max(cos(deg2rad($propLat)), 0.001);
 
-            // Use actual workers from time entries (not just stop-assigned crew).
-            // This handles cases where an admin or unlisted worker did the job.
-            $crewStmt = $db->prepare("
-                SELECT DISTINCT u.id, u.full_name
-                FROM job_time_entries jte
-                JOIN job_visits jv ON jte.visit_id = jv.id
-                JOIN users u ON u.id = jte.user_id
-                WHERE jv.plan_id = ?
-                  AND u.location_tracking_enabled = 1
-            ");
-            $crewStmt->execute([$planId]);
-            $crew = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
+            // Search ALL location-tracked users — not just plan-assigned crew.
+            // Service vehicles (trucks, equipment) are tracked but may not appear
+            // in calendar_stops for a specific plan. The map shows whoever was near
+            // the property on the job dates, giving the full on-site picture.
+            $crewStmt = $db->prepare("SELECT id, full_name FROM users WHERE location_tracking_enabled = 1");
+            $crewStmt->execute();
+            $allCrew = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Also include stop-assigned crew with tracking enabled
-            $assignedStmt = $db->prepare("
-                SELECT DISTINCT u.id, u.full_name
-                FROM job_visits jv
-                LEFT JOIN calendar_stops cs ON jv.stop_id = cs.id
-                LEFT JOIN calendar_stop_crew scc ON jv.stop_id = scc.stop_id
-                JOIN users u ON u.id = COALESCE(cs.crew_id, scc.user_id)
-                WHERE jv.plan_id = ?
-                  AND u.location_tracking_enabled = 1
-            ");
-            $assignedStmt->execute([$planId]);
-            $assignedCrew = $assignedStmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Merge, deduplicate by user id
-            $crewById = [];
-            foreach (array_merge($crew, $assignedCrew) as $c) {
-                $crewById[$c['id']] = $c['full_name'];
-            }
-
-            if (empty($crewById)) {
+            if (empty($allCrew)) {
                 echo json_encode(['success' => true, 'pings' => [], 'prop_lat' => $propLat, 'prop_lng' => $propLng]);
                 break;
             }
 
-            $crewIds   = array_keys($crewById);
-            $crewNames = $crewById;
+            $crewIds   = array_column($allCrew, 'id');
+            $crewNames = array_column($allCrew, 'full_name', 'id');
 
             $pacificTz = new DateTimeZone('America/Vancouver');
 
