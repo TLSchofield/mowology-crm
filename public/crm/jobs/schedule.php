@@ -1602,6 +1602,13 @@ if ($apiKey) {
                                           <div class="mw-profit-bar mw-profit-bar-empty" title="No profitability data yet"></div>
                                       <?php endif; ?>
 
+                                      <?php if (!empty($stop['visits'])): ?>
+                                      <button class="mw-pro-trigger" title="Open risk analysis" aria-label="Open profit risk analysis">
+                                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/></svg>
+                                          Risk
+                                      </button>
+                                      <?php endif; ?>
+
                                       <!-- Revenue strip -->
                                       <?php if ($stopRevenue > 0): ?>
                                       <div class="mw-stop-revenue-strip">
@@ -1732,6 +1739,12 @@ if ($apiKey) {
                               <div class="mw-profit-bar">
                                   <div class="mw-profit-bar-fill" style="width: <?php echo min(100, max(5, $avgMargin)); ?>%; background: <?php echo $barColor; ?>;"></div>
                               </div>
+                              <?php endif; ?>
+                              <?php if (!empty($stop['visits'])): ?>
+                              <button class="mw-pro-trigger" title="Open risk analysis" aria-label="Open profit risk analysis">
+                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/></svg>
+                                  Risk
+                              </button>
                               <?php endif; ?>
                           </div>
                       </div>
@@ -3134,4 +3147,5 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 </script>
 <?php endif; ?>
 
+<script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(__DIR__ . '/../js/profit-risk-octagon.js'); ?>"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
