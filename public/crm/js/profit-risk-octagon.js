@@ -348,11 +348,18 @@
         if (!btn) return;
         e.stopPropagation();  // don't bubble to card click handler
 
-        var card   = btn.closest('[data-stop-id]');
-        var planId = getFirstPlanId(card);
-        if (!planId) return;
+        // Standalone use (e.g. job detail view): plan-id on the button itself
+        var planId = btn.dataset.planId ? parseInt(btn.dataset.planId, 10) : 0;
+        var addr   = btn.dataset.address || '';
 
-        var addr  = (card && card.dataset.propertyAddress) || '';
+        // Schedule view fallback: read from parent stop card's data-visits JSON
+        if (!planId) {
+            var card = btn.closest('[data-stop-id]');
+            planId   = getFirstPlanId(card);
+            addr     = (card && card.dataset.propertyAddress) || '';
+        }
+
+        if (!planId) return;
         openModal(planId, addr);
     });
 

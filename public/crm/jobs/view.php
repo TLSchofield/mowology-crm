@@ -592,6 +592,14 @@ if ($hasPropCoords) {
                             <i data-feather="map-pin" style="width:14px;height:14px;"></i> Work Zone
                         </button>
                     <?php endif; ?>
+                    <button class="mw-pro-trigger btn btn-outline-secondary"
+                            data-plan-id="<?php echo (int)$planId; ?>"
+                            data-address="<?php echo htmlspecialchars(trim(($plan['property_address'] ?? '') . ', ' . ($plan['property_city'] ?? ''), ', ')); ?>"
+                            title="Open profit risk analysis"
+                            aria-label="Open profit risk analysis">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="vertical-align:-1px;"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon></svg>
+                        Risk
+                    </button>
                     <?php if (in_array($plan['status'], ['active', 'paused'])): ?>
                         <button type="button" class="btn btn-outline-primary" onclick="showModal('editPlanModal')">
                             <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit Plan
@@ -3194,4 +3202,5 @@ if ($hasPropCoords) {
 </script>
 <?php endif; ?>
 
+<script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(dirname(__DIR__) . '/js/profit-risk-octagon.js'); ?>"></script>
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
