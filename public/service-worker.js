@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v19';
+var CACHE_VERSION = 'mw-v20';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -32,8 +32,8 @@ var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
 var APP_SHELL = [
   /* ── Core AppStack frame ── */
   '/crm/css/classic.css',
-  '/crm/css/mowology-brand.css?v=20260227b',
-  '/crm/css/mobile-cards.css?v=20260227b',
+  '/crm/css/mowology-brand.css?v=20260227c',
+  '/crm/css/mobile-cards.css?v=20260227c',
   '/crm/css/mobile-nav.css?v=20260225a',
   '/crm/js/app.js',
   '/crm/js/feather-helper.js',
@@ -120,6 +120,15 @@ self.addEventListener('fetch', function(event) {
   if (request.method !== 'GET') return;
   if (url.origin !== self.location.origin) return;
   if (!url.protocol.startsWith('http')) return;
+
+  // ── Navigation requests → bypass SW entirely ──
+  // Android Chrome/WebView enforces a hard ~5s timeout on SW navigation responses.
+  // If the PHP page is slow (DB connection + queries on shared hosting), the SW
+  // response deadline expires and Chrome fails with ERR_FAILED — even when the
+  // server is healthy and would have responded in 6–8s.
+  // Bypassing navigations lets the browser show a normal loading spinner instead
+  // of hard-failing. Static assets (CSS/JS) still use cache-first for fast loads.
+  if (request.mode === 'navigate') return;
 
   var pathname = url.pathname;
 
