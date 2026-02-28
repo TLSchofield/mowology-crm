@@ -1012,7 +1012,8 @@ Work to be completed weather permitting.</textarea>
             mapTypeControl: false,
             streetViewControl: false,
             fullscreenControl: false,
-            zoomControl: true
+            zoomControl: true,
+            tilt: 0
         });
 
         if (hasCoords) {
@@ -1030,7 +1031,8 @@ Work to be completed weather permitting.</textarea>
             mapTypeId: 'satellite',
             mapTypeControl: false,
             streetViewControl: false,
-            fullscreenControl: true
+            fullscreenControl: true,
+            tilt: 0
         });
 
         // Drawing manager
