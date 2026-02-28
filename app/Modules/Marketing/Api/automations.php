@@ -34,11 +34,10 @@ if (!defined('APP_ROOT')) {
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once CRM_INCLUDES . '/functions.php';
 
-header('Content-Type: application/json; charset=utf-8');
-session_write_close();
-
 requireLogin();
 $user = getCurrentUser();
+header('Content-Type: application/json; charset=utf-8');
+session_write_close();
 
 $action = $_GET['action'] ?? '';
 $db = getDB();
@@ -60,10 +59,6 @@ try {
             if ($filter === 'enabled')  { $where .= ' AND is_enabled = 1'; }
             if ($filter === 'disabled') { $where .= ' AND is_enabled = 0'; }
 
-            $total = (int)$db->prepare("SELECT COUNT(*) FROM automation_rules WHERE $where")
-                             ->execute($params) ? $db->prepare("SELECT COUNT(*) FROM automation_rules WHERE $where")->execute($params) : 0;
-
-            // Two-step to avoid re-executing with wrong state
             $countStmt = $db->prepare("SELECT COUNT(*) FROM automation_rules WHERE $where");
             $countStmt->execute($params);
             $total = (int)$countStmt->fetchColumn();
