@@ -453,7 +453,6 @@ const CARD_DEFS = {
       'photos':        { label:'Photo Placeholders',  icon:'cam',    desc:'Before / After / Extra slots', colorable:false },
       'clock-in':      { label:'Clock In Button',     icon:'login',  desc:'Start job timer',              colorable:true  },
       'complete-job':  { label:'Complete Job Button', icon:'check',  desc:'Mark job complete',            colorable:false },
-      'optimize-route':{ label:'Optimize Route',      icon:'nav',    desc:'Route optimization CTA',       colorable:false },
       'go-btn':        { label:'Go Button',           icon:'nav',    desc:'Opens navigation to job address', colorable:true },
       'profit-bar':    { label:'Profit Bar',          icon:'trend',  desc:'Job profitability indicator',  colorable:false },
       'notes':         { label:'Notes',               icon:'file',   desc:'Site notes field',             colorable:false },
@@ -482,6 +481,45 @@ const COLOR_SWATCHES = [
   { hex:'#e85d04', name:'Orange' },         { hex:'#3B82F6', name:'Blue' },
   { hex:'#8B5CF6', name:'Purple' },         { hex:'#EC4899', name:'Pink' },
 ];
+
+// ── Button pair helpers ──
+// Button element IDs that can be rendered side-by-side when adjacent
+const BTN_IDS = new Set(['clock-in','complete-job','go-btn']);
+
+// Returns the set of btn IDs that are "consumed" (already rendered as the 2nd
+// of a pair) so their own cdx-card-el wrapper renders nothing visible.
+function getConsumedBtns() {
+  if (state.activeCard !== 'stop') return new Set();
+  const lo = getLayout();
+  const consumed = new Set();
+  let i = 0;
+  while (i < lo.length) {
+    if (BTN_IDS.has(lo[i]) && i + 1 < lo.length && BTN_IDS.has(lo[i + 1])) {
+      consumed.add(lo[i + 1]); // second in pair is hidden — rendered by leader
+      i += 2;
+    } else {
+      i++;
+    }
+  }
+  return consumed;
+}
+
+// Returns the inner flex-1 button HTML for use inside a shared cdx-p-btns row
+function btnContent(id) {
+  const p = ((state.props[state.activeCard] || {})[id]) || {};
+  const c = p.color || null;
+  switch (id) {
+    case 'clock-in':
+      return `<div class="cdx-p-btn cdx-p-btn-g" style="flex:1${c ? ';background:' + c : ''}">Clock In</div>`;
+    case 'complete-job':
+      return `<div class="cdx-p-btn cdx-p-btn-d" style="flex:1">Complete Job</div>`;
+    case 'go-btn': {
+      const bg = c || 'var(--cdx-green)';
+      return `<div class="cdx-p-btn" style="flex:1;background:${bg};color:#fff;display:flex;align-items:center;justify-content:center;gap:5px;font-size:12px;padding:7px 4px"><div style="width:12px;height:12px">${IC.nav}</div> Go</div>`;
+    }
+    default: return `<div class="cdx-p-btn cdx-p-btn-g" style="flex:1">${id}</div>`;
+  }
+}
 
 // ── App State ──
 const state = {
@@ -727,16 +765,20 @@ function getStopPreview(id) {
       <div class="cdx-p-photo"><div style="width:16px;height:16px">${IC.cam}</div>Before</div>
       <div class="cdx-p-photo"><div style="width:16px;height:16px">${IC.cam}</div>After</div>
       <div class="cdx-p-photo" style="border:1.5px dashed #CCC7BE;background:transparent">+</div></div>`;
-    case 'clock-in': return `<div class="cdx-p-btns">
-      <div class="cdx-p-btn cdx-p-btn-g">Clock In</div></div>`;
-    case 'complete-job': return `<div class="cdx-p-btns">
-      <div class="cdx-p-btn cdx-p-btn-d">Complete Job</div></div>`;
-    case 'optimize-route': return `<div class="cdx-p-btns">
-      <div class="cdx-p-btn cdx-p-btn-o">Optimize Route</div></div>`;
-    case 'go-btn': return `<div style="padding:8px 14px 10px">
-      <div style="background:var(--cdx-green);color:#fff;border-radius:12px;padding:13px 16px;display:flex;align-items:center;justify-content:center;gap:9px;font-size:14px;font-weight:800;letter-spacing:-0.01em;box-shadow:0 4px 14px rgba(45,134,89,.28)">
-        <div style="width:15px;height:15px">${IC.nav}</div> Go &nbsp;·&nbsp; <span style="font-size:11px;font-weight:500;opacity:.85">1234 Oak St</span>
-      </div></div>`;
+    case 'clock-in':
+    case 'complete-job':
+    case 'go-btn': {
+      const consumed = getConsumedBtns();
+      if (consumed.has(id)) return '<div></div>'; // rendered as part of predecessor's pair
+      const lo  = getLayout();
+      const nxt = lo[lo.indexOf(id) + 1];
+      if (nxt && BTN_IDS.has(nxt)) {
+        // Render both side-by-side
+        return `<div class="cdx-p-btns">${btnContent(id)}${btnContent(nxt)}</div>`;
+      }
+      // Standalone — full width
+      return `<div class="cdx-p-btns">${btnContent(id)}</div>`;
+    }
     case 'profit-bar': return `<div class="cdx-p-profit">
       <div class="cdx-p-profit-lbl">Job Profitability</div>
       <div class="cdx-p-profit-bar"><div class="cdx-p-profit-fill"></div></div>
