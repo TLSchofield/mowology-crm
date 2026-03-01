@@ -2317,14 +2317,44 @@ a:hover {
   opacity: 0.4;
 }
 
-/* Insertion-point indicator — precise line shows exactly where item will land */
-.mw-sortable-row.mw-drop-before,
-.mw-line-item.mw-drop-before {
-  box-shadow: 0 -3px 0 0 var(--mw-green);
+/* Insertion-point indicator — td borders work in collapsed tables; div borders for create form */
+.mw-sortable-row.mw-drop-before td {
+  border-top: 3px solid var(--mw-green) !important;
 }
-.mw-sortable-row.mw-drop-after,
+.mw-sortable-row.mw-drop-after td {
+  border-bottom: 3px solid var(--mw-green) !important;
+}
+/* Dot marker at left edge */
+.mw-sortable-row.mw-drop-before td:first-child,
+.mw-sortable-row.mw-drop-after td:first-child {
+  position: relative;
+}
+.mw-sortable-row.mw-drop-before td:first-child::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mw-green);
+}
+.mw-sortable-row.mw-drop-after td:first-child::after {
+  content: '';
+  position: absolute;
+  left: -4px;
+  bottom: -6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mw-green);
+}
+/* Create form: border on the grid div itself */
+.mw-line-item.mw-drop-before {
+  border-top: 3px solid var(--mw-green);
+}
 .mw-line-item.mw-drop-after {
-  box-shadow: 0 3px 0 0 var(--mw-green);
+  border-bottom: 3px solid var(--mw-green);
 }
 
 .mw-section-header-row.mw-drag-over-section {
