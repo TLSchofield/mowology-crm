@@ -231,6 +231,10 @@ ob_start();
 .cdx-p-meta svg { color: var(--cdx-green); }
 .cdx-p-photos { padding: 7px 14px; display: flex; gap: 6px; }
 .cdx-p-photo { width: 48px; height: 48px; background: #EEE9E2; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #C0BAB2; font-family: var(--cdx-font-mono); font-size: 8px; gap: 3px; }
+.cdx-p-svc-block { border-top: 1px solid #F0EBE4; }
+.cdx-p-svc-block:first-child { border-top: none; }
+.cdx-p-svc-hdr { padding: 7px 14px 3px; display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; font-family: var(--cdx-font-display); color: var(--cdx-green); }
+.cdx-p-svc-hdr--alt { color: #e85d04; }
 .cdx-p-btns { padding: 7px 14px; display: flex; gap: 7px; }
 .cdx-p-btn { flex: 1; padding: 9px 6px; border-radius: 9px; font-size: 11px; font-weight: 700; text-align: center; font-family: var(--cdx-font-display); }
 .cdx-p-btn-g { background: var(--cdx-green); color: #fff; }
@@ -771,10 +775,23 @@ function getStopPreview(id) {
       ${getElemIcon('stop','sq-ft')} 2,400 sq ft</div>`;
     case 'last-visit': return `<div class="cdx-p-meta">
       ${getElemIcon('stop','last-visit')} Last visit: Mar 1, 2026</div>`;
-    case 'photos': return `<div class="cdx-p-photos">
-      <div class="cdx-p-photo"><div style="width:16px;height:16px">${IC.cam}</div>Before</div>
-      <div class="cdx-p-photo"><div style="width:16px;height:16px">${IC.cam}</div>After</div>
-      <div class="cdx-p-photo" style="border:1.5px dashed #CCC7BE;background:transparent">+</div></div>`;
+    case 'photos': {
+      const photoRow = `<div class="cdx-p-photos">
+        <div class="cdx-p-photo"><div style="width:16px;height:16px">${IC.cam}</div>Before</div>
+        <div class="cdx-p-photo"><div style="width:16px;height:16px">${IC.cam}</div>After</div>
+        <div class="cdx-p-photo" style="border:1.5px dashed #CCC7BE;background:transparent">+</div>
+      </div>`;
+      return `<div>
+        <div class="cdx-p-svc-block">
+          <div class="cdx-p-svc-hdr">🌿 Lawn Cut</div>
+          ${photoRow}
+        </div>
+        <div class="cdx-p-svc-block">
+          <div class="cdx-p-svc-hdr cdx-p-svc-hdr--alt">✂️ Hedge Trim</div>
+          ${photoRow}
+        </div>
+      </div>`;
+    }
     case 'clock-in':
     case 'complete-job':
     case 'go-btn': {
