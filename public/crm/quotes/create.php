@@ -448,8 +448,8 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                 <h5 class="card-title mb-0">Services &amp; Pricing</h5>
                             </div>
                             <div class="card-body">
-                                <div class="mw-line-items-header mw-line-items-header-drag">
-                                    <div></div><!-- drag handle col -->
+                                    <div class="mw-line-items-header">
+                                    <div></div>
                                     <div>Service</div>
                                     <div>Description</div>
                                     <div>Qty</div>
@@ -687,7 +687,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 row.draggable = true;
 
                 row.innerHTML =
-                    '<span class="mw-drag-handle mw-drag-handle-create" title="Drag to reorder">⠿</span>' +
+                    '<span class="mw-drag-handle" title="Drag to reorder">⠿</span>' +
                     '<input type="text" value="' + escapeHtml(item.service_type || '') + '" placeholder="Service name" ' +
                            'onchange="updateLineItem(' + index + ', \'service_type\', this.value)">' +
                     '<input type="text" value="' + escapeHtml(item.description || '') + '" placeholder="Description" ' +

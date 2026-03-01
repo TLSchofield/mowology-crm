@@ -747,7 +747,7 @@ a:hover {
 /* Line Items */
 .mw-line-items-header {
   display: grid;
-  grid-template-columns: 2fr 2fr 80px 80px 90px 36px;
+  grid-template-columns: 20px 2fr 2fr 80px 80px 90px 36px;
   gap: 8px;
   padding: 8px 0;
   font-size: 0.75rem;
@@ -759,7 +759,7 @@ a:hover {
 
 .mw-line-item {
   display: grid;
-  grid-template-columns: 2fr 2fr 80px 80px 90px 36px;
+  grid-template-columns: 20px 2fr 2fr 80px 80px 90px 36px;
   gap: 8px;
   padding: 8px 0;
   border-bottom: 1px solid #f1f5f9;
@@ -2391,23 +2391,7 @@ a:hover {
 }
 .mw-section-remove-btn:hover { color: #dc3545; }
 
-/* Drag handle inside create.php line item rows */
-.mw-drag-handle-create {
-  cursor: grab;
-  color: #ced4da;
-  font-size: 15px;
-  padding: 0 2px;
-  align-self: center;
-}
-.mw-drag-handle-create:hover { color: var(--mw-green); }
-
-/* Adjusted grid for create.php rows (adds drag handle col) */
-.mw-line-items-header-drag {
-  grid-template-columns: 20px 2fr 2fr 80px 80px 90px 36px !important;
-}
-#lineItemsContainer .mw-line-item {
-  grid-template-columns: 20px 2fr 2fr 80px 80px 90px 36px;
-}
+/* Drag-to-reorder on create.php — drag handle within the grid row */
 
 /* ============================================
    COST FACTORS PAGE
