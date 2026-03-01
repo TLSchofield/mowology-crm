@@ -83,6 +83,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     logActivity($user['id'], null, 'Toggled active status for user #' . $targetUserId, null);
                     break;
 
+                // ── Change password for a user ──────────────
+                case 'change_password':
+                    $targetUserId = (int)($_POST['user_id'] ?? 0);
+                    $newPass      = $_POST['new_password'] ?? '';
+                    $confirmPass  = $_POST['confirm_password'] ?? '';
+
+                    if ($targetUserId <= 0) {
+                        throw new Exception('Invalid user ID.');
+                    }
+                    if (strlen($newPass) < 8) {
+                        throw new Exception('Password must be at least 8 characters.');
+                    }
+                    if ($newPass !== $confirmPass) {
+                        throw new Exception('Passwords do not match.');
+                    }
+
+                    $hash = password_hash($newPass, PASSWORD_DEFAULT);
+                    $db->prepare("UPDATE users SET password_hash = ? WHERE id = ? LIMIT 1")
+                       ->execute([$hash, $targetUserId]);
+
+                    $flash = 'Password updated successfully.';
+                    logActivity($user['id'], null, 'Changed password for user #' . $targetUserId, null);
+                    break;
+
                 default:
                     throw new Exception('Unknown action.');
             }
@@ -228,6 +252,9 @@ $csrfToken = generateCSRFToken();
                       <button class="btn btn-sm btn-outline-primary" data-toggle="modal" data-target="#roleModal<?php echo $uid; ?>">
                         <i data-feather="shield" style="width:14px;height:14px"></i> Roles
                       </button>
+                      <button class="btn btn-sm btn-outline-secondary ml-1" data-toggle="modal" data-target="#pwModal<?php echo $uid; ?>">
+                        <i data-feather="lock" style="width:14px;height:14px"></i> Password
+                      </button>
                       <?php if ($uid !== $user['id']): ?>
                       <form method="post" class="d-inline ml-1" onsubmit="return confirm('<?php echo $u['is_active'] ? 'Deactivate' : 'Reactivate'; ?> this user?')">
                         <input type="hidden" name="csrf_token" value="<?php echo h($csrfToken); ?>">
@@ -350,6 +377,48 @@ $csrfToken = generateCSRFToken();
                   <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save Roles</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          <?php endforeach; ?>
+
+          <!-- Password change modals -->
+          <?php foreach ($users as $u):
+            $uid = (int)$u['id'];
+          ?>
+          <div class="modal fade" id="pwModal<?php echo $uid; ?>" tabindex="-1" role="dialog">
+            <div class="modal-dialog" role="document">
+              <div class="modal-content">
+                <form method="post">
+                  <input type="hidden" name="csrf_token" value="<?php echo h($csrfToken); ?>">
+                  <input type="hidden" name="action" value="change_password">
+                  <input type="hidden" name="user_id" value="<?php echo $uid; ?>">
+                  <div class="modal-header">
+                    <h5 class="modal-title">
+                      <i data-feather="lock" style="width:16px;height:16px;vertical-align:middle"></i>
+                      Change Password: <?php echo h($u['full_name'] ?: $u['email']); ?>
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal">&times;</button>
+                  </div>
+                  <div class="modal-body">
+                    <div class="form-group">
+                      <label for="pw_new_<?php echo $uid; ?>">New Password</label>
+                      <input type="password" class="form-control" id="pw_new_<?php echo $uid; ?>"
+                             name="new_password" required minlength="8"
+                             placeholder="Minimum 8 characters" autocomplete="new-password">
+                    </div>
+                    <div class="form-group mb-0">
+                      <label for="pw_confirm_<?php echo $uid; ?>">Confirm Password</label>
+                      <input type="password" class="form-control" id="pw_confirm_<?php echo $uid; ?>"
+                             name="confirm_password" required minlength="8"
+                             placeholder="Re-enter new password" autocomplete="new-password">
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Password</button>
                   </div>
                 </form>
               </div>
