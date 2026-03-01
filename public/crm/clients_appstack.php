@@ -5603,7 +5603,7 @@ $unconvertedRequests = $db->query("
   </div>
 </div>
 
-<script src="/crm/js/geofence/geofence-manager.js"></script>
+<script src="/crm/js/geofence/geofence-manager.js?v=2"></script>
 <script>
 (function() {
   // ── PHP data ─────────────────────────────────────────────────────────────

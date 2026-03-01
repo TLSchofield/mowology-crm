@@ -3045,7 +3045,7 @@ if ($hasPropCoords) {
     </div>
 </div>
 
-<script src="/crm/js/geofence/geofence-manager.js"></script>
+<script src="/crm/js/geofence/geofence-manager.js?v=2"></script>
 <script>
 (function() {
     var PWZ_PLAN_ID  = <?php echo (int)$plan['id']; ?>;
