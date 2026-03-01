@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obsidian Root™ — Icon Set</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #111;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  padding: 48px 40px;
+  color: #fff;
+  min-height: 100vh;
+}
+.page-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #CC0000;
+  margin-bottom: 4px;
+}
+.page-sub {
+  font-size: 1.5rem;
+  font-weight: 300;
+  color: #fff;
+  margin-bottom: 48px;
+  letter-spacing: -0.02em;
+}
+
+.section { margin-bottom: 56px; }
+.section-title {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #555;
+  border-bottom: 1px solid #222;
+  padding-bottom: 10px;
+  margin-bottom: 24px;
+}
+.icon-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.icon-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.icon-size {
+  font-size: 0.55rem;
+  color: #444;
+}
+
+/* ── Icon wrapper ── */
+.or-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.or-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* ── Variant: full color (no filter) ── */
+.or-icon-full img {
+  /* unmodified — show the real logo */
+}
+
+/* ── Variant: greyed out — no program sold ── */
+.or-icon-grey img {
+  filter: grayscale(100%) brightness(0.65) contrast(0.9);
+  opacity: 0.45;
+}
+
+/* ── Variant: sell prompt — animated red dashed ring ── */
+.or-icon-sell::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2.5px dashed #e53935;
+  animation: or-spin-ring 5s linear infinite;
+  pointer-events: none;
+}
+.or-icon-sell::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  box-shadow: 0 0 12px 3px rgba(229,57,53,0.5);
+  animation: or-pulse-glow 2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes or-spin-ring {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes or-pulse-glow {
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 1; }
+}
+
+/* ── Stop card mockups ── */
+.cards-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.mock-card {
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  width: 270px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+}
+.mock-card-inner {
+  display: flex;
+  align-items: center;
+  padding: 14px 14px 14px 0;
+  gap: 12px;
+}
+.mock-accent {
+  width: 5px;
+  align-self: stretch;
+  border-radius: 0;
+  flex-shrink: 0;
+}
+.mock-info { flex: 1; min-width: 0; }
+.mock-client {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #1a1a1a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mock-addr {
+  font-size: 0.65rem;
+  color: #999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+.mock-service {
+  font-size: 0.6rem;
+  color: #bbb;
+  background: #f5f5f5;
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+.mock-footer {
+  padding: 8px 12px;
+  background: #f9f9f9;
+  border-top: 1px solid #f0f0f0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mock-footer-pill {
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+.pill-grey  { background: #f0f0f0; color: #aaa; }
+.pill-sell  { background: #FFF0F0; color: #CC0000; border: 1px solid #ffcccc; animation: or-pulse-sell 2s ease-in-out infinite; }
+.pill-active { background: #E8F5E9; color: #2E7D32; }
+@keyframes or-pulse-sell {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.card-caption {
+  margin-top: 10px;
+  font-size: 0.62rem;
+  color: #555;
+  text-align: center;
+}
+
+/* ── Bundle card mockups ── */
+.bundle-card {
+  background: #1e1e1e;
+  border: 1px solid #2c2c2c;
+  border-radius: 12px;
+  width: 290px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+.bundle-card-header {
+  background: #181818;
+  border-bottom: 1px solid #2c2c2c;
+  padding: 12px 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bundle-card-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.3;
+}
+.bundle-card-tier {
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: #333;
+  color: #aaa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-top: 4px;
+  display: inline-block;
+}
+.bundle-or-banner {
+  background: linear-gradient(135deg, rgba(180,0,0,0.15) 0%, rgba(100,0,0,0.08) 100%);
+  border-bottom: 1px solid rgba(200,0,0,0.2);
+  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #ff5555;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.bundle-items {
+  padding: 8px 14px 4px;
+}
+.bundle-item {
+  font-size: 0.65rem;
+  color: #888;
+  padding: 5px 0;
+  border-bottom: 1px solid #252525;
+  display: flex;
+  justify-content: space-between;
+}
+.bundle-item:last-child { border-bottom: none; }
+.bundle-footer {
+  background: #141414;
+  border-top: 1px solid #2c2c2c;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.bundle-price { font-size: 1rem; font-weight: 700; color: #7FD858; }
+.bundle-save  { font-size: 0.6rem; color: #4caf50; }
+
+/* ── Chip / inline usage ── */
+.chip-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 100px;
+  padding: 5px 12px 5px 6px;
+  font-size: 0.65rem;
+  color: #ccc;
+}
+</style>
+</head>
+<body>
+
+<div class="page-title">Mowology CRM</div>
+<div class="page-sub">Obsidian Root™ Icon Set</div>
+
+<!-- FULL COLOR -->
+<div class="section">
+  <div class="section-title">Full Color — Active Program</div>
+  <div class="icon-row" id="fullRow"></div>
+</div>
+
+<!-- GREYED -->
+<div class="section">
+  <div class="section-title">Greyed Out — No Program Sold</div>
+  <div class="icon-row" id="greyRow"></div>
+</div>
+
+<!-- SELL PROMPT -->
+<div class="section">
+  <div class="section-title">Sell Prompt — Red Ring (Crew Reminder)</div>
+  <div class="icon-row" id="sellRow"></div>
+</div>
+
+<!-- STOP CARD MOCKUPS -->
+<div class="section">
+  <div class="section-title">Stop Card Usage</div>
+  <div class="cards-row" id="cardMocks"></div>
+</div>
+
+<!-- BUNDLE / PACKAGE BUILDER MOCKUPS -->
+<div class="section">
+  <div class="section-title">Bundle / Package Builder Usage</div>
+  <div class="cards-row" id="bundleMocks"></div>
+</div>
+
+<!-- CHIP USAGE -->
+<div class="section">
+  <div class="section-title">Inline Chip Usage</div>
+  <div class="chip-row" id="chipRow"></div>
+</div>
+
+<script>
+const SIZES = [80, 56, 40, 28, 20, 16];
+
+function makeIcon(variant, sizePx) {
+  return `<div class="or-icon or-icon-${variant}" style="width:${sizePx}px;height:${sizePx}px;">` +
+         `<img src="obsidian-root-logo.png" alt="Obsidian Root™" width="${sizePx}" height="${sizePx}">` +
+         `</div>`;
+}
+
+// ── Size rows ────────────────────────────────────────────────────────────────
+['full', 'grey', 'sell'].forEach(variant => {
+  const row = document.getElementById(variant + 'Row');
+  SIZES.forEach(sz => {
+    const item = document.createElement('div');
+    item.className = 'icon-item';
+    item.innerHTML = makeIcon(variant, sz) + `<span class="icon-size">${sz}px</span>`;
+    row.appendChild(item);
+  });
+});
+
+// ── Stop card mockups ────────────────────────────────────────────────────────
+const STOP_CARDS = [
+  {
+    variant: 'grey',
+    client:  'Tim Schofield',
+    addr:    '1842 Maple St, Burnaby',
+    service: 'Lawn Care',
+    accent:  '#2D8659',
+    footer:  '<span class="mock-footer-pill pill-grey">No Program</span>',
+    caption: 'No program — greyed icon',
+  },
+  {
+    variant: 'sell',
+    client:  'Jane Cooper',
+    addr:    '456 Oak Ave, Richmond',
+    service: 'Lawn Care',
+    accent:  '#2D8659',
+    footer:  '<span class="mock-footer-pill pill-sell">💡 Offer Obsidian Root™</span>',
+    caption: 'Sell prompt — animated red ring',
+  },
+  {
+    variant: 'full',
+    client:  'Robert Dale',
+    addr:    '789 Pine Rd, Vancouver',
+    service: 'Lawn Care + Obsidian Root™',
+    accent:  '#2D8659',
+    footer:  '<span class="mock-footer-pill pill-active">✓ Active Program</span>',
+    caption: 'Program active — full color',
+  },
+];
+
+const cardCont = document.getElementById('cardMocks');
+STOP_CARDS.forEach(m => {
+  const wrap = document.createElement('div');
+  wrap.innerHTML =
+    '<div class="mock-card">' +
+      '<div class="mock-card-inner">' +
+        `<div class="mock-accent" style="background:${m.accent}"></div>` +
+        '<div class="mock-info">' +
+          `<div class="mock-client">${m.client}</div>` +
+          `<div class="mock-addr">${m.addr}</div>` +
+          `<span class="mock-service">${m.service}</span>` +
+        '</div>' +
+        makeIcon(m.variant, 38) +
+      '</div>' +
+      `<div class="mock-footer">${m.footer}</div>` +
+    '</div>' +
+    `<div class="card-caption">${m.caption}</div>`;
+  cardCont.appendChild(wrap);
+});
+
+// ── Bundle card mockups ──────────────────────────────────────────────────────
+const BUNDLE_CARDS = [
+  {
+    name:  'Lawn Maintenance Package',
+    tier:  'Good',
+    isOR:  false,
+    items: [['Weekly Mowing', '$45.00'], ['Edging & Cleanup', '$25.00']],
+    price: '$63.00',
+    save:  'Save $7.00',
+    caption: 'Standard bundle — greyed icon, no badge',
+  },
+  {
+    name:  'Obsidian Root™ Spring Program',
+    tier:  'Best',
+    isOR:  true,
+    items: [['Pre-emergent Application', '$95.00'], ['Slow-Release Fertilizer', '$85.00'], ['Lime Treatment', '$65.00']],
+    price: '$220.00',
+    save:  'Save $25.00',
+    caption: 'Obsidian Root™ bundle — full icon + program banner',
+  },
+];
+
+const bundleCont = document.getElementById('bundleMocks');
+BUNDLE_CARDS.forEach(b => {
+  const wrap = document.createElement('div');
+  const orBanner = b.isOR
+    ? '<div class="bundle-or-banner">' + makeIcon('full', 16) + 'Obsidian Root™ Program</div>'
+    : '';
+  wrap.innerHTML =
+    '<div class="bundle-card">' +
+      '<div class="bundle-card-header">' +
+        '<div>' +
+          `<div class="bundle-card-name">${b.name}</div>` +
+          `<span class="bundle-card-tier">${b.tier}</span>` +
+        '</div>' +
+        makeIcon(b.isOR ? 'full' : 'grey', 42) +
+      '</div>' +
+      orBanner +
+      '<div class="bundle-items">' +
+        b.items.map(([n, p]) => `<div class="bundle-item"><span>${n}</span><span>${p}</span></div>`).join('') +
+      '</div>' +
+      '<div class="bundle-footer">' +
+        `<div class="bundle-save">${b.save}</div>` +
+        `<div class="bundle-price">${b.price}</div>` +
+      '</div>' +
+    '</div>' +
+    `<div class="card-caption">${b.caption}</div>`;
+  bundleCont.appendChild(wrap);
+});
+
+// ── Chip / inline usage ──────────────────────────────────────────────────────
+const CHIPS = [
+  { variant: 'grey', label: 'Not enrolled' },
+  { variant: 'sell', label: 'Offer program' },
+  { variant: 'full', label: 'Obsidian Root™ active' },
+];
+
+const chipCont = document.getElementById('chipRow');
+CHIPS.forEach(ch => {
+  const d = document.createElement('div');
+  d.className = 'chip';
+  d.innerHTML = makeIcon(ch.variant, 18) + `<span>${ch.label}</span>`;
+  chipCont.appendChild(d);
+});
+</script>
+</body>
+</html>

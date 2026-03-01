@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mowology — Profitability Visualizations Mockup</title>
+<style>
+  /* ── Design Tokens ─────────────────────────────────────────── */
+  :root {
+    --mw-green:  #2D8659;
+    --mw-dark:   #1A5F4A;
+    --mw-lime:   #7FD858;
+    --mw-light:  #E8F3F0;
+    --mw-forest: #0D3B2E;
+    --mw-orange: #e85d04;
+    --mw-amber:  #F59E0B;
+    --mw-red:    #DC2626;
+    --mw-grey:   #6B7280;
+    --page-bg:   #f4f6f8;
+    --card-bg:   #ffffff;
+    --text-dark: #1e2d23;
+    --text-mid:  #4b5563;
+    --text-soft: #9ca3af;
+    --border:    #e5e7eb;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
+    --shadow-md: 0 4px 12px rgba(0,0,0,.09), 0 2px 4px rgba(0,0,0,.06);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,.12), 0 4px 8px rgba(0,0,0,.07);
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+  }
+
+  /* ── Reset & Base ──────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Trebuchet MS', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--page-bg);
+    color: var(--text-dark);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Page Header ───────────────────────────────────────────── */
+  .page-header {
+    background: linear-gradient(135deg, var(--mw-forest) 0%, var(--mw-dark) 60%, #1e6b50 100%);
+    padding: 32px 40px 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .page-header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 80% at 80% 50%, rgba(127,216,88,.08) 0%, transparent 70%);
+  }
+  .page-header-inner { position: relative; max-width: 1200px; margin: 0 auto; }
+  .page-header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -.3px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .page-header h1 .logo-mark {
+    width: 32px; height: 32px;
+    background: var(--mw-lime);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .page-header p {
+    color: rgba(255,255,255,.6);
+    font-size: 13px;
+    margin-top: 4px;
+  }
+
+  /* ── Page Body ─────────────────────────────────────────────── */
+  .page-body { max-width: 1200px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  /* ── Section Label ─────────────────────────────────────────── */
+  .section-wrap { margin-bottom: 40px; }
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--mw-forest);
+    padding: 0 0 0 10px;
+    border-left: 3px solid var(--mw-green);
+    margin-bottom: 12px;
+  }
+  .mockup-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--mw-orange);
+    background: rgba(232,93,4,.08);
+    border: 1px solid rgba(232,93,4,.2);
+    border-radius: 20px;
+    padding: 2px 8px;
+    float: right;
+    margin-top: 2px;
+  }
+  .mockup-badge::before {
+    content: '';
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--mw-orange);
+    flex-shrink: 0;
+  }
+  .section-desc {
+    font-size: 12px;
+    color: var(--text-soft);
+    margin-bottom: 16px;
+    padding-left: 13px;
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     CONCEPT A — 7-Day Equalizer Strip
+  ══════════════════════════════════════════════════════════════ */
+  .eq-strip {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+
+  /* Strip header */
+  .eq-strip-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, var(--mw-light) 0%, rgba(127,216,88,.06) 100%);
+    border-bottom: 1px solid rgba(45,134,89,.12);
+  }
+  .eq-strip-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--mw-forest);
+    letter-spacing: -.2px;
+  }
+  .eq-strip-stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .eq-stat { display: flex; flex-direction: column; align-items: flex-end; }
+  .eq-stat-val {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-dark);
+    letter-spacing: -.3px;
+  }
+  .eq-stat-lbl {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--text-soft);
+  }
+  .eq-stat-val.is-profit { color: var(--mw-green); }
+  .eq-stat-val.is-margin { color: var(--mw-dark); }
+
+  /* 7-column grid */
+  .eq-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+  }
+  .eq-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 6px 14px;
+    border-right: 1px solid var(--border);
+    position: relative;
+    transition: background .15s ease;
+  }
+  .eq-col:last-child { border-right: none; }
+  .eq-col:hover { background: rgba(45,134,89,.03); }
+  .eq-col.is-today { background: rgba(45,134,89,.04); }
+  .eq-col.is-today::after {
+    content: 'TODAY';
+    position: absolute;
+    top: 6px;
+    font-size: 7px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: var(--mw-green);
+  }
+
+  .eq-dayname {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--text-soft);
+    margin-bottom: 10px;
+    margin-top: 8px;
+  }
+  .eq-col.is-today .eq-dayname { color: var(--mw-green); }
+
+  /* The chart zone: fixed height container */
+  .eq-chart-zone {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    height: 180px; /* 80px up + baseline + 80px down */
+  }
+
+  /* Profit area (top 80px) */
+  .eq-profit-zone {
+    width: 100%;
+    height: 80px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    position: relative;
+  }
+  .eq-profit-bar {
+    width: 28px;
+    border-radius: 4px 4px 0 0;
+    position: relative;
+    transition: filter .2s ease, transform .2s ease;
+    cursor: default;
+  }
+  .eq-profit-bar:hover { filter: brightness(1.1); transform: scaleY(1.03); }
+
+  /* profit bar label (above bar) */
+  .eq-bar-label {
+    position: absolute;
+    top: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    font-weight: 700;
+    white-space: nowrap;
+    letter-spacing: -.2px;
+  }
+
+  /* Loss zone (bottom 80px) */
+  .eq-loss-zone {
+    width: 100%;
+    height: 80px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    position: relative;
+  }
+  .eq-loss-bar {
+    width: 28px;
+    border-radius: 0 0 4px 4px;
+    position: relative;
+    transition: filter .2s ease;
+    cursor: default;
+  }
+  .eq-loss-bar:hover { filter: brightness(1.1); }
+  .eq-loss-label {
+    position: absolute;
+    bottom: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    font-weight: 700;
+    white-space: nowrap;
+    color: var(--mw-red);
+    letter-spacing: -.2px;
+  }
+
+  /* The glowing baseline */
+  .eq-baseline {
+    width: 100%;
+    height: 2px;
+    background: var(--mw-green);
+    box-shadow: 0 0 8px rgba(45,134,89,.5), 0 0 20px rgba(45,134,89,.2);
+    position: relative;
+    z-index: 2;
+    flex-shrink: 0;
+  }
+  .eq-col.has-loss .eq-baseline {
+    box-shadow: 0 0 8px rgba(220,38,38,.4), 0 0 16px rgba(220,38,38,.15);
+    background: linear-gradient(90deg, var(--mw-green) 0%, #ef4444 100%);
+  }
+
+  /* Below-baseline meta */
+  .eq-meta {
+    margin-top: 10px;
+    text-align: center;
+  }
+  .eq-margin-pct {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: -.2px;
+  }
+  .eq-revenue {
+    display: block;
+    font-size: 10px;
+    color: var(--text-soft);
+    margin-top: 2px;
+  }
+
+  /* Color helpers for eq bars */
+  .bar-green {
+    background: linear-gradient(180deg, #52c98a 0%, var(--mw-green) 100%);
+  }
+  .bar-amber {
+    background: linear-gradient(180deg, #fcd34d 0%, var(--mw-amber) 100%);
+  }
+  .bar-red-up {
+    background: linear-gradient(180deg, #f87171 0%, var(--mw-red) 100%);
+  }
+  .bar-red-down {
+    background: linear-gradient(0deg, #b91c1c 0%, var(--mw-red) 100%);
+  }
+  .bar-grey {
+    background: linear-gradient(180deg, #d1d5db 0%, #9ca3af 100%);
+  }
+  .col-green { color: var(--mw-green); }
+  .col-amber { color: var(--mw-amber); }
+  .col-red   { color: var(--mw-red); }
+  .col-grey  { color: var(--text-soft); }
+
+  /* ══════════════════════════════════════════════════════════════
+     CONCEPT B — Stop Cards with Vertical Margin Bar
+  ══════════════════════════════════════════════════════════════ */
+  .stop-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 768px) {
+    .stop-cards-grid { grid-template-columns: 1fr; }
+  }
+
+  .stop-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--mw-green);
+    border-radius: var(--radius-md);
+    padding: 10px 16px 10px 12px;
+    position: relative;
+    cursor: pointer;
+    transition: box-shadow .15s ease, transform .15s ease;
+    overflow: hidden;
+    min-height: 130px;
+  }
+  .stop-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+  }
+
+  /* Vertical margin bar — right edge thermometer */
+  .stop-vbar-track {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    background: #f3f4f6;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+  .stop-vbar-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    border-radius: 0 0 var(--radius-md) 0;
+    transition: height .3s ease;
+  }
+  .stop-vbar-fill.is-green {
+    background: linear-gradient(180deg, #52c98a 0%, var(--mw-green) 100%);
+  }
+  .stop-vbar-fill.is-amber {
+    background: linear-gradient(180deg, #fcd34d 0%, var(--mw-amber) 100%);
+  }
+  .stop-vbar-fill.is-red {
+    background: linear-gradient(180deg, #f87171 0%, var(--mw-red) 100%);
+  }
+  /* Margin % tooltip on hover */
+  .stop-vbar-track:hover::after {
+    content: attr(data-margin);
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,.75);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* Card content */
+  .stop-time-client {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    margin-bottom: 3px;
+    padding-right: 10px;
+  }
+  .stop-time {
+    font-size: 10px;
+    font-weight: 800;
+    color: var(--mw-green);
+    flex-shrink: 0;
+    letter-spacing: -.2px;
+  }
+  .stop-client {
+    font-size: 10px;
+    font-weight: 600;
+    color: #374151;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stop-address {
+    font-size: 10px;
+    color: var(--text-soft);
+    margin-bottom: 6px;
+    padding-right: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stop-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  .stop-pill {
+    font-size: 9px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 20px;
+    border-left: 2px solid currentColor;
+    background: rgba(0,0,0,.04);
+    letter-spacing: .2px;
+  }
+  .stop-crew {
+    font-size: 9px;
+    color: var(--text-soft);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .stop-crew::before {
+    content: '';
+    display: inline-block;
+    width: 10px; height: 10px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E") center/contain no-repeat;
+    opacity: .7;
+  }
+  .stop-revenue-strip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: rgba(45,134,89,.05);
+    border-left: 2px solid var(--mw-green);
+    border-radius: 3px;
+    padding: 3px 8px;
+    margin-right: 10px;
+  }
+  .stop-rev-icon { font-size: 9px; font-weight: 700; color: var(--mw-green); }
+  .stop-rev-amount { font-size: 10px; font-weight: 700; color: var(--mw-green); }
+  .stop-rev-margin {
+    margin-left: auto;
+    font-size: 9px;
+    font-weight: 700;
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     CONCEPT C — KPI Card with Sparkline Equalizer
+  ══════════════════════════════════════════════════════════════ */
+  .kpi-cards-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+
+  .kpi-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--mw-green);
+    border-radius: var(--radius-md);
+    padding: 20px 20px 16px;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow .15s ease;
+  }
+  .kpi-card:hover { box-shadow: var(--shadow-md); }
+
+  .kpi-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-soft);
+    margin-bottom: 8px;
+  }
+  .kpi-value {
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--text-dark);
+    letter-spacing: -1.5px;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .kpi-sub {
+    font-size: 11px;
+    color: var(--text-soft);
+    margin-bottom: 12px;
+  }
+  .kpi-trend {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--mw-green);
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .kpi-trend.down { color: var(--mw-red); }
+
+  /* Sparkline container */
+  .sparkline-wrap {
+    position: relative;
+    height: 38px;
+    margin-bottom: 6px;
+  }
+  .sparkline-baseline {
+    position: absolute;
+    left: 0; right: 0;
+    top: 50%;
+    height: 1px;
+    background: rgba(45,134,89,.2);
+  }
+  .sparkline-bars {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    height: 100%;
+    position: relative;
+  }
+  .spark-bar {
+    flex: 1;
+    border-radius: 1px 1px 0 0;
+    transition: filter .15s ease;
+    position: relative;
+    align-self: flex-end;
+  }
+  .spark-bar:hover { filter: brightness(1.2); }
+  .spark-bar.is-loss {
+    align-self: flex-start;
+    border-radius: 0 0 1px 1px;
+  }
+  .spark-green { background: var(--mw-green); }
+  .spark-amber { background: var(--mw-amber); }
+  .spark-red   { background: var(--mw-red); }
+  .spark-grey  { background: #d1d5db; }
+
+  /* companion ghost KPI cards */
+  .kpi-card.ghost {
+    opacity: .45;
+    pointer-events: none;
+    border-left-color: #d1d5db;
+  }
+  .kpi-card.ghost .kpi-value { color: var(--text-soft); font-size: 28px; }
+
+  /* ══════════════════════════════════════════════════════════════
+     CONCEPT D — Monthly Diverging Bar Chart
+  ══════════════════════════════════════════════════════════════ */
+  .chart-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+  }
+  .chart-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, #fafbfc 0%, var(--mw-light) 100%);
+  }
+  .chart-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-dark);
+    letter-spacing: -.3px;
+  }
+  .chart-sub {
+    font-size: 11px;
+    color: var(--text-soft);
+    margin-top: 2px;
+  }
+  .chart-legend {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-mid);
+  }
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 2px;
+  }
+  .legend-dot.profit { background: var(--mw-green); }
+  .legend-dot.loss   { background: var(--mw-red); }
+
+  .chart-body {
+    padding: 24px 24px 16px;
+    position: relative;
+  }
+
+  /* SVG chart — pure CSS + inline SVG */
+  .diverging-chart {
+    width: 100%;
+    position: relative;
+  }
+
+  /* Y-axis labels */
+  .chart-yaxis {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 40px;
+    width: 52px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .chart-ylabel {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-soft);
+    text-align: right;
+    padding-right: 8px;
+    letter-spacing: -.2px;
+  }
+  .chart-ylabel.zero { color: var(--mw-green); font-weight: 700; }
+
+  /* Chart area */
+  .chart-area {
+    margin-left: 52px;
+    position: relative;
+  }
+
+  /* Background washes */
+  .chart-profit-wash {
+    position: absolute;
+    top: 0;
+    left: 0; right: 0;
+    /* height set to 50% = above baseline */
+    background: linear-gradient(180deg, rgba(45,134,89,.04) 0%, transparent 100%);
+    pointer-events: none;
+  }
+  .chart-loss-wash {
+    position: absolute;
+    bottom: 40px; /* leave room for labels */
+    left: 0; right: 0;
+    background: linear-gradient(0deg, rgba(220,38,38,.05) 0%, transparent 100%);
+    pointer-events: none;
+  }
+
+  /* Grid lines */
+  .chart-gridlines {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .chart-gridline {
+    position: absolute;
+    left: 0; right: 0;
+    height: 1px;
+    background: rgba(0,0,0,.05);
+  }
+
+  /* Baseline */
+  .chart-baseline {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: var(--mw-green);
+    box-shadow: 0 0 8px rgba(45,134,89,.4), 0 0 20px rgba(45,134,89,.15);
+    z-index: 3;
+  }
+
+  /* Month columns */
+  .chart-cols {
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    position: relative;
+    z-index: 2;
+  }
+  .chart-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+
+  /* Profit bar (grows upward from baseline) */
+  .chart-profit-bar-wrap {
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    flex: 0 0 auto;
+    position: relative;
+  }
+  .chart-profit-bar {
+    width: 44px;
+    max-width: 70%;
+    border-radius: 4px 4px 0 0;
+    position: relative;
+    cursor: pointer;
+    transition: filter .2s ease, transform .2s ease;
+  }
+  .chart-profit-bar:hover {
+    filter: brightness(1.08);
+    transform: scaleY(1.02);
+    transform-origin: bottom;
+  }
+  .chart-profit-bar.is-green {
+    background: linear-gradient(180deg, #60d898 0%, var(--mw-green) 100%);
+  }
+  .chart-profit-bar.is-current {
+    background: linear-gradient(180deg, #7FD858 0%, var(--mw-green) 50%, var(--mw-dark) 100%);
+    box-shadow: 0 0 12px rgba(45,134,89,.35);
+  }
+
+  /* Loss bar (grows downward from baseline) */
+  .chart-loss-bar-wrap {
+    width: 100%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    flex: 0 0 auto;
+    position: relative;
+  }
+  .chart-loss-bar {
+    width: 44px;
+    max-width: 70%;
+    border-radius: 0 0 4px 4px;
+    position: relative;
+    cursor: pointer;
+    background: linear-gradient(0deg, #9b1c1c 0%, var(--mw-red) 100%);
+    transition: filter .2s ease;
+    box-shadow: 0 4px 10px rgba(220,38,38,.2);
+  }
+  .chart-loss-bar:hover { filter: brightness(1.08); }
+
+  /* Bar amount labels */
+  .chart-bar-label {
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    letter-spacing: -.3px;
+    text-align: center;
+    padding: 2px 0;
+  }
+  .chart-bar-label.profit { color: var(--mw-dark); }
+  .chart-bar-label.loss   { color: var(--mw-red); }
+
+  /* Month label */
+  .chart-month-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--text-soft);
+    text-align: center;
+    padding-top: 8px;
+  }
+  .chart-month-label.current { color: var(--mw-green); }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .page-header { padding: 20px 16px; }
+    .page-body { padding: 20px 12px 48px; }
+    .eq-grid { grid-template-columns: repeat(7, 1fr); }
+    .eq-dayname { font-size: 8px; }
+    .eq-profit-bar, .eq-loss-bar { width: 18px; }
+    .eq-bar-label, .eq-loss-label { display: none; }
+    .chart-profit-bar, .chart-loss-bar { width: 28px; }
+    .chart-bar-label { font-size: 8px; }
+    .eq-strip-stats { gap: 10px; }
+    .eq-stat-val { font-size: 12px; }
+    .chart-header { flex-direction: column; gap: 10px; }
+    .kpi-cards-row { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 400px) {
+    .kpi-cards-row { grid-template-columns: 1fr; }
+    .chart-yaxis { width: 36px; }
+    .chart-area { margin-left: 36px; }
+    .chart-ylabel { font-size: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Page Header ────────────────────────────────────────────── -->
+<div class="page-header">
+  <div class="page-header-inner">
+    <h1>
+      <span class="logo-mark">🌿</span>
+      Mowology CRM — Profitability Visualizations
+    </h1>
+    <p>Design mockup · Four concepts for stop cards, daily strip, KPI cards &amp; trend chart</p>
+  </div>
+</div>
+
+<div class="page-body">
+
+  <!-- ══════════════════════════════════════════════════════════
+       CONCEPT A — 7-Day Equalizer Strip
+  ══════════════════════════════════════════════════════════ -->
+  <div class="section-wrap">
+    <div class="section-label">
+      Concept A — 7-Day Equalizer Strip
+      <span class="mockup-badge">Mockup — Not live data</span>
+    </div>
+    <div class="section-desc">Replaces the text-based 7-day operations strip. Each day column becomes an equalizer bar — profit grows up (green/amber/red by margin%), losses drop below the baseline.</div>
+
+    <div class="eq-strip">
+      <!-- Header -->
+      <div class="eq-strip-header">
+        <div class="eq-strip-title">7-Day Operations</div>
+        <div class="eq-strip-stats">
+          <div class="eq-stat">
+            <span class="eq-stat-val">$8,240</span>
+            <span class="eq-stat-lbl">Revenue</span>
+          </div>
+          <div class="eq-stat">
+            <span class="eq-stat-val is-profit">$3,190</span>
+            <span class="eq-stat-lbl">Profit</span>
+          </div>
+          <div class="eq-stat">
+            <span class="eq-stat-val is-margin">39%</span>
+            <span class="eq-stat-lbl">Avg Margin</span>
+          </div>
+          <div class="eq-stat">
+            <span class="eq-stat-val">24</span>
+            <span class="eq-stat-lbl">Visits</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7-column equalizer grid -->
+      <div class="eq-grid">
+
+        <!-- MON — 45%, $1,240 profit -->
+        <div class="eq-col">
+          <div class="eq-dayname">Mon</div>
+          <div class="eq-chart-zone">
+            <div class="eq-profit-zone">
+              <!-- 45% of 80px = 36px -->
+              <div class="eq-profit-bar bar-green" style="height:36px;">
+                <span class="eq-bar-label col-green">+$558</span>
+              </div>
+            </div>
+            <div class="eq-baseline"></div>
+            <div class="eq-loss-zone"></div>
+          </div>
+          <div class="eq-meta">
+            <span class="eq-margin-pct col-green">45%</span>
+            <span class="eq-revenue">$1,240</span>
+          </div>
+        </div>
+
+        <!-- TUE — 28%, $980 ok -->
+        <div class="eq-col">
+          <div class="eq-dayname">Tue</div>
+          <div class="eq-chart-zone">
+            <div class="eq-profit-zone">
+              <!-- 28% of 80px = 22px -->
+              <div class="eq-profit-bar bar-amber" style="height:22px;">
+                <span class="eq-bar-label col-amber">+$274</span>
+              </div>
+            </div>
+            <div class="eq-baseline"></div>
+            <div class="eq-loss-zone"></div>
+          </div>
+          <div class="eq-meta">
+            <span class="eq-margin-pct col-amber">28%</span>
+            <span class="eq-revenue">$980</span>
+          </div>
+        </div>
+
+        <!-- WED — 52%, $1,450 TODAY -->
+        <div class="eq-col is-today">
+          <div class="eq-dayname">Wed</div>
+          <div class="eq-chart-zone">
+            <div class="eq-profit-zone">
+              <!-- 52% of 80px = ~42px -->
+              <div class="eq-profit-bar bar-green" style="height:42px; box-shadow: 0 0 10px rgba(45,134,89,.4);">
+                <span class="eq-bar-label col-green">+$754</span>
+              </div>
+            </div>
+            <div class="eq-baseline" style="box-shadow: 0 0 10px rgba(45,134,89,.7), 0 0 24px rgba(45,134,89,.3);"></div>
+            <div class="eq-loss-zone"></div>
+          </div>
+          <div class="eq-meta">
+            <span class="eq-margin-pct col-green">52%</span>
+            <span class="eq-revenue">$1,450</span>
+          </div>
+        </div>
+
+        <!-- THU — -8%, $620 LOSS -->
+        <div class="eq-col has-loss">
+          <div class="eq-dayname">Thu</div>
+          <div class="eq-chart-zone">
+            <div class="eq-profit-zone">
+              <!-- no profit bar -->
+            </div>
+            <div class="eq-baseline" style="background: #DC2626; box-shadow: 0 0 8px rgba(220,38,38,.5), 0 0 18px rgba(220,38,38,.2);"></div>
+            <div class="eq-loss-zone">
+              <!-- 8% of 80px = ~6px, exaggerate to 14px for visibility -->
+              <div class="eq-loss-bar bar-red-down" style="height:14px;">
+                <span class="eq-loss-label">-$50</span>
+              </div>
+            </div>
+          </div>
+          <div class="eq-meta">
+            <span class="eq-margin-pct col-red">-8%</span>
+            <span class="eq-revenue">$620</span>
+          </div>
+        </div>
+
+        <!-- FRI — 38%, $1,100 profit -->
+        <div class="eq-col">
+          <div class="eq-dayname">Fri</div>
+          <div class="eq-chart-zone">
+            <div class="eq-profit-zone">
+              <!-- 38% of 80px = 30px -->
+              <div class="eq-profit-bar bar-green" style="height:30px;">
+                <span class="eq-bar-label col-green">+$418</span>
+              </div>
+            </div>
+            <div class="eq-baseline"></div>
+            <div class="eq-loss-zone"></div>
+          </div>
+          <div class="eq-meta">
+            <span class="eq-margin-pct col-green">38%</span>
+            <span class="eq-revenue">$1,100</span>
+          </div>
+        </div>
+
+        <!-- SAT — 12%, $520 low -->
+        <div class="eq-col">
+          <div class="eq-dayname">Sat</div>
+          <div class="eq-chart-zone">
+            <div class="eq-profit-zone">
+              <!-- 12% of 80px = 10px -->
+              <div class="eq-profit-bar bar-red-up" style="height:10px;">
+                <span class="eq-bar-label col-red">+$62</span>
+              </div>
+            </div>
+            <div class="eq-baseline"></div>
+            <div class="eq-loss-zone"></div>
+          </div>
+          <div class="eq-meta">
+            <span class="eq-margin-pct col-red">12%</span>
+            <span class="eq-revenue">$520</span>
+          </div>
+        </div>
+
+        <!-- SUN — 0%, $330 no data -->
+        <div class="eq-col">
+          <div class="eq-dayname">Sun</div>
+          <div class="eq-chart-zone">
+            <div class="eq-profit-zone">
+              <!-- No bar — scheduled only -->
+            </div>
+            <div class="eq-baseline" style="background: #d1d5db; box-shadow: none;"></div>
+            <div class="eq-loss-zone"></div>
+          </div>
+          <div class="eq-meta">
+            <span class="eq-margin-pct col-grey">—</span>
+            <span class="eq-revenue" style="font-style:italic;">est. $330</span>
+          </div>
+        </div>
+
+      </div><!-- /eq-grid -->
+    </div><!-- /eq-strip -->
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       CONCEPT B — Stop Cards with Vertical Margin Bar
+  ══════════════════════════════════════════════════════════ -->
+  <div class="section-wrap">
+    <div class="section-label">
+      Concept B — Stop Card Vertical Margin Indicator
+      <span class="mockup-badge">Mockup — Not live data</span>
+    </div>
+    <div class="section-desc">A 6px vertical thermometer bar flush to the right edge of each stop card fills upward proportional to margin%. Replaces the current 4px horizontal profit bar — scannable at a glance on all screen sizes.</div>
+
+    <div class="stop-cards-grid">
+
+      <!-- Card 1: Sarah Chen — 67% margin (green) -->
+      <div class="stop-card">
+        <div class="stop-vbar-track" data-margin="67% margin">
+          <div class="stop-vbar-fill is-green" style="height:67%;"></div>
+        </div>
+        <div class="stop-time-client">
+          <span class="stop-time">8:00 AM</span>
+          <span class="stop-client">Sarah Chen</span>
+        </div>
+        <div class="stop-address">1423 Oak Street, Vancouver</div>
+        <div class="stop-pills">
+          <span class="stop-pill" style="color:#2D8659;">Lawn</span>
+          <span class="stop-pill" style="color:#4a7c1f;">Hedge</span>
+        </div>
+        <div class="stop-crew">Mike T.</div>
+        <div class="stop-revenue-strip">
+          <span class="stop-rev-icon">$</span>
+          <span class="stop-rev-amount">185</span>
+          <span class="stop-rev-margin" style="color:#059669; margin-left:auto;">67%</span>
+        </div>
+      </div>
+
+      <!-- Card 2: James Park — 22% margin (amber) -->
+      <div class="stop-card" style="border-left-color: var(--mw-amber);">
+        <div class="stop-vbar-track" data-margin="22% margin">
+          <div class="stop-vbar-fill is-amber" style="height:22%;"></div>
+        </div>
+        <div class="stop-time-client">
+          <span class="stop-time" style="color:var(--mw-amber);">10:30 AM</span>
+          <span class="stop-client">James Park</span>
+        </div>
+        <div class="stop-address">887 Maple Ave, Burnaby</div>
+        <div class="stop-pills">
+          <span class="stop-pill" style="color:#2D8659;">Lawn</span>
+        </div>
+        <div class="stop-crew">Mike T.</div>
+        <div class="stop-revenue-strip" style="border-left-color: var(--mw-amber); background: rgba(245,158,11,.05);">
+          <span class="stop-rev-icon" style="color:var(--mw-amber);">$</span>
+          <span class="stop-rev-amount" style="color:var(--mw-amber);">95</span>
+          <span class="stop-rev-margin" style="color:#D97706; margin-left:auto;">22%</span>
+        </div>
+      </div>
+
+      <!-- Card 3: Rivera Property — 8% margin (red) -->
+      <div class="stop-card" style="border-left-color: var(--mw-red);">
+        <div class="stop-vbar-track" data-margin="8% margin">
+          <div class="stop-vbar-fill is-red" style="height:8%;"></div>
+        </div>
+        <div class="stop-time-client">
+          <span class="stop-time" style="color:var(--mw-red);">1:15 PM</span>
+          <span class="stop-client">Rivera Property</span>
+        </div>
+        <div class="stop-address">234 Pine Rd, Richmond</div>
+        <div class="stop-pills">
+          <span class="stop-pill" style="color:#3B82F6;">Fertilize</span>
+          <span class="stop-pill" style="color:#8B5CF6;">Aeration</span>
+        </div>
+        <div class="stop-crew">Dave K.</div>
+        <div class="stop-revenue-strip" style="border-left-color: var(--mw-red); background: rgba(220,38,38,.04);">
+          <span class="stop-rev-icon" style="color:var(--mw-red);">$</span>
+          <span class="stop-rev-amount" style="color:var(--mw-red);">320</span>
+          <span class="stop-rev-margin" style="color:#DC2626; margin-left:auto;">8%</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       CONCEPT C — KPI Card with Sparkline Equalizer
+  ══════════════════════════════════════════════════════════ -->
+  <div class="section-wrap">
+    <div class="section-label">
+      Concept C — Dashboard KPI Card with Sparkline
+      <span class="mockup-badge">Mockup — Not live data</span>
+    </div>
+    <div class="section-desc">The profitability KPI card gains a 30-bar mini equalizer sparkline beneath the headline number — instant visual health check of the last 30 days without opening the full profitability report.</div>
+
+    <div class="kpi-cards-row">
+
+      <!-- THE FEATURED CARD -->
+      <div class="kpi-card">
+        <div class="kpi-title">Profitability</div>
+        <div class="kpi-value">39%</div>
+        <div class="kpi-sub">Last 30 days &middot; 47 visits</div>
+
+        <!-- Sparkline equalizer — 30 bars -->
+        <div class="sparkline-wrap">
+          <div class="sparkline-baseline"></div>
+          <div class="sparkline-bars">
+            <!-- Day 1–30: organic variation. Heights in px (max 18px up, 8px down for losses). -->
+            <!-- Green ≥30%, Amber 15–29%, Red <15% (up), Red down for negative -->
+            <div class="spark-bar spark-green" style="height:14px;" title="42%"></div>
+            <div class="spark-bar spark-green" style="height:16px;" title="48%"></div>
+            <div class="spark-bar spark-amber" style="height:8px;"  title="24%"></div>
+            <div class="spark-bar spark-green" style="height:15px;" title="45%"></div>
+            <div class="spark-bar spark-green" style="height:18px;" title="54%"></div>
+            <div class="spark-bar spark-amber" style="height:6px;"  title="18%"></div>
+            <div class="spark-bar spark-red   is-loss" style="height:6px;"  title="-12%"></div>
+            <div class="spark-bar spark-green" style="height:12px;" title="36%"></div>
+            <div class="spark-bar spark-green" style="height:14px;" title="42%"></div>
+            <div class="spark-bar spark-amber" style="height:9px;"  title="27%"></div>
+            <div class="spark-bar spark-green" style="height:17px;" title="51%"></div>
+            <div class="spark-bar spark-green" style="height:16px;" title="48%"></div>
+            <div class="spark-bar spark-red"   style="height:4px;"  title="10%"></div>
+            <div class="spark-bar spark-green" style="height:13px;" title="39%"></div>
+            <div class="spark-bar spark-amber" style="height:7px;"  title="21%"></div>
+            <div class="spark-bar spark-green" style="height:18px;" title="54%"></div>
+            <div class="spark-bar spark-red   is-loss" style="height:5px;"  title="-8%"></div>
+            <div class="spark-bar spark-green" style="height:15px;" title="45%"></div>
+            <div class="spark-bar spark-green" style="height:16px;" title="48%"></div>
+            <div class="spark-bar spark-amber" style="height:8px;"  title="24%"></div>
+            <div class="spark-bar spark-green" style="height:14px;" title="42%"></div>
+            <div class="spark-bar spark-green" style="height:12px;" title="36%"></div>
+            <div class="spark-bar spark-red"   style="height:3px;"  title="8%"></div>
+            <div class="spark-bar spark-green" style="height:16px;" title="48%"></div>
+            <div class="spark-bar spark-green" style="height:17px;" title="51%"></div>
+            <div class="spark-bar spark-amber" style="height:9px;"  title="27%"></div>
+            <div class="spark-bar spark-green" style="height:15px;" title="45%"></div>
+            <div class="spark-bar spark-red   is-loss" style="height:4px;"  title="-5%"></div>
+            <div class="spark-bar spark-green" style="height:16px;" title="48%"></div>
+            <div class="spark-bar spark-green" style="height:18px;" title="54%" style="box-shadow:0 0 4px rgba(45,134,89,.4);"></div>
+          </div>
+        </div>
+
+        <div class="kpi-trend">
+          ↑ +4.2% vs last month
+        </div>
+      </div>
+
+      <!-- Ghost companion cards for context -->
+      <div class="kpi-card ghost">
+        <div class="kpi-title">Revenue</div>
+        <div class="kpi-value" style="font-size:28px; color:#374151;">$18,420</div>
+        <div class="kpi-sub">Last 30 days</div>
+        <div class="kpi-trend" style="color:#374151; font-weight:400; margin-top:18px;">↑ +12.1% vs last month</div>
+      </div>
+
+      <div class="kpi-card ghost" style="border-left-color: var(--mw-orange);">
+        <div class="kpi-title">Labor Cost</div>
+        <div class="kpi-value" style="font-size:28px; color:#374151;">$7,340</div>
+        <div class="kpi-sub">Last 30 days</div>
+        <div class="kpi-trend down" style="margin-top:18px;">↑ +3.8% vs last month</div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       CONCEPT D — Monthly Diverging Bar Chart
+  ══════════════════════════════════════════════════════════ -->
+  <div class="section-wrap">
+    <div class="section-label">
+      Concept D — 6-Month Diverging Profit / Loss Chart
+      <span class="mockup-badge">Mockup — Not live data</span>
+    </div>
+    <div class="section-desc">For the Profitability page. Profitable months grow upward (green gradient), loss months drop downward (red). The glowing baseline is break-even. Instantly shows seasonal patterns and problem months.</div>
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">6-Month Profit / Loss Trend</div>
+          <div class="chart-sub">Sep 2025 – Feb 2026 &middot; Based on completed visit margins</div>
+        </div>
+        <div class="chart-legend">
+          <div class="legend-item"><div class="legend-dot profit"></div> Profit</div>
+          <div class="legend-item"><div class="legend-dot loss"></div> Loss</div>
+        </div>
+      </div>
+
+      <div class="chart-body">
+        <div class="diverging-chart">
+
+          <!-- Y-axis -->
+          <div class="chart-yaxis">
+            <div class="chart-ylabel">+$4k</div>
+            <div class="chart-ylabel">+$2k</div>
+            <div class="chart-ylabel zero">$0</div>
+            <div class="chart-ylabel">-$1k</div>
+            <div class="chart-ylabel">-$2k</div>
+          </div>
+
+          <!-- Chart area -->
+          <div class="chart-area">
+
+            <!-- Background washes -->
+            <div class="chart-profit-wash" style="height:50%;"></div>
+            <div class="chart-loss-wash" style="height:50%; top:50%;"></div>
+
+            <!-- Grid lines -->
+            <div class="chart-gridlines">
+              <div class="chart-gridline" style="top:0%;"></div>
+              <div class="chart-gridline" style="top:25%;"></div>
+              <div class="chart-gridline" style="top:75%;"></div>
+              <div class="chart-gridline" style="top:100%;"></div>
+            </div>
+
+            <!--
+              Chart is 300px tall total.
+              Profit zone: top 150px (0-150px from top)
+              Loss zone:   bottom 150px (150-300px)
+              Max profit: $4,000 → 150px
+              Max loss:   $2,000 → 150px (scale factor: 150/2000 = 0.075px per $)
+              Profit scale: 150/4000 = 0.0375px per $
+
+              Sep: +$2,840 → 0.0375*2840 = 106.5px ≈ 107px
+              Oct: +$3,920 → 0.0375*3920 = 147px
+              Nov: +$1,240 → 0.0375*1240 = 46.5px ≈ 47px
+              Dec:   -$890 → 0.075*890   = 66.75px ≈ 67px
+              Jan: -$1,640 → 0.075*1640  = 123px
+              Feb: +$3,190 → 0.0375*3190 = 119.6px ≈ 120px
+            -->
+
+            <div style="position:relative; height:300px;">
+              <!-- Baseline -->
+              <div class="chart-baseline" style="top:150px;"></div>
+
+              <!-- Month columns -->
+              <div class="chart-cols" style="position:absolute; inset:0;">
+
+                <!-- SEP: +$2,840 -->
+                <div class="chart-col">
+                  <div class="chart-profit-bar-wrap" style="height:150px;">
+                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;">
+                      <div class="chart-bar-label profit">+$2,840</div>
+                      <div class="chart-profit-bar is-green" style="height:107px;"></div>
+                    </div>
+                  </div>
+                  <div class="chart-loss-bar-wrap" style="height:150px;"></div>
+                  <div class="chart-month-label">Sep</div>
+                </div>
+
+                <!-- OCT: +$3,920 (tallest) -->
+                <div class="chart-col">
+                  <div class="chart-profit-bar-wrap" style="height:150px;">
+                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;">
+                      <div class="chart-bar-label profit">+$3,920</div>
+                      <div class="chart-profit-bar is-green" style="height:147px;"></div>
+                    </div>
+                  </div>
+                  <div class="chart-loss-bar-wrap" style="height:150px;"></div>
+                  <div class="chart-month-label">Oct</div>
+                </div>
+
+                <!-- NOV: +$1,240 (shorter) -->
+                <div class="chart-col">
+                  <div class="chart-profit-bar-wrap" style="height:150px;">
+                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;">
+                      <div class="chart-bar-label profit">+$1,240</div>
+                      <div class="chart-profit-bar is-green" style="height:47px;"></div>
+                    </div>
+                  </div>
+                  <div class="chart-loss-bar-wrap" style="height:150px;"></div>
+                  <div class="chart-month-label">Nov</div>
+                </div>
+
+                <!-- DEC: -$890 (loss) -->
+                <div class="chart-col">
+                  <div class="chart-profit-bar-wrap" style="height:150px;"></div>
+                  <div class="chart-loss-bar-wrap" style="height:150px;">
+                    <div style="display:flex; flex-direction:column; align-items:center;">
+                      <div class="chart-loss-bar" style="height:67px;"></div>
+                      <div class="chart-bar-label loss">-$890</div>
+                    </div>
+                  </div>
+                  <div class="chart-month-label">Dec</div>
+                </div>
+
+                <!-- JAN: -$1,640 (bigger loss) -->
+                <div class="chart-col">
+                  <div class="chart-profit-bar-wrap" style="height:150px;"></div>
+                  <div class="chart-loss-bar-wrap" style="height:150px;">
+                    <div style="display:flex; flex-direction:column; align-items:center;">
+                      <div class="chart-loss-bar" style="height:123px;"></div>
+                      <div class="chart-bar-label loss">-$1,640</div>
+                    </div>
+                  </div>
+                  <div class="chart-month-label">Jan</div>
+                </div>
+
+                <!-- FEB: +$3,190 (current month) -->
+                <div class="chart-col">
+                  <div class="chart-profit-bar-wrap" style="height:150px;">
+                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%;">
+                      <div class="chart-bar-label profit" style="color:var(--mw-dark); font-weight:800;">+$3,190</div>
+                      <div class="chart-profit-bar is-current" style="height:120px;"></div>
+                    </div>
+                  </div>
+                  <div class="chart-loss-bar-wrap" style="height:150px;"></div>
+                  <div class="chart-month-label current">Feb ●</div>
+                </div>
+
+              </div><!-- /chart-cols -->
+            </div>
+          </div><!-- /chart-area -->
+        </div><!-- /diverging-chart -->
+      </div><!-- /chart-body -->
+    </div><!-- /chart-card -->
+  </div>
+
+</div><!-- /page-body -->
+
+</body>
+</html>

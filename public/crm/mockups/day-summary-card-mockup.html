@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mowology — Day Summary Card Mockup</title>
+<style>
+  /* ── Tokens ───────────────────────────────────────────────── */
+  :root {
+    --mw-green:  #2D8659;
+    --mw-dark:   #1A5F4A;
+    --mw-lime:   #7FD858;
+    --mw-light:  #E8F3F0;
+    --mw-forest: #0D3B2E;
+    --mw-orange: #e85d04;
+    --mw-amber:  #F59E0B;
+    --mw-red:    #DC2626;
+    --mw-grey:   #6B7280;
+    --page-bg:   #f4f6f8;
+    --card-bg:   #ffffff;
+    --text-dark: #111827;
+    --text-mid:  #374151;
+    --text-soft: #9CA3AF;
+    --border:    #E5E7EB;
+    /* tier colors */
+    --c-green-bg:  rgba(16,185,129,0.10);
+    --c-green-txt: #059669;
+    --c-amber-bg:  rgba(245,158,11,0.10);
+    --c-amber-txt: #D97706;
+    --c-red-bg:    rgba(220,38,38,0.10);
+    --c-red-txt:   #DC2626;
+    --c-grey-bg:   rgba(107,114,128,0.08);
+    --c-grey-txt:  #9CA3AF;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Trebuchet MS', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--page-bg);
+    color: var(--text-dark);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Page Header ─────────────────────────────────────────── */
+  .page-header {
+    background: linear-gradient(135deg, var(--mw-forest) 0%, var(--mw-dark) 55%, #1e6b50 100%);
+    padding: 28px 40px 24px;
+    position: relative; overflow: hidden;
+  }
+  .page-header::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 50% 90% at 90% 50%, rgba(127,216,88,.09) 0%, transparent 70%);
+  }
+  .page-header-inner { position: relative; max-width: 1200px; margin: 0 auto; }
+  .page-header h1 {
+    font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -.3px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-mark {
+    width: 30px; height: 30px; background: var(--mw-lime); border-radius: 6px;
+    display: flex; align-items: center; justify-content: center; font-size: 15px;
+  }
+  .page-header p { color: rgba(255,255,255,.55); font-size: 12px; margin-top: 4px; }
+
+  /* ── Layout ──────────────────────────────────────────────── */
+  .page-body { max-width: 1200px; margin: 0 auto; padding: 28px 24px 64px; }
+
+  .section-wrap { margin-bottom: 44px; }
+  .section-label {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .section-label-text {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase;
+    color: var(--mw-forest); padding-left: 10px; border-left: 3px solid var(--mw-green);
+  }
+  .mockup-badge {
+    font-size: 9px; font-weight: 600; letter-spacing: .7px; text-transform: uppercase;
+    color: var(--mw-orange); background: rgba(232,93,4,.07);
+    border: 1px solid rgba(232,93,4,.18); border-radius: 20px; padding: 2px 8px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .mockup-badge::before {
+    content: ''; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--mw-orange); flex-shrink: 0;
+  }
+  .section-desc {
+    font-size: 12px; color: var(--text-soft); margin-bottom: 16px; padding-left: 13px;
+  }
+
+  /* ── 7-column schedule mock grid ────────────────────────── */
+  .schedule-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--border);
+    box-shadow: 0 2px 8px rgba(0,0,0,.07);
+  }
+  .day-col {
+    background: var(--card-bg);
+    display: flex; flex-direction: column;
+  }
+  .day-col + .day-col { border-left: 1px solid var(--border); }
+
+  /* ── Day header strip (day name + date) ─────────────────── */
+  .day-col-label {
+    text-align: center;
+    padding: 6px 4px 5px;
+    background: linear-gradient(180deg, var(--mw-light) 0%, #f9fbfa 100%);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  .day-col-label .dayname {
+    font-size: 9px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--text-mid);
+  }
+  .day-col-label .datenum {
+    font-size: 10px; font-weight: 700; color: var(--text-soft); display: block; margin-top: 1px;
+  }
+  .day-col.is-today .day-col-label { background: linear-gradient(180deg, rgba(45,134,89,.12) 0%, rgba(45,134,89,.04) 100%); }
+  .day-col.is-today .day-col-label .dayname { color: var(--mw-green); }
+  .day-col.is-today .day-col-label .datenum { color: var(--mw-dark); }
+  .today-pip {
+    position: absolute; top: 4px; right: 5px;
+    font-size: 7px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--mw-green); background: rgba(45,134,89,.12); border-radius: 3px; padding: 1px 3px;
+  }
+
+  /* ── THE SUMMARY CARD ────────────────────────────────────── */
+  .dsc {
+    position: relative;
+    background: var(--card-bg);
+    border-left: 3px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 8px 0 7px;
+    cursor: default;
+    transition: box-shadow .15s ease, transform .15s ease, background .15s ease;
+    overflow: hidden;
+    /* entrance animation */
+    animation: dsc-in .4s ease both;
+  }
+  .dsc:hover {
+    box-shadow: 0 3px 10px rgba(0,0,0,.10);
+    transform: translateY(-1px);
+    z-index: 10;
+  }
+
+  @keyframes dsc-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  /* Stagger per column */
+  .day-col:nth-child(1) .dsc { animation-delay: .04s; }
+  .day-col:nth-child(2) .dsc { animation-delay: .08s; }
+  .day-col:nth-child(3) .dsc { animation-delay: .12s; }
+  .day-col:nth-child(4) .dsc { animation-delay: .16s; }
+  .day-col:nth-child(5) .dsc { animation-delay: .20s; }
+  .day-col:nth-child(6) .dsc { animation-delay: .24s; }
+  .day-col:nth-child(7) .dsc { animation-delay: .28s; }
+
+  /* Tier variants */
+  .dsc.tier-green { border-left-color: var(--mw-green); }
+  .dsc.tier-amber { border-left-color: var(--mw-amber); }
+  .dsc.tier-red   { border-left-color: var(--mw-red); background: rgba(220,38,38,.025); }
+  .dsc.tier-grey  { border-left-color: var(--border); }
+  .day-col.is-today .dsc { background: rgba(45,134,89,.03); }
+  .day-col.is-today .dsc.tier-green { background: rgba(45,134,89,.04); }
+
+  /* ── Row 1: Revenue ──────────────────────────────────────── */
+  .dsc-revenue-row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 5px;
+  }
+  .dsc-revenue {
+    font-size: 14px; font-weight: 800; letter-spacing: -.5px; line-height: 1;
+  }
+  .tier-green .dsc-revenue { color: var(--mw-dark); }
+  .tier-amber .dsc-revenue { color: #92400E; }
+  .tier-red   .dsc-revenue { color: var(--mw-red); }
+  .tier-grey  .dsc-revenue { color: var(--text-soft); }
+
+  .dsc-stops {
+    font-size: 8px; font-weight: 600; color: var(--text-soft);
+    white-space: nowrap;
+  }
+  .dsc-warning {
+    font-size: 11px; line-height: 1;
+    animation: pulse-warn 1.8s ease infinite;
+  }
+  @keyframes pulse-warn {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .5; }
+  }
+
+  /* ── Row 2: Margin pill + bar ────────────────────────────── */
+  .dsc-margin-row { margin-bottom: 5px; }
+  .dsc-margin-pill {
+    display: inline-flex; align-items: baseline; gap: 3px;
+    padding: 2px 6px; border-radius: 20px;
+    font-size: 11px; font-weight: 800; letter-spacing: -.3px;
+    width: 100%;
+    justify-content: center;
+  }
+  .tier-green .dsc-margin-pill { background: var(--c-green-bg); color: var(--c-green-txt); }
+  .tier-amber .dsc-margin-pill { background: var(--c-amber-bg); color: var(--c-amber-txt); }
+  .tier-red   .dsc-margin-pill { background: var(--c-red-bg);   color: var(--c-red-txt); }
+  .tier-grey  .dsc-margin-pill { background: var(--c-grey-bg);  color: var(--c-grey-txt); }
+  .dsc-margin-label {
+    font-size: 7px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+    opacity: .7;
+  }
+
+  /* ── Row 3: Density + Drive ──────────────────────────────── */
+  .dsc-metrics-row {
+    display: flex; align-items: center; gap: 5px;
+    margin-bottom: 6px;
+  }
+  .dsc-density-wrap { flex: 1; min-width: 0; }
+  .dsc-density-label {
+    font-size: 7px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--text-soft); margin-bottom: 2px; display: block;
+  }
+  .dsc-density-track {
+    height: 4px; background: #F3F4F6; border-radius: 2px; overflow: hidden;
+  }
+  .dsc-density-fill {
+    height: 100%; border-radius: 2px;
+    transition: width .4s ease;
+  }
+  /* density fill color by score */
+  .dsc-density-fill.d-green { background: linear-gradient(90deg, #52c98a, var(--mw-green)); }
+  .dsc-density-fill.d-amber { background: linear-gradient(90deg, #fcd34d, var(--mw-amber)); }
+  .dsc-density-fill.d-red   { background: linear-gradient(90deg, #f87171, var(--mw-red)); }
+  .dsc-density-fill.d-grey  { background: #D1D5DB; }
+  .dsc-density-score {
+    font-size: 8px; font-weight: 700; margin-top: 1px; display: block;
+  }
+  .dsc-density-score.d-green { color: var(--c-green-txt); }
+  .dsc-density-score.d-amber { color: var(--c-amber-txt); }
+  .dsc-density-score.d-red   { color: var(--c-red-txt); }
+  .dsc-density-score.d-grey  { color: var(--c-grey-txt); }
+
+  .dsc-divider-v {
+    width: 1px; height: 22px; background: var(--border); flex-shrink: 0;
+  }
+
+  .dsc-drive-wrap { display: flex; flex-direction: column; align-items: center; gap: 1px; flex-shrink: 0; }
+  .dsc-drive-icon { width: 11px; height: 11px; flex-shrink: 0; }
+  .dsc-drive-val {
+    font-size: 9px; font-weight: 700;
+  }
+  .dsc-drive-val.d-green { color: var(--c-green-txt); }
+  .dsc-drive-val.d-amber { color: var(--c-amber-txt); }
+  .dsc-drive-val.d-red   { color: var(--c-red-txt); }
+  .dsc-drive-val.d-grey  { color: var(--c-grey-txt); }
+  .dsc-drive-unit { font-size: 7px; color: var(--text-soft); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+
+  /* ── Row 4: Time Load ───────────────────────────────────── */
+  .dsc-time-row {
+    margin-bottom: 5px;
+  }
+  .dsc-time-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 2px;
+  }
+  .dsc-time-label {
+    font-size: 7px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--text-soft);
+  }
+  .dsc-time-total {
+    font-size: 8px; font-weight: 700; letter-spacing: -.2px;
+  }
+  .dsc-time-total.tl-green { color: var(--c-green-txt); }
+  .dsc-time-total.tl-amber { color: var(--c-amber-txt); }
+  .dsc-time-total.tl-red   { color: var(--c-red-txt); }
+  .dsc-time-total.tl-grey  { color: var(--c-grey-txt); }
+  /* Segmented bar: job (green segment) + drive (amber segment) on grey track */
+  .dsc-time-track {
+    height: 5px; background: #F3F4F6; border-radius: 3px;
+    overflow: hidden; position: relative; display: flex;
+  }
+  .dsc-time-seg-job {
+    height: 100%;
+    background: linear-gradient(90deg, #52c98a, var(--mw-green));
+    border-radius: 3px 0 0 3px;
+    flex-shrink: 0;
+    transition: width .4s ease;
+  }
+  .dsc-time-seg-drive {
+    height: 100%;
+    background: linear-gradient(90deg, #fcd34d, var(--mw-amber));
+    flex-shrink: 0;
+    transition: width .4s ease;
+  }
+  /* Overload: if >100% capacity, drive segment turns red */
+  .dsc-time-seg-drive.is-overload {
+    background: linear-gradient(90deg, #f87171, var(--mw-red));
+  }
+  /* Capacity tick mark at 100% */
+  .dsc-time-track::after {
+    content: '';
+    position: absolute; right: 0; top: 0; bottom: 0;
+    width: 1px; background: rgba(0,0,0,.12);
+  }
+  .dsc-time-legend {
+    display: flex; gap: 6px; margin-top: 2px;
+  }
+  .dsc-time-leg-item {
+    display: flex; align-items: center; gap: 2px;
+    font-size: 7px; color: var(--text-soft); font-weight: 600;
+  }
+  .dsc-time-leg-dot {
+    width: 5px; height: 5px; border-radius: 1px; flex-shrink: 0;
+  }
+  .dsc-time-leg-dot.job   { background: var(--mw-green); }
+  .dsc-time-leg-dot.drive { background: var(--mw-amber); }
+
+  /* ── Profit meter bar (bottom edge) ─────────────────────── */
+  .dsc-meter {
+    height: 3px;
+    background: #F3F4F6;
+    margin: 0 -7px; /* bleed to edges, compensate for padding */
+  }
+  .dsc-meter-fill {
+    height: 100%;
+    transition: width .5s ease;
+  }
+  .tier-green .dsc-meter-fill { background: linear-gradient(90deg, #52c98a 0%, var(--mw-green) 100%); }
+  .tier-amber .dsc-meter-fill { background: linear-gradient(90deg, #fcd34d 0%, var(--mw-amber) 100%); }
+  .tier-red   .dsc-meter-fill { background: linear-gradient(90deg, #f87171 0%, var(--mw-red) 100%); }
+  .tier-grey  .dsc-meter-fill { background: #D1D5DB; }
+
+  /* ── Skeleton stop cards below ───────────────────────────── */
+  .dsc-skeleton-stops { padding: 6px 6px; display: flex; flex-direction: column; gap: 4px; }
+  .skel-stop {
+    height: 52px;
+    background: linear-gradient(180deg, #F9FAFB 0%, #F3F4F6 100%);
+    border: 1px solid var(--border);
+    border-left: 3px solid #D1D5DB;
+    border-radius: 4px;
+    opacity: .6;
+    position: relative; overflow: hidden;
+  }
+  .skel-stop::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.5) 50%, transparent 100%);
+    animation: shimmer 2s ease infinite;
+  }
+  @keyframes shimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(200%); }
+  }
+  .skel-stop.green-stop { border-left-color: rgba(45,134,89,.4); }
+  .skel-stop.amber-stop { border-left-color: rgba(245,158,11,.4); }
+
+  /* ── MODE 2: Compact cards ───────────────────────────────── */
+  .compact-grid {
+    display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .dsc-compact {
+    width: 160px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 8px 0 7px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    transition: box-shadow .15s, transform .15s;
+    animation: dsc-in .4s ease both;
+  }
+  .dsc-compact:hover { box-shadow: 0 3px 10px rgba(0,0,0,.10); transform: translateY(-1px); }
+  .dsc-compact.tier-green { border-left-color: var(--mw-green); }
+  .dsc-compact.tier-amber { border-left-color: var(--mw-amber); }
+  .dsc-compact.tier-red   { border-left-color: var(--mw-red); background: rgba(220,38,38,.025); }
+  .cmp-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+  .cmp-rev {
+    font-size: 13px; font-weight: 800; letter-spacing: -.4px;
+  }
+  .tier-green .cmp-rev { color: var(--mw-dark); }
+  .tier-amber .cmp-rev { color: #92400E; }
+  .tier-red   .cmp-rev { color: var(--mw-red); }
+  .cmp-margin {
+    font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 20px;
+  }
+  .tier-green .cmp-margin { background: var(--c-green-bg); color: var(--c-green-txt); }
+  .tier-amber .cmp-margin { background: var(--c-amber-bg); color: var(--c-amber-txt); }
+  .tier-red   .cmp-margin { background: var(--c-red-bg);   color: var(--c-red-txt); }
+  .cmp-meter { height: 3px; background: #F3F4F6; margin: 0 -8px; }
+  .cmp-meter-fill { height: 100%; }
+  .tier-green .cmp-meter-fill { background: linear-gradient(90deg, #52c98a, var(--mw-green)); }
+  .tier-amber .cmp-meter-fill { background: linear-gradient(90deg, #fcd34d, var(--mw-amber)); }
+  .tier-red   .cmp-meter-fill { background: linear-gradient(90deg, #f87171, var(--mw-red)); }
+  .cmp-dayname {
+    font-size: 9px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text-soft); margin-bottom: 4px;
+  }
+
+  /* ── MODE 3: Empty day ───────────────────────────────────── */
+  .dsc-empty {
+    width: 160px;
+    background: var(--card-bg);
+    border: 1px dashed #D1D5DB;
+    border-radius: 6px;
+    padding: 16px 12px;
+    text-align: center;
+    opacity: .6;
+    animation: dsc-in .4s ease both;
+  }
+  .dsc-empty-icon { font-size: 18px; margin-bottom: 6px; display: block; opacity: .4; }
+  .dsc-empty-label {
+    font-size: 10px; font-weight: 600; color: var(--text-soft); letter-spacing: .4px;
+  }
+  .dsc-empty-sub { font-size: 9px; color: var(--border); margin-top: 3px; }
+
+  /* ── INTERACTIVE DEMO: Hover tooltip ────────────────────── */
+  .demo-wrap {
+    display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap;
+  }
+  .demo-card-wrap {
+    position: relative;
+    width: 160px;
+  }
+  /* The card itself in demo — same as dsc but standalone */
+  .dsc-demo {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--mw-green);
+    border-radius: 6px;
+    padding: 8px 8px 0 7px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    transition: box-shadow .2s ease, transform .2s ease;
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+    animation: dsc-in .4s ease both;
+  }
+  .demo-card-wrap:hover .dsc-demo {
+    box-shadow: 0 4px 16px rgba(45,134,89,.2);
+    transform: translateY(-2px);
+  }
+
+  /* Tooltip popover */
+  .dsc-tooltip {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    width: 200px;
+    background: var(--mw-forest);
+    border-radius: 8px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.25), 0 2px 8px rgba(0,0,0,.15);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+    z-index: 100;
+  }
+  .dsc-tooltip::before {
+    content: '';
+    position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-bottom-color: var(--mw-forest);
+  }
+  .demo-card-wrap:hover .dsc-tooltip {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  .tt-title {
+    font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: rgba(255,255,255,.45); margin-bottom: 10px;
+  }
+  .tt-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 7px;
+  }
+  .tt-row:last-child { margin-bottom: 0; }
+  .tt-label { font-size: 10px; color: rgba(255,255,255,.6); font-weight: 500; }
+  .tt-val { font-size: 11px; font-weight: 700; color: #fff; }
+  .tt-val.is-green { color: var(--mw-lime); }
+  .tt-val.is-amber { color: #FCD34D; }
+  .tt-val.is-red   { color: #FCA5A5; }
+  .tt-divider { height: 1px; background: rgba(255,255,255,.1); margin: 8px 0; }
+  .tt-grade {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .tt-grade-label { font-size: 10px; color: rgba(255,255,255,.6); font-weight: 500; }
+  .tt-grade-val {
+    font-size: 22px; font-weight: 900; color: var(--mw-lime); letter-spacing: -1px;
+    line-height: 1;
+  }
+  .tt-grade-sub { font-size: 9px; color: rgba(255,255,255,.4); margin-top: 1px; }
+
+  /* Demo explanation text */
+  .demo-hint {
+    font-size: 12px; color: var(--text-soft); max-width: 260px;
+    line-height: 1.6;
+  }
+  .demo-hint strong { color: var(--text-mid); font-weight: 600; }
+
+  /* ── Responsive ──────────────────────────────────────────── */
+  @media (max-width: 900px) {
+    .schedule-grid { grid-template-columns: repeat(4, 1fr); }
+    .day-col:nth-child(n+5) { display: none; }
+  }
+  @media (max-width: 600px) {
+    .schedule-grid { grid-template-columns: repeat(3, 1fr); }
+    .day-col:nth-child(n+4) { display: none; }
+    .page-header { padding: 20px 16px; }
+    .page-body { padding: 16px 12px 48px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Page Header ─────────────────────────────────────────── -->
+<div class="page-header">
+  <div class="page-header-inner">
+    <h1>
+      <span class="logo-mark">🌿</span>
+      Day Summary Card — Schedule Mockup
+    </h1>
+    <p>Compact 4-metric scorecard · sits above stop cards in each day column of the weekly schedule</p>
+  </div>
+</div>
+
+<div class="page-body">
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODE 1 — Full Card (all 7 days)
+  ══════════════════════════════════════════════════════════ -->
+  <div class="section-wrap">
+    <div class="section-label">
+      <span class="section-label-text">Mode 1 — Full Card · All 7 Days</span>
+      <span class="mockup-badge">Mockup — Not live data</span>
+    </div>
+    <div class="section-desc">The default card at the top of each day column. Revenue headline · Margin pill · Density bar · Drive time · <strong>Time load bar</strong> (job time + drive time vs. 8h capacity). Bottom edge is the profit meter.</div>
+
+    <div class="schedule-grid">
+
+      <!-- MON — 45% green, $1,240, density 78, drive 22m, 4 stops — job 180min + drive 22min = 202min / 480min = 42% -->
+      <div class="day-col">
+        <div class="day-col-label">
+          <span class="dayname">Mon</span>
+          <span class="datenum">Feb 24</span>
+        </div>
+        <div class="dsc tier-green">
+          <div class="dsc-revenue-row">
+            <span class="dsc-revenue">$1,240</span>
+            <span class="dsc-stops">4 stops</span>
+          </div>
+          <div class="dsc-margin-row">
+            <div class="dsc-margin-pill">
+              45% <span class="dsc-margin-label">margin</span>
+            </div>
+          </div>
+          <div class="dsc-metrics-row">
+            <div class="dsc-density-wrap">
+              <span class="dsc-density-label">density</span>
+              <div class="dsc-density-track"><div class="dsc-density-fill d-green" style="width:78%"></div></div>
+              <span class="dsc-density-score d-green">78</span>
+            </div>
+            <div class="dsc-divider-v"></div>
+            <div class="dsc-drive-wrap">
+              <svg class="dsc-drive-icon" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              <span class="dsc-drive-val d-green">22</span>
+              <span class="dsc-drive-unit">min</span>
+            </div>
+          </div>
+          <!-- Time Load: 180min jobs + 22min drive = 3h 22m (42% of 8h) -->
+          <div class="dsc-time-row">
+            <div class="dsc-time-header">
+              <span class="dsc-time-label">time load</span>
+              <span class="dsc-time-total tl-green">3h 22m</span>
+            </div>
+            <div class="dsc-time-track">
+              <div class="dsc-time-seg-job"   style="width:37.5%"></div><!-- 180/480 -->
+              <div class="dsc-time-seg-drive" style="width:4.6%"></div><!-- 22/480 -->
+            </div>
+            <div class="dsc-time-legend">
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot job"></span>3h job</span>
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot drive"></span>22m drive</span>
+            </div>
+          </div>
+          <div class="dsc-meter"><div class="dsc-meter-fill" style="width:45%"></div></div>
+        </div>
+        <div class="dsc-skeleton-stops">
+          <div class="skel-stop green-stop"></div>
+          <div class="skel-stop green-stop"></div>
+          <div class="skel-stop"></div>
+          <div class="skel-stop green-stop"></div>
+        </div>
+      </div>
+
+      <!-- TUE — 28% amber, $980, density 52, drive 38m, 3 stops — job 150min + drive 38min = 188min / 480min = 39% -->
+      <div class="day-col">
+        <div class="day-col-label">
+          <span class="dayname">Tue</span>
+          <span class="datenum">Feb 25</span>
+        </div>
+        <div class="dsc tier-amber">
+          <div class="dsc-revenue-row">
+            <span class="dsc-revenue">$980</span>
+            <span class="dsc-stops">3 stops</span>
+          </div>
+          <div class="dsc-margin-row">
+            <div class="dsc-margin-pill">
+              28% <span class="dsc-margin-label">margin</span>
+            </div>
+          </div>
+          <div class="dsc-metrics-row">
+            <div class="dsc-density-wrap">
+              <span class="dsc-density-label">density</span>
+              <div class="dsc-density-track"><div class="dsc-density-fill d-amber" style="width:52%"></div></div>
+              <span class="dsc-density-score d-amber">52</span>
+            </div>
+            <div class="dsc-divider-v"></div>
+            <div class="dsc-drive-wrap">
+              <svg class="dsc-drive-icon" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              <span class="dsc-drive-val d-amber">38</span>
+              <span class="dsc-drive-unit">min</span>
+            </div>
+          </div>
+          <!-- Time Load: 150min jobs + 38min drive = 3h 8m (39% of 8h) -->
+          <div class="dsc-time-row">
+            <div class="dsc-time-header">
+              <span class="dsc-time-label">time load</span>
+              <span class="dsc-time-total tl-green">3h 8m</span>
+            </div>
+            <div class="dsc-time-track">
+              <div class="dsc-time-seg-job"   style="width:31.3%"></div><!-- 150/480 -->
+              <div class="dsc-time-seg-drive" style="width:7.9%"></div><!-- 38/480 -->
+            </div>
+            <div class="dsc-time-legend">
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot job"></span>2h 30m</span>
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot drive"></span>38m</span>
+            </div>
+          </div>
+          <div class="dsc-meter"><div class="dsc-meter-fill" style="width:28%"></div></div>
+        </div>
+        <div class="dsc-skeleton-stops">
+          <div class="skel-stop amber-stop"></div>
+          <div class="skel-stop"></div>
+          <div class="skel-stop amber-stop"></div>
+        </div>
+      </div>
+
+      <!-- WED — TODAY — 52% green, $1,450, density 85, drive 18m, 5 stops -->
+      <div class="day-col is-today">
+        <div class="day-col-label">
+          <span class="dayname">Wed</span>
+          <span class="datenum">Feb 26</span>
+          <span class="today-pip">Today</span>
+        </div>
+        <div class="dsc tier-green" style="border-left-color: var(--mw-lime); box-shadow: inset 2px 0 0 rgba(127,216,88,.3);">
+          <div class="dsc-revenue-row">
+            <span class="dsc-revenue" style="color: var(--mw-dark);">$1,450</span>
+            <span class="dsc-stops">5 stops</span>
+          </div>
+          <div class="dsc-margin-row">
+            <div class="dsc-margin-pill" style="background: rgba(45,134,89,.12); color: var(--mw-dark); font-size:12px;">
+              52% <span class="dsc-margin-label">margin</span>
+            </div>
+          </div>
+          <div class="dsc-metrics-row">
+            <div class="dsc-density-wrap">
+              <span class="dsc-density-label">density</span>
+              <div class="dsc-density-track"><div class="dsc-density-fill d-green" style="width:85%; background: linear-gradient(90deg, var(--mw-lime), var(--mw-green));"></div></div>
+              <span class="dsc-density-score d-green">85</span>
+            </div>
+            <div class="dsc-divider-v"></div>
+            <div class="dsc-drive-wrap">
+              <svg class="dsc-drive-icon" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              <span class="dsc-drive-val d-green">18</span>
+              <span class="dsc-drive-unit">min</span>
+            </div>
+          </div>
+          <!-- Time Load: 240min jobs + 18min drive = 4h 18m (54% of 8h) — healthy & packed -->
+          <div class="dsc-time-row">
+            <div class="dsc-time-header">
+              <span class="dsc-time-label">time load</span>
+              <span class="dsc-time-total tl-green">4h 18m</span>
+            </div>
+            <div class="dsc-time-track">
+              <div class="dsc-time-seg-job"   style="width:50%; background: linear-gradient(90deg, var(--mw-lime), var(--mw-green));"></div><!-- 240/480 -->
+              <div class="dsc-time-seg-drive" style="width:3.8%"></div><!-- 18/480 -->
+            </div>
+            <div class="dsc-time-legend">
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot job"></span>4h job</span>
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot drive"></span>18m drive</span>
+            </div>
+          </div>
+          <div class="dsc-meter"><div class="dsc-meter-fill" style="width:52%; background: linear-gradient(90deg, var(--mw-lime), var(--mw-green));"></div></div>
+        </div>
+        <div class="dsc-skeleton-stops">
+          <div class="skel-stop green-stop"></div>
+          <div class="skel-stop green-stop"></div>
+          <div class="skel-stop green-stop"></div>
+          <div class="skel-stop green-stop"></div>
+          <div class="skel-stop"></div>
+        </div>
+      </div>
+
+      <!-- THU — LOSS DAY — -8%, $620, density 35, drive 72m, 2 stops -->
+      <div class="day-col">
+        <div class="day-col-label">
+          <span class="dayname">Thu</span>
+          <span class="datenum">Feb 27</span>
+        </div>
+        <div class="dsc tier-red">
+          <div class="dsc-revenue-row">
+            <span class="dsc-revenue">$620</span>
+            <span class="dsc-warning" title="Loss day">⚠️</span>
+          </div>
+          <div class="dsc-margin-row">
+            <div class="dsc-margin-pill">
+              −8% <span class="dsc-margin-label">loss</span>
+            </div>
+          </div>
+          <div class="dsc-metrics-row">
+            <div class="dsc-density-wrap">
+              <span class="dsc-density-label">density</span>
+              <div class="dsc-density-track"><div class="dsc-density-fill d-red" style="width:35%"></div></div>
+              <span class="dsc-density-score d-red">35</span>
+            </div>
+            <div class="dsc-divider-v"></div>
+            <div class="dsc-drive-wrap">
+              <svg class="dsc-drive-icon" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              <span class="dsc-drive-val d-red">72</span>
+              <span class="dsc-drive-unit">min</span>
+            </div>
+          </div>
+          <!-- Time Load: 70min jobs + 72min drive = 2h 22m — drive > jobs = red alert -->
+          <div class="dsc-time-row">
+            <div class="dsc-time-header">
+              <span class="dsc-time-label">time load</span>
+              <span class="dsc-time-total tl-red">2h 22m</span>
+            </div>
+            <div class="dsc-time-track">
+              <div class="dsc-time-seg-job"   style="width:14.6%"></div><!-- 70/480 -->
+              <div class="dsc-time-seg-drive is-overload" style="width:15%"></div><!-- 72/480 — drive > job, red -->
+            </div>
+            <div class="dsc-time-legend">
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot job"></span>1h 10m</span>
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot drive" style="background:var(--mw-red);"></span><span style="color:var(--mw-red);">72m drive</span></span>
+            </div>
+          </div>
+          <div class="dsc-meter"><div class="dsc-meter-fill" style="width:2%"></div></div>
+        </div>
+        <div class="dsc-skeleton-stops">
+          <div class="skel-stop" style="border-left-color: rgba(220,38,38,.4);"></div>
+          <div class="skel-stop" style="border-left-color: rgba(220,38,38,.3);"></div>
+        </div>
+      </div>
+
+      <!-- FRI — 38% green, $1,100, density 65, drive 29m, 4 stops -->
+      <div class="day-col">
+        <div class="day-col-label">
+          <span class="dayname">Fri</span>
+          <span class="datenum">Feb 28</span>
+        </div>
+        <div class="dsc tier-green">
+          <div class="dsc-revenue-row">
+            <span class="dsc-revenue">$1,100</span>
+            <span class="dsc-stops">4 stops</span>
+          </div>
+          <div class="dsc-margin-row">
+            <div class="dsc-margin-pill">
+              38% <span class="dsc-margin-label">margin</span>
+            </div>
+          </div>
+          <div class="dsc-metrics-row">
+            <div class="dsc-density-wrap">
+              <span class="dsc-density-label">density</span>
+              <div class="dsc-density-track"><div class="dsc-density-fill d-amber" style="width:65%"></div></div>
+              <span class="dsc-density-score d-amber">65</span>
+            </div>
+            <div class="dsc-divider-v"></div>
+            <div class="dsc-drive-wrap">
+              <svg class="dsc-drive-icon" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              <span class="dsc-drive-val d-green">29</span>
+              <span class="dsc-drive-unit">min</span>
+            </div>
+          </div>
+          <!-- Time Load: 180min jobs + 29min drive = 3h 29m (43% of 8h) -->
+          <div class="dsc-time-row">
+            <div class="dsc-time-header">
+              <span class="dsc-time-label">time load</span>
+              <span class="dsc-time-total tl-green">3h 29m</span>
+            </div>
+            <div class="dsc-time-track">
+              <div class="dsc-time-seg-job"   style="width:37.5%"></div><!-- 180/480 -->
+              <div class="dsc-time-seg-drive" style="width:6%"></div><!-- 29/480 -->
+            </div>
+            <div class="dsc-time-legend">
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot job"></span>3h job</span>
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot drive"></span>29m drive</span>
+            </div>
+          </div>
+          <div class="dsc-meter"><div class="dsc-meter-fill" style="width:38%"></div></div>
+        </div>
+        <div class="dsc-skeleton-stops">
+          <div class="skel-stop green-stop"></div>
+          <div class="skel-stop amber-stop"></div>
+          <div class="skel-stop green-stop"></div>
+          <div class="skel-stop"></div>
+        </div>
+      </div>
+
+      <!-- SAT — 12% red, $520, density 42, drive 45m, 2 stops -->
+      <div class="day-col">
+        <div class="day-col-label">
+          <span class="dayname">Sat</span>
+          <span class="datenum">Mar 1</span>
+        </div>
+        <div class="dsc tier-red">
+          <div class="dsc-revenue-row">
+            <span class="dsc-revenue">$520</span>
+            <span class="dsc-stops">2 stops</span>
+          </div>
+          <div class="dsc-margin-row">
+            <div class="dsc-margin-pill">
+              12% <span class="dsc-margin-label">margin</span>
+            </div>
+          </div>
+          <div class="dsc-metrics-row">
+            <div class="dsc-density-wrap">
+              <span class="dsc-density-label">density</span>
+              <div class="dsc-density-track"><div class="dsc-density-fill d-amber" style="width:42%"></div></div>
+              <span class="dsc-density-score d-amber">42</span>
+            </div>
+            <div class="dsc-divider-v"></div>
+            <div class="dsc-drive-wrap">
+              <svg class="dsc-drive-icon" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              <span class="dsc-drive-val d-amber">45</span>
+              <span class="dsc-drive-unit">min</span>
+            </div>
+          </div>
+          <!-- Time Load: 100min jobs + 45min drive = 2h 25m — drive is almost half of job time -->
+          <div class="dsc-time-row">
+            <div class="dsc-time-header">
+              <span class="dsc-time-label">time load</span>
+              <span class="dsc-time-total tl-amber">2h 25m</span>
+            </div>
+            <div class="dsc-time-track">
+              <div class="dsc-time-seg-job"   style="width:20.8%"></div><!-- 100/480 -->
+              <div class="dsc-time-seg-drive is-overload" style="width:9.4%"></div><!-- 45/480 — drive>45% of job time, warn -->
+            </div>
+            <div class="dsc-time-legend">
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot job"></span>1h 40m</span>
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot drive"></span>45m drive</span>
+            </div>
+          </div>
+          <div class="dsc-meter"><div class="dsc-meter-fill" style="width:12%"></div></div>
+        </div>
+        <div class="dsc-skeleton-stops">
+          <div class="skel-stop"></div>
+          <div class="skel-stop amber-stop"></div>
+        </div>
+      </div>
+
+      <!-- SUN — No margin data, $330, 1 stop scheduled only -->
+      <div class="day-col">
+        <div class="day-col-label">
+          <span class="dayname">Sun</span>
+          <span class="datenum">Mar 2</span>
+        </div>
+        <div class="dsc tier-grey">
+          <div class="dsc-revenue-row">
+            <span class="dsc-revenue" style="font-size:12px; opacity:.7;">~$330</span>
+            <span class="dsc-stops">1 stop</span>
+          </div>
+          <div class="dsc-margin-row">
+            <div class="dsc-margin-pill" style="font-size:9px; opacity:.7;">
+              — <span class="dsc-margin-label">sched.</span>
+            </div>
+          </div>
+          <div class="dsc-metrics-row">
+            <div class="dsc-density-wrap">
+              <span class="dsc-density-label">density</span>
+              <div class="dsc-density-track"><div class="dsc-density-fill d-grey" style="width:0%"></div></div>
+              <span class="dsc-density-score d-grey">—</span>
+            </div>
+            <div class="dsc-divider-v"></div>
+            <div class="dsc-drive-wrap">
+              <svg class="dsc-drive-icon" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              <span class="dsc-drive-val d-grey">—</span>
+              <span class="dsc-drive-unit">min</span>
+            </div>
+          </div>
+          <!-- Time Load: 1 stop ~45min est + unknown drive = est. 45min+ -->
+          <div class="dsc-time-row" style="opacity:.5;">
+            <div class="dsc-time-header">
+              <span class="dsc-time-label">time load</span>
+              <span class="dsc-time-total tl-grey">~45m est.</span>
+            </div>
+            <div class="dsc-time-track">
+              <div class="dsc-time-seg-job"   style="width:9.4%; background:#D1D5DB;"></div>
+              <div class="dsc-time-seg-drive" style="width:0%; background:#D1D5DB;"></div>
+            </div>
+            <div class="dsc-time-legend">
+              <span class="dsc-time-leg-item"><span class="dsc-time-leg-dot job" style="background:#D1D5DB;"></span>est. only</span>
+            </div>
+          </div>
+          <div class="dsc-meter"><div class="dsc-meter-fill" style="width:0%"></div></div>
+        </div>
+        <div class="dsc-skeleton-stops">
+          <div class="skel-stop" style="opacity:.35;"></div>
+        </div>
+      </div>
+
+    </div><!-- /schedule-grid -->
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODE 2 — Compact / Condensed
+  ══════════════════════════════════════════════════════════ -->
+  <div class="section-wrap">
+    <div class="section-label">
+      <span class="section-label-text">Mode 2 — Compact View</span>
+      <span class="mockup-badge">Mockup — Not live data</span>
+    </div>
+    <div class="section-desc">Condensed to just revenue + margin pill + profit meter. For tight screens or when maximum stop card space is needed.</div>
+
+    <div class="compact-grid">
+
+      <div>
+        <div style="font-size:9px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--text-soft); margin-bottom:6px;">Mon</div>
+        <div class="dsc-compact tier-green" style="animation-delay:.05s">
+          <div class="cmp-row">
+            <span class="cmp-rev">$1,240</span>
+            <span class="cmp-margin">45%</span>
+          </div>
+          <div class="cmp-meter"><div class="cmp-meter-fill" style="width:45%"></div></div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:9px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color: var(--mw-green); margin-bottom:6px;">Wed · Today</div>
+        <div class="dsc-compact tier-green" style="animation-delay:.10s; border-left-color: var(--mw-lime); background: rgba(45,134,89,.03);">
+          <div class="cmp-row">
+            <span class="cmp-rev" style="color: var(--mw-dark);">$1,450</span>
+            <span class="cmp-margin" style="background: rgba(45,134,89,.12); color: var(--mw-dark);">52%</span>
+          </div>
+          <div class="cmp-meter"><div class="cmp-meter-fill" style="width:52%; background: linear-gradient(90deg, var(--mw-lime), var(--mw-green));"></div></div>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:9px; font-weight:700; letter-spacing:.8px; text-transform:uppercase; color:var(--text-soft); margin-bottom:6px;">Thu</div>
+        <div class="dsc-compact tier-red" style="animation-delay:.15s">
+          <div class="cmp-row">
+            <span class="cmp-rev">$620 ⚠️</span>
+            <span class="cmp-margin">−8%</span>
+          </div>
+          <div class="cmp-meter"><div class="cmp-meter-fill" style="width:2%"></div></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       MODE 3 — Empty Day
+  ══════════════════════════════════════════════════════════ -->
+  <div class="section-wrap">
+    <div class="section-label">
+      <span class="section-label-text">Mode 3 — Empty Day</span>
+      <span class="mockup-badge">Mockup — Not live data</span>
+    </div>
+    <div class="section-desc">When a day has zero stops scheduled. Subtle dashed border, muted, no metrics shown.</div>
+
+    <div class="dsc-empty">
+      <span class="dsc-empty-icon">📋</span>
+      <div class="dsc-empty-label">No stops</div>
+      <div class="dsc-empty-sub">Nothing scheduled</div>
+    </div>
+  </div>
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       INTERACTIVE DEMO — Hover for expanded breakdown
+  ══════════════════════════════════════════════════════════ -->
+  <div class="section-wrap">
+    <div class="section-label">
+      <span class="section-label-text">Interactive Demo — Hover for Breakdown</span>
+      <span class="mockup-badge">Mockup — Not live data</span>
+    </div>
+    <div class="section-desc">Hover the card to reveal the full financial breakdown popover with Day Grade.</div>
+
+    <div class="demo-wrap">
+      <div class="demo-card-wrap">
+
+        <!-- The card -->
+        <div class="dsc-demo">
+          <div class="dsc-revenue-row">
+            <span class="dsc-revenue" style="font-size:14px; font-weight:800; letter-spacing:-.5px; color: var(--mw-dark);">$1,240</span>
+            <span class="dsc-stops" style="font-size:8px; font-weight:600; color:var(--text-soft);">4 stops</span>
+          </div>
+          <div class="dsc-margin-row" style="margin-bottom:5px;">
+            <div class="dsc-margin-pill" style="display:inline-flex; align-items:baseline; gap:3px; padding:2px 6px; border-radius:20px; font-size:11px; font-weight:800; width:100%; justify-content:center; background:var(--c-green-bg); color:var(--c-green-txt);">
+              45% <span style="font-size:7px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; opacity:.7;">margin</span>
+            </div>
+          </div>
+          <div class="dsc-metrics-row" style="display:flex; align-items:center; gap:5px; margin-bottom:6px;">
+            <div class="dsc-density-wrap" style="flex:1; min-width:0;">
+              <span class="dsc-density-label" style="font-size:7px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:var(--text-soft); margin-bottom:2px; display:block;">density</span>
+              <div class="dsc-density-track" style="height:4px; background:#F3F4F6; border-radius:2px; overflow:hidden;"><div style="height:100%; width:78%; background: linear-gradient(90deg, #52c98a, var(--mw-green)); border-radius:2px;"></div></div>
+              <span style="font-size:8px; font-weight:700; margin-top:1px; display:block; color:var(--c-green-txt);">78</span>
+            </div>
+            <div class="dsc-divider-v" style="width:1px; height:22px; background:var(--border); flex-shrink:0;"></div>
+            <div class="dsc-drive-wrap" style="display:flex; flex-direction:column; align-items:center; gap:1px; flex-shrink:0;">
+              <svg style="width:11px;height:11px;" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 5v4h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              <span style="font-size:9px; font-weight:700; color:var(--c-green-txt);">22</span>
+              <span style="font-size:7px; color:var(--text-soft); font-weight:600; text-transform:uppercase; letter-spacing:.4px;">min</span>
+            </div>
+          </div>
+          <!-- Time Load row in demo card -->
+          <div style="margin-bottom:5px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;">
+              <span style="font-size:7px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:var(--text-soft);">time load</span>
+              <span style="font-size:8px; font-weight:700; color:var(--c-green-txt);">3h 22m</span>
+            </div>
+            <div style="height:5px; background:#F3F4F6; border-radius:3px; overflow:hidden; display:flex;">
+              <div style="width:37.5%; background: linear-gradient(90deg,#52c98a,var(--mw-green)); height:100%; border-radius:3px 0 0 3px;"></div>
+              <div style="width:4.6%; background: linear-gradient(90deg,#fcd34d,var(--mw-amber)); height:100%;"></div>
+            </div>
+            <div style="display:flex; gap:6px; margin-top:2px;">
+              <span style="display:flex; align-items:center; gap:2px; font-size:7px; color:var(--text-soft); font-weight:600;"><span style="width:5px;height:5px;border-radius:1px;background:var(--mw-green);flex-shrink:0;display:inline-block;"></span>3h job</span>
+              <span style="display:flex; align-items:center; gap:2px; font-size:7px; color:var(--text-soft); font-weight:600;"><span style="width:5px;height:5px;border-radius:1px;background:var(--mw-amber);flex-shrink:0;display:inline-block;"></span>22m drive</span>
+            </div>
+          </div>
+          <div style="height:3px; background:#F3F4F6; margin:0 -8px;"><div style="height:100%; width:45%; background: linear-gradient(90deg, #52c98a, var(--mw-green));"></div></div>
+        </div>
+
+        <!-- Tooltip popover -->
+        <div class="dsc-tooltip">
+          <div class="tt-title">Monday · Full Breakdown</div>
+          <div class="tt-row">
+            <span class="tt-label">Revenue</span>
+            <span class="tt-val is-green">$1,240</span>
+          </div>
+          <div class="tt-row">
+            <span class="tt-label">Est. labor cost</span>
+            <span class="tt-val is-amber">$482</span>
+          </div>
+          <div class="tt-row">
+            <span class="tt-label">Overhead (20%)</span>
+            <span class="tt-val">$96</span>
+          </div>
+          <div class="tt-divider"></div>
+          <div class="tt-row">
+            <span class="tt-label">Job time</span>
+            <span class="tt-val is-green">3h 0m</span>
+          </div>
+          <div class="tt-row">
+            <span class="tt-label">Drive time</span>
+            <span class="tt-val is-amber">22m</span>
+          </div>
+          <div class="tt-row">
+            <span class="tt-label">Total day load</span>
+            <span class="tt-val">3h 22m <span style="font-size:9px; opacity:.6;">/ 8h cap</span></span>
+          </div>
+          <div class="tt-divider"></div>
+          <div class="tt-row">
+            <span class="tt-label">Gross profit</span>
+            <span class="tt-val is-green">$558</span>
+          </div>
+          <div class="tt-row">
+            <span class="tt-label">Rev / stop avg</span>
+            <span class="tt-val">$310</span>
+          </div>
+          <div class="tt-divider"></div>
+          <div class="tt-grade">
+            <div>
+              <div class="tt-grade-label">Day Grade</div>
+              <div class="tt-grade-sub">45% margin · Strong</div>
+            </div>
+            <div class="tt-grade-val">A</div>
+          </div>
+        </div>
+
+      </div><!-- /demo-card-wrap -->
+
+      <div class="demo-hint">
+        <strong>Hover the card</strong> to see the full financial breakdown popover.<br><br>
+        The Day Grade gives an instant A–F rating:<br>
+        <span style="color:var(--c-green-txt); font-weight:700;">A</span> ≥40% &nbsp;
+        <span style="color:var(--c-green-txt); font-weight:700;">B</span> 30–39% &nbsp;
+        <span style="color:var(--c-amber-txt); font-weight:700;">C</span> 20–29% &nbsp;
+        <span style="color:var(--mw-red); font-weight:700;">D</span> 10–19% &nbsp;
+        <span style="color:var(--mw-red); font-weight:700;">F</span> &lt;10%<br><br>
+        The popover is shown on hover only — it doesn't occupy permanent space in the narrow column.
+      </div>
+    </div>
+  </div>
+
+</div><!-- /page-body -->
+
+</body>
+</html>
