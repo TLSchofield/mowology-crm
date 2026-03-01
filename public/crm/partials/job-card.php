@@ -441,7 +441,6 @@ $stopTags = $stop['tags'] ?? [];
                     $evPillCls = 'mw-mc-pill-' . (($evStatus === 'completed') ? 'done' : (($evStatus === 'in_progress') ? 'active' : 'scheduled'));
                 ?>
                 <div class="mw-mc-visit-section" data-section-visit="<?php echo $evId; ?>">
-                    <?php if ($multiVisit): ?>
                     <div class="mw-mc-visit-section-header">
                         <span class="mw-mc-service-pill <?php echo $evPillCls; ?>"
                               data-section-pill="<?php echo $evId; ?>"
@@ -452,7 +451,6 @@ $stopTags = $stop['tags'] ?? [];
                             <?php echo htmlspecialchars($evLabel); ?>
                         </span>
                     </div>
-                    <?php endif; ?>
 
                     <!-- Photo strip for this specific visit -->
                     <div class="mw-mc-photo-strips" data-visit-strip="<?php echo $evId; ?>"></div>

@@ -3574,14 +3574,24 @@
     margin-top: 10px;
 }
 
-/* Pill used as section heading label */
+/* Full-width pill as section heading label */
 .mw-mc-visit-section-header {
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
 
 .mw-mc-visit-section-header .mw-mc-service-pill {
-    pointer-events: none;  /* Section-header pills are visual only — tappable pill is in the services row */
+    display: flex;            /* Override inline-flex so it can stretch */
+    width: 100%;
+    box-sizing: border-box;
+    justify-content: flex-start;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    pointer-events: none;  /* Visual only — tappable pill is in the services row */
     cursor: default;
+    gap: 6px;
+    align-items: center;
 }
 
 /* Per-visit footer — mirrors .mw-mc-card-footer but inside expand-detail */
@@ -3589,7 +3599,11 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 0 4px 0;
-    margin-top: 6px;
-    border-top: 1px solid rgba(0, 0, 0, 0.05);
+    padding: 10px 0 4px 0;
+    margin-top: 4px;
+}
+
+/* Per-visit footer buttons fill the row */
+.mw-mc-pv-footer .mw-mc-footer-btn {
+    flex: 1;
 }
