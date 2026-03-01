@@ -4,7 +4,7 @@ requireLogin();
 $user = getCurrentUser();
 
 $pageTitle = 'Card Layout Designer';
-$activePage = 'settings';
+$activePage = 'card-designer';
 
 ob_start();
 ?>
@@ -262,6 +262,20 @@ ob_start();
 .cdx-p-status { padding: 4px 14px; }
 .cdx-p-stat { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; background: rgba(45,134,89,.1); color: var(--cdx-green); border-radius: 6px; font-size: 10px; font-weight: 700; border: 1px solid rgba(45,134,89,.2); }
 
+/* Icon Picker */
+.cdx-icon-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.cdx-icon-pick {
+  height: 32px; background: #F2EEE8; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  border: 2px solid transparent; transition: all .12s; color: #888;
+}
+.cdx-icon-pick:hover { background: rgba(45,134,89,.1); border-color: var(--cdx-green); color: var(--cdx-green); }
+.cdx-icon-pick.sel { background: rgba(45,134,89,.15); border-color: var(--cdx-green); color: var(--cdx-green); }
+.cdx-icon-pick svg { width: 13px; height: 13px; }
+.cdx-icon-pick--clear { color: #CCC; }
+.cdx-icon-pick--clear:hover { background: rgba(232,93,4,.06); border-color: var(--cdx-orange); color: var(--cdx-orange); }
+.cdx-icon-pick--clear.sel { background: rgba(232,93,4,.06); border-color: var(--cdx-orange); color: var(--cdx-orange); }
+
 /* Toast */
 .cdx-toast { position: fixed; bottom: 24px; right: 24px; background: var(--cdx-forest); color: #fff; font-family: var(--cdx-font-mono); font-size: 12px; padding: 10px 18px; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.3); z-index: 9999; transform: translateY(80px); transition: transform .3s cubic-bezier(.34,1.56,.64,1); pointer-events: none; }
 .cdx-toast.show { transform: translateY(0); }
@@ -388,7 +402,35 @@ const IC = {
   dollar:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>`,
   pulse:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
   cursor:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>`,
+  // Lawn / garden specific + extras
+  leaf:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>`,
+  scissors: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>`,
+  droplet:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>`,
+  sun:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+  star:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  home:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+  truck:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>`,
+  phone:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.5 2 2 0 0 1 3.59 1h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 8.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
+  tool:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>`,
+  wind:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>`,
+  thermo:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>`,
+  map:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>`,
+  flag:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
+  zap:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  layers:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+  mail:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>`,
+  info:     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+  alert:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
 };
+
+// ── Icon Palette (all icon IDs available in the picker) ──
+const ICON_PALETTE = [
+  'clock','user','pin','tag','expand','cal','cam','login','check',
+  'nav','trend','file','users','dollar','pulse',
+  'leaf','scissors','droplet','sun','star',
+  'home','truck','phone','tool','wind',
+  'thermo','map','flag','zap','layers','mail','info','alert',
+];
 
 // ── Card Definitions ──
 // Stop Card has two independent views: compact (header) and expanded (detail on tap)
@@ -466,6 +508,27 @@ function setLayout(arr) {
   else state.layouts.schedule = arr;
 }
 
+// ── Icon Helpers ──
+// Returns the resolved icon key for an element (custom override → def.icon)
+function resolveIconKey(cardType, id) {
+  const def = (CARD_DEFS[cardType]?.elements || {})[id];
+  const p   = ((state.props[cardType] || {})[id]) || {};
+  return (p.icon) ? p.icon : (def ? def.icon : '');
+}
+// Returns an SVG wrapper <div> for use in palette tiles
+function getPaletteIcon(cardType, id) {
+  const key = resolveIconKey(cardType, id);
+  const def = (CARD_DEFS[cardType]?.elements || {})[id];
+  return IC[key] || IC[def?.icon] || '';
+}
+// Returns a sized <div> wrapping the icon SVG for use in card preview rows
+function getElemIcon(cardType, id, extraStyle) {
+  const key = resolveIconKey(cardType, id);
+  if (!key || !IC[key]) return '';
+  const st = extraStyle || 'width:12px;height:12px';
+  return `<div style="${st}">${IC[key]}</div>`;
+}
+
 // ── Render Engine ──
 function render() {
   renderPalette();
@@ -517,7 +580,7 @@ function renderPalette() {
     html += `<div class="cdx-tile${on?' cdx-tile--on-card':''}"
       draggable="${on?'false':'true'}"
       data-elem-id="${id}">
-      <div class="cdx-tile-ico">${IC[def.icon]||''}</div>
+      <div class="cdx-tile-ico">${getPaletteIcon(state.activeCard, id)}</div>
       <div style="flex:1;min-width:0">
         <div class="cdx-tile-lbl">${def.label}</div>
         ${on?'<div class="cdx-tile-on">on card</div>':''}
@@ -610,6 +673,15 @@ function renderProps() {
         <input class="cdx-prop-inp" type="text" placeholder="${def.label}"
                value="${p.label||''}" oninput="updateLabel(this.value)">
       </div>
+      <div class="cdx-prop-grp">
+        <div class="cdx-prop-lbl">Icon Override</div>
+        <div class="cdx-icon-grid">
+          <div class="cdx-icon-pick cdx-icon-pick--clear${!p.icon?' sel':''}" title="Use default icon" onclick="updateIcon('')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </div>
+          ${ICON_PALETTE.map(ic=>`<div class="cdx-icon-pick${p.icon===ic?' sel':''}" title="${ic}" onclick="updateIcon('${ic}')">${IC[ic]||''}</div>`).join('')}
+        </div>
+      </div>
       ${def.colorable ? `
       <div class="cdx-prop-grp">
         <div class="cdx-prop-lbl">Colour Accent</div>
@@ -641,17 +713,17 @@ function getStopPreview(id) {
       <div><div class="cdx-p-client-name">Johnson Residence</div>
       <div class="cdx-p-client-sub">Sarah Johnson · Returning</div></div></div>`;
     case 'address': return `<div class="cdx-p-addr">
-      <div style="width:12px;height:12px;flex-shrink:0;margin-top:1px">${IC.pin}</div>
+      ${getElemIcon('stop','address','width:12px;height:12px;flex-shrink:0;margin-top:1px')}
       1234 Oak Street, Vancouver BC</div>`;
     case 'service-pills': return `<div class="cdx-p-pills">
       <span class="cdx-p-pill">🌿 Lawn Mowing</span>
       <span class="cdx-p-pill" style="border-left-color:#e85d04;color:#e85d04;background:rgba(232,93,4,.08)">✂️ Hedge Trim</span></div>`;
     case 'duration': return `<div class="cdx-p-meta">
-      <div style="width:12px;height:12px">${IC.clock}</div> ~90 min</div>`;
+      ${getElemIcon('stop','duration')} ~90 min</div>`;
     case 'sq-ft': return `<div class="cdx-p-meta">
-      <div style="width:12px;height:12px">${IC.expand}</div> 2,400 sq ft</div>`;
+      ${getElemIcon('stop','sq-ft')} 2,400 sq ft</div>`;
     case 'last-visit': return `<div class="cdx-p-meta">
-      <div style="width:12px;height:12px">${IC.cal}</div> Last visit: Mar 1, 2026</div>`;
+      ${getElemIcon('stop','last-visit')} Last visit: Mar 1, 2026</div>`;
     case 'photos': return `<div class="cdx-p-photos">
       <div class="cdx-p-photo"><div style="width:16px;height:16px">${IC.cam}</div>Before</div>
       <div class="cdx-p-photo"><div style="width:16px;height:16px">${IC.cam}</div>After</div>
@@ -686,7 +758,7 @@ function getSchedulePreview(id) {
       <span class="cdx-p-badge">🌿 Lawn Mowing</span>
       <span class="cdx-p-badge cdx-p-badge-alt">✂️ Hedge Trim</span></div>`;
     case 'duration': return `<div class="cdx-p-meta">
-      <div style="width:12px;height:12px">${IC.clock}</div> 90 min</div>`;
+      ${getElemIcon('schedule','duration')} 90 min</div>`;
     case 'assigned-crew': return `<div class="cdx-p-crew">
       <div class="cdx-p-avatars"><div class="cdx-p-cav">TS</div><div class="cdx-p-cav">AK</div></div>
       <span class="cdx-p-crew-name">Tim S, Alex K</span></div>`;
@@ -696,7 +768,7 @@ function getSchedulePreview(id) {
     case 'status-badge': return `<div class="cdx-p-status">
       <span class="cdx-p-stat">● Scheduled</span></div>`;
     case 'address': return `<div class="cdx-p-addr">
-      <div style="width:12px;height:12px;flex-shrink:0">${IC.pin}</div>
+      ${getElemIcon('schedule','address','width:12px;height:12px;flex-shrink:0')}
       1234 Oak St, Vancouver</div>`;
     default: return `<div class="cdx-p-meta">${id}</div>`;
   }
@@ -768,6 +840,14 @@ function updateColor(hex) {
   if (!p[state.selectedElem]) p[state.selectedElem] = {};
   p[state.selectedElem].color = hex;
   renderProps();
+}
+function updateIcon(iconId) {
+  const p = state.props[state.activeCard];
+  if (!p[state.selectedElem]) p[state.selectedElem] = {};
+  p[state.selectedElem].icon = iconId;
+  renderPalette(); // Update tile icon in palette
+  renderCard();    // Update icon in card preview
+  renderProps();   // Update selected state in picker
 }
 function removeElem(id) {
   const layout = getLayout();

@@ -101,6 +101,15 @@ $navItems = [
             <?php endif; ?>
 
             <?php if (!function_exists('userHasPermission') || userHasPermission('settings.edit')): ?>
+            <li class="sidebar-item<?php echo ($activePage === 'card-designer') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/card-designer_appstack.php">
+                    <i class="align-middle" data-feather="layout"></i>
+                    <span class="align-middle">Card Designer</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <?php if (!function_exists('userHasPermission') || userHasPermission('settings.edit')): ?>
             <li class="sidebar-item<?php echo ($activePage === 'mockups') ? ' active' : ''; ?>">
                 <a class="sidebar-link" href="/crm/mockups_appstack.php">
                     <i class="align-middle" data-feather="layers"></i>
