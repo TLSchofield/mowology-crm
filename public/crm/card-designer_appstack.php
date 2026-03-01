@@ -447,6 +447,7 @@ const CARD_DEFS = {
       'client-name':   { label:'Client Name',         icon:'user',   desc:'Property & client info',       colorable:false },
       'address':       { label:'Address',             icon:'pin',    desc:'Service address',              colorable:false },
       'service-pills': { label:'Service Pills Row',   icon:'tag',    desc:'Service type badges (min 2)',  colorable:true  },
+      'job-type':      { label:'Job Type Pill',       icon:'flag',   desc:'Location type indicator (Residential / Commercial)', colorable:true  },
       'duration':      { label:'Duration',            icon:'clock',  desc:'Estimated job time',           colorable:false },
       'sq-ft':         { label:'Sq Ft',               icon:'expand', desc:'Property square footage',      colorable:false },
       'last-visit':    { label:'Last Visit',          icon:'cal',    desc:'Previous service date',        colorable:false },
@@ -755,6 +756,13 @@ function getStopPreview(id) {
     case 'service-pills': return `<div class="cdx-p-pills">
       <span class="cdx-p-pill">🌿 Lawn Mowing</span>
       <span class="cdx-p-pill" style="border-left-color:#e85d04;color:#e85d04;background:rgba(232,93,4,.08)">✂️ Hedge Trim</span></div>`;
+    case 'job-type': {
+      const p = ((state.props.stop || {})['job-type']) || {};
+      const c = p.color || 'var(--cdx-green)';
+      const cBg = p.color ? p.color + '18' : 'rgba(45,134,89,.1)';
+      return `<div class="cdx-p-pills">
+        <span class="cdx-p-pill" style="border-left-color:${c};color:${c};background:${cBg}">🏡 Residential</span></div>`;
+    }
     case 'duration': return `<div class="cdx-p-meta">
       ${getElemIcon('stop','duration')} ~90 min</div>`;
     case 'sq-ft': return `<div class="cdx-p-meta">
