@@ -963,6 +963,13 @@ function ensureCalendarStop(int $propertyId, string $date, ?int $crewId,
 function getCalendarStops(string $startDate, string $endDate, ?int $crewId = null, ?string $serviceType = null): array {
     $db = getDB();
 
+    // Check if Obsidian Root enrollment column exists (migration 920)
+    $hasOrStatus = false;
+    try {
+        $hasOrStatus = $db->query("SHOW COLUMNS FROM properties LIKE 'or_status'")->rowCount() > 0;
+    } catch (Exception $e) { /* ignore */ }
+    $orStatusSelect = $hasOrStatus ? ', p.or_status' : '';
+
     // Single query: stops with their visits
     $sql = "
         SELECT
@@ -978,7 +985,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             p.city AS property_city,
             p.latitude,
             p.longitude,
-            p.property_name,
+            p.property_name
+            {$orStatusSelect},
             COALESCE(
                 p.total_lawn_sqft,
                 (SELECT SUM(pm.area_sqft) FROM property_measurements pm
@@ -1095,6 +1103,7 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'contact_id'    => $row['contact_id'] ? (int)$row['contact_id'] : null,
                 'contact_name'  => $row['contact_name'],
                 'property_name' => $row['property_name'],
+                'or_status'     => $row['or_status'] ?? 'none',
                 'lawn_sqft'     => isset($row['lawn_sqft']) && $row['lawn_sqft'] > 0 ? (float)$row['lawn_sqft'] : null,
                 'last_completed_date' => $row['last_completed_date'] ?? null,
                 'visits'        => [],

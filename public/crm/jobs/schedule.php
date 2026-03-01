@@ -1629,6 +1629,20 @@ if ($apiKey) {
                                           <?php echo $distToNext; ?> km
                                       </div>
                                       <?php endif; ?>
+
+                                      <?php
+                                      // Obsidian Root™ enrollment badge
+                                      $orStatus = $stop['or_status'] ?? 'none';
+                                      if ($orStatus !== 'none'):
+                                          $orVariant = ($orStatus === 'enrolled') ? 'full' : 'sell';
+                                          $orTitle   = ($orStatus === 'enrolled') ? 'Obsidian Root™ — Active Program' : 'Obsidian Root™ — Offer to client';
+                                      ?>
+                                      <div class="mw-stop-or-badge or-icon or-icon-<?php echo $orVariant; ?>" title="<?php echo $orTitle; ?>">
+                                          <img src="/assets/images/programs/obsidian-root-logo.png"
+                                               width="24" height="24"
+                                               alt="Obsidian Root™">
+                                      </div>
+                                      <?php endif; ?>
                                   </div>
                               <?php endforeach; ?>
                           <?php endif; ?>
