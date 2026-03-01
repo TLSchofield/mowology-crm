@@ -3099,6 +3099,16 @@ if ($hasPropCoords) {
                 document.getElementById('pwz-draw-btn').style.display        = 'inline-block';
                 document.getElementById('pwz-cancel-draw-btn').style.display = 'none';
             },
+            onDraw: function() {
+                // Polygon drawn — re-enable Save, swap buttons, update hint
+                document.getElementById('pwz-save-btn').disabled              = false;
+                document.getElementById('pwz-draw-btn').style.display         = 'inline-block';
+                document.getElementById('pwz-cancel-draw-btn').style.display  = 'none';
+                pwzSetStep(2);
+                pwzSetHint('Zone outlined — click <strong>Save Zone</strong> to activate GPS tracking.', 'success');
+                pwzShowDrawTips(false);
+                pwzSafeFeather();
+            },
             onDelete: function() {
                 pwzShowStatus('Work zone removed.', 'info');
                 pwzSetStep(2);

@@ -5714,6 +5714,15 @@ $unconvertedRequests = $db->query("
         document.getElementById('wz-draw-btn').style.display        = 'inline-block';
         document.getElementById('wz-cancel-draw-btn').style.display = 'none';
       },
+      onDraw: function() {
+        document.getElementById('wz-save-btn').disabled              = false;
+        document.getElementById('wz-draw-btn').style.display         = 'inline-block';
+        document.getElementById('wz-cancel-draw-btn').style.display  = 'none';
+        wzSetStep(2);
+        wzSetHint('Zone outlined — click <strong>Save Zone</strong> to activate GPS tracking.', 'success');
+        wzShowDrawTips(false);
+        wzSafeFeather();
+      },
       onDelete: function() {
         wzShowStatus('Work zone removed.', 'info');
         wzSetStep(2);

@@ -62,6 +62,7 @@ class GeofenceManager {
             onSave:           null,
             onDelete:         null,
             onLoad:           null,   // (hasPolygon: bool) called after get_polygon resolves
+            onDraw:           null,   // (ring: [[lat,lng],...]) called when polygon drawing finishes
             onInZoneChange:   null,
         }, opts);
 
@@ -126,16 +127,18 @@ class GeofenceManager {
         });
 
         L.tileLayer(this._opts.tileUrl, {
-            attribution: this._opts.tileAttrib,
-            maxZoom:     19,
+            attribution:   this._opts.tileAttrib,
+            maxNativeZoom: 19,   // Esri tiles have native data to zoom 19
+            maxZoom:       21,   // allow upscaling beyond native for close inspection
         }).addTo(this._map);
 
         // Hybrid: street names + boundaries on top of satellite
         if (this._opts.labelsUrl) {
             L.tileLayer(this._opts.labelsUrl, {
-                attribution: '',
-                maxZoom:     19,
-                opacity:     0.85,
+                attribution:   '',
+                maxNativeZoom: 19,
+                maxZoom:       21,
+                opacity:       0.85,
             }).addTo(this._map);
         }
 
@@ -275,6 +278,11 @@ class GeofenceManager {
         this._renderPolygon(ring);
         this._fitBounds();
         this._showToast(`Polygon drawn (${ring.length} vertices). Click Save to confirm.`, 'success');
+
+        // Notify host page so it can re-enable the Save button
+        if (typeof this._opts.onDraw === 'function') {
+            this._opts.onDraw(ring);
+        }
     }
 
     _clearDrawMarkers() {
