@@ -17090,6 +17090,30 @@ textarea.font-monospace {
     background: rgba(204,0,0,.03);
 }
 
+/* ── Design Mockups page ── */
+.mw-mockup-frame-wrap {
+    border: 1px solid var(--mw-light);
+    border-radius: 8px;
+    overflow: hidden;
+    height: calc(100vh - 220px);
+    min-height: 500px;
+    background: #f8f9fa;
+}
+.mw-mockup-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    text-align: center;
+}
+.mw-mockup-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    MOBILE PREVIEW — Device Frame Simulator
    Page: /crm/mobile-preview_appstack.php
