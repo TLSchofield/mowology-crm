@@ -75,6 +75,7 @@ function cms_getPageById(int $pageId): ?array
 
 /**
  * Get all published pages (for sitemap, navigation, etc.)
+ * Respects publish_at / unpublish_at scheduling windows.
  *
  * @param string|null $pageType Filter by page_type (optional)
  * @return array Array of page records
@@ -86,17 +87,52 @@ function cms_getPublishedPages(?string $pageType = null): array
         SELECT id, slug, title, meta_title, meta_description, page_type, noindex, updated_at
         FROM cms_pages
         WHERE status = 'published'
+          AND (publish_at IS NULL OR publish_at <= NOW())
+          AND (unpublish_at IS NULL OR unpublish_at > NOW())
     ";
 
+    $params = [];
     if ($pageType) {
         $sql .= " AND page_type = ?";
-        $stmt = $db->prepare($sql);
-        $stmt->execute([$pageType]);
-    } else {
-        $stmt = $db->query($sql);
+        $params[] = $pageType;
     }
 
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+/**
+ * Determine if a page is live (published + within scheduling window).
+ * Use this in the public renderer; admin lookups should bypass it.
+ *
+ * @param array $page Page record from cms_getPageBySlug()
+ * @return bool True if the page should be shown to the public
+ */
+function cms_isPageLive(array $page): bool
+{
+    if (($page['status'] ?? '') !== 'published') {
+        return false;
+    }
+
+    $now = time();
+
+    if (!empty($page['publish_at'])) {
+        $publishAt = strtotime($page['publish_at']);
+        if ($publishAt !== false && $now < $publishAt) {
+            return false;
+        }
+    }
+
+    if (!empty($page['unpublish_at'])) {
+        $unpublishAt = strtotime($page['unpublish_at']);
+        if ($unpublishAt !== false && $now >= $unpublishAt) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /**
@@ -157,6 +193,12 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
     }
 
     if ($pageId) {
+        // Capture old slug BEFORE updating (for redirect auto-registration)
+        $oldSlugRow = $db->prepare("SELECT slug, status FROM cms_pages WHERE id = ? LIMIT 1");
+        $oldSlugRow->execute([$pageId]);
+        $oldPage = $oldSlugRow->fetch(PDO::FETCH_ASSOC);
+        $oldSlug = $oldPage['slug'] ?? null;
+
         // Update
         $stmt = $db->prepare("
             UPDATE cms_pages
@@ -199,6 +241,24 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
             $pageId,
         ]);
 
+        // Auto-register 301 redirect if slug changed
+        if ($oldSlug && $oldSlug !== $slug) {
+            cms_registerRedirect($oldSlug, $slug, 301);
+        }
+
+        // Invalidate HTML cache for this page
+        cms_invalidatePageHtmlCache($pageId);
+
+        // Activity log
+        $newStatus = $data['status'] ?? 'draft';
+        $action = ($oldPage && ($oldPage['status'] ?? '') !== $newStatus)
+            ? 'page_' . $newStatus
+            : 'page_updated';
+        cms_logCmsActivity($userId, $action, "Page '{$data['title']}' {$action}", [
+            'page_id' => $pageId,
+            'slug'    => $slug,
+        ]);
+
         return $pageId;
     } else {
         // Create
@@ -230,7 +290,15 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
             $now,
         ]);
 
-        return (int)$db->lastInsertId();
+        $newPageId = (int)$db->lastInsertId();
+
+        // Activity log
+        cms_logCmsActivity($userId, 'page_created', "Page '{$data['title']}' created", [
+            'page_id' => $newPageId,
+            'slug'    => $slug,
+        ]);
+
+        return $newPageId;
     }
 }
 
@@ -245,13 +313,34 @@ function cms_deletePage(int $pageId, bool $hardDelete = false): bool
 {
     $db = getDB();
 
+    // Grab title for activity log before deleting
+    $row = $db->prepare("SELECT title, slug FROM cms_pages WHERE id = ? LIMIT 1");
+    $row->execute([$pageId]);
+    $meta = $row->fetch(PDO::FETCH_ASSOC);
+
     if ($hardDelete) {
         $stmt = $db->prepare("DELETE FROM cms_pages WHERE id = ?");
     } else {
         $stmt = $db->prepare("UPDATE cms_pages SET status = 'archived' WHERE id = ?");
     }
 
-    return $stmt->execute([$pageId]);
+    $result = $stmt->execute([$pageId]);
+
+    if ($result) {
+        cms_invalidatePageHtmlCache($pageId);
+
+        $userId = 0;
+        if (function_exists('getCurrentUser')) {
+            try { $u = getCurrentUser(); $userId = (int)($u['id'] ?? 0); } catch (\Throwable $e) {}
+        }
+        $action = $hardDelete ? 'page_deleted' : 'page_archived';
+        cms_logCmsActivity($userId, $action, "Page '{$meta['title']}' {$action}", [
+            'page_id' => $pageId,
+            'slug'    => $meta['slug'] ?? '',
+        ]);
+    }
+
+    return $result;
 }
 
 // ============================================================================
@@ -368,6 +457,11 @@ function cms_saveBlock(
     $contentJson = json_encode($content, JSON_UNESCAPED_SLASHES);
     $visibilityJson = json_encode($visibility, JSON_UNESCAPED_SLASHES);
 
+    $userId = 0;
+    if (function_exists('getCurrentUser')) {
+        try { $u = getCurrentUser(); $userId = (int)($u['id'] ?? 0); } catch (\Throwable $e) {}
+    }
+
     if ($blockId) {
         // Update
         $stmt = $db->prepare("
@@ -379,8 +473,13 @@ function cms_saveBlock(
         ");
         $stmt->execute([$pageId, $blockType, $position, $configJson, $contentJson, $visibilityJson, $blockId]);
 
-        // Invalidate cache
+        // Invalidate request + HTML cache
         cms_invalidateCache("blocks_page_{$pageId}");
+        cms_invalidatePageHtmlCache($pageId);
+
+        cms_logCmsActivity($userId, 'block_updated', "Block '{$blockType}' updated on page #{$pageId}", [
+            'page_id' => $pageId, 'block_id' => $blockId, 'block_type' => $blockType,
+        ]);
 
         return $blockId;
     } else {
@@ -392,10 +491,17 @@ function cms_saveBlock(
         ");
         $stmt->execute([$pageId, $blockType, $position, $configJson, $contentJson, $visibilityJson]);
 
-        // Invalidate cache
-        cms_invalidateCache("blocks_page_{$pageId}");
+        $newBlockId = (int)$db->lastInsertId();
 
-        return (int)$db->lastInsertId();
+        // Invalidate request + HTML cache
+        cms_invalidateCache("blocks_page_{$pageId}");
+        cms_invalidatePageHtmlCache($pageId);
+
+        cms_logCmsActivity($userId, 'block_created', "Block '{$blockType}' added to page #{$pageId}", [
+            'page_id' => $pageId, 'block_id' => $newBlockId, 'block_type' => $blockType,
+        ]);
+
+        return $newBlockId;
     }
 }
 
@@ -408,7 +514,7 @@ function cms_saveBlock(
 function cms_deleteBlock(int $blockId): bool
 {
     $db = getDB();
-    $stmt = $db->prepare("SELECT page_id FROM cms_blocks WHERE id = ?");
+    $stmt = $db->prepare("SELECT page_id, block_type FROM cms_blocks WHERE id = ?");
     $stmt->execute([$blockId]);
     $block = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -419,8 +525,19 @@ function cms_deleteBlock(int $blockId): bool
     $stmt = $db->prepare("DELETE FROM cms_blocks WHERE id = ?");
     $result = $stmt->execute([$blockId]);
 
-    // Invalidate cache
-    cms_invalidateCache("blocks_page_{$block['page_id']}");
+    if ($result) {
+        // Invalidate request + HTML cache
+        cms_invalidateCache("blocks_page_{$block['page_id']}");
+        cms_invalidatePageHtmlCache((int)$block['page_id']);
+
+        $userId = 0;
+        if (function_exists('getCurrentUser')) {
+            try { $u = getCurrentUser(); $userId = (int)($u['id'] ?? 0); } catch (\Throwable $e) {}
+        }
+        cms_logCmsActivity($userId, 'block_deleted', "Block '{$block['block_type']}' deleted from page #{$block['page_id']}", [
+            'page_id' => $block['page_id'], 'block_id' => $blockId, 'block_type' => $block['block_type'],
+        ]);
+    }
 
     return $result;
 }
@@ -446,8 +563,9 @@ function cms_reorderBlocks(int $pageId, array $blockOrder): bool
         $stmt->execute([$position, $blockId, $pageId]);
     }
 
-    // Invalidate cache
+    // Invalidate request + HTML cache
     cms_invalidateCache("blocks_page_{$pageId}");
+    cms_invalidatePageHtmlCache($pageId);
 
     return true;
 }
@@ -1079,5 +1197,177 @@ function cms_logCmsActivity(int $userId, string $action, string $summary, array 
         // If table has neither column, silently skip
     } catch (Exception $e) {
         error_log('cms_logCmsActivity failed: ' . $e->getMessage());
+    }
+}
+
+// ============================================================================
+// HTML PAGE CACHE  (P1-B)
+// Stores fully-rendered HTML per page in cms_page_cache table.
+// Falls back to live render if table missing (migration 921 not yet run).
+// ============================================================================
+
+/**
+ * Retrieve cached HTML for a page.
+ *
+ * @param int $pageId
+ * @return string|null Cached HTML, or null on miss / expired
+ */
+function cms_getPageHtmlCache(int $pageId): ?string
+{
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            SELECT cache_html, cached_at, ttl_seconds
+            FROM cms_page_cache
+            WHERE page_id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$pageId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            return null;
+        }
+
+        // Check TTL
+        $age = time() - strtotime($row['cached_at']);
+        if ($age > (int)$row['ttl_seconds']) {
+            return null; // Expired
+        }
+
+        return $row['cache_html'];
+    } catch (\Throwable $e) {
+        // Table probably not created yet — silently skip
+        return null;
+    }
+}
+
+/**
+ * Store rendered HTML for a page.
+ *
+ * @param int    $pageId
+ * @param string $html       Full rendered HTML output
+ * @param int    $ttlSeconds Cache duration (default 1 hour)
+ */
+function cms_setPageHtmlCache(int $pageId, string $html, int $ttlSeconds = 3600): void
+{
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            INSERT INTO cms_page_cache (page_id, cache_html, cached_at, ttl_seconds)
+            VALUES (?, ?, NOW(), ?)
+            ON DUPLICATE KEY UPDATE cache_html = VALUES(cache_html),
+                                    cached_at  = NOW(),
+                                    ttl_seconds = VALUES(ttl_seconds)
+        ");
+        $stmt->execute([$pageId, $html, $ttlSeconds]);
+    } catch (\Throwable $e) {
+        // Silently skip — live render is the fallback
+    }
+}
+
+/**
+ * Invalidate the HTML cache for a specific page.
+ * Called automatically on page/block save/delete.
+ *
+ * @param int $pageId
+ */
+function cms_invalidatePageHtmlCache(int $pageId): void
+{
+    try {
+        $db = getDB();
+        $db->prepare("DELETE FROM cms_page_cache WHERE page_id = ?")->execute([$pageId]);
+    } catch (\Throwable $e) {
+        // Silently skip
+    }
+}
+
+/**
+ * Flush the entire HTML page cache (e.g. after a global CSS/token change).
+ */
+function cms_invalidateAllPageHtmlCache(): void
+{
+    try {
+        $db = getDB();
+        $db->exec("TRUNCATE TABLE cms_page_cache");
+    } catch (\Throwable $e) {
+        // Silently skip
+    }
+}
+
+// ============================================================================
+// REDIRECT MANAGEMENT  (P1-A)
+// Auto-populated when cms_savePage() detects a slug change.
+// Checked by cms-render.php before issuing a 404.
+// ============================================================================
+
+/**
+ * Look up a redirect for an old slug.
+ *
+ * @param string $fromSlug The slug being requested
+ * @return array|null  Array with keys: to_slug, status_code — or null if none
+ */
+function cms_getRedirectForSlug(string $fromSlug): ?array
+{
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            SELECT to_slug, status_code
+            FROM cms_page_redirects
+            WHERE from_slug = ? AND is_active = 1
+            LIMIT 1
+        ");
+        $stmt->execute([$fromSlug]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row) {
+            // Increment hit counter asynchronously (fire-and-forget)
+            try {
+                $db->prepare("UPDATE cms_page_redirects SET hit_count = hit_count + 1 WHERE from_slug = ?")
+                   ->execute([$fromSlug]);
+            } catch (\Throwable $e) {}
+        }
+
+        return $row ?: null;
+    } catch (\Throwable $e) {
+        // Table probably not created yet
+        return null;
+    }
+}
+
+/**
+ * Register a redirect rule (upserts on from_slug conflict).
+ * Called automatically by cms_savePage() when a slug changes.
+ *
+ * @param string $fromSlug   Old slug
+ * @param string $toSlug     New slug
+ * @param int    $statusCode 301 (permanent) or 302 (temporary)
+ */
+function cms_registerRedirect(string $fromSlug, string $toSlug, int $statusCode = 301): void
+{
+    if ($fromSlug === $toSlug) {
+        return;
+    }
+
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            INSERT INTO cms_page_redirects (from_slug, to_slug, status_code, is_active, created_at)
+            VALUES (?, ?, ?, 1, NOW())
+            ON DUPLICATE KEY UPDATE to_slug     = VALUES(to_slug),
+                                    status_code = VALUES(status_code),
+                                    is_active   = 1
+        ");
+        $stmt->execute([$fromSlug, $toSlug, $statusCode]);
+
+        // If the new slug was itself redirected FROM somewhere, update that chain
+        // so we never create redirect loops. (e.g. A→B, then B→C becomes A→C)
+        $db->prepare("
+            UPDATE cms_page_redirects
+            SET to_slug = ?
+            WHERE to_slug = ? AND from_slug != ?
+        ")->execute([$toSlug, $fromSlug, $toSlug]);
+    } catch (\Throwable $e) {
+        error_log('cms_registerRedirect failed: ' . $e->getMessage());
     }
 }

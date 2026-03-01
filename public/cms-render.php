@@ -53,22 +53,36 @@ if (empty($pageSlug)) {
 }
 
 try {
-    // Load page from database
+    // Load page from database (returns any status — live check below)
     $page = cms_getPageBySlug($pageSlug);
 
-    // If page not found or not published, try to fall back to legacy page
-    if (!$page || $page['status'] !== 'published') {
-        cms_fallbackToLegacy($pageSlug);
+    // If page not found or not live (status + scheduling window), check for redirect then fall back
+    if (!$page || !cms_isPageLive($page)) {
+        cms_checkRedirectOrFallback($pageSlug);
     }
 
-    // Page found and published - render it
+    // --- HTML Cache (P1-B) ---
+    // Serve cached HTML if fresh; otherwise render and cache the result.
+    $cachedHtml = cms_getPageHtmlCache((int)$page['id']);
+    if ($cachedHtml !== null) {
+        echo $cachedHtml;
+        exit;
+    }
+
+    ob_start();
     cms_renderPage($page);
+    $renderedHtml = ob_get_clean();
+
+    // Store in persistent cache (1-hour TTL, invalidated on any page/block save)
+    cms_setPageHtmlCache((int)$page['id'], $renderedHtml);
+
+    echo $renderedHtml;
 } catch (\Throwable $e) {
     // Log error with full detail
     error_log("CMS Render Error [{$pageSlug}]: " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine());
 
-    // Attempt fallback
-    cms_fallbackToLegacy($pageSlug ?? 'home');
+    // Attempt fallback (also checks redirects)
+    cms_checkRedirectOrFallback($pageSlug ?? 'home');
 }
 
 // ============================================================================
@@ -76,25 +90,37 @@ try {
 // ============================================================================
 
 /**
- * Attempt to fall back to a legacy PHP page
+ * Check for a CMS redirect, then fall back to legacy PHP, then 404.
+ * This is the single exit point for any page that isn't live in the CMS.
  *
- * @param string $slug Page slug
- * @return void (exits with 404 or loads legacy page)
+ * @param string $slug Requested slug
+ * @return void (never returns — always exits)
  */
-function cms_fallbackToLegacy(string $slug): void
+function cms_checkRedirectOrFallback(string $slug): void
 {
-    // Map of slug patterns to legacy files
+    // 1. Check cms_page_redirects for a 301/302 rule (P1-A)
+    if (function_exists('cms_getRedirectForSlug')) {
+        $redirect = cms_getRedirectForSlug($slug);
+        if ($redirect) {
+            $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+            $code    = (int)($redirect['status_code'] ?? 301);
+            $target  = $siteUrl . '/' . ltrim($redirect['to_slug'], '/');
+            header('Location: ' . $target, true, $code);
+            exit;
+        }
+    }
+
+    // 2. Legacy PHP fallback map
     $legacyMap = [
-        'home' => 'index.php',
-        'portfolio' => 'portfolio.php',
-        'about' => 'about.php',
-        'contact' => 'contact.php',
-        'services' => 'services_static.php',
-        'quote' => 'quote.php',
+        'home'          => 'index.php',
+        'portfolio'     => 'portfolio.php',
+        'about'         => 'about.php',
+        'contact'       => 'contact.php',
+        'services'      => 'services_static.php',
+        'quote'         => 'quote.php',
         'get-free-quote' => 'get-free-quote.php',
     ];
 
-    // Check for exact match
     if (isset($legacyMap[$slug])) {
         $legacyFile = __DIR__ . '/' . $legacyMap[$slug];
         if (file_exists($legacyFile)) {
@@ -103,7 +129,7 @@ function cms_fallbackToLegacy(string $slug): void
         }
     }
 
-    // Check for service landing page pattern (/services/*)
+    // 3. Service landing page pattern (/services/*)
     if (preg_match('/^services\/([a-z0-9\-]+)$/', $slug, $m)) {
         $serviceFile = __DIR__ . '/services/' . $m[1] . '.php';
         if (file_exists($serviceFile)) {
@@ -112,8 +138,22 @@ function cms_fallbackToLegacy(string $slug): void
         }
     }
 
-    // No fallback found - 404
+    // 4. Nothing found — 404
     header('HTTP/1.1 404 Not Found');
-    include __DIR__ . '/404.php';
+    $notFound = __DIR__ . '/404.php';
+    if (file_exists($notFound)) {
+        include $notFound;
+    } else {
+        echo '<h1>404 Not Found</h1>';
+    }
     exit;
+}
+
+/**
+ * Legacy alias kept for any code that still calls cms_fallbackToLegacy().
+ * @deprecated Use cms_checkRedirectOrFallback() directly.
+ */
+function cms_fallbackToLegacy(string $slug): void
+{
+    cms_checkRedirectOrFallback($slug);
 }

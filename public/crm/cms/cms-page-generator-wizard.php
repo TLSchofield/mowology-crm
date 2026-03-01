@@ -308,12 +308,17 @@ $neighbourhoods = pg_getNeighbourhoods();
                   </div>
                   <div class="card-body">
 
-                      <!-- Wizard Progress -->
+                      <!-- Wizard Progress (6 steps) -->
                       <div class="wizard-progress">
-                          <div class="progress-step active" data-step="1"></div>
-                          <div class="progress-step" data-step="2"></div>
-                          <div class="progress-step" data-step="3"></div>
-                          <div class="progress-step" data-step="4"></div>
+                          <div class="progress-step active" data-step="1" title="Template"></div>
+                          <div class="progress-step" data-step="2" title="Service"></div>
+                          <div class="progress-step" data-step="3" title="Location"></div>
+                          <div class="progress-step" data-step="4" title="SEO"></div>
+                          <div class="progress-step" data-step="5" title="Modules"></div>
+                          <div class="progress-step" data-step="6" title="Review"></div>
+                      </div>
+                      <div class="d-flex justify-content-between mb-3" style="font-size:.7rem;color:#999;margin-top:-0.75rem">
+                          <span>Template</span><span>Service</span><span>Location</span><span>SEO</span><span>Modules</span><span>Review</span>
                       </div>
 
                       <!-- Error messages -->
@@ -386,8 +391,100 @@ $neighbourhoods = pg_getNeighbourhoods();
                           </div>
                       </div>
 
-                      <!-- Step 4: Review and Generate -->
+                      <!-- Step 4: SEO Pre-population (P1-H) -->
                       <div class="wizard-step" data-step="4">
+                          <div class="step-header">
+                              <h3><i data-feather="search" style="width:1.1rem;height:1.1rem;vertical-align:-2px;color:var(--mw-green)"></i> SEO Settings</h3>
+                              <p>Auto-generated from your service &amp; location — edit as needed before publishing.</p>
+                          </div>
+
+                          <div class="select-group">
+                              <label for="seoTitle">Meta Title *
+                                  <span class="text-muted fw-normal" style="font-size:.8rem" id="seoTitleCount">(0/60)</span>
+                              </label>
+                              <input type="text" id="seoTitle" name="meta_title" class="text-input"
+                                     placeholder="Auto-generated — edit freely" maxlength="60">
+                              <small class="text-muted">Keep under 60 characters. Appears as the browser tab title and Google headline.</small>
+                          </div>
+
+                          <div class="select-group">
+                              <label for="seoDesc">Meta Description *
+                                  <span class="text-muted fw-normal" style="font-size:.8rem" id="seoDescCount">(0/155)</span>
+                              </label>
+                              <textarea id="seoDesc" name="meta_description" class="text-input" rows="3"
+                                        maxlength="155" placeholder="Auto-generated — edit freely"></textarea>
+                              <small class="text-muted">Keep under 155 characters. This is the snippet shown in Google search results.</small>
+                          </div>
+
+                          <div class="select-group">
+                              <label for="seoKeywords">Focus Keywords <span class="text-muted fw-normal">(optional)</span></label>
+                              <input type="text" id="seoKeywords" name="meta_keywords" class="text-input"
+                                     placeholder="e.g. lawn care Vancouver, grass cutting Burnaby">
+                              <small class="text-muted">Comma-separated. Used internally — not a strong ranking factor but useful for tracking.</small>
+                          </div>
+
+                          <div class="alert" style="background:var(--mw-light);border:1px solid var(--mw-green);border-radius:4px;font-size:.85rem">
+                              <i data-feather="info" style="width:0.9rem;height:0.9rem;color:var(--mw-green)"></i>
+                              <strong>Auto-populated from:</strong> service name, neighbourhood, business name (<?= h(defined('SITE_NAME') ? SITE_NAME : 'Mowology') ?>), and phone (<?= h(defined('SITE_PHONE_DISPLAY') ? SITE_PHONE_DISPLAY : '(778) 846-9273') ?>).
+                          </div>
+                      </div>
+
+                      <!-- Step 5: Module Selector (P1-H) -->
+                      <div class="wizard-step" data-step="5">
+                          <div class="step-header">
+                              <h3><i data-feather="layers" style="width:1.1rem;height:1.1rem;vertical-align:-2px;color:var(--mw-green)"></i> Choose Modules</h3>
+                              <p>Select which content blocks to include. The template default is pre-selected.</p>
+                          </div>
+
+                          <div id="moduleList" class="generator-cards" style="grid-template-columns:1fr 1fr">
+                              <!-- Populated by JS from block types list -->
+                              <?php
+                              $wizardBlockTypes = [
+                                  ['block_type' => 'hero',               'label' => 'Hero Banner',       'icon' => 'image',        'default' => true,  'desc' => 'Full-width headline + CTA'],
+                                  ['block_type' => 'feature_grid',       'label' => 'Feature Grid',      'icon' => 'grid',         'default' => true,  'desc' => '3-column benefits layout'],
+                                  ['block_type' => 'service_cards',      'label' => 'Service Cards',     'icon' => 'briefcase',    'default' => true,  'desc' => 'Service tiles with icons'],
+                                  ['block_type' => 'testimonials',       'label' => 'Testimonials',      'icon' => 'message-circle','default' => true, 'desc' => 'Customer reviews carousel'],
+                                  ['block_type' => 'cta',                'label' => 'CTA Section',       'icon' => 'zap',          'default' => true,  'desc' => 'Call-to-action with buttons'],
+                                  ['block_type' => 'faq',                'label' => 'FAQ',               'icon' => 'help-circle',  'default' => false, 'desc' => 'Accordion FAQ'],
+                                  ['block_type' => 'gallery',            'label' => 'Gallery',           'icon' => 'camera',       'default' => false, 'desc' => 'Photo gallery grid'],
+                                  ['block_type' => 'stats_banner',       'label' => 'Stats Banner',      'icon' => 'bar-chart-2',  'default' => false, 'desc' => 'Key metrics / numbers'],
+                                  ['block_type' => 'before_after',       'label' => 'Before/After',      'icon' => 'columns',      'default' => false, 'desc' => 'Comparison image slider'],
+                                  ['block_type' => 'area_cards',         'label' => 'Service Areas',     'icon' => 'map-pin',      'default' => false, 'desc' => 'Location coverage cards'],
+                                  ['block_type' => 'portfolio_showcase', 'label' => 'Portfolio',         'icon' => 'award',        'default' => false, 'desc' => 'Featured project showcase'],
+                                  ['block_type' => 'rich_text',          'label' => 'Rich Text',         'icon' => 'file-text',    'default' => false, 'desc' => 'Custom HTML content'],
+                              ];
+                              foreach ($wizardBlockTypes as $bt):
+                              ?>
+                              <div class="generator-card" onclick="toggleModule(this, '<?= h($bt['block_type']) ?>')">
+                                  <div style="display:flex;align-items:center;gap:.6rem">
+                                      <div class="mw-module-check <?= $bt['default'] ? 'checked' : '' ?>"
+                                           id="mcheck_<?= h($bt['block_type']) ?>"
+                                           style="width:20px;height:20px;border:2px solid;border-color:<?= $bt['default'] ? 'var(--mw-green)' : '#ddd' ?>;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:<?= $bt['default'] ? 'var(--mw-green)' : 'transparent' ?>">
+                                          <?php if ($bt['default']): ?>
+                                          <i data-feather="check" style="width:.75rem;height:.75rem;color:white"></i>
+                                          <?php endif; ?>
+                                      </div>
+                                      <div>
+                                          <div style="font-weight:600;font-size:.9rem"><?= h($bt['label']) ?></div>
+                                          <div style="font-size:.75rem;color:#888"><?= h($bt['desc']) ?></div>
+                                      </div>
+                                  </div>
+                                  <input type="hidden" id="mod_<?= h($bt['block_type']) ?>" name="modules[]"
+                                         value="<?= h($bt['block_type']) ?>" <?= $bt['default'] ? '' : 'disabled' ?>>
+                              </div>
+                              <?php endforeach; ?>
+                          </div>
+
+                          <div class="preview-box" style="margin-top:1rem">
+                              <div style="font-size:.85rem;color:#666">
+                                  <strong>Selected modules:</strong>
+                                  <span id="selectedModulesSummary"><?= implode(', ', array_column(array_filter($wizardBlockTypes, fn($b) => $b['default']), 'label')) ?></span>
+                              </div>
+                          </div>
+                      </div>
+
+                      <!-- Step 6: Review and Generate (was Step 4) -->
+                      <div class="wizard-step" data-step="6">
                           <div class="step-header">
                               <h3>Review and Generate</h3>
                               <p>Confirm page details before generating</p>
@@ -409,6 +506,18 @@ $neighbourhoods = pg_getNeighbourhoods();
                               <div class="preview-row">
                                   <div class="preview-label">Page Title:</div>
                                   <div class="preview-value" id="previewTitle">-</div>
+                              </div>
+                              <div class="preview-row" style="border-top:1px solid #e0e0e0;padding-top:.5rem;margin-top:.5rem">
+                                  <div class="preview-label">Meta Title:</div>
+                                  <div class="preview-value" id="previewSeoTitle" style="color:var(--mw-green)">-</div>
+                              </div>
+                              <div class="preview-row">
+                                  <div class="preview-label">Meta Desc:</div>
+                                  <div class="preview-value" id="previewSeoDesc" style="font-size:.85rem">-</div>
+                              </div>
+                              <div class="preview-row">
+                                  <div class="preview-label">Modules:</div>
+                                  <div class="preview-value small" id="previewModules">-</div>
                               </div>
                           </div>
 
@@ -433,44 +542,131 @@ $neighbourhoods = pg_getNeighbourhoods();
 
 <script>
 let currentStep = 1;
-const totalSteps = 4;
+const totalSteps = 6;  // P1-H: 6 steps (added SEO + Modules)
 
 const generatorMap = <?php echo json_encode(array_reduce($generators, fn($acc, $g) => $acc + [$g['config_key'] => $g['config_label']], [])); ?>;
 const serviceMap = <?php echo json_encode($services); ?>;
 const neighbourhoodMap = <?php echo json_encode($neighbourhoods); ?>;
+const siteName = <?php echo json_encode(defined('SITE_NAME') ? SITE_NAME : 'Mowology') ?>;
+const sitePhone = <?php echo json_encode(defined('SITE_PHONE_DISPLAY') ? SITE_PHONE_DISPLAY : '(778) 846-9273') ?>;
 
 function showStep(step) {
     document.querySelectorAll('.wizard-step').forEach(el => el.classList.remove('active'));
-    document.querySelector(`[data-step="${step}"]`).classList.add('active');
+    document.querySelector(`.wizard-step[data-step="${step}"]`).classList.add('active');
 
     // Update progress
-    document.querySelectorAll('.progress-step').forEach((el, idx) => {
+    document.querySelectorAll('.progress-step').forEach((el) => {
         el.classList.remove('active', 'completed');
         const stepNum = parseInt(el.dataset.step);
-        if (stepNum === step) {
-            el.classList.add('active');
-        } else if (stepNum < step) {
-            el.classList.add('completed');
-        }
+        if (stepNum === step) el.classList.add('active');
+        else if (stepNum < step) el.classList.add('completed');
     });
 
     // Update button visibility
     document.getElementById('btnPrev').style.display = step > 1 ? 'block' : 'none';
-    document.getElementById('btnNext').textContent = step === totalSteps ? 'Generate' : 'Next →';
-    document.getElementById('btnNext').id = step === totalSteps ? 'btnGenerate' : 'btnNext';
+    const btnNext = document.getElementById('btnNext') || document.getElementById('btnGenerate');
+    if (btnNext) {
+        btnNext.textContent = step === totalSteps ? 'Generate Page' : 'Next →';
+        btnNext.id = step === totalSteps ? 'btnGenerate' : 'btnNext';
+    }
 
-    // Update preview on last step
-    if (step === totalSteps) {
-        updatePreview();
+    // Step 4: auto-populate SEO fields
+    if (step === 4) autoPopulateSeo();
+
+    // Step 6: update preview summary
+    if (step === totalSteps) updatePreview();
+
+    // Re-run feather icons for any new SVGs
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+// SEO auto-population from service + neighbourhood + site constants (P1-H)
+function autoPopulateSeo() {
+    const service = serviceMap[document.getElementById('serviceSelect')?.value] || '';
+    const neighbourhood = neighbourhoodMap[document.getElementById('neighbourhoodSelect')?.value] || '';
+
+    const titleEl = document.getElementById('seoTitle');
+    const descEl  = document.getElementById('seoDesc');
+    const kwEl    = document.getElementById('seoKeywords');
+
+    // Only auto-populate if still empty (don't overwrite user edits)
+    if (titleEl && !titleEl.value) {
+        const title = service && neighbourhood
+            ? `${service} in ${neighbourhood} | ${siteName}`
+            : `${service || 'Our Services'} | ${siteName}`;
+        titleEl.value = title.substring(0, 60);
+        updateCharCount('seoTitle', 'seoTitleCount', 60);
+    }
+
+    if (descEl && !descEl.value) {
+        const desc = service && neighbourhood
+            ? `Professional ${service.toLowerCase()} in ${neighbourhood}. Reliable, affordable, and locally trusted. Call ${sitePhone} for a free quote.`
+            : `Expert ${service.toLowerCase()} services by ${siteName}. Serving the Greater Vancouver area. Call ${sitePhone} today.`;
+        descEl.value = desc.substring(0, 155);
+        updateCharCount('seoDesc', 'seoDescCount', 155);
+    }
+
+    if (kwEl && !kwEl.value && service) {
+        const neighbourhood_lc = neighbourhood ? neighbourhood.toLowerCase() : 'vancouver';
+        kwEl.value = `${service.toLowerCase()}, ${service.toLowerCase()} ${neighbourhood_lc}, lawn care ${neighbourhood_lc}`;
     }
 }
 
+function updateCharCount(inputId, countId, max) {
+    const el = document.getElementById(inputId);
+    const cnt = document.getElementById(countId);
+    if (el && cnt) {
+        cnt.textContent = `(${el.value.length}/${max})`;
+        cnt.style.color = el.value.length > max * 0.9 ? 'var(--mw-orange)' : '#999';
+    }
+}
+
+// Wire character counters
+['seoTitle', 'seoDesc'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+        const max = id === 'seoTitle' ? 60 : 155;
+        el.addEventListener('input', () => updateCharCount(id, id + 'Count', max));
+    }
+});
+
+// Module toggle (P1-H)
+function toggleModule(card, blockType) {
+    const check  = document.getElementById('mcheck_' + blockType);
+    const input  = document.getElementById('mod_' + blockType);
+    const isOn   = !input.disabled;
+
+    if (isOn) {
+        input.disabled = true;
+        check.style.background = 'transparent';
+        check.style.borderColor = '#ddd';
+        check.innerHTML = '';
+    } else {
+        input.disabled = false;
+        check.style.background = 'var(--mw-green)';
+        check.style.borderColor = 'var(--mw-green)';
+        check.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+    }
+
+    // Update summary text
+    const selected = [...document.querySelectorAll('input[name="modules[]"]:not(:disabled)')]
+        .map(i => i.closest('.generator-card').querySelector('div div:first-child').textContent.trim());
+    const summary = document.getElementById('selectedModulesSummary');
+    if (summary) summary.textContent = selected.length ? selected.join(', ') : 'None selected';
+}
+
 function getFormData() {
+    const modules = [...document.querySelectorAll('input[name="modules[]"]:not(:disabled)')]
+        .map(i => i.value);
     return {
-        generator_key: document.querySelector('input[name="generator_key"]:checked')?.value,
-        service: document.getElementById('serviceSelect')?.value,
-        neighbourhood: document.getElementById('neighbourhoodSelect')?.value,
-        custom_title: document.getElementById('customTitle')?.value
+        generator_key:    document.querySelector('input[name="generator_key"]:checked')?.value,
+        service:          document.getElementById('serviceSelect')?.value,
+        neighbourhood:    document.getElementById('neighbourhoodSelect')?.value,
+        custom_title:     document.getElementById('customTitle')?.value,
+        meta_title:       document.getElementById('seoTitle')?.value,
+        meta_description: document.getElementById('seoDesc')?.value,
+        meta_keywords:    document.getElementById('seoKeywords')?.value,
+        modules:          modules,
     };
 }
 
@@ -478,20 +674,27 @@ function validateStep(step) {
     const data = getFormData();
     switch (step) {
         case 1:
-            if (!data.generator_key) {
-                showError('Please select a template');
-                return false;
-            }
+            if (!data.generator_key) { showError('Please select a template'); return false; }
             return true;
         case 2:
-            if (!data.service) {
-                showError('Please select a service');
+            if (!data.service) { showError('Please select a service'); return false; }
+            return true;
+        case 3:
+            if (!data.neighbourhood) { showError('Please select a neighbourhood'); return false; }
+            return true;
+        case 4:
+            if (!data.meta_title || data.meta_title.length < 5) {
+                showError('Please enter a meta title (at least 5 characters)');
+                return false;
+            }
+            if (!data.meta_description || data.meta_description.length < 10) {
+                showError('Please enter a meta description (at least 10 characters)');
                 return false;
             }
             return true;
-        case 3:
-            if (!data.neighbourhood) {
-                showError('Please select a neighbourhood');
+        case 5:
+            if (!data.modules || data.modules.length === 0) {
+                showError('Please select at least one content module');
                 return false;
             }
             return true;
@@ -502,16 +705,22 @@ function validateStep(step) {
 
 function updatePreview() {
     const data = getFormData();
-    document.getElementById('previewTemplate').textContent = generatorMap[data.generator_key] || '-';
-    document.getElementById('previewService').textContent = serviceMap[data.service] || '-';
+    document.getElementById('previewTemplate').textContent     = generatorMap[data.generator_key] || '-';
+    document.getElementById('previewService').textContent      = serviceMap[data.service] || '-';
     document.getElementById('previewNeighbourhood').textContent = neighbourhoodMap[data.neighbourhood] || '-';
+
+    // SEO preview
+    const previewSeoTitle = document.getElementById('previewSeoTitle');
+    const previewSeoDesc  = document.getElementById('previewSeoDesc');
+    const previewModules  = document.getElementById('previewModules');
+    if (previewSeoTitle) previewSeoTitle.textContent = data.meta_title || '-';
+    if (previewSeoDesc)  previewSeoDesc.textContent  = data.meta_description || '-';
+    if (previewModules)  previewModules.textContent   = data.modules?.join(', ') || '-';
 
     // Generate preview title
     const config = <?php echo json_encode(array_reduce($generators, fn($acc, $g) => $acc + [$g['config_key'] => $g['config_data']], [])); ?>;
     let titleTemplate = config[data.generator_key]?.title_template || 'Generated Page';
-    if (data.custom_title) {
-        titleTemplate = data.custom_title;
-    }
+    if (data.custom_title) titleTemplate = data.custom_title;
     const title = titleTemplate
         .replace('{service}', serviceMap[data.service] || '')
         .replace('{neighbourhood}', neighbourhoodMap[data.neighbourhood] || '');
@@ -559,13 +768,17 @@ document.addEventListener('click', (e) => {
             currentStep++;
             showStep(currentStep);
         } else {
-            // Generate page
+            // Generate page — include SEO metadata and selected modules (P1-H)
             const data = getFormData();
             const formData = new FormData();
-            formData.append('generator_key', data.generator_key);
-            formData.append('service', data.service);
-            formData.append('neighbourhood', data.neighbourhood);
-            formData.append('custom_title', data.custom_title);
+            formData.append('generator_key',    data.generator_key);
+            formData.append('service',          data.service);
+            formData.append('neighbourhood',    data.neighbourhood);
+            formData.append('custom_title',     data.custom_title);
+            formData.append('meta_title',       data.meta_title || '');
+            formData.append('meta_description', data.meta_description || '');
+            formData.append('meta_keywords',    data.meta_keywords || '');
+            (data.modules || []).forEach(m => formData.append('modules[]', m));
             formData.append('csrf_token', '<?php echo generateCSRFToken(); ?>');
 
             const btn = document.getElementById('btnGenerate');

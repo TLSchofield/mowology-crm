@@ -37,10 +37,31 @@ function cms_renderPage(array $page): void
     $pageDescription = $tokenMap ? cms_resolveTokens($rawDesc, $tokenMap) : $rawDesc;
     $activeNav = cms_getActiveNav($page);
 
-    // OG image: use page-specific image, fall back to site default logo
+    // Load blocks early — needed for OG image auto-select and token processing
+    $blocks = cms_getBlocksByPageId($page['id']);
+    if ($tokenMap) {
+        foreach ($blocks as &$block) {
+            if (!empty($block['config']) && is_array($block['config'])) {
+                $block['config'] = cms_processBlockConfig($block['config'], $tokenMap);
+            }
+        }
+        unset($block);
+    }
+
+    // OG image: page-specific → first hero block image → site default (P1-D)
     $ogImagePath = $page['og_image_path'] ?? '';
     if (empty($ogImagePath)) {
-        // Default share image — adjust path if logo location changes
+        foreach ($blocks as $block) {
+            if ($block['block_type'] === 'hero') {
+                $cfg = $block['config'] ?? [];
+                $ogImagePath = $cfg['background_image'] ?? $cfg['image'] ?? $cfg['image_url'] ?? '';
+                if (!empty($ogImagePath)) {
+                    break;
+                }
+            }
+        }
+    }
+    if (empty($ogImagePath)) {
         $ogImagePath = '/assets/images/mowology-share.jpg';
     }
     $pageImage = $ogImagePath;
@@ -51,7 +72,7 @@ function cms_renderPage(array $page): void
         header('X-Robots-Tag: noindex, nofollow');
         $extraHead .= '<meta name="robots" content="noindex, nofollow">' . "\n";
     }
-    $extraHead .= cms_renderStructuredData($page);
+    $extraHead .= cms_renderStructuredData($page, $blocks);
 
     // Resolve path to public includes (works in both local dev and production)
     // cms-renderer.php is at /public/crm/includes/ → public root is 2 dirs up
@@ -69,17 +90,7 @@ function cms_renderPage(array $page): void
         $layoutPath = CMS_LAYOUTS_DIR . '/default.php';
     }
 
-    // Get page blocks and apply token replacement to config
-    $blocks = cms_getBlocksByPageId($page['id']);
-    if ($tokenMap) {
-        foreach ($blocks as &$block) {
-            if (!empty($block['config']) && is_array($block['config'])) {
-                $block['config'] = cms_processBlockConfig($block['config'], $tokenMap);
-            }
-        }
-        unset($block);
-    }
-
+    // $blocks already loaded and token-processed above — passed into layout via scope
     // Render layout with blocks
     include $layoutPath;
 
@@ -96,7 +107,13 @@ function cms_renderPage(array $page): void
 function cms_renderBlock(array $block): string
 {
     $blockType = $block['block_type'] ?? '';
-    $rendererPath = CMS_BLOCKS_RENDERER_DIR . '/' . $blockType . '.php';
+    $variant   = !empty($block['variant']) ? $block['variant'] : 'default';
+
+    // Variant renderer: blocks/{type}--{variant}.php (P1-C)
+    // Falls back to the standard renderer if the variant file doesn't exist.
+    $variantPath  = CMS_BLOCKS_RENDERER_DIR . '/' . $blockType . '--' . $variant . '.php';
+    $defaultPath  = CMS_BLOCKS_RENDERER_DIR . '/' . $blockType . '.php';
+    $rendererPath = ($variant !== 'default' && file_exists($variantPath)) ? $variantPath : $defaultPath;
 
     if (!file_exists($rendererPath)) {
         return "<!-- Block renderer not found: {$blockType} -->";
@@ -266,35 +283,156 @@ function cms_renderBreadcrumbs(array $page): string
 }
 
 /**
- * Render structured data (JSON-LD) for a page
+ * Render structured data (JSON-LD) for a page — page-type aware (P1-D).
  *
- * @param array $page Page record
- * @return string JSON-LD script tag
+ * Emits appropriate schema.org types:
+ *   home            → LocalBusiness + WebSite
+ *   service_landing → Service + LocalBusiness
+ *   portfolio       → ImageGallery
+ *   default         → WebPage
+ *
+ * @param array $page   Page record
+ * @param array $blocks Already-loaded blocks (used to pull first image if no og_image_path)
+ * @return string One or more JSON-LD <script> tags
  */
-function cms_renderStructuredData(array $page): string
+function cms_renderStructuredData(array $page, array $blocks = []): string
 {
-    $schema = [
-        '@context' => 'https://schema.org',
-        '@type' => 'WebPage',
-        'name' => $page['title'],
-        'description' => $page['meta_description'] ?? '',
-        'url' => $page['canonical_url'] ?? SITE_URL . '/' . $page['slug'],
-    ];
+    $siteUrl  = defined('SITE_URL')  ? SITE_URL  : 'https://mowology.ca';
+    $siteName = defined('SITE_NAME') ? SITE_NAME : 'Mowology';
+    $phone    = defined('SITE_PHONE_DISPLAY') ? SITE_PHONE_DISPLAY : '(778) 846-9273';
+    $email    = defined('SITE_EMAIL') ? SITE_EMAIL : '';
 
-    if ($page['og_image_path']) {
-        $schema['image'] = SITE_URL . $page['og_image_path'];
+    $pageUrl = $page['canonical_url'] ?? $siteUrl . '/' . ltrim($page['slug'] ?? '', '/');
+    $pageDesc = $page['meta_description'] ?? '';
+    $pageTitle = $page['title'] ?? $siteName;
+
+    // Resolve best available image for schema
+    $imageUrl = '';
+    if (!empty($page['og_image_path'])) {
+        $imageUrl = $siteUrl . $page['og_image_path'];
+    } else {
+        foreach ($blocks as $block) {
+            if ($block['block_type'] === 'hero') {
+                $cfg = $block['config'] ?? [];
+                $img = $cfg['background_image'] ?? $cfg['image'] ?? $cfg['image_url'] ?? '';
+                if ($img) { $imageUrl = $siteUrl . $img; break; }
+            }
+        }
     }
 
-    // Add organization context
-    $schema['isPartOf'] = [
-        '@type' => 'WebSite',
-        'name' => SITE_NAME,
-        'url' => SITE_URL,
+    // Shared LocalBusiness node (referenced by other schemas)
+    $localBusiness = [
+        '@type'       => 'LocalBusiness',
+        '@id'         => $siteUrl . '/#business',
+        'name'        => $siteName,
+        'url'         => $siteUrl,
+        'telephone'   => $phone,
+        'email'       => $email,
+        'address'     => [
+            '@type'           => 'PostalAddress',
+            'addressLocality' => 'Vancouver',
+            'addressRegion'   => 'BC',
+            'addressCountry'  => 'CA',
+        ],
+        'areaServed'  => [
+            'Vancouver', 'Burnaby', 'Richmond',
+            'North Vancouver', 'West Vancouver', 'Surrey',
+        ],
+        'priceRange'  => '$$',
     ];
+    if ($imageUrl) {
+        $localBusiness['image'] = $imageUrl;
+    }
 
-    $json = json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    $schemas = [];
 
-    return '<script type="application/ld+json">' . "\n" . $json . "\n" . '</script>';
+    switch ($page['page_type'] ?? 'custom') {
+
+        case 'home':
+            $schemas[] = array_merge(
+                ['@context' => 'https://schema.org'],
+                $localBusiness,
+                ['@type' => ['LocalBusiness', 'LandscapingBusiness']]
+            );
+            $schemas[] = [
+                '@context'        => 'https://schema.org',
+                '@type'           => 'WebSite',
+                'name'            => $siteName,
+                'url'             => $siteUrl,
+                'potentialAction' => [
+                    '@type'       => 'SearchAction',
+                    'target'      => $siteUrl . '/search?q={search_term_string}',
+                    'query-input' => 'required name=search_term_string',
+                ],
+            ];
+            break;
+
+        case 'service_landing':
+        case 'services':
+            $schemas[] = [
+                '@context'    => 'https://schema.org',
+                '@type'       => 'Service',
+                'name'        => $pageTitle,
+                'description' => $pageDesc,
+                'url'         => $pageUrl,
+                'provider'    => ['@id' => $siteUrl . '/#business'],
+                'areaServed'  => ['Vancouver', 'Burnaby', 'Richmond', 'North Vancouver'],
+                'serviceType' => $pageTitle,
+            ];
+            if ($imageUrl) {
+                $schemas[0]['image'] = $imageUrl;
+            }
+            $schemas[] = array_merge(
+                ['@context' => 'https://schema.org'],
+                $localBusiness
+            );
+            break;
+
+        case 'portfolio':
+            $schema = [
+                '@context'    => 'https://schema.org',
+                '@type'       => 'ImageGallery',
+                'name'        => $pageTitle,
+                'description' => $pageDesc,
+                'url'         => $pageUrl,
+            ];
+            if ($imageUrl) {
+                $schema['image'] = $imageUrl;
+            }
+            $schemas[] = $schema;
+            break;
+
+        default:
+            $schema = [
+                '@context'    => 'https://schema.org',
+                '@type'       => 'WebPage',
+                'name'        => $pageTitle,
+                'description' => $pageDesc,
+                'url'         => $pageUrl,
+                'isPartOf'    => [
+                    '@type' => 'WebSite',
+                    'name'  => $siteName,
+                    'url'   => $siteUrl,
+                ],
+            ];
+            if ($imageUrl) {
+                $schema['image'] = $imageUrl;
+            }
+            $schemas[] = $schema;
+            break;
+    }
+
+    $output = '';
+    foreach ($schemas as $schema) {
+        try {
+            $json    = json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            $output .= '<script type="application/ld+json">' . "\n" . $json . "\n" . '</script>' . "\n";
+        } catch (\Throwable $e) {
+            // Skip broken schema rather than breaking the page
+        }
+    }
+
+    return $output;
 }
 
 /**
