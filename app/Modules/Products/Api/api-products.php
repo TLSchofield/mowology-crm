@@ -495,18 +495,22 @@ try {
         $search = $_GET['search'] ?? null;
 
         // Check if icon_sets integration columns are available (migration 910)
-        $hasIconSetJoin = false;
+        $hasIconSetJoin  = false;
+        $hasIconBasePath = false;
         try {
-            $icColCheck  = $db->query("SHOW COLUMNS FROM products LIKE 'icon_set_id'")->rowCount() > 0;
-            $icTblCheck  = $db->query("SHOW TABLES LIKE 'icon_sets'")->rowCount() > 0;
-            $hasIconSetJoin = $icColCheck && $icTblCheck;
+            $icColCheck      = $db->query("SHOW COLUMNS FROM products LIKE 'icon_set_id'")->rowCount() > 0;
+            $icTblCheck      = $db->query("SHOW TABLES LIKE 'icon_sets'")->rowCount() > 0;
+            $hasIconBasePath = $db->query("SHOW COLUMNS FROM products LIKE 'icon_base_path'")->rowCount() > 0;
+            $hasIconSetJoin  = $icColCheck && $icTblCheck;
         } catch (Exception $e) {
             // Ignore — fallback to plain query
         }
 
         if ($hasIconSetJoin) {
-            $iconJoin      = "LEFT JOIN icon_sets s ON s.id = p.icon_set_id";
-            $iconCoalesce  = ", COALESCE(s.icon_base_path, p.icon_base_path) AS icon_base_path";
+            $iconJoin       = "LEFT JOIN icon_sets s ON s.id = p.icon_set_id";
+            $iconCoalesce   = $hasIconBasePath
+                ? ", COALESCE(s.icon_base_path, p.icon_base_path) AS icon_base_path"
+                : ", s.icon_base_path AS icon_base_path";
             $iconNameSelect = ", s.name AS icon_set_name";
         } else {
             $iconJoin       = "";
