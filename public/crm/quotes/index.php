@@ -23,8 +23,10 @@ if ($statusFilter) {
 }
 
 if ($searchQuery) {
-    $whereConditions[] = '(q.quote_number LIKE ? OR c.company_name LIKE ? OR p.address LIKE ?)';
+    $whereConditions[] = '(q.quote_number LIKE ? OR c.company_name LIKE ? OR p.address LIKE ? OR CONCAT(qrc.first_name," ",qrc.last_name) LIKE ? OR CONCAT(pc.first_name," ",pc.last_name) LIKE ?)';
     $searchParam = "%{$searchQuery}%";
+    $params[] = $searchParam;
+    $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;
@@ -38,10 +40,22 @@ $stmt = $db->prepare("
         c.company_name,
         p.address as property_address,
         p.city as property_city,
-        u.full_name as created_by_name
+        u.full_name as created_by_name,
+        qrc.first_name as qr_first_name,
+        qrc.last_name  as qr_last_name,
+        pc.first_name  as prop_contact_first,
+        pc.last_name   as prop_contact_last,
+        COALESCE(
+            NULLIF(TRIM(CONCAT(COALESCE(qrc.first_name,''),' ',COALESCE(qrc.last_name,''))), ''),
+            NULLIF(TRIM(CONCAT(COALESCE(pc.first_name,''),' ',COALESCE(pc.last_name,''))), ''),
+            c.company_name
+        ) as client_display_name
     FROM quotes q
     LEFT JOIN properties p ON q.property_id = p.id
     LEFT JOIN companies c ON q.company_id = c.id
+    LEFT JOIN quote_requests qr ON qr.quote_id = q.id
+    LEFT JOIN contacts qrc ON qr.contact_id = qrc.id
+    LEFT JOIN contacts pc ON p.site_contact_id = pc.id
     LEFT JOIN users u ON q.created_by = u.id
     WHERE {$whereClause}
     ORDER BY q.created_at DESC
@@ -134,14 +148,14 @@ $activePage = 'quotes';
                                           <strong><?php echo htmlspecialchars($quote['quote_number']); ?></strong>
                                       </td>
                                       <td>
-                                          <div class="font-weight-bold"><?php echo htmlspecialchars($quote['company_name'] ?? 'N/A'); ?></div>
+                                          <div class="font-weight-bold"><?php echo htmlspecialchars($quote['client_display_name'] ?? 'N/A'); ?></div>
                                           <small class="text-muted"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></small>
                                       </td>
                                       <td><?php echo ucfirst(str_replace('_', ' ', $quote['service_types'] ?? '')); ?></td>
-                                      <td><strong><?php echo formatCurrency($quote['total_amount']); ?></strong></td>
+                                      <td><strong><?php echo formatCurrency($quote['amount']); ?></strong></td>
                                       <td><?php echo getStatusBadge($quote['status']); ?></td>
                                       <td><?php echo formatDate($quote['created_at']); ?></td>
-                                      <td><?php echo $quote['expiry_date'] ? formatDate($quote['expiry_date']) : '-'; ?></td>
+                                      <td><?php echo $quote['valid_until'] ? formatDate($quote['valid_until']) : '-'; ?></td>
                                       <td class="actions">
                                           <a href="view.php?id=<?php echo $quote['id']; ?>" class="mw-action-btn mw-action-btn-view">View</a>
                                           <?php if ($quote['status'] === 'accepted'): ?>
