@@ -588,13 +588,15 @@ function updateViewUI() {
   } else {
     bar.classList.add('hidden');
   }
-  // Expanded is full-screen — never show compact ghost or separator
+  // In expanded view, show the compact ghost (read-only header preview) + separator
   const ghost = document.getElementById('cdxCompactGhost');
   const sep   = document.getElementById('cdxExpSep');
   const dz    = document.getElementById('cdxDropZone');
-  if (ghost) ghost.style.display = 'none';
-  if (sep)   sep.style.display   = 'none';
-  if (dz)    dz.classList.remove('cdx-dz-expanded');
+  const isExpanded = state.activeCard === 'stop' && state.viewMode === 'expanded';
+  if (ghost) ghost.style.display = isExpanded ? 'block' : 'none';
+  if (sep)   sep.style.display   = isExpanded ? 'flex'  : 'none';
+  if (dz)    dz.classList.toggle('cdx-dz-expanded', isExpanded);
+  if (isExpanded) renderCompactGhost();
 }
 
 function renderCompactGhost() {
