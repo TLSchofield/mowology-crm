@@ -440,7 +440,7 @@ const CARD_DEFS = {
     hasViews: true,
     views: {
       compact:  { label: 'Compact View',  desc: 'Header — always visible at top of card',   defaults: ['stop-time','client-name','service-pills','duration'] },
-      expanded: { label: 'Expanded View', desc: 'Detail — shown after tapping the card',     defaults: ['address','sq-ft','last-visit','photos','clock-in','complete-job'] },
+      expanded: { label: 'Expanded View', desc: 'Full screen — shown when card is tapped open', defaults: ['address','sq-ft','last-visit','photos','clock-in','complete-job'] },
     },
     elements: {
       'stop-time':     { label:'Stop Time',          icon:'clock',  desc:'Scheduled time window',        colorable:false },
@@ -454,6 +454,7 @@ const CARD_DEFS = {
       'clock-in':      { label:'Clock In Button',     icon:'login',  desc:'Start job timer',              colorable:true  },
       'complete-job':  { label:'Complete Job Button', icon:'check',  desc:'Mark job complete',            colorable:false },
       'optimize-route':{ label:'Optimize Route',      icon:'nav',    desc:'Route optimization CTA',       colorable:false },
+      'go-btn':        { label:'Go Button',           icon:'nav',    desc:'Opens navigation to job address', colorable:true },
       'profit-bar':    { label:'Profit Bar',          icon:'trend',  desc:'Job profitability indicator',  colorable:false },
       'notes':         { label:'Notes',               icon:'file',   desc:'Site notes field',             colorable:false },
     }
@@ -548,15 +549,13 @@ function updateViewUI() {
   } else {
     bar.classList.add('hidden');
   }
-  // Ghost + separator
+  // Expanded is full-screen — never show compact ghost or separator
   const ghost = document.getElementById('cdxCompactGhost');
   const sep   = document.getElementById('cdxExpSep');
   const dz    = document.getElementById('cdxDropZone');
-  const isExp = state.activeCard === 'stop' && state.viewMode === 'expanded';
-  if (ghost) ghost.style.display  = isExp ? 'block' : 'none';
-  if (sep)   sep.style.display    = isExp ? 'flex'  : 'none';
-  if (dz)    dz.classList.toggle('cdx-dz-expanded', isExp);
-  if (isExp) renderCompactGhost();
+  if (ghost) ghost.style.display = 'none';
+  if (sep)   sep.style.display   = 'none';
+  if (dz)    dz.classList.remove('cdx-dz-expanded');
 }
 
 function renderCompactGhost() {
@@ -734,6 +733,10 @@ function getStopPreview(id) {
       <div class="cdx-p-btn cdx-p-btn-d">Complete Job</div></div>`;
     case 'optimize-route': return `<div class="cdx-p-btns">
       <div class="cdx-p-btn cdx-p-btn-o">Optimize Route</div></div>`;
+    case 'go-btn': return `<div style="padding:8px 14px 10px">
+      <div style="background:var(--cdx-green);color:#fff;border-radius:12px;padding:13px 16px;display:flex;align-items:center;justify-content:center;gap:9px;font-size:14px;font-weight:800;letter-spacing:-0.01em;box-shadow:0 4px 14px rgba(45,134,89,.28)">
+        <div style="width:15px;height:15px">${IC.nav}</div> Go &nbsp;·&nbsp; <span style="font-size:11px;font-weight:500;opacity:.85">1234 Oak St</span>
+      </div></div>`;
     case 'profit-bar': return `<div class="cdx-p-profit">
       <div class="cdx-p-profit-lbl">Job Profitability</div>
       <div class="cdx-p-profit-bar"><div class="cdx-p-profit-fill"></div></div>

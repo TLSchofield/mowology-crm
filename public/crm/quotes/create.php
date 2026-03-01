@@ -106,6 +106,7 @@ $templates = [];
 try {
     $templates = $db->query("
         SELECT p.id, p.name, p.description, p.base_price, p.min_price,
+               p.icon_base_path,
                c.name as category_name, u.abbreviation as unit_abbreviation, u.name as unit_name
         FROM products p
         LEFT JOIN product_categories c ON p.category_id = c.id
@@ -477,8 +478,13 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                                 <div class="mw-template-header"><?php echo htmlspecialchars($currentCat ?? 'Uncategorized'); ?></div>
                                             <?php endif; ?>
                                                 <div class="mw-template-item" data-template='<?php echo htmlspecialchars(json_encode($template), ENT_QUOTES); ?>'>
-                                                    <div class="mw-template-name"><?php echo htmlspecialchars($template['name']); ?></div>
-                                                    <div class="mw-template-price"><?php echo formatCurrency($template['base_price']); ?><?php if ($template['unit_abbreviation']): ?> / <?php echo htmlspecialchars($template['unit_abbreviation']); ?><?php endif; ?></div>
+                                                    <?php if (!empty($template['icon_base_path'])): ?>
+                                                    <img class="mw-template-icon" src="<?php echo htmlspecialchars($template['icon_base_path'] . 'icon_32_sold.png'); ?>" alt="" width="28" height="28" onerror="this.style.display='none'">
+                                                    <?php endif; ?>
+                                                    <div>
+                                                        <div class="mw-template-name"><?php echo htmlspecialchars($template['name']); ?></div>
+                                                        <div class="mw-template-price"><?php echo formatCurrency($template['base_price']); ?><?php if ($template['unit_abbreviation']): ?> / <?php echo htmlspecialchars($template['unit_abbreviation']); ?><?php endif; ?></div>
+                                                    </div>
                                                 </div>
                                             <?php endforeach; ?>
                                         </div>
