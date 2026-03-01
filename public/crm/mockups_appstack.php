@@ -33,13 +33,13 @@ $mockups = [
             </div>
           </div>
 
-          <div class="mw-mockup-frame-wrap">
-            <div class="mw-mockup-placeholder" id="mockupPlaceholder">
+          <div class="mw-mockup-frame-wrap" style="border:1px solid #e8f3f0;border-radius:8px;overflow:hidden;height:calc(100vh - 220px);min-height:560px;background:#f8f9fa;">
+            <div class="mw-mockup-placeholder" id="mockupPlaceholder" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;">
               <i data-feather="monitor" style="width:40px;height:40px;opacity:.2;display:block;margin:0 auto 12px;"></i>
               <p class="text-muted mb-1">Select a mockup above to preview it here</p>
               <p class="text-muted small">Or <a href="/crm/mockups/" target="_blank">browse all mockup files</a> directly.</p>
             </div>
-            <iframe id="mockupFrame" class="mw-mockup-iframe" src="" style="display:none;" allowfullscreen></iframe>
+            <iframe id="mockupFrame" src="" style="width:100%;height:100%;border:none;display:none;"></iframe>
           </div>
 
 <script>
