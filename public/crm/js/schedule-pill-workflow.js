@@ -1097,8 +1097,10 @@
         var isCompact = card.classList.contains('mw-mc-card-compact');
         var isExpanded = card.classList.contains('mw-mc-expanded');
 
-        if (isCompact && !isExpanded) {
+        var isHero = card.classList.contains('mw-mc-card-hero');
+        if (isCompact && !isExpanded && !isHero) {
             // Not expanded yet — renderStripsForCard() will call us again on expand
+            // (Hero cards are always expanded via CSS without the mw-mc-expanded class)
             return;
         }
 

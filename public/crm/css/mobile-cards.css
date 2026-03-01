@@ -3558,8 +3558,11 @@
    Each section: [service pill] → [photo strip] → [action footer]
    ══════════════════════════════════════════════════════════ */
 
-/* Hide the shared card-footer when expanded — per-visit footers take over */
-.mw-mc-card-compact.mw-mc-expanded .mw-mc-card-footer {
+/* Hide the shared card-footer when expanded — per-visit footers take over.
+   Hero cards are always expanded via CSS (never get .mw-mc-expanded), so
+   target both cases here. */
+.mw-mc-card-compact.mw-mc-expanded .mw-mc-card-footer,
+.mw-mc-card-hero .mw-mc-card-footer {
     display: none;
 }
 
