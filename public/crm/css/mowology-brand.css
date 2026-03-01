@@ -2263,6 +2263,153 @@ a:hover {
 }
 
 /* ============================================
+   DRAG-AND-DROP REORDER — View & Create pages
+   ============================================ */
+
+/* Drag handle column in view.php line items table */
+.mw-drag-col {
+  width: 28px;
+  padding: 0 4px !important;
+  text-align: center;
+}
+
+.mw-drag-handle {
+  display: inline-block;
+  cursor: grab;
+  color: #adb5bd;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  user-select: none;
+  transition: color 0.15s;
+}
+.mw-drag-handle:hover { color: var(--mw-green); }
+.mw-drag-handle:active { cursor: grabbing; }
+
+/* Drag hint label in card header */
+.mw-drag-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #adb5bd;
+  font-size: 11px;
+}
+
+/* Row states during drag */
+.mw-sortable-row.mw-dragging {
+  opacity: 0.45;
+  background: #f0f9f4;
+}
+.mw-sortable-row.mw-drag-over {
+  box-shadow: inset 0 -2px 0 var(--mw-green);
+  background: #f0f9f4;
+}
+.mw-section-header-row.mw-drag-over-section {
+  background: #e8f3f0;
+}
+
+/* Section header rows in view.php */
+.mw-section-header-row td {
+  padding: 8px 12px 6px !important;
+  background: #f0f4f2;
+  border-bottom: none !important;
+  border-top: 2px solid var(--mw-light);
+}
+.mw-section-header-row:first-child td {
+  border-top: none;
+}
+.mw-section-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mw-dark);
+}
+
+/* Reorder save status badge in card header */
+.mw-reorder-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.mw-reorder-saving {
+  background: #fff3cd;
+  color: #856404;
+}
+.mw-reorder-saved {
+  background: #d1e7dd;
+  color: #0a3622;
+}
+.mw-reorder-error {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+/* Section divider row in create.php line items */
+.mw-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 6px;
+  margin: 8px 0 0;
+  border-top: 2px solid var(--mw-light);
+}
+.mw-section-divider:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+.mw-section-name-input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mw-dark);
+  background: #f0f4f2;
+  max-width: 300px;
+}
+.mw-section-name-input:focus {
+  outline: none;
+  border-color: var(--mw-green);
+  box-shadow: 0 0 0 2px rgba(45,134,89,0.15);
+}
+.mw-section-remove-btn {
+  background: none;
+  border: none;
+  color: #adb5bd;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.mw-section-remove-btn:hover { color: #dc3545; }
+
+/* Drag handle inside create.php line item rows */
+.mw-drag-handle-create {
+  cursor: grab;
+  color: #ced4da;
+  font-size: 15px;
+  padding: 0 2px;
+  align-self: center;
+}
+.mw-drag-handle-create:hover { color: var(--mw-green); }
+
+/* Adjusted grid for create.php rows (adds drag handle col) */
+.mw-line-items-header-drag {
+  grid-template-columns: 20px 2fr 2fr 80px 80px 90px 36px !important;
+}
+#lineItemsContainer .mw-line-item {
+  grid-template-columns: 20px 2fr 2fr 80px 80px 90px 36px;
+}
+
+/* ============================================
    COST FACTORS PAGE
    ============================================ */
 

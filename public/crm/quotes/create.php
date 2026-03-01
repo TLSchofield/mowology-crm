@@ -244,11 +244,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         service_type, description, quantity, unit_type,
                         unit_price, line_total, sort_order, is_optional,
                         units_used, price_per_unit, minimum_applied, included_units,
-                        pricing_snapshot, bundle_id, is_upsell
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        pricing_snapshot, bundle_id, is_upsell, section_name
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ");
 
                 foreach ($newLineItems as $index => $item) {
+                    $sectionNameVal = isset($item['section_name']) && trim($item['section_name']) !== ''
+                        ? trim($item['section_name'])
+                        : null;
                     $stmt->execute([
                         $quoteId,
                         !empty($item['product_id']) ? intval($item['product_id']) : null,
@@ -269,6 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $item['pricing_snapshot'] ?? null,
                         !empty($item['bundle_id']) ? intval($item['bundle_id']) : null,
                         $item['is_upsell'] ?? 0,
+                        $sectionNameVal,
                     ]);
                 }
 
@@ -444,7 +448,8 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                 <h5 class="card-title mb-0">Services &amp; Pricing</h5>
                             </div>
                             <div class="card-body">
-                                <div class="mw-line-items-header">
+                                <div class="mw-line-items-header mw-line-items-header-drag">
+                                    <div></div><!-- drag handle col -->
                                     <div>Service</div>
                                     <div>Description</div>
                                     <div>Qty</div>
@@ -457,7 +462,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                     <!-- Line items will be added here by JavaScript -->
                                 </div>
 
-                                <div class="d-flex mt-3" style="gap: 12px;">
+                                <div class="d-flex mt-3" style="gap: 12px; flex-wrap: wrap;">
                                     <div class="mw-template-dropdown">
                                         <button type="button" class="btn btn-secondary" id="addFromTemplateBtn">
                                             + Add from Template
@@ -483,6 +488,9 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                     </button>
                                     <button type="button" class="btn btn-outline-primary" id="addBundleBtn" onclick="openBundlePicker()">
                                         <i data-feather="package" style="width:13px;height:13px;vertical-align:middle;margin-right:3px;"></i>+ Add Bundle
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" id="addSectionBtn">
+                                        <i data-feather="layers" style="width:13px;height:13px;vertical-align:middle;margin-right:3px;"></i>+ Add Section
                                     </button>
                                 </div>
 
@@ -590,10 +598,27 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 </div>
             </form>
 
+    <?php
+    // Convert DB line items to JS array, inserting section header objects where sections begin.
+    // Section headers (_type:'section') tell the JS renderer to draw a group divider and assign
+    // section_name to the items that follow.
+    $jsLineItems = [];
+    $lastSectionName = false; // false = no section seen yet
+    foreach ($lineItems as $item) {
+        $sn = $item['section_name'] ?? null;
+        if ($sn !== null && $sn !== $lastSectionName) {
+            $jsLineItems[] = ['_type' => 'section', 'section_name' => $sn];
+            $lastSectionName = $sn;
+        } elseif ($sn === null) {
+            $lastSectionName = null;
+        }
+        $jsLineItems[] = $item;
+    }
+    ?>
     <script>
         // Line items management
-        let lineItems = <?php echo json_encode($lineItems); ?> || [];
-        let itemIdCounter = lineItems.length;
+        let lineItems = <?php echo json_encode($jsLineItems ?: []); ?>;
+        let itemIdCounter = lineItems.filter(i => !i._type).length;
 
         const container = document.getElementById('lineItemsContainer');
         const templates = <?php echo json_encode($templates); ?>;
@@ -628,8 +653,24 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
         function renderLineItems() {
             container.innerHTML = '';
             const seenBundles = new Set();
+            let dragSrcIdx = null;
 
             lineItems.forEach((item, index) => {
+                // Section divider item
+                if (item._type === 'section') {
+                    const div = document.createElement('div');
+                    div.className = 'mw-section-divider';
+                    div.dataset.index = index;
+                    div.innerHTML =
+                        '<i data-feather="layers" style="width:13px;height:13px;margin-right:6px;vertical-align:middle;"></i>' +
+                        '<input type="text" class="mw-section-name-input" value="' + escapeHtml(item.section_name || '') + '" ' +
+                               'placeholder="Section name…" ' +
+                               'oninput="updateLineItem(' + index + ', \'section_name\', this.value)">' +
+                        '<button type="button" class="mw-section-remove-btn" onclick="removeLine(' + index + ')" title="Remove section">&times;</button>';
+                    container.appendChild(div);
+                    return;
+                }
+
                 // Bundle group header — show once per bundle_id
                 if (item.bundle_id && !seenBundles.has(item.bundle_id)) {
                     seenBundles.add(item.bundle_id);
@@ -643,19 +684,52 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 const row = document.createElement('div');
                 row.className = 'mw-line-item' + (item.bundle_id ? ' mw-bundle-item' : '');
                 row.dataset.index = index;
+                row.draggable = true;
 
-                row.innerHTML = `
-                    <input type="text" value="${item.service_type || ''}" placeholder="Service name"
-                           onchange="updateLineItem(${index}, 'service_type', this.value)">
-                    <input type="text" value="${item.description || ''}" placeholder="Description"
-                           onchange="updateLineItem(${index}, 'description', this.value)">
-                    <input type="number" value="${item.quantity || 1}" min="0" step="any"
-                           onchange="updateLineItem(${index}, 'quantity', this.value); recalculateLineTotal(${index})">
-                    <input type="number" value="${item.unit_price || 0}" min="0" step="any"
-                           onchange="updateLineItem(${index}, 'unit_price', this.value); recalculateLineTotal(${index})">
-                    <div class="mw-line-total">${formatCurrency(item.line_total || 0)}</div>
-                    <button type="button" class="mw-remove-btn" onclick="removeLine(${index})">&times;</button>
-                `;
+                row.innerHTML =
+                    '<span class="mw-drag-handle mw-drag-handle-create" title="Drag to reorder">⠿</span>' +
+                    '<input type="text" value="' + escapeHtml(item.service_type || '') + '" placeholder="Service name" ' +
+                           'onchange="updateLineItem(' + index + ', \'service_type\', this.value)">' +
+                    '<input type="text" value="' + escapeHtml(item.description || '') + '" placeholder="Description" ' +
+                           'onchange="updateLineItem(' + index + ', \'description\', this.value)">' +
+                    '<input type="number" value="' + (item.quantity || 1) + '" min="0" step="any" ' +
+                           'onchange="updateLineItem(' + index + ', \'quantity\', this.value); recalculateLineTotal(' + index + ')">' +
+                    '<input type="number" value="' + (item.unit_price || 0) + '" min="0" step="any" ' +
+                           'onchange="updateLineItem(' + index + ', \'unit_price\', this.value); recalculateLineTotal(' + index + ')">' +
+                    '<div class="mw-line-total">' + formatCurrency(item.line_total || 0) + '</div>' +
+                    '<button type="button" class="mw-remove-btn" onclick="removeLine(' + index + ')">&times;</button>';
+
+                // Drag-to-reorder within create form
+                row.addEventListener('dragstart', function (e) {
+                    dragSrcIdx = parseInt(this.dataset.index);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', dragSrcIdx);
+                    setTimeout(() => this.classList.add('mw-dragging'), 0);
+                });
+                row.addEventListener('dragend', function () {
+                    this.classList.remove('mw-dragging');
+                    container.querySelectorAll('.mw-drag-over').forEach(r => r.classList.remove('mw-drag-over'));
+                });
+                row.addEventListener('dragover', function (e) {
+                    e.preventDefault();
+                    if (parseInt(this.dataset.index) !== dragSrcIdx) {
+                        container.querySelectorAll('.mw-drag-over').forEach(r => r.classList.remove('mw-drag-over'));
+                        this.classList.add('mw-drag-over');
+                    }
+                });
+                row.addEventListener('drop', function (e) {
+                    e.preventDefault();
+                    const targetIdx = parseInt(this.dataset.index);
+                    if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
+                    const rect = this.getBoundingClientRect();
+                    const insertBefore = e.clientY < rect.top + rect.height / 2;
+                    const moved = lineItems.splice(dragSrcIdx, 1)[0];
+                    const newTarget = insertBefore ? targetIdx : targetIdx + 1;
+                    const adjustedTarget = dragSrcIdx < targetIdx ? newTarget - 1 : newTarget;
+                    lineItems.splice(adjustedTarget, 0, moved);
+                    dragSrcIdx = null;
+                    renderLineItems();
+                });
 
                 container.appendChild(row);
             });
@@ -700,7 +774,17 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
         }
 
         function updateFormInput() {
-            document.getElementById('lineItemsInput').value = JSON.stringify(lineItems);
+            // Walk through items; section header objects set the section_name for following regular items.
+            let currentSection = null;
+            const outputItems = [];
+            lineItems.forEach(item => {
+                if (item._type === 'section') {
+                    currentSection = (item.section_name && item.section_name.trim()) ? item.section_name.trim() : null;
+                } else {
+                    outputItems.push(Object.assign({}, item, { section_name: currentSection }));
+                }
+            });
+            document.getElementById('lineItemsInput').value = JSON.stringify(outputItems);
         }
 
         // Template dropdown
@@ -725,6 +809,14 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
         });
 
         document.getElementById('addCustomLineBtn').addEventListener('click', () => addLine());
+
+        document.getElementById('addSectionBtn').addEventListener('click', () => {
+            lineItems.push({ _type: 'section', section_name: '' });
+            renderLineItems();
+            // Focus the new section input
+            const inputs = container.querySelectorAll('.mw-section-name-input');
+            if (inputs.length) inputs[inputs.length - 1].focus();
+        });
 
         // Client search + property population
         const propertySelect = document.getElementById('propertySelect');

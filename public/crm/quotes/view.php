@@ -718,13 +718,20 @@ $activePage = 'quotes';
 
                   <!-- Line Items -->
                   <div class="card">
-                      <div class="card-header">
+                      <div class="card-header d-flex justify-content-between align-items-center">
                           <h5 class="card-title mb-0">Services</h5>
+                          <div class="d-flex align-items-center" style="gap: 12px; font-size: 12px;">
+                              <span id="mw-reorder-status" class="mw-reorder-status" style="display: none;"></span>
+                              <span class="text-muted mw-drag-hint">
+                                  <i data-feather="move" style="width: 12px; height: 12px; vertical-align: middle;"></i> Drag to reorder
+                              </span>
+                          </div>
                       </div>
-                      <div class="card-body">
-                          <table class="mw-line-items-table">
+                      <div class="card-body" style="padding: 0;">
+                          <table class="mw-line-items-table mw-sortable-table" id="lineItemsTable">
                               <thead>
                                   <tr>
+                                      <th class="mw-drag-col"></th>
                                       <th>Service</th>
                                       <th>Description</th>
                                       <th>Qty</th>
@@ -732,20 +739,39 @@ $activePage = 'quotes';
                                       <th class="text-right">Total</th>
                                   </tr>
                               </thead>
-                              <tbody>
-                                  <?php foreach ($lineItems as $item): ?>
-                                      <tr>
-                                          <td><?php echo htmlspecialchars($item['service_type']); ?></td>
-                                          <td><?php echo htmlspecialchars($item['description'] ?: '-'); ?></td>
-                                          <td><?php echo $item['quantity']; ?></td>
-                                          <td class="text-right mw-amount"><?php echo formatCurrency($item['unit_price']); ?></td>
-                                          <td class="text-right mw-amount"><?php echo formatCurrency($item['line_total']); ?></td>
-                                      </tr>
+                              <tbody id="sortableLineItems">
+                                  <?php
+                                  $currentSection = '__UNSET__';
+                                  foreach ($lineItems as $item):
+                                      $itemSection = $item['section_name'] ?? null;
+                                      if ($itemSection !== $currentSection):
+                                          $currentSection = $itemSection;
+                                          if ($itemSection !== null):
+                                  ?>
+                                  <tr class="mw-section-header-row" data-section="<?php echo htmlspecialchars($itemSection); ?>">
+                                      <td colspan="6">
+                                          <span class="mw-section-label">
+                                              <i data-feather="layers" style="width: 13px; height: 13px; margin-right: 5px; vertical-align: middle;"></i><?php echo htmlspecialchars($itemSection); ?>
+                                          </span>
+                                      </td>
+                                  </tr>
+                                  <?php endif; endif; ?>
+                                  <tr class="mw-sortable-row"
+                                      data-item-id="<?php echo (int)$item['id']; ?>"
+                                      data-section="<?php echo htmlspecialchars($item['section_name'] ?? ''); ?>"
+                                      draggable="true">
+                                      <td class="mw-drag-col"><span class="mw-drag-handle" title="Drag to reorder">⠿</span></td>
+                                      <td><?php echo htmlspecialchars($item['service_type']); ?></td>
+                                      <td><?php echo htmlspecialchars($item['description'] ?: '-'); ?></td>
+                                      <td><?php echo $item['quantity']; ?></td>
+                                      <td class="text-right mw-amount"><?php echo formatCurrency($item['unit_price']); ?></td>
+                                      <td class="text-right mw-amount"><?php echo formatCurrency($item['line_total']); ?></td>
+                                  </tr>
                                   <?php endforeach; ?>
                               </tbody>
                           </table>
 
-                          <div class="mw-totals">
+                          <div class="mw-totals" style="padding: 16px 20px;">
                               <div class="mw-total-row">
                                   <span>Subtotal</span>
                                   <span class="mw-totals-value"><?php echo formatCurrency($quote['subtotal'] ?: $quote['amount']); ?></span>
@@ -1177,6 +1203,138 @@ $activePage = 'quotes';
                 notesList.insertAdjacentHTML('afterbegin', noteHtml);
               }
             }
+
+            // ── Drag-and-drop line item reordering ─────────────────────────────
+            (function () {
+              const tbody = document.getElementById('sortableLineItems');
+              if (!tbody) return;
+
+              let dragSrc = null;
+
+              // Walk backwards to find the section this row belongs to
+              function getRowSection(row) {
+                let el = row.previousElementSibling;
+                while (el) {
+                  if (el.classList.contains('mw-section-header-row')) return el.dataset.section || '';
+                  if (el.classList.contains('mw-sortable-row'))       return el.dataset.section || '';
+                  el = el.previousElementSibling;
+                }
+                return '';
+              }
+
+              function initRow(row) {
+                row.addEventListener('dragstart', function (e) {
+                  dragSrc = row;
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', row.dataset.itemId);
+                  setTimeout(() => row.classList.add('mw-dragging'), 0);
+                });
+
+                row.addEventListener('dragend', function () {
+                  row.classList.remove('mw-dragging');
+                  tbody.querySelectorAll('.mw-drag-over').forEach(r => r.classList.remove('mw-drag-over'));
+                  dragSrc = null;
+                });
+
+                row.addEventListener('dragover', function (e) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (row !== dragSrc) {
+                    tbody.querySelectorAll('.mw-drag-over').forEach(r => r.classList.remove('mw-drag-over'));
+                    row.classList.add('mw-drag-over');
+                  }
+                });
+
+                row.addEventListener('drop', function (e) {
+                  e.preventDefault();
+                  if (!dragSrc || dragSrc === row) return;
+                  const rect = row.getBoundingClientRect();
+                  if (e.clientY < rect.top + rect.height / 2) {
+                    tbody.insertBefore(dragSrc, row);
+                  } else {
+                    row.after(dragSrc);
+                  }
+                  dragSrc.dataset.section = getRowSection(dragSrc);
+                  row.classList.remove('mw-drag-over');
+                  saveOrder();
+                });
+              }
+
+              tbody.querySelectorAll('.mw-sortable-row').forEach(initRow);
+
+              // Dropping onto a section header places the item as the first in that section
+              tbody.querySelectorAll('.mw-section-header-row').forEach(function (sectionRow) {
+                sectionRow.addEventListener('dragover', function (e) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  sectionRow.classList.add('mw-drag-over-section');
+                });
+                sectionRow.addEventListener('dragleave', function () {
+                  sectionRow.classList.remove('mw-drag-over-section');
+                });
+                sectionRow.addEventListener('drop', function (e) {
+                  e.preventDefault();
+                  sectionRow.classList.remove('mw-drag-over-section');
+                  if (!dragSrc) return;
+                  sectionRow.after(dragSrc);
+                  dragSrc.dataset.section = sectionRow.dataset.section;
+                  saveOrder();
+                });
+              });
+
+              function saveOrder() {
+                const allRows = tbody.querySelectorAll('tr');
+                const items = [];
+                let currentSection = '';
+                let sortIndex = 0;
+
+                allRows.forEach(function (row) {
+                  if (row.classList.contains('mw-section-header-row')) {
+                    currentSection = row.dataset.section || '';
+                  } else if (row.classList.contains('mw-sortable-row')) {
+                    items.push({
+                      id: parseInt(row.dataset.itemId),
+                      sort_order: sortIndex++,
+                      section_name: currentSection || null
+                    });
+                  }
+                });
+
+                showReorderStatus('saving');
+
+                fetch('../api/quote-reorder.php', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                  },
+                  body: JSON.stringify({ quote_id: quoteId, items: items, csrf_token: csrfToken })
+                })
+                .then(r => r.json())
+                .then(data => showReorderStatus(data.success ? 'saved' : 'error'))
+                .catch(() => showReorderStatus('error'));
+              }
+
+              function showReorderStatus(status) {
+                const el = document.getElementById('mw-reorder-status');
+                if (!el) return;
+                if (status === 'saving') {
+                  el.textContent = 'Saving…';
+                  el.className = 'mw-reorder-status mw-reorder-saving';
+                  el.style.display = 'inline-block';
+                } else if (status === 'saved') {
+                  el.textContent = '✓ Saved';
+                  el.className = 'mw-reorder-status mw-reorder-saved';
+                  el.style.display = 'inline-block';
+                  setTimeout(() => { el.style.display = 'none'; }, 2000);
+                } else {
+                  el.textContent = '⚠ Error saving';
+                  el.className = 'mw-reorder-status mw-reorder-error';
+                  el.style.display = 'inline-block';
+                  setTimeout(() => { el.style.display = 'none'; }, 3000);
+                }
+              }
+            })();
           </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
