@@ -714,17 +714,19 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 });
                 row.addEventListener('dragend', function () {
                     this.classList.remove('mw-dragging');
-                    container.querySelectorAll('.mw-drag-over').forEach(r => r.classList.remove('mw-drag-over'));
+                    container.querySelectorAll('.mw-drop-before, .mw-drop-after').forEach(r => r.classList.remove('mw-drop-before', 'mw-drop-after'));
                 });
                 row.addEventListener('dragover', function (e) {
                     e.preventDefault();
                     if (parseInt(this.dataset.index) !== dragSrcIdx) {
-                        container.querySelectorAll('.mw-drag-over').forEach(r => r.classList.remove('mw-drag-over'));
-                        this.classList.add('mw-drag-over');
+                        container.querySelectorAll('.mw-drop-before, .mw-drop-after').forEach(r => r.classList.remove('mw-drop-before', 'mw-drop-after'));
+                        const rect = this.getBoundingClientRect();
+                        this.classList.add(e.clientY < rect.top + rect.height / 2 ? 'mw-drop-before' : 'mw-drop-after');
                     }
                 });
                 row.addEventListener('drop', function (e) {
                     e.preventDefault();
+                    this.classList.remove('mw-drop-before', 'mw-drop-after');
                     const targetIdx = parseInt(this.dataset.index);
                     if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
                     const rect = this.getBoundingClientRect();

@@ -2310,13 +2310,23 @@ a:hover {
 
 /* Row states during drag */
 .mw-sortable-row.mw-dragging {
-  opacity: 0.45;
+  opacity: 0.4;
   background: #f0f9f4;
 }
-.mw-sortable-row.mw-drag-over {
-  box-shadow: inset 0 -2px 0 var(--mw-green);
-  background: #f0f9f4;
+.mw-line-item.mw-dragging {
+  opacity: 0.4;
 }
+
+/* Insertion-point indicator — precise line shows exactly where item will land */
+.mw-sortable-row.mw-drop-before,
+.mw-line-item.mw-drop-before {
+  box-shadow: 0 -3px 0 0 var(--mw-green);
+}
+.mw-sortable-row.mw-drop-after,
+.mw-line-item.mw-drop-after {
+  box-shadow: 0 3px 0 0 var(--mw-green);
+}
+
 .mw-section-header-row.mw-drag-over-section {
   background: #e8f3f0;
 }

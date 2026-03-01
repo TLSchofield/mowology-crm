@@ -1232,7 +1232,7 @@ $activePage = 'quotes';
 
                 row.addEventListener('dragend', function () {
                   row.classList.remove('mw-dragging');
-                  tbody.querySelectorAll('.mw-drag-over').forEach(r => r.classList.remove('mw-drag-over'));
+                  tbody.querySelectorAll('.mw-drop-before, .mw-drop-after').forEach(r => r.classList.remove('mw-drop-before', 'mw-drop-after'));
                   dragSrc = null;
                 });
 
@@ -1240,14 +1240,16 @@ $activePage = 'quotes';
                   e.preventDefault();
                   e.dataTransfer.dropEffect = 'move';
                   if (row !== dragSrc) {
-                    tbody.querySelectorAll('.mw-drag-over').forEach(r => r.classList.remove('mw-drag-over'));
-                    row.classList.add('mw-drag-over');
+                    tbody.querySelectorAll('.mw-drop-before, .mw-drop-after').forEach(r => r.classList.remove('mw-drop-before', 'mw-drop-after'));
+                    const rect = row.getBoundingClientRect();
+                    row.classList.add(e.clientY < rect.top + rect.height / 2 ? 'mw-drop-before' : 'mw-drop-after');
                   }
                 });
 
                 row.addEventListener('drop', function (e) {
                   e.preventDefault();
                   if (!dragSrc || dragSrc === row) return;
+                  row.classList.remove('mw-drop-before', 'mw-drop-after');
                   const rect = row.getBoundingClientRect();
                   if (e.clientY < rect.top + rect.height / 2) {
                     tbody.insertBefore(dragSrc, row);
@@ -1255,7 +1257,6 @@ $activePage = 'quotes';
                     row.after(dragSrc);
                   }
                   dragSrc.dataset.section = getRowSection(dragSrc);
-                  row.classList.remove('mw-drag-over');
                   saveOrder();
                 });
               }
