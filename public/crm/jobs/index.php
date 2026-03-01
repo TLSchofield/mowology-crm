@@ -180,6 +180,7 @@ $activePage = 'jobs';
               </div>
               <div class="d-flex" style="gap: 12px;">
                   <a href="schedule.php" class="btn btn-secondary"><i data-feather="calendar" class="mr-1"></i> Calendar View</a>
+                  <a href="new-contract.php" class="btn btn-outline-success"><i data-feather="file-plus" class="mr-1"></i> New Contract</a>
                   <a href="create.php" class="btn btn-primary"><i data-feather="plus" class="mr-1"></i> Create Plan</a>
               </div>
           </div>

@@ -18989,3 +18989,119 @@ textarea.font-monospace {
     .mw-soc-tmpl-grid { grid-template-columns: 1fr; }
     .mw-soc-cal-cell  { min-height: 50px; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Contract Setup Wizard  (.mw-cw-*)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.mw-cw-wrap { max-width: 960px; margin: 0 auto; padding: 0 0 3rem; }
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+.mw-cw-header { display: flex; align-items: center; margin-bottom: 1.5rem; gap: 1rem; }
+.mw-cw-header-left { display: flex; align-items: center; gap: .75rem; }
+.mw-cw-title  { font-size: 1.4rem; font-weight: 700; color: #212529; margin: 0; }
+.mw-cw-subtitle { font-size: .85rem; color: #6c757d; margin: 0; }
+
+/* ── Step Indicator ──────────────────────────────────────────────────── */
+.mw-cw-steps {
+    display: flex; align-items: center; margin-bottom: 1.75rem;
+    background: #fff; border: 1px solid #e9ecef; border-radius: 10px; padding: 1rem 1.5rem;
+}
+.mw-cw-step {
+    display: flex; align-items: center; gap: .5rem; flex: 0 0 auto;
+}
+.mw-cw-step-num {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #dee2e6; color: #6c757d;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem; font-weight: 700; flex-shrink: 0;
+    transition: background .2s, color .2s;
+}
+.mw-cw-step-label { font-size: .85rem; color: #6c757d; font-weight: 500; }
+.mw-cw-step.active .mw-cw-step-num  { background: var(--mw-green); color: #fff; }
+.mw-cw-step.active .mw-cw-step-label { color: var(--mw-green); font-weight: 600; }
+.mw-cw-step.completed .mw-cw-step-num { background: var(--mw-dark); color: #fff; }
+.mw-cw-step-connector { flex: 1; height: 2px; background: #dee2e6; margin: 0 .75rem; }
+
+/* ── Property Search & Grid ──────────────────────────────────────────── */
+.mw-cw-search-wrap { position: relative; }
+.mw-cw-search-icon {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; color: #6c757d; pointer-events: none;
+}
+.mw-cw-search-input { padding-left: 34px; }
+
+.mw-cw-prop-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: .75rem; max-height: 340px; overflow-y: auto;
+}
+.mw-cw-prop-card {
+    border: 2px solid #e9ecef; border-radius: 8px; padding: .75rem 1rem;
+    cursor: pointer; transition: border-color .15s, background .15s, transform .1s;
+    background: #fff;
+}
+.mw-cw-prop-card:hover   { border-color: var(--mw-green); background: var(--mw-light); transform: translateY(-1px); }
+.mw-cw-prop-card.selected { border-color: var(--mw-green); background: var(--mw-light); box-shadow: 0 0 0 3px rgba(45,134,89,.15); }
+.mw-cw-prop-addr    { font-weight: 600; font-size: .9rem; color: #212529; }
+.mw-cw-prop-city    { font-size: .8rem; }
+.mw-cw-prop-contact { font-size: .78rem; color: #6c757d; }
+
+/* ── Selected property banner ────────────────────────────────────────── */
+.mw-cw-selected-prop {
+    display: flex; align-items: center; gap: .75rem;
+    background: var(--mw-light); border: 1px solid rgba(45,134,89,.3);
+    border-radius: 8px; padding: .75rem 1rem; margin-top: .75rem;
+}
+.mw-cw-selected-prop-info { flex: 1; }
+
+/* ── Service Rows ────────────────────────────────────────────────────── */
+.mw-cw-svc-row {
+    border-bottom: 1px solid #f0f0f0; padding: 0;
+}
+.mw-cw-svc-row:last-child { border-bottom: none; }
+
+.mw-cw-svc-header {
+    display: flex; align-items: center; padding: .75rem 1rem;
+    background: #fafafa; border-bottom: 1px solid #f0f0f0;
+}
+.mw-cw-svc-body {
+    display: flex; flex-wrap: wrap; gap: 1rem;
+    padding: .75rem 1rem;
+}
+.mw-cw-svc-notes { border-top: 1px solid #f5f5f5; }
+
+.mw-cw-svc-field { display: flex; flex-direction: column; gap: .25rem; }
+.mw-cw-field-label { font-size: .75rem; font-weight: 600; color: #495057; text-transform: uppercase; letter-spacing: .03em; }
+
+/* ── Day buttons ─────────────────────────────────────────────────────── */
+.mw-cw-days { display: flex; gap: 4px; }
+.mw-cw-day-btn {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 1px solid #dee2e6; background: #fff; color: #495057;
+    font-size: .75rem; font-weight: 600; cursor: pointer;
+    transition: background .15s, border-color .15s, color .15s;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+}
+.mw-cw-day-btn:hover  { border-color: var(--mw-green); color: var(--mw-green); }
+.mw-cw-day-btn.active { background: var(--mw-green); border-color: var(--mw-green); color: #fff; }
+
+/* ── Empty state ─────────────────────────────────────────────────────── */
+.mw-cw-empty-services {
+    text-align: center; padding: 2.5rem 1rem;
+}
+
+/* ── Nav buttons ─────────────────────────────────────────────────────── */
+.mw-cw-nav { display: flex; justify-content: space-between; align-items: center; }
+
+/* ── Success state ───────────────────────────────────────────────────── */
+.mw-cw-success-wrap { max-width: 640px; margin: 2rem auto; }
+.mw-cw-success-card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,.08); }
+.mw-cw-success-icon svg { width: 64px; height: 64px; color: var(--mw-green); }
+.mw-cw-plan-list { text-align: left; }
+.mw-cw-plan-row {
+    display: flex; align-items: center; gap: .75rem;
+    padding: .6rem .75rem; border: 1px solid #e9ecef; border-radius: 7px;
+    margin-bottom: .5rem; background: #fafafa;
+}
+.mw-cw-plan-title { flex: 1; font-weight: 600; font-size: .9rem; }
+.mw-cw-plan-day   { white-space: nowrap; }
