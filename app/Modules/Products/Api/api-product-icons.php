@@ -41,15 +41,9 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
 requirePermission('products.edit');
 
+require_once APP_ROOT . '/Services/Media/IconGenerator.php';
+
 header('Content-Type: application/json');
-
-// ── Constants ──────────────────────────────────────────────────────────────
-
-const ICON_SIZES   = [1024, 512, 256, 192, 128, 64, 32];
-const MAX_BYTES    = 5 * 1024 * 1024; // 5 MB
-const PNG_COMPRESS = 2;               // PNG level 0–9 (2 = fast + decent size)
-const GREY_BRIGHT  = 18;              // brightness lift for unsold variant (–255 to +255)
-const GREY_CONTRAST = -8;            // contrast reduction for unsold variant
 
 // ── Request guard ──────────────────────────────────────────────────────────
 
@@ -103,14 +97,14 @@ function handleUploadIcon(): void
     // File presence
     if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
         $errCode = $_FILES['file']['error'] ?? -1;
-        echo json_encode(['error' => 'Upload error: ' . uploadErrorMessage($errCode)]);
+        echo json_encode(['error' => 'Upload error: ' . icongen_uploadErrorMessage($errCode)]);
         exit;
     }
 
     $file = $_FILES['file'];
 
     // Size check
-    if ($file['size'] > MAX_BYTES) {
+    if ($file['size'] > ICON_MAX_BYTES) {
         echo json_encode(['error' => 'File exceeds 5 MB limit']);
         exit;
     }
@@ -126,61 +120,32 @@ function handleUploadIcon(): void
         exit;
     }
 
-    // ── Load source image ────────────────────────────────────────────────────
+    // ── Prepare directories ──────────────────────────────────────────────────
 
-    $src = loadSourceImage($file['tmp_name'], $mimeType);
+    $origDir  = PUBLIC_ROOT . '/uploads/products/original';
+    $iconsDir = PUBLIC_ROOT . '/uploads/products/icons/' . $productId;
+
+    if (!is_dir($origDir) && !mkdir($origDir, 0755, true)) {
+        echo json_encode(['error' => 'Could not create upload directory']);
+        exit;
+    }
+
+    // ── Save original ────────────────────────────────────────────────────────
+
+    $src = icongen_loadSource($file['tmp_name'], $mimeType);
     if ($src === null) {
         echo json_encode(['error' => 'Could not read image. File may be corrupt.']);
         exit;
     }
 
-    // ── Prepare directories ──────────────────────────────────────────────────
-
-    $webRoot    = PUBLIC_ROOT;
-    $origDir    = $webRoot . '/uploads/products/original';
-    $iconsDir   = $webRoot . '/uploads/products/icons/' . $productId;
-
-    foreach ([$origDir, $iconsDir] as $dir) {
-        if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-            imagedestroy($src);
-            echo json_encode(['error' => 'Could not create upload directory']);
-            exit;
-        }
-    }
-
-    // ── Save original ────────────────────────────────────────────────────────
-
-    $ext      = mimeToExtension($mimeType);
+    $ext      = icongen_mimeToExtension($mimeType);
     $origFile = $origDir . '/' . $productId . '_' . time() . '.' . $ext;
-    saveOriginal($src, $origFile, $mimeType);
+    icongen_saveOriginal($src, $origFile, $mimeType);
+    imagedestroy($src);
 
     // ── Generate icon set ────────────────────────────────────────────────────
 
-    $failed = [];
-    foreach (ICON_SIZES as $size) {
-        // Sold variant — full colour
-        $soldCanvas = resizeCanvas($src, $size);
-        if ($soldCanvas === null) {
-            $failed[] = "icon_{$size}_sold";
-        } else {
-            $soldPath = $iconsDir . '/icon_' . $size . '_sold.png';
-            imagepng($soldCanvas, $soldPath, PNG_COMPRESS);
-            imagedestroy($soldCanvas);
-        }
-
-        // Unsold variant — greyscale with slight brightness lift
-        $unsoldCanvas = resizeCanvas($src, $size);
-        if ($unsoldCanvas === null) {
-            $failed[] = "icon_{$size}_unsold";
-        } else {
-            applyUnsoldEffect($unsoldCanvas);
-            $unsoldPath = $iconsDir . '/icon_' . $size . '_unsold.png';
-            imagepng($unsoldCanvas, $unsoldPath, PNG_COMPRESS);
-            imagedestroy($unsoldCanvas);
-        }
-    }
-
-    imagedestroy($src);
+    $failed = icongen_generateSet($file['tmp_name'], $mimeType, $iconsDir);
 
     if (!empty($failed)) {
         echo json_encode(['error' => 'Some icons failed to generate: ' . implode(', ', $failed)]);
@@ -229,15 +194,7 @@ function handleDeleteIcons(): void
     }
 
     $iconsDir = PUBLIC_ROOT . '/uploads/products/icons/' . $productId;
-    if (is_dir($iconsDir)) {
-        $files = glob($iconsDir . '/*.png');
-        if ($files) {
-            foreach ($files as $f) {
-                @unlink($f);
-            }
-        }
-        @rmdir($iconsDir);
-    }
+    icongen_deleteSet($iconsDir);
 
     $db = getDB();
     $cols = $db->query("SHOW COLUMNS FROM `products` LIKE 'icon_base_path'")->fetchAll();
@@ -249,127 +206,4 @@ function handleDeleteIcons(): void
     echo json_encode(['success' => true]);
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Image helpers
-// ══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Load a GD image resource from a file, supporting JPEG / PNG / WEBP.
- */
-function loadSourceImage(string $path, string $mime): ?\GdImage
-{
-    return match ($mime) {
-        'image/jpeg' => imagecreatefromjpeg($path) ?: null,
-        'image/png'  => imagecreatefrompng($path)  ?: null,
-        'image/webp' => function_exists('imagecreatefromwebp')
-                          ? (imagecreatefromwebp($path) ?: null)
-                          : null,
-        default      => null,
-    };
-}
-
-/**
- * Save the source image to disk in its original format.
- */
-function saveOriginal(\GdImage $src, string $destPath, string $mime): void
-{
-    match ($mime) {
-        'image/jpeg' => imagejpeg($src, $destPath, 85),
-        'image/png'  => imagepng($src, $destPath, PNG_COMPRESS),
-        'image/webp' => function_exists('imagewebp')
-                          ? imagewebp($src, $destPath, 85)
-                          : imagejpeg($src, $destPath, 85),
-        default      => imagejpeg($src, $destPath, 85),
-    };
-}
-
-/**
- * Create a square resized canvas at $size × $size with alpha preserved.
- * Crops to fill (cover behaviour), centred.
- */
-function resizeCanvas(\GdImage $src, int $size): ?\GdImage
-{
-    $srcW = imagesx($src);
-    $srcH = imagesy($src);
-
-    if ($srcW <= 0 || $srcH <= 0) {
-        return null;
-    }
-
-    // Cover crop: scale to fill the square, then centre
-    $scale   = max($size / $srcW, $size / $srcH);
-    $fitW    = (int)round($srcW * $scale);
-    $fitH    = (int)round($srcH * $scale);
-    $offsetX = (int)round(($fitW - $size) / 2);
-    $offsetY = (int)round(($fitH - $size) / 2);
-
-    $canvas = imagecreatetruecolor($size, $size);
-    if ($canvas === false) {
-        return null;
-    }
-
-    // Preserve transparency
-    imagealphablending($canvas, false);
-    imagesavealpha($canvas, true);
-    $transparent = imagecolorallocatealpha($canvas, 0, 0, 0, 127);
-    imagefill($canvas, 0, 0, $transparent);
-    imagealphablending($canvas, true);
-
-    // Two-pass: first scale into intermediate, then crop
-    $intermediate = imagecreatetruecolor($fitW, $fitH);
-    if ($intermediate === false) {
-        imagedestroy($canvas);
-        return null;
-    }
-    imagealphablending($intermediate, false);
-    imagesavealpha($intermediate, true);
-    imagefill($intermediate, 0, 0, imagecolorallocatealpha($intermediate, 0, 0, 0, 127));
-    imagealphablending($intermediate, true);
-
-    imagecopyresampled($intermediate, $src, 0, 0, 0, 0, $fitW, $fitH, $srcW, $srcH);
-    imagecopyresampled($canvas, $intermediate, 0, 0, $offsetX, $offsetY, $size, $size, $size, $size);
-
-    imagedestroy($intermediate);
-    return $canvas;
-}
-
-/**
- * Apply unsold greyscale effect in-place.
- * Converts to greyscale then lifts brightness slightly — professional, not washed out.
- */
-function applyUnsoldEffect(\GdImage $img): void
-{
-    imagefilter($img, IMG_FILTER_GRAYSCALE);
-    imagefilter($img, IMG_FILTER_BRIGHTNESS, GREY_BRIGHT);
-    imagefilter($img, IMG_FILTER_CONTRAST, GREY_CONTRAST);
-}
-
-/**
- * Map MIME type to a safe file extension.
- */
-function mimeToExtension(string $mime): string
-{
-    return match ($mime) {
-        'image/jpeg' => 'jpg',
-        'image/png'  => 'png',
-        'image/webp' => 'webp',
-        default      => 'jpg',
-    };
-}
-
-/**
- * Human-readable upload error messages.
- */
-function uploadErrorMessage(int $code): string
-{
-    return match ($code) {
-        UPLOAD_ERR_INI_SIZE   => 'File exceeds server limit',
-        UPLOAD_ERR_FORM_SIZE  => 'File exceeds form limit',
-        UPLOAD_ERR_PARTIAL    => 'File only partially uploaded',
-        UPLOAD_ERR_NO_FILE    => 'No file was uploaded',
-        UPLOAD_ERR_NO_TMP_DIR => 'Server has no temp directory',
-        UPLOAD_ERR_CANT_WRITE => 'Server could not write file',
-        UPLOAD_ERR_EXTENSION  => 'Upload blocked by server extension',
-        default               => 'Unknown error (code ' . $code . ')',
-    };
-}
+// Image helpers are provided by /app/Services/Media/IconGenerator.php

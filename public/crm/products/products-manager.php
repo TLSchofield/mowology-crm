@@ -202,45 +202,67 @@ $activePage = 'products';
                         </div>
                       </div>
 
-                      <!-- Icon Set Generator -->
-                      <div class="mw-icon-upload-block">
-                        <div class="d-flex align-items-center flex-wrap" style="gap:0.5rem;">
-                          <button type="button" class="btn btn-sm btn-outline-success" id="uploadIconBtn" onclick="triggerIconUpload()">
-                            <i data-feather="upload-cloud"></i> Generate Icon Set
-                          </button>
-                          <button type="button" class="btn btn-sm btn-outline-danger" id="deleteIconsBtn" onclick="deleteIconSet()" style="display:none;">
-                            <i data-feather="trash-2"></i> Remove Icons
-                          </button>
-                          <span id="iconUploadStatus" class="small text-muted"></span>
-                        </div>
-                        <input type="file" id="iconFileInput" accept=".jpg,.jpeg,.png,.webp" style="display:none;" onchange="handleIconFileSelected(this)">
-                        <!-- Icon preview row: sold (colour) + unsold (greyscale) -->
-                        <div id="iconPreviewRow" class="mw-icon-preview-row" style="display:none;">
-                          <div class="mw-icon-preview-item">
-                            <img id="iconPreviewSold" src="" alt="Colour (sold)" width="64" height="64">
-                            <span class="mw-icon-preview-label mw-icon-preview-sold">Sold</span>
-                          </div>
-                          <div class="mw-icon-preview-item">
-                            <img id="iconPreviewUnsold" src="" alt="Greyscale (unsold)" width="64" height="64">
-                            <span class="mw-icon-preview-label mw-icon-preview-unsold">Unsold</span>
-                          </div>
-                          <small class="text-muted align-self-center ml-1">14 sizes auto-generated &bull; 7 colour + 7 greyscale</small>
-                        </div>
-                        <small class="form-text text-muted">
-                          Upload a JPG, PNG, or WEBP (max 5 MB). Generates a full icon set — optimised for website, PWA, tablet, and favicon use.
-                          Save the product first before uploading icons.
-                        </small>
-                      </div>
+                      <!-- Icon Set Picker -->
+                      <div class="mw-icon-set-picker">
+                        <input type="hidden" name="icon_set_id" id="iconSetId" value="">
 
-                      <!-- Sold Status Toggle -->
-                      <div class="form-group mt-2">
-                        <label class="mw-product-checkbox-label">
-                          <input type="checkbox" name="is_sold" id="isSoldToggle">
-                          <strong>Mark as Sold / Available</strong>
-                        </label>
+                        <!-- Current assignment preview -->
+                        <div class="mw-icon-set-current" id="iconSetCurrent">
+                          <div class="mw-icon-set-current-previews" id="iconSetCurrentPreviews" style="display:none;">
+                            <img id="iconSetCurrentSold" src="" alt="Sold" width="48" height="48">
+                            <img id="iconSetCurrentUnsold" src="" alt="Unsold" width="48" height="48">
+                          </div>
+                          <div class="flex-fill" id="iconSetCurrentLabel">
+                            <span class="mw-icon-set-current-empty">No icon set assigned</span>
+                          </div>
+                          <button type="button" class="btn btn-sm btn-outline-secondary" id="clearIconSetBtn" onclick="clearIconSetAssignment()" style="display:none;" title="Remove icon set">
+                            <i data-feather="x" style="width:13px;height:13px;"></i>
+                          </button>
+                        </div>
+
+                        <!-- Action buttons -->
+                        <div class="d-flex flex-wrap mb-2" style="gap:0.5rem;">
+                          <button type="button" class="btn btn-sm btn-outline-primary" onclick="openIconSetsModal()">
+                            <i data-feather="layers" style="width:13px;height:13px;"></i> Browse Sets
+                          </button>
+                          <button type="button" class="btn btn-sm btn-outline-success" id="toggleInlineUploadBtn" onclick="toggleInlineUpload()">
+                            <i data-feather="upload-cloud" style="width:13px;height:13px;"></i> Upload &amp; Assign New
+                          </button>
+                        </div>
+
+                        <!-- Inline upload form -->
+                        <div id="inlineIconUploadForm" class="mw-icon-set-upload-form" style="display:none;">
+                          <div class="row no-gutters" style="gap:6px;flex-wrap:wrap;">
+                            <div class="col">
+                              <input type="text" id="inlineIconSetName" class="form-control form-control-sm" placeholder="Icon set name…" maxlength="100">
+                            </div>
+                            <div class="col">
+                              <input type="file" id="inlineIconSetFile" accept=".jpg,.jpeg,.png,.webp" class="form-control-file form-control-sm" style="padding-top:3px;">
+                            </div>
+                            <div class="col-auto">
+                              <button type="button" class="btn btn-sm btn-success" onclick="uploadAndAssignIconSet()" id="inlineUploadBtn">
+                                <i data-feather="zap" style="width:13px;height:13px;"></i> Generate
+                              </button>
+                            </div>
+                          </div>
+                          <div id="inlineIconUploadStatus" class="small mt-1"></div>
+                        </div>
+
                         <small class="form-text text-muted">
-                          When checked, product cards show the full-colour icon. When unchecked, a greyscale icon is shown to indicate unavailable/pending.
+                          Icon sets contain 14 sizes (sold &amp; unsold variants).
+                          Manage all sets in the <a href="/cms/cms-media_appstack.php?tab=icon-sets" target="_blank">Media Library</a>.
                         </small>
+
+                        <!-- Sold Status Toggle -->
+                        <div class="mt-2 pt-2" style="border-top:1px dashed #e2e8f0;">
+                          <label class="mw-product-checkbox-label">
+                            <input type="checkbox" name="is_sold" id="isSoldToggle">
+                            <strong>Mark as Sold / Available</strong>
+                          </label>
+                          <small class="form-text text-muted">
+                            When checked, product cards show the full-colour icon. Unchecked shows greyscale (unavailable/pending).
+                          </small>
+                        </div>
                       </div>
                     </div>
 
@@ -911,6 +933,35 @@ $activePage = 'products';
             </div>
           </div>
 
+          <!-- Icon Sets Browse Modal -->
+          <div class="modal fade" id="iconSetsBrowseModal" tabindex="-1" role="dialog" aria-hidden="true">
+            <div class="modal-dialog modal-lg" role="document">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">
+                    <i data-feather="layers" style="width:16px;height:16px;vertical-align:-2px;"></i>
+                    Browse Icon Sets
+                  </h5>
+                  <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                  </button>
+                </div>
+                <div class="modal-body">
+                  <div id="iconSetsBrowseGrid" class="mw-icon-set-browse-grid">
+                    <div class="text-muted text-center py-4 w-100">Loading…</div>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <a href="/cms/cms-media_appstack.php?tab=icon-sets" target="_blank"
+                     class="btn btn-sm btn-outline-secondary mr-auto">
+                    <i data-feather="external-link" style="width:13px;height:13px;"></i> Manage Icon Sets
+                  </a>
+                  <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <script>
             // CSRF token (PHP-injected, used by icon upload)
             const _CSRF_TOKEN = <?= json_encode(generateCSRFToken()) ?>;
@@ -1237,10 +1288,8 @@ $activePage = 'products';
               document.getElementById('productForm').reset();
               clearProductImage();
               document.getElementById('imageSuggestions').style.display = 'none';
-              hideIconPreviews();
+              resetIconSetPicker();
               document.getElementById('isSoldToggle').checked = false;
-              document.getElementById('deleteIconsBtn').style.display = 'none';
-              document.getElementById('iconUploadStatus').textContent = '';
               currentPricingRules = [];
               currentUpsells = [];
               renderPricingRules();
@@ -1348,13 +1397,14 @@ $activePage = 'products';
               // Sold toggle
               document.getElementById('isSoldToggle').checked = product.is_sold == 1;
 
-              // Icon previews
-              if (product.icon_base_path) {
-                showIconPreviews(product.icon_base_path, product.is_sold == 1);
-                document.getElementById('deleteIconsBtn').style.display = '';
+              // Icon set picker — populate from product data
+              if (product.icon_set_id) {
+                setIconSetPicker(product.icon_set_id, product.icon_set_name || ('Set #' + product.icon_set_id), product.icon_base_path);
+              } else if (product.icon_base_path) {
+                // Legacy product-specific icon (no named set)
+                setIconSetPicker(null, 'Product icon (legacy)', product.icon_base_path);
               } else {
-                hideIconPreviews();
-                document.getElementById('deleteIconsBtn').style.display = 'none';
+                resetIconSetPicker();
               }
 
               // Auto-load image suggestions from product name
@@ -1565,17 +1615,17 @@ $activePage = 'products';
             }
 
             // ============================================================
-            // Icon Set Generator
+            // Icon Set System
             // ============================================================
 
             /**
-             * Build the card image HTML, preferring the generated icon set.
-             * Priority: icon_base_path > image_url > feather placeholder
+             * Build the card image HTML, preferring the icon set.
+             * Priority: icon_base_path (resolved via JOIN) > image_url > placeholder
              */
             function buildProductCardImage(p) {
               if (p.icon_base_path) {
                 const v   = p.is_sold ? 'sold' : 'unsold';
-                const b   = escapeHtml(p.icon_base_path);
+                const b   = escapeHtml(p.icon_base_path.replace(/\/?$/, '/'));
                 const alt = escapeHtml(p.name);
                 return `<img
                   src="${b}icon_256_${v}.png"
@@ -1593,60 +1643,194 @@ $activePage = 'products';
               return `<i data-feather="package" style="width:48px;height:48px;color:#94a3b8;"></i>`;
             }
 
-            /** Trigger the hidden file input for icon upload */
-            function triggerIconUpload() {
-              const productId = parseInt(document.querySelector('[name="id"]').value, 10);
-              if (!productId) {
-                document.getElementById('iconUploadStatus').textContent = 'Save the product first, then upload icons.';
-                document.getElementById('iconUploadStatus').style.color = '#dc2626';
-                return;
-              }
-              document.getElementById('iconFileInput').click();
+            /** Return the CSRF token injected by PHP */
+            function getCsrfToken() {
+              return _CSRF_TOKEN || '';
             }
 
-            /** Called by the file input when a file is chosen */
-            function handleIconFileSelected(input) {
-              const file = input.files[0];
-              if (!file) return;
+            // ── Picker state helpers ─────────────────────────────────────
 
+            /** Reset the icon set picker to empty state */
+            function resetIconSetPicker() {
+              document.getElementById('iconSetId').value = '';
+              document.getElementById('iconSetCurrentPreviews').style.display = 'none';
+              document.getElementById('iconSetCurrentSold').src   = '';
+              document.getElementById('iconSetCurrentUnsold').src = '';
+              document.getElementById('iconSetCurrentLabel').innerHTML =
+                '<span class="mw-icon-set-current-empty">No icon set assigned</span>';
+              document.getElementById('clearIconSetBtn').style.display = 'none';
+              document.getElementById('inlineIconUploadForm').style.display = 'none';
+              document.getElementById('inlineIconSetName').value  = '';
+              document.getElementById('inlineIconSetFile').value  = '';
+              document.getElementById('inlineIconUploadStatus').textContent = '';
+            }
+
+            /** Show an assigned icon set in the picker */
+            function setIconSetPicker(id, name, iconBasePath) {
+              if (id) document.getElementById('iconSetId').value = id;
+              const base = iconBasePath ? iconBasePath.replace(/\/?$/, '/') : '';
+              const cb   = '?v=' + Date.now();
+              if (base) {
+                document.getElementById('iconSetCurrentSold').src   = base + 'icon_48_sold.png' + cb;
+                document.getElementById('iconSetCurrentUnsold').src = base + 'icon_48_unsold.png' + cb;
+                // Fallback to 64px if 48px doesn't exist
+                document.getElementById('iconSetCurrentSold').onerror   = function () { this.src = base + 'icon_64_sold.png' + cb; };
+                document.getElementById('iconSetCurrentUnsold').onerror = function () { this.src = base + 'icon_64_unsold.png' + cb; };
+                document.getElementById('iconSetCurrentPreviews').style.display = '';
+              }
+              document.getElementById('iconSetCurrentLabel').innerHTML =
+                '<span class="mw-icon-set-current-name">' + escapeHtml(name) + '</span>';
+              document.getElementById('clearIconSetBtn').style.display = '';
+            }
+
+            // ── Browse modal ─────────────────────────────────────────────
+
+            function openIconSetsModal() {
+              const grid = document.getElementById('iconSetsBrowseGrid');
+              grid.innerHTML = '<div class="text-muted text-center py-4 w-100">Loading…</div>';
+              $('#iconSetsBrowseModal').modal('show');
+
+              fetch('/crm/api/icon-sets.php?action=list')
+                .then(r => r.json())
+                .then(data => {
+                  if (!data.success || !data.icon_sets || !data.icon_sets.length) {
+                    grid.innerHTML = '<div class="text-muted text-center py-4 w-100">No icon sets found. <a href="/cms/cms-media_appstack.php?tab=icon-sets" target="_blank">Create one</a> in the Media Library.</div>';
+                    return;
+                  }
+                  grid.innerHTML = data.icon_sets.map(s => {
+                    const base = escapeHtml(s.icon_base_path.replace(/\/?$/, '/'));
+                    const name = escapeHtml(s.name);
+                    const cnt  = s.product_count > 0 ? `${s.product_count} product${s.product_count > 1 ? 's' : ''}` : 'Not assigned';
+                    return `<div class="mw-icon-set-card mw-icon-set-card--selectable"
+                               onclick="selectIconSetFromModal(${escapeHtml(String(s.id))}, '${name}', '${base}')">
+                      <div class="mw-icon-set-previews">
+                        <div class="mw-icon-set-preview-item">
+                          <img src="${base}icon_64_sold.png" alt="" loading="lazy">
+                          <span class="mw-icon-set-preview-label mw-icon-set-preview-label--sold">Sold</span>
+                        </div>
+                        <div class="mw-icon-set-preview-item">
+                          <img src="${base}icon_64_unsold.png" alt="" loading="lazy">
+                          <span class="mw-icon-set-preview-label mw-icon-set-preview-label--unsold">Unsold</span>
+                        </div>
+                      </div>
+                      <div class="mw-icon-set-card-body">
+                        <div class="mw-icon-set-name">${name}</div>
+                        <span class="mw-icon-set-badge ${s.product_count > 0 ? 'mw-icon-set-badge--used' : 'mw-icon-set-badge--unused'}">${cnt}</span>
+                      </div>
+                    </div>`;
+                  }).join('');
+                  if (typeof feather !== 'undefined') feather.replace();
+                })
+                .catch(err => {
+                  grid.innerHTML = '<div class="text-danger text-center py-4 w-100">Error loading icon sets: ' + escapeHtml(err.message) + '</div>';
+                });
+            }
+
+            function selectIconSetFromModal(id, name, basePath) {
+              setIconSetPicker(id, name, basePath);
+              $('#iconSetsBrowseModal').modal('hide');
+
+              // Immediately assign via API if product is already saved
               const productId = parseInt(document.querySelector('[name="id"]').value, 10);
-              if (!productId) {
-                alert('Please save the product before uploading icons.');
-                input.value = '';
+              if (productId) {
+                const params = new URLSearchParams({
+                  action: 'assign',
+                  icon_set_id: id,
+                  product_id: productId,
+                  csrf_token: getCsrfToken()
+                });
+                fetch('/crm/api/icon-sets.php', { method: 'POST', body: params })
+                  .then(r => r.json())
+                  .then(data => { if (data.success) loadProducts(); })
+                  .catch(() => {}); // silent — form save will persist it anyway
+              }
+            }
+
+            // ── Clear assignment ──────────────────────────────────────────
+
+            function clearIconSetAssignment() {
+              const productId = parseInt(document.querySelector('[name="id"]').value, 10);
+              resetIconSetPicker();
+
+              if (productId) {
+                const params = new URLSearchParams({
+                  action: 'unassign',
+                  product_id: productId,
+                  csrf_token: getCsrfToken()
+                });
+                fetch('/crm/api/icon-sets.php', { method: 'POST', body: params })
+                  .then(r => r.json())
+                  .then(data => { if (data.success) loadProducts(); })
+                  .catch(() => {});
+              }
+            }
+
+            // ── Inline upload & assign ────────────────────────────────────
+
+            function toggleInlineUpload() {
+              const form = document.getElementById('inlineIconUploadForm');
+              form.style.display = form.style.display === 'none' ? '' : 'none';
+            }
+
+            function uploadAndAssignIconSet() {
+              const name     = (document.getElementById('inlineIconSetName').value || '').trim();
+              const fileInput = document.getElementById('inlineIconSetFile');
+              const statusEl = document.getElementById('inlineIconUploadStatus');
+              const btn      = document.getElementById('inlineUploadBtn');
+              const productId = parseInt(document.querySelector('[name="id"]').value, 10);
+
+              if (!name) {
+                statusEl.textContent = 'Enter a name first.';
+                statusEl.style.color = '#dc2626';
+                document.getElementById('inlineIconSetName').focus();
+                return;
+              }
+              if (!fileInput.files[0]) {
+                statusEl.textContent = 'Select an image file.';
+                statusEl.style.color = '#dc2626';
+                return;
+              }
+              if (fileInput.files[0].size > 5 * 1024 * 1024) {
+                statusEl.textContent = 'File exceeds 5 MB.';
+                statusEl.style.color = '#dc2626';
                 return;
               }
 
-              // Client-side size check
-              if (file.size > 5 * 1024 * 1024) {
-                alert('File is too large. Maximum size is 5 MB.');
-                input.value = '';
-                return;
-              }
-
-              const statusEl = document.getElementById('iconUploadStatus');
-              statusEl.textContent = 'Generating icons…';
+              statusEl.textContent = 'Generating icon set…';
               statusEl.style.color = '#6c757d';
-              document.getElementById('uploadIconBtn').disabled = true;
+              if (btn) btn.disabled = true;
 
               const fd = new FormData();
-              fd.append('action', 'upload-icon');
-              fd.append('product_id', productId);
+              fd.append('action', 'upload');
+              fd.append('name', name);
+              fd.append('file', fileInput.files[0]);
               fd.append('csrf_token', getCsrfToken());
-              fd.append('file', file);
 
-              fetch('api-product-icons.php', { method: 'POST', body: fd })
+              fetch('/crm/api/icon-sets.php', { method: 'POST', body: fd })
                 .then(r => r.json())
-                .then(result => {
-                  if (result.success) {
-                    statusEl.textContent = '✓ Icon set generated (14 sizes)';
-                    statusEl.style.color = '#166534';
-                    showIconPreviews(result.icon_base_path, document.getElementById('isSoldToggle').checked);
-                    document.getElementById('deleteIconsBtn').style.display = '';
-                    // Reload cards to reflect new icons
-                    loadProducts();
-                  } else {
-                    statusEl.textContent = 'Error: ' + (result.error || 'Unknown error');
+                .then(data => {
+                  if (!data.success) {
+                    statusEl.textContent = 'Error: ' + (data.error || 'Unknown error');
                     statusEl.style.color = '#dc2626';
+                    return;
+                  }
+                  statusEl.textContent = '✓ Icon set created!';
+                  statusEl.style.color = '#166534';
+                  setIconSetPicker(data.id, data.name, data.icon_base_path);
+                  document.getElementById('inlineIconUploadForm').style.display = 'none';
+                  loadProducts();
+
+                  // If product is saved, immediately assign
+                  if (productId) {
+                    const params = new URLSearchParams({
+                      action: 'assign',
+                      icon_set_id: data.id,
+                      product_id: productId,
+                      csrf_token: getCsrfToken()
+                    });
+                    fetch('/crm/api/icon-sets.php', { method: 'POST', body: params })
+                      .then(r => r.json())
+                      .catch(() => {});
                   }
                 })
                 .catch(err => {
@@ -1654,64 +1838,8 @@ $activePage = 'products';
                   statusEl.style.color = '#dc2626';
                 })
                 .finally(() => {
-                  document.getElementById('uploadIconBtn').disabled = false;
-                  input.value = '';
+                  if (btn) btn.disabled = false;
                 });
-            }
-
-            /** Delete the icon set for the current product */
-            function deleteIconSet() {
-              const productId = parseInt(document.querySelector('[name="id"]').value, 10);
-              if (!productId) return;
-              if (!confirm('Remove all generated icons for this product? You can re-upload anytime.')) return;
-
-              fetch('api-product-icons.php', {
-                method: 'POST',
-                body: new URLSearchParams({
-                  action: 'delete-icons',
-                  product_id: productId,
-                  csrf_token: getCsrfToken()
-                })
-              })
-              .then(r => r.json())
-              .then(result => {
-                if (result.success) {
-                  hideIconPreviews();
-                  document.getElementById('deleteIconsBtn').style.display = 'none';
-                  document.getElementById('iconUploadStatus').textContent = 'Icons removed.';
-                  document.getElementById('iconUploadStatus').style.color = '#6c757d';
-                  loadProducts();
-                } else {
-                  alert('Error: ' + (result.error || 'Unknown error'));
-                }
-              })
-              .catch(err => alert('Error: ' + err.message));
-            }
-
-            /** Show the sold + unsold preview row */
-            function showIconPreviews(iconBasePath, isSold) {
-              const row       = document.getElementById('iconPreviewRow');
-              const soldImg   = document.getElementById('iconPreviewSold');
-              const unsoldImg = document.getElementById('iconPreviewUnsold');
-              const base      = iconBasePath.endsWith('/') ? iconBasePath : iconBasePath + '/';
-
-              // Cache-bust so the browser shows the freshly-generated images
-              const cb = '?v=' + Date.now();
-              soldImg.src   = base + 'icon_64_sold.png' + cb;
-              unsoldImg.src = base + 'icon_64_unsold.png' + cb;
-              row.style.display = 'flex';
-            }
-
-            /** Hide the icon preview row */
-            function hideIconPreviews() {
-              document.getElementById('iconPreviewRow').style.display = 'none';
-              document.getElementById('iconPreviewSold').src   = '';
-              document.getElementById('iconPreviewUnsold').src = '';
-            }
-
-            /** Return the CSRF token injected by PHP */
-            function getCsrfToken() {
-              return _CSRF_TOKEN || '';
             }
 
             // Open media browser modal — always load library, score by product name

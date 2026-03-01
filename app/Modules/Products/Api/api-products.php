@@ -195,6 +195,15 @@ try {
             // Ignore
         }
 
+        // Check if icon_set_id column exists (migration 910)
+        $hasIconSetId = false;
+        try {
+            $isCheck = $db->query("SHOW COLUMNS FROM products LIKE 'icon_set_id'");
+            $hasIconSetId = ($isCheck->rowCount() > 0);
+        } catch (Exception $e) {
+            // Ignore
+        }
+
         // Check if tracking flag columns exist (tracking flags migration)
         $hasTrackingFlags = false;
         $hasAutoClockIn = false;
@@ -318,6 +327,12 @@ try {
                 // icon_base_path is written by api-product-icons.php on upload, not by save-product
             }
 
+            if ($hasIconSetId) {
+                $columns .= ", icon_set_id";
+                $placeholders .= ", ?";
+                $params[] = !empty($data['icon_set_id']) ? (int)$data['icon_set_id'] : null;
+            }
+
             $stmt = $db->prepare("INSERT INTO products ({$columns}) VALUES ({$placeholders})");
             $stmt->execute($params);
 
@@ -418,6 +433,11 @@ try {
                 // icon_base_path is written directly by api-product-icons.php on upload
             }
 
+            if ($hasIconSetId) {
+                $setClauses .= ", icon_set_id = ?";
+                $params[] = !empty($data['icon_set_id']) ? (int)$data['icon_set_id'] : null;
+            }
+
             $params[] = $data['id'];
             $stmt = $db->prepare("UPDATE products SET {$setClauses} WHERE id = ?");
             $stmt->execute($params);
@@ -474,11 +494,36 @@ try {
         $category = $_GET['category'] ?? null;
         $search = $_GET['search'] ?? null;
 
+        // Check if icon_sets integration columns are available (migration 910)
+        $hasIconSetJoin = false;
+        try {
+            $icColCheck  = $db->query("SHOW COLUMNS FROM products LIKE 'icon_set_id'")->rowCount() > 0;
+            $icTblCheck  = $db->query("SHOW TABLES LIKE 'icon_sets'")->rowCount() > 0;
+            $hasIconSetJoin = $icColCheck && $icTblCheck;
+        } catch (Exception $e) {
+            // Ignore — fallback to plain query
+        }
+
+        if ($hasIconSetJoin) {
+            $iconJoin      = "LEFT JOIN icon_sets s ON s.id = p.icon_set_id";
+            $iconCoalesce  = ", COALESCE(s.icon_base_path, p.icon_base_path) AS icon_base_path";
+            $iconNameSelect = ", s.name AS icon_set_name";
+        } else {
+            $iconJoin       = "";
+            $iconCoalesce   = "";
+            $iconNameSelect = "";
+        }
+
         $sql = "
-            SELECT p.*, c.name as category_name, u.abbreviation as unit_abbreviation
+            SELECT p.*,
+                   c.name as category_name,
+                   u.abbreviation as unit_abbreviation
+                   {$iconCoalesce}
+                   {$iconNameSelect}
             FROM products p
             LEFT JOIN product_categories c ON p.category_id = c.id
             LEFT JOIN unit_types u ON p.unit_type_id = u.id
+            {$iconJoin}
             WHERE 1
         ";
 
