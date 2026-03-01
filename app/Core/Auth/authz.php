@@ -25,7 +25,7 @@ if (!function_exists('getCurrentUser')) {
 // Cache version — bump this when you change role_permissions seeds
 // or when a user's roles are modified via the admin UI.
 if (!defined('PERM_CACHE_VERSION')) {
-    define('PERM_CACHE_VERSION', 1);
+    define('PERM_CACHE_VERSION', 2);
 }
 
 /**
@@ -143,6 +143,7 @@ function _legacyPermissions(int $userId): array
                 'products.view', 'products.edit',
                 'portfolio.view', 'portfolio.edit',
                 'team.view', 'team.edit',
+                'expenses.view', 'expenses.edit',
                 'settings.view',
             ];
 
@@ -157,6 +158,7 @@ function _legacyPermissions(int $userId): array
                 'products.view',
                 'portfolio.view',
                 'team.view',
+                'expenses.view', 'expenses.edit',
             ];
 
         case 'user':
@@ -169,6 +171,7 @@ function _legacyPermissions(int $userId): array
                 'products.view',
                 'portfolio.view',
                 'team.view',
+                'expenses.view',
             ];
     }
 }
