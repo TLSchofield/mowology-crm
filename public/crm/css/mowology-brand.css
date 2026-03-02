@@ -2344,6 +2344,79 @@ a:hover {
   display: block;
 }
 
+/* ── Save to Library Button (on custom line items) ────────────────────── */
+.mw-save-lib-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--mw-green);
+  background: transparent;
+  color: var(--mw-green);
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.mw-save-lib-btn:hover {
+  opacity: 1;
+  background: var(--mw-green);
+  color: #fff;
+}
+
+/* Save to Library Modal */
+.mw-save-lib-header {
+  background: var(--mw-forest);
+  color: #fff;
+  padding: 12px 16px;
+}
+.mw-save-lib-close {
+  color: rgba(255,255,255,0.75) !important;
+  text-shadow: none;
+  opacity: 1;
+}
+.mw-save-lib-close:hover { color: #fff !important; }
+.mw-save-lib-submit {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  color: #fff;
+}
+.mw-save-lib-submit:hover {
+  background: var(--mw-dark);
+  border-color: var(--mw-dark);
+  color: #fff;
+}
+.mw-save-lib-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Toast notification */
+.mw-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--mw-forest);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  z-index: 9999;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.25s, transform 0.25s;
+  pointer-events: none;
+}
+.mw-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* ============================================
    QUOTE VIEW — Line Items Table, Signature, Activity
    ============================================ */

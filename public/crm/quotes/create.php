@@ -738,6 +738,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                     '<input type="number" value="' + (item.unit_price || 0) + '" min="0" step="any" ' +
                            'onchange="updateLineItem(' + index + ', \'unit_price\', this.value); recalculateLineTotal(' + index + ')">' +
                     '<div class="mw-line-total">' + formatCurrency(item.line_total || 0) + '</div>' +
+                    (!item.product_id ? '<button type="button" class="mw-save-lib-btn" onclick="openSaveToLibraryPopover(' + index + ')" title="Save to Products Library"><i data-feather="bookmark" style="width:12px;height:12px;"></i></button>' : '') +
                     '<button type="button" class="mw-remove-btn" onclick="removeLine(' + index + ')">&times;</button>';
 
                 // Drag-to-reorder within create form
@@ -1675,6 +1676,125 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 initMapWhenReady();
             }
         }
+
+        // ── Save to Products Library ──────────────────────────────────────────
+        let _saveLibCategories = null;
+
+        async function _loadSaveLibCategories() {
+            if (_saveLibCategories) return _saveLibCategories;
+            try {
+                const resp = await fetch('/crm/products/api-products.php?action=get-categories');
+                const data = await resp.json();
+                _saveLibCategories = (data.success && data.categories) ? data.categories : [];
+            } catch (e) {
+                _saveLibCategories = [];
+            }
+            return _saveLibCategories;
+        }
+
+        async function openSaveToLibraryPopover(index) {
+            const item = lineItems[index];
+            document.getElementById('saveLibLineIndex').value = index;
+            document.getElementById('saveLibName').value = item.service_type || '';
+            document.getElementById('saveLibPrice').value = parseFloat(item.unit_price || 0).toFixed(2);
+            document.getElementById('saveLibDescription').value = item.description || '';
+            document.getElementById('saveLibStatus').textContent = '';
+            document.getElementById('saveLibStatus').className = 'small text-muted mr-auto';
+
+            // Populate category dropdown
+            const cats = await _loadSaveLibCategories();
+            const sel = document.getElementById('saveLibCategory');
+            sel.innerHTML = '<option value="">— select a category —</option>';
+            cats.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = c.name;
+                sel.appendChild(opt);
+            });
+
+            $('#saveToLibraryModal').modal('show');
+            setTimeout(() => { if (typeof feather !== 'undefined') feather.replace(); }, 50);
+        }
+
+        async function saveItemToLibrary() {
+            const index = parseInt(document.getElementById('saveLibLineIndex').value);
+            const name = document.getElementById('saveLibName').value.trim();
+            const categoryId = document.getElementById('saveLibCategory').value;
+            const price = parseFloat(document.getElementById('saveLibPrice').value) || 0;
+            const description = document.getElementById('saveLibDescription').value.trim();
+            const statusEl = document.getElementById('saveLibStatus');
+
+            if (!name) {
+                statusEl.textContent = 'Service name is required.';
+                statusEl.className = 'small text-danger mr-auto';
+                document.getElementById('saveLibName').focus();
+                return;
+            }
+            if (!categoryId) {
+                statusEl.textContent = 'Please select a category.';
+                statusEl.className = 'small text-danger mr-auto';
+                document.getElementById('saveLibCategory').focus();
+                return;
+            }
+
+            statusEl.textContent = 'Saving…';
+            statusEl.className = 'small text-muted mr-auto';
+
+            const submitBtn = document.getElementById('saveLibSubmitBtn');
+            submitBtn.disabled = true;
+
+            try {
+                const resp = await fetch('/crm/products/api-products.php?action=save-product', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: name,
+                        category_id: parseInt(categoryId),
+                        base_price: price,
+                        description: description || null,
+                        active: 1,
+                        taxable: 1,
+                        uses_cost_calculator: 0,
+                        featured: 0,
+                        track_inventory: 0
+                    })
+                });
+                const data = await resp.json();
+
+                if (data.success) {
+                    // Mark line item as linked to this product so button disappears
+                    lineItems[index].product_id = data.id || true;
+                    statusEl.textContent = '✓ Saved!';
+                    statusEl.className = 'small text-success mr-auto';
+                    setTimeout(() => {
+                        $('#saveToLibraryModal').modal('hide');
+                        renderLineItems();
+                        showMwToast('Product saved to library — it\'s now available in Add from Template.');
+                    }, 700);
+                } else {
+                    statusEl.textContent = data.error || data.message || 'Save failed.';
+                    statusEl.className = 'small text-danger mr-auto';
+                    submitBtn.disabled = false;
+                }
+            } catch (e) {
+                statusEl.textContent = 'Network error — please try again.';
+                statusEl.className = 'small text-danger mr-auto';
+                submitBtn.disabled = false;
+            }
+        }
+
+        function showMwToast(message) {
+            let toast = document.getElementById('mwToast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'mwToast';
+                toast.className = 'mw-toast';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3500);
+        }
     </script>
 
 <!-- ── Bundle Picker Modal ─────────────────────────────────────────────── -->
@@ -1707,6 +1827,55 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
 
 <!-- Bundle warning toast (shown below line items area) -->
 <div id="bundleWarningMsg" class="alert alert-warning py-2 mt-2" style="display:none;font-size:13px;"></div>
+
+<!-- ── Save to Products Library Modal ─────────────────────────────────── -->
+<div class="modal fade" id="saveToLibraryModal" tabindex="-1" role="dialog" aria-labelledby="saveToLibraryModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm" role="document">
+    <div class="modal-content">
+      <div class="modal-header mw-save-lib-header">
+        <h6 class="modal-title" id="saveToLibraryModalLabel">
+          <i data-feather="bookmark" style="width:14px;height:14px;vertical-align:middle;margin-right:5px;"></i>
+          Save to Products Library
+        </h6>
+        <button type="button" class="close mw-save-lib-close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body" style="padding:16px;">
+        <input type="hidden" id="saveLibLineIndex" value="">
+        <div class="form-group mb-3">
+          <label class="small font-weight-bold mb-1">Service Name <span class="text-danger">*</span></label>
+          <input type="text" class="form-control form-control-sm" id="saveLibName" placeholder="e.g. Lawn Mowing">
+        </div>
+        <div class="form-group mb-3">
+          <label class="small font-weight-bold mb-1">Category <span class="text-danger">*</span></label>
+          <select class="form-control form-control-sm" id="saveLibCategory">
+            <option value="">— select a category —</option>
+          </select>
+        </div>
+        <div class="form-group mb-3">
+          <label class="small font-weight-bold mb-1">Base Price</label>
+          <div class="input-group input-group-sm">
+            <div class="input-group-prepend"><span class="input-group-text">$</span></div>
+            <input type="number" class="form-control" id="saveLibPrice" min="0" step="0.01" placeholder="0.00">
+          </div>
+        </div>
+        <div class="form-group mb-0">
+          <label class="small font-weight-bold mb-1">Description <span class="text-muted font-weight-normal">(optional)</span></label>
+          <textarea class="form-control form-control-sm" id="saveLibDescription" rows="2" placeholder="Brief description…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding:10px 16px;">
+        <span id="saveLibStatus" class="small text-muted mr-auto"></span>
+        <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm mw-save-lib-submit" id="saveLibSubmitBtn" onclick="saveItemToLibrary()">
+          <i data-feather="bookmark" style="width:12px;height:12px;vertical-align:middle;margin-right:3px;"></i>
+          Save to Library
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <?php if ($quoteId): ?>
 <!-- ── Client Preview Drawer ──────────────────────────────────────────── -->
