@@ -95,6 +95,7 @@ $csrfToken = generateCSRFToken();
               <li class="nav-item"><a class="nav-link" href="/crm/cms/cms-snippets.php"><i data-feather="copy" class="mr-1" style="width:14px;height:14px;"></i> Snippets</a></li>
               <li class="nav-item"><a class="nav-link" href="/crm/cms/cms-tokens.php"><i data-feather="hash" class="mr-1" style="width:14px;height:14px;"></i> Tokens</a></li>
               <li class="nav-item"><a class="nav-link" href="/crm/cms/cms-generator-manager.php"><i data-feather="layers" class="mr-1" style="width:14px;height:14px;"></i> Templates</a></li>
+              <li class="nav-item"><a class="nav-link" href="/crm/cms-redirects_appstack.php"><i data-feather="corner-right-down" class="mr-1" style="width:14px;height:14px;"></i> Redirects</a></li>
               <?php if (isAdmin()): ?>
               <li class="nav-item"><a class="nav-link" href="/crm/cms-activity_appstack.php"><i data-feather="activity" class="mr-1" style="width:14px;height:14px;"></i> Activity Log</a></li>
               <?php endif; ?>
@@ -138,6 +139,19 @@ $csrfToken = generateCSRFToken();
                   </li>
               <?php endforeach; ?>
           </ul>
+
+          <!-- Live Search (P2-H) -->
+          <div class="d-flex align-items-center mb-3">
+              <div class="input-group" style="max-width:420px;">
+                  <div class="input-group-prepend">
+                      <span class="input-group-text bg-white"><i data-feather="search" style="width:14px;height:14px;color:#999;"></i></span>
+                  </div>
+                  <input type="text" id="cms-page-search" class="form-control border-left-0"
+                         placeholder="Search pages by title, slug, or type…"
+                         autocomplete="off" spellcheck="false">
+              </div>
+              <span id="cms-search-count" class="ml-3 small text-muted" style="display:none;"></span>
+          </div>
 
           <!-- Pages Table -->
           <div class="card">
@@ -332,6 +346,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 .catch(function(err) { alert('Error: ' + err.message); });
         });
     });
+
+    // ---- Live Search (P2-H) ----
+    var searchInput = document.getElementById('cms-page-search');
+    var searchCount = document.getElementById('cms-search-count');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            var q = this.value.toLowerCase().trim();
+            var rows = document.querySelectorAll('#pages-table tbody tr');
+            var visible = 0;
+            rows.forEach(function(row) {
+                var text = row.textContent.toLowerCase();
+                var show = !q || text.includes(q);
+                row.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            if (q) {
+                searchCount.style.display = '';
+                searchCount.textContent = visible + ' result' + (visible !== 1 ? 's' : '');
+            } else {
+                searchCount.style.display = 'none';
+            }
+        });
+    }
 
     // ---- Duplicate page buttons ----
     document.querySelectorAll('.mw-duplicate-page').forEach(function(btn) {

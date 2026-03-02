@@ -545,8 +545,15 @@ function cmsDash_actionIcon(string $action): string
                     <button id="btn-flush-cache" class="btn btn-outline-warning btn-sm">
                         <i data-feather="refresh-cw" class="feather-xs me-1"></i> Flush HTML Cache
                     </button>
+                    <button id="btn-run-schedule" class="btn btn-outline-info btn-sm" title="Auto-publish/archive scheduled pages now">
+                        <i data-feather="clock" class="feather-xs me-1"></i> Run Schedule Cron
+                    </button>
+                    <button id="btn-run-seo-recalc" class="btn btn-outline-secondary btn-sm" title="Recalculate SEO scores for all pages">
+                        <i data-feather="bar-chart-2" class="feather-xs me-1"></i> Recalc SEO Scores
+                    </button>
                 </div>
                 <div id="cache-flush-msg" class="mt-2" style="display:none"></div>
+                <div id="cron-run-msg" class="mt-2" style="display:none"></div>
             </div>
         </div>
     </div>
@@ -576,6 +583,45 @@ document.getElementById('btn-flush-cache').addEventListener('click', function ()
         document.getElementById('btn-flush-cache').innerHTML = '<i data-feather="refresh-cw" class="feather-xs me-1"></i> Flush HTML Cache';
         if (typeof feather !== 'undefined') feather.replace();
     });
+});
+
+// ── Schedule cron runner ──────────────────────────────────────────────────────
+function runCron(btnId, endpoint, label) {
+    var btn = document.getElementById(btnId);
+    var msg = document.getElementById('cron-run-msg');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Running…';
+    var csrf = '<?= generateCSRFToken() ?>';
+    fetch(endpoint, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'csrf_token=' + encodeURIComponent(csrf),
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        msg.style.display = '';
+        if (data.success) {
+            msg.className = 'alert alert-success alert-sm py-2 mt-2';
+            msg.textContent = '✓ ' + label + ': ' + (data.summary || JSON.stringify(data));
+        } else {
+            msg.className = 'alert alert-danger alert-sm py-2 mt-2';
+            msg.textContent = data.error || label + ' failed.';
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<i data-feather="' + (btnId === 'btn-run-schedule' ? 'clock' : 'bar-chart-2') + '" class="feather-xs me-1"></i> ' + label;
+        if (typeof feather !== 'undefined') feather.replace();
+      }).catch(function(e) {
+        msg.style.display = '';
+        msg.className = 'alert alert-danger alert-sm py-2 mt-2';
+        msg.textContent = 'Error: ' + e.message;
+        btn.disabled = false;
+      });
+}
+
+document.getElementById('btn-run-schedule').addEventListener('click', function() {
+    runCron('btn-run-schedule', '/crm/cron/cms-schedule-publish.php', 'Run Schedule Cron');
+});
+document.getElementById('btn-run-seo-recalc').addEventListener('click', function() {
+    runCron('btn-run-seo-recalc', '/crm/cron/cms-seo-recalc.php', 'Recalc SEO Scores');
 });
 </script>
 

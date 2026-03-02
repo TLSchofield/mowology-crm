@@ -135,7 +135,7 @@ try {
         'success'   => true,
         'page_id'   => $newPageId,
         'slug'      => $newSlug,
-        'edit_url'  => '/crm/cms-page-editor.php?id=' . $newPageId,
+        'edit_url'  => '/crm/cms/cms-page-edit.php?id=' . $newPageId,
         'message'   => 'Page duplicated as draft: ' . $newSlug,
     ]);
 

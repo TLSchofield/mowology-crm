@@ -58,6 +58,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // Save page settings
+            // Normalize datetime-local → MySQL datetime or null
+            $parseSchedule = function(?string $val): ?string {
+                if (!$val || $val === '') return null;
+                $ts = strtotime($val);
+                return $ts !== false ? date('Y-m-d H:i:s', $ts) : null;
+            };
+
             $pageData = [
                 'title'            => trim($_POST['title'] ?? ''),
                 'slug'             => trim($_POST['slug'] ?? ''),
@@ -69,6 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'status'           => $status,
                 'og_image_path'    => trim($_POST['og_image_path'] ?? ''),
                 'noindex'          => isset($_POST['noindex']) ? 1 : 0,
+                'publish_at'       => $parseSchedule($_POST['publish_at'] ?? null),
+                'unpublish_at'     => $parseSchedule($_POST['unpublish_at'] ?? null),
             ];
 
             $pageId = cms_savePage($pageData, $isNew ? null : $pageId, $user['id']);
@@ -185,15 +194,29 @@ $csrfToken = generateCSRFToken();
                   <h1 class="h3 mb-0 mt-1"><?php echo $isNew ? 'New Page' : 'Edit: ' . h($page['title']); ?></h1>
               </div>
               <?php if (!$isNew && $page): ?>
+                  <?php
+                  // Generate signed preview token (2-hour window, no DB needed)
+                  $previewExpiry = time() + 7200;
+                  $previewSecret = defined('CMS_PREVIEW_SECRET') ? CMS_PREVIEW_SECRET : 'mwly_cms_preview';
+                  $previewToken  = hash_hmac('sha256', $pageId . '|' . $previewExpiry, $previewSecret);
+                  $previewUrl    = '/cms-render.php?page=' . urlencode($page['slug'])
+                                 . '&_pid=' . $pageId
+                                 . '&_exp=' . $previewExpiry
+                                 . '&_tok=' . $previewToken;
+                  ?>
                   <div>
                       <?php if ($page['status'] === 'published'): ?>
                           <a href="/<?php echo h($page['slug']); ?>" target="_blank" class="btn btn-outline-secondary btn-sm mr-1">
                               <i data-feather="external-link" class="mr-1" style="width:14px;height:14px;"></i> View Live
                           </a>
                       <?php endif; ?>
-                      <a href="/cms-render.php?page=<?php echo h($page['slug']); ?>&preview=1" target="_blank" class="btn btn-outline-primary btn-sm">
+                      <a href="<?php echo h($previewUrl); ?>" target="_blank" class="btn btn-outline-primary btn-sm mr-1">
                           <i data-feather="eye" class="mr-1" style="width:14px;height:14px;"></i> Preview
                       </a>
+                      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copyPreviewUrl(this)"
+                              data-url="<?php echo h($previewUrl); ?>" title="Copy shareable preview link">
+                          <i data-feather="link" style="width:14px;height:14px;"></i>
+                      </button>
                   </div>
               <?php endif; ?>
           </div>
@@ -386,11 +409,46 @@ $csrfToken = generateCSRFToken();
                           <div class="card-body">
                               <?php if (!$isNew && $page): ?>
                                   <p class="small text-muted mb-2">
-                                      Status: <span class="badge badge-<?php echo $page['status'] === 'published' ? 'success' : 'warning'; ?>"><?php echo ucfirst(h($page['status'])); ?></span><br>
+                                      Status: <span class="badge badge-<?php echo $page['status'] === 'published' ? 'success' : ($page['status'] === 'archived' ? 'secondary' : 'warning'); ?>">
+                                          <?php echo ucfirst(h($page['status'])); ?>
+                                      </span><br>
                                       Created: <?php echo date('M j, Y', strtotime($page['created_at'])); ?><br>
                                       <?php if ($page['updated_at']): ?>Updated: <?php echo date('M j, Y g:i A', strtotime($page['updated_at'])); ?><?php endif; ?>
                                   </p>
                               <?php endif; ?>
+
+                              <!-- Scheduling -->
+                              <?php
+                              $fmtDt = function(?string $dt): string {
+                                  if (!$dt || $dt === '0000-00-00 00:00:00') return '';
+                                  $ts = strtotime($dt);
+                                  return $ts !== false ? date('Y-m-d\TH:i', $ts) : '';
+                              };
+                              ?>
+                              <div class="form-group mb-2">
+                                  <label class="small mb-0">
+                                      <i data-feather="clock" style="width:12px;height:12px;" class="mr-1"></i>
+                                      Schedule Publish At
+                                  </label>
+                                  <input type="datetime-local" class="form-control form-control-sm" name="publish_at"
+                                         id="publish_at"
+                                         value="<?php echo h($fmtDt($page['publish_at'] ?? null)); ?>"
+                                         title="Auto-publish at this date/time (page must be saved as Published)">
+                                  <small class="text-muted" style="font-size:0.75rem;">Leave blank to publish immediately</small>
+                              </div>
+                              <div class="form-group mb-3">
+                                  <label class="small mb-0">
+                                      <i data-feather="calendar" style="width:12px;height:12px;" class="mr-1"></i>
+                                      Auto-Unpublish At
+                                  </label>
+                                  <input type="datetime-local" class="form-control form-control-sm" name="unpublish_at"
+                                         id="unpublish_at"
+                                         value="<?php echo h($fmtDt($page['unpublish_at'] ?? null)); ?>"
+                                         title="Auto-archive page at this date/time">
+                                  <small class="text-muted" style="font-size:0.75rem;">Leave blank to keep live indefinitely</small>
+                              </div>
+                              <hr class="my-2">
+
                               <button type="submit" class="btn btn-block btn-outline-secondary mb-2" onclick="document.getElementById('submitAction').value='save'">
                                   <i data-feather="save" style="width:14px;height:14px;" class="mr-1"></i> Save Draft
                               </button>
@@ -551,6 +609,17 @@ function updateCharCount(inputId, countId) {
 }
 updateCharCount('meta_title', 'metaTitleCount');
 updateCharCount('meta_description', 'metaDescCount');
+
+// Copy shareable preview URL to clipboard
+function copyPreviewUrl(btn) {
+    const url = window.location.origin + btn.dataset.url;
+    navigator.clipboard.writeText(url).then(() => {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i data-feather="check" style="width:14px;height:14px;"></i>';
+        if (typeof feather !== 'undefined') feather.replace();
+        setTimeout(() => { btn.innerHTML = orig; if (typeof feather !== 'undefined') feather.replace(); }, 2000);
+    }).catch(() => { prompt('Copy this preview URL:', url); });
+}
 
 // Add token row
 function addTokenRow() {
