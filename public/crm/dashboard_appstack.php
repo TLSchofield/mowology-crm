@@ -88,6 +88,25 @@ try {
     // Work queue items
     $workQueueItems = getWorkQueueItems();
 
+    // Crew Today: clock-in status + app install status + visits today
+    $crewToday = [];
+    try {
+        $crewStmt = $db->query("
+            SELECT
+                u.id, u.full_name, u.role, u.install_link_sent_at,
+                (SELECT COUNT(*) FROM time_clock_entries
+                 WHERE user_id = u.id AND clock_out IS NULL AND status = 'active') AS is_clocked_in,
+                (SELECT COUNT(*) FROM job_visits
+                 WHERE assigned_crew_id = u.id
+                   AND scheduled_date = CURDATE()
+                   AND status IN ('scheduled', 'in_progress', 'completed')) AS visits_today
+            FROM users u
+            WHERE u.is_active = 1
+            ORDER BY is_clocked_in DESC, u.full_name ASC
+        ");
+        $crewToday = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) { $crewToday = []; }
+
 } catch(PDOException $e) {
     $errorHandler->logDatabaseError($e, '', [], 'Unable to load dashboard data. Please refresh the page.');
     $stats = [];
@@ -95,6 +114,7 @@ try {
     $recentActivity = [];
     $quoteRequests = [];
     $workQueueItems = [];
+    $crewToday = [];
 }
 
 $pageTitle = 'Dashboard';
@@ -534,6 +554,54 @@ $activePage = 'dashboard';
                       };
                     })();
                     </script>
+                  <?php endif; ?>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Crew Today -->
+          <div class="row mt-2">
+            <div class="col-12">
+              <div class="card mw-crew-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h5 class="card-title mb-0">
+                    <i data-feather="users" class="mw-crew-header-icon"></i>
+                    Crew Today
+                  </h5>
+                  <a href="/crm/team/index.php" class="mw-crew-view-all">
+                    View Team <i data-feather="arrow-right"></i>
+                  </a>
+                </div>
+                <div class="card-body">
+                  <?php if (empty($crewToday)): ?>
+                    <div class="text-center text-muted py-3">
+                      <i data-feather="user-x" style="width:32px;height:32px;"></i>
+                      <p class="mt-2 mb-0">No active crew members</p>
+                    </div>
+                  <?php else: ?>
+                    <div class="mw-crew-grid">
+                      <?php foreach ($crewToday as $member): ?>
+                        <a href="/crm/team/profile.php?id=<?php echo (int)$member['id']; ?>" class="mw-crew-tile">
+                          <div class="mw-crew-status-dot <?php echo $member['is_clocked_in'] ? 'mw-crew-clocked-in' : 'mw-crew-clocked-out'; ?>"></div>
+                          <div class="mw-crew-name"><?php echo h($member['full_name']); ?></div>
+                          <div class="mw-crew-meta">
+                            <?php if ((int)$member['visits_today'] > 0): ?>
+                              <span class="mw-crew-visits-badge"><?php echo (int)$member['visits_today']; ?> visit<?php echo (int)$member['visits_today'] !== 1 ? 's' : ''; ?></span>
+                            <?php endif; ?>
+                            <?php if (!empty($member['install_link_sent_at'])): ?>
+                              <span class="mw-crew-app-badge" title="App install link sent <?php echo date('M j', strtotime($member['install_link_sent_at'])); ?>">
+                                <i data-feather="smartphone"></i>
+                              </span>
+                            <?php endif; ?>
+                          </div>
+                        </a>
+                      <?php endforeach; ?>
+                      <a href="/crm/team/index.php" class="mw-crew-tile mw-crew-tile-action">
+                        <i data-feather="user-check" class="mw-crew-action-icon"></i>
+                        <div class="mw-crew-name">Manage Team</div>
+                      </a>
+                    </div>
                   <?php endif; ?>
                 </div>
               </div>
