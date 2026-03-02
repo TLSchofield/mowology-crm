@@ -231,10 +231,11 @@ ob_start();
 .cdx-p-meta svg { color: var(--cdx-green); }
 .cdx-p-photos { padding: 7px 14px; display: flex; gap: 6px; }
 .cdx-p-photo { width: 48px; height: 48px; background: #EEE9E2; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #C0BAB2; font-family: var(--cdx-font-mono); font-size: 8px; gap: 3px; }
-.cdx-p-svc-block { border-top: 1px solid #F0EBE4; }
+.cdx-p-svc-block { border-top: 2px solid #F0EBE4; }
 .cdx-p-svc-block:first-child { border-top: none; }
-.cdx-p-svc-hdr { padding: 7px 14px 3px; display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; font-family: var(--cdx-font-display); color: var(--cdx-green); }
+.cdx-p-svc-hdr { padding: 8px 14px 3px; display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; font-family: var(--cdx-font-display); color: var(--cdx-green); }
 .cdx-p-svc-hdr--alt { color: #e85d04; }
+.cdx-p-svc-notes { margin: 4px 14px 6px; background: #FAF8F5; border: 1px solid #EDE9E3; border-radius: 7px; padding: 6px 9px; font-size: 9px; color: #AAA49C; font-family: var(--cdx-font-mono); font-style: italic; }
 .cdx-p-btns { padding: 7px 14px; display: flex; gap: 7px; }
 .cdx-p-btn { flex: 1; padding: 9px 6px; border-radius: 9px; font-size: 11px; font-weight: 700; text-align: center; font-family: var(--cdx-font-display); }
 .cdx-p-btn-g { background: var(--cdx-green); color: #fff; }
@@ -444,7 +445,7 @@ const CARD_DEFS = {
     hasViews: true,
     views: {
       compact:  { label: 'Compact View',  desc: 'Header — always visible at top of card',   defaults: ['stop-time','client-name','service-pills','duration'] },
-      expanded: { label: 'Expanded View', desc: 'Full screen — shown when card is tapped open', defaults: ['address','sq-ft','last-visit','photos','clock-in','complete-job'] },
+      expanded: { label: 'Expanded View', desc: 'Full screen — shown when card is tapped open', defaults: ['address','sq-ft','last-visit','photos'] },
     },
     elements: {
       'stop-time':     { label:'Stop Time',          icon:'clock',  desc:'Scheduled time window',        colorable:false },
@@ -455,7 +456,7 @@ const CARD_DEFS = {
       'duration':      { label:'Duration',            icon:'clock',  desc:'Estimated job time',           colorable:false },
       'sq-ft':         { label:'Sq Ft',               icon:'expand', desc:'Property square footage',      colorable:false },
       'last-visit':    { label:'Last Visit',          icon:'cal',    desc:'Previous service date',        colorable:false },
-      'photos':        { label:'Photo Placeholders',  icon:'cam',    desc:'Before / After / Extra slots', colorable:false },
+      'photos':        { label:'Service Blocks',       icon:'cam',    desc:'Per-service: photos, notes & buttons for each job', colorable:false },
       'clock-in':      { label:'Clock In Button',     icon:'login',  desc:'Start job timer',              colorable:true  },
       'complete-job':  { label:'Complete Job Button', icon:'check',  desc:'Mark job complete',            colorable:false },
       'go-btn':        { label:'Go Button',           icon:'nav',    desc:'Opens navigation to job address', colorable:true },
@@ -781,15 +782,21 @@ function getStopPreview(id) {
         <div class="cdx-p-photo"><div style="width:16px;height:16px">${IC.cam}</div>After</div>
         <div class="cdx-p-photo" style="border:1.5px dashed #CCC7BE;background:transparent">+</div>
       </div>`;
+      const notesRow = `<div class="cdx-p-svc-notes">Site notes for this job…</div>`;
+      const btnsRow  = `<div class="cdx-p-btns" style="padding-bottom:10px">
+        <div class="cdx-p-btn cdx-p-btn-g" style="flex:1">Clock In</div>
+        <div class="cdx-p-btn cdx-p-btn-d" style="flex:1">Complete Job</div>
+      </div>`;
+      const svcBlock = (emoji, label, hdrClass = '') => `
+        <div class="cdx-p-svc-block">
+          <div class="cdx-p-svc-hdr ${hdrClass}">${emoji} ${label}</div>
+          ${photoRow}
+          ${notesRow}
+          ${btnsRow}
+        </div>`;
       return `<div>
-        <div class="cdx-p-svc-block">
-          <div class="cdx-p-svc-hdr">🌿 Lawn Cut</div>
-          ${photoRow}
-        </div>
-        <div class="cdx-p-svc-block">
-          <div class="cdx-p-svc-hdr cdx-p-svc-hdr--alt">✂️ Hedge Trim</div>
-          ${photoRow}
-        </div>
+        ${svcBlock('🌿', 'Lawn Cut')}
+        ${svcBlock('✂️', 'Hedge Trim', 'cdx-p-svc-hdr--alt')}
       </div>`;
     }
     case 'clock-in':
