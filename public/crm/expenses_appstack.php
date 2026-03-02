@@ -622,20 +622,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <div class="mw-mc-expense-capture" id="mobileCaptureArea">
             <div class="mw-mc-expense-capture-inner">
 
-                <!-- Job pre-selection (panel 1) — pill list, No Job first -->
-                <div class="mw-mc-expense-prejob" id="mobilePrejobSection">
-                    <div class="mw-mc-expense-prejob-list" id="mobilePrejobList">
-                        <button type="button" class="mw-mc-expense-job-pill mw-mc-expense-job-pill-none mw-mc-expense-job-pill-active" id="mobilePrejobNoneBtn" onclick="mobileSelectPrejobNone()">
-                            <span class="mw-mc-expense-job-pill-name">No Job</span>
-                        </button>
-                        <!-- Today's jobs injected by initPrejobList() -->
-                    </div>
-                    <div class="mw-mc-expense-prejob-search-wrap">
-                        <input type="text" id="mobilePrejobSearch" class="mw-mc-expense-prejob-search" placeholder="Search jobs…" autocomplete="off">
-                        <div id="mobilePrejobDropdown" class="mw-mc-expense-prejob-dropdown" style="display:none;"></div>
-                    </div>
-                </div>
-
                 <button type="button" class="mw-mc-expense-snap-btn" onclick="triggerCamera()">
                     <div class="mw-mc-expense-snap-icon">
                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -788,9 +774,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                     <div class="mw-mc-expense-field">
                         <label>Job</label>
-                        <div class="mw-mc-expense-job-display" id="mobileJobDisplay">No Job</div>
+                        <div class="mw-mc-expense-prejob-list" id="mobileJobPills">
+                            <button type="button" class="mw-mc-expense-job-pill mw-mc-expense-job-pill-none mw-mc-expense-job-pill-active" id="mobileJobNoneBtn" onclick="mobileSelectJobNone()">
+                                <span class="mw-mc-expense-job-pill-name">No Job</span>
+                            </button>
+                            <!-- OCR-suggested jobs injected by renderJobPills() -->
+                        </div>
+                        <div class="mw-mc-expense-prejob-search-wrap" style="margin-top:6px;">
+                            <input type="text" id="mobileRvJobSearch" class="mw-mc-expense-prejob-search" placeholder="Search jobs…" autocomplete="off">
+                            <div id="mobileRvJobDropdown" class="mw-mc-expense-prejob-dropdown" style="display:none;"></div>
+                        </div>
                         <input type="hidden" id="mobileRvJobId">
-                        <div class="mw-mc-expense-job-pills" id="mobileJobPills" style="display:none;"></div>
                     </div>
                 </div>
 
@@ -1269,7 +1263,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     const RETURN_TO = '<?php echo htmlspecialchars($returnTo); ?>';
     var lastJobSuggestions = []; // Stored from receipt-intake response
     var selectedJobSuggestion = null; // Currently selected job pill
-    var mobilePreJob = { id: null, label: 'No Job' }; // Job pre-selected before snapping
     const CAN_EDIT = <?php echo $canEdit ? 'true' : 'false'; ?>;
     const CAN_SEND = <?php echo $canSend ? 'true' : 'false'; ?>;
     const CAN_APPROVE = <?php echo $canApprove ? 'true' : 'false'; ?>;
@@ -1283,9 +1276,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     async function init() {
         // Initialize offline receipt queue
         if (window.OfflineReceipts) OfflineReceipts.init();
-
-        // Load today's jobs into capture panel 1
-        initPrejobList();
 
         await loadCategories();
         loadExpenses();
@@ -1778,14 +1768,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             mobileReview.dataset.ocrText = data.ocr_text || '';
             mobileReview.dataset.ocrParsed = data.parsed ? JSON.stringify(data.parsed) : '';
 
-            // ── Apply pre-selected job to review panel ──
+            // ── Job suggestions from OCR → render into review panel pill list ──
             lastJobSuggestions = data.job_suggestions || [];
             selectedJobSuggestion = null;
-            // Use the job chosen on panel 1; don't show pills in the review panel
-            var jobIdEl = document.getElementById('mobileRvJobId');
-            if (jobIdEl) jobIdEl.value = mobilePreJob.id || '';
-            var jobDisplay = document.getElementById('mobileJobDisplay');
-            if (jobDisplay) jobDisplay.textContent = mobilePreJob.label || 'No Job';
+            renderJobPills('mobileJobPills', lastJobSuggestions, function(job) {
+                selectedJobSuggestion = job;
+                document.getElementById('mobileRvJobId').value = job ? (job.plan_id || '') : '';
+                document.getElementById('mobileRvPropertyId').value = job ? (job.property_id || '') : '';
+                document.getElementById('mobileRvContactId').value = job ? (job.contact_id || '') : '';
+            });
 
             // ── Quick Mode: populate compact card instead of scrolling review ──
             if (QUICK_MODE) {
@@ -3453,10 +3444,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (qCard) qCard.style.display = 'none';
 
         // Clear job pills + hidden fields
-        ['mobileJobPills', 'quickJobPills'].forEach(function(id) {
-            var el = document.getElementById(id);
-            if (el) { el.innerHTML = ''; el.style.display = 'none'; }
-        });
+        // mobileJobPills has a static "No Job" button — only remove dynamic pills
+        var rvJobPills = document.getElementById('mobileJobPills');
+        if (rvJobPills) {
+            rvJobPills.querySelectorAll('.mw-mc-expense-job-pill:not(#mobileJobNoneBtn)').forEach(function(p) { p.remove(); });
+            var noneBtn = document.getElementById('mobileJobNoneBtn');
+            if (noneBtn) noneBtn.classList.add('mw-mc-expense-job-pill-active');
+        }
+        var quickJobPills = document.getElementById('quickJobPills');
+        if (quickJobPills) { quickJobPills.innerHTML = ''; quickJobPills.style.display = 'none'; }
         ['mobileRvPropertyId', 'mobileRvContactId'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.value = '';
@@ -3464,16 +3460,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         lastJobSuggestions = [];
         selectedJobSuggestion = null;
 
-        // Reset pre-job selection back to No Job
-        mobilePreJob = { id: null, label: 'No Job' };
-        setPrejobActive(document.getElementById('mobilePrejobNoneBtn'));
-        var prejobSearch = document.getElementById('mobilePrejobSearch');
-        if (prejobSearch) prejobSearch.value = '';
-        var prejobDd = document.getElementById('mobilePrejobDropdown');
-        if (prejobDd) prejobDd.style.display = 'none';
-        // Reset review job display
-        var jobDisplay = document.getElementById('mobileJobDisplay');
-        if (jobDisplay) jobDisplay.textContent = 'No Job';
+        // Reset review panel job picker back to No Job
+        var rvJobSearch = document.getElementById('mobileRvJobSearch');
+        if (rvJobSearch) rvJobSearch.value = '';
+        var rvJobDd = document.getElementById('mobileRvJobDropdown');
+        if (rvJobDd) rvJobDd.style.display = 'none';
 
         // Also reset desktop capture area
         resetCapture();
@@ -3499,11 +3490,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Set today's date
         var dateEl = document.getElementById('mobileRvDate');
         if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
-        // Apply pre-selected job
-        var jobIdEl = document.getElementById('mobileRvJobId');
-        if (jobIdEl) jobIdEl.value = mobilePreJob.id || '';
-        var jobDisplay = document.getElementById('mobileJobDisplay');
-        if (jobDisplay) jobDisplay.textContent = mobilePreJob.label || 'No Job';
+        // Show job picker with No Job selected (no OCR suggestions for manual entry)
+        renderJobPills('mobileJobPills', [], function(job) {
+            selectedJobSuggestion = job;
+            var jobIdEl = document.getElementById('mobileRvJobId');
+            if (jobIdEl) jobIdEl.value = job ? (job.plan_id || '') : '';
+        });
         // Focus total
         setTimeout(function() {
             var totalEl = document.getElementById('mobileRvTotal');
@@ -3578,114 +3570,105 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         });
     })();
 
-    // ── Pre-job selection (capture panel 1) ──────────────────────────
+    // ── Job selection in review panel ──────────────────────────────
 
-    function setPrejobActive(btn) {
-        document.querySelectorAll('#mobilePrejobList .mw-mc-expense-job-pill').forEach(function(p) {
+    window.mobileSelectJobNone = function() {
+        selectedJobSuggestion = null;
+        document.getElementById('mobileRvJobId').value = '';
+        var propEl = document.getElementById('mobileRvPropertyId');
+        if (propEl) propEl.value = '';
+        var contEl = document.getElementById('mobileRvContactId');
+        if (contEl) contEl.value = '';
+        document.querySelectorAll('#mobileJobPills .mw-mc-expense-job-pill').forEach(function(p) {
             p.classList.remove('mw-mc-expense-job-pill-active');
         });
-        if (btn) btn.classList.add('mw-mc-expense-job-pill-active');
-    }
-
-    window.mobileSelectPrejobNone = function() {
-        mobilePreJob = { id: null, label: 'No Job' };
-        setPrejobActive(document.getElementById('mobilePrejobNoneBtn'));
-        var search = document.getElementById('mobilePrejobSearch');
-        if (search) search.value = '';
-        var dd = document.getElementById('mobilePrejobDropdown');
-        if (dd) dd.style.display = 'none';
+        var noneBtn = document.getElementById('mobileJobNoneBtn');
+        if (noneBtn) noneBtn.classList.add('mw-mc-expense-job-pill-active');
     };
 
-    // Load today's jobs into the pill list on init
-    async function initPrejobList() {
-        var list = document.getElementById('mobilePrejobList');
-        if (!list) return;
-        try {
-            var r = await fetch('/crm/api/expenses.php?action=search_jobs&q=today');
-            var d = await r.json();
-            if (!d.success || !d.jobs || !d.jobs.length) return;
-            d.jobs.forEach(function(job) {
-                var label = (job.contact_name || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
-                var addr = job.property_address || '';
-                if (addr.length > 32) addr = addr.substring(0, 32) + '…';
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'mw-mc-expense-job-pill';
-                btn.dataset.jobId = job.plan_id || '';
-                btn.dataset.jobLabel = label;
-                btn.innerHTML = '<span class="mw-mc-expense-job-pill-name">' + esc(label) + '</span>' +
-                    (addr ? '<span class="mw-mc-expense-job-pill-addr">' + esc(addr) + '</span>' : '');
-                btn.addEventListener('click', function() {
-                    mobilePreJob = { id: this.dataset.jobId, label: this.dataset.jobLabel };
-                    setPrejobActive(this);
-                    var search = document.getElementById('mobilePrejobSearch');
-                    if (search) search.value = '';
-                    var dd = document.getElementById('mobilePrejobDropdown');
-                    if (dd) dd.style.display = 'none';
-                });
-                list.appendChild(btn);
-            });
-        } catch(e) { /* silently skip if API unavailable */ }
-    }
-
-    // Search box — for jobs not in today's list
+    // Search box — review panel job search
     (function() {
-        var prejobSearch = document.getElementById('mobilePrejobSearch');
-        var prejobDropdown = document.getElementById('mobilePrejobDropdown');
-        if (!prejobSearch || !prejobDropdown) return;
+        var input = document.getElementById('mobileRvJobSearch');
+        var dropdown = document.getElementById('mobileRvJobDropdown');
+        if (!input || !dropdown) return;
         var debounce;
-        prejobSearch.addEventListener('input', function() {
+        input.addEventListener('input', function() {
             clearTimeout(debounce);
             var q = this.value.trim();
-            if (q.length < 2) { prejobDropdown.style.display = 'none'; return; }
+            if (q.length < 2) { dropdown.style.display = 'none'; return; }
             debounce = setTimeout(async function() {
                 try {
                     var r = await fetch('/crm/api/expenses.php?action=search_jobs&q=' + encodeURIComponent(q));
                     var d = await r.json();
                     if (d.success && d.jobs && d.jobs.length) {
-                        prejobDropdown.innerHTML = d.jobs.map(function(job) {
+                        dropdown.innerHTML = d.jobs.map(function(job) {
                             var label = (job.contact_name || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
                             var addr = job.property_address ? '<span class="mw-mc-expense-prejob-dd-addr">' + esc(job.property_address) + '</span>' : '';
-                            return '<div class="mw-mc-expense-prejob-dd-item" data-job-id="' + esc(job.plan_id||'') + '" data-job-label="' + esc(label) + '">' +
+                            return '<div class="mw-mc-expense-prejob-dd-item"' +
+                                ' data-job-id="' + esc(job.plan_id||'') + '"' +
+                                ' data-job-label="' + esc(label) + '"' +
+                                ' data-property-id="' + esc(job.property_id||'') + '"' +
+                                ' data-contact-id="' + esc(job.contact_id||'') + '">' +
                                 '<span class="mw-mc-expense-prejob-dd-name">' + esc(label) + '</span>' + addr +
                             '</div>';
                         }).join('');
-                        prejobDropdown.querySelectorAll('.mw-mc-expense-prejob-dd-item').forEach(function(item) {
+                        dropdown.querySelectorAll('.mw-mc-expense-prejob-dd-item').forEach(function(item) {
                             item.addEventListener('click', function() {
                                 var id = this.dataset.jobId;
                                 var label = this.dataset.jobLabel;
-                                mobilePreJob = { id: id, label: label };
+                                var propId = this.dataset.propertyId || '';
+                                var contId = this.dataset.contactId || '';
                                 // Add/update a transient pill for this searched job
-                                var existingTransient = document.getElementById('mobilePrejobTransient');
+                                var existingTransient = document.getElementById('mobileJobTransient');
                                 if (existingTransient) existingTransient.remove();
-                                var list = document.getElementById('mobilePrejobList');
+                                var list = document.getElementById('mobileJobPills');
                                 var btn = document.createElement('button');
                                 btn.type = 'button';
-                                btn.id = 'mobilePrejobTransient';
-                                btn.className = 'mw-mc-expense-job-pill mw-mc-expense-job-pill-active';
+                                btn.id = 'mobileJobTransient';
+                                btn.className = 'mw-mc-expense-job-pill';
                                 btn.dataset.jobId = id;
                                 btn.dataset.jobLabel = label;
+                                btn.dataset.propertyId = propId;
+                                btn.dataset.contactId = contId;
                                 btn.innerHTML = '<span class="mw-mc-expense-job-pill-name">' + esc(label) + '</span>';
                                 btn.addEventListener('click', function() {
-                                    mobilePreJob = { id: this.dataset.jobId, label: this.dataset.jobLabel };
-                                    setPrejobActive(this);
+                                    document.querySelectorAll('#mobileJobPills .mw-mc-expense-job-pill').forEach(function(p) {
+                                        p.classList.remove('mw-mc-expense-job-pill-active');
+                                    });
+                                    btn.classList.add('mw-mc-expense-job-pill-active');
+                                    selectedJobSuggestion = { plan_id: id, property_id: propId, contact_id: contId };
+                                    document.getElementById('mobileRvJobId').value = id;
+                                    var pEl = document.getElementById('mobileRvPropertyId');
+                                    if (pEl) pEl.value = propId;
+                                    var cEl = document.getElementById('mobileRvContactId');
+                                    if (cEl) cEl.value = contId;
                                 });
                                 list.appendChild(btn);
-                                setPrejobActive(btn);
-                                prejobSearch.value = '';
-                                prejobDropdown.style.display = 'none';
+                                // Activate new transient pill
+                                document.querySelectorAll('#mobileJobPills .mw-mc-expense-job-pill').forEach(function(p) {
+                                    p.classList.remove('mw-mc-expense-job-pill-active');
+                                });
+                                btn.classList.add('mw-mc-expense-job-pill-active');
+                                selectedJobSuggestion = { plan_id: id, property_id: propId, contact_id: contId };
+                                document.getElementById('mobileRvJobId').value = id;
+                                var pEl2 = document.getElementById('mobileRvPropertyId');
+                                if (pEl2) pEl2.value = propId;
+                                var cEl2 = document.getElementById('mobileRvContactId');
+                                if (cEl2) cEl2.value = contId;
+                                input.value = '';
+                                dropdown.style.display = 'none';
                             });
                         });
-                        prejobDropdown.style.display = 'block';
+                        dropdown.style.display = 'block';
                     } else {
-                        prejobDropdown.style.display = 'none';
+                        dropdown.style.display = 'none';
                     }
-                } catch(e) { prejobDropdown.style.display = 'none'; }
+                } catch(e) { dropdown.style.display = 'none'; }
             }, 250);
         });
         document.addEventListener('click', function(e) {
-            if (!prejobSearch.contains(e.target) && !prejobDropdown.contains(e.target)) {
-                prejobDropdown.style.display = 'none';
+            if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
             }
         });
     })();
@@ -3894,55 +3877,52 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     })();
 
     // ── Job Suggestion Pills ────────────────────────────────────
+    // "No Job" is a static HTML button (id=mobileJobNoneBtn) — this function
+    // only adds/removes dynamically injected OCR-suggestion pills after it.
     function renderJobPills(containerId, jobs, onSelect) {
         var container = document.getElementById(containerId);
         if (!container) return;
+
+        // Remove any previously-injected dynamic pills (keep static No Job btn)
+        container.querySelectorAll('.mw-mc-expense-job-pill:not(#mobileJobNoneBtn)').forEach(function(p) {
+            p.remove();
+        });
+
+        var noneBtn = document.getElementById('mobileJobNoneBtn');
+
         if (!jobs || jobs.length === 0) {
-            container.style.display = 'none';
-            // Show fallback manual input
-            var fallback = document.getElementById('mobileRvJobId');
-            if (fallback) fallback.style.display = '';
+            // No OCR suggestions — activate No Job
+            if (noneBtn) noneBtn.classList.add('mw-mc-expense-job-pill-active');
+            onSelect(null);
             return;
         }
 
-        container.style.display = 'flex';
-        // Hide the manual Job # input when pills are showing
-        var fallback = document.getElementById('mobileRvJobId');
-        if (fallback) fallback.style.display = 'none';
+        // Deactivate No Job — we'll auto-select the first OCR suggestion
+        if (noneBtn) noneBtn.classList.remove('mw-mc-expense-job-pill-active');
 
-        container.innerHTML = jobs.map(function(job, idx) {
+        // Append OCR-suggested job pills
+        jobs.forEach(function(job, idx) {
             var label = (job.contact_name || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
             var sub = job.property_address || '';
             if (sub.length > 30) sub = sub.substring(0, 30) + '…';
-            return '<button type="button" class="mw-mc-expense-job-pill' + (idx === 0 ? ' mw-mc-expense-job-pill-active' : '') + '" data-job-idx="' + idx + '">' +
-                '<span class="mw-mc-expense-job-pill-name">' + esc(label) + '</span>' +
-                (sub ? '<span class="mw-mc-expense-job-pill-addr">' + esc(sub) + '</span>' : '') +
-            '</button>';
-        }).join('') +
-        '<button type="button" class="mw-mc-expense-job-pill mw-mc-expense-job-pill-none" data-job-idx="-1">' +
-            '<span class="mw-mc-expense-job-pill-name">No Job</span>' +
-        '</button>';
-
-        // Auto-select first pill
-        if (jobs.length > 0) {
-            onSelect(jobs[0]);
-        }
-
-        // Bind clicks
-        container.querySelectorAll('.mw-mc-expense-job-pill').forEach(function(pill) {
-            pill.addEventListener('click', function() {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'mw-mc-expense-job-pill' + (idx === 0 ? ' mw-mc-expense-job-pill-active' : '');
+            btn.dataset.jobIdx = idx;
+            btn.innerHTML = '<span class="mw-mc-expense-job-pill-name">' + esc(label) + '</span>' +
+                (sub ? '<span class="mw-mc-expense-job-pill-addr">' + esc(sub) + '</span>' : '');
+            btn.addEventListener('click', function() {
                 container.querySelectorAll('.mw-mc-expense-job-pill').forEach(function(p) {
                     p.classList.remove('mw-mc-expense-job-pill-active');
                 });
-                pill.classList.add('mw-mc-expense-job-pill-active');
-                var idx = parseInt(pill.dataset.jobIdx);
-                if (idx >= 0 && jobs[idx]) {
-                    onSelect(jobs[idx]);
-                } else {
-                    onSelect(null);
-                }
+                btn.classList.add('mw-mc-expense-job-pill-active');
+                onSelect(jobs[idx]);
             });
+            container.appendChild(btn);
         });
+
+        // Auto-select first OCR-suggested job
+        onSelect(jobs[0]);
     }
 
     function formatPaymentLabel(method) {
