@@ -203,8 +203,9 @@ function servePreview(PDO $db, string $key): void
         '{{company_phone}}'       => '(778) 846-9273',
     ];
 
-    $renderedBody = str_replace(array_keys($sampleVars), array_values($sampleVars), $bodyText);
-    $bodyHtml     = EmailWrapper::textToHtml($renderedBody);
+    $renderedSubject = str_replace(array_keys($sampleVars), array_values($sampleVars), $subject);
+    $renderedBody    = str_replace(array_keys($sampleVars), array_values($sampleVars), $bodyText);
+    $bodyHtml        = EmailWrapper::textToHtml($renderedBody);
 
     $ctaLabels = [
         'quote_sent'   => 'View & Accept Quote',
@@ -221,7 +222,7 @@ function servePreview(PDO $db, string $key): void
 
     // Prepend preview banner inside body
     $previewBanner = '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 16px;margin-bottom:20px;font-family:\'Helvetica Neue\',Arial,sans-serif;font-size:13px;color:#856404;">
-        <strong>Preview Mode</strong> — Sample data substituted. Subject: <em>' . htmlspecialchars($subject) . '</em>
+        <strong>Preview Mode</strong> — Sample data substituted. Subject: <em>' . htmlspecialchars($renderedSubject) . '</em>
     </div>';
 
     header('Content-Type: text/html; charset=UTF-8');
