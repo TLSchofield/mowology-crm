@@ -72,6 +72,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <a class="nav-link" id="measurement-types-tab" data-toggle="tab" href="#measurement-types" role="tab">Measurement Types</a>
     </li>
     <li class="nav-item">
+        <a class="nav-link" id="reviews-tab" data-toggle="tab" href="#reviews" role="tab">Reviews</a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a>
     </li>
     <li class="nav-item">
@@ -867,6 +870,55 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
         </div>
 
+        <!-- Reviews Tab -->
+        <div class="tab-pane fade" id="reviews" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">Google Reviews Automation</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        After each job visit is completed, Mowology automatically sends a review request to the
+                        customer via email (and SMS if they have consent). The email includes a direct link to your
+                        Google Business Profile review page.
+                    </p>
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <label for="google_review_url" class="form-label">Google Review URL</label>
+                            <input type="url" class="form-control" id="google_review_url"
+                                   placeholder="https://g.page/r/your-business/review"
+                                   maxlength="500">
+                            <small class="form-text text-muted">
+                                Your Google Business Profile short review link. Find it in Google Business Manager
+                                under <strong>Get more reviews</strong>. Leave blank to disable review requests.
+                            </small>
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-12">
+                            <div class="card bg-light border-0">
+                                <div class="card-body py-2 px-3">
+                                    <small class="text-muted">
+                                        <strong>Rate limits:</strong>
+                                        Requests are sent at most once every <strong>30 days</strong> per customer,
+                                        and no more than <strong>3 times total</strong> per contact.
+                                        Customers can opt out at any time by contacting you.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="reviewsSaveResult" class="alert" style="display:none;"></div>
+                    <button type="button" class="btn btn-primary" id="saveReviewSettingsBtn">
+                        <i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
+                        Save Review Settings
+                    </button>
+                    <a href="/crm/api/run-migration-606.php" target="_blank" class="btn btn-outline-secondary ml-2" id="runMigration606Btn">
+                        <i data-feather="database" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
+                        Run DB Migration
+                    </a>
+                </div>
+            </div>
+        </div>
+
         <!-- Database / Migrations Tab -->
         <div class="tab-pane fade" id="database" role="tabpanel">
             <div class="card">
@@ -955,6 +1007,79 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 <script src="js/business-settings.js?v=2"></script>
 
 <script>
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEW SETTINGS — load + save google_review_url from ops_settings
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    var csrf = function () { return document.querySelector('meta[name="csrf-token"]')?.content || ''; };
+
+    function loadReviewSettings() {
+        fetch('/crm/api/ops-settings.php?action=get&key=google_review_url')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.success && data.value !== null) {
+                    var el = document.getElementById('google_review_url');
+                    if (el) el.value = data.value;
+                }
+            })
+            .catch(function () {});
+    }
+
+    function saveReviewSettings() {
+        var el  = document.getElementById('google_review_url');
+        var btn = document.getElementById('saveReviewSettingsBtn');
+        var res = document.getElementById('reviewsSaveResult');
+        if (!el) return;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+        res.style.display = 'none';
+
+        fetch('/crm/api/ops-settings.php?action=save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token: csrf(),
+                key: 'google_review_url',
+                value: el.value.trim(),
+                description: 'Google Business Profile review short URL'
+            })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            res.style.display = '';
+            if (data.success) {
+                res.className = 'alert alert-success';
+                res.textContent = 'Review URL saved.';
+            } else {
+                res.className = 'alert alert-danger';
+                res.textContent = data.error || 'Save failed.';
+            }
+        })
+        .catch(function (e) {
+            res.style.display = '';
+            res.className = 'alert alert-danger';
+            res.textContent = 'Network error: ' + e.message;
+        })
+        .finally(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i> Save Review Settings';
+            if (typeof feather !== 'undefined') feather.replace();
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        loadReviewSettings();
+
+        var btn = document.getElementById('saveReviewSettingsBtn');
+        if (btn) btn.addEventListener('click', saveReviewSettings);
+
+        // Load when tab is shown (in case it wasn't loaded yet)
+        var tab = document.getElementById('reviews-tab');
+        if (tab) tab.addEventListener('shown.bs.tab', loadReviewSettings);
+    });
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SERVICE TYPES — inline CRUD
 // ─────────────────────────────────────────────────────────────────────────────

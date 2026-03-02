@@ -255,6 +255,13 @@ try {
                 VisitCompletionService::capture($visitId, (int)$user['id']);
             }
 
+            // Send Google Review request to customer (fire-and-forget, never blocks)
+            $rrService = APP_ROOT . '/Modules/Reviews/Services/ReviewRequestService.php';
+            if (file_exists($rrService)) {
+                require_once $rrService;
+                ReviewRequestService::maybeSend($visitId, $db);
+            }
+
             echo json_encode(['success' => true, 'completed_at' => date('c')]);
             break;
 
