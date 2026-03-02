@@ -144,6 +144,11 @@ class GeofenceManager {
 
         if (this._opts.mode === 'edit') {
             this._map.on('click', (e) => this._onMapClick(e));
+            this._map.on('dblclick', (e) => {
+                if (this._isDrawing && this._drawLatLngs.length >= 3) {
+                    this._finishDraw();
+                }
+            });
         }
     }
 
@@ -214,10 +219,11 @@ class GeofenceManager {
         this._clearDrawMarkers();
         this._clearPolygon();
 
-        // Visual hint
+        // Disable Leaflet's double-click zoom so dblclick can finish the polygon
         if (this._map) {
+            this._map.doubleClickZoom.disable();
             this._map.getContainer().style.cursor = 'crosshair';
-            this._showToast('Tap/click to add polygon vertices. Double-click to finish.', 'info');
+            this._showToast('Click to add vertices. Double-click or press Finish to close the shape.', 'info');
         }
     }
 
@@ -225,9 +231,17 @@ class GeofenceManager {
         this._isDrawing = false;
         this._clearDrawMarkers();
         if (this._drawLine) { this._map.removeLayer(this._drawLine); this._drawLine = null; }
-        if (this._map) this._map.getContainer().style.cursor = '';
+        if (this._map) {
+            this._map.doubleClickZoom.enable();
+            this._map.getContainer().style.cursor = '';
+        }
         // Re-render saved polygon if any
         if (this._ring.length) this._renderPolygon(this._ring);
+    }
+
+    // Public method so host page can call it via a "Finish Drawing" button
+    finishDraw() {
+        if (this._isDrawing) this._finishDraw();
     }
 
     _onMapClick(e) {
@@ -256,10 +270,7 @@ class GeofenceManager {
             }).addTo(this._map);
         }
 
-        // Double-click (Leaflet fires click then dblclick — we detect ≥3 vertices + fast click)
-        if (e.originalEvent && e.originalEvent.detail >= 2 && this._drawLatLngs.length >= 3) {
-            this._finishDraw();
-        }
+        // Double-click is handled via map.on('dblclick') — nothing to do here
     }
 
     _finishDraw() {
@@ -271,7 +282,10 @@ class GeofenceManager {
         this._isDrawing = false;
         this._clearDrawMarkers();
         if (this._drawLine) { this._map.removeLayer(this._drawLine); this._drawLine = null; }
-        if (this._map) this._map.getContainer().style.cursor = '';
+        if (this._map) {
+            this._map.doubleClickZoom.enable();
+            this._map.getContainer().style.cursor = '';
+        }
 
         this._ring = ring;
         this._bbox = this._computeBbox(ring);

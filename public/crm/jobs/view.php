@@ -3031,6 +3031,10 @@ if ($hasPropCoords) {
                 <div>
                     <button type="button" class="btn btn-outline-secondary btn-sm" id="pwz-cancel-draw-btn"
                             style="display:none;" onclick="pwzCancelDraw()">Cancel Draw</button>
+                    <button type="button" class="btn btn-outline-success btn-sm" id="pwz-finish-draw-btn"
+                            style="display:none;" onclick="pwzFinishDraw()">
+                        <i data-feather="check" style="width:13px;height:13px;"></i> Finish Drawing
+                    </button>
                     <button type="button" class="btn btn-outline-primary btn-sm" id="pwz-draw-btn"
                             disabled onclick="pwzStartDraw()">
                         <i data-feather="edit-3" style="width:13px;height:13px;"></i> Draw Zone
@@ -3045,7 +3049,7 @@ if ($hasPropCoords) {
     </div>
 </div>
 
-<script src="/crm/js/geofence/geofence-manager.js?v=2"></script>
+<script src="/crm/js/geofence/geofence-manager.js?v=3"></script>
 <script>
 (function() {
     var PWZ_PLAN_ID  = <?php echo (int)$plan['id']; ?>;
@@ -3104,6 +3108,7 @@ if ($hasPropCoords) {
                 document.getElementById('pwz-save-btn').disabled              = false;
                 document.getElementById('pwz-draw-btn').style.display         = 'inline-block';
                 document.getElementById('pwz-cancel-draw-btn').style.display  = 'none';
+                document.getElementById('pwz-finish-draw-btn').style.display  = 'none';
                 pwzSetStep(2);
                 pwzSetHint('Zone outlined — click <strong>Save Zone</strong> to activate GPS tracking.', 'success');
                 pwzShowDrawTips(false);
@@ -3129,11 +3134,12 @@ if ($hasPropCoords) {
     window.pwzStartDraw = function() {
         if (!pwzMgr) return;
         pwzMgr.startDraw();
-        document.getElementById('pwz-draw-btn').style.display        = 'none';
-        document.getElementById('pwz-cancel-draw-btn').style.display = 'inline-block';
+        document.getElementById('pwz-draw-btn').style.display         = 'none';
+        document.getElementById('pwz-cancel-draw-btn').style.display  = 'inline-block';
+        document.getElementById('pwz-finish-draw-btn').style.display  = 'inline-block';
         document.getElementById('pwz-save-btn').disabled = true;
         pwzSetStep(2);
-        pwzSetHint('Drawing mode active — click the map to place corners, then double-click to close the shape.', 'draw');
+        pwzSetHint('Drawing mode — click to add vertices. Click <strong>Finish Drawing</strong> (or double-click) to close the shape.', 'draw');
         pwzShowDrawTips(true);
         pwzSafeFeather();
     };
@@ -3141,18 +3147,25 @@ if ($hasPropCoords) {
     window.pwzCancelDraw = function() {
         if (!pwzMgr) return;
         pwzMgr.cancelDraw();
-        document.getElementById('pwz-draw-btn').style.display        = 'inline-block';
-        document.getElementById('pwz-cancel-draw-btn').style.display = 'none';
+        document.getElementById('pwz-draw-btn').style.display         = 'inline-block';
+        document.getElementById('pwz-cancel-draw-btn').style.display  = 'none';
+        document.getElementById('pwz-finish-draw-btn').style.display  = 'none';
         pwzSetStep(2);
         pwzSetHint('Draw cancelled. Click <strong>Draw Zone</strong> again to start over.', 'info');
         pwzShowDrawTips(false);
         pwzSafeFeather();
     };
 
+    window.pwzFinishDraw = function() {
+        if (!pwzMgr) return;
+        pwzMgr.finishDraw();
+    };
+
     window.pwzSave = function() {
         if (!pwzMgr) return;
-        document.getElementById('pwz-draw-btn').style.display        = 'inline-block';
-        document.getElementById('pwz-cancel-draw-btn').style.display = 'none';
+        document.getElementById('pwz-draw-btn').style.display         = 'inline-block';
+        document.getElementById('pwz-cancel-draw-btn').style.display  = 'none';
+        document.getElementById('pwz-finish-draw-btn').style.display  = 'none';
         pwzSetHint('Saving zone\u2026', 'info');
         pwzMgr.save();
         pwzSafeFeather();
