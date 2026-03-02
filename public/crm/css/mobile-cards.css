@@ -1790,50 +1790,27 @@
 
     /* ── Pre-job selection (panel 1 capture area) ── */
     .mw-mc-expense-prejob {
-        padding: 12px 14px 0;
+        padding: 12px 14px 4px;
     }
 
-    .mw-mc-expense-prejob-row {
+    /* Vertical pill list — reuses mw-mc-expense-job-pill styles */
+    .mw-mc-expense-prejob-list {
         display: flex;
-        align-items: center;
-        gap: 8px;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 8px;
     }
 
-    .mw-mc-expense-prejob-none {
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        padding: 9px 16px;
-        border: 2px solid #d1d5db;
-        border-radius: 999px;
-        background: #f9fafb;
-        color: #6b7280;
-        font-size: 0.85rem;
-        font-weight: 600;
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-        transition: all 0.15s ease;
-        white-space: nowrap;
-    }
-
-    .mw-mc-expense-prejob-none-active {
-        border-color: var(--mw-green, #2D8659);
-        background: var(--mw-light, #E8F3F0);
-        color: var(--mw-dark, #1A5F4A);
-        box-shadow: 0 0 0 1px var(--mw-green, #2D8659);
-    }
-
+    /* Search box below the pill list */
     .mw-mc-expense-prejob-search-wrap {
-        flex: 1;
         position: relative;
     }
 
     .mw-mc-expense-prejob-search {
         width: 100%;
         padding: 9px 12px;
-        border: 2px solid #e5e7eb;
-        border-radius: 999px;
+        border: 1.5px solid #e5e7eb;
+        border-radius: 10px;
         background: #f9fafb;
         font-size: 0.82rem;
         color: #374151;
@@ -1841,6 +1818,7 @@
         font-family: inherit;
         -webkit-appearance: none;
         transition: border-color 0.15s ease;
+        box-sizing: border-box;
     }
 
     .mw-mc-expense-prejob-search:focus {
@@ -1848,9 +1826,7 @@
         background: #fff;
     }
 
-    .mw-mc-expense-prejob-search::placeholder {
-        color: #9ca3af;
-    }
+    .mw-mc-expense-prejob-search::placeholder { color: #9ca3af; }
 
     .mw-mc-expense-prejob-dropdown {
         position: absolute;
@@ -1876,13 +1852,8 @@
         transition: background 0.12s ease;
     }
 
-    .mw-mc-expense-prejob-dd-item:last-child {
-        border-bottom: none;
-    }
-
-    .mw-mc-expense-prejob-dd-item:active {
-        background: var(--mw-light, #E8F3F0);
-    }
+    .mw-mc-expense-prejob-dd-item:last-child { border-bottom: none; }
+    .mw-mc-expense-prejob-dd-item:active { background: var(--mw-light, #E8F3F0); }
 
     .mw-mc-expense-prejob-dd-name {
         font-size: 0.85rem;
@@ -1894,38 +1865,6 @@
         font-size: 0.74rem;
         color: #6b7280;
         margin-top: 1px;
-    }
-
-    .mw-mc-expense-prejob-selected {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        margin-top: 8px;
-        padding: 6px 12px;
-        background: var(--mw-light, #E8F3F0);
-        border: 1px solid var(--mw-green, #2D8659);
-        border-radius: 999px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--mw-dark, #1A5F4A);
-        width: fit-content;
-    }
-
-    .mw-mc-expense-prejob-selected svg {
-        flex-shrink: 0;
-        color: var(--mw-green, #2D8659);
-    }
-
-    .mw-mc-expense-prejob-clear {
-        background: none;
-        border: none;
-        color: var(--mw-dark, #1A5F4A);
-        font-size: 1rem;
-        line-height: 1;
-        padding: 0 0 0 4px;
-        cursor: pointer;
-        opacity: 0.6;
-        font-weight: 700;
     }
 
     /* ── Job display (read-only, review panel) ── */

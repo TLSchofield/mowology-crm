@@ -622,22 +622,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <div class="mw-mc-expense-capture" id="mobileCaptureArea">
             <div class="mw-mc-expense-capture-inner">
 
-                <!-- Job pre-selection (panel 1) -->
+                <!-- Job pre-selection (panel 1) — pill list, No Job first -->
                 <div class="mw-mc-expense-prejob" id="mobilePrejobSection">
-                    <div class="mw-mc-expense-prejob-row">
-                        <button type="button" class="mw-mc-expense-prejob-none mw-mc-expense-prejob-none-active" id="mobilePrejobNoneBtn" onclick="mobileSelectPrejobNone()">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                            No Job
+                    <div class="mw-mc-expense-prejob-list" id="mobilePrejobList">
+                        <button type="button" class="mw-mc-expense-job-pill mw-mc-expense-job-pill-none mw-mc-expense-job-pill-active" id="mobilePrejobNoneBtn" onclick="mobileSelectPrejobNone()">
+                            <span class="mw-mc-expense-job-pill-name">No Job</span>
                         </button>
-                        <div class="mw-mc-expense-prejob-search-wrap">
-                            <input type="text" id="mobilePrejobSearch" class="mw-mc-expense-prejob-search" placeholder="Link to a job…" autocomplete="off">
-                            <div id="mobilePrejobDropdown" class="mw-mc-expense-prejob-dropdown" style="display:none;"></div>
-                        </div>
+                        <!-- Today's jobs injected by initPrejobList() -->
                     </div>
-                    <div id="mobilePrejobSelectedBadge" class="mw-mc-expense-prejob-selected" style="display:none;">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                        <span id="mobilePrejobSelectedLabel"></span>
-                        <button type="button" class="mw-mc-expense-prejob-clear" onclick="mobileSelectPrejobNone()" title="Clear">×</button>
+                    <div class="mw-mc-expense-prejob-search-wrap">
+                        <input type="text" id="mobilePrejobSearch" class="mw-mc-expense-prejob-search" placeholder="Search jobs…" autocomplete="off">
+                        <div id="mobilePrejobDropdown" class="mw-mc-expense-prejob-dropdown" style="display:none;"></div>
                     </div>
                 </div>
 
@@ -1288,6 +1283,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     async function init() {
         // Initialize offline receipt queue
         if (window.OfflineReceipts) OfflineReceipts.init();
+
+        // Load today's jobs into capture panel 1
+        initPrejobList();
 
         await loadCategories();
         loadExpenses();
@@ -3468,10 +3466,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         // Reset pre-job selection back to No Job
         mobilePreJob = { id: null, label: 'No Job' };
-        var noneBtn = document.getElementById('mobilePrejobNoneBtn');
-        if (noneBtn) noneBtn.classList.add('mw-mc-expense-prejob-none-active');
-        var prejobBadge = document.getElementById('mobilePrejobSelectedBadge');
-        if (prejobBadge) prejobBadge.style.display = 'none';
+        setPrejobActive(document.getElementById('mobilePrejobNoneBtn'));
         var prejobSearch = document.getElementById('mobilePrejobSearch');
         if (prejobSearch) prejobSearch.value = '';
         var prejobDd = document.getElementById('mobilePrejobDropdown');
@@ -3584,18 +3579,56 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     })();
 
     // ── Pre-job selection (capture panel 1) ──────────────────────────
+
+    function setPrejobActive(btn) {
+        document.querySelectorAll('#mobilePrejobList .mw-mc-expense-job-pill').forEach(function(p) {
+            p.classList.remove('mw-mc-expense-job-pill-active');
+        });
+        if (btn) btn.classList.add('mw-mc-expense-job-pill-active');
+    }
+
     window.mobileSelectPrejobNone = function() {
         mobilePreJob = { id: null, label: 'No Job' };
-        var noneBtn = document.getElementById('mobilePrejobNoneBtn');
-        if (noneBtn) noneBtn.classList.add('mw-mc-expense-prejob-none-active');
-        var badge = document.getElementById('mobilePrejobSelectedBadge');
-        if (badge) badge.style.display = 'none';
+        setPrejobActive(document.getElementById('mobilePrejobNoneBtn'));
         var search = document.getElementById('mobilePrejobSearch');
-        if (search) { search.value = ''; }
+        if (search) search.value = '';
         var dd = document.getElementById('mobilePrejobDropdown');
         if (dd) dd.style.display = 'none';
     };
 
+    // Load today's jobs into the pill list on init
+    async function initPrejobList() {
+        var list = document.getElementById('mobilePrejobList');
+        if (!list) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=search_jobs&q=today');
+            var d = await r.json();
+            if (!d.success || !d.jobs || !d.jobs.length) return;
+            d.jobs.forEach(function(job) {
+                var label = (job.contact_name || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
+                var addr = job.property_address || '';
+                if (addr.length > 32) addr = addr.substring(0, 32) + '…';
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'mw-mc-expense-job-pill';
+                btn.dataset.jobId = job.plan_id || '';
+                btn.dataset.jobLabel = label;
+                btn.innerHTML = '<span class="mw-mc-expense-job-pill-name">' + esc(label) + '</span>' +
+                    (addr ? '<span class="mw-mc-expense-job-pill-addr">' + esc(addr) + '</span>' : '');
+                btn.addEventListener('click', function() {
+                    mobilePreJob = { id: this.dataset.jobId, label: this.dataset.jobLabel };
+                    setPrejobActive(this);
+                    var search = document.getElementById('mobilePrejobSearch');
+                    if (search) search.value = '';
+                    var dd = document.getElementById('mobilePrejobDropdown');
+                    if (dd) dd.style.display = 'none';
+                });
+                list.appendChild(btn);
+            });
+        } catch(e) { /* silently skip if API unavailable */ }
+    }
+
+    // Search box — for jobs not in today's list
     (function() {
         var prejobSearch = document.getElementById('mobilePrejobSearch');
         var prejobDropdown = document.getElementById('mobilePrejobDropdown');
@@ -3622,14 +3655,23 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 var id = this.dataset.jobId;
                                 var label = this.dataset.jobLabel;
                                 mobilePreJob = { id: id, label: label };
-                                // Deactivate No Job button
-                                var noneBtn = document.getElementById('mobilePrejobNoneBtn');
-                                if (noneBtn) noneBtn.classList.remove('mw-mc-expense-prejob-none-active');
-                                // Show selected badge
-                                var badge = document.getElementById('mobilePrejobSelectedBadge');
-                                var badgeLabel = document.getElementById('mobilePrejobSelectedLabel');
-                                if (badge) badge.style.display = 'flex';
-                                if (badgeLabel) badgeLabel.textContent = label;
+                                // Add/update a transient pill for this searched job
+                                var existingTransient = document.getElementById('mobilePrejobTransient');
+                                if (existingTransient) existingTransient.remove();
+                                var list = document.getElementById('mobilePrejobList');
+                                var btn = document.createElement('button');
+                                btn.type = 'button';
+                                btn.id = 'mobilePrejobTransient';
+                                btn.className = 'mw-mc-expense-job-pill mw-mc-expense-job-pill-active';
+                                btn.dataset.jobId = id;
+                                btn.dataset.jobLabel = label;
+                                btn.innerHTML = '<span class="mw-mc-expense-job-pill-name">' + esc(label) + '</span>';
+                                btn.addEventListener('click', function() {
+                                    mobilePreJob = { id: this.dataset.jobId, label: this.dataset.jobLabel };
+                                    setPrejobActive(this);
+                                });
+                                list.appendChild(btn);
+                                setPrejobActive(btn);
                                 prejobSearch.value = '';
                                 prejobDropdown.style.display = 'none';
                             });
