@@ -359,7 +359,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <button type="button" onclick="etClosePreview()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#7a9e8c;line-height:1;">&times;</button>
                     </div>
                     <div id="et-preview-loading" style="padding:40px;text-align:center;color:#7a9e8c;">Loading preview…</div>
-                    <iframe id="et-preview-frame" style="flex:1;border:none;display:none;min-height:500px;" title="Email Preview"></iframe>
+                    <iframe id="et-preview-frame" style="flex:1;border:none;display:none;height:calc(90vh - 60px);min-height:400px;" title="Email Preview"></iframe>
                 </div>
             </div>
 

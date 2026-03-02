@@ -1209,9 +1209,10 @@ function updateVisitStatus(int $visitId, string $newStatus, int $userId, ?string
                 }
             }
 
-            // Fertilizer notification for prepaid bundle plans
+            // Completion notifications: fertilizer (prepaid bundles) or general job complete
             $completedVisit = getVisitWithPlan($visitId);
             if ($completedVisit && !empty($completedVisit['is_prepaid_bundle'])) {
+                // Fertilizer / prepaid-bundle — rich custom email with photos, materials, progress
                 try {
                     if (function_exists('sendFertilizerCompletionNotification')) {
                         sendFertilizerCompletionNotification($visitId);
@@ -1222,6 +1223,15 @@ function updateVisitStatus(int $visitId, string $newStatus, int $userId, ?string
                     )->execute([$completedVisit['plan_id']]);
                 } catch (Throwable $e) {
                     error_log("Fertilizer notification failed for visit {$visitId}: " . $e->getMessage());
+                }
+            } else {
+                // General service completion — branded template email
+                try {
+                    if (function_exists('sendJobCompleteNotification')) {
+                        sendJobCompleteNotification($visitId);
+                    }
+                } catch (Throwable $e) {
+                    error_log("Job complete notification failed for visit {$visitId}: " . $e->getMessage());
                 }
             }
         }

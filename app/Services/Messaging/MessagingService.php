@@ -517,54 +517,51 @@ function sendFertilizerCompletionNotification(int $visitId): bool
         $gpsHtml .= '</td></tr>';
     }
 
-    // ── CTA Button ────────────────────────────────────────────────
-    $ctaHtml = '';
-    if ($portalUrl) {
-        $ctaHtml = '<tr><td colspan="2" style="padding:20px 0 0;text-align:center;">
-          <a href="' . htmlspecialchars($portalUrl) . '" style="display:inline-block;background:#2D8659;color:#fff;padding:12px 28px;border-radius:6px;font-size:14px;font-weight:bold;text-decoration:none;">
-            View Full Report →
-          </a>
-        </td></tr>';
+    // ── Ensure EmailWrapper is available ──────────────────────────
+    if (!class_exists('EmailWrapper')) {
+        $wrapperPath = __DIR__ . '/EmailWrapper.php';
+        if (is_file($wrapperPath)) require_once $wrapperPath;
     }
+    $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : [
+        'company_name'    => 'Mowology Landscaping',
+        'company_phone'   => '(778) 846-9273',
+        'company_email'   => 'office@mowology.ca',
+        'company_website' => 'https://mowology.ca',
+    ];
 
-    // ── Compose HTML email ────────────────────────────────────────
-    $htmlBody = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' . htmlspecialchars($visitLabel) . '</title></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:24px 0;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:10px;overflow:hidden;max-width:600px;">
+    // ── Visit summary card (replaces old custom dark header) ─────
+    $visitDate    = date('l, F j, Y');
+    $propertyLine = trim(($visit['property_address'] ?? '') . ($visit['property_city'] ? ', ' . $visit['property_city'] : ''));
+    $iconInCard   = $iconHtml ? '<div style="margin-bottom:10px;">' . $iconHtml . '</div>' : '';
 
-        <!-- Header -->
-        <tr><td style="background:#1A5F4A;padding:24px;text-align:center;">
-          ' . ($iconHtml ? '<div style="margin-bottom:12px;">' . $iconHtml . '</div>' : '') . '
-          <h1 style="color:#fff;margin:0;font-size:22px;">' . htmlspecialchars($visitLabel) . '</h1>
-          <p style="color:#7FD858;margin:6px 0 0;font-size:14px;">' . date('l, F j, Y') . '</p>
-        </td></tr>
+    $summaryCard = '<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+      <tr><td style="background:#E8F3F0;border-left:4px solid #2D8659;border-radius:4px;padding:14px 18px;">
+        ' . $iconInCard . '
+        <p style="margin:0;font-size:16px;font-weight:700;color:#1A5F4A;font-family:\'Helvetica Neue\',Arial,sans-serif;">' . htmlspecialchars($visitLabel) . '</p>
+        <p style="margin:4px 0 0;font-size:13px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">'
+          . $visitDate
+          . ($propertyLine ? ' &middot; ' . htmlspecialchars($propertyLine) : '')
+        . '</p>
+      </td></tr>
+    </table>';
 
-        <!-- Body -->
-        <tr><td style="padding:24px;">
-          <p style="margin:0 0 8px;color:#555;">Hi ' . htmlspecialchars($visit['contact_first']) . ',</p>
-          <p style="margin:0 0 20px;color:#555;">Your lawn application has been completed. Here\'s a summary of what was done today.</p>
+    // ── Compose body content (materials, photos, GPS, progress) ──
+    $greeting = '<p style="margin:0 0 8px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Hi ' . htmlspecialchars($visit['contact_first']) . ',</p>'
+              . '<p style="margin:0 0 20px;color:#555;font-family:\'Helvetica Neue\',Arial,sans-serif;">Your lawn application has been completed. Here\'s a summary of what was done today.</p>';
 
-          <table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #eee;">
-            ' . $materialsHtml . '
-            ' . $photosHtml . '
-            ' . $gpsHtml . '
-            ' . $progressHtml . '
-            ' . $ctaHtml . '
-          </table>
-        </td></tr>
+    $detailTable = '<table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #eee;">'
+        . $materialsHtml
+        . $photosHtml
+        . $gpsHtml
+        . $progressHtml
+        . '</table>';
 
-        <!-- Footer -->
-        <tr><td style="background:#f9f9f9;padding:16px 24px;text-align:center;border-top:1px solid #eee;">
-          <p style="margin:0;color:#999;font-size:12px;">Questions? Call us at <strong>(778) 846-9273</strong> or reply to this email.</p>
-          <p style="margin:6px 0 0;color:#ccc;font-size:11px;">Mowology Landscaping · mowology.ca</p>
-        </td></tr>
+    $customBody = $summaryCard . $greeting . $detailTable;
 
-      </table>
-    </td></tr>
-  </table>
-</body></html>';
+    // ── Wrap in EmailWrapper (consistent branded shell) ───────────
+    $htmlBody = class_exists('EmailWrapper')
+        ? EmailWrapper::wrap($customBody, 'View Full Report', $portalUrl ?: 'https://mowology.ca', $companyInfo)
+        : $customBody; // fallback: bare content (should never happen in production)
 
     // ── Send email ────────────────────────────────────────────────
     $emailResult = sendEmail(
@@ -590,6 +587,103 @@ function sendFertilizerCompletionNotification(int $visitId): bool
     }
 
     return $emailResult['success'];
+}
+
+/**
+ * Send a job-completion notification for a non-fertilizer (general) service visit.
+ *
+ * Fires for every non-prepaid-bundle visit marked complete.
+ * Fertilizer (prepaid-bundle) completions are handled by sendFertilizerCompletionNotification().
+ *
+ * @param int $visitId
+ * @return bool True if the email was sent successfully
+ */
+if (!function_exists('sendJobCompleteNotification')) {
+    function sendJobCompleteNotification(int $visitId): bool
+    {
+        $db = getDB();
+
+        // Load visit + plan + property + contact in one query
+        $stmt = $db->prepare("
+            SELECT jv.id, jv.plan_id, jv.customer_token, jv.notification_sent_at,
+                   jv.completed_at, jv.scheduled_date,
+                   jp.service_type, jp.title AS plan_title, jp.is_prepaid_bundle,
+                   p.address AS property_address, p.city AS property_city,
+                   c.email    AS contact_email,
+                   c.first_name AS contact_first,
+                   c.last_name  AS contact_last
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            LEFT JOIN properties p  ON jp.property_id = p.id
+            LEFT JOIN contacts   c  ON p.site_contact_id = c.id
+            WHERE jv.id = ?
+            LIMIT 1
+        ");
+        $stmt->execute([$visitId]);
+        $visit = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$visit) return false;
+
+        // Guard: only for non-prepaid-bundle plans (fertilizer handles those)
+        if (!empty($visit['is_prepaid_bundle'])) return false;
+
+        // Guard: already sent
+        if (!empty($visit['notification_sent_at'])) return false;
+
+        // Guard: no contact email — no-op, not an error
+        if (empty($visit['contact_email'])) return false;
+
+        // Ensure EmailWrapper is available
+        if (!class_exists('EmailWrapper')) {
+            $wrapperPath = __DIR__ . '/EmailWrapper.php';
+            if (is_file($wrapperPath)) require_once $wrapperPath;
+        }
+
+        // Build display values
+        $completedAt     = !empty($visit['completed_at']) ? $visit['completed_at'] : ($visit['scheduled_date'] ?? 'now');
+        $jobDate         = date('F j, Y', strtotime($completedAt));
+        $serviceType     = $visit['service_type'] ?: ($visit['plan_title'] ?: 'Service');
+        $propertyAddress = trim(($visit['property_address'] ?? '') . ($visit['property_city'] ? ', ' . $visit['property_city'] : ''));
+
+        $companyInfo = class_exists('EmailWrapper') ? EmailWrapper::getCompanyInfo() : [
+            'company_name'  => 'Mowology Landscaping',
+            'company_phone' => '(778) 846-9273',
+            'company_email' => 'office@mowology.ca',
+            'company_website' => 'https://mowology.ca',
+        ];
+
+        $tplVars = [
+            '{{customer_first_name}}' => $visit['contact_first'] ?: 'there',
+            '{{customer_name}}'       => trim(($visit['contact_first'] ?? '') . ' ' . ($visit['contact_last'] ?? '')) ?: 'Valued Customer',
+            '{{service_type}}'        => $serviceType,
+            '{{job_date}}'            => $jobDate,
+            '{{property_address}}'    => $propertyAddress ?: 'your property',
+            '{{company_name}}'        => $companyInfo['company_name'],
+            '{{company_phone}}'       => $companyInfo['company_phone'],
+        ];
+
+        $tpl = loadEmailTemplate('job_complete', $tplVars);
+
+        // Build portal URL
+        $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+        $portalUrl  = !empty($visit['customer_token'])
+            ? $siteUrl . '/customer/pow.php?token=' . urlencode($visit['customer_token'])
+            : $siteUrl;
+
+        $emailBody = class_exists('EmailWrapper')
+            ? EmailWrapper::wrap($tpl['body_html'], 'View Service Report', $portalUrl, $companyInfo)
+            : $tpl['body_html'];
+
+        $result = sendEmail($visit['contact_email'], $tpl['subject'], $emailBody);
+
+        // Mark notification sent
+        if ($result['success']) {
+            $db->prepare("UPDATE job_visits SET notification_sent_at = NOW() WHERE id = ?")
+               ->execute([$visitId]);
+        }
+
+        return $result['success'];
+    }
 }
 
 /**
@@ -689,7 +783,7 @@ if (!function_exists('loadEmailTemplate')) {
             ],
             'receipt_sent' => [
                 'subject'  => 'Payment received — Thank you, {{customer_first_name}}!',
-                'body'     => "Hi {{customer_first_name}},\n\nWe've received your payment of {{amount_paid}} for invoice {{invoice_number}}. Your receipt is attached.\n\nThank you for your business!\n\n{{company_name}}\n{{company_phone}}",
+                'body'     => "Hi {{customer_first_name}},\n\nGreat news — we've received your payment of {{amount_paid}} on {{payment_date}} for invoice {{invoice_number}}.\n\nYour receipt is available online via the link below. Thank you for your business!\n\n{{company_name}}\n{{company_phone}}",
             ],
             'job_complete' => [
                 'subject'  => 'Your {{service_type}} service is complete — {{job_date}}',

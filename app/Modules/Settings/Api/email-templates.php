@@ -256,7 +256,7 @@ function getDefaultTemplates(): array
         'receipt_sent' => [
             'name'    => 'Payment Receipt',
             'subject' => 'Payment received — Thank you, {{customer_first_name}}!',
-            'body'    => "Hi {{customer_first_name}},\n\nGreat news — we've received your payment of {{amount_paid}} for invoice {{invoice_number}}.\n\nYour receipt is attached to this email for your records.\n\nThank you so much for your business. We appreciate your trust in Mowology and look forward to continuing to serve you.\n\n{{company_name}}\n{{company_phone}}",
+            'body'    => "Hi {{customer_first_name}},\n\nGreat news — we've received your payment of {{amount_paid}} on {{payment_date}} for invoice {{invoice_number}}.\n\nYour receipt is available online via the link below. Thank you so much for your business — we appreciate your trust in Mowology and look forward to continuing to serve you.\n\n{{company_name}}\n{{company_phone}}",
             'vars'    => ['{{customer_first_name}}', '{{customer_name}}', '{{invoice_number}}', '{{amount_paid}}', '{{payment_date}}', '{{company_name}}', '{{company_phone}}'],
         ],
         'job_complete' => [

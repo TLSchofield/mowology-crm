@@ -155,10 +155,10 @@
                     var tpl       = data.template;
                     var subjectEl = document.getElementById('et_subject_' + key);
                     var bodyEl    = document.getElementById('et_body_'    + key);
-                    if (subjectEl) { subjectEl.value = tpl.subject || ''; }
-                    if (bodyEl)    { bodyEl.value    = tpl.body    || ''; }
+                    if (subjectEl) { subjectEl.value = tpl.subject   || ''; }
+                    if (bodyEl)    { bodyEl.value    = tpl.body_text || ''; }
                     // Save immediately
-                    saveTemplate(key, tpl.subject || '', tpl.body || '', true);
+                    saveTemplate(key, tpl.subject || '', tpl.body_text || '', true);
                 }
             })
             .catch(function () {

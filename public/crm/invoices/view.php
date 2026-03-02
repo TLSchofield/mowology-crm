@@ -318,6 +318,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         if ($paymentReference) $detail .= " (Ref: {$paymentReference})";
         logActivityExtended($user['id'], 'Payment recorded', $detail, null, null, null, $invoiceId);
 
+        // ── Send receipt email (non-blocking — payment success must never depend on this) ──
+        if (!empty($invoice['contact_email'])) {
+            try {
+                require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+
+                // Ensure access token exists for CTA link
+                if (empty($invoice['access_token'])) {
+                    $receiptToken = bin2hex(random_bytes(32));
+                    $db->prepare("UPDATE invoices SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 90 DAY) WHERE id = ?")
+                       ->execute([$receiptToken, $invoiceId]);
+                    $invoice['access_token'] = $receiptToken;
+                }
+
+                $receiptCompany = EmailWrapper::getCompanyInfo();
+                $paidOn         = $paidAtParam
+                    ? date('F j, Y', strtotime($paidAtParam))
+                    : date('F j, Y');
+                $receiptFirst   = $invoice['contact_first'] ?: 'there';
+                $receiptName    = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) ?: 'Valued Customer';
+
+                $receiptVars = [
+                    '{{customer_first_name}}' => $receiptFirst,
+                    '{{customer_name}}'       => $receiptName,
+                    '{{invoice_number}}'      => $invoice['invoice_number'],
+                    '{{amount_paid}}'         => formatCurrency($paymentAmount),
+                    '{{payment_date}}'        => $paidOn,
+                    '{{company_name}}'        => $receiptCompany['company_name'],
+                    '{{company_phone}}'       => $receiptCompany['company_phone'],
+                ];
+
+                $receiptTpl  = loadEmailTemplate('receipt_sent', $receiptVars);
+                $receiptUrl  = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+                $receiptBody = EmailWrapper::wrap(
+                    $receiptTpl['body_html'],
+                    'View Your Receipt',
+                    $receiptUrl,
+                    $receiptCompany
+                );
+                sendEmail($invoice['contact_email'], $receiptTpl['subject'], $receiptBody);
+            } catch (Throwable $receiptEx) {
+                error_log("Receipt email failed for invoice {$invoiceId}: " . $receiptEx->getMessage());
+            }
+        }
+
         $invoice['status']      = $newStatus;
         $invoice['balance_due'] = $newBalance;
         $message     = "Payment of " . formatCurrency($paymentAmount) . " recorded successfully.";
