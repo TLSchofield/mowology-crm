@@ -107,11 +107,11 @@ try {
     $templates = $db->query("
         SELECT p.id, p.name, p.description, p.base_price, p.min_price,
                p.icon_base_path,
-               c.name as category_name, u.abbreviation as unit_abbreviation, u.name as unit_name
+               c.name as category_name, u.abbreviation as unit_abbreviation
         FROM products p
         LEFT JOIN product_categories c ON p.category_id = c.id
         LEFT JOIN unit_types u ON p.unit_type_id = u.id
-        WHERE p.is_archived = 0 AND p.active = 1
+        WHERE p.is_archived = 0
         ORDER BY c.name, p.display_order, p.name
     ")->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
@@ -466,27 +466,14 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                 <div class="d-flex mt-3" style="gap: 12px; flex-wrap: wrap;">
                                     <div class="mw-template-dropdown">
                                         <button type="button" class="btn btn-secondary" id="addFromTemplateBtn">
-                                            + Add from Template
+                                            <i data-feather="grid" style="width:13px;height:13px;vertical-align:middle;margin-right:4px;"></i>Add from Template
                                         </button>
                                         <div class="mw-template-menu" id="templateMenu">
-                                            <?php
-                                            $currentCat = null;
-                                            foreach ($templates as $template):
-                                                if ($template['category_name'] !== $currentCat):
-                                                    $currentCat = $template['category_name'];
-                                            ?>
-                                                <div class="mw-template-header"><?php echo htmlspecialchars($currentCat ?? 'Uncategorized'); ?></div>
-                                            <?php endif; ?>
-                                                <div class="mw-template-item" data-template='<?php echo htmlspecialchars(json_encode($template), ENT_QUOTES); ?>'>
-                                                    <?php if (!empty($template['icon_base_path'])): ?>
-                                                    <img class="mw-template-icon" src="<?php echo htmlspecialchars($template['icon_base_path'] . 'icon_32_sold.png'); ?>" alt="" width="28" height="28" onerror="this.style.display='none'">
-                                                    <?php endif; ?>
-                                                    <div>
-                                                        <div class="mw-template-name"><?php echo htmlspecialchars($template['name']); ?></div>
-                                                        <div class="mw-template-price"><?php echo formatCurrency($template['base_price']); ?><?php if ($template['unit_abbreviation']): ?> / <?php echo htmlspecialchars($template['unit_abbreviation']); ?><?php endif; ?></div>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
+                                            <div class="mw-template-search-wrap">
+                                                <i data-feather="search" class="mw-template-search-icon"></i>
+                                                <input type="text" id="templateSearch" class="mw-template-search" placeholder="Search services…" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();}">
+                                            </div>
+                                            <div id="templateResults" class="mw-template-results"></div>
                                         </div>
                                     </div>
                                     <button type="button" class="btn btn-outline-secondary" id="addCustomLineBtn">
@@ -832,25 +819,89 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             document.getElementById('lineItemsInput').value = JSON.stringify(outputItems);
         }
 
-        // Template dropdown
-        const templateBtn = document.getElementById('addFromTemplateBtn');
-        const templateMenu = document.getElementById('templateMenu');
+        // Searchable template dropdown
+        const templateBtn    = document.getElementById('addFromTemplateBtn');
+        const templateMenu   = document.getElementById('templateMenu');
+        const templateSearch = document.getElementById('templateSearch');
+        const templateResults = document.getElementById('templateResults');
+
+        function renderTemplateResults(query) {
+            const q = (query || '').toLowerCase().trim();
+            templateResults.innerHTML = '';
+
+            if (!templates || templates.length === 0) {
+                templateResults.innerHTML = '<div class="mw-template-empty">No products in catalog.</div>';
+                return;
+            }
+
+            let currentCat = null;
+            let visibleCount = 0;
+
+            templates.forEach(t => {
+                const matchesName = t.name.toLowerCase().includes(q);
+                const matchesCat  = (t.category_name || '').toLowerCase().includes(q);
+                const matchesDesc = (t.description || '').toLowerCase().includes(q);
+                if (q && !matchesName && !matchesCat && !matchesDesc) return;
+
+                // Show category header when not filtering
+                if (!q && t.category_name !== currentCat) {
+                    currentCat = t.category_name;
+                    const header = document.createElement('div');
+                    header.className = 'mw-template-header';
+                    header.textContent = currentCat || 'Uncategorized';
+                    templateResults.appendChild(header);
+                }
+
+                const item = document.createElement('div');
+                item.className = 'mw-template-item';
+
+                const iconHtml = t.icon_base_path
+                    ? `<img class="mw-template-icon" src="${t.icon_base_path}icon_32_sold.png" alt="" width="28" height="28" onerror="this.style.display='none'">`
+                    : `<span class="mw-template-icon-placeholder"></span>`;
+
+                const price = parseFloat(t.base_price || 0).toFixed(2);
+                const priceStr = t.unit_abbreviation
+                    ? `$${price}&nbsp;/&nbsp;${escapeHtml(t.unit_abbreviation)}`
+                    : `$${price}`;
+
+                item.innerHTML = `${iconHtml}<div><div class="mw-template-name">${escapeHtml(t.name)}</div><div class="mw-template-price">${priceStr}</div></div>`;
+                item.addEventListener('click', () => {
+                    addLine(t);
+                    closeTemplateMenu();
+                });
+                templateResults.appendChild(item);
+                visibleCount++;
+            });
+
+            if (visibleCount === 0) {
+                templateResults.innerHTML = '<div class="mw-template-empty">No matching services.</div>';
+            }
+        }
+
+        function openTemplateMenu() {
+            templateSearch.value = '';
+            renderTemplateResults('');
+            templateMenu.classList.add('show');
+            setTimeout(() => templateSearch.focus(), 60);
+        }
+
+        function closeTemplateMenu() {
+            templateMenu.classList.remove('show');
+        }
 
         templateBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            templateMenu.classList.toggle('show');
+            templateMenu.classList.contains('show') ? closeTemplateMenu() : openTemplateMenu();
         });
 
-        document.querySelectorAll('.mw-template-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const template = JSON.parse(item.dataset.template);
-                addLine(template);
-                templateMenu.classList.remove('show');
-            });
+        templateSearch.addEventListener('input', () => renderTemplateResults(templateSearch.value));
+
+        templateSearch.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { closeTemplateMenu(); templateBtn.focus(); }
         });
 
-        document.addEventListener('click', () => {
-            templateMenu.classList.remove('show');
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.mw-template-dropdown')) closeTemplateMenu();
         });
 
         document.getElementById('addCustomLineBtn').addEventListener('click', () => addLine());
