@@ -20,8 +20,6 @@ $token   = trim($_GET['token'] ?? '');
 $visitId = isset($_GET['visit_id']) ? (int)$_GET['visit_id'] : 0;
 
 // ── Validate token ─────────────────────────────────────────────────────────
-// Token is the plan's quote access_token (or we extend it to plans later).
-// For now: look up via the quote attached to the plan for this visit.
 if (!$token || !$visitId) {
     $error = 'Invalid link. Please check your email for the correct Proof of Work link.';
 }
@@ -97,12 +95,12 @@ if (!$error && $visit) {
     $stmt->execute([$visitId]);
     $notes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $checklist = !empty($visit['checklist_json'])       ? json_decode($visit['checklist_json'], true)       : [];
-    $confBox   = !empty($visit['confidence_box_json'])  ? json_decode($visit['confidence_box_json'], true)  : [];
-    $materials = !empty($visit['materials_json'])       ? json_decode($visit['materials_json'], true)       : [];
+    $checklist = !empty($visit['checklist_json'])      ? json_decode($visit['checklist_json'], true)      : [];
+    $confBox   = !empty($visit['confidence_box_json']) ? json_decode($visit['confidence_box_json'], true) : [];
+    $materials = !empty($visit['materials_json'])      ? json_decode($visit['materials_json'], true)      : [];
 
     // Fertilizer card extras: product + plan visits for progress indicator
-    $fertProduct  = null;
+    $fertProduct   = null;
     $fertAllVisits = [];
     if (!empty($visit['is_prepaid_bundle'])) {
         $pliStmt = $db->prepare("
@@ -128,19 +126,19 @@ if (!$error && $visit) {
     }
 }
 
-$clientName  = $visit ? trim(($visit['contact_first']??'') . ' ' . ($visit['contact_last']??'')) : 'Client';
-$visitDate   = $visit && $visit['started_at'] ? date('F j, Y', strtotime($visit['started_at'])) : '';
-$address     = $visit ? implode(', ', array_filter([
+$clientName = $visit ? trim(($visit['contact_first'] ?? '') . ' ' . ($visit['contact_last'] ?? '')) : 'Client';
+$visitDate  = $visit && $visit['started_at'] ? date('F j, Y', strtotime($visit['started_at'])) : '';
+$address    = $visit ? implode(', ', array_filter([
     $visit['property_address'] ?? '',
     $visit['property_city'] ?? '',
     $visit['property_province'] ?? '',
     $visit['property_postal'] ?? '',
 ])) : '';
 
-$hasPdf      = $visit && !empty($visit['pdf_path']);
-$pdfUrl      = $hasPdf ? $visit['pdf_path'] : '';
+$hasPdf  = $visit && !empty($visit['pdf_path']);
+$pdfUrl  = $hasPdf ? $visit['pdf_path'] : '';
 
-$duration    = '';
+$duration = '';
 if ($visit && $visit['started_at'] && $visit['completed_at']) {
     $mins     = (int)round((strtotime($visit['completed_at']) - strtotime($visit['started_at'])) / 60);
     $duration = ($mins >= 60 ? floor($mins/60).'h ' : '') . ($mins % 60) . 'm';
@@ -166,346 +164,285 @@ $serviceLabel = [
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Proof of Work — Mowology Landscaping</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Inter', sans-serif; background: #f4f7f5; color: #1a1a1a; font-size: 15px; }
-    a { color: #2D8659; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-
-    .portal-wrap { max-width: 700px; margin: 0 auto; padding: 20px 16px 60px; }
-
-    /* Header */
-    .portal-header { background: #1A5F4A; color: #fff; border-radius: 10px 10px 0 0; padding: 20px 24px; margin-bottom: 0; }
-    .portal-header h1 { font-size: 20px; font-weight: 700; }
-    .portal-header .sub { font-size: 13px; opacity: 0.8; margin-top: 4px; }
-    .portal-badge { background: rgba(127,216,88,0.3); color: #7FD858; font-size: 11px; font-weight: 600;
-                    border-radius: 12px; padding: 2px 10px; display: inline-block; margin-top: 6px; }
-
-    /* Main card */
-    .portal-card { background: #fff; border-radius: 0 0 10px 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 16px; }
-    .portal-section { padding: 20px 24px; border-bottom: 1px solid #e8f3f0; }
-    .portal-section:last-child { border-bottom: none; }
-    .portal-section h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
-                          color: #1A5F4A; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
-
-    /* Stats */
-    .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-    .stat-box { background: #e8f3f0; border-radius: 8px; padding: 12px; text-align: center; }
-    .stat-box .val { font-size: 20px; font-weight: 700; color: #1A5F4A; }
-    .stat-box .lbl { font-size: 11px; color: #666; margin-top: 2px; }
-
-    /* Map */
-    .route-map { width: 100%; border-radius: 8px; border: 1px solid #c3e6cb; max-height: 280px; object-fit: cover; }
-
-    /* Checklist */
-    .check-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px dotted #eee; }
-    .check-item:last-child { border-bottom: none; }
-    .check-icon { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; font-size: 14px; }
-    .check-done { color: #2D8659; }
-    .check-pend { color: #ccc; }
-
-    /* Photos */
-    .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 10px; }
-    .photo-item img { width: 100%; height: 100px; object-fit: cover; border-radius: 6px; border: 1px solid #c3e6cb; }
-    .photo-item .photo-type { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #2D8659; margin-top: 3px; }
-
-    /* Notes */
-    .note-item { background: #f9fdf9; border-left: 3px solid #7FD858; padding: 8px 12px;
-                 border-radius: 0 4px 4px 0; font-size: 13px; margin-bottom: 8px; }
-
-    /* Confidence box */
-    .confidence-box { background: #f0fbf3; border: 2px solid #2D8659; border-radius: 10px; padding: 18px 20px; }
-    .confidence-box h3 { font-size: 15px; color: #1A5F4A; margin-bottom: 12px; }
-    .conf-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .conf-col h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #2D8659; margin-bottom: 6px; }
-    .conf-col ul { list-style: none; padding: 0; }
-    .conf-col ul li { padding: 3px 0; font-size: 13px; padding-left: 16px; position: relative; }
-    .conf-col ul li::before { content: "✓"; position: absolute; left: 0; color: #2D8659; font-weight: 700; }
-    .upsell-block { margin-top: 12px; background: #fff7e6; border-left: 3px solid #e85d04; padding: 8px 12px;
-                    border-radius: 0 4px 4px 0; font-size: 13px; }
-    .upsell-block strong { color: #e85d04; }
-
-    /* PDF download */
-    .pdf-download-btn { display: flex; align-items: center; justify-content: center; gap: 10px;
-                         background: #2D8659; color: #fff; padding: 14px 20px; border-radius: 8px;
-                         font-weight: 600; font-size: 15px; width: 100%; text-decoration: none;
-                         border: none; cursor: pointer; transition: background 0.2s; }
-    .pdf-download-btn:hover { background: #1A5F4A; color: #fff; text-decoration: none; }
-    .pdf-download-btn svg { width: 20px; height: 20px; }
-
-    /* Footer */
-    .portal-footer { text-align: center; padding: 20px; color: #888; font-size: 12px; }
-    .portal-footer a { color: #2D8659; }
-
-    /* Error */
-    .error-box { background: #fff; border-radius: 10px; padding: 40px 24px; text-align: center;
-                  box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-    .error-box h2 { color: #dc3545; margin-bottom: 10px; }
-
-    @media (max-width: 480px) {
-      .stats-row { grid-template-columns: 1fr 1fr; }
-      .conf-cols { grid-template-columns: 1fr; }
-      .portal-section { padding: 16px; }
-    }
-  </style>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="stylesheet" href="/customer/portal.css">
 </head>
 <body>
-<div class="portal-wrap">
+
+<header class="portal-header">
+  <div class="portal-logo-text">Mowo<span>logy</span></div>
+  <div class="portal-header-divider"></div>
+  <span class="portal-header-label">Service Report</span>
+  <?php if ($clientName): ?>
+    <span class="portal-client-name"><?php echo htmlspecialchars($clientName); ?></span>
+  <?php endif; ?>
+</header>
+
+<div class="portal-container">
 
 <?php if ($error): ?>
-  <div class="error-box">
+  <div class="portal-error">
+    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:#cdddd6;margin:0 auto 16px;display:block"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     <h2>Report Unavailable</h2>
-    <p class="text-muted"><?= htmlspecialchars($error) ?></p>
-    <p class="mt-3"><a href="<?= htmlspecialchars($siteUrl) ?>">← Return to Mowology.ca</a></p>
+    <p><?php echo htmlspecialchars($error); ?></p>
+    <p style="margin-top:12px;"><a href="<?php echo htmlspecialchars($siteUrl); ?>">← Return to Mowology.ca</a></p>
   </div>
 <?php else: ?>
 
-  <!-- ── Header ─────────────────────────────────────────────────────────── -->
-  <div class="portal-header">
-    <h1>Your Service Report</h1>
-    <div class="sub"><?= htmlspecialchars($serviceLabel) ?> — <?= htmlspecialchars($visitDate) ?></div>
-    <div class="portal-badge">✓ Completed</div>
-  </div>
+  <!-- Visit Hero -->
+  <div class="portal-hero">
+    <div class="portal-hero-greeting"><?php echo htmlspecialchars($serviceLabel); ?></div>
+    <div class="portal-hero-sub" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span class="portal-status status-accepted">Completed</span>
+      <?php if ($visitDate): ?>
+        <span><?php echo htmlspecialchars($visitDate); ?></span>
+      <?php endif; ?>
+      <?php if ($address): ?>
+        <span style="color:var(--p-text-muted);">·</span>
+        <span><?php echo htmlspecialchars($address); ?></span>
+      <?php endif; ?>
+    </div>
 
-  <div class="portal-card">
-
-    <!-- ── Client & Property ────────────────────────────────────────────── -->
-    <div class="portal-section">
-      <h2>Visit Summary</h2>
-      <p><strong><?= htmlspecialchars($clientName) ?></strong><br>
-         <span style="color:#666;font-size:13px;"><?= htmlspecialchars($address) ?></span></p>
-      <div class="stats-row mt-3">
-        <div class="stat-box">
-          <div class="val"><?= htmlspecialchars($duration ?: '—') ?></div>
-          <div class="lbl">Duration</div>
-        </div>
-        <div class="stat-box">
-          <div class="val"><?= $visit['distance_m'] ? number_format($visit['distance_m']/1000,2).' km' : '—' ?></div>
-          <div class="lbl">Area Covered</div>
-        </div>
-        <div class="stat-box">
-          <div class="val"><?= $visit['actual_crew_count'] ?? 1 ?></div>
-          <div class="lbl">Crew Members</div>
-        </div>
+    <!-- Stat Trio -->
+    <div class="portal-stat-trio">
+      <div class="portal-stat-box">
+        <div class="portal-stat-val"><?php echo htmlspecialchars($duration ?: '—'); ?></div>
+        <div class="portal-stat-lbl">Duration</div>
+      </div>
+      <div class="portal-stat-box">
+        <div class="portal-stat-val"><?php echo $visit['distance_m'] ? number_format($visit['distance_m']/1000, 2).' km' : '—'; ?></div>
+        <div class="portal-stat-lbl">Area Covered</div>
+      </div>
+      <div class="portal-stat-box">
+        <div class="portal-stat-val"><?php echo htmlspecialchars((string)($visit['actual_crew_count'] ?? 1)); ?></div>
+        <div class="portal-stat-lbl">Crew Members</div>
       </div>
     </div>
+  </div>
 
-    <!-- ── Route Map ─────────────────────────────────────────────────────── -->
-    <?php if (!empty($visit['map_snapshot_path'])): ?>
-    <div class="portal-section">
-      <h2>GPS Route</h2>
-      <img src="<?= htmlspecialchars($visit['map_snapshot_path']) ?>"
-           alt="GPS Route Map" class="route-map">
-      <p style="font-size:11px;color:#888;margin-top:6px;text-align:center;">
-        Tracked route for this service visit (<?= (int)$visit['gps_points_count'] ?> GPS points)
+  <!-- GPS Route Map -->
+  <?php if (!empty($visit['map_snapshot_path'])): ?>
+  <div class="portal-info-card">
+    <div class="portal-info-card-header">GPS Route</div>
+    <div class="portal-info-card-body">
+      <img src="<?php echo htmlspecialchars($visit['map_snapshot_path']); ?>"
+           alt="GPS Route Map" class="portal-route-map">
+      <p style="font-size:0.72rem;color:var(--p-text-muted);margin-top:8px;text-align:center;">
+        Tracked route for this service visit (<?php echo (int)$visit['gps_points_count']; ?> GPS points)
       </p>
     </div>
-    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
-    <!-- ── Checklist ──────────────────────────────────────────────────────── -->
-    <?php if (!empty($checklist)): ?>
-    <div class="portal-section">
-      <h2>What We Completed</h2>
+  <!-- Checklist -->
+  <?php if (!empty($checklist)): ?>
+  <div class="portal-info-card">
+    <div class="portal-info-card-header">What We Completed</div>
+    <div class="portal-info-card-body">
       <?php foreach ($checklist as $item): ?>
-      <div class="check-item">
-        <span class="check-icon <?= !empty($item['checked']) ? 'check-done' : 'check-pend' ?>">
-          <?= !empty($item['checked']) ? '✓' : '○' ?>
+      <div class="portal-check-item">
+        <span class="portal-check-icon<?php echo !empty($item['checked']) ? '' : ' pending'; ?>">
+          <?php echo !empty($item['checked']) ? '✓' : '○'; ?>
         </span>
         <div>
-          <div style="font-size:13px;"><?= htmlspecialchars($item['item'] ?? '') ?></div>
+          <div style="font-size:0.875rem;"><?php echo htmlspecialchars($item['item'] ?? ''); ?></div>
           <?php if (!empty($item['note'])): ?>
-          <div style="font-size:11px;color:#666;"><?= htmlspecialchars($item['note']) ?></div>
+            <div style="font-size:0.75rem;color:var(--p-text-muted);margin-top:2px;"><?php echo htmlspecialchars($item['note']); ?></div>
           <?php endif; ?>
         </div>
       </div>
       <?php endforeach; ?>
     </div>
-    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
-    <!-- ── Photos ────────────────────────────────────────────────────────── -->
-    <?php if (!empty($photos)): ?>
-    <div class="portal-section">
-      <h2>Site Photos</h2>
-      <div class="photo-grid">
+  <!-- Photos -->
+  <?php if (!empty($photos)): ?>
+  <div class="portal-info-card">
+    <div class="portal-info-card-header">Site Photos</div>
+    <div class="portal-info-card-body">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
         <?php foreach ($photos as $ph): ?>
-        <div class="photo-item">
-          <a href="/uploads/photos/<?= htmlspecialchars($ph['filename']) ?>" target="_blank">
-            <img src="/uploads/photos/<?= htmlspecialchars($ph['filename']) ?>"
-                 alt="<?= htmlspecialchars($ph['photo_type']) ?>"
+        <div>
+          <a href="/uploads/photos/<?php echo htmlspecialchars($ph['filename']); ?>" target="_blank">
+            <img src="/uploads/photos/<?php echo htmlspecialchars($ph['filename']); ?>"
+                 alt="<?php echo htmlspecialchars($ph['photo_type']); ?>"
+                 style="width:100%;height:100px;object-fit:cover;border-radius:var(--p-radius-sm);border:1px solid var(--p-border);display:block;"
                  onerror="this.parentElement.parentElement.style.display='none'">
           </a>
-          <div class="photo-type"><?= htmlspecialchars($ph['photo_type']) ?></div>
+          <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;color:var(--p-green);margin-top:4px;letter-spacing:0.04em;"><?php echo htmlspecialchars($ph['photo_type']); ?></div>
           <?php if (!empty($ph['caption'])): ?>
-          <div style="font-size:11px;color:#666;"><?= htmlspecialchars($ph['caption']) ?></div>
+            <div style="font-size:0.7rem;color:var(--p-text-muted);"><?php echo htmlspecialchars($ph['caption']); ?></div>
           <?php endif; ?>
         </div>
         <?php endforeach; ?>
       </div>
     </div>
-    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
-    <!-- ── Notes ─────────────────────────────────────────────────────────── -->
-    <?php if (!empty($notes)): ?>
-    <div class="portal-section">
-      <h2>Crew Notes</h2>
+  <!-- Crew Notes -->
+  <?php if (!empty($notes)): ?>
+  <div class="portal-info-card">
+    <div class="portal-info-card-header">Crew Notes</div>
+    <div class="portal-info-card-body">
       <?php foreach ($notes as $n): ?>
-      <div class="note-item"><?= nl2br(htmlspecialchars($n['content'])) ?></div>
+        <div class="portal-note-item"><?php echo nl2br(htmlspecialchars($n['content'])); ?></div>
       <?php endforeach; ?>
     </div>
-    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
-    <!-- ── Client Confidence Box ─────────────────────────────────────────── -->
-    <?php if (!empty($confBox)): ?>
-    <div class="portal-section">
-      <h2>Your Service Summary</h2>
-      <div class="confidence-box">
-        <h3>What We Did Today for You</h3>
-        <div class="conf-cols">
+  <!-- Confidence Box -->
+  <?php if (!empty($confBox)): ?>
+  <div class="portal-info-card">
+    <div class="portal-info-card-header">Your Service Summary</div>
+    <div class="portal-info-card-body">
+      <div class="portal-confidence-box">
+        <h4>What We Did Today for You</h4>
+        <div class="portal-conf-cols">
           <?php if (!empty($confBox['done'])): ?>
-          <div class="conf-col">
-            <h4>Completed</h4>
+          <div class="portal-conf-col">
+            <h5>Completed</h5>
             <ul>
               <?php foreach ($confBox['done'] as $bullet): ?>
-              <li><?= htmlspecialchars($bullet) ?></li>
+                <li><?php echo htmlspecialchars($bullet); ?></li>
               <?php endforeach; ?>
             </ul>
           </div>
           <?php endif; ?>
           <?php if (!empty($confBox['next'])): ?>
-          <div class="conf-col">
-            <h4>What's Next</h4>
+          <div class="portal-conf-col">
+            <h5>What's Next</h5>
             <ul>
               <?php foreach ($confBox['next'] as $bullet): ?>
-              <li><?= htmlspecialchars($bullet) ?></li>
+                <li><?php echo htmlspecialchars($bullet); ?></li>
               <?php endforeach; ?>
             </ul>
           </div>
           <?php endif; ?>
         </div>
         <?php if (!empty($confBox['upsell'])): ?>
-        <div class="upsell-block">
-          <strong>Recommendation:</strong> <?= htmlspecialchars($confBox['upsell']) ?>
-        </div>
+          <div class="portal-upsell-block">
+            <strong>Recommendation:</strong> <?php echo htmlspecialchars($confBox['upsell']); ?>
+          </div>
         <?php endif; ?>
       </div>
     </div>
-    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
-    <?php if (!empty($visit['is_prepaid_bundle'])): ?>
-    <?php
-        // Fertilizer card data
-        $siteUrl    = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
-        $totalApps  = count($fertAllVisits);
-        $completedApps = (int)($visit['bundle_applications_used'] ?? 0);
-        $nextAppDate = null;
-        foreach ($fertAllVisits as $av) {
-            if ($av['status'] === 'scheduled') { $nextAppDate = $av['scheduled_date']; break; }
-        }
-        // GPS times
-        $arrTime  = !empty($visit['started_at'])   ? date('g:ia', strtotime($visit['started_at']))   : '';
-        $depTime  = !empty($visit['completed_at']) ? date('g:ia', strtotime($visit['completed_at'])) : '';
-        $durMins  = (int)($visit['actual_duration_minutes'] ?? 0);
-        $durStr   = $durMins >= 60 ? floor($durMins/60) . 'h ' . ($durMins%60) . 'm' : ($durMins > 0 ? $durMins . 'min' : '');
-        // Icon
-        $iconUrl = '';
-        if ($fertProduct && !empty($fertProduct['icon_base_path'])) {
-            $iconFile = !empty($fertProduct['product_is_sold']) ? 'icon-full.png' : 'icon-grey.png';
-            $iconUrl  = $siteUrl . '/' . ltrim(rtrim($fertProduct['icon_base_path'], '/') . '/' . $iconFile, '/');
-        }
-    ?>
-    <!-- ── Fertilizer Bundle Card ─────────────────────────────────────────── -->
-    <div class="portal-section" style="border-left:3px solid #2D8659;padding-left:20px;">
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+  <!-- Fertilizer Bundle Card -->
+  <?php if (!empty($visit['is_prepaid_bundle'])): ?>
+  <?php
+    $siteUrlClean  = defined('SITE_URL') ? rtrim(SITE_URL, '/') : 'https://mowology.ca';
+    $totalApps     = count($fertAllVisits);
+    $completedApps = (int)($visit['bundle_applications_used'] ?? 0);
+    $nextAppDate   = null;
+    foreach ($fertAllVisits as $av) {
+        if ($av['status'] === 'scheduled') { $nextAppDate = $av['scheduled_date']; break; }
+    }
+    $arrTime  = !empty($visit['started_at'])   ? date('g:ia', strtotime($visit['started_at']))   : '';
+    $depTime  = !empty($visit['completed_at']) ? date('g:ia', strtotime($visit['completed_at'])) : '';
+    $durMins  = (int)($visit['actual_duration_minutes'] ?? 0);
+    $durStr   = $durMins >= 60 ? floor($durMins/60) . 'h ' . ($durMins%60) . 'm' : ($durMins > 0 ? $durMins . 'min' : '');
+    $iconUrl  = '';
+    if ($fertProduct && !empty($fertProduct['icon_base_path'])) {
+        $iconFile = !empty($fertProduct['product_is_sold']) ? 'icon-full.png' : 'icon-grey.png';
+        $iconUrl  = $siteUrlClean . '/' . ltrim(rtrim($fertProduct['icon_base_path'], '/') . '/' . $iconFile, '/');
+    }
+  ?>
+  <div class="portal-info-card" style="border-left:3px solid var(--p-green);">
+    <div class="portal-info-card-body">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;">
         <?php if ($iconUrl): ?>
-        <img src="<?= htmlspecialchars($iconUrl) ?>" alt="" style="width:56px;height:56px;object-fit:contain;" onerror="this.style.display='none'">
+          <img src="<?php echo htmlspecialchars($iconUrl); ?>" alt="" style="width:52px;height:52px;object-fit:contain;" onerror="this.style.display='none'">
         <?php endif; ?>
         <div>
-          <h2 style="margin:0 0 2px;"><?= htmlspecialchars($visit['plan_title'] ?: 'Fertilizer Program') ?></h2>
+          <div style="font-size:0.95rem;font-weight:700;color:var(--p-forest);"><?php echo htmlspecialchars($visit['plan_title'] ?: 'Fertilizer Program'); ?></div>
           <?php if (!empty($visit['sequence_index'])): ?>
-          <div style="font-size:13px;color:#2D8659;font-weight:bold;">Application <?= (int)$visit['sequence_index'] ?> of <?= $totalApps ?></div>
+            <div style="font-size:0.8rem;color:var(--p-green);font-weight:600;margin-top:2px;">Application <?php echo (int)$visit['sequence_index']; ?> of <?php echo $totalApps; ?></div>
           <?php endif; ?>
         </div>
       </div>
 
       <?php if (!empty($fertProduct['application_notes'])): ?>
-      <p style="font-size:13px;color:#555;margin:0 0 16px;line-height:1.5;"><?= htmlspecialchars($fertProduct['application_notes']) ?></p>
+        <p style="font-size:0.82rem;color:var(--p-text-mid);margin-bottom:14px;line-height:1.5;"><?php echo htmlspecialchars($fertProduct['application_notes']); ?></p>
       <?php endif; ?>
 
       <?php if (!empty($materials)): ?>
-      <div style="background:#f0f7f4;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#666;margin-bottom:8px;">What Was Applied</div>
+      <div style="background:var(--p-bg-subtle);border-radius:var(--p-radius-sm);padding:12px 14px;margin-bottom:14px;">
+        <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--p-text-light);font-weight:700;margin-bottom:8px;">What Was Applied</div>
         <?php foreach ($materials as $mat): ?>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:13px;">
-          <span style="color:#333;"><?= htmlspecialchars($mat['product_name'] ?? '') ?></span>
-          <strong style="color:#1A5F4A;"><?= htmlspecialchars($mat['qty'] . ' ' . ($mat['unit'] ?? 'bags')) ?></strong>
-        </div>
-        <?php if (!empty($mat['area_sqft'])): ?>
-        <div style="font-size:11px;color:#888;padding-bottom:4px;"><?= number_format($mat['area_sqft']) ?> sq ft covered</div>
-        <?php endif; ?>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;font-size:0.82rem;">
+            <span style="color:var(--p-text-body);"><?php echo htmlspecialchars($mat['product_name'] ?? ''); ?></span>
+            <strong style="color:var(--p-forest);"><?php echo htmlspecialchars($mat['qty'] . ' ' . ($mat['unit'] ?? 'bags')); ?></strong>
+          </div>
+          <?php if (!empty($mat['area_sqft'])): ?>
+            <div style="font-size:0.7rem;color:var(--p-text-muted);padding-bottom:4px;"><?php echo number_format($mat['area_sqft']); ?> sq ft covered</div>
+          <?php endif; ?>
         <?php endforeach; ?>
       </div>
       <?php endif; ?>
 
       <?php if ($arrTime || $depTime): ?>
-      <div style="font-size:13px;color:#555;margin-bottom:16px;">
-        <span style="font-weight:bold;color:#2D8659;">✓ GPS Verified</span><br>
-        <?php if ($arrTime): ?>Arrived <strong><?= $arrTime ?></strong><?php endif; ?>
+      <div style="font-size:0.82rem;color:var(--p-text-mid);margin-bottom:14px;">
+        <span style="font-weight:700;color:var(--p-green);">✓ GPS Verified</span><br>
+        <?php if ($arrTime): ?>Arrived <strong><?php echo $arrTime; ?></strong><?php endif; ?>
         <?php if ($arrTime && $depTime): ?> &middot; <?php endif; ?>
-        <?php if ($depTime): ?>Departed <strong><?= $depTime ?></strong><?php endif; ?>
-        <?php if ($durStr): ?> <span style="color:#999;">(<?= $durStr ?>)</span><?php endif; ?>
+        <?php if ($depTime): ?>Departed <strong><?php echo $depTime; ?></strong><?php endif; ?>
+        <?php if ($durStr): ?> <span style="color:var(--p-text-muted);">(<?php echo $durStr; ?>)</span><?php endif; ?>
         <?php if (!empty($visit['property_address'])): ?>
-        <br><span style="color:#888;"><?= htmlspecialchars($visit['property_address'] . ', ' . ($visit['property_city'] ?? '')) ?></span>
+          <br><span style="color:var(--p-text-muted);"><?php echo htmlspecialchars($visit['property_address'] . (isset($visit['property_city']) ? ', ' . $visit['property_city'] : '')); ?></span>
         <?php endif; ?>
       </div>
       <?php endif; ?>
 
       <?php if ($totalApps > 1): ?>
-      <div style="background:#f0f7f4;border-radius:8px;padding:12px 16px;">
-        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#666;margin-bottom:6px;">Your Program</div>
-        <div style="font-size:24px;letter-spacing:5px;color:#2D8659;line-height:1;">
+      <div style="background:var(--p-bg-subtle);border-radius:var(--p-radius-sm);padding:12px 14px;">
+        <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.06em;color:var(--p-text-light);font-weight:700;margin-bottom:6px;">Your Program</div>
+        <div class="portal-bundle-dots">
           <?php for ($i = 0; $i < $totalApps; $i++) echo $i < $completedApps ? '●' : '○'; ?>
         </div>
-        <div style="font-size:13px;color:#555;margin-top:6px;">
-          <?= $completedApps ?> of <?= $totalApps ?> applications complete
-          <?php if ($nextAppDate): ?> &middot; Next: <?= date('F Y', strtotime($nextAppDate)) ?><?php endif; ?>
+        <div style="font-size:0.82rem;color:var(--p-text-mid);margin-top:6px;">
+          <?php echo $completedApps; ?> of <?php echo $totalApps; ?> applications complete
+          <?php if ($nextAppDate): ?> &middot; Next: <?php echo date('F Y', strtotime($nextAppDate)); ?><?php endif; ?>
         </div>
       </div>
       <?php endif; ?>
     </div>
-    <?php endif; ?>
+  </div>
+  <?php endif; ?>
 
-    <!-- ── PDF Download ───────────────────────────────────────────────────── -->
-    <div class="portal-section">
-      <h2>Full Report</h2>
+  <!-- PDF Download -->
+  <div class="portal-info-card">
+    <div class="portal-info-card-header">Full Report</div>
+    <div class="portal-info-card-body">
       <?php if ($hasPdf): ?>
-      <a href="<?= htmlspecialchars($pdfUrl) ?>" target="_blank" class="pdf-download-btn" download>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-        </svg>
-        Download Proof of Work PDF
-      </a>
-      <p style="font-size:11px;color:#888;margin-top:8px;text-align:center;">
-        Includes GPS route, photos, materials, checklist, and your service summary.
-      </p>
+        <a href="<?php echo htmlspecialchars($pdfUrl); ?>" target="_blank" class="portal-btn wide" download>
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          Download Proof of Work PDF
+        </a>
+        <p style="font-size:0.72rem;color:var(--p-text-muted);margin-top:10px;text-align:center;">
+          Includes GPS route, photos, materials, checklist, and your service summary.
+        </p>
       <?php else: ?>
-      <p style="color:#666;font-size:13px;">
-        Your full PDF report will be available shortly. Please check back or contact us.
-      </p>
+        <p style="font-size:0.875rem;color:var(--p-text-mid);">
+          Your full PDF report will be available shortly. Please check back or contact us.
+        </p>
       <?php endif; ?>
     </div>
-
-  </div><!-- /portal-card -->
+  </div>
 
 <?php endif; ?>
 
   <div class="portal-footer">
-    <p><a href="<?= htmlspecialchars($siteUrl) ?>">Mowology Landscaping</a> &middot;
-    Questions? <a href="mailto:office@mowology.ca">office@mowology.ca</a></p>
-    <p style="margin-top:4px;">&copy; <?= $year ?> Mowology Landscaping. All rights reserved.</p>
+    <a href="<?php echo htmlspecialchars($siteUrl); ?>">Mowology Landscaping</a> &middot;
+    Questions? <a href="tel:7788469273">(778) 846-9273</a> &middot;
+    <a href="mailto:office@mowology.ca">office@mowology.ca</a><br>
+    &copy; <?php echo $year; ?> Mowology Landscaping. All rights reserved.
   </div>
 
-</div><!-- /portal-wrap -->
+</div>
 </body>
 </html>

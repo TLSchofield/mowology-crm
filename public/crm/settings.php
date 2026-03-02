@@ -73,6 +73,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <li class="nav-item">
         <a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a>
     </li>
+    <li class="nav-item">
+        <a class="nav-link" id="dev-tools-tab" data-toggle="tab" href="#dev-tools" role="tab">Developer Tools</a>
+    </li>
 </ul>
 
 <!-- Loading State -->
@@ -756,6 +759,68 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <a href="/crm/database_appstack.php" class="btn btn-primary">
                         <i data-feather="database" style="width:16px;height:16px;"></i> Open Database Manager
                     </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Developer Tools Tab -->
+        <div class="tab-pane fade" id="dev-tools" role="tabpanel">
+            <div class="card">
+                <div class="card-header"><h5 class="card-title mb-0">Developer &amp; Admin Tools</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">Internal tools for development, design, and operations. These are no longer visible in the main navigation.</p>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100 border">
+                                <div class="card-body text-center py-4">
+                                    <i data-feather="database" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:12px;"></i>
+                                    <h6 class="mb-1">Database Manager</h6>
+                                    <p class="text-muted small mb-3">Schema browser, migrations, and drift detection.</p>
+                                    <a href="/crm/database_appstack.php" class="btn btn-sm btn-outline-primary">Open</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100 border">
+                                <div class="card-body text-center py-4">
+                                    <i data-feather="smartphone" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:12px;"></i>
+                                    <h6 class="mb-1">Mobile Preview</h6>
+                                    <p class="text-muted small mb-3">Preview the Mowology app in a mobile frame.</p>
+                                    <a href="/crm/mobile-preview_appstack.php" class="btn btn-sm btn-outline-primary">Open</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100 border">
+                                <div class="card-body text-center py-4">
+                                    <i data-feather="credit-card" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:12px;"></i>
+                                    <h6 class="mb-1">Card Designer</h6>
+                                    <p class="text-muted small mb-3">Design and preview business card layouts.</p>
+                                    <a href="/crm/card-designer_appstack.php" class="btn btn-sm btn-outline-primary">Open</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100 border">
+                                <div class="card-body text-center py-4">
+                                    <i data-feather="layout" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:12px;"></i>
+                                    <h6 class="mb-1">Design Mockups</h6>
+                                    <p class="text-muted small mb-3">UI mockups and design exploration tools.</p>
+                                    <a href="/crm/mockups_appstack.php" class="btn btn-sm btn-outline-primary">Open</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100 border">
+                                <div class="card-body text-center py-4">
+                                    <i data-feather="cloud-rain" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:12px;"></i>
+                                    <h6 class="mb-1">Ops Weather</h6>
+                                    <p class="text-muted small mb-3">Weather actions and operations scheduling tools.</p>
+                                    <a href="/crm/ops/weather_actions.php" class="btn btn-sm btn-outline-primary">Open</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

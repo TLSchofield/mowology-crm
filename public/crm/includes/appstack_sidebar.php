@@ -6,39 +6,67 @@
  *   $user         — array with at least 'name' key (from getCurrentUser())
  *   $activePage   — string matching a key below to highlight the active nav item
  *
- * Active page keys: 'dashboard', 'clients', 'map', 'quotes', 'products', 'jobs',
- *                   'invoices', 'expenses', 'profitability', 'schedule', 'timeclock',
- *                   'team', 'portfolio', 'cms', 'media', 'marketing', 'social', 'settings',
- *                   'database', 'mobile-preview', 'users'
+ * Active page keys: 'dashboard', 'clients', 'companies', 'quotes', 'jobs',
+ *                   'invoices', 'schedule', 'timeclock', 'expenses',
+ *                   'profitability', 'marketing', 'social', 'cms', 'media',
+ *                   'team', 'leaderboard', 'map', 'products', 'portfolio',
+ *                   'users', 'settings'
  *
- * Each nav item can optionally specify a 'perm' key — the permission required to see it.
- * If omitted, the item is always visible. The server still enforces on the page itself;
- * this just hides links the user can't access.
+ * Nav items support two types:
+ *   - Section headers: ['type' => 'header', 'label' => 'Section Name']
+ *   - Nav links:       ['key' => '...', 'label' => '...', 'icon' => '...', 'href' => '...', 'perm' => '...']
+ *
+ * The 'perm' key is optional — if present, the item is hidden if the user
+ * lacks that permission. The page itself still enforces access control.
  */
 if (!isset($activePage)) $activePage = '';
 if (!isset($user))       $user = ['name' => 'Admin'];
 
 $navItems = [
-    ['key' => 'dashboard', 'label' => 'Dashboard',     'icon' => 'sliders',     'href' => '/crm/dashboard_appstack.php'],
-    ['key' => 'clients',   'label' => 'Clients',       'icon' => 'users',       'href' => '/crm/clients_appstack.php',          'perm' => 'clients.view'],
-    ['key' => 'companies', 'label' => 'Companies',     'icon' => 'home',        'href' => '/crm/companies/index.php',           'perm' => 'clients.view'],
-    ['key' => 'quotes',    'label' => 'Quotes',        'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',           'perm' => 'billing.view'],
-    ['key' => 'jobs',      'label' => 'Jobs',          'icon' => 'briefcase',   'href' => '/crm/jobs/index.php',                'perm' => 'jobs.view'],
-    ['key' => 'invoices',  'label' => 'Invoices',      'icon' => 'file-text',   'href' => '/crm/invoices/index.php',            'perm' => 'billing.view'],
-    ['key' => 'expenses',       'label' => 'Expenses',       'icon' => 'credit-card',  'href' => '/crm/expenses_appstack.php',         'perm' => 'expenses.view'],
-    ['key' => 'profitability',  'label' => 'Profitability',  'icon' => 'trending-up',  'href' => '/crm/profitability_appstack.php',    'perm' => 'expenses.view'],
-    ['key' => 'leaderboard',    'label' => 'Leaderboard',    'icon' => 'award',        'href' => '/crm/leaderboard_appstack.php',      'perm' => 'team.view'],
-    ['key' => 'schedule',  'label' => 'Schedule',      'icon' => 'calendar',    'href' => '/crm/jobs/schedule.php',             'perm' => 'schedule.view'],
-    ['key' => 'timeclock', 'label' => 'Time Clock',    'icon' => 'clock',       'href' => '/crm/timeclock/my-schedule.php',     'perm' => 'schedule.view'],
-    ['key' => 'team',      'label' => 'Team',          'icon' => 'user-check',  'href' => '/crm/team/index.php',                'perm' => 'team.view'],
-    ['key' => 'map',       'label' => 'Territory Map', 'icon' => 'map',         'href' => '/crm/map_appstack.php',              'perm' => 'jobs.view'],
-    ['key' => 'products',  'label' => 'Products',      'icon' => 'package',     'href' => '/crm/products/index.php',            'perm' => 'products.view'],
-    ['key' => 'portfolio', 'label' => 'Portfolio',     'icon' => 'image',       'href' => '/crm/portfolio/index.php',           'perm' => 'portfolio.view'],
-    ['key' => 'cms',       'label' => 'CMS',          'icon' => 'edit-3',       'href' => '/crm/cms-pages_appstack.php',        'perm' => 'marketing.edit'],
-    ['key' => 'media',     'label' => 'Media Library', 'icon' => 'image',       'href' => '/cms/cms-media_appstack.php',        'perm' => 'photos.upload'],
-    ['key' => 'marketing', 'label' => 'Email Campaigns', 'icon' => 'zap',        'href' => '/crm/marketing/campaigns.php',        'perm' => 'marketing.view'],
-    ['key' => 'social',   'label' => 'Social Posts',   'icon' => 'share-2',     'href' => '/crm/marketing/social.php',           'perm' => 'marketing.view'],
-    ['key' => 'weather-ops', 'label' => 'Weather Ops',  'icon' => 'cloud-lightning', 'href' => '/crm/ops/weather_actions.php',  'perm' => 'schedule.edit'],
+
+    // ── Overview ──────────────────────────────────────────────────────────────
+    ['type' => 'header', 'label' => 'Overview'],
+    ['key' => 'dashboard', 'label' => 'Dashboard', 'icon' => 'sliders', 'href' => '/crm/dashboard_appstack.php'],
+
+    // ── Clients ───────────────────────────────────────────────────────────────
+    ['type' => 'header', 'label' => 'Clients'],
+    ['key' => 'clients',   'label' => 'Contacts',  'icon' => 'users',   'href' => '/crm/clients_appstack.php',    'perm' => 'clients.view'],
+    ['key' => 'companies', 'label' => 'Companies', 'icon' => 'home',    'href' => '/crm/companies/index.php',     'perm' => 'clients.view'],
+
+    // ── Pipeline ──────────────────────────────────────────────────────────────
+    ['type' => 'header', 'label' => 'Pipeline'],
+    ['key' => 'quotes',   'label' => 'Quotes',   'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',   'perm' => 'billing.view'],
+    ['key' => 'jobs',     'label' => 'Jobs',     'icon' => 'briefcase',   'href' => '/crm/jobs/index.php',        'perm' => 'jobs.view'],
+    ['key' => 'invoices', 'label' => 'Invoices', 'icon' => 'file-text',   'href' => '/crm/invoices/index.php',   'perm' => 'billing.view'],
+
+    // ── Schedule ──────────────────────────────────────────────────────────────
+    ['type' => 'header', 'label' => 'Schedule'],
+    ['key' => 'schedule',  'label' => 'Schedule',   'icon' => 'calendar', 'href' => '/crm/jobs/schedule.php',          'perm' => 'schedule.view'],
+    ['key' => 'timeclock', 'label' => 'Time Clock', 'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
+
+    // ── Financials ────────────────────────────────────────────────────────────
+    ['type' => 'header', 'label' => 'Financials'],
+    ['key' => 'expenses',      'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',      'perm' => 'expenses.view'],
+    ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php', 'perm' => 'expenses.view'],
+
+    // ── Growth ────────────────────────────────────────────────────────────────
+    ['type' => 'header', 'label' => 'Growth'],
+    ['key' => 'marketing', 'label' => 'Email Campaigns', 'icon' => 'zap',      'href' => '/crm/marketing/campaigns.php', 'perm' => 'marketing.view'],
+    ['key' => 'social',    'label' => 'Social Posts',    'icon' => 'share-2',  'href' => '/crm/marketing/social.php',   'perm' => 'marketing.view'],
+    ['key' => 'cms',       'label' => 'Website CMS',     'icon' => 'edit-3',   'href' => '/crm/cms-pages_appstack.php', 'perm' => 'marketing.edit'],
+
+    // ── Team ──────────────────────────────────────────────────────────────────
+    ['type' => 'header', 'label' => 'Team'],
+    ['key' => 'team',        'label' => 'Team',           'icon' => 'user-check',  'href' => '/crm/team/index.php',            'perm' => 'team.view'],
+    ['key' => 'leaderboard', 'label' => 'Leaderboard',    'icon' => 'award',       'href' => '/crm/leaderboard_appstack.php',  'perm' => 'team.view'],
+    ['key' => 'map',         'label' => 'Territory Map',  'icon' => 'map',         'href' => '/crm/map_appstack.php',          'perm' => 'jobs.view'],
+
+    // ── Library ───────────────────────────────────────────────────────────────
+    ['type' => 'header', 'label' => 'Library'],
+    ['key' => 'products',  'label' => 'Products',      'icon' => 'package',  'href' => '/crm/products/index.php',         'perm' => 'products.view'],
+    ['key' => 'portfolio', 'label' => 'Portfolio',     'icon' => 'image',    'href' => '/crm/portfolio/index.php',        'perm' => 'portfolio.view'],
+    ['key' => 'media',     'label' => 'Media Library', 'icon' => 'folder',   'href' => '/cms/cms-media_appstack.php',     'perm' => 'photos.upload'],
+
 ];
 ?>
 <nav id="sidebar" class="sidebar">
@@ -48,10 +76,15 @@ $navItems = [
         </a>
 
         <ul class="sidebar-nav">
-            <li class="sidebar-header">Navigation</li>
 
             <?php foreach ($navItems as $item):
-                // Skip items the user lacks permission for
+
+                // Section header
+                if (isset($item['type']) && $item['type'] === 'header'): ?>
+                    <li class="sidebar-header"><?php echo htmlspecialchars($item['label']); ?></li>
+                <?php continue; endif;
+
+                // Permission check
                 if (isset($item['perm']) && function_exists('userHasPermission') && !userHasPermission($item['perm'])) continue;
             ?>
             <li class="sidebar-item<?php echo ($activePage === $item['key']) ? ' active' : ''; ?>">
@@ -82,57 +115,15 @@ $navItems = [
             </li>
             <?php endif; ?>
 
-            <?php if (!function_exists('userHasPermission') || userHasPermission('database.manage')): ?>
-            <li class="sidebar-item<?php echo ($activePage === 'database') ? ' active' : ''; ?>">
-                <a class="sidebar-link" href="/crm/database_appstack.php">
-                    <i class="align-middle" data-feather="database"></i>
-                    <span class="align-middle">Database</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <?php if (!function_exists('userHasPermission') || userHasPermission('settings.edit')): ?>
-            <li class="sidebar-item<?php echo ($activePage === 'mobile-preview') ? ' active' : ''; ?>">
-                <a class="sidebar-link" href="/crm/mobile-preview_appstack.php">
-                    <i class="align-middle" data-feather="smartphone"></i>
-                    <span class="align-middle">Mobile Preview</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <?php if (!function_exists('userHasPermission') || userHasPermission('settings.edit')): ?>
-            <li class="sidebar-item<?php echo ($activePage === 'card-designer') ? ' active' : ''; ?>">
-                <a class="sidebar-link" href="/crm/card-designer_appstack.php">
-                    <i class="align-middle" data-feather="layout"></i>
-                    <span class="align-middle">Card Designer</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <?php if (!function_exists('userHasPermission') || userHasPermission('settings.edit')): ?>
-            <li class="sidebar-item<?php echo ($activePage === 'mockups') ? ' active' : ''; ?>">
-                <a class="sidebar-link" href="/crm/mockups_appstack.php">
-                    <i class="align-middle" data-feather="layers"></i>
-                    <span class="align-middle">Mockups</span>
-                </a>
-            </li>
-            <?php endif; ?>
-
-            <?php if (!function_exists('userHasPermission') || userHasPermission('settings.edit')): ?>
-            <li class="sidebar-item<?php echo ($activePage === 'ops-weather') ? ' active' : ''; ?>">
-                <a class="sidebar-link" href="/crm/admin/ops_weather.php">
-                    <i class="align-middle" data-feather="cloud-rain"></i>
-                    <span class="align-middle">Ops Weather</span>
-                </a>
-            </li>
-            <?php endif; ?>
-            <!-- Install App (PWA) — hidden when already installed as standalone -->
+            <!-- Install App (PWA) — hidden when already installed or on desktop -->
             <li class="sidebar-item" id="mw-pwa-sidebar-item">
-                <a class="sidebar-link" href="#" id="mw-pwa-sidebar-link" onclick="event.preventDefault();if(window.mwDeferredInstall){window.mwDeferredInstall.prompt();}else{alert('Tap your browser menu → Add to Home Screen');}">
+                <a class="sidebar-link" href="#" id="mw-pwa-sidebar-link"
+                   onclick="event.preventDefault();if(window.mwDeferredInstall){window.mwDeferredInstall.prompt();}else{alert('Tap your browser menu → Add to Home Screen');}">
                     <i class="align-middle" data-feather="download"></i>
                     <span class="align-middle">Install App</span>
                 </a>
             </li>
+
         </ul>
     </div>
 </nav>
