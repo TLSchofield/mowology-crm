@@ -77,7 +77,8 @@ if ($contact && !$error) {
 
     // Invoices: via invoice_contacts junction table
     $stmt = $db->prepare("
-        SELECT i.id, i.invoice_number, i.status, i.total AS total_amount, i.access_token, i.created_at, i.due_date
+        SELECT i.id, i.invoice_number, i.status, i.total AS total_amount,
+               i.amount_paid, i.balance_due, i.access_token, i.created_at, i.due_date
         FROM invoices i
         JOIN invoice_contacts ic ON ic.invoice_id = i.id
         WHERE ic.contact_id = ?
@@ -88,6 +89,41 @@ if ($contact && !$error) {
     ");
     $stmt->execute([$contactId]);
     $invoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // Payment history (online Stripe payments, newest first)
+    $paymentHistory = [];
+    try {
+        if (!empty($invoices)) {
+            $phInvIds = array_column($invoices, 'id');
+            $phPlaceholders = implode(',', array_fill(0, count($phInvIds), '?'));
+            $stmt = $db->prepare("
+                SELECT sp.invoice_id, sp.amount_cents, sp.webhook_received_at,
+                       sp.payment_method_type, sp.stripe_receipt_url,
+                       i.invoice_number
+                FROM stripe_payments sp
+                JOIN invoices i ON i.id = sp.invoice_id
+                WHERE sp.invoice_id IN ($phPlaceholders) AND sp.status = 'succeeded'
+                ORDER BY sp.webhook_received_at DESC
+                LIMIT 20
+            ");
+            $stmt->execute($phInvIds);
+            $paymentHistory = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+    } catch (Exception $e) {
+        $paymentHistory = [];
+    }
+
+    // Billing summary totals
+    $billingTotalCharged = 0.0;
+    $billingTotalPaid    = 0.0;
+    $billingOutstanding  = 0.0;
+    foreach ($invoices as $inv) {
+        $billingTotalCharged += floatval($inv['total_amount'] ?? 0);
+        $billingTotalPaid    += floatval($inv['amount_paid'] ?? 0);
+        if (in_array($inv['status'], ['sent', 'viewed', 'partial', 'overdue'])) {
+            $billingOutstanding += floatval($inv['balance_due'] ?? 0);
+        }
+    }
 
     // Completed visits: contact → properties → job_plans → job_visits
     $completedVisits = [];
@@ -279,6 +315,27 @@ function statusBadge(string $status, bool $overdue = false): string {
 
     <?php else: ?>
 
+      <?php if ($billingOutstanding > 0 || $billingTotalPaid > 0): ?>
+        <div class="portal-billing-summary">
+          <div class="portal-billing-stat">
+            <div class="portal-billing-stat-label">Total Invoiced</div>
+            <div class="portal-billing-stat-value">$<?php echo number_format($billingTotalCharged, 2); ?></div>
+          </div>
+          <div class="portal-billing-divider"></div>
+          <div class="portal-billing-stat">
+            <div class="portal-billing-stat-label">Paid</div>
+            <div class="portal-billing-stat-value portal-billing-paid">$<?php echo number_format($billingTotalPaid, 2); ?></div>
+          </div>
+          <div class="portal-billing-divider"></div>
+          <div class="portal-billing-stat">
+            <div class="portal-billing-stat-label"><?php echo $billingOutstanding > 0 ? 'Balance Due' : 'Outstanding'; ?></div>
+            <div class="portal-billing-stat-value <?php echo $billingOutstanding > 0 ? 'portal-billing-due' : 'portal-billing-paid'; ?>">
+              $<?php echo number_format($billingOutstanding, 2); ?>
+            </div>
+          </div>
+        </div>
+      <?php endif; ?>
+
       <?php if (!empty($quotes)): ?>
         <p class="portal-section-label">Quotes</p>
         <ul class="portal-doc-list">
@@ -331,6 +388,13 @@ function statusBadge(string $status, bool $overdue = false): string {
                   <?php echo statusBadge($inv['status'], $isPastDue); ?>
                   <?php if ($inv['total_amount'] > 0): ?>
                     <span class="portal-doc-amount">$<?php echo number_format($inv['total_amount'], 2); ?></span>
+                  <?php endif; ?>
+                  <?php
+                    $balDue = floatval($inv['balance_due'] ?? 0);
+                    $amtPaid = floatval($inv['amount_paid'] ?? 0);
+                    if ($balDue > 0 && $amtPaid > 0):
+                  ?>
+                    <span class="portal-doc-balance">Balance: $<?php echo number_format($balDue, 2); ?></span>
                   <?php endif; ?>
                   <?php if (!empty($inv['due_date'])): ?>
                     <span class="portal-doc-date">Due <?php echo date('M j, Y', strtotime($inv['due_date'])); ?></span>
@@ -419,6 +483,41 @@ function statusBadge(string $status, bool $overdue = false): string {
                   </div>
                 <?php endif; ?>
               </div>
+            </li>
+          <?php endforeach; ?>
+        </ul>
+      <?php endif; ?>
+
+      <?php if (!empty($paymentHistory)): ?>
+        <p class="portal-section-label">Payment History</p>
+        <ul class="portal-payment-list">
+          <?php foreach ($paymentHistory as $ph): ?>
+            <?php
+              $pmType = $ph['payment_method_type'] ?? 'card';
+              $pmLabels = ['card' => 'Credit / Debit Card', 'us_bank_account' => 'Bank Transfer'];
+              $pmLabel  = $pmLabels[$pmType] ?? ucwords(str_replace('_', ' ', $pmType));
+              $paidAt   = $ph['webhook_received_at'] ?? '';
+            ?>
+            <li class="portal-payment-item">
+              <div class="portal-payment-date-block">
+                <?php if ($paidAt): ?>
+                  <div class="portal-payment-day"><?php echo date('j', strtotime($paidAt)); ?></div>
+                  <div class="portal-payment-mon"><?php echo date('M', strtotime($paidAt)); ?></div>
+                <?php else: ?>
+                  <div class="portal-payment-day">—</div>
+                <?php endif; ?>
+              </div>
+              <div class="portal-payment-divider"></div>
+              <div class="portal-payment-info">
+                <div class="portal-payment-amount">$<?php echo number_format($ph['amount_cents'] / 100, 2); ?></div>
+                <div class="portal-payment-desc">
+                  Online · <?php echo htmlspecialchars($pmLabel); ?>
+                  <span class="portal-payment-inv">&middot; <?php echo htmlspecialchars($ph['invoice_number']); ?></span>
+                </div>
+              </div>
+              <?php if (!empty($ph['stripe_receipt_url'])): ?>
+                <a href="<?php echo htmlspecialchars($ph['stripe_receipt_url']); ?>" target="_blank" class="portal-btn-outline portal-btn-sm">Receipt</a>
+              <?php endif; ?>
             </li>
           <?php endforeach; ?>
         </ul>

@@ -1031,6 +1031,106 @@ if ($action === 'view_contact' && $clientId) {
             }
         } catch (Exception $e) { $contactInvoices = []; }
 
+        // ── Billing Statement: Stripe payments per invoice ──
+        $contactStripePayments = [];
+        $statementLedger       = [];
+        $statementTotalCharged = 0.0;
+        $statementTotalPaid    = 0.0;
+        $statementBalance      = 0.0;
+        try {
+            if (!empty($contactInvoices)) {
+                $invIds = array_column($contactInvoices, 'id');
+                $spPlaceholders = implode(',', array_fill(0, count($invIds), '?'));
+                $stmt = $db->prepare("
+                    SELECT invoice_id, amount_cents, webhook_received_at,
+                           payment_method_type, stripe_receipt_url
+                    FROM stripe_payments
+                    WHERE invoice_id IN ($spPlaceholders) AND status = 'succeeded'
+                    ORDER BY webhook_received_at ASC
+                ");
+                $stmt->execute($invIds);
+                foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $sp) {
+                    $contactStripePayments[$sp['invoice_id']][] = $sp;
+                }
+            }
+
+            // Build chronological ledger (invoices sorted by issue_date)
+            $sortedInvoices = $contactInvoices;
+            usort($sortedInvoices, function($a, $b) {
+                $da = $a['issue_date'] ?? '2000-01-01';
+                $db2 = $b['issue_date'] ?? '2000-01-01';
+                return strcmp($da, $db2) ?: (($a['id'] ?? 0) <=> ($b['id'] ?? 0));
+            });
+
+            $runningBal = 0.0;
+            foreach ($sortedInvoices as $inv) {
+                // Charge row
+                $charge = floatval($inv['total'] ?? 0);
+                $runningBal += $charge;
+                $statementTotalCharged += $charge;
+                $statementLedger[] = [
+                    'type'    => 'charge',
+                    'date'    => $inv['issue_date'] ?? '',
+                    'desc'    => $inv['invoice_number'],
+                    'charge'  => $charge,
+                    'credit'  => 0.0,
+                    'balance' => $runningBal,
+                    'link'    => 'invoices/view.php?id=' . (int)$inv['id'],
+                    'status'  => $inv['status'] ?? '',
+                    'receipt' => '',
+                ];
+
+                // Stripe payment rows
+                $stripeTotal = 0.0;
+                foreach ($contactStripePayments[$inv['id']] ?? [] as $sp) {
+                    $credit = round($sp['amount_cents'] / 100, 2);
+                    $stripeTotal  += $credit;
+                    $runningBal   -= $credit;
+                    $statementTotalPaid += $credit;
+                    $pmType = $sp['payment_method_type'] ?? 'card';
+                    $pmLabels = ['card' => 'Card (Stripe)', 'us_bank_account' => 'Bank Transfer (Stripe)'];
+                    $pmLabel = $pmLabels[$pmType] ?? (ucwords(str_replace('_', ' ', $pmType)) . ' (Stripe)');
+                    $statementLedger[] = [
+                        'type'    => 'payment',
+                        'date'    => $sp['webhook_received_at'] ?? '',
+                        'desc'    => $pmLabel,
+                        'charge'  => 0.0,
+                        'credit'  => $credit,
+                        'balance' => $runningBal,
+                        'link'    => '',
+                        'status'  => '',
+                        'receipt' => $sp['stripe_receipt_url'] ?? '',
+                    ];
+                }
+
+                // Manual payment (amount not covered by Stripe)
+                $manualCredit = round(floatval($inv['amount_paid'] ?? 0) - $stripeTotal, 2);
+                if ($manualCredit > 0.005 && ($inv['status'] ?? '') !== 'draft') {
+                    $pmMethod = $inv['payment_method'] ?? '';
+                    $pmLabel  = $pmMethod && $pmMethod !== 'stripe'
+                        ? ucwords(str_replace('_', ' ', $pmMethod))
+                        : 'Payment recorded';
+                    $runningBal -= $manualCredit;
+                    $statementTotalPaid += $manualCredit;
+                    $statementLedger[] = [
+                        'type'    => 'payment',
+                        'date'    => $inv['paid_at'] ?? ($inv['due_date'] ?? ''),
+                        'desc'    => $pmLabel,
+                        'charge'  => 0.0,
+                        'credit'  => $manualCredit,
+                        'balance' => $runningBal,
+                        'link'    => '',
+                        'status'  => '',
+                        'receipt' => '',
+                    ];
+                }
+            }
+            $statementBalance = $runningBal;
+        } catch (Exception $e) {
+            $statementLedger  = [];
+            $statementBalance = 0.0;
+        }
+
         // ── Financial Summary ──
         $totalRevenue = 0;
         $totalOutstanding = 0;
@@ -2000,6 +2100,20 @@ $unconvertedRequests = $db->query("
                       </div>
                     </div>
 
+                    <?php if (!empty($viewContact['stripe_card_last4'])): ?>
+                    <div class="row mb-2">
+                      <div class="col-sm-3 text-muted">Card on File</div>
+                      <div class="col-sm-9">
+                        <span class="mw-card-on-file-badge">
+                          <i data-feather="credit-card"></i>
+                          <?php echo h(ucfirst($viewContact['stripe_card_brand'] ?? 'Card')); ?> ••••<?php echo h($viewContact['stripe_card_last4']); ?>
+                          <?php if (!empty($viewContact['stripe_card_exp'])): ?>
+                            &middot; exp <?php echo h($viewContact['stripe_card_exp']); ?>
+                          <?php endif; ?>
+                        </span>
+                      </div>
+                    </div>
+                    <?php endif; ?>
                     <?php if (!empty($viewContact['notes'])): ?>
                     <div class="row mb-0">
                       <div class="col-sm-3 text-muted">Notes</div>
@@ -2316,6 +2430,95 @@ $unconvertedRequests = $db->query("
                               </tr>
                             <?php endforeach; ?>
                           </tbody>
+                        </table>
+                      </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+
+                <!-- Billing Statement Card -->
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="book-open"></i> Billing Statement
+                      <?php if ($statementBalance > 0.005): ?>
+                        <span class="badge badge-danger ml-1"><?php echo formatCurrency($statementBalance); ?> due</span>
+                      <?php elseif (!empty($statementLedger)): ?>
+                        <span class="badge badge-success ml-1">Paid in full</span>
+                      <?php endif; ?>
+                    </h5>
+                    <?php if (!empty($statementLedger)): ?>
+                      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printStatement(<?php echo (int)$clientId; ?>)">
+                        <i data-feather="printer"></i> Print
+                      </button>
+                    <?php endif; ?>
+                  </div>
+                  <div class="card-body p-0">
+                    <?php if (empty($statementLedger)): ?>
+                      <div class="text-center text-muted py-4">
+                        <i data-feather="book-open" style="width: 32px; height: 32px; opacity: 0.4;"></i>
+                        <p class="mt-2 mb-0 small">No billing history yet</p>
+                      </div>
+                    <?php else: ?>
+                      <div class="table-responsive">
+                        <table class="table table-sm mb-0 mw-statement-table">
+                          <thead>
+                            <tr>
+                              <th style="width:110px">Date</th>
+                              <th>Description</th>
+                              <th class="text-right" style="width:100px">Charge</th>
+                              <th class="text-right" style="width:100px">Payment</th>
+                              <th class="text-right" style="width:100px">Balance</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <?php foreach ($statementLedger as $row): ?>
+                              <tr class="mw-statement-row mw-statement-<?php echo $row['type']; ?>">
+                                <td class="text-muted small text-nowrap">
+                                  <?php echo $row['date'] ? date('M j, Y', strtotime($row['date'])) : '—'; ?>
+                                </td>
+                                <td>
+                                  <?php if ($row['type'] === 'charge'): ?>
+                                    <a href="<?php echo h($row['link']); ?>">
+                                      <strong><?php echo h($row['desc']); ?></strong>
+                                    </a>
+                                    <?php if (!empty($row['status'])): ?>
+                                      &nbsp;<?php echo getStatusBadge($row['status'], 'invoice'); ?>
+                                    <?php endif; ?>
+                                  <?php else: ?>
+                                    <span class="mw-statement-payment-label">
+                                      <i data-feather="check-circle" style="width:12px;height:12px;color:var(--mw-green);"></i>
+                                      <?php echo h($row['desc']); ?>
+                                    </span>
+                                    <?php if (!empty($row['receipt'])): ?>
+                                      <a href="<?php echo h($row['receipt']); ?>" target="_blank" class="ml-1 small text-muted" title="Stripe receipt">
+                                        <i data-feather="external-link" style="width:11px;height:11px;"></i>
+                                      </a>
+                                    <?php endif; ?>
+                                  <?php endif; ?>
+                                </td>
+                                <td class="text-right">
+                                  <?php echo $row['charge'] > 0 ? formatCurrency($row['charge']) : '<span class="text-muted">—</span>'; ?>
+                                </td>
+                                <td class="text-right text-success">
+                                  <?php echo $row['credit'] > 0 ? formatCurrency($row['credit']) : '<span class="text-muted">—</span>'; ?>
+                                </td>
+                                <td class="text-right <?php echo $row['balance'] > 0.005 ? 'text-danger font-weight-bold' : 'text-success'; ?>">
+                                  <?php echo formatCurrency($row['balance']); ?>
+                                </td>
+                              </tr>
+                            <?php endforeach; ?>
+                          </tbody>
+                          <tfoot class="mw-statement-totals">
+                            <tr>
+                              <td colspan="2"><strong>Totals</strong></td>
+                              <td class="text-right"><strong><?php echo formatCurrency($statementTotalCharged); ?></strong></td>
+                              <td class="text-right text-success"><strong><?php echo formatCurrency($statementTotalPaid); ?></strong></td>
+                              <td class="text-right <?php echo $statementBalance > 0.005 ? 'text-danger' : 'text-success'; ?>">
+                                <strong><?php echo formatCurrency($statementBalance); ?></strong>
+                              </td>
+                            </tr>
+                          </tfoot>
                         </table>
                       </div>
                     <?php endif; ?>
@@ -3131,6 +3334,11 @@ $unconvertedRequests = $db->query("
                   activeTagPicker = null;
                 }
               });
+
+              // ── Print Billing Statement ──────────────────────────
+              function printStatement(contactId) {
+                window.print();
+              }
 
               // ── Add Client Note ──────────────────────────────────
               function addClientNote() {
