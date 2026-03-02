@@ -1788,6 +1788,157 @@
         opacity: 0.6;
     }
 
+    /* ── Pre-job selection (panel 1 capture area) ── */
+    .mw-mc-expense-prejob {
+        padding: 12px 14px 0;
+    }
+
+    .mw-mc-expense-prejob-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .mw-mc-expense-prejob-none {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 9px 16px;
+        border: 2px solid #d1d5db;
+        border-radius: 999px;
+        background: #f9fafb;
+        color: #6b7280;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+    }
+
+    .mw-mc-expense-prejob-none-active {
+        border-color: var(--mw-green, #2D8659);
+        background: var(--mw-light, #E8F3F0);
+        color: var(--mw-dark, #1A5F4A);
+        box-shadow: 0 0 0 1px var(--mw-green, #2D8659);
+    }
+
+    .mw-mc-expense-prejob-search-wrap {
+        flex: 1;
+        position: relative;
+    }
+
+    .mw-mc-expense-prejob-search {
+        width: 100%;
+        padding: 9px 12px;
+        border: 2px solid #e5e7eb;
+        border-radius: 999px;
+        background: #f9fafb;
+        font-size: 0.82rem;
+        color: #374151;
+        outline: none;
+        font-family: inherit;
+        -webkit-appearance: none;
+        transition: border-color 0.15s ease;
+    }
+
+    .mw-mc-expense-prejob-search:focus {
+        border-color: var(--mw-green, #2D8659);
+        background: #fff;
+    }
+
+    .mw-mc-expense-prejob-search::placeholder {
+        color: #9ca3af;
+    }
+
+    .mw-mc-expense-prejob-dropdown {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        box-shadow: 0 4px 16px rgba(0,0,0,.12);
+        z-index: 200;
+        overflow: hidden;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .mw-mc-expense-prejob-dd-item {
+        display: flex;
+        flex-direction: column;
+        padding: 10px 14px;
+        cursor: pointer;
+        border-bottom: 1px solid #f3f4f6;
+        transition: background 0.12s ease;
+    }
+
+    .mw-mc-expense-prejob-dd-item:last-child {
+        border-bottom: none;
+    }
+
+    .mw-mc-expense-prejob-dd-item:active {
+        background: var(--mw-light, #E8F3F0);
+    }
+
+    .mw-mc-expense-prejob-dd-name {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #111;
+    }
+
+    .mw-mc-expense-prejob-dd-addr {
+        font-size: 0.74rem;
+        color: #6b7280;
+        margin-top: 1px;
+    }
+
+    .mw-mc-expense-prejob-selected {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        padding: 6px 12px;
+        background: var(--mw-light, #E8F3F0);
+        border: 1px solid var(--mw-green, #2D8659);
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--mw-dark, #1A5F4A);
+        width: fit-content;
+    }
+
+    .mw-mc-expense-prejob-selected svg {
+        flex-shrink: 0;
+        color: var(--mw-green, #2D8659);
+    }
+
+    .mw-mc-expense-prejob-clear {
+        background: none;
+        border: none;
+        color: var(--mw-dark, #1A5F4A);
+        font-size: 1rem;
+        line-height: 1;
+        padding: 0 0 0 4px;
+        cursor: pointer;
+        opacity: 0.6;
+        font-weight: 700;
+    }
+
+    /* ── Job display (read-only, review panel) ── */
+    .mw-mc-expense-job-display {
+        padding: 9px 12px;
+        background: #f3f4f6;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: #374151;
+        border: 1px solid #e5e7eb;
+    }
+
     /* ── Analyze Spinner (mobile) ── */
     .mw-mc-expense-spinner {
         display: flex;

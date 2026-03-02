@@ -621,6 +621,26 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <!-- Receipt Capture Hero -->
         <div class="mw-mc-expense-capture" id="mobileCaptureArea">
             <div class="mw-mc-expense-capture-inner">
+
+                <!-- Job pre-selection (panel 1) -->
+                <div class="mw-mc-expense-prejob" id="mobilePrejobSection">
+                    <div class="mw-mc-expense-prejob-row">
+                        <button type="button" class="mw-mc-expense-prejob-none mw-mc-expense-prejob-none-active" id="mobilePrejobNoneBtn" onclick="mobileSelectPrejobNone()">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            No Job
+                        </button>
+                        <div class="mw-mc-expense-prejob-search-wrap">
+                            <input type="text" id="mobilePrejobSearch" class="mw-mc-expense-prejob-search" placeholder="Link to a job…" autocomplete="off">
+                            <div id="mobilePrejobDropdown" class="mw-mc-expense-prejob-dropdown" style="display:none;"></div>
+                        </div>
+                    </div>
+                    <div id="mobilePrejobSelectedBadge" class="mw-mc-expense-prejob-selected" style="display:none;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span id="mobilePrejobSelectedLabel"></span>
+                        <button type="button" class="mw-mc-expense-prejob-clear" onclick="mobileSelectPrejobNone()" title="Clear">×</button>
+                    </div>
+                </div>
+
                 <button type="button" class="mw-mc-expense-snap-btn" onclick="triggerCamera()">
                     <div class="mw-mc-expense-snap-icon">
                         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -773,8 +793,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                     <div class="mw-mc-expense-field">
                         <label>Job</label>
+                        <div class="mw-mc-expense-job-display" id="mobileJobDisplay">No Job</div>
+                        <input type="hidden" id="mobileRvJobId">
                         <div class="mw-mc-expense-job-pills" id="mobileJobPills" style="display:none;"></div>
-                        <input type="number" id="mobileRvJobId" placeholder="Job # (optional)" inputmode="numeric">
                     </div>
                 </div>
 
@@ -798,12 +819,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                         Save
                     </button>
-                    <?php if ($canSend): ?>
-                    <button type="button" class="mw-mc-expense-send-btn" onclick="mobileSaveExpense(true)">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                        Send
-                    </button>
-                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -1259,6 +1274,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     const RETURN_TO = '<?php echo htmlspecialchars($returnTo); ?>';
     var lastJobSuggestions = []; // Stored from receipt-intake response
     var selectedJobSuggestion = null; // Currently selected job pill
+    var mobilePreJob = { id: null, label: 'No Job' }; // Job pre-selected before snapping
     const CAN_EDIT = <?php echo $canEdit ? 'true' : 'false'; ?>;
     const CAN_SEND = <?php echo $canSend ? 'true' : 'false'; ?>;
     const CAN_APPROVE = <?php echo $canApprove ? 'true' : 'false'; ?>;
@@ -1764,15 +1780,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             mobileReview.dataset.ocrText = data.ocr_text || '';
             mobileReview.dataset.ocrParsed = data.parsed ? JSON.stringify(data.parsed) : '';
 
-            // ── Job Suggestions (pills) ──
+            // ── Apply pre-selected job to review panel ──
             lastJobSuggestions = data.job_suggestions || [];
             selectedJobSuggestion = null;
-            renderJobPills('mobileJobPills', lastJobSuggestions, function(job) {
-                selectedJobSuggestion = job;
-                document.getElementById('mobileRvJobId').value = job ? (job.plan_id || '') : '';
-                document.getElementById('mobileRvPropertyId').value = job ? (job.property_id || '') : '';
-                document.getElementById('mobileRvContactId').value = job ? (job.contact_id || '') : '';
-            });
+            // Use the job chosen on panel 1; don't show pills in the review panel
+            var jobIdEl = document.getElementById('mobileRvJobId');
+            if (jobIdEl) jobIdEl.value = mobilePreJob.id || '';
+            var jobDisplay = document.getElementById('mobileJobDisplay');
+            if (jobDisplay) jobDisplay.textContent = mobilePreJob.label || 'No Job';
 
             // ── Quick Mode: populate compact card instead of scrolling review ──
             if (QUICK_MODE) {
@@ -1808,9 +1823,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 }
             }
 
-            // Scroll to top of review
+            // Scroll to review panel
             var scrollArea = document.getElementById('mobileExpenseScrollArea');
-            if (scrollArea) scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
+            if (scrollArea && mobileReview) {
+                var offset = mobileReview.offsetTop - scrollArea.offsetTop;
+                scrollArea.scrollTo({ top: offset, behavior: 'smooth' });
+            }
         }
 
         // ── Warn if exact same image was already uploaded (SHA-256 match) ──
@@ -3448,9 +3466,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         lastJobSuggestions = [];
         selectedJobSuggestion = null;
 
-        // Show manual Job # input again
-        var jobInput = document.getElementById('mobileRvJobId');
-        if (jobInput) jobInput.style.display = '';
+        // Reset pre-job selection back to No Job
+        mobilePreJob = { id: null, label: 'No Job' };
+        var noneBtn = document.getElementById('mobilePrejobNoneBtn');
+        if (noneBtn) noneBtn.classList.add('mw-mc-expense-prejob-none-active');
+        var prejobBadge = document.getElementById('mobilePrejobSelectedBadge');
+        if (prejobBadge) prejobBadge.style.display = 'none';
+        var prejobSearch = document.getElementById('mobilePrejobSearch');
+        if (prejobSearch) prejobSearch.value = '';
+        var prejobDd = document.getElementById('mobilePrejobDropdown');
+        if (prejobDd) prejobDd.style.display = 'none';
+        // Reset review job display
+        var jobDisplay = document.getElementById('mobileJobDisplay');
+        if (jobDisplay) jobDisplay.textContent = 'No Job';
 
         // Also reset desktop capture area
         resetCapture();
@@ -3476,6 +3504,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Set today's date
         var dateEl = document.getElementById('mobileRvDate');
         if (dateEl) dateEl.value = new Date().toISOString().slice(0, 10);
+        // Apply pre-selected job
+        var jobIdEl = document.getElementById('mobileRvJobId');
+        if (jobIdEl) jobIdEl.value = mobilePreJob.id || '';
+        var jobDisplay = document.getElementById('mobileJobDisplay');
+        if (jobDisplay) jobDisplay.textContent = mobilePreJob.label || 'No Job';
         // Focus total
         setTimeout(function() {
             var totalEl = document.getElementById('mobileRvTotal');
@@ -3550,11 +3583,75 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         });
     })();
 
+    // ── Pre-job selection (capture panel 1) ──────────────────────────
+    window.mobileSelectPrejobNone = function() {
+        mobilePreJob = { id: null, label: 'No Job' };
+        var noneBtn = document.getElementById('mobilePrejobNoneBtn');
+        if (noneBtn) noneBtn.classList.add('mw-mc-expense-prejob-none-active');
+        var badge = document.getElementById('mobilePrejobSelectedBadge');
+        if (badge) badge.style.display = 'none';
+        var search = document.getElementById('mobilePrejobSearch');
+        if (search) { search.value = ''; }
+        var dd = document.getElementById('mobilePrejobDropdown');
+        if (dd) dd.style.display = 'none';
+    };
+
+    (function() {
+        var prejobSearch = document.getElementById('mobilePrejobSearch');
+        var prejobDropdown = document.getElementById('mobilePrejobDropdown');
+        if (!prejobSearch || !prejobDropdown) return;
+        var debounce;
+        prejobSearch.addEventListener('input', function() {
+            clearTimeout(debounce);
+            var q = this.value.trim();
+            if (q.length < 2) { prejobDropdown.style.display = 'none'; return; }
+            debounce = setTimeout(async function() {
+                try {
+                    var r = await fetch('/crm/api/expenses.php?action=search_jobs&q=' + encodeURIComponent(q));
+                    var d = await r.json();
+                    if (d.success && d.jobs && d.jobs.length) {
+                        prejobDropdown.innerHTML = d.jobs.map(function(job) {
+                            var label = (job.contact_name || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
+                            var addr = job.property_address ? '<span class="mw-mc-expense-prejob-dd-addr">' + esc(job.property_address) + '</span>' : '';
+                            return '<div class="mw-mc-expense-prejob-dd-item" data-job-id="' + esc(job.plan_id||'') + '" data-job-label="' + esc(label) + '">' +
+                                '<span class="mw-mc-expense-prejob-dd-name">' + esc(label) + '</span>' + addr +
+                            '</div>';
+                        }).join('');
+                        prejobDropdown.querySelectorAll('.mw-mc-expense-prejob-dd-item').forEach(function(item) {
+                            item.addEventListener('click', function() {
+                                var id = this.dataset.jobId;
+                                var label = this.dataset.jobLabel;
+                                mobilePreJob = { id: id, label: label };
+                                // Deactivate No Job button
+                                var noneBtn = document.getElementById('mobilePrejobNoneBtn');
+                                if (noneBtn) noneBtn.classList.remove('mw-mc-expense-prejob-none-active');
+                                // Show selected badge
+                                var badge = document.getElementById('mobilePrejobSelectedBadge');
+                                var badgeLabel = document.getElementById('mobilePrejobSelectedLabel');
+                                if (badge) badge.style.display = 'flex';
+                                if (badgeLabel) badgeLabel.textContent = label;
+                                prejobSearch.value = '';
+                                prejobDropdown.style.display = 'none';
+                            });
+                        });
+                        prejobDropdown.style.display = 'block';
+                    } else {
+                        prejobDropdown.style.display = 'none';
+                    }
+                } catch(e) { prejobDropdown.style.display = 'none'; }
+            }, 250);
+        });
+        document.addEventListener('click', function(e) {
+            if (!prejobSearch.contains(e.target) && !prejobDropdown.contains(e.target)) {
+                prejobDropdown.style.display = 'none';
+            }
+        });
+    })();
+
     window.mobileSaveExpense = async function(andSend) {
         var review = document.getElementById('mobileReviewPanel');
         var saveBtn = review.querySelector('.mw-mc-expense-save-btn');
-        var sendBtn = review.querySelector('.mw-mc-expense-send-btn');
-        var activeBtn = andSend ? sendBtn : saveBtn;
+        var activeBtn = saveBtn;
 
         // Prepare line items for saving
         var liPayload = (window.currentMobileLineItems || []).map(function(li) {
