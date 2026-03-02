@@ -403,6 +403,28 @@ function formatCurrency($amount) {
             border-bottom: 1px solid #d0ddd8;
         }
 
+        .section-subtotal-row td {
+            background: #f0f7f4;
+            border-top: 1px solid #c6ddd5;
+            border-bottom: 2px solid #c6ddd5;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--forest-main);
+            padding: 7px 12px;
+        }
+
+        .section-subtotal-row td:first-child {
+            font-style: italic;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-size: 11px;
+        }
+
+        .section-subtotal-row td.amount {
+            font-family: 'Space Mono', monospace;
+            font-style: normal;
+        }
+
         .totals {
             margin-top: 24px;
             padding-top: 24px;
@@ -765,23 +787,55 @@ function formatCurrency($amount) {
                         </thead>
                         <tbody>
                             <?php
-                            $currentSection = false; // false = no section encountered yet
+                            // Pre-calculate subtotal per named section
+                            $sectionTotals = [];
+                            foreach (($lineItems ?? []) as $li) {
+                                $sn = $li['section_name'] ?? null;
+                                if ($sn !== null) {
+                                    $sectionTotals[$sn] = ($sectionTotals[$sn] ?? 0) + floatval($li['line_total']);
+                                }
+                            }
+                            $hasSections = !empty($sectionTotals);
+
+                            $currentSection     = false; // false = no section seen yet
+                            $currentSectionSum  = 0;
+
                             foreach (($lineItems ?? []) as $item):
                                 $itemSection = $item['section_name'] ?? null;
+
                                 if ($itemSection !== $currentSection):
-                                    $currentSection = $itemSection;
-                                    if ($itemSection !== null):
-                            ?>
+                                    // Emit subtotal for the section we just finished
+                                    if ($currentSection !== false && $currentSection !== null && $hasSections): ?>
+                                <tr class="section-subtotal-row">
+                                    <td colspan="2"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
+                                    <td class="amount"><?php echo formatCurrency($currentSectionSum); ?></td>
+                                </tr>
+                                    <?php endif;
+                                    $currentSection    = $itemSection;
+                                    $currentSectionSum = 0;
+                                    if ($itemSection !== null): ?>
                                 <tr class="section-header-row">
                                     <td colspan="3"><?php echo htmlspecialchars($itemSection); ?></td>
                                 </tr>
-                            <?php endif; endif; ?>
+                                    <?php endif;
+                                endif;
+
+                                $currentSectionSum += floatval($item['line_total']);
+                            ?>
                                 <tr>
                                     <td><strong><?php echo htmlspecialchars($item['service_type']); ?></strong></td>
                                     <td><?php echo htmlspecialchars($item['description'] ?: '-'); ?></td>
                                     <td class="amount"><?php echo formatCurrency($item['line_total']); ?></td>
                                 </tr>
-                            <?php endforeach; ?>
+                            <?php endforeach;
+
+                            // Emit subtotal for the last section
+                            if ($currentSection !== false && $currentSection !== null && $hasSections): ?>
+                                <tr class="section-subtotal-row">
+                                    <td colspan="2"><?php echo htmlspecialchars($currentSection); ?> subtotal</td>
+                                    <td class="amount"><?php echo formatCurrency($currentSectionSum); ?></td>
+                                </tr>
+                            <?php endif; ?>
                         </tbody>
                     </table>
 
