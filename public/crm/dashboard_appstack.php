@@ -88,7 +88,7 @@ try {
     // Work queue items
     $workQueueItems = getWorkQueueItems();
 
-    // Crew Today: clock-in status + app install status + visits today
+    // Crew Today: clock-in status + app install status + active jobs
     $crewToday = [];
     try {
         $crewStmt = $db->query("
@@ -98,8 +98,7 @@ try {
                  WHERE user_id = u.id AND clock_out IS NULL AND status = 'active') AS is_clocked_in,
                 (SELECT COUNT(*) FROM job_visits
                  WHERE assigned_crew_id = u.id
-                   AND scheduled_date = CURDATE()
-                   AND status IN ('scheduled', 'in_progress', 'completed')) AS visits_today
+                   AND status IN ('scheduled', 'in_progress')) AS active_jobs
             FROM users u
             WHERE u.is_active = 1
             ORDER BY is_clocked_in DESC, u.full_name ASC
@@ -586,8 +585,8 @@ $activePage = 'dashboard';
                           <div class="mw-crew-status-dot <?php echo $member['is_clocked_in'] ? 'mw-crew-clocked-in' : 'mw-crew-clocked-out'; ?>"></div>
                           <div class="mw-crew-name"><?php echo h($member['full_name']); ?></div>
                           <div class="mw-crew-meta">
-                            <?php if ((int)$member['visits_today'] > 0): ?>
-                              <span class="mw-crew-visits-badge"><?php echo (int)$member['visits_today']; ?> visit<?php echo (int)$member['visits_today'] !== 1 ? 's' : ''; ?></span>
+                            <?php if ((int)$member['active_jobs'] > 0): ?>
+                              <span class="mw-crew-visits-badge"><?php echo (int)$member['active_jobs']; ?> job<?php echo (int)$member['active_jobs'] !== 1 ? 's' : ''; ?></span>
                             <?php endif; ?>
                             <?php if (!empty($member['install_link_sent_at'])): ?>
                               <span class="mw-crew-app-badge" title="App install link sent <?php echo date('M j', strtotime($member['install_link_sent_at'])); ?>">
