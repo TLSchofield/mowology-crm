@@ -628,6 +628,19 @@ $activePage = 'quotes';
                       <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
                           <i data-feather="clipboard" class="mr-1"></i> Create Plans
                       </a>
+                      <form method="POST" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <button type="submit" name="action" value="send" class="btn btn-outline-secondary">
+                              <i data-feather="send" class="mr-1"></i> Resend Link
+                          </button>
+                      </form>
+                  <?php elseif (in_array($quote['status'], ['declined', 'expired'])): ?>
+                      <form method="POST" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <button type="submit" name="action" value="send" class="btn btn-outline-secondary">
+                              <i data-feather="send" class="mr-1"></i> Resend Link
+                          </button>
+                      </form>
                   <?php endif; ?>
 
                   <button type="button" class="btn btn-outline-danger" onclick="confirmDeleteQuote()">
