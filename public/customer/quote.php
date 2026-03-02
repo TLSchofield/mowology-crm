@@ -2,6 +2,7 @@
 /**
  * Customer Quote View with Digital Signature
  * Public page - no login required, token-based access
+ * Supports admin preview mode: ?_preview=QUOTE_ID (requires active CRM session)
  */
 
 // Allow CORS for signature pad
@@ -13,7 +14,63 @@ require_once dirname(__DIR__) . '/includes/notifications.php';
 $db = getDB();
 $error = '';
 $success = '';
+$isAdminPreview = false;
 
+// ── Admin preview mode ──────────────────────────────────────────────────────
+// ?_preview=QUOTE_ID bypasses token check but requires a valid CRM login session
+$previewQuoteId = isset($_GET['_preview']) ? intval($_GET['_preview']) : 0;
+if ($previewQuoteId > 0) {
+    require_once dirname(__DIR__) . '/loginAuth/auth.php';
+    if (!isLoggedIn()) {
+        header('Location: /loginAuth/login.php?redirect=' . urlencode($_SERVER['REQUEST_URI']));
+        exit;
+    }
+    $isAdminPreview = true;
+
+    $stmt = $db->prepare("
+        SELECT
+            q.*,
+            p.address as property_address,
+            p.city as property_city,
+            p.postal_code as property_postal,
+            p.property_type,
+            c.company_name,
+            c.billing_email,
+            c.billing_phone,
+            ct.first_name as contact_first,
+            ct.last_name as contact_last,
+            ct.email as contact_email,
+            ct.phone as contact_phone,
+            pct.first_name as property_contact_first,
+            pct.last_name as property_contact_last,
+            pct.email as property_contact_email,
+            pct.phone as property_contact_phone
+        FROM quotes q
+        LEFT JOIN properties p ON q.property_id = p.id
+        LEFT JOIN companies c ON q.company_id = c.id
+        LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
+        LEFT JOIN contacts pct ON p.site_contact_id = pct.id
+        WHERE q.id = ?
+    ");
+    $stmt->execute([$previewQuoteId]);
+    $quote = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (empty($quote)) {
+        $error = 'Quote not found.';
+    } else {
+        // In preview mode force status to 'sent' so line items and full layout render,
+        // but the actual status badge still reflects the real status.
+        $quote['_real_status'] = $quote['status'];
+        if (!in_array($quote['status'], ['sent','accepted','declined'])) {
+            $quote['status'] = 'sent'; // show full preview even for draft
+        }
+        $stmt = $db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
+        $stmt->execute([$previewQuoteId]);
+        $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
+// ── Normal token-based access ────────────────────────────────────────────────
+else {
 // Get token from URL
 $token = $_GET['token'] ?? '';
 
@@ -74,6 +131,7 @@ if (empty($token)) {
         $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }
+} // end normal token block
 
 // Handle acceptance
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] !== 'accepted') {
@@ -593,6 +651,15 @@ function formatCurrency($amount) {
     </style>
 </head>
 <body>
+    <?php if ($isAdminPreview): ?>
+    <div style="position:sticky;top:0;z-index:9999;background:#1A5F4A;color:#fff;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;font-family:sans-serif;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <span style="background:#7FD858;color:#0D3B2E;font-weight:700;padding:3px 8px;border-radius:4px;font-size:11px;letter-spacing:0.05em;">ADMIN PREVIEW</span>
+            <span>This is how your client sees quote <strong><?php echo htmlspecialchars($quote['quote_number'] ?? ''); ?></strong>. Signature and acceptance are disabled.</span>
+        </div>
+        <a href="/crm/quotes/create.php?id=<?php echo $previewQuoteId; ?>" style="color:#7FD858;font-weight:600;text-decoration:none;">← Back to Editor</a>
+    </div>
+    <?php endif; ?>
     <header class="header">
         <div class="container">
             <div class="header-content">
@@ -741,6 +808,14 @@ function formatCurrency($amount) {
 
                 <!-- Acceptance Section -->
                 <?php if ($quote['status'] === 'sent'): ?>
+                    <?php if ($isAdminPreview): ?>
+                    <div class="card" style="border: 2px dashed #2D8659; background: #f0f9f4;">
+                        <h3 class="card-title" style="color:#1A5F4A;">Accept This Quote</h3>
+                        <p style="color:#1A5F4A;font-style:italic;padding:16px;text-align:center;">
+                            ✏️ <strong>Preview mode:</strong> The signature and acceptance form appear here for your client. They are disabled in this preview.
+                        </p>
+                    </div>
+                    <?php else: ?>
                     <div class="card">
                         <h3 class="card-title">Accept This Quote</h3>
                         <p style="margin-bottom: 24px; color: var(--forest-main);">
@@ -806,6 +881,7 @@ function formatCurrency($amount) {
                             </form>
                         </div>
                     </div>
+                    <?php endif; /* end isAdminPreview else */ ?>
                 <?php elseif ($quote['status'] === 'accepted'): ?>
                     <div class="card">
                         <div class="already-accepted">

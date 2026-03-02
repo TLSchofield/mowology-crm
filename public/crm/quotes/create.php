@@ -587,6 +587,12 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                     </button>
                                 </div>
 
+                                <?php if ($quoteId): ?>
+                                <button type="button" class="btn btn-outline-secondary w-100 mt-2" onclick="openPreviewDrawer()">
+                                    <i data-feather="eye" style="width:14px;height:14px;vertical-align:middle;margin-right:5px;"></i>Preview as Client
+                                </button>
+                                <?php endif; ?>
+
                                 <p class="mt-3 mb-0 text-muted" style="font-size: 13px;">
                                     After saving, you can send this quote to the customer for approval.
                                 </p>
@@ -1701,5 +1707,69 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
 
 <!-- Bundle warning toast (shown below line items area) -->
 <div id="bundleWarningMsg" class="alert alert-warning py-2 mt-2" style="display:none;font-size:13px;"></div>
+
+<?php if ($quoteId): ?>
+<!-- ── Client Preview Drawer ──────────────────────────────────────────── -->
+<div id="previewDrawerBackdrop" class="mw-preview-backdrop" onclick="closePreviewDrawer()"></div>
+<div id="previewDrawer" class="mw-preview-drawer">
+    <div class="mw-preview-drawer-header">
+        <div class="mw-preview-drawer-title">
+            <i data-feather="eye" style="width:16px;height:16px;"></i>
+            Client Preview
+            <span class="mw-preview-badge">How your client sees this</span>
+        </div>
+        <div class="mw-preview-drawer-actions">
+            <button type="button" class="btn btn-sm btn-outline-light" onclick="refreshPreview()" title="Reload preview (after saving changes)">
+                <i data-feather="refresh-cw" style="width:13px;height:13px;vertical-align:middle;margin-right:4px;"></i>Refresh
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-light" onclick="closePreviewDrawer()" title="Close preview">
+                <i data-feather="x" style="width:15px;height:15px;"></i>
+            </button>
+        </div>
+    </div>
+    <div class="mw-preview-drawer-body">
+        <iframe id="previewIframe" class="mw-preview-iframe" src="" title="Client quote preview"></iframe>
+    </div>
+</div>
+
+<script>
+function openPreviewDrawer() {
+    const drawer = document.getElementById('previewDrawer');
+    const backdrop = document.getElementById('previewDrawerBackdrop');
+    const iframe = document.getElementById('previewIframe');
+    const previewUrl = '/customer/quote.php?_preview=<?php echo $quoteId; ?>';
+    if (!iframe.src || iframe.src === window.location.href || iframe.getAttribute('data-loaded') !== '1') {
+        iframe.src = previewUrl;
+        iframe.setAttribute('data-loaded', '1');
+    }
+    drawer.classList.add('open');
+    backdrop.classList.add('open');
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function closePreviewDrawer() {
+    document.getElementById('previewDrawer').classList.remove('open');
+    document.getElementById('previewDrawerBackdrop').classList.remove('open');
+}
+
+function refreshPreview() {
+    const iframe = document.getElementById('previewIframe');
+    iframe.src = '/customer/quote.php?_preview=<?php echo $quoteId; ?>&_t=' + Date.now();
+    const btn = document.querySelector('#previewDrawer .btn-outline-light');
+    if (btn) {
+        btn.textContent = 'Refreshing…';
+        iframe.onload = () => {
+            btn.innerHTML = '<i data-feather="refresh-cw" style="width:13px;height:13px;vertical-align:middle;margin-right:4px;"></i>Refresh';
+            if (typeof feather !== 'undefined') feather.replace();
+        };
+    }
+}
+
+// Keyboard shortcut: Escape closes drawer
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closePreviewDrawer();
+});
+</script>
+<?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
