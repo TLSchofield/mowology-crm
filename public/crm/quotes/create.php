@@ -673,7 +673,8 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                         '<i data-feather="layers" style="width:13px;height:13px;margin-right:6px;vertical-align:middle;"></i>' +
                         '<input type="text" class="mw-section-name-input" value="' + escapeHtml(item.section_name || '') + '" ' +
                                'placeholder="Section name…" ' +
-                               'oninput="updateLineItem(' + index + ', \'section_name\', this.value)">' +
+                               'oninput="updateLineItem(' + index + ', \'section_name\', this.value)" ' +
+                               'onkeydown="if(event.key===\'Enter\'){event.preventDefault();}">' +
                         '<button type="button" class="mw-section-remove-btn" onclick="removeLine(' + index + ')" title="Remove section">&times;</button>';
                     div.addEventListener('dragstart', function (e) {
                         dragSrcIdx = parseInt(this.dataset.index);
@@ -729,9 +730,11 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 row.innerHTML =
                     '<span class="mw-drag-handle" title="Drag to reorder">⠿</span>' +
                     '<input type="text" value="' + escapeHtml(item.service_type || '') + '" placeholder="Service name" ' +
-                           'onchange="updateLineItem(' + index + ', \'service_type\', this.value)">' +
+                           'onchange="updateLineItem(' + index + ', \'service_type\', this.value)" ' +
+                           'onkeydown="if(event.key===\'Enter\'){event.preventDefault();}">' +
                     '<input type="text" value="' + escapeHtml(item.description || '') + '" placeholder="Description" ' +
-                           'onchange="updateLineItem(' + index + ', \'description\', this.value)">' +
+                           'onchange="updateLineItem(' + index + ', \'description\', this.value)" ' +
+                           'onkeydown="if(event.key===\'Enter\'){event.preventDefault();}">' +
                     '<input type="number" value="' + (item.quantity || 1) + '" min="0" step="any" ' +
                            'onchange="updateLineItem(' + index + ', \'quantity\', this.value); recalculateLineTotal(' + index + ')">' +
                     '<input type="number" value="' + (item.unit_price || 0) + '" min="0" step="any" ' +
