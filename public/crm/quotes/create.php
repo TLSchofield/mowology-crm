@@ -102,20 +102,25 @@ if ($quote && $quote['property_id']) {
 }
 
 // Load products from catalog for template dropdown
+// Uses p.* to avoid missing-column errors; category/unit joined same as api-products.php
 $templates = [];
 try {
-    $templates = $db->query("
-        SELECT p.id, p.name, p.description, p.base_price, p.min_price,
-               p.icon_base_path,
-               c.name as category_name, u.abbreviation as unit_abbreviation
+    $stmt = $db->query("
+        SELECT p.*,
+               c.name as category_name,
+               u.abbreviation as unit_abbreviation
         FROM products p
         LEFT JOIN product_categories c ON p.category_id = c.id
         LEFT JOIN unit_types u ON p.unit_type_id = u.id
         WHERE p.is_archived = 0
-        ORDER BY c.name, p.display_order, p.name
-    ")->fetchAll(PDO::FETCH_ASSOC);
-} catch (Exception $e) {
-    // Products table may not exist yet
+        ORDER BY p.display_order, p.name
+    ");
+    if ($stmt) {
+        $templates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+} catch (\Throwable $e) {
+    // products table or required columns may not exist yet
+    error_log('create.php templates query failed: ' . $e->getMessage());
 }
 
 // Handle form submission
