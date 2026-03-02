@@ -272,6 +272,115 @@ $activePage = 'dashboard';
               </div>
           </div>
 
+          <!-- Work Queue — 4-lane attention system -->
+          <?php
+          $wqLanes = [
+              'critical'     => ['label' => 'Critical',     'icon' => 'alert-triangle', 'empty' => 'All systems clear'],
+              'data_quality' => ['label' => 'Data Quality',  'icon' => 'database',       'empty' => 'Data looks clean'],
+              'operations'   => ['label' => 'Operations',    'icon' => 'clipboard',      'empty' => 'Operations clear'],
+              'marketing'    => ['label' => 'Marketing',     'icon' => 'trending-up',    'empty' => 'No marketing tasks'],
+          ];
+          $wqGrouped = array_fill_keys(array_keys($wqLanes), []);
+          foreach ($workQueueItems as $item) {
+              $cat = $item['category'];
+              if (array_key_exists($cat, $wqGrouped)) $wqGrouped[$cat][] = $item;
+          }
+          $wqTotal  = count($workQueueItems);
+          $wqCounts = array_map('count', $wqGrouped);
+          ?>
+
+          <?php if ($wqTotal > 0): ?>
+          <div class="mw-wq-summary">
+              <span class="mw-wq-summary-total">
+                  <i data-feather="list"></i>
+                  <strong><?php echo $wqTotal; ?></strong> item<?php echo $wqTotal !== 1 ? 's' : ''; ?> need attention
+              </span>
+              <div class="mw-wq-summary-cats">
+                  <?php foreach ($wqLanes as $key => $lane): if ($wqCounts[$key] > 0): ?>
+                      <a href="#wq-<?php echo $key; ?>" class="mw-wq-sum-cat mw-wq-sum-<?php echo $key; ?>">
+                          <?php echo $wqCounts[$key]; ?> <?php echo h(strtolower($lane['label'])); ?>
+                      </a>
+                  <?php endif; endforeach; ?>
+              </div>
+          </div>
+          <?php endif; ?>
+
+          <div class="mw-wq-lanes">
+          <?php foreach ($wqLanes as $key => $lane):
+              $laneItems = $wqGrouped[$key];
+              $laneCount = count($laneItems);
+              $showItems = array_slice($laneItems, 0, 5);
+              $overflow  = $laneCount - 5;
+          ?>
+              <div class="mw-wq-lane mw-wq-lane-<?php echo $key; ?>" id="wq-<?php echo $key; ?>">
+                  <div class="mw-wq-lane-header" onclick="wqToggleLane('<?php echo $key; ?>')">
+                      <div class="mw-wq-lane-header-left">
+                          <div class="mw-wq-lane-icon-wrap">
+                              <i data-feather="<?php echo h($lane['icon']); ?>"></i>
+                          </div>
+                          <span class="mw-wq-lane-title"><?php echo h($lane['label']); ?></span>
+                      </div>
+                      <div class="mw-wq-lane-header-right">
+                          <?php if ($laneCount > 0): ?>
+                              <span class="mw-wq-lane-badge"><?php echo $laneCount; ?></span>
+                          <?php endif; ?>
+                          <span class="mw-wq-lane-chevron" id="wqChev-<?php echo $key; ?>">
+                              <i data-feather="chevron-down"></i>
+                          </span>
+                      </div>
+                  </div>
+                  <div class="mw-wq-lane-body" id="wqBody-<?php echo $key; ?>">
+                      <?php if (empty($laneItems)): ?>
+                          <div class="mw-wq-empty">
+                              <i data-feather="check-circle"></i>
+                              <span><?php echo h($lane['empty']); ?></span>
+                          </div>
+                      <?php else: ?>
+                          <?php foreach ($showItems as $item): ?>
+                              <a href="<?php echo h($item['link']); ?>" class="mw-wq-item mw-wq-cat-<?php echo h($item['category']); ?>">
+                                  <div class="mw-wq-item-icon mw-wq-icon-<?php echo h($item['category']); ?>">
+                                      <i data-feather="<?php echo h($item['icon']); ?>"></i>
+                                  </div>
+                                  <div class="mw-wq-item-content">
+                                      <div class="mw-wq-item-title"><?php echo h($item['title']); ?></div>
+                                      <div class="mw-wq-item-desc"><?php echo h($item['description']); ?></div>
+                                  </div>
+                                  <div class="mw-wq-item-arrow"><i data-feather="arrow-right"></i></div>
+                              </a>
+                          <?php endforeach; ?>
+                          <?php if ($overflow > 0): ?>
+                              <div class="mw-wq-overflow">
+                                  +<?php echo $overflow; ?> more &mdash; <a href="<?php echo h($showItems[0]['link']); ?>">view all</a>
+                              </div>
+                          <?php endif; ?>
+                      <?php endif; ?>
+                  </div>
+              </div>
+          <?php endforeach; ?>
+          </div>
+
+          <script>
+          (function() {
+              var saved = {};
+              try { saved = JSON.parse(localStorage.getItem('wqLaneState') || '{}'); } catch(e) {}
+              ['critical','data_quality','operations','marketing'].forEach(function(key) {
+                  if (saved[key] === 'collapsed') {
+                      var el = document.getElementById('wq-' + key);
+                      if (el) el.classList.add('mw-wq-collapsed');
+                  }
+              });
+          })();
+          window.wqToggleLane = function(key) {
+              var lane = document.getElementById('wq-' + key);
+              if (!lane) return;
+              lane.classList.toggle('mw-wq-collapsed');
+              var saved = {};
+              try { saved = JSON.parse(localStorage.getItem('wqLaneState') || '{}'); } catch(e) {}
+              saved[key] = lane.classList.contains('mw-wq-collapsed') ? 'collapsed' : 'open';
+              localStorage.setItem('wqLaneState', JSON.stringify(saved));
+          };
+          </script>
+
           <!-- Incoming Quote Requests -->
           <div class="row mb-4">
             <div class="col-12">
@@ -407,7 +516,7 @@ $activePage = 'dashboard';
 
           <!-- Quick Actions -->
           <div class="row">
-            <div class="col-12 col-lg-6">
+            <div class="col-12 col-md-6">
               <div class="card">
                 <div class="card-header">
                   <h5 class="card-title mb-0">Quick Actions</h5>
@@ -439,121 +548,6 @@ $activePage = 'dashboard';
                       </a>
                     </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="col-12 col-lg-6">
-              <div class="card mw-wq-card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                  <h5 class="card-title mb-0">Work Queue</h5>
-                  <?php if (!empty($workQueueItems)): ?>
-                    <span class="mw-wq-total-badge"><?php echo count($workQueueItems); ?> item<?php echo count($workQueueItems) > 1 ? 's' : ''; ?></span>
-                  <?php endif; ?>
-                </div>
-                <div class="card-body">
-                  <?php if (empty($workQueueItems)): ?>
-                    <div class="text-center text-muted py-4">
-                      <i data-feather="check-circle" style="width: 36px; height: 36px; color: var(--mw-green);"></i>
-                      <p class="mt-2 mb-0">All clear — nothing needs attention</p>
-                    </div>
-                  <?php else: ?>
-                    <?php
-                      $categoryLabels = [
-                          'critical' => 'Critical',
-                          'data_quality' => 'Data Quality',
-                          'operations' => 'Operations',
-                          'marketing' => 'Marketing',
-                      ];
-                    ?>
-                    <!-- Summary chips -->
-                    <div class="mw-wq-chips" id="wqChips">
-                      <?php
-                        $categoryCounts = [];
-                        foreach ($workQueueItems as $item) {
-                            $cat = $item['category'];
-                            $categoryCounts[$cat] = ($categoryCounts[$cat] ?? 0) + 1;
-                        }
-                        foreach ($categoryCounts as $cat => $cnt):
-                      ?>
-                        <button type="button" class="mw-wq-chip mw-wq-chip-<?php echo h($cat); ?>" onclick="wqFilterCategory('<?php echo h($cat); ?>')" title="Show <?php echo h($categoryLabels[$cat] ?? $cat); ?> items">
-                          <?php echo h($categoryLabels[$cat] ?? $cat); ?> <span class="mw-wq-chip-count"><?php echo $cnt; ?></span>
-                        </button>
-                      <?php endforeach; ?>
-                      <button type="button" class="mw-wq-chip mw-wq-chip-all active" onclick="wqFilterCategory('all')" title="Show all items">
-                        All
-                      </button>
-                    </div>
-
-                    <!-- Single card display with navigation -->
-                    <div class="mw-wq-carousel" id="wqCarousel">
-                      <?php foreach ($workQueueItems as $idx => $item): ?>
-                        <div class="mw-wq-item mw-wq-cat-<?php echo h($item['category']); ?>" data-category="<?php echo h($item['category']); ?>" <?php if ($idx > 0) echo 'style="display:none;"'; ?>>
-                          <div class="mw-wq-item-icon mw-wq-icon-<?php echo h($item['category']); ?>">
-                            <i data-feather="<?php echo h($item['icon']); ?>"></i>
-                          </div>
-                          <div class="mw-wq-item-content">
-                            <div class="mw-wq-item-title"><?php echo h($item['title']); ?></div>
-                            <div class="mw-wq-item-desc"><?php echo h($item['description']); ?></div>
-                          </div>
-                          <a href="<?php echo h($item['link']); ?>" class="mw-wq-item-action" title="View">
-                            <i data-feather="arrow-right"></i>
-                          </a>
-                        </div>
-                      <?php endforeach; ?>
-                    </div>
-
-                    <!-- Navigation -->
-                    <div class="mw-wq-nav">
-                      <button type="button" class="mw-wq-nav-btn" onclick="wqNav(-1)" id="wqPrev" disabled>
-                        <i data-feather="chevron-left"></i>
-                      </button>
-                      <span class="mw-wq-counter" id="wqCounter">1 / <?php echo count($workQueueItems); ?></span>
-                      <button type="button" class="mw-wq-nav-btn" onclick="wqNav(1)" id="wqNext" <?php if (count($workQueueItems) <= 1) echo 'disabled'; ?>>
-                        <i data-feather="chevron-right"></i>
-                      </button>
-                    </div>
-
-                    <script>
-                    (function() {
-                      var allItems = <?php echo json_encode(array_map(function($i) { return $i['category']; }, $workQueueItems)); ?>;
-                      var filteredIndices = allItems.map(function(_, i) { return i; });
-                      var currentPos = 0;
-
-                      function showItem() {
-                        var els = document.querySelectorAll('#wqCarousel .mw-wq-item');
-                        els.forEach(function(el) { el.style.display = 'none'; });
-                        if (filteredIndices.length > 0) {
-                          els[filteredIndices[currentPos]].style.display = '';
-                        }
-                        document.getElementById('wqCounter').textContent = (filteredIndices.length > 0 ? (currentPos + 1) : 0) + ' / ' + filteredIndices.length;
-                        document.getElementById('wqPrev').disabled = currentPos <= 0;
-                        document.getElementById('wqNext').disabled = currentPos >= filteredIndices.length - 1;
-                        if (typeof feather !== 'undefined') feather.replace();
-                      }
-
-                      window.wqNav = function(dir) {
-                        currentPos = Math.max(0, Math.min(filteredIndices.length - 1, currentPos + dir));
-                        showItem();
-                      };
-
-                      window.wqFilterCategory = function(cat) {
-                        // Update chip active state
-                        document.querySelectorAll('.mw-wq-chip').forEach(function(c) { c.classList.remove('active'); });
-                        if (cat === 'all') {
-                          document.querySelector('.mw-wq-chip-all').classList.add('active');
-                          filteredIndices = allItems.map(function(_, i) { return i; });
-                        } else {
-                          document.querySelector('.mw-wq-chip-' + cat).classList.add('active');
-                          filteredIndices = [];
-                          allItems.forEach(function(c, i) { if (c === cat) filteredIndices.push(i); });
-                        }
-                        currentPos = 0;
-                        showItem();
-                      };
-                    })();
-                    </script>
-                  <?php endif; ?>
                 </div>
               </div>
             </div>
