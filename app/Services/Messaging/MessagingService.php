@@ -652,6 +652,88 @@ function testSmsGateway(string $phoneNumber, string $carrierName = 'all'): array
 
 
 // ═══════════════════════════════════════════════════════════════════════
+// EMAIL TEMPLATE SYSTEM
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Load an email template from the database, substitute {{placeholders}},
+ * and return the subject + rendered HTML body ready to pass to sendEmail().
+ *
+ * Falls back to hardcoded defaults if the DB lookup fails — sending must
+ * never break because of a missing template.
+ *
+ * @param string $key   Template key: 'quote_sent', 'invoice_sent', 'receipt_sent', 'job_complete'
+ * @param array  $vars  Placeholder map, e.g. ['{{customer_first_name}}' => 'Alex', ...]
+ * @return array        ['subject' => string, 'body_html' => string]
+ */
+if (!function_exists('loadEmailTemplate')) {
+    function loadEmailTemplate(string $key, array $vars): array
+    {
+        // Ensure EmailWrapper is available
+        if (!class_exists('EmailWrapper')) {
+            $wrapperPath = __DIR__ . '/EmailWrapper.php';
+            if (is_file($wrapperPath)) {
+                require_once $wrapperPath;
+            }
+        }
+
+        // Hardcoded fallbacks (used if DB is unreachable or table doesn't exist yet)
+        $fallbacks = [
+            'quote_sent' => [
+                'subject'  => 'Your quote {{quote_number}} from Mowology is ready',
+                'body'     => "Hi {{customer_first_name}},\n\nThank you for reaching out! Your quote {{quote_number}} for {{quote_amount}} is ready to review.\n\nPlease click the button below to view and accept your quote.\n\nWe look forward to working with you!\n\n{{company_name}}\n{{company_phone}}",
+            ],
+            'invoice_sent' => [
+                'subject'  => 'Invoice {{invoice_number}} from Mowology — {{amount_due}} due',
+                'body'     => "Hi {{customer_first_name}},\n\nYour invoice {{invoice_number}} for {{amount_due}} is due on {{due_date}}.\n\nPlease click the button below to view and pay your invoice online.\n\nThank you for your business!\n\n{{company_name}}\n{{company_phone}}",
+            ],
+            'receipt_sent' => [
+                'subject'  => 'Payment received — Thank you, {{customer_first_name}}!',
+                'body'     => "Hi {{customer_first_name}},\n\nWe've received your payment of {{amount_paid}} for invoice {{invoice_number}}. Your receipt is attached.\n\nThank you for your business!\n\n{{company_name}}\n{{company_phone}}",
+            ],
+            'job_complete' => [
+                'subject'  => 'Your {{service_type}} service is complete — {{job_date}}',
+                'body'     => "Hi {{customer_first_name}},\n\nYour {{service_type}} service at {{property_address}} has been completed.\n\nClick the button below to view your service report.\n\nThank you for choosing Mowology!\n\n{{company_name}}\n{{company_phone}}",
+            ],
+        ];
+
+        $subject  = $fallbacks[$key]['subject'] ?? 'Message from Mowology';
+        $bodyText = $fallbacks[$key]['body']    ?? 'Thank you for choosing Mowology.';
+
+        // Attempt DB lookup
+        try {
+            $db   = getDB();
+            $stmt = $db->prepare(
+                "SELECT subject, body_text FROM email_templates WHERE template_key = ? AND is_active = 1 LIMIT 1"
+            );
+            $stmt->execute([$key]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) {
+                $subject  = $row['subject'];
+                $bodyText = $row['body_text'];
+            }
+        } catch (Throwable $e) {
+            // DB error — use fallback silently
+        }
+
+        // Substitute {{placeholders}} in both subject and body
+        $subject  = str_replace(array_keys($vars), array_values($vars), $subject);
+        $bodyText = str_replace(array_keys($vars), array_values($vars), $bodyText);
+
+        // Convert plain text to HTML paragraphs
+        $bodyHtml = class_exists('EmailWrapper')
+            ? EmailWrapper::textToHtml($bodyText)
+            : '<p>' . nl2br(htmlspecialchars($bodyText, ENT_QUOTES, 'UTF-8')) . '</p>';
+
+        return [
+            'subject'   => $subject,
+            'body_html' => $bodyHtml,
+        ];
+    }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
 // BACKWARD COMPATIBILITY ALIASES
 // ═══════════════════════════════════════════════════════════════════════
 

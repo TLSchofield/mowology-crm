@@ -144,18 +144,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
             // --- SEND EMAIL ---
             if ($customerEmail) {
-                $emailSubject = "Quote {$quote['quote_number']} from Mowology";
-                $emailBody = "
-                    <h2>Your Quote is Ready</h2>
-                    <p>Hi " . htmlspecialchars($customerName ?: 'Valued Customer') . ",</p>
-                    <p>Thank you for your interest in Mowology's services. Please find your quote details below:</p>
-                    <p><strong>Quote Number:</strong> {$quote['quote_number']}<br>
-                    <strong>Amount:</strong> " . formatCurrency($quote['amount']) . "<br>
-                    <strong>Valid Until:</strong> " . formatDate($quote['valid_until']) . "</p>
-                    <p><a href='{$quoteUrl}' style='display: inline-block; padding: 14px 28px; background: #2D8659; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;'>View & Accept Quote</a></p>
-                    <p>If you have any questions, please don't hesitate to contact us at (778) 846-9273.</p>
-                    <p>Thank you,<br>The Mowology Team</p>
-                ";
+                require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+
+                $nameParts    = explode(' ', $customerName, 2);
+                $firstName    = $nameParts[0] ?: 'there';
+                $companyInfo  = EmailWrapper::getCompanyInfo();
+
+                $tplVars = [
+                    '{{customer_first_name}}' => $firstName,
+                    '{{customer_name}}'       => $customerName ?: 'Valued Customer',
+                    '{{quote_number}}'        => $quote['quote_number'],
+                    '{{quote_amount}}'        => formatCurrency($quote['amount']),
+                    '{{quote_valid_until}}'   => formatDate($quote['valid_until']),
+                    '{{company_name}}'        => $companyInfo['company_name'],
+                    '{{company_phone}}'       => $companyInfo['company_phone'],
+                ];
+
+                $tpl          = loadEmailTemplate('quote_sent', $tplVars);
+                $emailSubject = $tpl['subject'];
+                $emailBody    = EmailWrapper::wrap(
+                    $tpl['body_html'],
+                    'View &amp; Accept Quote',
+                    $quoteUrl,
+                    $companyInfo
+                );
 
                 $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody);
 

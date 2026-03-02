@@ -181,44 +181,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 ? "{$recipient['first_name']} {$recipient['last_name']}"
                 : ($invoice['company_name'] ?: trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) ?: 'Valued Customer');
 
-            $emailSubject = "Invoice {$invoice['invoice_number']} from Mowology";
+            require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 
-            $emailBody = "
-                <h2 style='color:#0D3B2E;margin-bottom:8px;'>Invoice from Mowology</h2>
-                <p>Hi " . htmlspecialchars($recipientName) . ",</p>
-                <p>Please find your invoice details below:</p>
+            $firstName   = !empty($recipient['first_name']) ? $recipient['first_name'] : 'there';
+            $companyInfo = EmailWrapper::getCompanyInfo();
 
-                <table style='border-collapse:collapse;width:100%;max-width:480px;margin:16px 0;font-size:14px;'>
-                    <tr>
-                        <td style='padding:6px 12px 6px 0;color:#555;white-space:nowrap;'>Bill To</td>
-                        <td style='padding:6px 0;color:#0D3B2E;font-weight:600;'>
-                            " . (!empty($billToLines) ? implode('<br>', $billToLines) : htmlspecialchars($recipientName)) . "
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style='padding:6px 12px 6px 0;color:#555;white-space:nowrap;'>Invoice #</td>
-                        <td style='padding:6px 0;color:#0D3B2E;'><strong>{$invoice['invoice_number']}</strong></td>
-                    </tr>
-                    <tr>
-                        <td style='padding:6px 12px 6px 0;color:#555;white-space:nowrap;'>Amount Due</td>
-                        <td style='padding:6px 0;color:#0D3B2E;font-size:18px;font-weight:700;'>" . formatCurrency($invoice['balance_due']) . " CAD</td>
-                    </tr>
-                    <tr>
-                        <td style='padding:6px 12px 6px 0;color:#555;white-space:nowrap;'>Due Date</td>
-                        <td style='padding:6px 0;color:#0D3B2E;'>" . formatDate($invoice['due_date']) . "</td>
-                    </tr>
-                </table>
-            " . ($invoiceViewUrl ? "
-                <p style='margin:20px 0;'>
-                    <a href='" . htmlspecialchars($invoiceViewUrl) . "' style='display:inline-block;background:#2D8659;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-size:15px;'>
-                        View &amp; Pay Invoice Online
-                    </a>
-                </p>
-                <p style='font-size:12px;color:#888;margin-top:4px;'>Or copy this link: <a href='" . htmlspecialchars($invoiceViewUrl) . "' style='color:#2D8659;'>" . htmlspecialchars($invoiceViewUrl) . "</a></p>
-            " : '') . "
-                <p>If you have any questions about this invoice, please contact us at <a href='tel:+17788469273'>(778) 846-9273</a> or reply to this email.</p>
-                <p style='margin-top:20px;'>Thank you for your business!<br><strong>The Mowology Team</strong></p>
-            ";
+            $tplVars = [
+                '{{customer_first_name}}' => $firstName,
+                '{{customer_name}}'       => $recipientName,
+                '{{invoice_number}}'      => $invoice['invoice_number'],
+                '{{amount_due}}'          => formatCurrency($invoice['balance_due']),
+                '{{due_date}}'            => formatDate($invoice['due_date']),
+                '{{company_name}}'        => $companyInfo['company_name'],
+                '{{company_phone}}'       => $companyInfo['company_phone'],
+            ];
+
+            $tpl          = loadEmailTemplate('invoice_sent', $tplVars);
+            $emailSubject = $tpl['subject'];
+
+            // Append billing summary table to the template body
+            $billSummary  = '<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:460px;margin:0 0 20px;font-size:14px;font-family:\'Helvetica Neue\',Arial,sans-serif;">';
+            $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;width:120px;">Invoice #</td><td style="padding:6px 0;color:#0D3B2E;font-weight:700;">' . htmlspecialchars($invoice['invoice_number']) . '</td></tr>';
+            $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Amount Due</td><td style="padding:6px 0;color:#0D3B2E;font-size:18px;font-weight:700;">' . formatCurrency($invoice['balance_due']) . ' CAD</td></tr>';
+            $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;">Due Date</td><td style="padding:6px 0;color:#0D3B2E;">' . formatDate($invoice['due_date']) . '</td></tr>';
+            if (!empty($billToLines)) {
+                $billSummary .= '<tr><td style="padding:6px 0;color:#4a6b5d;vertical-align:top;">Bill To</td><td style="padding:6px 0;color:#0D3B2E;">' . implode('<br>', array_map('htmlspecialchars', $billToLines)) . '</td></tr>';
+            }
+            $billSummary .= '</table>';
+
+            $emailBody = EmailWrapper::wrap(
+                $billSummary . $tpl['body_html'],
+                'View &amp; Pay Invoice Online',
+                $invoiceViewUrl ?: null,
+                $companyInfo
+            );
 
             // Send email
             $emailResult = sendCrmEmail($recipient['email_address'], $emailSubject, $emailBody, $attachPath);

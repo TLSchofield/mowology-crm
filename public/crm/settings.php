@@ -13,7 +13,8 @@ $GLOBALS['crm_error_handler'] = $errorHandler;
 $pageTitle = 'Business Settings';
 $activePage = 'settings';
 $csrfToken = generateCSRFToken();
-$extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">';
+$extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
+           . '<script src="/crm/js/email-templates.js?v=1" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -53,7 +54,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <a class="nav-link" id="email-tab" data-toggle="tab" href="#email" role="tab">Email</a>
     </li>
     <li class="nav-item">
-        <a class="nav-link" id="messages-tab" data-toggle="tab" href="#messages" role="tab">Messages</a>
+        <a class="nav-link" id="email-templates-tab" data-toggle="tab" href="#email-templates" role="tab">Email Templates</a>
     </li>
     <li class="nav-item">
         <a class="nav-link" id="receipts-tab" data-toggle="tab" href="#receipts" role="tab">Receipt Forwarding</a>
@@ -341,36 +342,154 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
         </div>
 
-        <!-- Messages Tab -->
-        <div class="tab-pane fade" id="messages" role="tabpanel">
-            <div class="card">
-                <div class="card-header"><h5 class="card-title">Quote Messages</h5></div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label for="quote_message_header" class="form-label">Header</label>
-                        <textarea class="form-control" id="quote_message_header" rows="3" maxlength="1000"></textarea>
+        <!-- Email Templates Tab -->
+        <div class="tab-pane fade" id="email-templates" role="tabpanel">
+
+            <p class="text-muted mb-3">
+                Edit the subject line and message body for each outbound email. Use
+                <code>{{placeholder}}</code> chips to insert dynamic values.
+                All emails are wrapped in the Mowology branded shell automatically.
+            </p>
+
+            <!-- Preview Modal -->
+            <div id="et-preview-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;padding:24px;">
+                <div style="background:#fff;border-radius:10px;width:100%;max-width:680px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #e5ede9;">
+                        <strong style="color:#0D3B2E;">Email Preview</strong>
+                        <button type="button" onclick="etClosePreview()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#7a9e8c;line-height:1;">&times;</button>
                     </div>
-                    <div class="mb-3">
-                        <label for="quote_message_footer" class="form-label">Footer</label>
-                        <textarea class="form-control" id="quote_message_footer" rows="3" maxlength="1000"></textarea>
-                    </div>
+                    <div id="et-preview-loading" style="padding:40px;text-align:center;color:#7a9e8c;">Loading preview…</div>
+                    <iframe id="et-preview-frame" style="flex:1;border:none;display:none;min-height:500px;" title="Email Preview"></iframe>
                 </div>
             </div>
 
-            <div class="card mt-3">
-                <div class="card-header"><h5 class="card-title">Receipt Messages</h5></div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label for="receipt_message_header" class="form-label">Header</label>
-                        <textarea class="form-control" id="receipt_message_header" rows="3" maxlength="1000"></textarea>
+            <!-- Accordion: one card per template type -->
+            <div id="et-accordion">
+
+                <?php
+                $etTemplates = [
+                    [
+                        'key'   => 'quote_sent',
+                        'label' => 'Quote Sent',
+                        'icon'  => 'file-text',
+                        'desc'  => 'Sent when a quote is delivered to a client.',
+                        'vars'  => ['{{customer_first_name}}', '{{customer_name}}', '{{quote_number}}', '{{quote_amount}}', '{{quote_valid_until}}', '{{company_name}}', '{{company_phone}}'],
+                        'open'  => true,
+                    ],
+                    [
+                        'key'   => 'invoice_sent',
+                        'label' => 'Invoice Sent',
+                        'icon'  => 'credit-card',
+                        'desc'  => 'Sent when an invoice is delivered to a client.',
+                        'vars'  => ['{{customer_first_name}}', '{{customer_name}}', '{{invoice_number}}', '{{amount_due}}', '{{due_date}}', '{{company_name}}', '{{company_phone}}'],
+                        'open'  => false,
+                    ],
+                    [
+                        'key'   => 'receipt_sent',
+                        'label' => 'Payment Receipt',
+                        'icon'  => 'check-circle',
+                        'desc'  => 'Sent automatically when a payment is received.',
+                        'vars'  => ['{{customer_first_name}}', '{{customer_name}}', '{{invoice_number}}', '{{amount_paid}}', '{{payment_date}}', '{{company_name}}', '{{company_phone}}'],
+                        'open'  => false,
+                    ],
+                    [
+                        'key'   => 'job_complete',
+                        'label' => 'Service Complete',
+                        'icon'  => 'check-square',
+                        'desc'  => 'Sent when a job is marked complete (Proof of Work).',
+                        'vars'  => ['{{customer_first_name}}', '{{customer_name}}', '{{service_type}}', '{{job_date}}', '{{property_address}}', '{{company_name}}', '{{company_phone}}'],
+                        'open'  => false,
+                    ],
+                ];
+                foreach ($etTemplates as $et):
+                    $collapseId = 'et-collapse-' . $et['key'];
+                    $headerId   = 'et-header-'   . $et['key'];
+                    $subjectId  = 'et_subject_'  . $et['key'];
+                    $bodyId     = 'et_body_'      . $et['key'];
+                    $isOpen     = $et['open'] ? 'show' : '';
+                    $collapsed  = $et['open'] ? '' : 'collapsed';
+                ?>
+                <div class="card mb-2">
+                    <div class="card-header p-0" id="<?= $headerId ?>">
+                        <button class="btn btn-link btn-block text-left d-flex align-items-center px-3 py-3 <?= $collapsed ?>"
+                                type="button"
+                                data-toggle="collapse"
+                                data-target="#<?= $collapseId ?>"
+                                aria-expanded="<?= $et['open'] ? 'true' : 'false' ?>"
+                                aria-controls="<?= $collapseId ?>">
+                            <i data-feather="<?= $et['icon'] ?>" style="width:16px;height:16px;margin-right:10px;flex-shrink:0;color:var(--mw-green);"></i>
+                            <span style="font-weight:600;color:#0D3B2E;flex:1;"><?= htmlspecialchars($et['label']) ?></span>
+                            <small class="text-muted mr-3 d-none d-md-inline"><?= htmlspecialchars($et['desc']) ?></small>
+                            <i data-feather="chevron-down" style="width:16px;height:16px;color:#7a9e8c;transition:transform .2s;"></i>
+                        </button>
                     </div>
-                    <div class="mb-3">
-                        <label for="receipt_message_footer" class="form-label">Footer</label>
-                        <textarea class="form-control" id="receipt_message_footer" rows="3" maxlength="1000"></textarea>
+                    <div id="<?= $collapseId ?>" class="collapse <?= $isOpen ?>" aria-labelledby="<?= $headerId ?>" data-parent="#et-accordion">
+                        <div class="card-body pt-3">
+                            <!-- Subject line -->
+                            <div class="mb-3">
+                                <label for="<?= $subjectId ?>" class="form-label font-weight-600">Subject line</label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="<?= $subjectId ?>"
+                                       maxlength="255"
+                                       placeholder="Email subject…"
+                                       oninput="etMarkDirty('<?= $et['key'] ?>')">
+                            </div>
+
+                            <!-- Placeholder chips -->
+                            <div class="mb-3">
+                                <label class="form-label text-muted" style="font-size:12px;margin-bottom:6px;">
+                                    Click a placeholder to insert at cursor &darr;
+                                </label>
+                                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                                    <?php foreach ($et['vars'] as $var): ?>
+                                    <button type="button"
+                                            class="btn btn-sm"
+                                            style="font-family:monospace;font-size:11px;padding:3px 9px;background:#f8fffe;border:1px solid #e5ede9;color:#1A5F4A;border-radius:4px;"
+                                            onclick="etInsertPlaceholder('<?= $bodyId ?>', '<?= $var ?>')">
+                                        <?= htmlspecialchars($var) ?>
+                                    </button>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+
+                            <!-- Body textarea -->
+                            <div class="mb-3">
+                                <label for="<?= $bodyId ?>" class="form-label font-weight-600">Message body</label>
+                                <small class="form-text text-muted d-block mb-1">
+                                    Plain text. Blank lines create paragraph breaks. The branded email wrapper and CTA button are added automatically.
+                                </small>
+                                <textarea class="form-control"
+                                          id="<?= $bodyId ?>"
+                                          rows="9"
+                                          style="font-family:monospace;font-size:13px;resize:vertical;"
+                                          placeholder="Write your message here…"
+                                          oninput="etMarkDirty('<?= $et['key'] ?>')"></textarea>
+                            </div>
+
+                            <!-- Actions -->
+                            <div class="d-flex gap-2" style="gap:10px;">
+                                <button type="button"
+                                        class="btn btn-outline-primary btn-sm"
+                                        onclick="etPreview('<?= $et['key'] ?>')">
+                                    <i data-feather="eye" style="width:14px;height:14px;margin-right:4px;"></i>
+                                    Preview Email
+                                </button>
+                                <button type="button"
+                                        class="btn btn-outline-secondary btn-sm"
+                                        onclick="etResetDefault('<?= $et['key'] ?>')">
+                                    <i data-feather="rotate-ccw" style="width:14px;height:14px;margin-right:4px;"></i>
+                                    Reset to Default
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
+                <?php endforeach; ?>
+
+            </div><!-- /et-accordion -->
+
+        </div><!-- /email-templates tab -->
 
         <!-- Receipt Forwarding Tab -->
         <div class="tab-pane fade" id="receipts" role="tabpanel">
