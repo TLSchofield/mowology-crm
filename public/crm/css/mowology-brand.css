@@ -2409,7 +2409,11 @@ a:hover {
   padding: 8px 0 6px;
   margin: 8px 0 0;
   border-top: 2px solid var(--mw-light);
+  cursor: grab;
 }
+.mw-section-divider.mw-dragging { opacity: 0.4; }
+.mw-section-divider.mw-drop-before { border-top: 3px solid var(--mw-green); }
+.mw-section-divider.mw-drop-after { border-bottom: 3px solid var(--mw-green); }
 .mw-section-divider:first-child {
   border-top: none;
   margin-top: 0;

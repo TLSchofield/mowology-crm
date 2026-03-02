@@ -236,6 +236,11 @@ ob_start();
 .cdx-p-svc-hdr { padding: 8px 14px 3px; display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; font-family: var(--cdx-font-display); color: var(--cdx-green); }
 .cdx-p-svc-hdr--alt { color: #e85d04; }
 .cdx-p-svc-notes { margin: 4px 14px 6px; background: #FAF8F5; border: 1px solid #EDE9E3; border-radius: 7px; padding: 6px 9px; font-size: 9px; color: #AAA49C; font-family: var(--cdx-font-mono); font-style: italic; }
+.cdx-p-icon-bar { padding: 6px 14px 2px; display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.cdx-p-icon-bar-lbl { width: 100%; font-size: 8px; font-family: var(--cdx-font-mono); color: #BBB5AC; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; }
+.cdx-p-icon-slot { width: 34px; height: 34px; border-radius: 7px; flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #EEE9E2; }
+.cdx-p-icon-slot img { width: 100%; height: 100%; object-fit: contain; border-radius: 7px; }
+.cdx-p-icon-slot--empty { background: transparent; border: 1.5px dashed #D5D0C8; color: #CCC7BE; font-size: 13px; font-weight: 300; }
 .cdx-p-btns { padding: 7px 14px; display: flex; gap: 7px; }
 .cdx-p-btn { flex: 1; padding: 9px 6px; border-radius: 9px; font-size: 11px; font-weight: 700; text-align: center; font-family: var(--cdx-font-display); }
 .cdx-p-btn-g { background: var(--cdx-green); color: #fff; }
@@ -787,9 +792,23 @@ function getStopPreview(id) {
         <div class="cdx-p-btn cdx-p-btn-g" style="flex:1">Clock In</div>
         <div class="cdx-p-btn cdx-p-btn-d" style="flex:1">Complete Job</div>
       </div>`;
+      // Mock product icons — coloured squares simulate real icon_set images
+      const mockIcons = [
+        { bg:'#C8E6C9', fg:'#2E7D32', lbl:'F' },   // Fertilizer
+        { bg:'#BBDEFB', fg:'#1565C0', lbl:'W' },   // Weed Control
+        { bg:'#FFF9C4', fg:'#F57F17', lbl:'A' },   // Aeration
+        { bg:'#F8BBD0', fg:'#AD1457', lbl:'O' },   // Obsidian Root
+      ];
+      const iconBar = `<div class="cdx-p-icon-bar">
+        <div class="cdx-p-icon-bar-lbl">Products applied</div>
+        ${mockIcons.map(ic => `<div class="cdx-p-icon-slot" style="background:${ic.bg}">
+          <span style="font-size:13px;font-weight:800;color:${ic.fg}">${ic.lbl}</span></div>`).join('')}
+        ${Array(6).fill(`<div class="cdx-p-icon-slot cdx-p-icon-slot--empty">+</div>`).join('')}
+      </div>`;
       const svcBlock = (emoji, label, hdrClass = '') => `
         <div class="cdx-p-svc-block">
           <div class="cdx-p-svc-hdr ${hdrClass}">${emoji} ${label}</div>
+          ${iconBar}
           ${photoRow}
           ${notesRow}
           ${btnsRow}

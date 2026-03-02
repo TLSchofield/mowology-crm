@@ -667,12 +667,46 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                     const div = document.createElement('div');
                     div.className = 'mw-section-divider';
                     div.dataset.index = index;
+                    div.draggable = true;
                     div.innerHTML =
+                        '<span class="mw-drag-handle" title="Drag to reorder section">⠿</span>' +
                         '<i data-feather="layers" style="width:13px;height:13px;margin-right:6px;vertical-align:middle;"></i>' +
                         '<input type="text" class="mw-section-name-input" value="' + escapeHtml(item.section_name || '') + '" ' +
                                'placeholder="Section name…" ' +
                                'oninput="updateLineItem(' + index + ', \'section_name\', this.value)">' +
                         '<button type="button" class="mw-section-remove-btn" onclick="removeLine(' + index + ')" title="Remove section">&times;</button>';
+                    div.addEventListener('dragstart', function (e) {
+                        dragSrcIdx = parseInt(this.dataset.index);
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', dragSrcIdx);
+                        setTimeout(() => this.classList.add('mw-dragging'), 0);
+                    });
+                    div.addEventListener('dragend', function () {
+                        this.classList.remove('mw-dragging');
+                        container.querySelectorAll('.mw-drop-before, .mw-drop-after').forEach(r => r.classList.remove('mw-drop-before', 'mw-drop-after'));
+                    });
+                    div.addEventListener('dragover', function (e) {
+                        e.preventDefault();
+                        if (parseInt(this.dataset.index) !== dragSrcIdx) {
+                            container.querySelectorAll('.mw-drop-before, .mw-drop-after').forEach(r => r.classList.remove('mw-drop-before', 'mw-drop-after'));
+                            const rect = this.getBoundingClientRect();
+                            this.classList.add(e.clientY < rect.top + rect.height / 2 ? 'mw-drop-before' : 'mw-drop-after');
+                        }
+                    });
+                    div.addEventListener('drop', function (e) {
+                        e.preventDefault();
+                        this.classList.remove('mw-drop-before', 'mw-drop-after');
+                        const targetIdx = parseInt(this.dataset.index);
+                        if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
+                        const rect = this.getBoundingClientRect();
+                        const insertBefore = e.clientY < rect.top + rect.height / 2;
+                        const moved = lineItems.splice(dragSrcIdx, 1)[0];
+                        const newTarget = insertBefore ? targetIdx : targetIdx + 1;
+                        const adjustedTarget = dragSrcIdx < targetIdx ? newTarget - 1 : newTarget;
+                        lineItems.splice(adjustedTarget, 0, moved);
+                        dragSrcIdx = null;
+                        renderLineItems();
+                    });
                     container.appendChild(div);
                     return;
                 }
