@@ -115,6 +115,8 @@ try {
     // Never cache preview renders.
     if (!$isPreviewMode) {
         cms_setPageHtmlCache((int)$page['id'], $renderedHtml);
+        // P3-B: Increment view count on each fresh (non-cached, non-preview) render
+        cms_incrementPageView((int)$page['id']);
     }
 
     echo $renderedHtml;

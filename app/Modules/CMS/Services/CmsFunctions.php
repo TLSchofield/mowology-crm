@@ -259,6 +259,12 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
             'slug'    => $slug,
         ]);
 
+        // P3-H: IndexNow ping when page transitions to published
+        $wasPublished = ($oldPage['status'] ?? '') !== 'published';
+        if ($newStatus === 'published' && $wasPublished) {
+            cms_pingIndexNow($slug);
+        }
+
         return $pageId;
     } else {
         // Create
@@ -1292,6 +1298,74 @@ function cms_invalidateAllPageHtmlCache(): void
         $db->exec("TRUNCATE TABLE cms_page_cache");
     } catch (\Throwable $e) {
         // Silently skip
+    }
+}
+
+// ============================================================================
+// INDEXNOW PING  (P3-H)
+// ============================================================================
+
+/**
+ * Ping IndexNow to notify search engines about a newly published URL.
+ * Fire-and-forget via non-blocking socket — never throws to caller.
+ *
+ * @param string $slug Page slug (without leading slash)
+ */
+function cms_pingIndexNow(string $slug): void
+{
+    try {
+        $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
+        $host    = parse_url($siteUrl, PHP_URL_HOST) ?? 'mowology.ca';
+        $pageUrl = rtrim($siteUrl, '/') . '/' . ltrim($slug, '/');
+
+        // IndexNow key — must match /[api-key].txt hosted on the site root
+        $indexNowKey = defined('INDEXNOW_KEY') ? INDEXNOW_KEY : 'mowology-indexnow';
+
+        $payload = json_encode([
+            'host'    => $host,
+            'key'     => $indexNowKey,
+            'urlList' => [$pageUrl],
+        ], JSON_UNESCAPED_SLASHES);
+
+        // Use file_get_contents with stream context (no cURL dependency)
+        $context = stream_context_create([
+            'http' => [
+                'method'        => 'POST',
+                'header'        => "Content-Type: application/json\r\nContent-Length: " . strlen($payload),
+                'content'       => $payload,
+                'timeout'       => 5,
+                'ignore_errors' => true,
+            ],
+        ]);
+
+        @file_get_contents('https://api.indexnow.org/indexnow', false, $context);
+
+        error_log("CMS IndexNow: pinged {$pageUrl}");
+    } catch (\Throwable $e) {
+        error_log('cms_pingIndexNow error: ' . $e->getMessage());
+    }
+}
+
+// ============================================================================
+// VIEW COUNT  (P3-B)
+// ============================================================================
+
+/**
+ * Increment the view_count for a published page.
+ * Called by cms-render.php on every non-preview, non-cached render.
+ * Uses a non-blocking fire-and-forget UPDATE — never throws.
+ *
+ * @param int $pageId
+ */
+function cms_incrementPageView(int $pageId): void
+{
+    try {
+        $db = getDB();
+        $db->prepare("UPDATE cms_pages SET view_count = view_count + 1 WHERE id = ?")
+           ->execute([$pageId]);
+    } catch (\Throwable $e) {
+        // Never surface view-count errors to visitors
+        error_log('cms_incrementPageView error: ' . $e->getMessage());
     }
 }
 

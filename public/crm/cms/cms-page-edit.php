@@ -213,10 +213,14 @@ $csrfToken = generateCSRFToken();
                       <a href="<?php echo h($previewUrl); ?>" target="_blank" class="btn btn-outline-primary btn-sm mr-1">
                           <i data-feather="eye" class="mr-1" style="width:14px;height:14px;"></i> Preview
                       </a>
-                      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="copyPreviewUrl(this)"
+                      <button type="button" class="btn btn-outline-secondary btn-sm mr-1" onclick="copyPreviewUrl(this)"
                               data-url="<?php echo h($previewUrl); ?>" title="Copy shareable preview link">
                           <i data-feather="link" style="width:14px;height:14px;"></i>
                       </button>
+                      <a href="/crm/api/cms-export-page.php?id=<?php echo $pageId; ?>" class="btn btn-outline-secondary btn-sm"
+                         title="Export page as JSON for backup or staging transfer">
+                          <i data-feather="download" style="width:14px;height:14px;"></i>
+                      </a>
                   </div>
               <?php endif; ?>
           </div>
@@ -458,6 +462,72 @@ $csrfToken = generateCSRFToken();
                           </div>
                       </div>
 
+                      <!-- SEO Assistant (P3-F) -->
+                      <?php if (!$isNew && $page): ?>
+                      <div class="card mb-4">
+                          <div class="card-header d-flex justify-content-between align-items-center">
+                              <h5 class="mb-0">SEO Assistant</h5>
+                              <button type="button" class="btn btn-sm btn-outline-primary" id="seoAutoFillBtn"
+                                      title="Auto-fill meta from hero block headline &amp; subheadline">
+                                  <i data-feather="zap" style="width:14px;height:14px;" class="mr-1"></i> Auto-fill
+                              </button>
+                          </div>
+                          <div class="card-body small">
+                              <?php
+                              $seoScore = (int)($page['seo_score'] ?? 0);
+                              $seoColor = $seoScore >= 80 ? 'success' : ($seoScore >= 50 ? 'warning' : 'danger');
+                              ?>
+                              <div class="mb-3">
+                                  <div class="d-flex justify-content-between mb-1">
+                                      <span class="text-muted">SEO Score</span>
+                                      <strong class="text-<?php echo $seoColor; ?>"><?php echo $seoScore; ?>/100</strong>
+                                  </div>
+                                  <div class="progress" style="height:6px;">
+                                      <div class="progress-bar bg-<?php echo $seoColor; ?>" style="width:<?php echo $seoScore; ?>%"></div>
+                                  </div>
+                              </div>
+                              <ul class="list-unstyled mb-0">
+                                  <?php
+                                  $metaTitleLen = mb_strlen($page['meta_title'] ?? '');
+                                  $metaDescLen  = mb_strlen($page['meta_description'] ?? '');
+                                  $seoChecks = [
+                                      ['label' => 'Meta title set',               'pass' => $metaTitleLen > 0],
+                                      ['label' => 'Meta title ≤ 60 chars',        'pass' => $metaTitleLen > 0 && $metaTitleLen <= 60],
+                                      ['label' => 'Meta description set',         'pass' => $metaDescLen > 0],
+                                      ['label' => 'Meta description 120–160 chars','pass' => $metaDescLen >= 120 && $metaDescLen <= 165],
+                                      ['label' => 'OG image set',                 'pass' => !empty($page['og_image_path'])],
+                                      ['label' => 'Has content blocks',           'pass' => count($blocks) > 0],
+                                      ['label' => 'Not noindex',                  'pass' => empty($page['noindex'])],
+                                      ['label' => 'Descriptive slug',             'pass' => mb_strlen($page['slug'] ?? '') >= 5],
+                                  ];
+                                  foreach ($seoChecks as $chk): ?>
+                                  <li class="<?php echo $chk['pass'] ? 'text-success' : 'text-danger'; ?> mb-1">
+                                      <i data-feather="<?php echo $chk['pass'] ? 'check-circle' : 'x-circle'; ?>"
+                                         style="width:12px;height:12px;" class="mr-1"></i>
+                                      <?php echo h($chk['label']); ?>
+                                  </li>
+                                  <?php endforeach; ?>
+                              </ul>
+                          </div>
+                      </div>
+                      <?php endif; ?>
+
+                      <!-- Revision History (P3-A) -->
+                      <?php if (!$isNew && $page): ?>
+                      <div class="card mb-4">
+                          <div class="card-header d-flex justify-content-between align-items-center">
+                              <h5 class="mb-0">Revision History</h5>
+                              <button type="button" class="btn btn-sm btn-outline-secondary" id="loadRevisionsBtn"
+                                      onclick="loadRevisions(<?php echo $pageId; ?>)">
+                                  <i data-feather="refresh-cw" style="width:12px;height:12px;" class="mr-1"></i> Load
+                              </button>
+                          </div>
+                          <div class="card-body p-0" id="revisionsPanel">
+                              <p class="text-muted small text-center py-3 mb-0">Click Load to view revision history.</p>
+                          </div>
+                      </div>
+                      <?php endif; ?>
+
                       <!-- Quick Token Reference -->
                       <div class="card">
                           <div class="card-header"><h5 class="mb-0">Available Tokens</h5></div>
@@ -620,6 +690,104 @@ function copyPreviewUrl(btn) {
         setTimeout(() => { btn.innerHTML = orig; if (typeof feather !== 'undefined') feather.replace(); }, 2000);
     }).catch(() => { prompt('Copy this preview URL:', url); });
 }
+
+// ── P3-A: Revision History ────────────────────────────────────────────────
+function loadRevisions(pageId) {
+    const panel = document.getElementById('revisionsPanel');
+    const btn   = document.getElementById('loadRevisionsBtn');
+    if (!panel) return;
+    panel.innerHTML = '<p class="text-muted small text-center py-3 mb-0">Loading…</p>';
+    if (btn) btn.disabled = true;
+
+    fetch('/crm/api/cms-revisions.php?page_id=' + pageId + '&limit=20')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !data.revisions.length) {
+                panel.innerHTML = '<p class="text-muted small text-center py-3 mb-0">No revisions found.</p>';
+                return;
+            }
+            const typeBadge = {draft: 'warning', published: 'success', restore: 'info'};
+            let html = '<ul class="list-group list-group-flush">';
+            data.revisions.forEach(rev => {
+                const badge = typeBadge[rev.revision_type] || 'secondary';
+                html += `<li class="list-group-item px-3 py-2 d-flex justify-content-between align-items-start">
+                    <div style="min-width:0;">
+                        <span class="badge badge-${badge} mr-1">${rev.revision_type}</span>
+                        <span class="text-muted small">${rev.created_at_ago}</span>
+                        <div class="text-muted small text-truncate">${rev.created_by_name}</div>
+                        ${rev.revision_message ? '<div class="small text-muted text-truncate">' + rev.revision_message + '</div>' : ''}
+                    </div>
+                    <button type="button" class="btn btn-xs btn-outline-warning flex-shrink-0 ml-2"
+                            onclick="restoreRevision(${rev.id}, '${rev.created_at_human}')"
+                            style="font-size:0.7rem;padding:2px 6px;">Restore</button>
+                </li>`;
+            });
+            html += '</ul>';
+            panel.innerHTML = html;
+        })
+        .catch(() => { panel.innerHTML = '<p class="text-danger small text-center py-3 mb-0">Failed to load revisions.</p>'; })
+        .finally(() => { if (btn) btn.disabled = false; });
+}
+
+function restoreRevision(revisionId, label) {
+    if (!confirm('Restore to revision from ' + label + '?\n\nThis will overwrite current block content (the current state is auto-saved as a revision first). Page settings and SEO fields are NOT changed.')) return;
+    fetch('/crm/api/restore-revision.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'csrf_token=' + encodeURIComponent(window.csrfToken) + '&revision_id=' + revisionId
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert('Revision restored. Reloading page…');
+            window.location.reload();
+        } else {
+            alert('Restore failed: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(() => alert('Network error during restore.'));
+}
+
+// ── P3-F: SEO Auto-fill from hero block ───────────────────────────────────
+(function() {
+    const btn = document.getElementById('seoAutoFillBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+        // Find the first hero block's headline + subheadline inputs
+        const container = document.getElementById('blocksContainer');
+        if (!container) return;
+        let headline = '', subheadline = '';
+        container.querySelectorAll('.block-card').forEach(card => {
+            if (headline) return; // stop after first hero found
+            const typeInput = card.querySelector('input[name*="[block_type]"]');
+            if (!typeInput || typeInput.value !== 'hero') return;
+            const hl = card.querySelector('input[name*="[headline]"]');
+            const sh = card.querySelector('input[name*="[subheadline]"]');
+            if (hl) headline    = hl.value.trim();
+            if (sh) subheadline = sh.value.trim();
+        });
+
+        if (!headline && !subheadline) {
+            alert('No hero block with a headline found. Add a Hero block first.');
+            return;
+        }
+
+        const mtEl = document.getElementById('meta_title');
+        const mdEl = document.getElementById('meta_description');
+        const titleField = document.getElementById('title');
+
+        if (mtEl && !mtEl.value.trim()) {
+            const pageTitle = titleField ? titleField.value.trim() : '';
+            mtEl.value = (pageTitle || headline).substring(0, 60);
+            mtEl.dispatchEvent(new Event('input'));
+        }
+        if (mdEl && !mdEl.value.trim()) {
+            const desc = [headline, subheadline].filter(Boolean).join(' — ').substring(0, 160);
+            mdEl.value = desc;
+            mdEl.dispatchEvent(new Event('input'));
+        }
+    });
+})();
 
 // Add token row
 function addTokenRow() {

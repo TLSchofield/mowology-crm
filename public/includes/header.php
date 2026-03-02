@@ -25,6 +25,34 @@ $nav = [
 ];
 ?>
 <body>
+<?php
+// P3-G: Announcement Bar — render if enabled in cms_site_settings
+try {
+    if (function_exists('getDB')) {
+        $__abRow = getDB()->query("SELECT setting_value FROM cms_site_settings WHERE setting_key = 'announcement_bar' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+        if ($__abRow) {
+            $__ab = json_decode($__abRow['setting_value'], true);
+            if (!empty($__ab['enabled']) && !empty($__ab['text'])) {
+                $__style = match($__ab['style'] ?? 'green') {
+                    'dark'   => 'background:#1A5F4A;color:#fff;',
+                    'orange' => 'background:#e85d04;color:#fff;',
+                    default  => 'background:#2D8659;color:#fff;',
+                };
+                echo '<div class="site-announcement-bar" style="' . $__style
+                    . 'text-align:center;padding:8px 16px;font-size:0.9rem;line-height:1.4;">'
+                    . htmlspecialchars($__ab['text'], ENT_QUOTES, 'UTF-8');
+                if (!empty($__ab['link_url']) && !empty($__ab['link_text'])) {
+                    echo ' <a href="' . htmlspecialchars($__ab['link_url'], ENT_QUOTES, 'UTF-8')
+                        . '" style="color:inherit;font-weight:600;text-decoration:underline;margin-left:8px;">'
+                        . htmlspecialchars($__ab['link_text'], ENT_QUOTES, 'UTF-8') . ' &rarr;</a>';
+                }
+                echo '</div>';
+            }
+        }
+    }
+} catch (\Throwable $__abEx) { /* Silently skip if table doesn't exist yet */ }
+unset($__abRow, $__ab, $__style, $__abEx);
+?>
   <header class="header">
     <nav class="navbar">
       <div class="container">

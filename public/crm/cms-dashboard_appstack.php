@@ -107,6 +107,42 @@ try {
     ")->fetch(PDO::FETCH_ASSOC) ?: $redirectStats;
 } catch (\Throwable $e) {}
 
+// --- Announcement Bar (P3-G) ---
+$announcementBar = ['enabled' => 0, 'text' => '', 'link_url' => '', 'link_text' => '', 'style' => 'green'];
+try {
+    $abRow = $db->query("SELECT setting_value FROM cms_site_settings WHERE setting_key = 'announcement_bar' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    if ($abRow) {
+        $abData = json_decode($abRow['setting_value'], true);
+        if (is_array($abData)) $announcementBar = array_merge($announcementBar, $abData);
+    }
+} catch (\Throwable $e) {}
+
+// Handle Announcement Bar save (POST before page renders)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['_save_announcement_bar'])) {
+    if (verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+        $abNew = [
+            'enabled'   => isset($_POST['ab_enabled']) ? 1 : 0,
+            'text'      => trim(strip_tags($_POST['ab_text'] ?? '')),
+            'link_url'  => trim($_POST['ab_link_url']  ?? ''),
+            'link_text' => trim(strip_tags($_POST['ab_link_text'] ?? '')),
+            'style'     => in_array($_POST['ab_style'] ?? '', ['green', 'dark', 'orange']) ? $_POST['ab_style'] : 'green',
+        ];
+        try {
+            $db->prepare("
+                INSERT INTO cms_site_settings (setting_key, setting_value, updated_at)
+                VALUES ('announcement_bar', ?, NOW())
+                ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = NOW()
+            ")->execute([json_encode($abNew)]);
+            $announcementBar = $abNew;
+            $abSaveMsg = 'Announcement bar saved.';
+        } catch (\Throwable $e) {
+            $abSaveErr = 'Save failed: ' . $e->getMessage();
+        }
+    } else {
+        $abSaveErr = 'Invalid CSRF token.';
+    }
+}
+
 // --- Recent CMS activity ---
 $recentActivity = [];
 try {
@@ -516,7 +552,83 @@ function cmsDash_actionIcon(string $action): string
 </div>
 
 <!-- ============================================================
-     ROW 4 — QUICK ACTIONS + CACHE MANAGEMENT
+     ROW 4 — ANNOUNCEMENT BAR (P3-G)
+     ============================================================ -->
+<div class="row g-3 mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <div>
+                    <i data-feather="bell" class="feather-sm me-2 text-muted"></i>
+                    <strong>Announcement Bar</strong>
+                    <span class="badge <?php echo $announcementBar['enabled'] ? 'badge-success' : 'badge-secondary'; ?> ml-2">
+                        <?php echo $announcementBar['enabled'] ? 'LIVE' : 'OFF'; ?>
+                    </span>
+                </div>
+                <small class="text-muted">Site-wide banner shown to all public visitors</small>
+            </div>
+            <div class="card-body">
+                <?php if (!empty($abSaveMsg)): ?>
+                    <div class="alert alert-success py-2"><?php echo h($abSaveMsg); ?></div>
+                <?php endif; ?>
+                <?php if (!empty($abSaveErr)): ?>
+                    <div class="alert alert-danger py-2"><?php echo h($abSaveErr); ?></div>
+                <?php endif; ?>
+                <form method="post" action="">
+                    <input type="hidden" name="_save_announcement_bar" value="1">
+                    <input type="hidden" name="csrf_token" value="<?php echo h(generateCSRFToken()); ?>">
+                    <div class="form-row align-items-center">
+                        <div class="col-md-5">
+                            <div class="form-group mb-md-0">
+                                <label class="small mb-1">Banner Text</label>
+                                <input type="text" class="form-control form-control-sm" name="ab_text"
+                                       value="<?php echo h($announcementBar['text']); ?>"
+                                       placeholder="e.g. Spring Special — 15% off lawn care this month!">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-group mb-md-0">
+                                <label class="small mb-1">Link Text</label>
+                                <input type="text" class="form-control form-control-sm" name="ab_link_text"
+                                       value="<?php echo h($announcementBar['link_text']); ?>"
+                                       placeholder="e.g. Book Now">
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <div class="form-group mb-md-0">
+                                <label class="small mb-1">Link URL</label>
+                                <input type="text" class="form-control form-control-sm" name="ab_link_url"
+                                       value="<?php echo h($announcementBar['link_url']); ?>"
+                                       placeholder="/quote">
+                            </div>
+                        </div>
+                        <div class="col-md-1">
+                            <div class="form-group mb-md-0">
+                                <label class="small mb-1">Style</label>
+                                <select class="form-control form-control-sm" name="ab_style">
+                                    <option value="green"  <?php echo $announcementBar['style'] === 'green'  ? 'selected' : ''; ?>>Green</option>
+                                    <option value="dark"   <?php echo $announcementBar['style'] === 'dark'   ? 'selected' : ''; ?>>Dark</option>
+                                    <option value="orange" <?php echo $announcementBar['style'] === 'orange' ? 'selected' : ''; ?>>Orange</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <div class="form-check mr-3 mb-md-0" style="margin-top:1.6rem;">
+                                <input type="checkbox" class="form-check-input" name="ab_enabled" id="ab_enabled" value="1"
+                                       <?php echo $announcementBar['enabled'] ? 'checked' : ''; ?>>
+                                <label class="form-check-label small" for="ab_enabled">Enable</label>
+                            </div>
+                            <button type="submit" class="btn btn-sm mw-btn-primary" style="margin-top:1.4rem;">Save</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     ROW 5 — QUICK ACTIONS + CACHE MANAGEMENT
      ============================================================ -->
 <div class="row g-3">
     <div class="col-md-12">
@@ -550,6 +662,9 @@ function cmsDash_actionIcon(string $action): string
                     </button>
                     <button id="btn-run-seo-recalc" class="btn btn-outline-secondary btn-sm" title="Recalculate SEO scores for all pages">
                         <i data-feather="bar-chart-2" class="feather-xs me-1"></i> Recalc SEO Scores
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-toggle="modal" data-target="#importPageModal">
+                        <i data-feather="upload" class="feather-xs me-1"></i> Import Page
                     </button>
                 </div>
                 <div id="cache-flush-msg" class="mt-2" style="display:none"></div>
@@ -622,6 +737,69 @@ document.getElementById('btn-run-schedule').addEventListener('click', function()
 });
 document.getElementById('btn-run-seo-recalc').addEventListener('click', function() {
     runCron('btn-run-seo-recalc', '/crm/cron/cms-seo-recalc.php', 'Recalc SEO Scores');
+});
+</script>
+
+<!-- ── Import Page Modal (P3-I) ────────────────────────────────────────── -->
+<div class="modal fade" id="importPageModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i data-feather="upload" style="width:16px;height:16px;" class="mr-2"></i> Import Page from JSON</h5>
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div id="importMsg"></div>
+                <form id="importPageForm" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="<?php echo h(generateCSRFToken()); ?>">
+                    <div class="form-group">
+                        <label>CMS Export JSON File</label>
+                        <input type="file" class="form-control-file" name="json_file" accept=".json" required>
+                        <small class="form-text text-muted">Export a page from the editor using the "Export" button. Only import files from this CMS.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Overwrite Existing Page ID <small class="text-muted">(optional — leave blank to create new)</small></label>
+                        <input type="number" class="form-control" name="overwrite_id" min="1" placeholder="Page ID to overwrite (or blank for new)">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="importPageBtn">
+                    <i data-feather="upload" style="width:14px;height:14px;" class="mr-1"></i> Import
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+document.getElementById('importPageBtn').addEventListener('click', function() {
+    var form = document.getElementById('importPageForm');
+    var msg  = document.getElementById('importMsg');
+    var fd   = new FormData(form);
+    var btn  = this;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span> Importing…';
+    msg.innerHTML = '';
+    fetch('/crm/api/cms-import-page.php', { method: 'POST', body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                msg.innerHTML = '<div class="alert alert-success py-2">Imported! <a href="' + data.redirect + '">Edit page →</a></div>';
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="upload" style="width:14px;height:14px;" class="mr-1"></i> Import';
+                if (typeof feather !== 'undefined') feather.replace();
+            } else {
+                msg.innerHTML = '<div class="alert alert-danger py-2">' + (data.error || 'Import failed.') + '</div>';
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="upload" style="width:14px;height:14px;" class="mr-1"></i> Import';
+                if (typeof feather !== 'undefined') feather.replace();
+            }
+        })
+        .catch(function(e) {
+            msg.innerHTML = '<div class="alert alert-danger py-2">Network error: ' + e.message + '</div>';
+            btn.disabled = false;
+        });
 });
 </script>
 
