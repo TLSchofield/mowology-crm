@@ -96,6 +96,7 @@ $csrfToken = generateCSRFToken();
               <li class="nav-item"><a class="nav-link" href="/crm/cms/cms-tokens.php"><i data-feather="hash" class="mr-1" style="width:14px;height:14px;"></i> Tokens</a></li>
               <li class="nav-item"><a class="nav-link" href="/crm/cms/cms-generator-manager.php"><i data-feather="layers" class="mr-1" style="width:14px;height:14px;"></i> Templates</a></li>
               <li class="nav-item"><a class="nav-link" href="/crm/cms-redirects_appstack.php"><i data-feather="corner-right-down" class="mr-1" style="width:14px;height:14px;"></i> Redirects</a></li>
+              <li class="nav-item"><a class="nav-link" href="/crm/cms-form-submissions_appstack.php"><i data-feather="inbox" class="mr-1" style="width:14px;height:14px;"></i> Form Submissions</a></li>
               <?php if (isAdmin()): ?>
               <li class="nav-item"><a class="nav-link" href="/crm/cms-activity_appstack.php"><i data-feather="activity" class="mr-1" style="width:14px;height:14px;"></i> Activity Log</a></li>
               <?php endif; ?>
@@ -265,6 +266,10 @@ $csrfToken = generateCSRFToken();
                                                           title="Duplicate as draft">
                                                       <i data-feather="copy" style="width:14px;height:14px;"></i>
                                                   </button>
+                                                  <a href="/crm/api/cms-export-page.php?id=<?php echo (int)$pg['id']; ?>"
+                                                     class="btn btn-outline-secondary" title="Export as JSON">
+                                                      <i data-feather="download" style="width:14px;height:14px;"></i>
+                                                  </a>
                                               </div>
                                           </td>
                                       </tr>
