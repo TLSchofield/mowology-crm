@@ -392,6 +392,17 @@ function formatCurrency($amount) {
             font-weight: 600;
         }
 
+        .section-header-row td {
+            background: var(--mist-gray);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--forest-main);
+            padding: 8px 12px;
+            border-bottom: 1px solid #d0ddd8;
+        }
+
         .totals {
             margin-top: 24px;
             padding-top: 24px;
@@ -753,7 +764,18 @@ function formatCurrency($amount) {
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach (($lineItems ?? []) as $item): ?>
+                            <?php
+                            $currentSection = false; // false = no section encountered yet
+                            foreach (($lineItems ?? []) as $item):
+                                $itemSection = $item['section_name'] ?? null;
+                                if ($itemSection !== $currentSection):
+                                    $currentSection = $itemSection;
+                                    if ($itemSection !== null):
+                            ?>
+                                <tr class="section-header-row">
+                                    <td colspan="3"><?php echo htmlspecialchars($itemSection); ?></td>
+                                </tr>
+                            <?php endif; endif; ?>
                                 <tr>
                                     <td><strong><?php echo htmlspecialchars($item['service_type']); ?></strong></td>
                                     <td><?php echo htmlspecialchars($item['description'] ?: '-'); ?></td>
