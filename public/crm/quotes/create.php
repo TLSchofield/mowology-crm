@@ -1678,7 +1678,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
         }
 
         // ── Save to Products Library ──────────────────────────────────────────
-        let _saveLibCategories = null;
+        var _saveLibCategories = null;
 
         async function _loadSaveLibCategories() {
             if (_saveLibCategories) return _saveLibCategories;
