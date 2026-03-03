@@ -47,7 +47,7 @@ $initials   = strtoupper(substr($userParts[0], 0, 1) . (isset($userParts[1]) ? s
 
 // Detect crew/driver role — they get a driver-centric bottom bar
 $_mobileUserRole = $user['role'] ?? 'user';
-$_isCrew = ($_mobileUserRole === 'user' || $_mobileUserRole === 'staff' || $_mobileUserRole === 'technician');
+$_isCrew = ($_mobileUserRole === 'user');
 
 // Bottom nav items — keep tight: just the 4 most used
 // Crew members see Driver Portal instead of Clients
