@@ -3356,28 +3356,95 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 <script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(__DIR__ . '/../js/profit-risk-octagon.js'); ?>"></script>
 
 <script>
-// ── Day Summary Card: clock button wiring + elapsed timer ──────────────────
+// ── Day Summary Card: clock buttons + elapsed timer ──────────────────────────
 (function () {
     'use strict';
 
-    // Delegate summary clock buttons to the topbar clock widget
-    var btnIn  = document.getElementById('dsSummaryClockIn');
-    var btnOut = document.getElementById('dsSummaryClockOut');
+    var TODAY_URL = '/crm/jobs/schedule.php'; // no date param = today
 
+    function getGPS(cb) {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function (p) { cb(p.coords.latitude, p.coords.longitude); },
+                function ()   { cb(null, null); },
+                { timeout: 5000, maximumAge: 60000 }
+            );
+        } else {
+            cb(null, null);
+        }
+    }
+
+    // ── Clock In ──────────────────────────────────────────────────────────────
+    var btnIn = document.getElementById('dsSummaryClockIn');
     if (btnIn) {
         btnIn.addEventListener('click', function () {
-            var real = document.getElementById('btnClockIn');
-            if (real) { real.click(); }
-        });
-    }
-    if (btnOut) {
-        btnOut.addEventListener('click', function () {
-            var real = document.getElementById('btnClockOut');
-            if (real) { real.click(); }
+            btnIn.disabled = true;
+            btnIn.textContent = 'Clocking in…';
+
+            getGPS(function (lat, lng) {
+                fetch('/crm/api/time-clock.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'clock_in', lat: lat, lng: lng })
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.success) {
+                        // Redirect to today — server-rendered card will show clocked-in state
+                        window.location.href = TODAY_URL;
+                    } else {
+                        btnIn.disabled = false;
+                        btnIn.textContent = 'Clock In';
+                        alert(data.error || 'Clock in failed. Please try again.');
+                    }
+                })
+                .catch(function () {
+                    btnIn.disabled = false;
+                    btnIn.textContent = 'Clock In';
+                    alert('Network error — please check your connection.');
+                });
+            });
         });
     }
 
-    // Tick the elapsed clock time on the summary card every 30 seconds
+    // ── Clock Out ─────────────────────────────────────────────────────────────
+    var btnOut = document.getElementById('dsSummaryClockOut');
+    if (btnOut) {
+        btnOut.addEventListener('click', function () {
+            if (!confirm('Clock out now?')) return;
+
+            btnOut.disabled = true;
+            btnOut.textContent = 'Clocking out…';
+
+            getGPS(function (lat, lng) {
+                fetch('/crm/api/time-clock.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'clock_out', lat: lat, lng: lng })
+                })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.success) {
+                        // Reload today — card will update to not-clocked-in state
+                        window.location.href = TODAY_URL;
+                    } else {
+                        btnOut.disabled = false;
+                        btnOut.textContent = 'Clock Out';
+                        alert(data.error || 'Clock out failed. Please try again.');
+                    }
+                })
+                .catch(function () {
+                    btnOut.disabled = false;
+                    btnOut.textContent = 'Clock Out';
+                    alert('Network error — please check your connection.');
+                });
+            });
+        });
+    }
+
+    // ── Elapsed Timer (clocked-in state only) ─────────────────────────────────
     var dsClockTime = document.querySelector('.mw-ds-clock-time[data-clock-start]');
     if (dsClockTime) {
         var startStr = dsClockTime.getAttribute('data-clock-start');
