@@ -41,7 +41,7 @@ if (is_dir($savePath) && is_writable($savePath)) {
 // The server GC window (gc_maxlifetime) must be >= cookie lifetime or the
 // session file gets deleted while the browser still holds a valid cookie,
 // causing silent logouts on Android/PWA when the screen is locked for >24 min.
-$sessionLifetime = 8 * 3600; // 8 hours in seconds
+$sessionLifetime = 9 * 3600; // 9 hours in seconds
 
 // Override the host's php.ini gc_maxlifetime (cPanel sets it to 1440 = 24 min)
 // so session files survive at least as long as the cookie.
