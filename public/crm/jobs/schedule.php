@@ -754,6 +754,23 @@ $mobilePrevDay = date('Y-m-d', strtotime($mobileDate . ' -1 day'));
 $mobileNextDay = date('Y-m-d', strtotime($mobileDate . ' +1 day'));
 $mobileIsToday = ($mobileDate === $today);
 
+// ─── Day strip: 7-day week data for the Jobber-style strip in mobile topbar ──
+$stripWeekStart    = date('Y-m-d', strtotime('monday this week', strtotime($mobileDate)));
+$stripDays         = [];
+for ($i = 0; $i < 7; $i++) {
+    $d = date('Y-m-d', strtotime($stripWeekStart . " +{$i} days"));
+    $stripDays[] = [
+        'date'        => $d,
+        'day_letter'  => strtoupper(substr(date('D', strtotime($d)), 0, 1)), // M T W T F S S
+        'day_num'     => (int)date('j', strtotime($d)),
+        'is_today'    => ($d === $today),
+        'is_selected' => ($d === $mobileDate),
+    ];
+}
+$stripPrevWeekDate = date('Y-m-d', strtotime($stripWeekStart . ' -7 days'));
+$stripNextWeekDate = date('Y-m-d', strtotime($stripWeekStart . ' +7 days'));
+$stripMonthLabel   = date('F Y', strtotime($mobileDate));
+
 // Get weather for the selected mobile date
 $todayWeather = $weekWeather[$mobileDate] ?? $todaysForecast[$mobileDate] ?? [
     'temp_high' => 12, 'temp_low' => 8, 'condition' => 'Clear'
@@ -1027,10 +1044,12 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303h" rel="stylesheet">';
-// Prefetch adjacent days so arrow taps feel instant
-$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobilePrevDay) . $filterQueryStr . '">';
-$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobileNextDay) . $filterQueryStr . '">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303i" rel="stylesheet">';
+// Prefetch adjacent days + adjacent weeks so strip navigation feels instant
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobilePrevDay)      . $filterQueryStr . '">';
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobileNextDay)      . $filterQueryStr . '">';
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($stripPrevWeekDate)  . $filterQueryStr . '">';
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($stripNextWeekDate)  . $filterQueryStr . '">';
 // Prefetch bottom nav destinations so taps navigate instantly
 $extraHead .= '<link rel="prefetch" href="/crm/expenses_appstack.php?mode=quick&return=schedule">';
 $extraHead .= '<link rel="prefetch" href="/crm/jobs/index.php">';
@@ -2003,49 +2022,53 @@ if ($apiKey) {
                ═══════════════════════════════════════════════ -->
           <div class="mw-mc-container" data-csrf="<?php echo htmlspecialchars($csrfToken); ?>">
 
-              <!-- ── Fixed Top Bar ── -->
+              <!-- ── Fixed Top Bar: Jobber-style week strip ── -->
               <div class="mw-mc-topbar">
-                  <!-- Date nav: ‹ THU / Feb 20 › — tap date to open picker -->
-                  <div class="mw-mc-topbar-left">
-                      <a href="?view=day&date=<?php echo htmlspecialchars($mobilePrevDay) . $filterQueryStr; ?>"
-                         class="mw-mc-date-arrow" aria-label="Previous day">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                        </a>
-                      <!-- Label wraps a real date input — tap hits the input directly, works in PWA -->
-                      <label class="mw-mc-date-pill<?php echo $mobileIsToday ? ' mw-mc-date-pill-today' : ''; ?>"
-                             id="mwMobileDateBtn">
-                          <span class="mw-mc-date-pill-text">
-                              <span class="mw-mc-date-pill-day"><?php echo htmlspecialchars($todayDayName); ?></span>
-                              <span class="mw-mc-date-pill-date"><?php echo htmlspecialchars($todayDateDisplay); ?></span>
-                          </span>
-                          <input type="date" id="mwMobileDateInput"
-                                 value="<?php echo htmlspecialchars($mobileDate); ?>"
-                                 style="position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;margin:0;cursor:pointer;font-size:16px;">
-                      </label>
-                      <a href="?view=day&date=<?php echo htmlspecialchars($mobileNextDay) . $filterQueryStr; ?>"
-                         class="mw-mc-date-arrow" aria-label="Next day">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                        </a>
-                  </div>
-                  <div class="mw-mc-topbar-center">
+
+                  <!-- Row 1: month label · progress · GPS · weather -->
+                  <div class="mw-mc-strip-header">
+                      <span class="mw-mc-strip-month"><?php echo htmlspecialchars($stripMonthLabel); ?></span>
                       <?php if ($totalStops > 0): ?>
-                          <div class="mw-mc-topbar-progress">
-                              <div class="mw-mc-topbar-progress-bar">
-                                  <div class="mw-mc-topbar-progress-fill" style="width: <?php echo $totalStops > 0 ? round(($completedStops / $totalStops) * 100) : 0; ?>%"></div>
-                              </div>
-                              <span class="mw-mc-topbar-progress-text"><?php echo $completedStops; ?>/<?php echo $totalStops; ?></span>
-                          </div>
+                      <span class="mw-mc-strip-progress-pill"><?php echo $completedStops; ?>/<?php echo $totalStops; ?></span>
                       <?php endif; ?>
+                      <div class="mw-mc-strip-right">
+                          <button class="mw-mc-topbar-locate" id="mobileTrackingDot" title="Checking GPS...">
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+                          </button>
+                          <span class="mw-mc-topbar-weather">
+                              <?php echo getWeatherIcon($todayWeather['condition'] ?? 'Clear'); ?>
+                              <?php echo (int)($todayWeather['temp_high'] ?? 12); ?>&deg;
+                          </span>
+                      </div>
                   </div>
-                  <div class="mw-mc-topbar-right">
-                      <button class="mw-mc-topbar-locate" id="mobileTrackingDot" title="Checking GPS...">
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
-                      </button>
-                      <span class="mw-mc-topbar-weather">
-                          <?php echo getWeatherIcon($todayWeather['condition'] ?? 'Clear'); ?>
-                          <?php echo (int)($todayWeather['temp_high'] ?? 12); ?>&deg;
-                      </span>
+
+                  <!-- Row 2: prev-week · 7 days · next-week -->
+                  <div class="mw-mc-week-strip">
+                      <a href="?view=day&date=<?php echo htmlspecialchars($stripPrevWeekDate) . $filterQueryStr; ?>"
+                         class="mw-mc-strip-nav-arrow" aria-label="Previous week">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                      </a>
+                      <div class="mw-mc-strip-days" id="mwStripDays"
+                           data-prev-week="?view=day&date=<?php echo htmlspecialchars($stripPrevWeekDate) . htmlspecialchars($filterQueryStr); ?>"
+                           data-next-week="?view=day&date=<?php echo htmlspecialchars($stripNextWeekDate) . htmlspecialchars($filterQueryStr); ?>">
+                          <?php foreach ($stripDays as $sd): ?>
+                          <a href="?view=day&date=<?php echo htmlspecialchars($sd['date']) . $filterQueryStr; ?>"
+                             class="mw-mc-strip-day<?php
+                                 echo $sd['is_selected'] ? ' mw-mc-strip-day-selected' : '';
+                                 echo $sd['is_today']    ? ' mw-mc-strip-day-today'    : '';
+                             ?>"
+                             <?php echo $sd['is_selected'] ? 'aria-current="date"' : ''; ?>>
+                              <span class="mw-mc-strip-day-letter"><?php echo htmlspecialchars($sd['day_letter']); ?></span>
+                              <span class="mw-mc-strip-day-num"><?php echo $sd['day_num']; ?></span>
+                          </a>
+                          <?php endforeach; ?>
+                      </div>
+                      <a href="?view=day&date=<?php echo htmlspecialchars($stripNextWeekDate) . $filterQueryStr; ?>"
+                         class="mw-mc-strip-nav-arrow" aria-label="Next week">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                      </a>
                   </div>
+
               </div>
 
               <!-- ── Scrollable Card Area ── -->
@@ -2245,23 +2268,37 @@ if ($apiKey) {
 
 <script>
 /**
- * Mobile date picker — input is embedded directly inside the label pill.
- * Tap hits the real <input type="date"> overlay → OS native picker fires.
- * No showPicker() / focus() tricks needed — works in PWA on iOS & Android.
+ * Day strip — swipe left/right to jump prev/next week, tap a day to navigate.
+ * Works in PWA on iOS & Android without any native picker hacks.
  */
 (function() {
-    var input = document.getElementById('mwMobileDateInput');
-    if (!input) return;
+    var strip = document.getElementById('mwStripDays');
+    if (!strip) return;
 
-    input.addEventListener('change', function() {
-        var picked = input.value;
-        if (!picked) return;
-        var params = new URLSearchParams(window.location.search);
-        params.set('view', 'day');
-        params.set('date', picked);
-        params.delete('start');
-        window.location.search = params.toString();
-    });
+    var PREV_WEEK = strip.getAttribute('data-prev-week');
+    var NEXT_WEEK = strip.getAttribute('data-next-week');
+    var startX = 0, startY = 0, dragging = false;
+
+    strip.addEventListener('touchstart', function(e) {
+        startX   = e.touches[0].clientX;
+        startY   = e.touches[0].clientY;
+        dragging = false;
+    }, { passive: true });
+
+    strip.addEventListener('touchmove', function(e) {
+        // Mark as a drag if moving horizontally > 8px so we can suppress tap
+        if (Math.abs(e.touches[0].clientX - startX) > 8) dragging = true;
+    }, { passive: true });
+
+    strip.addEventListener('touchend', function(e) {
+        var dx = e.changedTouches[0].clientX - startX;
+        var dy = e.changedTouches[0].clientY - startY;
+        // Swipe threshold: 55px horizontal, must be more horizontal than vertical
+        if (Math.abs(dx) >= 55 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+            var target = dx < 0 ? NEXT_WEEK : PREV_WEEK;
+            if (target) window.location.href = target;
+        }
+    }, { passive: true });
 })();
 
 /**
@@ -3348,24 +3385,30 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 <script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(__DIR__ . '/../js/profit-risk-octagon.js'); ?>"></script>
 
 <script>
-// ── Date arrow navigation: instant visual feedback ────────────────────────────
+// ── Day strip + week nav arrows: instant visual feedback ──────────────────────
 (function () {
     'use strict';
     var scrollArea = document.querySelector('.mw-mc-scroll-area');
 
-    document.querySelectorAll('.mw-mc-date-arrow').forEach(function (arrow) {
-        arrow.addEventListener('click', function () {
-            // Dim the scroll area immediately so the user sees feedback before the
-            // new page arrives — prevents double-tapping "nothing happened"
-            if (scrollArea) {
-                scrollArea.style.transition = 'opacity 0.15s ease';
-                scrollArea.style.opacity    = '0.35';
-            }
-            // Disable both arrows to prevent double navigation
-            document.querySelectorAll('.mw-mc-date-arrow').forEach(function (a) {
-                a.style.pointerEvents = 'none';
-            });
+    function dimAndLock() {
+        if (scrollArea) {
+            scrollArea.style.transition = 'opacity 0.15s ease';
+            scrollArea.style.opacity    = '0.35';
+        }
+        // Disable all strip interactions to prevent double navigation
+        document.querySelectorAll('.mw-mc-strip-day, .mw-mc-strip-nav-arrow').forEach(function (el) {
+            el.style.pointerEvents = 'none';
         });
+    }
+
+    // Day column taps (skip the already-selected day — no page load needed)
+    document.querySelectorAll('.mw-mc-strip-day:not(.mw-mc-strip-day-selected)').forEach(function (day) {
+        day.addEventListener('click', dimAndLock);
+    });
+
+    // Week nav arrows (‹ ›)
+    document.querySelectorAll('.mw-mc-strip-nav-arrow').forEach(function (arrow) {
+        arrow.addEventListener('click', dimAndLock);
     });
 })();
 

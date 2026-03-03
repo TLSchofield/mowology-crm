@@ -64,163 +64,167 @@
     }
 
     /* ════════════════════════════════════════════════════
-       FIXED TOP BAR
+       FIXED TOP BAR — Jobber-style week day strip
        ════════════════════════════════════════════════════ */
 
     .mw-mc-topbar {
         flex-shrink: 0;
         display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 16px;
-        padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+        flex-direction: column;             /* two rows: header + day strip */
+        padding-top: env(safe-area-inset-top, 0px);
         background: var(--mc-card-bg);
         border-bottom: 1px solid #ebe8e2;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
         z-index: 10;
     }
 
-    /* ── Date nav: ‹  THU / Feb 20  › ── */
-    .mw-mc-topbar-left {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        height: 48px;   /* match children height — eliminates flex centering offset */
-        gap: 2px;
-        flex-shrink: 0;
-    }
-
-    /* Prev / Next arrows */
-    .mw-mc-date-arrow {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 48px;
-        height: 48px;
-        color: #444;
-        background: #f0ede8;
-        text-decoration: none;
-        border-radius: 12px;
-        touch-action: manipulation;
-        -webkit-tap-highlight-color: transparent;
-        transition: background 0.15s, color 0.15s, transform 0.1s;
-        user-select: none;
-        -webkit-user-select: none;
-        flex-shrink: 0;
-    }
-
-    .mw-mc-date-arrow:active {
-        background: var(--mw-light, #E8F3F0);
-        color: var(--mw-green, #2D8659);
-        transform: scale(0.92);
-        text-decoration: none;
-    }
-
-    /* Date pill — label wraps a transparent date input overlay; tap → OS picker */
-    .mw-mc-date-pill {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        justify-content: center;
-        align-self: center;    /* force vertical centering inside topbar-left */
-        gap: 7px;
-        line-height: 1.15;
-        height: 48px;
-        padding: 0 14px;
-        border: 2px solid #d8d4cc;
-        background: #fff;
-        cursor: pointer;
-        border-radius: 12px;
-        position: relative;    /* contains the absolute date input overlay */
-        touch-action: manipulation;
-        -webkit-tap-highlight-color: transparent;
-        transition: border-color 0.15s, background 0.15s;
-        min-width: 0;
-    }
-
-    .mw-mc-date-pill:active {
-        border-color: var(--mw-green, #2D8659);
-        background: var(--mw-light, #E8F3F0);
-    }
-
-    .mw-mc-date-pill-text {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-    }
-
-    .mw-mc-date-pill-icon {
-        color: #888;
-        flex-shrink: 0;
-        display: block;
-    }
-
-    /* "Today" highlight */
-    .mw-mc-date-pill-today {
-        border-color: var(--mw-green, #2D8659);
-    }
-
-    .mw-mc-date-pill-today .mw-mc-date-pill-date {
-        color: var(--mw-green, #2D8659);
-        font-weight: 700;
-    }
-
-    .mw-mc-date-pill-today .mw-mc-date-pill-icon {
-        color: var(--mw-green, #2D8659);
-    }
-
-    .mw-mc-date-pill-day {
-        font-size: 1.0rem;
-        font-weight: 700;
-        color: #1a1a1a;
-        letter-spacing: 0.03em;
-    }
-
-    .mw-mc-date-pill-date {
-        font-size: 0.72rem;
-        color: #888;
-        font-weight: 500;
-        white-space: nowrap;
-    }
-
-    .mw-mc-topbar-center {
-        flex: 1;
-        padding: 0 16px;
-    }
-
-    .mw-mc-topbar-progress {
+    /* ── Row 1: month label · progress pill · GPS · weather ── */
+    .mw-mc-strip-header {
         display: flex;
         align-items: center;
         gap: 8px;
+        padding: 10px 16px 4px;
     }
 
-    .mw-mc-topbar-progress-bar {
+    .mw-mc-strip-month {
         flex: 1;
-        height: 6px;
-        background: #ebe8e2;
-        border-radius: 3px;
-        overflow: hidden;
-    }
-
-    .mw-mc-topbar-progress-fill {
-        height: 100%;
-        background: var(--mw-green, #2D8659);
-        border-radius: 3px;
-        transition: width 0.3s ease;
-    }
-
-    .mw-mc-topbar-progress-text {
-        font-size: 0.72rem;
+        font-size: 0.88rem;
         font-weight: 700;
-        color: #9e9e9e;
-        white-space: nowrap;
+        color: #1a1a1a;
+        font-family: 'Montserrat', sans-serif;
+        letter-spacing: 0.01em;
     }
 
-    .mw-mc-topbar-right {
+    .mw-mc-strip-progress-pill {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: var(--mw-green, #2D8659);
+        background: var(--mw-light, #E8F3F0);
+        padding: 3px 9px;
+        border-radius: 20px;
+        white-space: nowrap;
         flex-shrink: 0;
+    }
+
+    .mw-mc-strip-right {
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    /* ── Row 2: ‹ week  ·  7 day columns  ·  week › ── */
+    .mw-mc-week-strip {
+        display: flex;
+        align-items: center;
+        padding: 2px 6px 10px;
+    }
+
+    /* Week nav arrows (‹ ›) */
+    .mw-mc-strip-nav-arrow {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 44px;
+        flex-shrink: 0;
+        color: #bbb;
+        text-decoration: none;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+        transition: color 0.15s;
+    }
+
+    .mw-mc-strip-nav-arrow:active {
+        color: var(--mw-green, #2D8659);
+        text-decoration: none;
+    }
+
+    /* 7-day row */
+    .mw-mc-strip-days {
+        flex: 1;
+        display: flex;
+        align-items: stretch;
+    }
+
+    /* Individual day column */
+    .mw-mc-strip-day {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        padding: 2px 0 6px;
+        text-decoration: none;
+        color: #999;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+        transition: color 0.15s;
+        position: relative;
+        min-height: 52px;
+    }
+
+    .mw-mc-strip-day:active {
+        text-decoration: none;
+        opacity: 0.65;
+    }
+
+    .mw-mc-strip-day-letter {
+        font-size: 0.65rem;
+        font-weight: 600;
+        font-family: 'Montserrat', sans-serif;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        line-height: 1;
+    }
+
+    .mw-mc-strip-day-num {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.9rem;
+        font-weight: 500;
+        font-family: 'Montserrat', sans-serif;
+        border-radius: 50%;
+        line-height: 1;
+        transition: background 0.15s, color 0.15s;
+    }
+
+    /* Today (not selected) — green number + small dot beneath */
+    .mw-mc-strip-day-today:not(.mw-mc-strip-day-selected) .mw-mc-strip-day-letter {
+        color: var(--mw-green, #2D8659);
+    }
+
+    .mw-mc-strip-day-today:not(.mw-mc-strip-day-selected) .mw-mc-strip-day-num {
+        color: var(--mw-green, #2D8659);
+        font-weight: 700;
+    }
+
+    .mw-mc-strip-day-today:not(.mw-mc-strip-day-selected)::after {
+        content: '';
+        position: absolute;
+        bottom: 2px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--mw-green, #2D8659);
+    }
+
+    /* Selected day — filled green circle around the number */
+    .mw-mc-strip-day-selected .mw-mc-strip-day-letter {
+        color: var(--mw-green, #2D8659);
+        font-weight: 700;
+    }
+
+    .mw-mc-strip-day-selected .mw-mc-strip-day-num {
+        background: var(--mw-green, #2D8659);
+        color: #fff;
+        font-weight: 700;
     }
 
     .mw-mc-topbar-locate {
