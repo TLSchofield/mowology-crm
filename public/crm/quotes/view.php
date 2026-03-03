@@ -640,9 +640,15 @@ $activePage = 'quotes';
                           <i data-feather="check-circle" class="mr-1"></i> Approve (Verbal)
                       </button>
                   <?php elseif ($quote['status'] === 'accepted'): ?>
-                      <a href="../contracts/create.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
-                          <i data-feather="file-check" class="mr-1"></i> Create Contract
-                      </a>
+                      <?php if (!empty($quote['is_contract'])): ?>
+                          <a href="../contracts/create.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
+                              <i data-feather="file-check" class="mr-1"></i> Create Contract
+                          </a>
+                      <?php else: ?>
+                          <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
+                              <i data-feather="briefcase" class="mr-1"></i> Create Plans
+                          </a>
+                      <?php endif; ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                           <button type="submit" name="action" value="send" class="btn btn-outline-secondary">

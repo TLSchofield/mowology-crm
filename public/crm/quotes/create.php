@@ -136,6 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $notesCustomer = trim($_POST['notes_customer'] ?? '');
         $notesInternal = trim($_POST['notes_internal'] ?? '');
         $description = trim($_POST['description'] ?? '');
+        $isContract = isset($_POST['is_contract']) ? 1 : 0;
 
         // Parse line items from JSON
         $lineItemsJson = $_POST['line_items'] ?? '[]';
@@ -183,6 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             notes_customer = ?,
                             notes_internal = ?,
                             description = ?,
+                            is_contract = ?,
                             pdf_path = NULL,
                             pdf_version = 0,
                             pdf_generated_at = NULL,
@@ -193,7 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $propertyId, $companyId, $title, $serviceType, $totals['total'],
                         $totals['subtotal'], $totals['tax_rate'], $totals['tax_amount'],
                         $validUntil ?: null, $terms, $notesCustomer, $notesInternal,
-                        $description, $quoteId
+                        $description, $isContract, $quoteId
                     ]);
 
                     // Delete old line items
@@ -223,14 +225,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             quote_number, property_id, company_id, title, service_type, amount,
                             subtotal, tax_rate, tax_amount, valid_until, terms,
                             notes_customer, notes_internal, description, access_token,
-                            token_expires_at, created_by, status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), ?, 'draft')
+                            token_expires_at, created_by, status, is_contract
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), ?, 'draft', ?)
                     ");
                     $stmt->execute([
                         $quoteNumber, $propertyId, $companyId, $title, $serviceType, $totals['total'],
                         $totals['subtotal'], $totals['tax_rate'], $totals['tax_amount'],
                         $validUntil ?: null, $terms, $notesCustomer, $notesInternal,
-                        $description, $accessToken, $user['id']
+                        $description, $accessToken, $user['id'], $isContract
                     ]);
                     $quoteId = $db->lastInsertId();
 
@@ -403,7 +405,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                            placeholder="e.g., Spring Lawn Care Package">
                                 </div>
 
-                                <div class="mw-form-group mb-0">
+                                <div class="mw-form-group">
                                     <label class="form-label">Service Type</label>
                                     <select name="service_type" class="form-control">
                                         <option value="landscaping" <?php echo ($quote['service_type'] ?? '') === 'landscaping' ? 'selected' : ''; ?>>Landscaping</option>
@@ -412,6 +414,20 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                         <option value="garden_maintenance" <?php echo ($quote['service_type'] ?? '') === 'garden_maintenance' ? 'selected' : ''; ?>>Garden Maintenance</option>
                                         <option value="seasonal_cleanup" <?php echo ($quote['service_type'] ?? '') === 'seasonal_cleanup' ? 'selected' : ''; ?>>Seasonal Cleanup</option>
                                     </select>
+                                </div>
+
+                                <div class="mw-form-group mb-0">
+                                    <div class="mw-contract-toggle">
+                                        <label class="mw-contract-toggle-label">
+                                            <input type="checkbox" name="is_contract" id="isContractToggle" value="1"
+                                                   <?php echo !empty($quote['is_contract']) ? 'checked' : ''; ?>>
+                                            <span class="mw-contract-toggle-track"></span>
+                                            <span class="mw-contract-toggle-text">
+                                                <strong>Contract Pathway</strong>
+                                                <small>Accepted quote will generate a formal contract with billing terms</small>
+                                            </span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
