@@ -1027,7 +1027,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303d" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303e" rel="stylesheet">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -2005,17 +2005,18 @@ if ($apiKey) {
                          class="mw-mc-date-arrow" aria-label="Previous day">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                         </a>
-                      <button type="button"
-                              class="mw-mc-date-pill<?php echo $mobileIsToday ? ' mw-mc-date-pill-today' : ''; ?>"
-                              id="mwMobileDateBtn"
-                              title="Pick a date">
+                      <!-- Label wraps a real date input — tap hits the input directly, works in PWA -->
+                      <label class="mw-mc-date-pill<?php echo $mobileIsToday ? ' mw-mc-date-pill-today' : ''; ?>"
+                             id="mwMobileDateBtn">
                           <svg class="mw-mc-date-pill-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                           <span class="mw-mc-date-pill-text">
                               <span class="mw-mc-date-pill-day"><?php echo htmlspecialchars($todayDayName); ?></span>
                               <span class="mw-mc-date-pill-date"><?php echo htmlspecialchars($todayDateDisplay); ?></span>
                           </span>
-                      </button>
-                      <!-- Date input injected into body by JS to avoid layout bleed -->
+                          <input type="date" id="mwMobileDateInput"
+                                 value="<?php echo htmlspecialchars($mobileDate); ?>"
+                                 style="position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;margin:0;cursor:pointer;font-size:16px;">
+                      </label>
                       <a href="?view=day&date=<?php echo htmlspecialchars($mobileNextDay) . $filterQueryStr; ?>"
                          class="mw-mc-date-arrow" aria-label="Next day">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
@@ -2239,25 +2240,14 @@ if ($apiKey) {
 
 <script>
 /**
- * Mobile date picker — tapping the date pill opens the native date input.
- * The input is created dynamically and appended to <body> to avoid any
- * layout bleed in desktop Chrome's simulated mobile viewport.
- * On change, navigate to ?view=day&date=YYYY-MM-DD preserving filters.
+ * Mobile date picker — input is embedded directly inside the label pill.
+ * Tap hits the real <input type="date"> overlay → OS native picker fires.
+ * No showPicker() / focus() tricks needed — works in PWA on iOS & Android.
  */
 (function() {
-    var btn = document.getElementById('mwMobileDateBtn');
-    if (!btn) return;
+    var input = document.getElementById('mwMobileDateInput');
+    if (!input) return;
 
-    var currentDate = '<?php echo htmlspecialchars($mobileDate); ?>';
-
-    // Create the hidden input and attach to body (keeps it out of topbar layout)
-    var input = document.createElement('input');
-    input.type = 'date';
-    input.value = currentDate;
-    input.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;pointer-events:none;';
-    document.body.appendChild(input);
-
-    // When a date is picked, navigate preserving crew/service filters
     input.addEventListener('change', function() {
         var picked = input.value;
         if (!picked) return;
@@ -2266,16 +2256,6 @@ if ($apiKey) {
         params.set('date', picked);
         params.delete('start');
         window.location.search = params.toString();
-    });
-
-    // Tap/click on date pill → open native date picker
-    btn.addEventListener('click', function(e) {
-        e.preventDefault();
-        if (typeof input.showPicker === 'function') {
-            try { input.showPicker(); } catch(err) { input.focus(); }
-        } else {
-            input.focus();
-        }
     });
 })();
 

@@ -115,7 +115,7 @@
         text-decoration: none;
     }
 
-    /* Date pill — tappable, opens native date picker */
+    /* Date pill — label wraps a transparent date input overlay; tap → OS picker */
     .mw-mc-date-pill {
         display: flex;
         flex-direction: row;
@@ -128,6 +128,7 @@
         background: #fff;
         cursor: pointer;
         border-radius: 12px;
+        position: relative;    /* contains the absolute date input overlay */
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
         transition: border-color 0.15s, background 0.15s;
