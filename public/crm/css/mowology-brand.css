@@ -13049,6 +13049,74 @@ textarea.font-monospace {
   font-weight: 500;
 }
 
+/* ── Duplicate Detection Rows ────────────────────────── */
+.mw-dup-sep-row td,
+.mw-dup-sep-cell {
+  background: rgba(245, 158, 11, 0.13) !important;
+  border-top: 2px dashed #f59e0b !important;
+  border-bottom: none !important;
+  padding: 7px 14px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #92400e;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.mw-dup-row td {
+  background: rgba(245, 158, 11, 0.05) !important;
+  border-top: none !important;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.2) !important;
+}
+.mw-dup-act-row td,
+.mw-dup-act-cell {
+  background: rgba(245, 158, 11, 0.10) !important;
+  border-top: none !important;
+  border-bottom: 2px dashed #f59e0b !important;
+  padding: 7px 14px;
+}
+/* Left-border spine connects the whole group */
+.mw-dup-sep-row td:first-child,
+.mw-dup-row td:first-child,
+.mw-dup-act-row td:first-child {
+  border-left: 3px solid #f59e0b !important;
+}
+/* Thin spacer between dup section and normal rows */
+.mw-dup-body-sep td {
+  height: 8px;
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+}
+.mw-dup-merge-btn {
+  background: #f59e0b;
+  color: #fff;
+  border: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 11px;
+  border-radius: 4px;
+  margin-right: 8px;
+  transition: background 0.15s;
+}
+.mw-dup-merge-btn:hover {
+  background: #d97706;
+  color: #fff;
+}
+.mw-dup-dismiss-btn {
+  background: transparent;
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.55);
+  font-size: 0.78rem;
+  padding: 4px 11px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.mw-dup-dismiss-btn:hover {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: #f59e0b;
+  color: #78350f;
+}
+
 /* ── GST Math Warning ────────────────────────────── */
 .mw-gst-math-warning {
   display: flex;

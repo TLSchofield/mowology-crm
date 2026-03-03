@@ -81,6 +81,11 @@ try {
             handleCheckDuplicates($db);
             break;
 
+        case 'merge':
+            if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
+            handleMergeExpenses($db, $input);
+            break;
+
         case 'merge_receipt':
             if (!$canEdit) throw new Exception('Permission denied: expenses.edit required');
             handleMergeReceipt($db, $input);
@@ -841,6 +846,49 @@ function handleCheckDuplicates(PDO $db): void
         'has_duplicates'  => count($duplicates) > 0,
         'duplicates'      => $duplicates,
     ]);
+}
+
+
+/**
+ * POST {action:'merge', keep_id, discard_id, csrf_token}
+ * Merge two duplicate expense records: keep one, delete the other.
+ * If the discarded expense has a receipt and the kept one doesn't,
+ * the receipt is transferred before deletion.
+ */
+function handleMergeExpenses(PDO $db, ?array $input): void
+{
+    if (!$input) throw new Exception('No data provided');
+    if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+
+    $keepId    = (int)($input['keep_id']    ?? 0);
+    $discardId = (int)($input['discard_id'] ?? 0);
+    if (!$keepId || !$discardId) throw new Exception('keep_id and discard_id are required');
+    if ($keepId === $discardId) throw new Exception('Cannot merge an expense with itself');
+
+    // Fetch both expenses
+    $stmt = $db->prepare("SELECT id, receipt_media_id FROM expenses WHERE id IN (?, ?)");
+    $stmt->execute([$keepId, $discardId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $keep    = null;
+    $discard = null;
+    foreach ($rows as $row) {
+        if ((int)$row['id'] === $keepId)    $keep    = $row;
+        if ((int)$row['id'] === $discardId) $discard = $row;
+    }
+    if (!$keep)    throw new Exception('Expense to keep (#' . $keepId . ') not found');
+    if (!$discard) throw new Exception('Expense to delete (#' . $discardId . ') not found');
+
+    // Transfer receipt if kept expense has none and discarded has one
+    if (empty($keep['receipt_media_id']) && !empty($discard['receipt_media_id'])) {
+        $db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?")
+           ->execute([$discard['receipt_media_id'], $keepId]);
+    }
+
+    // Delete the duplicate
+    $db->prepare("DELETE FROM expenses WHERE id = ?")->execute([$discardId]);
+
+    echo json_encode(['success' => true, 'message' => 'Merged: expense #' . $discardId . ' deleted, #' . $keepId . ' kept.']);
 }
 
 

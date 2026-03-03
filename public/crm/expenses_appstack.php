@@ -2384,73 +2384,125 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         }
     };
 
+    function buildExpenseRow(e, rowClass) {
+        var vendorName = e.vendor_name || e.vendor_name_raw || '—';
+        var statusBadge = {
+            draft: 'bg-secondary',
+            approved: 'bg-primary',
+            rejected: 'bg-danger',
+            forwarded: 'bg-success',
+        }[e.status] || 'bg-secondary';
+
+        var conf = parseInt(e.match_confidence) || 0;
+        var confDot = '';
+        if (conf >= 70) confDot = '<span class="mw-conf-dot-sm mw-conf-high" title="High confidence ' + conf + '%"></span>';
+        else if (conf >= 40) confDot = '<span class="mw-conf-dot-sm mw-conf-medium" title="Medium confidence ' + conf + '%"></span>';
+        else if (conf > 0) confDot = '<span class="mw-conf-dot-sm mw-conf-low" title="Low confidence ' + conf + '%"></span>';
+        else confDot = '<span class="mw-conf-dot-sm" title="No confidence data"></span>';
+
+        var anomalyScore = parseInt(e.anomaly_score) || 0;
+        var anomalyHtml = '';
+        if (anomalyScore > 30) {
+            anomalyHtml = ' <span class="mw-anomaly-icon mw-anomaly-high" title="High risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-triangle" style="width:12px;height:12px;"></i></span>';
+        } else if (anomalyScore > 15) {
+            anomalyHtml = ' <span class="mw-anomaly-icon mw-anomaly-med" title="Medium risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-circle" style="width:12px;height:12px;"></i></span>';
+        }
+
+        var receiptIcon = e.receipt_path
+            ? '<img src="' + esc(e.receipt_path) + '" class="mw-receipt-thumb" title="Click to view receipt" onclick="event.stopPropagation();openLightbox(\'' + esc(e.receipt_path) + '\')">'
+            : '<span class="mw-receipt-no-img" title="No receipt"><i data-feather="image" style="width:14px;height:14px;opacity:0.3"></i></span>';
+
+        var actions = '';
+        if (e.forwarded_to_accounting) {
+            actions += '<span class="badge bg-success me-1" title="Sent to accounting">Sent</span>';
+        }
+        if (CAN_EDIT) {
+            actions += '<button class="btn btn-sm btn-outline-primary me-1" onclick="editExpense(' + e.id + ')" title="Edit"><i data-feather="edit-2" style="width:14px;height:14px;"></i></button>';
+            actions += '<button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteExpense(' + e.id + ')" title="Delete"><i data-feather="trash-2" style="width:14px;height:14px;"></i></button>';
+        }
+
+        var checkboxCol = CAN_EDIT
+            ? '<td><input type="checkbox" class="expense-row-check" data-id="' + e.id + '" onchange="updateBulkBar()"></td>'
+            : '';
+
+        return '<tr' + (rowClass ? ' class="' + rowClass + '"' : '') + '>' +
+            checkboxCol +
+            '<td>' + e.expense_date + '</td>' +
+            '<td>' + esc(vendorName) + anomalyHtml + '</td>' +
+            '<td><small>' + esc(e.accounting_category || '—') + '</small></td>' +
+            '<td class="text-end fw-bold">$' + parseFloat(e.total).toFixed(2) + '</td>' +
+            '<td>' + (e.job_id
+                ? '<a href="#" class="mw-job-assign-link" onclick="openJobPopover(event,' + e.id + ',' + e.job_id + ');return false;" title="Click to reassign job">#' + e.job_id + '</a>'
+                : (CAN_EDIT ? '<a href="#" class="mw-job-assign-link text-muted" onclick="openJobPopover(event,' + e.id + ',null);return false;" title="Assign to job">Assign</a>' : '<span class="text-muted">—</span>')) + '</td>' +
+            '<td><span class="badge ' + statusBadge + '">' + e.status + '</span></td>' +
+            '<td class="text-center">' + confDot + '</td>' +
+            '<td>' + receiptIcon + '</td>' +
+            '<td class="text-end text-nowrap">' + actions + '</td>' +
+        '</tr>';
+    }
+
     function renderExpenses(expenses, total, page, pages, perPage) {
         var tbody = document.getElementById('expensesTableBody');
+        var colSpan = CAN_EDIT ? 10 : 9;
 
         if (!expenses.length) {
-            tbody.innerHTML = '<tr><td colspan="10" class="text-center py-4 text-muted">No expenses found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="' + colSpan + '" class="text-center py-4 text-muted">No expenses found</td></tr>';
             return;
         }
 
-        tbody.innerHTML = expenses.map(function(e) {
-            var vendorName = e.vendor_name || e.vendor_name_raw || '—';
-            var statusBadge = {
-                draft: 'bg-secondary',
-                approved: 'bg-primary',
-                rejected: 'bg-danger',
-                forwarded: 'bg-success',
-            }[e.status] || 'bg-secondary';
+        var dupResult = findDuplicateGroups(expenses);
+        var groups    = dupResult.groups;
+        var inGroupIds = dupResult.inGroupIds;
+        var html = '';
 
-            // Confidence dot (green/yellow/red)
-            var conf = parseInt(e.match_confidence) || 0;
-            var confDot = '';
-            if (conf >= 70) confDot = '<span class="mw-conf-dot-sm mw-conf-high" title="High confidence ' + conf + '%"></span>';
-            else if (conf >= 40) confDot = '<span class="mw-conf-dot-sm mw-conf-medium" title="Medium confidence ' + conf + '%"></span>';
-            else if (conf > 0) confDot = '<span class="mw-conf-dot-sm mw-conf-low" title="Low confidence ' + conf + '%"></span>';
-            else confDot = '<span class="mw-conf-dot-sm" title="No confidence data"></span>';
+        // ── Duplicate groups at top ─────────────────────────────
+        groups.forEach(function(group) {
+            var ids = group.map(function(e) { return e.id; });
+            // Keep the most-recently-created; discard the older one
+            var sorted = group.slice().sort(function(a, b) {
+                return (b.created_at || b.expense_date).localeCompare(a.created_at || a.expense_date);
+            });
+            var keepId    = sorted[0].id;
+            var discardId = sorted[sorted.length - 1].id;
 
-            // Anomaly flags
-            var anomalyScore = parseInt(e.anomaly_score) || 0;
-            var anomalyHtml = '';
-            if (anomalyScore > 30) {
-                anomalyHtml = ' <span class="mw-anomaly-icon mw-anomaly-high" title="High risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-triangle" style="width:12px;height:12px;"></i></span>';
-            } else if (anomalyScore > 15) {
-                anomalyHtml = ' <span class="mw-anomaly-icon mw-anomaly-med" title="Medium risk: ' + esc(e.anomaly_flags || '') + '"><i data-feather="alert-circle" style="width:12px;height:12px;"></i></span>';
-            }
+            html += '<tr class="mw-dup-sep-row">' +
+                '<td colspan="' + colSpan + '" class="mw-dup-sep-cell">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:6px;vertical-align:middle;opacity:0.8">' +
+                '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>' +
+                '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>' +
+                '</svg>Possible duplicate' +
+                '</td></tr>';
 
-            var receiptIcon = e.receipt_path
-                ? '<img src="' + esc(e.receipt_path) + '" class="mw-receipt-thumb" title="Click to view receipt" onclick="event.stopPropagation();openLightbox(\'' + esc(e.receipt_path) + '\')">'
-                : '<span class="mw-receipt-no-img" title="No receipt"><i data-feather="image" style="width:14px;height:14px;opacity:0.3"></i></span>';
+            group.forEach(function(e) {
+                html += buildExpenseRow(e, 'mw-dup-row');
+            });
 
-            var actions = '';
-            if (e.forwarded_to_accounting) {
-                actions += '<span class="badge bg-success me-1" title="Sent to accounting">Sent</span>';
-            }
-            if (CAN_EDIT) {
-                actions += '<button class="btn btn-sm btn-outline-primary me-1" onclick="editExpense(' + e.id + ')" title="Edit"><i data-feather="edit-2" style="width:14px;height:14px;"></i></button>';
-                actions += '<button class="btn btn-sm btn-outline-danger" onclick="confirmDeleteExpense(' + e.id + ')" title="Delete"><i data-feather="trash-2" style="width:14px;height:14px;"></i></button>';
-            }
+            html += '<tr class="mw-dup-act-row">' +
+                '<td colspan="' + colSpan + '" class="mw-dup-act-cell">' +
+                (CAN_EDIT
+                    ? '<button class="btn btn-sm mw-dup-merge-btn" onclick="mergeDuplicate(' + keepId + ',' + discardId + ')">' +
+                      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:middle">' +
+                      '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>' +
+                      '<line x1="6" y1="20" x2="6" y2="14"/><polyline points="3 7 6 4 9 7"/><polyline points="15 7 18 4 21 7"/>' +
+                      '</svg>Merge — keep newest</button> '
+                    : '') +
+                '<button class="btn btn-sm mw-dup-dismiss-btn" onclick="dismissDuplicate([' + ids.join(',') + '])">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:middle">' +
+                '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>' +
+                '</svg>Not a duplicate</button>' +
+                '</td></tr>';
+        });
 
-            var checkboxCol = CAN_EDIT
-                ? '<td><input type="checkbox" class="expense-row-check" data-id="' + e.id + '" onchange="updateBulkBar()"></td>'
-                : '';
+        // Spacer between dup section and normal rows
+        var normalExpenses = expenses.filter(function(e) { return !inGroupIds.has(e.id); });
+        if (groups.length > 0 && normalExpenses.length > 0) {
+            html += '<tr class="mw-dup-body-sep"><td colspan="' + colSpan + '"></td></tr>';
+        }
 
-            return '<tr>' +
-                checkboxCol +
-                '<td>' + e.expense_date + '</td>' +
-                '<td>' + esc(vendorName) + anomalyHtml + '</td>' +
-                '<td><small>' + esc(e.accounting_category || '—') + '</small></td>' +
-                '<td class="text-end fw-bold">$' + parseFloat(e.total).toFixed(2) + '</td>' +
-                '<td>' + (e.job_id
-                    ? '<a href="#" class="mw-job-assign-link" onclick="openJobPopover(event,' + e.id + ',' + e.job_id + ');return false;" title="Click to reassign job">#' + e.job_id + '</a>'
-                    : (CAN_EDIT ? '<a href="#" class="mw-job-assign-link text-muted" onclick="openJobPopover(event,' + e.id + ',null);return false;" title="Assign to job">Assign</a>' : '<span class="text-muted">—</span>')) + '</td>' +
-                '<td><span class="badge ' + statusBadge + '">' + e.status + '</span></td>' +
-                '<td class="text-center">' + confDot + '</td>' +
-                '<td>' + receiptIcon + '</td>' +
-                '<td class="text-end text-nowrap">' + actions + '</td>' +
-            '</tr>';
-        }).join('');
+        // ── Normal expense rows ─────────────────────────────────
+        normalExpenses.forEach(function(e) { html += buildExpenseRow(e, ''); });
 
+        tbody.innerHTML = html;
         if (window.feather) feather.replace();
         renderPagination(total, page, pages, perPage);
     }
@@ -2476,6 +2528,76 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (page < pages) html += '<li class="page-item"><a class="page-link" href="#" onclick="loadExpenses(' + (page+1) + ');return false;">&raquo;</a></li>';
         links.innerHTML = html;
     }
+
+    // ── Duplicate Detection Helpers ───────────────────────────────
+    function isDuplicatePair(a, b) {
+        if (Math.abs(parseFloat(a.total) - parseFloat(b.total)) > 0.01) return false;
+        var dA = new Date(a.expense_date), dB = new Date(b.expense_date);
+        if (Math.abs(dA - dB) > 3 * 86400000) return false; // > 3 days apart = not a dup
+        var vA = (a.vendor_name || a.vendor_name_raw || '').toLowerCase().trim();
+        var vB = (b.vendor_name || b.vendor_name_raw || '').toLowerCase().trim();
+        if (a.vendor_id && b.vendor_id && parseInt(a.vendor_id) === parseInt(b.vendor_id)) return true;
+        if (vA.length >= 3 && vB.length >= 3) {
+            if (vA === vB) return true;
+            if (vA.slice(0, 5) === vB.slice(0, 5)) return true;
+            if (vA.includes(vB.slice(0, 6)) || vB.includes(vA.slice(0, 6))) return true;
+        }
+        if (!vA && !vB) return true; // both anonymous, same total + date
+        return false;
+    }
+    function getDismissedPairs() {
+        try { return JSON.parse(sessionStorage.getItem('mw_dup_dismissed') || '[]'); } catch(e) { return []; }
+    }
+    function dismissPair(idA, idB) {
+        var key = [Math.min(idA, idB), Math.max(idA, idB)].join('_');
+        var pairs = getDismissedPairs();
+        if (pairs.indexOf(key) === -1) {
+            pairs.push(key);
+            try { sessionStorage.setItem('mw_dup_dismissed', JSON.stringify(pairs)); } catch(e) {}
+        }
+    }
+    function isPairDismissed(idA, idB) {
+        var key = [Math.min(idA, idB), Math.max(idA, idB)].join('_');
+        return getDismissedPairs().indexOf(key) !== -1;
+    }
+    function findDuplicateGroups(expenses) {
+        var groups = [], inGroupIds = new Set();
+        for (var i = 0; i < expenses.length; i++) {
+            if (inGroupIds.has(expenses[i].id)) continue;
+            var group = [expenses[i]];
+            for (var j = i + 1; j < expenses.length; j++) {
+                if (inGroupIds.has(expenses[j].id)) continue;
+                if (isDuplicatePair(expenses[i], expenses[j]) && !isPairDismissed(expenses[i].id, expenses[j].id)) {
+                    group.push(expenses[j]);
+                }
+            }
+            if (group.length > 1) {
+                group.forEach(function(e) { inGroupIds.add(e.id); });
+                groups.push(group);
+            }
+        }
+        return { groups: groups, inGroupIds: inGroupIds };
+    }
+    window.mergeDuplicate = async function(keepId, discardId) {
+        if (!confirm('Keep expense #' + keepId + ' and permanently delete #' + discardId + '?\n\nIf the deleted one has a receipt and the kept one doesn\'t, the receipt will be transferred.')) return;
+        try {
+            var r = await fetch('/crm/api/expenses.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'merge', csrf_token: CSRF, keep_id: keepId, discard_id: discardId }),
+            });
+            var d = await r.json();
+            if (!d.success) throw new Error(d.error);
+            loadExpenses(currentPage);
+            loadStats();
+        } catch(e) { alert('Merge failed: ' + e.message); }
+    };
+    window.dismissDuplicate = function(ids) {
+        for (var i = 0; i < ids.length; i++) {
+            for (var j = i + 1; j < ids.length; j++) { dismissPair(ids[i], ids[j]); }
+        }
+        loadExpenses(currentPage);
+    };
 
     // ── Stats ────────────────────────────────────────────────────
     async function loadStats() {
