@@ -891,6 +891,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
             <div class="modal-body pt-3">
                 <input type="hidden" id="expenseId">
+                <input type="hidden" id="expReceiptMediaId">
                 <div class="row">
                     <!-- Left: Receipt Image (shown only when image exists) -->
                     <div class="col-lg-5" id="expReceiptCol" style="display:none;">
@@ -2717,6 +2718,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var e = d.expense;
             document.getElementById('expenseModalTitle').textContent = 'Edit Expense';
             document.getElementById('expenseId').value = e.id;
+            document.getElementById('expReceiptMediaId').value = e.receipt_media_id || '';
             document.getElementById('expDate').value = e.expense_date;
             document.getElementById('expVendorSearch').value = e.vendor_name || e.vendor_name_raw || '';
             document.getElementById('expVendorId').value = e.vendor_id || '';
@@ -2814,6 +2816,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             expense_date: document.getElementById('expDate').value,
             vendor_id: document.getElementById('expVendorId').value || null,
             vendor_name_raw: document.getElementById('expVendorSearch').value,
+            receipt_media_id: document.getElementById('expReceiptMediaId').value || null,
             payment_method: document.getElementById('expPayment').value,
             amount: document.getElementById('expAmount').value,
             gst_amount: document.getElementById('expGst').value,
