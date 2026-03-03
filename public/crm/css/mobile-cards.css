@@ -85,6 +85,7 @@
         display: flex;
         flex-direction: row;
         align-items: center;
+        height: 48px;   /* match children height — eliminates flex centering offset */
         gap: 2px;
         flex-shrink: 0;
     }
@@ -336,10 +337,16 @@
         line-height: 1;
     }
 
-    .mw-mc-bottombar-btn:hover,
+    .mw-mc-bottombar-btn:hover {
+        text-decoration: none;
+        color: #555;
+    }
+
     .mw-mc-bottombar-btn:active {
         text-decoration: none;
         color: #555;
+        opacity: 0.55;
+        transform: scale(0.90);
     }
 
     .mw-mc-bottombar-btn svg {

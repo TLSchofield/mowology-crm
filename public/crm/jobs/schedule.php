@@ -1027,10 +1027,13 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303g" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303h" rel="stylesheet">';
 // Prefetch adjacent days so arrow taps feel instant
 $extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobilePrevDay) . $filterQueryStr . '">';
 $extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobileNextDay) . $filterQueryStr . '">';
+// Prefetch bottom nav destinations so taps navigate instantly
+$extraHead .= '<link rel="prefetch" href="/crm/expenses_appstack.php?mode=quick&return=schedule">';
+$extraHead .= '<link rel="prefetch" href="/crm/jobs/index.php">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -3366,7 +3369,28 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
     });
 })();
 
-// ── Day Summary Card: clock buttons + elapsed timer ──────────────────────────
+// ── Bottom nav: instant visual feedback on tap ────────────────────────────────
+(function () {
+    'use strict';
+    var scrollArea = document.querySelector('.mw-mc-scroll-area');
+
+    // Only hook anchor (link) buttons — Route button is a JS toggle, no page load
+    document.querySelectorAll('.mw-mc-bottombar-btn[href]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            // Dim scroll area immediately so user sees feedback before new page arrives
+            if (scrollArea) {
+                scrollArea.style.transition = 'opacity 0.15s ease';
+                scrollArea.style.opacity    = '0.35';
+            }
+            // Prevent double-tapping by disabling all bottom bar buttons
+            document.querySelectorAll('.mw-mc-bottombar-btn').forEach(function (b) {
+                b.style.pointerEvents = 'none';
+            });
+        });
+    });
+})();
+
+/ ── Day Summary Card: clock buttons + elapsed timer ──────────────────────────
 (function () {
     'use strict';
 
