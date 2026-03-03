@@ -20573,3 +20573,220 @@ textarea.font-monospace {
     height: calc(90vh - 60px);
     min-height: 400px;
 }
+
+/* ── Profitability Spectrum View ───────────────────────────────────────────── */
+
+.mw-spectrum-wrap {
+    background: #050508;
+    border-radius: 16px;
+    padding: 40px 24px 56px;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+
+.mw-spectrum-wrap::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(0,255,100,0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,255,100,0.022) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    border-radius: inherit;
+    z-index: 0;
+}
+
+.mw-spectrum-wrap::after {
+    content: '';
+    position: absolute;
+    top: -150px;
+    right: -150px;
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(0,255,136,0.04) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.mw-spectrum-inner {
+    position: relative;
+    z-index: 1;
+}
+
+.mw-spectrum-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+    margin-bottom: 36px;
+}
+
+.mw-spectrum-eyebrow {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.22em;
+    color: #00ff88;
+    text-transform: uppercase;
+    opacity: 0.75;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mw-spectrum-dot {
+    width: 6px;
+    height: 6px;
+    background: #00ff88;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #00ff88, 0 0 16px #00ff88;
+    animation: mw-dot-pulse 2s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes mw-dot-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 8px #00ff88, 0 0 16px #00ff88; }
+    50%       { opacity: 0.5; box-shadow: 0 0 4px #00ff88; }
+}
+
+.mw-spectrum-title {
+    font-size: clamp(1.8rem, 4vw, 3rem);
+    font-weight: 800;
+    line-height: 1.05;
+    background: linear-gradient(135deg, #ffffff 0%, #00ff88 55%, #7fd858 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.02em;
+    margin: 0;
+}
+
+.mw-spectrum-stats {
+    display: flex;
+    gap: 28px;
+    align-items: flex-end;
+}
+
+.mw-spectrum-stat { text-align: right; }
+
+.mw-spectrum-stat-val {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #00ff88;
+    text-shadow: 0 0 20px rgba(0,255,136,0.4);
+    display: block;
+    line-height: 1;
+}
+
+.mw-spectrum-stat-val.red {
+    color: #ff3322;
+    text-shadow: 0 0 20px rgba(255,51,34,0.4);
+}
+
+.mw-spectrum-stat-lbl {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 0.58rem;
+    color: rgba(255,255,255,0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+    display: block;
+}
+
+.mw-spectrum-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 767px) {
+    .mw-spectrum-grid { grid-template-columns: 1fr; }
+}
+
+.mw-spectrum-card {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.mw-spectrum-card:hover {
+    border-color: rgba(0,255,136,0.18);
+    box-shadow: 0 0 40px rgba(0,255,136,0.04);
+}
+
+.mw-spectrum-card.full-width { grid-column: 1 / -1; }
+
+.mw-spectrum-card-header {
+    padding: 18px 22px 8px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.mw-spectrum-viz-num {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 0.58rem;
+    color: rgba(0,255,136,0.5);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+}
+
+.mw-spectrum-viz-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: rgba(255,255,255,0.92);
+    letter-spacing: -0.01em;
+    margin-bottom: 2px;
+}
+
+.mw-spectrum-viz-desc {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 0.57rem;
+    color: rgba(255,255,255,0.28);
+}
+
+.mw-spectrum-badge {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 0.62rem;
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.mw-spectrum-badge.green {
+    color: #00ff88;
+    border-color: rgba(0,255,136,0.3);
+    background: rgba(0,255,136,0.06);
+}
+
+.mw-spectrum-badge.red {
+    color: #ff3322;
+    border-color: rgba(255,51,34,0.3);
+    background: rgba(255,51,34,0.06);
+}
+
+.mw-spectrum-card-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06) 20%, rgba(255,255,255,0.06) 80%, transparent);
+    margin: 0 12px 12px;
+}
+
+.mw-spectrum-canvas-wrap {
+    padding: 2px 12px 14px;
+}
+
+.mw-spectrum-canvas-wrap canvas {
+    display: block;
+    width: 100%;
+    border-radius: 6px;
+}

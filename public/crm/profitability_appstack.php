@@ -42,6 +42,8 @@ switch ($period) {
         $periodLabel = 'This Month';
 }
 
+$view = ($_GET['view'] ?? 'classic') === 'spectrum' ? 'spectrum' : 'classic';
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt_money(?float $v, bool $sign = false): string {
     if ($v === null) return '<span class="text-muted">—</span>';
@@ -176,9 +178,130 @@ $lowMargin = $lowStmt->fetchAll(PDO::FETCH_ASSOC);
 $svcListStmt = $db->query("SELECT DISTINCT service_type FROM visit_margin_snapshots WHERE service_type IS NOT NULL ORDER BY service_type");
 $availableServices = $svcListStmt->fetchAll(PDO::FETCH_COLUMN);
 
+// ── Spectrum data (only when spectrum view is active) ─────────────────────────
+$spectrumData = ['weeks52' => [], 'months' => [], 'services' => [], 'crew' => [], 'waterfall' => []];
+$ytdSpec      = ['revenue' => 0, 'costs' => 0, 'net' => 0, 'margin' => 0];
+
+if ($view === 'spectrum') {
+    try {
+        // 52-week weekly profit bars
+        $w52Stmt = $db->query("
+            SELECT
+                FLOOR(DATEDIFF(CURDATE(), visit_date) / 7) AS weeks_ago,
+                SUM(gross_margin) AS profit
+            FROM visit_margin_snapshots
+            WHERE visit_date > DATE_SUB(CURDATE(), INTERVAL 52 WEEK)
+              AND visit_date <= CURDATE()
+            GROUP BY FLOOR(DATEDIFF(CURDATE(), visit_date) / 7)
+        ");
+        $w52Map = [];
+        foreach ($w52Stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $w52Map[(int)$r['weeks_ago']] = (float)$r['profit'];
+        }
+        $weeks52 = [];
+        for ($i = 51; $i >= 0; $i--) { $weeks52[] = $w52Map[$i] ?? 0; }
+
+        // 12-month pulse
+        $m12Stmt = $db->query("
+            SELECT DATE_FORMAT(visit_date, '%b') AS m, SUM(gross_margin) AS profit
+            FROM visit_margin_snapshots
+            WHERE visit_date > DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+            GROUP BY DATE_FORMAT(visit_date, '%Y-%m'), DATE_FORMAT(visit_date, '%b')
+            ORDER BY MIN(visit_date) ASC
+        ");
+        $months12 = array_map(
+            fn($r) => ['m' => $r['m'], 'profit' => (float)$r['profit']],
+            $m12Stmt->fetchAll(PDO::FETCH_ASSOC)
+        );
+
+        // Service radar (margin fraction 0–1)
+        $svcStmt = $db->query("
+            SELECT service_type, AVG(COALESCE(margin_pct, 0)) / 100 AS margin
+            FROM visit_margin_snapshots
+            WHERE service_type IS NOT NULL
+            GROUP BY service_type
+            ORDER BY AVG(margin_pct) DESC
+            LIMIT 7
+        ");
+        $serviceRadar = array_map(
+            fn($r) => ['name' => svc_label($r['service_type']), 'margin' => round(max(0, min(1, (float)$r['margin'])), 4)],
+            $svcStmt->fetchAll(PDO::FETCH_ASSOC)
+        );
+
+        // Crew × month matrix (current year)
+        $crewStmt = $db->prepare("
+            SELECT
+                u.full_name AS name,
+                MONTH(vms.visit_date) AS month_num,
+                SUM(vms.gross_margin) AS margin
+            FROM visit_margin_snapshots vms
+            JOIN job_visits jv ON jv.id = vms.visit_id
+            JOIN users u ON u.id = jv.assigned_crew_id
+            WHERE YEAR(vms.visit_date) = YEAR(CURDATE())
+              AND u.is_active = 1
+            GROUP BY u.id, u.full_name, MONTH(vms.visit_date)
+            ORDER BY u.full_name, month_num
+        ");
+        $crewStmt->execute();
+        $crewMap = [];
+        foreach ($crewStmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $name = $r['name'];
+            if (!isset($crewMap[$name])) $crewMap[$name] = array_fill(0, 12, 0);
+            $crewMap[$name][(int)$r['month_num'] - 1] = (float)$r['margin'];
+        }
+        $crewMatrix = array_map(
+            fn($n, $m) => ['name' => $n, 'months' => array_values($m)],
+            array_keys($crewMap), array_values($crewMap)
+        );
+
+        // Cost waterfall (YTD)
+        $wfStmt = $db->query("
+            SELECT
+                COALESCE(SUM(quoted_amount), 0) AS revenue,
+                COALESCE(SUM(labor_cost), 0)    AS labor,
+                COALESCE(SUM(material_cost), 0) AS material,
+                COALESCE(SUM(drive_cost), 0)    AS drive,
+                COALESCE(SUM(gross_margin), 0)  AS net
+            FROM visit_margin_snapshots
+            WHERE YEAR(visit_date) = YEAR(CURDATE())
+        ");
+        $wf = $wfStmt->fetch(PDO::FETCH_ASSOC);
+        $waterfallData = [
+            ['label' => 'Revenue',   'value' =>  (float)($wf['revenue']  ?? 0),              'type' => 'total-pos'],
+            ['label' => 'Labour',    'value' => -(float)abs((float)($wf['labor']    ?? 0)),   'type' => 'cost'],
+            ['label' => 'Materials', 'value' => -(float)abs((float)($wf['material'] ?? 0)),   'type' => 'cost'],
+            ['label' => 'Drive',     'value' => -(float)abs((float)($wf['drive']    ?? 0)),   'type' => 'cost'],
+            ['label' => 'Net',       'value' =>  (float)($wf['net']      ?? 0),               'type' => (($wf['net'] ?? 0) >= 0 ? 'total-pos' : 'total-neg')],
+        ];
+
+        $ytdRev   = (float)($wf['revenue'] ?? 0);
+        $ytdCosts = abs((float)($wf['labor'] ?? 0)) + abs((float)($wf['material'] ?? 0)) + abs((float)($wf['drive'] ?? 0));
+        $ytdNet   = (float)($wf['net'] ?? 0);
+        $ytdSpec  = [
+            'revenue' => $ytdRev,
+            'costs'   => $ytdCosts,
+            'net'     => $ytdNet,
+            'margin'  => $ytdRev > 0 ? round(($ytdNet / $ytdRev) * 100, 1) : 0,
+        ];
+
+        $spectrumData = [
+            'weeks52'   => $weeks52,
+            'months'    => $months12,
+            'services'  => $serviceRadar,
+            'crew'      => array_values($crewMatrix),
+            'waterfall' => $waterfallData,
+        ];
+    } catch (Exception $e) {
+        error_log("Spectrum data error: " . $e->getMessage());
+    }
+}
+
 // ── Page setup ────────────────────────────────────────────────────────────────
 $pageTitle  = 'Profitability';
 $activePage = 'profitability';
+$extraHead  = $view === 'spectrum'
+    ? '<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">'
+    : '';
 ?>
 <?php include __DIR__ . '/includes/appstack_head.php'; ?>
 
@@ -198,7 +321,7 @@ $activePage = 'profitability';
     <div class="d-flex flex-wrap" style="gap:8px;">
         <div class="btn-group btn-group-sm">
             <?php foreach (['this_month' => 'This Month', 'last_month' => 'Last Month', 'last_90' => 'Last 90d', 'ytd' => 'YTD'] as $p => $l): ?>
-            <a href="?period=<?php echo $p; ?><?php echo $serviceFilter ? '&service=' . urlencode($serviceFilter) : ''; ?>"
+            <a href="?period=<?php echo $p; ?><?php echo $serviceFilter ? '&service=' . urlencode($serviceFilter) : ''; ?><?php echo $view === 'spectrum' ? '&view=spectrum' : ''; ?>"
                class="btn btn-<?php echo $period === $p ? 'primary' : 'outline-secondary'; ?>">
                 <?php echo $l; ?>
             </a>
@@ -206,7 +329,7 @@ $activePage = 'profitability';
         </div>
         <?php if ($availableServices): ?>
         <select class="form-control form-control-sm" style="width:auto;"
-            onchange="location='?period=<?php echo $period; ?>&service='+this.value">
+            onchange="location='?period=<?php echo $period; ?>&service='+this.value+'<?php echo $view === 'spectrum' ? '&view=spectrum' : ''; ?>'">
             <option value="">All Services</option>
             <?php foreach ($availableServices as $svc): ?>
             <option value="<?php echo htmlspecialchars($svc); ?>" <?php echo $serviceFilter === $svc ? 'selected' : ''; ?>>
@@ -215,12 +338,23 @@ $activePage = 'profitability';
             <?php endforeach; ?>
         </select>
         <?php endif; ?>
+        <div class="btn-group btn-group-sm">
+            <a href="?period=<?php echo $period; ?><?php echo $serviceFilter ? '&service=' . urlencode($serviceFilter) : ''; ?>"
+               class="btn btn-<?php echo $view === 'classic' ? 'secondary' : 'outline-secondary'; ?>" title="Classic view">
+                <i data-feather="grid" style="width:12px;height:12px;"></i> Classic
+            </a>
+            <a href="?period=<?php echo $period; ?><?php echo $serviceFilter ? '&service=' . urlencode($serviceFilter) : ''; ?>&view=spectrum"
+               class="btn btn-<?php echo $view === 'spectrum' ? 'secondary' : 'outline-secondary'; ?>" title="Spectrum view">
+                <i data-feather="activity" style="width:12px;height:12px;"></i> Spectrum
+            </a>
+        </div>
         <a href="/crm/expenses_appstack.php" class="btn btn-sm btn-outline-secondary">
             <i data-feather="dollar-sign" style="width:13px;height:13px;"></i> Expenses
         </a>
     </div>
 </div>
 
+<?php if ($view !== 'spectrum'): ?>
 <?php if ($snapshotCoverage === 0 && $totalCompleted > 0): ?>
 <div class="alert alert-info mb-4">
     <strong>No margin data yet for this period.</strong>
@@ -474,5 +608,112 @@ $activePage = 'profitability';
     </div>
 </div>
 <?php endif; ?>
+
+<?php endif; // classic view ?>
+
+<?php if ($view === 'spectrum'): ?>
+<div class="mw-spectrum-wrap">
+  <div class="mw-spectrum-inner">
+
+    <!-- Spectrum header -->
+    <div class="d-flex align-items-center justify-content-between mb-4" style="flex-wrap:wrap;gap:16px;">
+      <div class="d-flex align-items-center" style="gap:12px;">
+        <span class="mw-spectrum-dot"></span>
+        <span class="mw-spectrum-title">Profit Spectrum</span>
+      </div>
+      <div class="mw-spectrum-stats">
+        <div class="mw-spectrum-stat">
+          <div class="mw-spectrum-stat-val">$<?php echo number_format($ytdSpec['revenue'], 0); ?></div>
+          <div class="mw-spectrum-stat-lbl">YTD Revenue</div>
+        </div>
+        <div class="mw-spectrum-stat">
+          <div class="mw-spectrum-stat-val <?php echo $ytdSpec['net'] < 0 ? 'text-danger' : ''; ?>">
+            <?php echo ($ytdSpec['net'] < 0 ? '-' : '') . '$' . number_format(abs($ytdSpec['net']), 0); ?>
+          </div>
+          <div class="mw-spectrum-stat-lbl">Net Margin</div>
+        </div>
+        <div class="mw-spectrum-stat">
+          <div class="mw-spectrum-stat-val <?php echo $ytdSpec['margin'] < 20 ? 'text-warning' : ''; ?>">
+            <?php echo $ytdSpec['margin']; ?>%
+          </div>
+          <div class="mw-spectrum-stat-lbl">Margin Rate</div>
+        </div>
+        <div class="mw-spectrum-stat">
+          <div class="mw-spectrum-stat-val">$<?php echo number_format($ytdSpec['costs'], 0); ?></div>
+          <div class="mw-spectrum-stat-lbl">YTD Costs</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Visualization grid -->
+    <div class="mw-spectrum-grid">
+
+      <!-- C1: 52-week spectrum (full width) -->
+      <div class="mw-spectrum-card full-width" id="sc1">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <div style="font-size:.63rem;text-transform:uppercase;letter-spacing:.1em;color:#4ade80;font-weight:700;margin-bottom:2px;">Profit Spectrum</div>
+            <div style="font-size:.78rem;color:#6b7280;">52-week weekly profit / loss</div>
+          </div>
+          <span class="mw-spectrum-badge green">52W</span>
+        </div>
+        <div class="mw-spectrum-canvas-wrap"><canvas id="spec-c1" height="200"></canvas></div>
+      </div>
+
+      <!-- C2: Monthly pulse -->
+      <div class="mw-spectrum-card" id="sc2">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <div style="font-size:.63rem;text-transform:uppercase;letter-spacing:.1em;color:#4ade80;font-weight:700;margin-bottom:2px;">Profit Pulse</div>
+            <div style="font-size:.78rem;color:#6b7280;">12-month margin signal</div>
+          </div>
+          <span class="mw-spectrum-badge green">12M</span>
+        </div>
+        <div class="mw-spectrum-canvas-wrap"><canvas id="spec-c2" height="200"></canvas></div>
+      </div>
+
+      <!-- C3: Service radar -->
+      <div class="mw-spectrum-card" id="sc3">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <div style="font-size:.63rem;text-transform:uppercase;letter-spacing:.1em;color:#4ade80;font-weight:700;margin-bottom:2px;">Service Radar</div>
+            <div style="font-size:.78rem;color:#6b7280;">margin efficiency by service</div>
+          </div>
+          <span class="mw-spectrum-badge green">SVC</span>
+        </div>
+        <div class="mw-spectrum-canvas-wrap"><canvas id="spec-c3" height="200"></canvas></div>
+      </div>
+
+      <!-- C4: Crew matrix -->
+      <div class="mw-spectrum-card" id="sc4">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <div style="font-size:.63rem;text-transform:uppercase;letter-spacing:.1em;color:#4ade80;font-weight:700;margin-bottom:2px;">Crew Matrix</div>
+            <div style="font-size:.78rem;color:#6b7280;">crew margin contribution by month</div>
+          </div>
+          <span class="mw-spectrum-badge green">CRW</span>
+        </div>
+        <div class="mw-spectrum-canvas-wrap"><canvas id="spec-c4" height="200"></canvas></div>
+      </div>
+
+      <!-- C5: Cost waterfall -->
+      <div class="mw-spectrum-card" id="sc5">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <div style="font-size:.63rem;text-transform:uppercase;letter-spacing:.1em;color:#4ade80;font-weight:700;margin-bottom:2px;">Cost Cascade</div>
+            <div style="font-size:.78rem;color:#6b7280;">YTD revenue → net waterfall</div>
+          </div>
+          <span class="mw-spectrum-badge green">YTD</span>
+        </div>
+        <div class="mw-spectrum-canvas-wrap"><canvas id="spec-c5" height="200"></canvas></div>
+      </div>
+
+    </div><!-- /.mw-spectrum-grid -->
+  </div><!-- /.mw-spectrum-inner -->
+</div><!-- /.mw-spectrum-wrap -->
+
+<script>window.SPECTRUM_DATA = <?php echo json_encode($spectrumData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_SLASHES); ?>;</script>
+<script src="/crm/js/profit-spectrum.js?v=2"></script>
+<?php endif; // spectrum view ?>
 
 <?php include __DIR__ . '/includes/appstack_footer.php'; ?>
