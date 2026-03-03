@@ -107,47 +107,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     logActivity($user['id'], null, 'Changed password for user #' . $targetUserId, null);
                     break;
 
-                // ── Create new user ────────────────────────
-                case 'create_user':
-                    $newEmail    = strtolower(trim($_POST['new_email'] ?? ''));
-                    $newName     = trim($_POST['new_name'] ?? '');
-                    $newRole     = $_POST['new_role'] ?? 'user';
-                    $newPass     = $_POST['new_password'] ?? '';
-                    $confirmPass = $_POST['confirm_password'] ?? '';
-
-                    if (!filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
-                        throw new Exception('Please enter a valid email address.');
-                    }
-                    if (empty($newName)) {
-                        throw new Exception('Full name is required.');
-                    }
-                    if (!in_array($newRole, ['admin', 'manager', 'staff', 'user'], true)) {
-                        throw new Exception('Invalid role.');
-                    }
-                    if (strlen($newPass) < 8) {
-                        throw new Exception('Password must be at least 8 characters.');
-                    }
-                    if ($newPass !== $confirmPass) {
-                        throw new Exception('Passwords do not match.');
-                    }
-
-                    // Check for duplicate email
-                    $dupCheck = $db->prepare("SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1");
-                    $dupCheck->execute([$newEmail]);
-                    if ($dupCheck->fetchColumn()) {
-                        throw new Exception('An account with that email already exists.');
-                    }
-
-                    $hash = password_hash($newPass, PASSWORD_DEFAULT);
-                    $db->prepare("
-                        INSERT INTO users (email, password_hash, full_name, role, is_active, created_at)
-                        VALUES (?, ?, ?, ?, 1, NOW())
-                    ")->execute([$newEmail, $hash, $newName, $newRole]);
-
-                    $flash = 'User account created for ' . h($newName) . '.';
-                    logActivity($user['id'], null, 'Created new user: ' . $newEmail, 'Role: ' . $newRole);
-                    break;
-
                 default:
                     throw new Exception('Unknown action.');
             }
@@ -230,11 +189,11 @@ $csrfToken = generateCSRFToken();
           <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
               <h1 class="h3 mb-0">User Management</h1>
-              <p class="text-muted mb-0">Manage user accounts and role assignments</p>
+              <p class="text-muted mb-0">Auth & access control — roles, passwords, account status</p>
             </div>
-            <button class="btn btn-primary" data-toggle="modal" data-target="#createUserModal">
-              <i data-feather="user-plus" style="width:16px;height:16px;vertical-align:middle"></i> Create User
-            </button>
+            <a href="/crm/team/" class="btn btn-outline-secondary">
+              <i data-feather="users" style="width:16px;height:16px;vertical-align:middle"></i> Add users via Team
+            </a>
           </div>
 
           <!-- Users Table -->
@@ -293,7 +252,10 @@ $csrfToken = generateCSRFToken();
                     </td>
                     <td><?php echo $u['last_login'] ? date('M j, Y g:ia', strtotime($u['last_login'])) : '<span class="text-muted">Never</span>'; ?></td>
                     <td class="text-right">
-                      <button class="btn btn-sm btn-outline-primary" data-toggle="modal" data-target="#roleModal<?php echo $uid; ?>">
+                      <a href="/crm/team/profile.php?id=<?php echo $uid; ?>" class="btn btn-sm btn-outline-secondary">
+                        <i data-feather="file-text" style="width:14px;height:14px"></i> HR File
+                      </a>
+                      <button class="btn btn-sm btn-outline-primary ml-1" data-toggle="modal" data-target="#roleModal<?php echo $uid; ?>">
                         <i data-feather="shield" style="width:14px;height:14px"></i> Roles
                       </button>
                       <button class="btn btn-sm btn-outline-secondary ml-1" data-toggle="modal" data-target="#pwModal<?php echo $uid; ?>">
@@ -469,55 +431,5 @@ $csrfToken = generateCSRFToken();
             </div>
           </div>
           <?php endforeach; ?>
-
-          <!-- Create User Modal -->
-          <div class="modal fade" id="createUserModal" tabindex="-1" role="dialog">
-            <div class="modal-dialog" role="document">
-              <div class="modal-content">
-                <form method="post">
-                  <input type="hidden" name="csrf_token" value="<?php echo h($csrfToken); ?>">
-                  <input type="hidden" name="action" value="create_user">
-                  <div class="modal-header">
-                    <h5 class="modal-title">
-                      <i data-feather="user-plus" style="width:16px;height:16px;vertical-align:middle"></i>
-                      Create New User
-                    </h5>
-                    <button type="button" class="close" data-dismiss="modal">&times;</button>
-                  </div>
-                  <div class="modal-body">
-                    <div class="form-group">
-                      <label>Full Name</label>
-                      <input type="text" class="form-control" name="new_name" required placeholder="e.g. Nigel Casey" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                      <label>Email Address</label>
-                      <input type="email" class="form-control" name="new_email" required placeholder="name@example.com" autocomplete="off">
-                    </div>
-                    <div class="form-group">
-                      <label>Role</label>
-                      <select class="form-control" name="new_role">
-                        <option value="staff">Staff</option>
-                        <option value="manager">Manager</option>
-                        <option value="admin">Admin</option>
-                        <option value="user">User (read-only)</option>
-                      </select>
-                    </div>
-                    <div class="form-group">
-                      <label>Password</label>
-                      <input type="password" class="form-control" name="new_password" required minlength="8" placeholder="Minimum 8 characters" autocomplete="new-password">
-                    </div>
-                    <div class="form-group mb-0">
-                      <label>Confirm Password</label>
-                      <input type="password" class="form-control" name="confirm_password" required minlength="8" placeholder="Re-enter password" autocomplete="new-password">
-                    </div>
-                  </div>
-                  <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Create Account</button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
 
 <?php include 'includes/appstack_footer.php'; ?>

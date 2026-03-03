@@ -9,6 +9,7 @@
  * POST: {action: 'update_hr', ...}      — update personal/address/SIN (hr.edit)
  * POST: {action: 'update_payroll', ...} — update banking/direct deposit (hr.edit)
  * POST: {action: 'update_td1', ...}     — update TD1 credits + notes (hr.edit)
+ * POST: {action: 'update_roles', ...}  — update RBAC role assignments (users.manage)
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -362,9 +363,36 @@ try {
             echo json_encode(['success' => true, 'message' => 'TD1 updated']);
             break;
 
+        // ── POST: update RBAC role assignments ────────────────────────────
+        case 'update_roles':
+            if (!userHasPermission('users.manage')) throw new Exception('Access denied — requires users.manage permission');
+            if (!verifyCSRFToken($input['csrf_token'] ?? '')) throw new Exception('Invalid security token');
+
+            $targetId = (int)($input['id'] ?? 0);
+            if (!$targetId) throw new Exception('Employee ID required');
+
+            // Prevent removing your own admin role
+            $roleIds = array_filter(array_map('intval', $input['roles'] ?? []));
+            if ($targetId === $user['id']) {
+                $adminRoleId = (int)$db->query("SELECT id FROM roles WHERE name = 'admin' LIMIT 1")->fetchColumn();
+                if ($adminRoleId && !in_array($adminRoleId, $roleIds)) {
+                    throw new Exception('You cannot remove your own admin role.');
+                }
+            }
+
+            $db->prepare("DELETE FROM user_roles WHERE user_id = ?")->execute([$targetId]);
+            $stmt = $db->prepare("INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)");
+            foreach ($roleIds as $rid) {
+                $stmt->execute([$targetId, $rid]);
+            }
+
+            logActivity($user['id'], null, 'Updated RBAC roles for user #' . $targetId, implode(',', $roleIds));
+            echo json_encode(['success' => true, 'message' => 'Roles updated']);
+            break;
+
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, create, update, update_hr, update_payroll, update_td1']);
+            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, create, update, update_hr, update_payroll, update_td1, update_roles']);
     }
 
 } catch (PDOException $e) {

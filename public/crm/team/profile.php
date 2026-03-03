@@ -106,6 +106,25 @@ if ($canHrView || $canTeamEdit) {
 
 $roleBadge = ['admin' => 'danger', 'manager' => 'warning', 'user' => 'success'][$emp['role']] ?? 'secondary';
 
+// ── Load RBAC data for Account & Access tab ────────────────────────────────
+$canManageUsers = userHasPermission('users.manage');
+$canAccountTab  = $canTeamEdit || $canManageUsers;
+$allRoles    = [];
+$userRoleIds = [];
+if ($canAccountTab) {
+    try {
+        $rbacCheck = $db->query("SHOW TABLES LIKE 'roles'");
+        if ($rbacCheck && $rbacCheck->rowCount() > 0) {
+            $allRoles = $db->query("SELECT id, name, description FROM roles ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
+            $urStmt = $db->prepare("SELECT role_id FROM user_roles WHERE user_id = ?");
+            $urStmt->execute([$empId]);
+            $userRoleIds = array_column($urStmt->fetchAll(PDO::FETCH_ASSOC), 'role_id');
+        }
+    } catch (Throwable $e) {
+        // RBAC tables may not exist yet — degrade gracefully
+    }
+}
+
 $pageTitle = h($emp['full_name'] ?? 'Employee') . ' — HR Profile';
 $activePage = 'team';
 ?>
@@ -161,6 +180,13 @@ $activePage = 'team';
     <li class="nav-item">
         <a class="nav-link" id="tab-install" data-toggle="tab" href="#pane-install" role="tab">
             <i data-feather="smartphone" style="width:14px;height:14px;"></i> Install App
+        </a>
+    </li>
+    <?php endif; ?>
+    <?php if ($canAccountTab): ?>
+    <li class="nav-item">
+        <a class="nav-link" id="tab-account" data-toggle="tab" href="#pane-account" role="tab">
+            <i data-feather="shield" style="width:14px;height:14px;"></i> Account
         </a>
     </li>
     <?php endif; ?>
@@ -803,9 +829,150 @@ $activePage = 'team';
 
 <?php endif; // canTeamEdit ?>
 
+<?php if ($canAccountTab): ?>
+
+<!-- ── Tab: Account & Access ─────────────────────────────────────────────── -->
+<div class="tab-pane fade" id="pane-account" role="tabpanel">
+    <div class="row">
+
+        <!-- Left column -->
+        <div class="col-md-6 mb-4">
+
+            <!-- Account Status -->
+            <div class="card mb-4">
+                <div class="card-header"><h6 class="mb-0">Account Status</h6></div>
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between mb-3">
+                        <div>
+                            <span class="badge badge-<?php echo $emp['is_active'] ? 'success' : 'danger'; ?>" id="acc-status-badge">
+                                <?php echo $emp['is_active'] ? 'Active' : 'Inactive'; ?>
+                            </span>
+                            <small class="text-muted ml-2">
+                                <?php echo $emp['is_active'] ? 'Can log in to the app' : 'Login is disabled'; ?>
+                            </small>
+                        </div>
+                        <?php if ($canTeamEdit && $empId !== $user['id']): ?>
+                        <button class="btn btn-sm btn-outline-<?php echo $emp['is_active'] ? 'danger' : 'success'; ?>"
+                                onclick="toggleActiveStatus(<?php echo $empId; ?>, <?php echo $emp['is_active'] ? 0 : 1; ?>)">
+                            <?php echo $emp['is_active'] ? 'Deactivate' : 'Activate'; ?>
+                        </button>
+                        <?php endif; ?>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <label class="mw-hr-label">Last Login</label>
+                            <p class="mw-hr-value mb-0"><?php echo $emp['last_login'] ? date('M j, Y g:ia', strtotime($emp['last_login'])) : 'Never'; ?></p>
+                        </div>
+                        <div class="col-6">
+                            <label class="mw-hr-label">Account Created</label>
+                            <p class="mw-hr-value mb-0"><?php echo date('M j, Y', strtotime($emp['created_at'])); ?></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- App & Device Settings -->
+            <?php if ($canTeamEdit): ?>
+            <div class="card">
+                <div class="card-header"><h6 class="mb-0">App & Device Settings</h6></div>
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between mb-3">
+                        <div>
+                            <strong>Weather SMS Alerts</strong>
+                            <div class="small text-muted">Salt/snow rescheduling notifications</div>
+                        </div>
+                        <label class="mw-toggle-switch mb-0">
+                            <input type="checkbox" id="acc-weather-sms"
+                                   <?php echo !empty($emp['receive_weather_sms']) ? 'checked' : ''; ?>
+                                   onchange="accUpdate('receive_weather_sms', this.checked ? 1 : 0)">
+                            <span class="mw-toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mb-3">
+                        <div>
+                            <strong>Location Tracking</strong>
+                            <div class="small text-muted">GPS position sharing while clocked in</div>
+                        </div>
+                        <label class="mw-toggle-switch mb-0">
+                            <input type="checkbox" id="acc-tracking"
+                                   <?php echo $emp['location_tracking_enabled'] ? 'checked' : ''; ?>
+                                   onchange="accUpdate('location_tracking_enabled', this.checked ? 1 : 0); document.getElementById('acc-ping-row').style.display = this.checked ? '' : 'none';">
+                            <span class="mw-toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div id="acc-ping-row" class="mb-3" <?php echo $emp['location_tracking_enabled'] ? '' : 'style="display:none"'; ?>>
+                        <label class="mw-hr-label">GPS Ping Rate</label>
+                        <select class="form-control form-control-sm" onchange="accUpdate('location_ping_rate', this.value)">
+                            <option value="low"    <?php echo ($emp['location_ping_rate'] ?? 'high') === 'low'    ? 'selected' : ''; ?>>Low (every 10 min)</option>
+                            <option value="medium" <?php echo ($emp['location_ping_rate'] ?? 'high') === 'medium' ? 'selected' : ''; ?>>Medium (every 2 min)</option>
+                            <option value="high"   <?php echo ($emp['location_ping_rate'] ?? 'high') === 'high'   ? 'selected' : ''; ?>>High (every 30 sec)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mw-hr-label">Device Type</label>
+                        <select class="form-control form-control-sm" onchange="accUpdate('device_type', this.value)">
+                            <option value="personal" <?php echo ($emp['device_type'] ?? 'personal') === 'personal' ? 'selected' : ''; ?>>Personal Phone — GPS during jobs only</option>
+                            <option value="truck"    <?php echo ($emp['device_type'] ?? 'personal') === 'truck'    ? 'selected' : ''; ?>>Truck Tablet — GPS continuous</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
+        </div><!-- /col left -->
+
+        <!-- Right column -->
+        <div class="col-md-6 mb-4">
+
+            <!-- RBAC Roles -->
+            <?php if ($canManageUsers): ?>
+            <div class="card">
+                <div class="card-header"><h6 class="mb-0">System Roles & Permissions</h6></div>
+                <div class="card-body">
+                    <?php if (!empty($allRoles)): ?>
+                    <form id="acc-roles-form">
+                        <input type="hidden" name="action" value="update_roles">
+                        <input type="hidden" name="id" value="<?php echo $empId; ?>">
+                        <input type="hidden" name="csrf_token" value="<?php echo h(generateCSRFToken()); ?>">
+                        <?php foreach ($allRoles as $r): ?>
+                        <div class="custom-control custom-checkbox mb-2">
+                            <input type="checkbox" class="custom-control-input"
+                                   name="roles[]"
+                                   value="<?php echo (int)$r['id']; ?>"
+                                   id="acc_role_<?php echo (int)$r['id']; ?>"
+                                   <?php echo in_array((int)$r['id'], $userRoleIds) ? 'checked' : ''; ?>>
+                            <label class="custom-control-label" for="acc_role_<?php echo (int)$r['id']; ?>">
+                                <strong><?php echo h($r['name']); ?></strong>
+                                <?php if (!empty($r['description'])): ?>
+                                <small class="text-muted d-block"><?php echo h($r['description']); ?></small>
+                                <?php endif; ?>
+                            </label>
+                        </div>
+                        <?php endforeach; ?>
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-primary btn-sm" id="acc-roles-save-btn">Save Roles</button>
+                        </div>
+                    </form>
+                    <?php else: ?>
+                    <p class="text-muted mb-0">RBAC tables not configured yet.</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
+        </div><!-- /col right -->
+
+    </div>
+</div><!-- /account pane -->
+
+<?php endif; // canAccountTab ?>
+
 </div><!-- /tab-content -->
 
 <script>
+var profileCsrf = '<?php echo h(generateCSRFToken()); ?>';
+var profileEmpId = <?php echo $empId; ?>;
+
 // ── Toggle edit panels ─────────────────────────────────────────────────────
 function toggleOverviewEdit() {
     var view = document.getElementById('overview-view-panel');
@@ -945,6 +1112,78 @@ if (installForm) {
             result.className = 'alert alert-danger py-2';
             result.classList.remove('d-none');
             result.innerHTML = '✗ Network error. Please try again.';
+        });
+    });
+}
+
+// ── Account tab: toggle active/inactive ───────────────────────────────────
+function toggleActiveStatus(id, newActive) {
+    var msg = newActive
+        ? 'Activate this account? They will be able to log in.'
+        : 'Deactivate this account? They will not be able to log in.';
+    if (!confirm(msg)) return;
+    fetch('/crm/api/employees.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'update', id: id, is_active: newActive, csrf_token: profileCsrf})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(json) {
+        if (json.success) location.reload();
+        else alert(json.error || 'Failed to update status');
+    })
+    .catch(function() { alert('Network error'); });
+}
+
+// ── Account tab: quick field update (toggles, selects) ────────────────────
+function accUpdate(field, value) {
+    var body = {action: 'update', id: profileEmpId, csrf_token: profileCsrf};
+    body[field] = value;
+    fetch('/crm/api/employees.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(json) {
+        if (!json.success) alert(json.error || 'Update failed');
+    })
+    .catch(function() { alert('Network error'); });
+}
+
+// ── Account tab: RBAC roles form ──────────────────────────────────────────
+var accRolesForm = document.getElementById('acc-roles-form');
+if (accRolesForm) {
+    accRolesForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        var roles = [];
+        accRolesForm.querySelectorAll('input[name="roles[]"]:checked').forEach(function(cb) {
+            roles.push(parseInt(cb.value, 10));
+        });
+        var btn = document.getElementById('acc-roles-save-btn');
+        var orig = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        fetch('/crm/api/employees.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'update_roles', id: profileEmpId, roles: roles, csrf_token: profileCsrf})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(json) {
+            btn.disabled = false;
+            if (json.success) {
+                btn.textContent = 'Saved ✓';
+                setTimeout(function() { btn.textContent = orig; }, 2000);
+            } else {
+                btn.textContent = orig;
+                alert(json.error || 'Save failed');
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.textContent = orig;
+            alert('Network error');
         });
     });
 }
