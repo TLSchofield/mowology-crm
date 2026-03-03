@@ -118,7 +118,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         </div>
                         <div class="col-md-6">
                             <label for="company_website" class="form-label">Website</label>
-                            <input type="url" class="form-control" id="company_website" maxlength="255">
+                            <input type="text" class="form-control" id="company_website" maxlength="255" placeholder="https://mowology.ca">
                         </div>
                     </div>
                     <div class="mb-3">
