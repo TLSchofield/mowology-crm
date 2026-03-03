@@ -1,0 +1,562 @@
+<?php
+/**
+ * /public/crm/api/quiz.php
+ * Knowledge Quiz JSON API — all quiz actions in one endpoint.
+ *
+ * GET  actions: categories, question, leaderboard, my_stats, prizes
+ * POST actions: start, answer, finish, save_category, save_question,
+ *               upload_image, delete_question, award_prize
+ */
+declare(strict_types=1);
+header('Content-Type: application/json');
+header('X-Content-Type-Options: nosniff');
+
+if (!defined('APP_ROOT')) {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 5; $__i++) {
+        $__dir = dirname($__dir);
+        if (is_file($__dir . '/app/Core/paths.php')) {
+            require_once $__dir . '/app/Core/paths.php';
+            break;
+        }
+    }
+    unset($__dir, $__i);
+}
+
+require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+requireLogin();
+$user       = getCurrentUser();
+$userId     = (int)$user['id'];
+$monthYear  = date('Y-m');
+$isAdmin    = ($user['role'] ?? '') === 'admin';
+
+// Release session lock early — this endpoint does no session writes
+session_write_close();
+
+$db     = getDB();
+$action = $_GET['action'] ?? '';
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function qOk(array $data): void
+{
+    echo json_encode(array_merge(['success' => true], $data));
+    exit;
+}
+
+function qErr(string $msg, int $code = 400): void
+{
+    http_response_code($code);
+    echo json_encode(['success' => false, 'error' => $msg]);
+    exit;
+}
+
+function requireAdminQ(bool $isAdmin): void
+{
+    if (!$isAdmin) qErr('Admin only', 403);
+}
+
+function postInput(): array
+{
+    return (array)(json_decode(file_get_contents('php://input'), true) ?? []);
+}
+
+function verifyCsrf(array $input): void
+{
+    if (function_exists('verifyCSRFToken')) {
+        verifyCSRFToken($input['csrf_token'] ?? '');
+    }
+}
+
+/**
+ * Compute points for a correct answer based on time taken.
+ */
+function calcPoints(bool $correct, int $timeTaken): int
+{
+    if (!$correct) return 0;
+    if ($timeTaken <= 10) return 15;
+    if ($timeTaken <= 20) return 13;
+    return 10;
+}
+
+// ── Routing ───────────────────────────────────────────────────────────────────
+
+switch ($action) {
+
+    // ── GET: categories ──────────────────────────────────────────────────────
+    case 'categories':
+        $rows = $db->query(
+            "SELECT c.id, c.name, c.description, c.icon, c.colour, c.sort_order,
+                    COUNT(q.id) AS question_count
+             FROM quiz_categories c
+             LEFT JOIN quiz_questions q ON q.category_id = c.id AND q.is_active = 1
+             WHERE c.is_active = 1
+             GROUP BY c.id
+             ORDER BY c.sort_order, c.name"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        qOk(['categories' => $rows]);
+
+    // ── POST: start session ───────────────────────────────────────────────────
+    case 'start':
+        $input      = postInput();
+        verifyCsrf($input);
+        $categoryId = isset($input['category_id']) && $input['category_id'] !== '' && $input['category_id'] !== null
+                        ? (int)$input['category_id'] : null;
+
+        // Fetch active question IDs for category
+        if ($categoryId !== null) {
+            $stmt = $db->prepare(
+                "SELECT id FROM quiz_questions WHERE category_id = ? AND is_active = 1 ORDER BY RAND() LIMIT 10"
+            );
+            $stmt->execute([$categoryId]);
+        } else {
+            $stmt = $db->query(
+                "SELECT id FROM quiz_questions WHERE is_active = 1 ORDER BY RAND() LIMIT 10"
+            );
+        }
+        $qids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (count($qids) < 1) {
+            qErr('No questions available for this category yet. Ask an admin to add some!');
+        }
+
+        $questionCount = count($qids);
+        $questionIds   = implode(',', $qids);
+
+        $ins = $db->prepare(
+            "INSERT INTO quiz_sessions (user_id, category_id, question_ids, questions_count, month_year)
+             VALUES (?, ?, ?, ?, ?)"
+        );
+        $ins->execute([$userId, $categoryId, $questionIds, $questionCount, $monthYear]);
+        $sessionId = (int)$db->lastInsertId();
+
+        qOk(['session_id' => $sessionId, 'total' => $questionCount]);
+
+    // ── GET: single question ──────────────────────────────────────────────────
+    case 'question':
+        $sessionId = (int)($_GET['session_id'] ?? 0);
+        $qNum      = (int)($_GET['q'] ?? 1);
+
+        if ($sessionId <= 0) qErr('Invalid session');
+
+        // Load session (verify ownership)
+        $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id = ? AND user_id = ?");
+        $sess->execute([$sessionId, $userId]);
+        $session = $sess->fetch(PDO::FETCH_ASSOC);
+        if (!$session) qErr('Session not found', 404);
+        if ($session['completed_at'] !== null) qErr('Session already complete');
+
+        $qids = array_map('intval', explode(',', $session['question_ids']));
+        $idx  = $qNum - 1;
+        if ($idx < 0 || $idx >= count($qids)) qErr('Question number out of range');
+
+        $questionId = $qids[$idx];
+
+        // Fetch question
+        $qstmt = $db->prepare(
+            "SELECT q.id, q.question_text, q.image_path, q.difficulty, c.name AS category_name, c.colour AS category_colour
+             FROM quiz_questions q
+             JOIN quiz_categories c ON c.id = q.category_id
+             WHERE q.id = ?"
+        );
+        $qstmt->execute([$questionId]);
+        $question = $qstmt->fetch(PDO::FETCH_ASSOC);
+        if (!$question) qErr('Question not found', 404);
+
+        // Fetch options — shuffle them
+        $ostmt = $db->prepare("SELECT id, option_text FROM quiz_options WHERE question_id = ? ORDER BY sort_order");
+        $ostmt->execute([$questionId]);
+        $options = $ostmt->fetchAll(PDO::FETCH_ASSOC);
+        shuffle($options);
+
+        // Has this question already been answered in this session?
+        $answered = $db->prepare("SELECT id FROM quiz_answers WHERE session_id = ? AND question_id = ?");
+        $answered->execute([$sessionId, $questionId]);
+        $alreadyAnswered = (bool)$answered->fetch();
+
+        qOk([
+            'question_num'   => $qNum,
+            'total'          => (int)$session['questions_count'],
+            'already_answered' => $alreadyAnswered,
+            'question'       => [
+                'id'              => (int)$question['id'],
+                'text'            => $question['question_text'],
+                'image_path'      => $question['image_path'],
+                'difficulty'      => $question['difficulty'],
+                'category_name'   => $question['category_name'],
+                'category_colour' => $question['category_colour'],
+            ],
+            'options' => $options,
+        ]);
+
+    // ── POST: submit answer ───────────────────────────────────────────────────
+    case 'answer':
+        $input            = postInput();
+        verifyCsrf($input);
+        $sessionId        = (int)($input['session_id'] ?? 0);
+        $questionId       = (int)($input['question_id'] ?? 0);
+        $selectedOptionId = isset($input['selected_option_id']) ? (int)$input['selected_option_id'] : null;
+        $timeTaken        = max(0, min(30, (int)($input['time_taken_seconds'] ?? 30)));
+
+        if ($sessionId <= 0 || $questionId <= 0) qErr('Invalid parameters');
+
+        // Verify session ownership
+        $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id = ? AND user_id = ? AND completed_at IS NULL");
+        $sess->execute([$sessionId, $userId]);
+        $session = $sess->fetch(PDO::FETCH_ASSOC);
+        if (!$session) qErr('Session not found or already complete', 404);
+
+        // Prevent double-answering
+        $dup = $db->prepare("SELECT id FROM quiz_answers WHERE session_id = ? AND question_id = ?");
+        $dup->execute([$sessionId, $questionId]);
+        if ($dup->fetch()) qErr('Already answered this question');
+
+        // Find correct option
+        $corrStmt = $db->prepare("SELECT id FROM quiz_options WHERE question_id = ? AND is_correct = 1 LIMIT 1");
+        $corrStmt->execute([$questionId]);
+        $correctOption = $corrStmt->fetch(PDO::FETCH_ASSOC);
+        $correctOptionId = $correctOption ? (int)$correctOption['id'] : null;
+
+        $isCorrect = ($selectedOptionId !== null && $selectedOptionId === $correctOptionId);
+        $points    = calcPoints($isCorrect, $timeTaken);
+
+        // Record answer
+        $ins = $db->prepare(
+            "INSERT INTO quiz_answers (session_id, question_id, selected_option_id, is_correct, time_taken_seconds)
+             VALUES (?, ?, ?, ?, ?)"
+        );
+        $ins->execute([$sessionId, $questionId, $selectedOptionId, $isCorrect ? 1 : 0, $timeTaken]);
+
+        qOk([
+            'is_correct'       => $isCorrect,
+            'correct_option_id' => $correctOptionId,
+            'points_earned'    => $points,
+        ]);
+
+    // ── POST: finish session ──────────────────────────────────────────────────
+    case 'finish':
+        $input     = postInput();
+        verifyCsrf($input);
+        $sessionId = (int)($input['session_id'] ?? 0);
+
+        if ($sessionId <= 0) qErr('Invalid session');
+
+        $sess = $db->prepare("SELECT * FROM quiz_sessions WHERE id = ? AND user_id = ?");
+        $sess->execute([$sessionId, $userId]);
+        $session = $sess->fetch(PDO::FETCH_ASSOC);
+        if (!$session) qErr('Session not found', 404);
+
+        // Aggregate answers
+        $agg = $db->prepare(
+            "SELECT COUNT(*) AS total, SUM(is_correct) AS correct,
+                    SUM(CASE WHEN is_correct = 1 AND time_taken_seconds <= 10 THEN 15
+                             WHEN is_correct = 1 AND time_taken_seconds <= 20 THEN 13
+                             WHEN is_correct = 1 THEN 10 ELSE 0 END) AS points
+             FROM quiz_answers WHERE session_id = ?"
+        );
+        $agg->execute([$sessionId]);
+        $agg = $agg->fetch(PDO::FETCH_ASSOC);
+
+        $correctCount = (int)($agg['correct'] ?? 0);
+        $totalPoints  = (int)($agg['points']  ?? 0);
+
+        // Mark session complete
+        $upd = $db->prepare(
+            "UPDATE quiz_sessions
+             SET completed_at = NOW(), correct_count = ?, total_points = ?
+             WHERE id = ?"
+        );
+        $upd->execute([$correctCount, $totalPoints, $sessionId]);
+
+        // Compute monthly rank
+        $rankStmt = $db->prepare(
+            "SELECT user_id, SUM(total_points) AS monthly_pts
+             FROM quiz_sessions
+             WHERE month_year = ? AND completed_at IS NOT NULL
+             GROUP BY user_id
+             ORDER BY monthly_pts DESC"
+        );
+        $rankStmt->execute([$monthYear]);
+        $ranks    = $rankStmt->fetchAll(PDO::FETCH_ASSOC);
+        $myRank   = 1;
+        $myMonthlyTotal = 0;
+        foreach ($ranks as $i => $r) {
+            if ((int)$r['user_id'] === $userId) {
+                $myRank         = $i + 1;
+                $myMonthlyTotal = (int)$r['monthly_pts'];
+                break;
+            }
+        }
+
+        qOk([
+            'correct'       => $correctCount,
+            'total'         => (int)$session['questions_count'],
+            'points'        => $totalPoints,
+            'monthly_rank'  => $myRank,
+            'monthly_total' => $myMonthlyTotal,
+        ]);
+
+    // ── GET: monthly leaderboard ──────────────────────────────────────────────
+    case 'leaderboard':
+        $month = $_GET['month'] ?? $monthYear;
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) $month = $monthYear;
+
+        $rows = $db->prepare(
+            "SELECT u.id, u.full_name,
+                    SUM(s.total_points)  AS monthly_points,
+                    COUNT(s.id)          AS games_played,
+                    SUM(s.correct_count) AS total_correct,
+                    SUM(s.questions_count) AS total_questions,
+                    MAX(s.total_points)  AS best_game
+             FROM quiz_sessions s
+             JOIN users u ON u.id = s.user_id
+             WHERE s.month_year = ? AND s.completed_at IS NOT NULL
+             GROUP BY u.id, u.full_name
+             ORDER BY monthly_points DESC, games_played DESC
+             LIMIT 20"
+        );
+        $rows->execute([$month]);
+        $leaders = $rows->fetchAll(PDO::FETCH_ASSOC);
+
+        // Mark if prize awarded this month
+        $prizeStmt = $db->prepare("SELECT winner_user_id FROM quiz_monthly_prizes WHERE month_year = ? LIMIT 1");
+        $prizeStmt->execute([$month]);
+        $prizeWinner = $prizeStmt->fetchColumn();
+
+        foreach ($leaders as &$row) {
+            $row['monthly_points']  = (int)$row['monthly_points'];
+            $row['games_played']    = (int)$row['games_played'];
+            $row['total_correct']   = (int)$row['total_correct'];
+            $row['total_questions'] = (int)$row['total_questions'];
+            $row['best_game']       = (int)$row['best_game'];
+            $row['prize_awarded']   = ($prizeWinner && (int)$prizeWinner === (int)$row['id']);
+        }
+        unset($row);
+
+        qOk(['leaderboard' => $leaders, 'month' => $month]);
+
+    // ── GET: my stats ─────────────────────────────────────────────────────────
+    case 'my_stats':
+        $statsStmt = $db->prepare(
+            "SELECT COUNT(*)              AS games_played,
+                    SUM(total_points)     AS monthly_points,
+                    SUM(correct_count)    AS total_correct,
+                    SUM(questions_count)  AS total_questions,
+                    MAX(total_points)     AS best_game
+             FROM quiz_sessions
+             WHERE user_id = ? AND month_year = ? AND completed_at IS NOT NULL"
+        );
+        $statsStmt->execute([$userId, $monthYear]);
+        $stats = $statsStmt->fetch(PDO::FETCH_ASSOC);
+
+        // Rank
+        $rankStmt = $db->prepare(
+            "SELECT user_id FROM (
+                SELECT user_id, SUM(total_points) AS pts
+                FROM quiz_sessions
+                WHERE month_year = ? AND completed_at IS NOT NULL
+                GROUP BY user_id
+                ORDER BY pts DESC
+             ) ranked"
+        );
+        $rankStmt->execute([$monthYear]);
+        $rankedIds = $rankStmt->fetchAll(PDO::FETCH_COLUMN);
+        $myRank    = array_search($userId, array_map('intval', $rankedIds));
+        $myRank    = $myRank !== false ? $myRank + 1 : null;
+
+        qOk([
+            'games_played'    => (int)($stats['games_played'] ?? 0),
+            'monthly_points'  => (int)($stats['monthly_points'] ?? 0),
+            'best_game'       => (int)($stats['best_game'] ?? 0),
+            'accuracy_pct'    => $stats['total_questions'] > 0
+                                   ? round(($stats['total_correct'] / $stats['total_questions']) * 100)
+                                   : 0,
+            'monthly_rank'    => $myRank,
+        ]);
+
+    // ── Admin: list all questions ─────────────────────────────────────────────
+    case 'questions':
+        requireAdminQ($isAdmin);
+        $catFilter  = isset($_GET['category_id']) && $_GET['category_id'] !== '' ? (int)$_GET['category_id'] : null;
+        $whereClause = $catFilter !== null ? "WHERE q.category_id = ?" : "WHERE 1=1";
+        $params      = $catFilter !== null ? [$catFilter] : [];
+
+        $stmt = $db->prepare(
+            "SELECT q.id, q.question_text, q.image_path, q.difficulty, q.is_active,
+                    c.name AS category_name, c.colour AS category_colour,
+                    (SELECT COUNT(*) FROM quiz_options o WHERE o.question_id = q.id) AS option_count
+             FROM quiz_questions q
+             JOIN quiz_categories c ON c.id = q.category_id
+             $whereClause
+             ORDER BY c.sort_order, q.id DESC"
+        );
+        $stmt->execute($params);
+        qOk(['questions' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+
+    // ── Admin: get single question with options ───────────────────────────────
+    case 'get_question':
+        requireAdminQ($isAdmin);
+        $qid = (int)($_GET['id'] ?? 0);
+        if ($qid <= 0) qErr('Invalid id');
+
+        $qstmt = $db->prepare("SELECT * FROM quiz_questions WHERE id = ?");
+        $qstmt->execute([$qid]);
+        $question = $qstmt->fetch(PDO::FETCH_ASSOC);
+        if (!$question) qErr('Not found', 404);
+
+        $ostmt = $db->prepare("SELECT id, option_text, is_correct, sort_order FROM quiz_options WHERE question_id = ? ORDER BY sort_order");
+        $ostmt->execute([$qid]);
+        $question['options'] = $ostmt->fetchAll(PDO::FETCH_ASSOC);
+        qOk(['question' => $question]);
+
+    // ── Admin: save category ──────────────────────────────────────────────────
+    case 'save_category':
+        requireAdminQ($isAdmin);
+        $input = postInput();
+        verifyCsrf($input);
+
+        $id          = isset($input['id']) ? (int)$input['id'] : null;
+        $name        = trim($input['name'] ?? '');
+        $description = trim($input['description'] ?? '');
+        $icon        = trim($input['icon'] ?? 'help-circle');
+        $colour      = trim($input['colour'] ?? '#2D8659');
+        $sortOrder   = (int)($input['sort_order'] ?? 0);
+        $isActive    = isset($input['is_active']) ? (int)$input['is_active'] : 1;
+
+        if ($name === '') qErr('Name is required');
+        if (!preg_match('/^#[0-9a-fA-F]{6}$/', $colour)) qErr('Invalid colour');
+
+        if ($id) {
+            $db->prepare(
+                "UPDATE quiz_categories SET name=?, description=?, icon=?, colour=?, sort_order=?, is_active=? WHERE id=?"
+            )->execute([$name, $description, $icon, $colour, $sortOrder, $isActive, $id]);
+            qOk(['message' => 'Category updated', 'id' => $id]);
+        } else {
+            $db->prepare(
+                "INSERT INTO quiz_categories (name, description, icon, colour, sort_order, is_active) VALUES (?,?,?,?,?,?)"
+            )->execute([$name, $description, $icon, $colour, $sortOrder, $isActive]);
+            qOk(['message' => 'Category created', 'id' => (int)$db->lastInsertId()]);
+        }
+
+    // ── Admin: save question + options ────────────────────────────────────────
+    case 'save_question':
+        requireAdminQ($isAdmin);
+        $input = postInput();
+        verifyCsrf($input);
+
+        $id          = isset($input['id']) ? (int)$input['id'] : null;
+        $categoryId  = (int)($input['category_id'] ?? 0);
+        $questionText = trim($input['question_text'] ?? '');
+        $imagePath   = trim($input['image_path'] ?? '') ?: null;
+        $difficulty  = in_array($input['difficulty'] ?? '', ['easy','medium','hard']) ? $input['difficulty'] : 'medium';
+        $options     = $input['options'] ?? [];
+        $isActive    = isset($input['is_active']) ? (int)$input['is_active'] : 1;
+
+        if ($categoryId <= 0) qErr('Category is required');
+        if ($questionText === '') qErr('Question text is required');
+        if (count($options) < 2) qErr('At least 2 options required');
+
+        $correctCount = 0;
+        foreach ($options as $opt) {
+            if (!empty($opt['is_correct'])) $correctCount++;
+        }
+        if ($correctCount !== 1) qErr('Exactly one correct option required');
+
+        if ($id) {
+            $db->prepare(
+                "UPDATE quiz_questions SET category_id=?, question_text=?, image_path=?, difficulty=?, is_active=?, updated_at=NOW() WHERE id=?"
+            )->execute([$categoryId, $questionText, $imagePath, $difficulty, $isActive, $id]);
+            $db->prepare("DELETE FROM quiz_options WHERE question_id=?")->execute([$id]);
+        } else {
+            $db->prepare(
+                "INSERT INTO quiz_questions (category_id, question_text, image_path, difficulty, is_active, created_by) VALUES (?,?,?,?,?,?)"
+            )->execute([$categoryId, $questionText, $imagePath, $difficulty, $isActive, $userId]);
+            $id = (int)$db->lastInsertId();
+        }
+
+        $optStmt = $db->prepare(
+            "INSERT INTO quiz_options (question_id, option_text, is_correct, sort_order) VALUES (?,?,?,?)"
+        );
+        foreach (array_values($options) as $i => $opt) {
+            $optStmt->execute([
+                $id,
+                trim($opt['option_text'] ?? ''),
+                empty($opt['is_correct']) ? 0 : 1,
+                $i,
+            ]);
+        }
+
+        qOk(['message' => 'Question saved', 'id' => $id]);
+
+    // ── Admin: upload question image ──────────────────────────────────────────
+    case 'upload_image':
+        requireAdminQ($isAdmin);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') qErr('POST required', 405);
+
+        $file = $_FILES['image'] ?? null;
+        if (!$file || $file['error'] !== UPLOAD_ERR_OK) qErr('Upload failed');
+
+        $allowed   = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        $mimeType  = mime_content_type($file['tmp_name']);
+        if (!in_array($mimeType, $allowed, true)) qErr('Invalid file type — use JPG, PNG, GIF, or WebP');
+        if ($file['size'] > 8 * 1024 * 1024) qErr('File too large — max 8MB');
+
+        $ext      = pathinfo($file['name'], PATHINFO_EXTENSION);
+        $ext      = strtolower(in_array($ext, ['jpg','jpeg','png','gif','webp']) ? $ext : 'jpg');
+        $filename = 'quiz_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $destDir  = PUBLIC_ROOT . '/uploads/quiz';
+
+        if (!is_dir($destDir)) mkdir($destDir, 0755, true);
+
+        $destPath = $destDir . '/' . $filename;
+        if (!move_uploaded_file($file['tmp_name'], $destPath)) qErr('Failed to save file');
+
+        qOk(['image_path' => '/uploads/quiz/' . $filename]);
+
+    // ── Admin: toggle question active ─────────────────────────────────────────
+    case 'delete_question':
+        requireAdminQ($isAdmin);
+        $input = postInput();
+        verifyCsrf($input);
+        $qid = (int)($input['id'] ?? 0);
+        if ($qid <= 0) qErr('Invalid id');
+
+        $db->prepare("UPDATE quiz_questions SET is_active = 0 WHERE id = ?")->execute([$qid]);
+        qOk(['message' => 'Question deactivated']);
+
+    // ── Admin: award monthly prize ────────────────────────────────────────────
+    case 'award_prize':
+        requireAdminQ($isAdmin);
+        $input      = postInput();
+        verifyCsrf($input);
+        $winnerId   = (int)($input['winner_user_id'] ?? 0);
+        $prize      = trim($input['prize_description'] ?? '');
+        $month      = trim($input['month_year'] ?? $monthYear);
+        $notes      = trim($input['notes'] ?? '');
+
+        if ($winnerId <= 0) qErr('Winner required');
+        if ($prize === '') qErr('Prize description required');
+        if (!preg_match('/^\d{4}-\d{2}$/', $month)) qErr('Invalid month format');
+
+        $db->prepare(
+            "INSERT INTO quiz_monthly_prizes (month_year, winner_user_id, prize_description, awarded_at, awarded_by, notes)
+             VALUES (?, ?, ?, NOW(), ?, ?)"
+        )->execute([$month, $winnerId, $prize, $userId, $notes]);
+
+        qOk(['message' => 'Prize recorded']);
+
+    // ── Admin: list prizes ────────────────────────────────────────────────────
+    case 'prizes':
+        requireAdminQ($isAdmin);
+        $stmt = $db->query(
+            "SELECT p.*, u.full_name AS winner_name, ab.full_name AS awarded_by_name
+             FROM quiz_monthly_prizes p
+             JOIN users u  ON u.id  = p.winner_user_id
+             JOIN users ab ON ab.id = p.awarded_by
+             ORDER BY p.month_year DESC, p.created_at DESC"
+        );
+        qOk(['prizes' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+
+    default:
+        qErr('Unknown action', 404);
+}

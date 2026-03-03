@@ -9,7 +9,7 @@
  * Active page keys: 'dashboard', 'clients', 'companies', 'quotes', 'jobs',
  *                   'invoices', 'schedule', 'timeclock', 'expenses',
  *                   'profitability', 'marketing', 'social', 'cms', 'media',
- *                   'team', 'leaderboard', 'map', 'products', 'portfolio',
+ *                   'team', 'leaderboard', 'quiz', 'map', 'products', 'portfolio',
  *                   'users', 'settings'
  *
  * Nav items support two types:
@@ -65,6 +65,7 @@ $navItems = [
     ['type' => 'header', 'label' => 'Team'],
     ['key' => 'team',        'label' => 'Team',           'icon' => 'user-check',  'href' => '/crm/team/index.php',            'perm' => 'team.view'],
     ['key' => 'leaderboard', 'label' => 'Leaderboard',    'icon' => 'award',       'href' => '/crm/leaderboard_appstack.php',  'perm' => 'team.view'],
+    ['key' => 'quiz',        'label' => 'Knowledge Quiz', 'icon' => 'book-open',   'href' => '/crm/quiz_appstack.php'],
     ['key' => 'map',         'label' => 'Territory Map',  'icon' => 'map',         'href' => '/crm/map_appstack.php',          'perm' => 'jobs.view'],
 
     // ── Library ───────────────────────────────────────────────────────────────
