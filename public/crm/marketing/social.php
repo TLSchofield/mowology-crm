@@ -30,7 +30,7 @@ $canApprove = userHasPermission('marketing.approve');
               </div>
               <div class="d-flex gap-2">
                   <?php if ($canEdit): ?>
-                  <a href="/crm/marketing/social-post-editor.php" class="btn btn-success mw-soc-btn-new">
+                  <a href="/crm/marketing/social-post-wizard.php" class="btn btn-success mw-soc-btn-new">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                       New Post
                   </a>
@@ -38,6 +38,10 @@ $canApprove = userHasPermission('marketing.approve');
                   <a href="/crm/marketing/social-calendar.php" class="btn btn-outline-secondary">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                       Calendar
+                  </a>
+                  <a href="/crm/marketing/social-setup-wizard.php" class="btn btn-outline-secondary">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                      Connect Accounts
                   </a>
               </div>
           </div>
