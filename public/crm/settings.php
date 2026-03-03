@@ -355,14 +355,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </p>
 
             <!-- Preview Modal -->
-            <div id="et-preview-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;padding:24px;">
-                <div style="background:#fff;border-radius:10px;width:100%;max-width:680px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-                    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #e5ede9;">
-                        <strong style="color:#0D3B2E;">Email Preview</strong>
-                        <button type="button" onclick="etClosePreview()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#7a9e8c;line-height:1;">&times;</button>
+            <div id="et-preview-overlay">
+                <div id="et-preview-modal">
+                    <div class="et-preview-header">
+                        <strong>Email Preview</strong>
+                        <button type="button" class="et-preview-close" onclick="etClosePreview()">&times;</button>
                     </div>
-                    <div id="et-preview-loading" style="padding:40px;text-align:center;color:#7a9e8c;">Loading preview…</div>
-                    <iframe id="et-preview-frame" style="flex:1;border:none;display:none;height:calc(90vh - 60px);min-height:400px;" title="Email Preview"></iframe>
+                    <div id="et-preview-loading">Loading preview…</div>
+                    <iframe id="et-preview-frame" title="Email Preview"></iframe>
                 </div>
             </div>
 

@@ -20467,3 +20467,54 @@ textarea.font-monospace {
 }
 .dp-toast.show { transform: translateX(-50%) translateY(0); }
 .dp-toast.error { background: #7f1d1d; }
+
+/* ── Email Templates — Preview Modal ─────────────────────────────── */
+#et-preview-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+#et-preview-modal {
+    background: #fff;
+    border-radius: 10px;
+    width: 100%;
+    max-width: 680px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.et-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--mw-light);
+}
+.et-preview-header strong { color: var(--mw-forest); }
+.et-preview-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #7a9e8c;
+    line-height: 1;
+}
+#et-preview-loading {
+    padding: 40px;
+    text-align: center;
+    color: #7a9e8c;
+}
+#et-preview-frame {
+    flex: 1;
+    border: none;
+    display: none;
+    height: calc(90vh - 60px);
+    min-height: 400px;
+}
