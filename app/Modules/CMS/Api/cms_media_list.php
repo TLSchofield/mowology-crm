@@ -50,6 +50,9 @@ try {
     $where = [];
     $params = [];
 
+    // Always exclude receipt images (uploaded via expense intake, not CMS)
+    $where[] = "(context_type IS NULL OR context_type != 'expense')";
+
     if ($search) {
         $where[] = "(original_filename LIKE ? OR alt_text LIKE ? OR caption LIKE ?)";
         $searchTerm = '%' . $search . '%';
