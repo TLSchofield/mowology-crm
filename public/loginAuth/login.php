@@ -28,9 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (loginUser($email, $password)) {
                 // Crew/driver role gets the mobile driver portal
                 $loggedIn = getCurrentUser();
-                $dest = (($loggedIn['role'] ?? '') === 'user')
-                    ? '/crm/driver-portal.php'
-                    : DASHBOARD_URL;
+                $dest = DASHBOARD_URL;
                 header('Location: ' . $dest);
                 exit();
             } else {

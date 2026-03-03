@@ -39,7 +39,7 @@ if (!function_exists('getDB')) {
  */
 if (!defined('LOGIN_URL'))     define('LOGIN_URL',     '/loginAuth/login.php');
 if (!defined('LOGOUT_URL'))    define('LOGOUT_URL',    '/loginAuth/logout.php');
-if (!defined('DASHBOARD_URL')) define('DASHBOARD_URL', '/crm/dashboard_appstack.php');
+if (!defined('DASHBOARD_URL')) define('DASHBOARD_URL', '/crm/jobs/schedule.php');
 
 // Rate-limit constants
 if (!defined('LOGIN_MAX_ATTEMPTS'))  define('LOGIN_MAX_ATTEMPTS', 5);
