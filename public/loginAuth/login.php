@@ -26,7 +26,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Too many login attempts. Please try again in a few minutes.';
         } else {
             if (loginUser($email, $password)) {
-                header('Location: ' . DASHBOARD_URL);
+                // Crew/driver role gets the mobile driver portal
+                $loggedIn = getCurrentUser();
+                $dest = (($loggedIn['role'] ?? '') === 'user')
+                    ? '/crm/driver-portal.php'
+                    : DASHBOARD_URL;
+                header('Location: ' . $dest);
                 exit();
             } else {
                 $error = 'Invalid email or password.';
