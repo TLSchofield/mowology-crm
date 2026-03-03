@@ -212,7 +212,7 @@ $activePage = 'contracts';
 
                       <div class="d-grid">
                           <button type="submit" class="btn btn-primary btn-block">
-                              <i data-feather="file-check" style="width:14px;height:14px;"></i>
+                              <i data-feather="pen-tool" style="width:14px;height:14px;"></i>
                               Create Contract<?php echo $quoteId ? ' &amp; Add Plans' : ''; ?>
                           </button>
                       </div>

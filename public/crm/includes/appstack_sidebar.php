@@ -36,7 +36,7 @@ $navItems = [
     // ── Pipeline ──────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Pipeline'],
     ['key' => 'quotes',    'label' => 'Quotes',    'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',    'perm' => 'billing.view'],
-    ['key' => 'contracts', 'label' => 'Contracts', 'icon' => 'file-check', 'href' => '/crm/contracts_appstack.php', 'perm' => 'jobs.view'],
+    ['key' => 'contracts', 'label' => 'Contracts', 'icon' => 'pen-tool', 'href' => '/crm/contracts_appstack.php', 'perm' => 'jobs.view'],
     ['key' => 'jobs',      'label' => 'Jobs',      'icon' => 'briefcase',  'href' => '/crm/jobs/index.php',         'perm' => 'jobs.view'],
     ['key' => 'invoices',  'label' => 'Invoices',  'icon' => 'file-text',  'href' => '/crm/invoices/index.php',     'perm' => 'billing.view'],
 

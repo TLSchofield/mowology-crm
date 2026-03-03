@@ -96,7 +96,7 @@ $activePage = 'contracts';
 
           <?php if (empty($contracts)): ?>
               <div class="mw-empty-state">
-                  <i data-feather="file-check" class="mw-empty-icon"></i>
+                  <i data-feather="pen-tool" class="mw-empty-icon"></i>
                   <h3>No contracts yet</h3>
                   <p>Accept a quote and convert it to a contract, or create one manually.</p>
                   <a href="contracts/create.php" class="btn btn-primary">New Contract</a>

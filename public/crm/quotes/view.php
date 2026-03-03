@@ -642,7 +642,7 @@ $activePage = 'quotes';
                   <?php elseif ($quote['status'] === 'accepted'): ?>
                       <?php if (!empty($quote['is_contract'])): ?>
                           <a href="../contracts/create.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
-                              <i data-feather="file-check" class="mr-1"></i> Create Contract
+                              <i data-feather="pen-tool" class="mr-1"></i> Create Contract
                           </a>
                       <?php else: ?>
                           <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
