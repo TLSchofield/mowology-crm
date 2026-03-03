@@ -1027,7 +1027,10 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303f" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303g" rel="stylesheet">';
+// Prefetch adjacent days so arrow taps feel instant
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobilePrevDay) . $filterQueryStr . '">';
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobileNextDay) . $filterQueryStr . '">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -3342,6 +3345,27 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 <script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(__DIR__ . '/../js/profit-risk-octagon.js'); ?>"></script>
 
 <script>
+// ── Date arrow navigation: instant visual feedback ────────────────────────────
+(function () {
+    'use strict';
+    var scrollArea = document.querySelector('.mw-mc-scroll-area');
+
+    document.querySelectorAll('.mw-mc-date-arrow').forEach(function (arrow) {
+        arrow.addEventListener('click', function () {
+            // Dim the scroll area immediately so the user sees feedback before the
+            // new page arrives — prevents double-tapping "nothing happened"
+            if (scrollArea) {
+                scrollArea.style.transition = 'opacity 0.15s ease';
+                scrollArea.style.opacity    = '0.35';
+            }
+            // Disable both arrows to prevent double navigation
+            document.querySelectorAll('.mw-mc-date-arrow').forEach(function (a) {
+                a.style.pointerEvents = 'none';
+            });
+        });
+    });
+})();
+
 // ── Day Summary Card: clock buttons + elapsed timer ──────────────────────────
 (function () {
     'use strict';
