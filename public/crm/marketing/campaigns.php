@@ -767,7 +767,7 @@ $activePage = 'marketing';
                       html += '  <div class="mw-auto-card-header">';
                       html += '    <div class="mw-auto-toggle">';
                       if (canEdit) {
-                          html += '      <div class="mw-toggle-switch '+(r.is_enabled?'on':'')+'" onclick="toggleRule('+r.id+',this)" title="'+(r.is_enabled?'Disable':'Enable')+'"></div>';
+                          html += '      <div class="mw-rule-toggle-switch '+(r.is_enabled?'on':'')+'" onclick="toggleRule('+r.id+',this)" title="'+(r.is_enabled?'Disable':'Enable')+'"></div>';
                       }
                       html += '    </div>';
                       html += '    <div class="mw-auto-card-info">';
