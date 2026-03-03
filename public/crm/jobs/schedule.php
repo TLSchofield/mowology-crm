@@ -2002,7 +2002,9 @@ if ($apiKey) {
                   <!-- Date nav: ‹ THU / Feb 20 › — tap date to open picker -->
                   <div class="mw-mc-topbar-left">
                       <a href="?view=day&date=<?php echo htmlspecialchars($mobilePrevDay) . $filterQueryStr; ?>"
-                         class="mw-mc-date-arrow" aria-label="Previous day">&#8249;</a>
+                         class="mw-mc-date-arrow" aria-label="Previous day">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                        </a>
                       <button type="button"
                               class="mw-mc-date-pill<?php echo $mobileIsToday ? ' mw-mc-date-pill-today' : ''; ?>"
                               id="mwMobileDateBtn"
@@ -2012,7 +2014,9 @@ if ($apiKey) {
                       </button>
                       <!-- Date input injected into body by JS to avoid layout bleed -->
                       <a href="?view=day&date=<?php echo htmlspecialchars($mobileNextDay) . $filterQueryStr; ?>"
-                         class="mw-mc-date-arrow" aria-label="Next day">&#8250;</a>
+                         class="mw-mc-date-arrow" aria-label="Next day">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        </a>
                   </div>
                   <div class="mw-mc-topbar-center">
                       <?php if ($totalStops > 0): ?>

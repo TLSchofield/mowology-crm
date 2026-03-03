@@ -96,20 +96,22 @@
         justify-content: center;
         width: 48px;
         height: 48px;
-        font-size: 1.6rem;
-        line-height: 1;
-        color: #555;
+        color: #444;
+        background: #f0ede8;
         text-decoration: none;
-        border-radius: 8px;
+        border-radius: 12px;
+        touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
-        transition: background 0.15s, color 0.15s;
+        transition: background 0.15s, color 0.15s, transform 0.1s;
         user-select: none;
         -webkit-user-select: none;
+        flex-shrink: 0;
     }
 
     .mw-mc-date-arrow:active {
         background: var(--mw-light, #E8F3F0);
         color: var(--mw-green, #2D8659);
+        transform: scale(0.92);
         text-decoration: none;
     }
 
