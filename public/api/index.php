@@ -62,6 +62,7 @@ $moduleMap = [
     'seo'       => 'Marketing',   // alias: /api/seo/* → Marketing module
     'database'  => 'Database',
     'settings'  => 'Settings',
+    'schedule'  => 'Schedule',    // Mobile iOS schedule API (JWT-authenticated)
 ];
 
 if (!isset($moduleMap[$module])) {
@@ -145,6 +146,10 @@ $actionAliases = [
     'settings' => [
         'business'           => 'business-settings',
         'ops'                => 'ops-settings',
+    ],
+    'schedule' => [
+        'day'                => 'day',
+        'week'               => 'week',
     ],
 ];
 

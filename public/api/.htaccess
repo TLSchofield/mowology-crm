@@ -7,6 +7,11 @@
 
 RewriteEngine On
 
+# Pass Authorization header to PHP — Apache strips it by default on cPanel/mod_php.
+# Required for JWT Bearer token authentication on mobile API endpoints.
+RewriteCond %{HTTP:Authorization} .+
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
 # If the request maps to a real file, serve it directly
 RewriteCond %{REQUEST_FILENAME} -f
 RewriteRule ^ - [L]
