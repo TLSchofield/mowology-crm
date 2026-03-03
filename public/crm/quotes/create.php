@@ -1700,6 +1700,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             document.getElementById('saveLibDescription').value = item.description || '';
             document.getElementById('saveLibStatus').textContent = '';
             document.getElementById('saveLibStatus').className = 'small text-muted mr-auto';
+            document.getElementById('saveLibSubmitBtn').disabled = false;
 
             // Populate category dropdown
             const cats = await _loadSaveLibCategories();
