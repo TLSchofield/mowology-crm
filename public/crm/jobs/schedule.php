@@ -928,11 +928,106 @@ foreach ($mobileStops as $s) {
     }
 }
 
+// ─── Day Summary Card Data ────────────────────────────────────────────────────
+
+// Clock-in status (raw query — timeclock-functions.php may not expose this)
+$isClockedIn         = false;
+$clockElapsedSeconds = 0;
+$clockInTime         = null;
+try {
+    $ckStmt = $db->prepare(
+        "SELECT clock_in_time,
+                TIMESTAMPDIFF(SECOND, clock_in_time, NOW()) AS elapsed
+         FROM time_entries
+         WHERE user_id = ? AND clock_out_time IS NULL
+         ORDER BY clock_in_time DESC LIMIT 1"
+    );
+    $ckStmt->execute([$user['id']]);
+    $ckRow = $ckStmt->fetch(PDO::FETCH_ASSOC);
+    if ($ckRow) {
+        $isClockedIn         = true;
+        $clockElapsedSeconds = max(0, (int)$ckRow['elapsed']);
+        $clockInTime         = $ckRow['clock_in_time'];
+    }
+} catch (Exception $e) { /* non-fatal */ }
+
+// AM/PM hourly weather split for mobileDate
+$weatherAM = null;
+$weatherPM = null;
+try {
+    $hourlyBlocks = getHourlyForecastByCity('Vancouver', 'BC');
+    $amBlocks = [];
+    $pmBlocks = [];
+    foreach ($hourlyBlocks as $blk) {
+        if (strncmp($blk['hour'], $mobileDate, 10) !== 0) continue;
+        $h = (int)substr($blk['hour'], 11, 2);
+        if ($h >= 6  && $h < 12) $amBlocks[] = $blk;
+        elseif ($h >= 12 && $h < 17) $pmBlocks[] = $blk;
+    }
+    if (!empty($amBlocks)) $weatherAM = $amBlocks[intval(count($amBlocks) / 2)];
+    if (!empty($pmBlocks)) $weatherPM = $pmBlocks[intval(count($pmBlocks) / 2)];
+} catch (Exception $e) { /* use fallback */ }
+
+// Fallback to daily forecast when hourly is unavailable
+if (!$weatherAM) {
+    $weatherAM = [
+        'temp_c'            => $todayWeather['temp_low']    ?? 8,
+        'condition'         => $todayWeather['condition']   ?? 'Clear',
+        'icon'              => getWeatherIcon($todayWeather['condition'] ?? 'Clear'),
+        'precip_chance_pct' => $todayWeather['precipitation'] ?? 0,
+    ];
+}
+if (!$weatherPM) {
+    $weatherPM = [
+        'temp_c'            => $todayWeather['temp_high']   ?? 12,
+        'condition'         => $todayWeather['condition']   ?? 'Clear',
+        'icon'              => getWeatherIcon($todayWeather['condition'] ?? 'Clear'),
+        'precip_chance_pct' => $todayWeather['precipitation'] ?? 0,
+    ];
+}
+
+// Summary card display settings (ops_settings key: summary_card_config)
+$scSettings = [];
+try {
+    $scStmt = $db->prepare("SELECT setting_value FROM ops_settings WHERE setting_key = 'summary_card_config'");
+    $scStmt->execute();
+    $scRow = $scStmt->fetch(PDO::FETCH_ASSOC);
+    if ($scRow) $scSettings = json_decode($scRow['setting_value'], true) ?? [];
+} catch (Exception $e) { /* use defaults */ }
+
+$sc = array_merge([
+    'show_job_count'          => true,
+    'show_revenue'            => true,
+    'show_total_time'         => true,
+    'show_morning_weather'    => true,
+    'show_afternoon_weather'  => true,
+    'show_clock_card'         => true,
+], $scSettings);
+
+// Greeting
+$greetingHour      = (int)date('G');
+$dayGreeting       = $greetingHour < 12 ? 'Good morning' : ($greetingHour < 17 ? 'Good afternoon' : 'Good evening');
+$greetingFirstName = explode(' ', trim($user['name'] ?? 'there'))[0];
+
+// Daily revenue (from already-computed mission-control battle cards for this date)
+$summaryRevenue = (float)($mcBattleCards[$mobileDate]['revenue'] ?? 0);
+
+// Total estimated work + drive time for today
+$summaryMinutes = 0;
+foreach ($mobileStops as $s) {
+    foreach ($s['visits'] ?? [] as $v) {
+        $summaryMinutes += (int)($v['estimated_duration'] ?? 0);
+    }
+}
+$summaryMinutes += $totalStops > 0 ? (max(0, $totalStops - 1) * 8 + 10) : 0;
+
+// ─── End Day Summary Card Data ────────────────────────────────────────────────
+
 $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260228d" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303a" rel="stylesheet">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -1942,6 +2037,102 @@ if ($apiKey) {
 
               <!-- ── Scrollable Card Area ── -->
               <div class="mw-mc-scroll-area">
+
+              <!-- ════════════════════════════════════════════
+                   DAY SUMMARY CARD — metrics, weather, clock
+                   ════════════════════════════════════════════ -->
+              <div class="mw-ds-wrap<?php echo $isClockedIn ? ' mw-ds-wrap-active' : ''; ?>">
+
+                  <!-- Metrics card -->
+                  <div class="mw-ds-card">
+                      <div class="mw-ds-greeting">
+                          <span class="mw-ds-hi"><?php echo htmlspecialchars($dayGreeting . ', ' . $greetingFirstName); ?></span>
+                          <span class="mw-ds-date-lbl"><?php echo date('l, F j', strtotime($mobileDate)); ?></span>
+                      </div>
+                      <?php if ($sc['show_job_count'] || ($sc['show_revenue'] && $summaryRevenue > 0) || ($sc['show_total_time'] && $summaryMinutes > 0)): ?>
+                      <div class="mw-ds-metrics">
+                          <?php if ($sc['show_job_count']): ?>
+                          <div class="mw-ds-metric">
+                              <span class="mw-ds-mval"><?php echo $totalStops; ?></span>
+                              <span class="mw-ds-mlbl"><?php echo $totalStops === 1 ? 'Stop' : 'Stops'; ?></span>
+                          </div>
+                          <?php endif; ?>
+                          <?php if ($sc['show_revenue'] && $summaryRevenue > 0): ?>
+                          <div class="mw-ds-metric">
+                              <span class="mw-ds-mval">$<?php echo number_format($summaryRevenue, 0); ?></span>
+                              <span class="mw-ds-mlbl">Est. Revenue</span>
+                          </div>
+                          <?php endif; ?>
+                          <?php if ($sc['show_total_time'] && $summaryMinutes > 0): ?>
+                          <div class="mw-ds-metric">
+                              <span class="mw-ds-mval"><?php echo $summaryMinutes >= 60 ? round($summaryMinutes / 60, 1) . 'h' : $summaryMinutes . 'm'; ?></span>
+                              <span class="mw-ds-mlbl">Est. Time</span>
+                          </div>
+                          <?php endif; ?>
+                          <?php if ($completedStops > 0 && $totalStops > 0): ?>
+                          <div class="mw-ds-metric mw-ds-metric-done">
+                              <span class="mw-ds-mval"><?php echo $completedStops; ?>/<?php echo $totalStops; ?></span>
+                              <span class="mw-ds-mlbl">Done</span>
+                          </div>
+                          <?php endif; ?>
+                      </div>
+                      <?php endif; ?>
+                  </div>
+
+                  <!-- Weather AM / PM split -->
+                  <?php if ($sc['show_morning_weather'] || $sc['show_afternoon_weather']): ?>
+                  <div class="mw-ds-weather-row">
+                      <?php if ($sc['show_morning_weather']): ?>
+                      <div class="mw-ds-wx mw-ds-wx-am">
+                          <span class="mw-ds-wx-label">Morning</span>
+                          <span class="mw-ds-wx-icon"><?php echo $weatherAM['icon'] ?? '☀️'; ?></span>
+                          <span class="mw-ds-wx-temp"><?php echo round((float)($weatherAM['temp_c'] ?? 8)); ?>&deg;</span>
+                          <span class="mw-ds-wx-cond"><?php echo htmlspecialchars(ucfirst(strtolower($weatherAM['condition'] ?? 'Clear'))); ?></span>
+                          <?php if (!empty($weatherAM['precip_chance_pct']) && (int)$weatherAM['precip_chance_pct'] > 10): ?>
+                          <span class="mw-ds-wx-precip">💧 <?php echo (int)$weatherAM['precip_chance_pct']; ?>%</span>
+                          <?php endif; ?>
+                      </div>
+                      <?php endif; ?>
+                      <?php if ($sc['show_afternoon_weather']): ?>
+                      <div class="mw-ds-wx mw-ds-wx-pm">
+                          <span class="mw-ds-wx-label">Afternoon</span>
+                          <span class="mw-ds-wx-icon"><?php echo $weatherPM['icon'] ?? '⛅'; ?></span>
+                          <span class="mw-ds-wx-temp"><?php echo round((float)($weatherPM['temp_c'] ?? 12)); ?>&deg;</span>
+                          <span class="mw-ds-wx-cond"><?php echo htmlspecialchars(ucfirst(strtolower($weatherPM['condition'] ?? 'Clear'))); ?></span>
+                          <?php if (!empty($weatherPM['precip_chance_pct']) && (int)$weatherPM['precip_chance_pct'] > 10): ?>
+                          <span class="mw-ds-wx-precip">💧 <?php echo (int)$weatherPM['precip_chance_pct']; ?>%</span>
+                          <?php endif; ?>
+                      </div>
+                      <?php endif; ?>
+                  </div>
+                  <?php endif; ?>
+
+                  <!-- Clock in/out card -->
+                  <?php if ($sc['show_clock_card']): ?>
+                  <div class="mw-ds-clock-card<?php echo $isClockedIn ? ' is-active' : ''; ?>">
+                      <div class="mw-ds-clock-info">
+                          <div class="mw-ds-clock-dot<?php echo $isClockedIn ? ' is-on' : ''; ?>"></div>
+                          <?php if ($isClockedIn): ?>
+                              <span class="mw-ds-clock-status">Clocked in</span>
+                              <span class="mw-ds-clock-time"
+                                    data-clock-start="<?php echo htmlspecialchars($clockInTime ?? ''); ?>"><?php
+                                  $dsCkH = intdiv($clockElapsedSeconds, 3600);
+                                  $dsCkM = intdiv($clockElapsedSeconds % 3600, 60);
+                                  echo $dsCkH > 0 ? "{$dsCkH}h {$dsCkM}m" : "{$dsCkM}m";
+                              ?></span>
+                          <?php else: ?>
+                              <span class="mw-ds-clock-status">Not clocked in</span>
+                          <?php endif; ?>
+                      </div>
+                      <?php if ($isClockedIn): ?>
+                          <button class="mw-ds-clock-btn mw-ds-clock-btn-out" id="dsSummaryClockOut" type="button">Clock Out</button>
+                      <?php else: ?>
+                          <button class="mw-ds-clock-btn mw-ds-clock-btn-in" id="dsSummaryClockIn" type="button">Clock In</button>
+                      <?php endif; ?>
+                  </div>
+                  <?php endif; ?>
+
+              </div><!-- /.mw-ds-wrap -->
 
               <?php if (empty($mobileStops)): ?>
                   <!-- Empty state -->
@@ -3163,4 +3354,46 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 <?php endif; ?>
 
 <script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(__DIR__ . '/../js/profit-risk-octagon.js'); ?>"></script>
+
+<script>
+// ── Day Summary Card: clock button wiring + elapsed timer ──────────────────
+(function () {
+    'use strict';
+
+    // Delegate summary clock buttons to the topbar clock widget
+    var btnIn  = document.getElementById('dsSummaryClockIn');
+    var btnOut = document.getElementById('dsSummaryClockOut');
+
+    if (btnIn) {
+        btnIn.addEventListener('click', function () {
+            var real = document.getElementById('btnClockIn');
+            if (real) { real.click(); }
+        });
+    }
+    if (btnOut) {
+        btnOut.addEventListener('click', function () {
+            var real = document.getElementById('btnClockOut');
+            if (real) { real.click(); }
+        });
+    }
+
+    // Tick the elapsed clock time on the summary card every 30 seconds
+    var dsClockTime = document.querySelector('.mw-ds-clock-time[data-clock-start]');
+    if (dsClockTime) {
+        var startStr = dsClockTime.getAttribute('data-clock-start');
+        if (startStr) {
+            var startMs = new Date(startStr.replace(' ', 'T')).getTime();
+            function updateDsClock() {
+                var elapsedSec = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+                var h = Math.floor(elapsedSec / 3600);
+                var m = Math.floor((elapsedSec % 3600) / 60);
+                dsClockTime.textContent = h > 0 ? h + 'h ' + m + 'm' : m + 'm';
+            }
+            updateDsClock();
+            setInterval(updateDsClock, 30000);
+        }
+    }
+})();
+</script>
+
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

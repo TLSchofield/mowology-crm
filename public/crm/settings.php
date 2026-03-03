@@ -75,6 +75,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <a class="nav-link" id="reviews-tab" data-toggle="tab" href="#reviews" role="tab">Reviews</a>
     </li>
     <li class="nav-item">
+        <a class="nav-link" id="summary-card-tab" data-toggle="tab" href="#summary-card" role="tab">Summary Card</a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a>
     </li>
     <li class="nav-item">
@@ -919,6 +922,67 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
         </div>
 
+        <!-- Summary Card Tab -->
+        <div class="tab-pane fade" id="summary-card" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">Day Summary Card</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-4">
+                        Controls which metrics appear on the daily summary card shown at the top of the
+                        Schedule page on mobile. Changes take effect immediately for all users.
+                    </p>
+
+                    <h6 class="text-uppercase text-muted mb-3" style="font-size:0.72rem;letter-spacing:1px;">Metrics</h6>
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="custom-control custom-switch mb-3">
+                                <input type="checkbox" class="custom-control-input" id="sc_show_job_count">
+                                <label class="custom-control-label" for="sc_show_job_count">Show Stop Count</label>
+                            </div>
+                            <div class="custom-control custom-switch mb-3">
+                                <input type="checkbox" class="custom-control-input" id="sc_show_revenue">
+                                <label class="custom-control-label" for="sc_show_revenue">Show Estimated Revenue</label>
+                            </div>
+                            <div class="custom-control custom-switch mb-3">
+                                <input type="checkbox" class="custom-control-input" id="sc_show_total_time">
+                                <label class="custom-control-label" for="sc_show_total_time">Show Estimated Time</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6 class="text-uppercase text-muted mb-3" style="font-size:0.72rem;letter-spacing:1px;">Weather</h6>
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="custom-control custom-switch mb-3">
+                                <input type="checkbox" class="custom-control-input" id="sc_show_morning_weather">
+                                <label class="custom-control-label" for="sc_show_morning_weather">Show Morning Forecast</label>
+                            </div>
+                            <div class="custom-control custom-switch mb-3">
+                                <input type="checkbox" class="custom-control-input" id="sc_show_afternoon_weather">
+                                <label class="custom-control-label" for="sc_show_afternoon_weather">Show Afternoon Forecast</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6 class="text-uppercase text-muted mb-3" style="font-size:0.72rem;letter-spacing:1px;">Clock</h6>
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="custom-control custom-switch mb-3">
+                                <input type="checkbox" class="custom-control-input" id="sc_show_clock_card">
+                                <label class="custom-control-label" for="sc_show_clock_card">Show Clock In / Out Card</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="summaryCardSaveResult" class="alert" style="display:none;"></div>
+                    <button type="button" class="btn btn-primary" id="saveSummaryCardBtn">
+                        <i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
+                        Save Summary Card Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- Database / Migrations Tab -->
         <div class="tab-pane fade" id="database" role="tabpanel">
             <div class="card">
@@ -1077,6 +1141,84 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Load when tab is shown (in case it wasn't loaded yet)
         var tab = document.getElementById('reviews-tab');
         if (tab) tab.addEventListener('shown.bs.tab', loadReviewSettings);
+    });
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUMMARY CARD SETTINGS
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    var FIELDS = [
+        'show_job_count', 'show_revenue', 'show_total_time',
+        'show_morning_weather', 'show_afternoon_weather', 'show_clock_card'
+    ];
+
+    function loadSummaryCardSettings() {
+        fetch('/crm/api/ops-settings.php?action=get&key=summary_card_config', { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!data.success) return;
+                var vals = data.value || {};
+                FIELDS.forEach(function (f) {
+                    var el = document.getElementById('sc_' + f);
+                    if (el) {
+                        el.checked = vals[f] !== false; // default true if not set
+                    }
+                });
+            })
+            .catch(function () {});
+    }
+
+    function saveSummaryCardSettings() {
+        var btn = document.getElementById('saveSummaryCardBtn');
+        var res = document.getElementById('summaryCardSaveResult');
+        if (btn) btn.disabled = true;
+
+        var value = {};
+        FIELDS.forEach(function (f) {
+            var el = document.getElementById('sc_' + f);
+            value[f] = el ? el.checked : true;
+        });
+
+        fetch('/crm/api/ops-settings.php?action=save', {
+            method:      'POST',
+            credentials: 'same-origin',
+            headers:     { 'Content-Type': 'application/json' },
+            body:        JSON.stringify({
+                key:         'summary_card_config',
+                value:       value,
+                description: 'Day summary card display settings (mobile schedule page)',
+            }),
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (res) {
+                res.className = 'alert alert-' + (data.success ? 'success' : 'danger');
+                res.textContent = data.success ? 'Summary card settings saved.' : (data.error || 'Save failed.');
+                res.style.display = 'block';
+                setTimeout(function () { res.style.display = 'none'; }, 3000);
+            }
+        })
+        .catch(function () {
+            if (res) {
+                res.className = 'alert alert-danger';
+                res.textContent = 'Network error. Please try again.';
+                res.style.display = 'block';
+            }
+        })
+        .finally(function () {
+            if (btn) btn.disabled = false;
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        loadSummaryCardSettings();
+
+        var saveBtn = document.getElementById('saveSummaryCardBtn');
+        if (saveBtn) saveBtn.addEventListener('click', saveSummaryCardSettings);
+
+        var tab = document.getElementById('summary-card-tab');
+        if (tab) tab.addEventListener('shown.bs.tab', loadSummaryCardSettings);
     });
 })();
 
