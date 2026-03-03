@@ -118,28 +118,51 @@
     /* Date pill — tappable, opens native date picker */
     .mw-mc-date-pill {
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         align-items: center;
         justify-content: center;
+        gap: 7px;
         line-height: 1.15;
-        padding: 4px 8px;
-        border: none;
-        background: transparent;
+        padding: 6px 12px;
+        border: 2px solid #d8d4cc;
+        background: #fff;
         cursor: pointer;
-        border-radius: 8px;
+        border-radius: 12px;
+        touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
-        transition: background 0.15s;
-        min-width: 56px;
+        transition: border-color 0.15s, background 0.15s;
+        min-width: 0;
     }
 
     .mw-mc-date-pill:active {
+        border-color: var(--mw-green, #2D8659);
         background: var(--mw-light, #E8F3F0);
     }
 
-    /* "Today" highlight — subtle green underline on the date */
+    .mw-mc-date-pill-text {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .mw-mc-date-pill-icon {
+        color: #888;
+        flex-shrink: 0;
+        display: block;
+    }
+
+    /* "Today" highlight */
+    .mw-mc-date-pill-today {
+        border-color: var(--mw-green, #2D8659);
+    }
+
     .mw-mc-date-pill-today .mw-mc-date-pill-date {
         color: var(--mw-green, #2D8659);
         font-weight: 700;
+    }
+
+    .mw-mc-date-pill-today .mw-mc-date-pill-icon {
+        color: var(--mw-green, #2D8659);
     }
 
     .mw-mc-date-pill-day {
