@@ -183,7 +183,7 @@ function createJobPlan(array $planData, int $userId): array {
 
         $stmt = $db->prepare("
             INSERT INTO job_plans (
-                plan_number, quote_id, property_id, company_id,
+                plan_number, quote_id, contract_id, property_id, company_id,
                 title, description, service_type, service_package_id, billing_template_id,
                 pricing_model, price_per_visit, monthly_flat_price, seasonal_price, estimated_amount,
                 checklist_template, photo_types_required, gps_enforcement,
@@ -195,7 +195,7 @@ function createJobPlan(array $planData, int $userId): array {
                 default_time_start, default_time_end,
                 horizon_days, is_prepaid_bundle, source_bundle_id, status, created_by
             ) VALUES (
-                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?,
@@ -212,6 +212,7 @@ function createJobPlan(array $planData, int $userId): array {
         $stmt->execute([
             $planNumber,
             $planData['quote_id'] ?? null,
+            !empty($planData['contract_id']) ? (int)$planData['contract_id'] : null,
             $planData['property_id'],
             $companyId,
             trim($planData['title']),
@@ -1287,7 +1288,9 @@ function getPlanDetails(int $planId): ?array {
                COALESCE(ct.phone, pc.phone) AS contact_phone,
                u.full_name AS default_crew_name,
                creator.full_name AS created_by_name,
-               q.quote_number
+               q.quote_number,
+               ctr.contract_number,
+               ctr.status AS contract_status
         FROM job_plans jp
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN companies co ON jp.company_id = co.id
@@ -1296,6 +1299,7 @@ function getPlanDetails(int $planId): ?array {
         LEFT JOIN users u ON jp.default_crew_id = u.id
         LEFT JOIN users creator ON jp.created_by = creator.id
         LEFT JOIN quotes q ON jp.quote_id = q.id
+        LEFT JOIN contracts ctr ON jp.contract_id = ctr.id
         WHERE jp.id = ?
     ");
     $stmt->execute([$planId]);

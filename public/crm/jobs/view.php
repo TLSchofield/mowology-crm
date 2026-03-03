@@ -563,6 +563,12 @@ if ($hasPropCoords) {
                  SECTION 1: Plan Header + Details
                  ══════════════════════════════════════════════════════ -->
 
+            <?php if (!empty($plan['contract_id']) && !empty($plan['contract_number'])): ?>
+                <a href="../contracts/view.php?id=<?php echo (int)$plan['contract_id']; ?>" class="mw-back-link mb-2">
+                    &larr; Contract <?php echo htmlspecialchars($plan['contract_number']); ?>
+                </a>
+            <?php endif; ?>
+
             <div class="mw-page-header">
                 <div>
                     <h1 class="h3 mb-0"><?php echo htmlspecialchars($plan['plan_number']); ?></h1>

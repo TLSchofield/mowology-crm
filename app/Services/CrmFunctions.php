@@ -41,6 +41,143 @@ function generateInvoiceNumber() {
 }
 
 /**
+ * Generate a unique contract number
+ * Format: CTR-YYYY-NNNN
+ */
+function generateContractNumber() {
+    $db = getDB();
+    $year = date('Y');
+    $stmt = $db->query("
+        SELECT MAX(CAST(SUBSTRING(contract_number, 10) AS UNSIGNED)) as max_num
+        FROM contracts
+        WHERE contract_number LIKE 'CTR-{$year}-%'
+    ");
+    $result = $stmt->fetch();
+    $nextNum = ($result['max_num'] ?? 0) + 1;
+    return sprintf("CTR-%s-%04d", $year, $nextNum);
+}
+
+/**
+ * Create a new contract.
+ * Returns ['success', 'contract_id', 'contract_number', 'errors']
+ */
+function createContract(array $data, int $userId): array {
+    $errors = [];
+    if (empty($data['property_id'])) $errors[] = 'Property is required.';
+    if (empty($data['contact_id']))  $errors[] = 'Contact is required.';
+    if (empty($data['start_date']))  $errors[] = 'Start date is required.';
+    if (!empty($errors)) {
+        return ['success' => false, 'contract_id' => null, 'contract_number' => null, 'errors' => $errors];
+    }
+
+    $db = getDB();
+    try {
+        $contractNumber = generateContractNumber();
+        $stmt = $db->prepare("
+            INSERT INTO contracts
+                (contract_number, property_id, contact_id, quote_id, title,
+                 status, billing_cycle, billing_amount, start_date, end_date,
+                 renewal_date, notes, created_by)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([
+            $contractNumber,
+            (int)$data['property_id'],
+            (int)$data['contact_id'],
+            !empty($data['quote_id']) ? (int)$data['quote_id'] : null,
+            !empty($data['title']) ? trim($data['title']) : null,
+            $data['billing_cycle'] ?? 'monthly',
+            isset($data['billing_amount']) && $data['billing_amount'] !== '' ? (float)$data['billing_amount'] : null,
+            $data['start_date'],
+            !empty($data['end_date']) ? $data['end_date'] : null,
+            !empty($data['renewal_date']) ? $data['renewal_date'] : null,
+            !empty($data['notes']) ? trim($data['notes']) : null,
+            $userId,
+        ]);
+        $contractId = (int)$db->lastInsertId();
+        return ['success' => true, 'contract_id' => $contractId, 'contract_number' => $contractNumber, 'errors' => []];
+    } catch (PDOException $e) {
+        error_log('createContract error: ' . $e->getMessage());
+        return ['success' => false, 'contract_id' => null, 'contract_number' => null, 'errors' => ['Error creating contract.']];
+    }
+}
+
+/**
+ * Load a single contract with property + contact + quote info.
+ */
+function getContractById(int $id): ?array {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT c.*,
+               p.address AS property_address, p.city AS property_city,
+               p.latitude, p.longitude,
+               ct.first_name, ct.last_name,
+               ct.email AS contact_email, ct.phone AS contact_phone,
+               q.quote_number,
+               u.full_name AS created_by_name
+        FROM contracts c
+        JOIN  properties p  ON c.property_id = p.id
+        JOIN  contacts ct   ON c.contact_id  = ct.id
+        LEFT JOIN quotes q  ON c.quote_id    = q.id
+        LEFT JOIN users u   ON c.created_by  = u.id
+        WHERE c.id = ?
+    ");
+    $stmt->execute([$id]);
+    return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+/**
+ * Get all plans belonging to a contract.
+ */
+function getContractPlans(int $contractId): array {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT jp.*,
+               u.full_name AS crew_name,
+               (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'completed') AS visits_completed,
+               (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status != 'cancelled') AS total_visits,
+               (SELECT MIN(scheduled_date) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'scheduled' AND jv.scheduled_date >= CURDATE()) AS next_visit_date,
+               (SELECT COUNT(*) FROM geofences g WHERE g.plan_id = jp.id AND g.is_active = 1) AS has_work_zone
+        FROM job_plans jp
+        LEFT JOIN users u ON jp.default_crew_id = u.id
+        WHERE jp.contract_id = ?
+        ORDER BY jp.plan_start_date ASC, jp.created_at ASC
+    ");
+    $stmt->execute([$contractId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * List all contracts with property + contact + plan count.
+ */
+function getAllContracts(?string $status = null): array {
+    $db = getDB();
+    $params = [];
+    $where  = '';
+    if ($status) {
+        $where    = 'WHERE c.status = ?';
+        $params[] = $status;
+    }
+    $stmt = $db->prepare("
+        SELECT c.*,
+               p.address AS property_address, p.city AS property_city,
+               ct.first_name, ct.last_name,
+               q.quote_number,
+               COUNT(jp.id) AS plan_count
+        FROM contracts c
+        JOIN  properties p  ON c.property_id = p.id
+        JOIN  contacts ct   ON c.contact_id  = ct.id
+        LEFT JOIN quotes q  ON c.quote_id    = q.id
+        LEFT JOIN job_plans jp ON jp.contract_id = c.id
+        {$where}
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
+    ");
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
  * Generate a secure access token for customer-facing pages
  */
 function generateAccessToken() {

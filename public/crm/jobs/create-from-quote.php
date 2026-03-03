@@ -16,7 +16,8 @@ requirePermission('jobs.edit');
 
 $db = getDB();
 
-$quoteId = intval($_GET['quote_id'] ?? 0);
+$quoteId    = intval($_GET['quote_id'] ?? 0);
+$contractId = intval($_GET['contract_id'] ?? $_POST['contract_id'] ?? 0);
 if (!$quoteId) {
     header('Location: ../quotes/index.php');
     exit;
@@ -288,6 +289,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'is_prepaid_bundle'        => $isPrepaidBundle ? 1 : 0,
             'source_bundle_id'         => $sourceBundleId,
             'fertilizer_dates'         => $fertilizerDates,
+            'contract_id'              => $contractId ?: null,
         ];
 
         $result = createJobPlan($planData, (int)$user['id']);
@@ -317,9 +319,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $justCreatedPlan = $result;
                 $unconvertedCount = $remaining;
             } else {
-                // All done — go to quote view
+                // All done — go to contract view if we have one, otherwise quote view
                 $_SESSION['alert'] = ['type' => 'success', 'message' => "All quote items converted. Last plan: {$result['plan_number']}"];
-                header("Location: ../quotes/view.php?id={$quoteId}");
+                if ($contractId) {
+                    header("Location: ../contracts/view.php?id={$contractId}");
+                } else {
+                    header("Location: ../quotes/view.php?id={$quoteId}");
+                }
                 exit;
             }
         } else {
@@ -365,7 +371,8 @@ if ($propLat && $propLng && $apiKey) {
               <!-- ═══ LEFT: Plan Creation Form ═══ -->
               <div class="col-lg-7">
                   <form method="POST" id="createPlanForm">
-                      <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                      <input type="hidden" name="csrf_token"   value="<?php echo $csrfToken; ?>">
+                      <input type="hidden" name="contract_id"  value="<?php echo (int)$contractId; ?>">
 
                       <!-- Plan Items (populated from quote items) -->
                       <div class="card">
