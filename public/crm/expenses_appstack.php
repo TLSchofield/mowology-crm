@@ -892,6 +892,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             <div class="modal-body pt-3">
                 <input type="hidden" id="expenseId">
                 <input type="hidden" id="expReceiptMediaId">
+                <input type="file" id="expReceiptUploadInput" accept="image/*" style="display:none">
                 <div class="row">
                     <!-- Left: Receipt Image (shown only when image exists) -->
                     <div class="col-lg-5" id="expReceiptCol" style="display:none;">
@@ -1107,6 +1108,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             <div class="modal-footer border-0 pt-0">
                 <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancel</button>
                 <?php if ($canEdit): ?>
+                <button type="button" class="btn btn-outline-secondary" id="expAttachReceiptBtn" onclick="document.getElementById('expReceiptUploadInput').click()" title="Upload a receipt image for this expense">
+                    <i data-feather="paperclip" style="width:16px;height:16px;margin-right:4px;"></i> Attach Receipt
+                </button>
                 <button type="button" class="btn btn-primary px-4" onclick="saveExpense()">
                     <i data-feather="save" style="width:16px;height:16px;margin-right:4px;"></i> Save Expense
                 </button>
@@ -2848,6 +2852,43 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             loadStats();
         } catch(e) { alert('Error: ' + e.message); }
     };
+
+    // ── Attach Receipt to existing expense ──────────────────────
+    (function() {
+        var input = document.getElementById('expReceiptUploadInput');
+        if (!input) return;
+        input.addEventListener('change', async function() {
+            var file = this.files[0];
+            if (!file) return;
+            var btn = document.getElementById('expAttachReceiptBtn');
+            var origHtml = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Uploading…'; }
+            try {
+                var fd = new FormData();
+                fd.append('receipt_photo', file);
+                fd.append('csrf_token', CSRF);
+                var r = await fetch('/crm/api/receipt-intake.php', { method: 'POST', body: fd });
+                var d = await r.json();
+                if (!d.success) throw new Error(d.error || 'Upload failed');
+                // Wire the new media_id into the modal
+                document.getElementById('expReceiptMediaId').value = d.media_id;
+                // Show the image preview
+                var img = document.getElementById('expReceiptImg');
+                var receiptCol = document.getElementById('expReceiptCol');
+                var formCol = document.getElementById('expFormCol');
+                var rescanBtn = document.getElementById('expRescanBtn');
+                img.src = d.file_path;
+                receiptCol.style.display = 'block';
+                formCol.className = 'col-lg-7';
+                if (rescanBtn) rescanBtn.style.display = '';
+                if (window.feather) feather.replace();
+            } catch(e) { alert('Receipt upload failed: ' + e.message); }
+            finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = origHtml; if (window.feather) feather.replace(); }
+                input.value = ''; // reset so same file can be re-selected
+            }
+        });
+    })();
 
     // ── Vendor Search Autocomplete ───────────────────────────────
     function setupVendorSearch(inputId, dropdownId, hiddenId, acctId, gbpId) {
