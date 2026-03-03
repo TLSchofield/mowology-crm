@@ -130,12 +130,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             $sentVia = [];
             $attachPath = null;
 
-            // Generate access token if not exists
+            // Generate access token if not exists; always refresh expiry on send/resend
             if (empty($quote['access_token'])) {
-                $accessToken = generateAccessToken();
+                $quote['access_token'] = generateAccessToken();
                 $stmt = $db->prepare("UPDATE quotes SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?");
-                $stmt->execute([$accessToken, $quoteId]);
-                $quote['access_token'] = $accessToken;
+                $stmt->execute([$quote['access_token'], $quoteId]);
+            } else {
+                // Token exists — refresh the 30-day expiry window so resent links don't expire
+                $stmt = $db->prepare("UPDATE quotes SET token_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?");
+                $stmt->execute([$quoteId]);
             }
 
             // Build customer name and quote URL
