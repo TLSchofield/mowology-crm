@@ -930,24 +930,24 @@ foreach ($mobileStops as $s) {
 
 // ─── Day Summary Card Data ────────────────────────────────────────────────────
 
-// Clock-in status (raw query — timeclock-functions.php may not expose this)
+// Clock-in status — matches getActiveClockEntry() in TimeclockFunctions.php exactly
 $isClockedIn         = false;
 $clockElapsedSeconds = 0;
 $clockInTime         = null;
 try {
     $ckStmt = $db->prepare(
-        "SELECT clock_in_time,
-                TIMESTAMPDIFF(SECOND, clock_in_time, NOW()) AS elapsed
-         FROM time_entries
-         WHERE user_id = ? AND clock_out_time IS NULL
-         ORDER BY clock_in_time DESC LIMIT 1"
+        "SELECT clock_in,
+                TIMESTAMPDIFF(SECOND, clock_in, NOW()) AS elapsed
+         FROM time_clock_entries
+         WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
+         ORDER BY clock_in DESC LIMIT 1"
     );
     $ckStmt->execute([$user['id']]);
     $ckRow = $ckStmt->fetch(PDO::FETCH_ASSOC);
     if ($ckRow) {
         $isClockedIn         = true;
         $clockElapsedSeconds = max(0, (int)$ckRow['elapsed']);
-        $clockInTime         = $ckRow['clock_in_time'];
+        $clockInTime         = $ckRow['clock_in'];
     }
 } catch (Exception $e) { /* non-fatal */ }
 
