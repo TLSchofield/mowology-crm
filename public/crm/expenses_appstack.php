@@ -2855,6 +2855,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var debounce;
         input.addEventListener('input', function() {
             clearTimeout(debounce);
+            document.getElementById(hiddenId).value = ''; // Clear vendor_id when user types freely
             var q = this.value.trim();
             if (q.length < 2) { dropdown.classList.remove('show'); return; }
             debounce = setTimeout(async function() {
