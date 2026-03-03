@@ -1109,7 +1109,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancel</button>
                 <?php if ($canEdit): ?>
                 <button type="button" class="btn btn-outline-secondary" id="expAttachReceiptBtn" onclick="document.getElementById('expReceiptUploadInput').click()" title="Upload a receipt image for this expense">
-                    <i data-feather="paperclip" style="width:16px;height:16px;margin-right:4px;"></i> Attach Receipt
+                    <i data-feather="upload" style="width:16px;height:16px;margin-right:4px;"></i> Attach Receipt
                 </button>
                 <button type="button" class="btn btn-primary px-4" onclick="saveExpense()">
                     <i data-feather="save" style="width:16px;height:16px;margin-right:4px;"></i> Save Expense
