@@ -724,7 +724,7 @@ Work to be completed weather permitting.</textarea>
                                     <!-- Drawing Tools -->
                                     <div class="mw-measure-tools">
                                         <button class="btn btn-sm btn-outline-secondary" id="drawPolygonBtn" onclick="startDrawing('polygon')">
-                                            <i class="align-middle" data-feather="pentagon" style="width:14px;height:14px;"></i> Polygon
+                                            <i class="align-middle" data-feather="layers" style="width:14px;height:14px;"></i> Polygon
                                         </button>
                                         <button class="btn btn-sm btn-outline-secondary" id="drawRectangleBtn" onclick="startDrawing('rectangle')">
                                             <i class="align-middle" data-feather="square" style="width:14px;height:14px;"></i> Rectangle

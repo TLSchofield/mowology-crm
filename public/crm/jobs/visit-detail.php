@@ -278,7 +278,7 @@ $activePage = 'jobs';
         <div class="alert alert-info">Route map will be generated when PDF is produced.</div>
         <?php else: ?>
         <div class="text-muted text-center py-4">
-          <i data-feather="map-off" style="width:32px;height:32px;opacity:.4;"></i>
+          <i data-feather="map" style="width:32px;height:32px;opacity:.4;"></i>
           <p class="mt-2 mb-0">No GPS track recorded for this visit.</p>
         </div>
         <?php endif; ?>
