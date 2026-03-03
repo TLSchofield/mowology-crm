@@ -36,7 +36,7 @@ foreach ($jobs as $j) {
 }
 // Query separately for revenue (join job_plans)
 $revStmt = $db->prepare("
-    SELECT COALESCE(SUM(jp.quoted_amount), 0) as total_revenue
+    SELECT COALESCE(SUM(jp.price_per_visit), 0) as total_revenue
     FROM job_visits jv
     JOIN job_plans jp ON jv.plan_id = jp.id
     WHERE jv.scheduled_date = ?
