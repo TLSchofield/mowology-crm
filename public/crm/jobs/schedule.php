@@ -3412,6 +3412,52 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
     });
 })();
 
+// ── Scroll area swipe: left = next day, right = prev day ──────────────────────
+(function () {
+    'use strict';
+    var scrollArea = document.querySelector('.mw-mc-scroll-area');
+    if (!scrollArea) return;
+
+    var PREV_DAY = '?view=day&date=<?php echo htmlspecialchars($mobilePrevDay) . $filterQueryStr; ?>';
+    var NEXT_DAY = '?view=day&date=<?php echo htmlspecialchars($mobileNextDay) . $filterQueryStr; ?>';
+
+    var startX = 0, startY = 0, dir = null;
+
+    scrollArea.addEventListener('touchstart', function (e) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        dir    = null;
+    }, { passive: true });
+
+    // Determine swipe direction on first significant movement.
+    // Must be non-passive so we can preventDefault() for horizontal swipes
+    // (prevents the page from also scrolling vertically).
+    scrollArea.addEventListener('touchmove', function (e) {
+        if (dir === 'h') { e.preventDefault(); return; }
+        if (dir === 'v') return;
+        var dx = Math.abs(e.touches[0].clientX - startX);
+        var dy = Math.abs(e.touches[0].clientY - startY);
+        if (dx > 8 || dy > 8) {
+            dir = (dx > dy) ? 'h' : 'v';
+            if (dir === 'h') e.preventDefault();
+        }
+    }, { passive: false });
+
+    scrollArea.addEventListener('touchend', function (e) {
+        if (dir !== 'h') return;
+        var dx = e.changedTouches[0].clientX - startX;
+        if (Math.abs(dx) >= 55) {
+            // Dim immediately for feedback before the new page arrives
+            scrollArea.style.transition = 'opacity 0.15s ease';
+            scrollArea.style.opacity    = '0.35';
+            document.querySelectorAll('.mw-mc-strip-day, .mw-mc-strip-nav-arrow').forEach(function (el) {
+                el.style.pointerEvents = 'none';
+            });
+            window.location.href = dx < 0 ? NEXT_DAY : PREV_DAY;
+        }
+    }, { passive: true });
+})();
+
 // ── Bottom nav: instant visual feedback on tap ────────────────────────────────
 (function () {
     'use strict';
