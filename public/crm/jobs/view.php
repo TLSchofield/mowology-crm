@@ -440,7 +440,9 @@ if (!empty($plan['contract_billing_amount'])) {
     $contractCycle = 'seasonal'; // quote totals are lump-sum
 } elseif (!empty($plan['estimated_amount'])) {
     $contractTotal = (float)$plan['estimated_amount'];
-    $contractCycle = 'seasonal'; // estimated amounts are lump-sum
+    // Derive cycle from the plan's own pricing model (monthly_flat stores the monthly rate)
+    $pmToCycle = ['monthly_flat' => 'monthly', 'per_visit' => 'per_visit', 'seasonal' => 'seasonal'];
+    $contractCycle = $pmToCycle[$plan['pricing_model'] ?? ''] ?? 'seasonal';
 }
 
 // Profitability data
