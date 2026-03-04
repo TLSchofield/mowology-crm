@@ -133,7 +133,7 @@ $activePage = 'driver';
 
     <!-- ══ Weather ══ -->
     <?php if ($wHigh !== null || $wCond): ?>
-    <div class="dp-card">
+    <div class="dp-card" id="dpWeatherCard">
         <div class="dp-card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></svg>
             Today's Weather
@@ -508,7 +508,18 @@ function dpClockIn() {
         .then(function(data) {
             if (data.success || data.clocked_in) {
                 dpToast('Clocked in!');
-                setTimeout(function(){ location.reload(); }, 800);
+                // Flatline animation on weather card before reload
+                var weatherCard = document.getElementById('dpWeatherCard');
+                if (weatherCard) {
+                    weatherCard.classList.add('mw-flatline-out');
+                    setTimeout(function() {
+                        weatherCard.classList.remove('mw-flatline-out');
+                        weatherCard.classList.add('mw-flatline-collapse');
+                        setTimeout(function(){ location.reload(); }, 380);
+                    }, 900);
+                } else {
+                    setTimeout(function(){ location.reload(); }, 800);
+                }
             } else {
                 dpToast(data.error || 'Clock in failed', true);
                 btn.disabled = false;
