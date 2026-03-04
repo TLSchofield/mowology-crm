@@ -76,6 +76,10 @@ $stmt = $db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY
 $stmt->execute([$quoteId]);
 $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Smart conversion detection: single distinct service_type → one-click; multiple → multi-plan flow
+$distinctServiceTypes = array_unique(array_filter(array_column($lineItems, 'service_type')));
+$quoteIsSingleService = (count($distinctServiceTypes) <= 1);
+
 // Get activity for this quote
 // Note: activity_log.quote_id column may not exist in older databases
 $activities = [];
@@ -645,9 +649,20 @@ $activePage = 'quotes';
                               <i data-feather="pen-tool" class="mr-1"></i> Create Contract
                           </a>
                       <?php else: ?>
+                          <?php if ($quoteIsSingleService): ?>
+                          <!-- Single service type → one-click conversion, line items auto-copied -->
+                          <form method="POST" class="d-inline">
+                              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                              <button type="submit" name="action" value="convert_to_job" class="btn btn-primary">
+                                  <i data-feather="zap" class="mr-1"></i> Convert to Job
+                              </button>
+                          </form>
+                          <?php else: ?>
+                          <!-- Multiple service types → split-plan workflow -->
                           <a href="../jobs/create-from-quote.php?quote_id=<?php echo $quoteId; ?>" class="btn btn-primary">
                               <i data-feather="briefcase" class="mr-1"></i> Create Plans
                           </a>
+                          <?php endif; ?>
                       <?php endif; ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">

@@ -47,6 +47,24 @@ if ($visitId) {
         }
         $visitAmount  = $visit['actual_amount'] ?: $visit['price_per_visit'] ?: $visit['estimated_amount'];
         $contactName  = trim($visit['contact_first'] . ' ' . $visit['contact_last']) ?: null;
+
+        // Fetch plan line items so the invoice can be generated with zero re-entry
+        $prefillLineItems = [];
+        if (!empty($visit['plan_id'])) {
+            try {
+                $pliStmt = $db->prepare("
+                    SELECT service_type, description, quantity, unit_type, unit_price, line_total, sort_order
+                    FROM plan_line_items
+                    WHERE plan_id = ?
+                    ORDER BY sort_order, id
+                ");
+                $pliStmt->execute([$visit['plan_id']]);
+                $prefillLineItems = $pliStmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {
+                // plan_line_items may not exist on this environment
+            }
+        }
+
         $prefill = [
             'company_id'        => $visit['company_id'],
             'property_id'       => $visit['property_id'],
@@ -67,6 +85,7 @@ if ($visitId) {
             'service_postal'    => $visit['postal_code'] ?? '',
             'visit_number'      => $visit['visit_number'],
             'plan_number'       => $visit['plan_number'],
+            'plan_line_items'   => $prefillLineItems,
         ];
     }
 }
@@ -76,10 +95,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
         $error = 'Invalid request. Please try again.';
     } else {
-        $companyId   = intval($_POST['company_id'] ?? 0);
-        $contactId   = intval($_POST['contact_id'] ?? 0);
-        $linkedVisitId = intval($_POST['visit_id'] ?? 0);
-        $linkedPlanId  = intval($_POST['plan_id'] ?? 0);
+        $companyId        = intval($_POST['company_id'] ?? 0);
+        $contactId        = intval($_POST['contact_id'] ?? 0);
+        $linkedVisitId    = intval($_POST['visit_id'] ?? 0);
+        $linkedPlanId     = intval($_POST['plan_id'] ?? 0);
+        $usePlanLineItems = !empty($_POST['use_plan_line_items']) && $linkedPlanId;
         $propertyId    = intval($_POST['property_id'] ?? 0);
         $issueDate     = $_POST['issue_date'] ?? date('Y-m-d');
         $dueDate       = $_POST['due_date'] ?? date('Y-m-d', strtotime('+30 days'));
@@ -172,17 +192,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $invoiceId = $db->lastInsertId();
 
-                $stmt = $db->prepare("
-                    INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id)
-                    VALUES (?, ?, 1, ?, ?, ?)
-                ");
-                $stmt->execute([
-                    $invoiceId,
-                    $description ?: 'Services rendered',
-                    $subtotal,
-                    $subtotal,
-                    $linkedVisitId ?: null
-                ]);
+                // ── Line items: copy from plan if available (zero re-entry), else single row ──
+                if ($usePlanLineItems) {
+                    $pliRows = $db->prepare("
+                        SELECT service_type, description, quantity, unit_type, unit_price, line_total, sort_order
+                        FROM plan_line_items
+                        WHERE plan_id = ?
+                        ORDER BY sort_order, id
+                    ");
+                    $pliRows->execute([$linkedPlanId]);
+                    $planLineItems = $pliRows->fetchAll(PDO::FETCH_ASSOC);
+
+                    if ($planLineItems) {
+                        // Recalculate totals from actual plan items (overrides form subtotal)
+                        $lineSubtotal = array_sum(array_column($planLineItems, 'line_total'));
+                        $lineTax      = round($lineSubtotal * $taxRate, 2);
+                        $lineTotal    = $lineSubtotal + $lineTax;
+                        $db->prepare("
+                            UPDATE invoices
+                            SET subtotal = ?, tax_amount = ?, total_amount = ?, total = ?, balance_due = ?
+                            WHERE id = ?
+                        ")->execute([$lineSubtotal, $lineTax, $lineTotal, $lineTotal, $lineTotal, $invoiceId]);
+
+                        $liStmt = $db->prepare("
+                            INSERT INTO invoice_line_items
+                                (invoice_id, description, quantity, unit_price, line_total, visit_id, sort_order)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ");
+                        foreach ($planLineItems as $i => $pli) {
+                            $liStmt->execute([
+                                $invoiceId,
+                                $pli['description'] ?: ($pli['service_type'] ?: 'Service'),
+                                $pli['quantity'],
+                                $pli['unit_price'],
+                                $pli['line_total'],
+                                $linkedVisitId ?: null,
+                                (int)($pli['sort_order'] ?? $i),
+                            ]);
+                        }
+                    } else {
+                        // Plan has no line items yet — fall through to single row
+                        $usePlanLineItems = false;
+                    }
+                }
+
+                if (!$usePlanLineItems) {
+                    $db->prepare("
+                        INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total, visit_id)
+                        VALUES (?, ?, 1, ?, ?, ?)
+                    ")->execute([
+                        $invoiceId,
+                        $description ?: 'Services rendered',
+                        $subtotal,
+                        $subtotal,
+                        $linkedVisitId ?: null,
+                    ]);
+                }
 
                 $recipientContacts = $db->prepare("
                     SELECT id, first_name, last_name, email, mobile, receive_sms
@@ -435,6 +500,63 @@ if ($apiKey) {
                         </div>
 
                         <!-- ── Description & Amount ── -->
+                        <?php
+                        $planLineItems = $prefill['plan_line_items'] ?? [];
+                        $lineItemsSubtotal = array_sum(array_column($planLineItems, 'line_total'));
+                        ?>
+                        <?php if ($planLineItems): ?>
+                        <!-- Zero-re-entry: line items auto-populated from quote/plan -->
+                        <input type="hidden" name="use_plan_line_items" value="1">
+                        <input type="hidden" name="subtotal" value="<?php echo htmlspecialchars((string)$lineItemsSubtotal); ?>">
+
+                        <div class="alert alert-success d-flex align-items-center gap-2 py-2 mb-3" style="font-size:.85rem;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="20 6 9 17 4 12"/></svg>
+                            Line items auto-populated from job plan — no re-entry needed
+                        </div>
+
+                        <table class="table table-sm table-bordered mb-0" style="font-size:.85rem;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Service</th>
+                                    <th style="width:70px;">Qty</th>
+                                    <th style="width:90px;">Unit Price</th>
+                                    <th style="width:90px;">Line Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($planLineItems as $pli): ?>
+                                <tr>
+                                    <td>
+                                        <div class="font-weight-600"><?php echo htmlspecialchars($pli['service_type'] ?? 'Service'); ?></div>
+                                        <?php if (!empty($pli['description'])): ?>
+                                        <div class="text-muted" style="font-size:.8rem;"><?php echo htmlspecialchars($pli['description']); ?></div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?php echo htmlspecialchars((string)$pli['quantity']); ?> <span class="text-muted"><?php echo htmlspecialchars($pli['unit_type'] ?? ''); ?></span></td>
+                                    <td>$<?php echo number_format(floatval($pli['unit_price']), 2); ?></td>
+                                    <td>$<?php echo number_format(floatval($pli['line_total']), 2); ?></td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+
+                        <div class="mw-totals-box mt-3">
+                            <div class="mw-totals-row">
+                                <span>Subtotal</span>
+                                <span class="mw-totals-value">$<?php echo number_format($lineItemsSubtotal, 2); ?></span>
+                            </div>
+                            <div class="mw-totals-row">
+                                <span>GST (5%)</span>
+                                <span class="mw-totals-value">$<?php echo number_format($lineItemsSubtotal * 0.05, 2); ?></span>
+                            </div>
+                            <div class="mw-totals-row grand">
+                                <span>Total</span>
+                                <span class="mw-totals-value">$<?php echo number_format($lineItemsSubtotal * 1.05, 2); ?></span>
+                            </div>
+                        </div>
+
+                        <?php else: ?>
+                        <!-- Manual / no plan items: single description + amount -->
                         <div class="mw-form-group">
                             <label class="form-label">Description</label>
                             <textarea name="description" class="form-control" rows="2"
@@ -463,6 +585,7 @@ if ($apiKey) {
                                 <span class="mw-totals-value" id="totalDisplay">$0.00</span>
                             </div>
                         </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 

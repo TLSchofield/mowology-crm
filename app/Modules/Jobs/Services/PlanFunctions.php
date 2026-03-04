@@ -322,6 +322,35 @@ function createPlanFromQuote(int $quoteId, int $userId): array {
     $result = createJobPlan($planData, $userId);
 
     if ($result['success']) {
+        // Auto-copy quote line items → plan line items (zero re-entry on Quote→Invoice path)
+        try {
+            $qliStmt = $db->prepare("
+                SELECT id, service_type, description, quantity, unit_type, unit_price, line_total, sort_order
+                FROM quote_line_items
+                WHERE quote_id = ?
+                ORDER BY sort_order, id
+            ");
+            $qliStmt->execute([$quoteId]);
+            $quoteItems = $qliStmt->fetchAll(PDO::FETCH_ASSOC);
+            if ($quoteItems) {
+                $planItems = array_map(function ($qi) {
+                    return [
+                        'quote_line_item_id' => (int)$qi['id'],
+                        'service_type'       => $qi['service_type'] ?? 'Service',
+                        'description'        => $qi['description'] ?? '',
+                        'quantity'           => $qi['quantity'],
+                        'unit_type'          => $qi['unit_type'] ?? 'visit',
+                        'unit_price'         => $qi['unit_price'],
+                        'line_total'         => $qi['line_total'],
+                        'sort_order'         => (int)($qi['sort_order'] ?? 0),
+                    ];
+                }, $quoteItems);
+                addPlanLineItems($result['plan_id'], $planItems);
+            }
+        } catch (Exception $e) {
+            // Non-fatal — plan is created, line items can be added manually
+        }
+
         // ROI attribution
         if (function_exists('createROIAttribution')) {
             $leadEventId = !empty($quote['lead_event_id']) ? (int)$quote['lead_event_id'] : null;
