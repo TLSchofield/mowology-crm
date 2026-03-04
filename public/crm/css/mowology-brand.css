@@ -17644,6 +17644,69 @@ textarea.font-monospace {
 }
 
 
+/* ── Contract View — Property Border Prompt ──────────────────────────────── */
+
+.mw-border-prompt {
+    display:       flex;
+    align-items:   center;
+    gap:           14px;
+    background:    #fff5ee;
+    border:        1px solid #f5c6a0;
+    border-left:   4px solid var(--mw-orange);
+    border-radius: 8px;
+    padding:       14px 16px;
+}
+.mw-border-prompt-icon {
+    color:       var(--mw-orange);
+    flex-shrink: 0;
+    opacity:     0.9;
+}
+.mw-border-prompt-body {
+    flex:      1;
+    min-width: 0;
+}
+.mw-border-prompt-title {
+    font-weight:   600;
+    font-size:     14px;
+    color:         #7a3b0a;
+    margin-bottom: 3px;
+}
+.mw-border-prompt-text {
+    font-size:   13px;
+    color:       #6c4c32;
+    line-height: 1.45;
+}
+.mw-border-prompt-btn {
+    flex-shrink:   0;
+    background:    var(--mw-orange);
+    color:         #fff;
+    border:        none;
+    border-radius: 6px;
+    padding:       8px 16px;
+    font-size:     13px;
+    font-weight:   600;
+    cursor:        pointer;
+    white-space:   nowrap;
+    transition:    background .15s;
+}
+.mw-border-prompt-btn:hover { background: #c94f00; color: #fff; }
+
+.mw-border-ok {
+    display:       inline-flex;
+    align-items:   center;
+    gap:           7px;
+    font-size:     13px;
+    color:         #155724;
+    background:    #d4edda;
+    border:        1px solid #c3e6cb;
+    border-radius: 6px;
+    padding:       6px 12px;
+}
+.mw-border-ok svg    { color: #28a745; flex-shrink: 0; }
+.mw-border-ok-link   { color: var(--mw-green); font-weight: 600; margin-left: 8px; }
+.mw-border-ok-link:hover { color: var(--mw-dark); }
+
+
 /* ══════════════════════════════════════════════════════════════════════════════
    MEDIA LIBRARY
    /crm/cms-media_appstack.php
