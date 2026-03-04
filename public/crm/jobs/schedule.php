@@ -759,12 +759,16 @@ $stripWeekStart    = date('Y-m-d', strtotime('monday this week', strtotime($mobi
 $stripDays         = [];
 for ($i = 0; $i < 7; $i++) {
     $d = date('Y-m-d', strtotime($stripWeekStart . " +{$i} days"));
+    $dw = $weekWeather[$d] ?? [];
     $stripDays[] = [
-        'date'        => $d,
-        'day_letter'  => strtoupper(substr(date('D', strtotime($d)), 0, 1)), // M T W T F S S
-        'day_num'     => (int)date('j', strtotime($d)),
-        'is_today'    => ($d === $today),
-        'is_selected' => ($d === $mobileDate),
+        'date'         => $d,
+        'day_letter'   => strtoupper(substr(date('D', strtotime($d)), 0, 1)), // M T W T F S S
+        'day_num'      => (int)date('j', strtotime($d)),
+        'is_today'     => ($d === $today),
+        'is_selected'  => ($d === $mobileDate),
+        'rain_heavy'   => (float)($dw['precipitation'] ?? 0) > 10, // >10mm = red ring
+        'is_holiday'   => isset($weekHolidays[$d]),
+        'holiday_name' => $weekHolidays[$d] ?? null,
     ];
 }
 $stripPrevWeekDate = date('Y-m-d', strtotime($stripWeekStart . ' -7 days'));
@@ -1044,7 +1048,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303m" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -2065,8 +2069,11 @@ if ($apiKey) {
                              class="mw-mc-strip-day<?php
                                  echo $sd['is_selected'] ? ' mw-mc-strip-day-selected' : '';
                                  echo $sd['is_today']    ? ' mw-mc-strip-day-today'    : '';
+                                 echo $sd['rain_heavy']  ? ' mw-mc-strip-day-rain'     : '';
+                                 echo $sd['is_holiday']  ? ' mw-mc-strip-day-holiday'  : '';
                              ?>"
-                             <?php echo $sd['is_selected'] ? 'aria-current="date"' : ''; ?>>
+                             <?php echo $sd['is_selected'] ? 'aria-current="date"' : ''; ?>
+                             <?php if ($sd['is_holiday'] && $sd['holiday_name']): ?>title="<?php echo htmlspecialchars($sd['holiday_name']); ?>"<?php endif; ?>>
                               <span class="mw-mc-strip-day-letter"><?php echo htmlspecialchars($sd['day_letter']); ?></span>
                               <span class="mw-mc-strip-day-num"><?php echo $sd['day_num']; ?></span>
                           </a>

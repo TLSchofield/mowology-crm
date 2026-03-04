@@ -227,6 +227,30 @@
         font-weight: 700;
     }
 
+    /* ── Calendar strip weather + holiday indicators ──────────────────────── */
+
+    /* Rain forecast >10mm — red ring outline around the day circle */
+    .mw-mc-strip-day-rain .mw-mc-strip-day-num {
+        box-shadow: 0 0 0 2px #ef4444;
+    }
+
+    /* Public holiday — solid red fill (unless day is selected, green wins) */
+    .mw-mc-strip-day-holiday:not(.mw-mc-strip-day-selected) .mw-mc-strip-day-num {
+        background: #ef4444;
+        color: #fff;
+        font-weight: 700;
+    }
+
+    /* Holiday + selected — show red ring on top of the green bubble */
+    .mw-mc-strip-day-holiday.mw-mc-strip-day-selected .mw-mc-strip-day-num {
+        box-shadow: 0 0 0 2px #ef4444;
+    }
+
+    /* Holiday letter — muted red tint */
+    .mw-mc-strip-day-holiday:not(.mw-mc-strip-day-selected) .mw-mc-strip-day-letter {
+        color: #ef4444;
+    }
+
     .mw-mc-topbar-locate {
         display: flex;
         align-items: center;
