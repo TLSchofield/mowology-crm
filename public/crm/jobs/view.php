@@ -2019,7 +2019,7 @@ if ($hasPropCoords) {
                 </div>
 
                 <!-- Contract Rate Calculator -->
-                <div class="mw-contract-calc" id="editContractCalc">
+                <div class="mw-contract-calc mw-contract-calc-open" id="editContractCalc">
                     <div class="mw-contract-calc-header" onclick="this.parentElement.classList.toggle('mw-contract-calc-open')">
                         <i data-feather="calculator" style="width:14px;height:14px;"></i>
                         <span>Contract Rate Calculator</span>
@@ -2605,6 +2605,24 @@ if ($hasPropCoords) {
             d.textContent = str;
             return d.innerHTML;
         }
+
+        // ── Initialise revenue preview on page load ──────────────
+        (function initEditModalPreview() {
+            // Seed the duration hrs label from existing values
+            var startEl = document.getElementById('editTimeStartInput');
+            var endEl   = document.getElementById('editTimeEndInput');
+            if (startEl && endEl && startEl.value && endEl.value) {
+                var sp = startEl.value.split(':').map(Number);
+                var ep = endEl.value.split(':').map(Number);
+                var diff = (ep[0] * 60 + (ep[1] || 0)) - (sp[0] * 60 + (sp[1] || 0));
+                if (diff > 0) {
+                    var h = Math.floor(diff / 60), m = diff % 60;
+                    var lbl = document.getElementById('editDurationHrsLabel');
+                    if (lbl) lbl.textContent = h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+                }
+            }
+            editUpdateRevenuePreview();
+        })();
 
         // Close edit crew dropdown on outside click
         document.addEventListener('click', function(e) {
