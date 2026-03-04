@@ -590,7 +590,21 @@ $activePage = 'timeclock';
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (data.success) {
-                        location.reload();
+                        // Flatline animation — clock section + day stats card vanish before reload
+                        var targets = [
+                            document.getElementById('mobileClockSection'),
+                            document.querySelector('.mw-schedule-stats')
+                        ].filter(Boolean);
+
+                        targets.forEach(function(el) { el.classList.add('mw-flatline-out'); });
+
+                        setTimeout(function() {
+                            targets.forEach(function(el) {
+                                el.classList.remove('mw-flatline-out');
+                                el.classList.add('mw-flatline-collapse');
+                            });
+                            setTimeout(function() { location.reload(); }, 380);
+                        }, 900);
                     } else {
                         alert(data.error || 'Clock in failed');
                         btnIn.disabled = false;
