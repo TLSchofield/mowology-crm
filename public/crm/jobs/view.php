@@ -2951,9 +2951,9 @@ if ($hasPropCoords) {
      WORK ZONE MODAL — Geofence for auto clock-in tracking
      ══════════════════════════════════════════════════════ -->
 <div class="modal fade" id="planWorkZoneModal" tabindex="-1" role="dialog" aria-labelledby="planWorkZoneModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-dialog mw-modal-fullscreen" role="document">
         <div class="modal-content">
-            <div class="modal-header">
+            <div class="modal-header py-2">
                 <h5 class="modal-title" id="planWorkZoneModalLabel">
                     <i data-feather="map-pin" style="width:16px;height:16px;vertical-align:-2px;color:var(--mw-green);"></i>
                     Work Zone — Auto Clock-In Area
@@ -2962,7 +2962,7 @@ if ($hasPropCoords) {
                     <span aria-hidden="true">&times;</span>
                 </button>
             </div>
-            <div class="modal-body p-3">
+            <div class="modal-body p-3 mw-wz-fullscreen-body">
 
                 <!-- ── Plan Badge (Step 1 already done — plan is this page) ─── -->
                 <div class="mw-wz-steps mb-3">
