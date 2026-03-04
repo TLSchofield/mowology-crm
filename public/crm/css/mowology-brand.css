@@ -21819,3 +21819,199 @@ textarea.font-monospace {
 
 .mw-transit-warning { border: 1px solid #ffc107; border-radius: 8px; }
 .mw-transit-warning .card-body { background: #fffdf0; border-radius: 8px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Schedule Context Sheet — Route Map (Phase 3a)
+   Slides up from the bottom of #mwMapView when a route pin is tapped.
+   ═══════════════════════════════════════════════════════════════ */
+
+.mw-mv-sched-sheet {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: #fff;
+    border-radius: 16px 16px 0 0;
+    padding: 6px 20px 28px;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+    z-index: 201;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.18);
+}
+.mw-mv-sched-sheet.mw-mv-sched-visible { transform: translateY(0); }
+
+.mw-mv-sched-handle {
+    width: 40px; height: 4px;
+    background: #dde1e9;
+    border-radius: 2px;
+    margin: 0 auto 14px;
+}
+
+.mw-mv-sched-close {
+    position: absolute;
+    top: 14px; right: 16px;
+    background: none; border: none;
+    color: #9ca3af; cursor: pointer;
+    padding: 4px; line-height: 1;
+    border-radius: 6px;
+}
+.mw-mv-sched-close:hover { color: #374151; background: var(--mw-light); }
+
+.mw-mv-sched-service {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--mw-forest);
+    margin-bottom: 4px;
+    padding-right: 32px;
+}
+
+.mw-mv-sched-meta {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8rem;
+    color: #6b7280;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+.mw-mv-sched-dot { color: #d1d5db; }
+
+.mw-mv-sched-time {
+    font-size: 0.8rem;
+    color: var(--mw-green);
+    font-weight: 600;
+    margin-bottom: 14px;
+    min-height: 16px;
+}
+
+.mw-mv-sched-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.mw-mv-sched-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 9px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.15s, background 0.15s;
+}
+.mw-mv-sched-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.mw-mv-sched-btn svg { flex-shrink: 0; }
+
+.mw-mv-sched-today {
+    background: var(--mw-green);
+    color: #fff;
+    flex: 1;
+}
+.mw-mv-sched-today:hover:not(:disabled) { background: var(--mw-dark); }
+
+.mw-mv-sched-pick {
+    background: var(--mw-light);
+    color: var(--mw-forest);
+    flex: 1;
+}
+.mw-mv-sched-pick:hover:not(:disabled) { background: #cde4da; }
+
+.mw-mv-sched-picker {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.mw-mv-sched-date-input {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1.5px solid var(--mw-light);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--mw-forest);
+}
+.mw-mv-sched-date-input:focus { outline: none; border-color: var(--mw-green); }
+
+.mw-mv-sched-confirm {
+    background: var(--mw-forest);
+    color: #fff;
+    white-space: nowrap;
+}
+.mw-mv-sched-confirm:hover:not(:disabled) { background: var(--mw-green); }
+
+.mw-mv-sched-msg {
+    font-size: 12px;
+    color: var(--mw-green);
+    min-height: 18px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Quick-Schedule Modal — Territory Map (Phase 3b)
+   Appears over the map when an unscheduled-property pin is tapped.
+   ═══════════════════════════════════════════════════════════════ */
+
+.mw-pin-unscheduled {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--mw-orange);
+    display: inline-block;
+}
+
+.mw-qsched-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+    padding: 20px;
+}
+
+.mw-qsched-modal {
+    background: #fff;
+    border-radius: 14px;
+    padding: 20px;
+    width: 100%;
+    max-width: 340px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.28);
+}
+
+.mw-qsched-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--mw-forest);
+    margin-bottom: 2px;
+}
+.mw-qsched-sub {
+    font-size: 11px;
+    color: #6b7280;
+    margin-bottom: 0;
+}
+.mw-qsched-close {
+    background: none; border: none;
+    font-size: 22px; color: #9ca3af;
+    cursor: pointer; padding: 0; line-height: 1;
+    margin-top: -2px;
+}
+.mw-qsched-close:hover { color: #374151; }
+
+.mw-qsched-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--mw-forest);
+    display: block;
+    margin-bottom: 4px;
+}
+.mw-qsched-msg {
+    font-size: 12px;
+    color: var(--mw-green);
+    min-height: 18px;
+    margin-bottom: 8px;
+}
+.mw-qsched-submit-btn { flex: 1; }

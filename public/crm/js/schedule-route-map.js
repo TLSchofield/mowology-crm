@@ -54,6 +54,10 @@ var MwRouteMap = (function() {
     var legDurations = [];               // Per-leg durations from Directions result
 
     // ── In-App Navigation state ──
+    // ── Schedule context sheet (3a) ──
+    var schedSheet = null;          // bottom sheet DOM element
+    var schedCurrentStop = null;    // stop currently shown in sheet
+
     var navActive = false;               // true when in-app nav panel is visible
     var navSteps = [];                   // Steps from DirectionsResult.routes[0].legs[0].steps
     var navStepIdx = 0;                  // Current step index
@@ -96,6 +100,9 @@ var MwRouteMap = (function() {
         // Create the in-app nav panel and inject it into the map view
         navPanelEl = buildNavPanel();
         viewEl.insertBefore(navPanelEl, trayEl);
+
+        // Create the schedule context sheet and inject into the map view
+        buildScheduleSheet();
 
         backBtn.addEventListener('click', function() {
             if (navActive) stopInAppNav();
@@ -852,9 +859,9 @@ var MwRouteMap = (function() {
             zIndex: isActive ? 100 : 10
         });
 
-        // Click marker → scroll carousel to this card
+        // Click marker → open schedule context sheet (also scrolls carousel)
         marker.addListener('click', function() {
-            goToCard(index);
+            showScheduleSheet(stop, index);
         });
 
         stopMarkers.push(marker);
@@ -1226,6 +1233,163 @@ var MwRouteMap = (function() {
                 'End Navigation' +
             '</button>';
         return panel;
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  SCHEDULE CONTEXT SHEET (3a)
+    // ═══════════════════════════════════════════════════
+
+    function todayStr() {
+        var d = new Date();
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
+    function buildScheduleSheet() {
+        if (!viewEl) return;
+        schedSheet = document.createElement('div');
+        schedSheet.className = 'mw-mv-sched-sheet';
+        schedSheet.id = 'mwSchedSheet';
+        schedSheet.innerHTML =
+            '<div class="mw-mv-sched-handle"></div>' +
+            '<button type="button" class="mw-mv-sched-close" id="mwSchedClose" aria-label="Dismiss">' +
+                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+            '</button>' +
+            '<div class="mw-mv-sched-service" id="mwSchedService"></div>' +
+            '<div class="mw-mv-sched-meta">' +
+                '<span class="mw-mv-sched-address" id="mwSchedAddress"></span>' +
+                '<span class="mw-mv-sched-dot">\u00b7</span>' +
+                '<span class="mw-mv-sched-client" id="mwSchedClient"></span>' +
+            '</div>' +
+            '<div class="mw-mv-sched-time" id="mwSchedTime"></div>' +
+            '<div class="mw-mv-sched-actions">' +
+                '<button type="button" class="mw-mv-sched-btn mw-mv-sched-today" id="mwSchedMoveToday">' +
+                    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>' +
+                    ' Move to Today' +
+                '</button>' +
+                '<button type="button" class="mw-mv-sched-btn mw-mv-sched-pick" id="mwSchedReschedule">' +
+                    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                    ' Reschedule\u2026' +
+                '</button>' +
+            '</div>' +
+            '<div class="mw-mv-sched-picker" id="mwSchedPicker" style="display:none">' +
+                '<input type="date" class="mw-mv-sched-date-input" id="mwSchedDateInput">' +
+                '<button type="button" class="mw-mv-sched-btn mw-mv-sched-confirm" id="mwSchedConfirm">Confirm</button>' +
+            '</div>' +
+            '<div class="mw-mv-sched-msg" id="mwSchedMsg" role="status"></div>';
+
+        viewEl.appendChild(schedSheet);
+
+        document.getElementById('mwSchedClose').addEventListener('click', closeScheduleSheet);
+
+        document.getElementById('mwSchedMoveToday').addEventListener('click', function() {
+            if (schedCurrentStop) moveStopToDay(schedCurrentStop.stopId, todayStr(), false);
+        });
+
+        document.getElementById('mwSchedReschedule').addEventListener('click', function() {
+            var picker = document.getElementById('mwSchedPicker');
+            picker.style.display = '';
+            var inp = document.getElementById('mwSchedDateInput');
+            var tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            var tStr = tomorrow.getFullYear() + '-' +
+                String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' +
+                String(tomorrow.getDate()).padStart(2, '0');
+            inp.min = todayStr();
+            if (!inp.value) inp.value = tStr;
+            inp.focus();
+        });
+
+        document.getElementById('mwSchedConfirm').addEventListener('click', function() {
+            var d = document.getElementById('mwSchedDateInput').value;
+            if (!d) { document.getElementById('mwSchedMsg').textContent = 'Please pick a date.'; return; }
+            if (schedCurrentStop) moveStopToDay(schedCurrentStop.stopId, d, false);
+        });
+    }
+
+    function showScheduleSheet(stop, idx) {
+        goToCard(idx);
+        schedCurrentStop = stop;
+
+        var service = stop.planTitle ||
+            (stop.serviceType
+                ? stop.serviceType.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); })
+                : 'Service');
+        var addr = stop.address ? stop.address.split(',')[0] : '';
+
+        document.getElementById('mwSchedService').textContent = service;
+        document.getElementById('mwSchedAddress').textContent = addr;
+        document.getElementById('mwSchedClient').textContent = stop.contactName || '';
+        document.getElementById('mwSchedTime').textContent = stop.time
+            ? ('Scheduled ' + stop.time + (stop.duration ? ' \u00b7 ' + stop.duration + ' min' : ''))
+            : '';
+
+        document.getElementById('mwSchedPicker').style.display = 'none';
+        document.getElementById('mwSchedDateInput').value = '';
+        document.getElementById('mwSchedMsg').textContent = '';
+
+        ['mwSchedMoveToday', 'mwSchedReschedule', 'mwSchedConfirm'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.disabled = false;
+        });
+
+        if (schedSheet) schedSheet.classList.add('mw-mv-sched-visible');
+    }
+
+    function closeScheduleSheet() {
+        if (schedSheet) schedSheet.classList.remove('mw-mv-sched-visible');
+        schedCurrentStop = null;
+    }
+
+    function moveStopToDay(stopId, date, force) {
+        var msg = document.getElementById('mwSchedMsg');
+        if (msg) msg.textContent = 'Saving\u2026';
+
+        var btns = schedSheet ? schedSheet.querySelectorAll('.mw-mv-sched-btn') : [];
+        btns.forEach(function(b) { b.disabled = true; });
+
+        fetch('/crm/api/reschedule-stop.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stop_id: stopId, new_date: date, force: force })
+        })
+        .then(function(r) {
+            return r.json().then(function(d) { return { ok: r.ok, data: d }; });
+        })
+        .then(function(res) {
+            if (res.data && res.data.warning && !force) {
+                // Capacity warning — show inline message + force button
+                if (msg) {
+                    msg.textContent = '';
+                    var warnSpan = document.createElement('span');
+                    warnSpan.textContent = res.data.message + ' ';
+                    var forceBtn = document.createElement('button');
+                    forceBtn.type = 'button';
+                    forceBtn.className = 'mw-mv-sched-btn mw-mv-sched-confirm';
+                    forceBtn.style.cssText = 'font-size:11px;padding:4px 10px;';
+                    forceBtn.textContent = 'Move anyway';
+                    forceBtn.addEventListener('click', function() { moveStopToDay(stopId, date, true); });
+                    msg.appendChild(warnSpan);
+                    msg.appendChild(forceBtn);
+                }
+                btns.forEach(function(b) { b.disabled = false; });
+            } else if (res.ok) {
+                if (msg) msg.textContent = '\u2713 Moved to ' + date;
+                setTimeout(function() {
+                    closeScheduleSheet();
+                    window.location.reload();
+                }, 1400);
+            } else {
+                btns.forEach(function(b) { b.disabled = false; });
+                if (msg) msg.textContent = (res.data && res.data.error) ? res.data.error : 'Could not reschedule. Try again.';
+            }
+        })
+        .catch(function() {
+            btns.forEach(function(b) { b.disabled = false; });
+            if (msg) msg.textContent = 'Network error. Please try again.';
+        });
     }
 
     /**

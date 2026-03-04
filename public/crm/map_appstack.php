@@ -121,7 +121,49 @@ try {
     }
     unset($fsa);
 
-    // 6. Properties WITHOUT postal codes (for the gap alert)
+    // 6. Unscheduled properties — active plans, no calendar stop this week (for 3b filter)
+    $weekStart = date('Y-m-d', strtotime('monday this week'));
+    $weekEnd   = date('Y-m-d', strtotime('sunday this week'));
+    $unscheduledProperties = [];
+    try {
+        $stmt = $db->prepare("
+            SELECT DISTINCT
+                p.id, p.address, p.city, p.province, p.postal_code,
+                p.latitude, p.longitude,
+                COALESCE(c.first_name, '') as first_name,
+                COALESCE(c.last_name, '')  as last_name,
+                jp.id   as plan_id,
+                COALESCE(jp.title, 'Service') as plan_title,
+                jp.price_per_visit,
+                (SELECT jv2.id FROM job_visits jv2
+                 WHERE jv2.plan_id = jp.id
+                   AND jv2.status NOT IN ('completed', 'cancelled', 'skipped')
+                 ORDER BY jv2.id LIMIT 1) as visit_id,
+                (SELECT jv2.service_type FROM job_visits jv2
+                 WHERE jv2.plan_id = jp.id
+                   AND jv2.status NOT IN ('completed', 'cancelled', 'skipped')
+                 ORDER BY jv2.id LIMIT 1) as service_type
+            FROM properties p
+            JOIN job_plans jp ON p.id = jp.property_id AND jp.status = 'active'
+            LEFT JOIN contacts c ON p.site_contact_id = c.id
+            WHERE p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+              AND p.latitude != 0 AND p.longitude != 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM calendar_stops cs
+                  WHERE cs.property_id = p.id
+                    AND cs.stop_date BETWEEN ? AND ?
+                    AND cs.stop_status != 'cancelled'
+              )
+            ORDER BY p.id
+            LIMIT 30
+        ");
+        $stmt->execute([$weekStart, $weekEnd]);
+        $unscheduledProperties = $stmt->fetchAll();
+    } catch (PDOException $e) {
+        $unscheduledProperties = [];
+    }
+
+    // 7. Properties WITHOUT postal codes (for the gap alert)
     $missingPostalCount = $db->query("
         SELECT COUNT(*) as cnt FROM properties
         WHERE (postal_code IS NULL OR postal_code = '')
@@ -148,6 +190,7 @@ try {
     $quoteRequests = [];
     $allProperties = [];
     $fsaStats = [];
+    $unscheduledProperties = [];
     $missingPostalCount = 0;
     $totalProperties = 0;
     $totalWithPlans = 0;
@@ -214,6 +257,12 @@ $activePage = 'map';
               </button>
               <button type="button" class="btn btn-sm btn-outline-secondary active" id="btn-requests" onclick="toggleLayer('requests')">
                 <i data-feather="inbox" style="width:14px;height:14px;display:inline;"></i> Requests
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-warning" id="btn-unscheduled" onclick="toggleLayer('unscheduled')">
+                <i data-feather="alert-circle" style="width:14px;height:14px;display:inline;"></i> No Visit This Week
+                <?php if (!empty($unscheduledProperties)): ?>
+                  <span class="badge badge-warning ml-1"><?php echo count($unscheduledProperties); ?></span>
+                <?php endif; ?>
               </button>
             </div>
           </div>
@@ -316,6 +365,34 @@ $activePage = 'map';
                   <div class="mw-legend-item">
                     <span class="mw-legend-circle mw-circle-revenue-none"></span>
                     <span>No Revenue Yet</span>
+                  </div>
+                </div>
+                <div id="legend-unscheduled" style="display:none;">
+                  <div class="mw-legend-item">
+                    <span class="mw-legend-pin mw-pin-unscheduled"></span>
+                    <span>No Visit This Week</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Quick-Schedule Modal (3b) -->
+              <div class="mw-qsched-overlay" id="mwQschedOverlay" style="display:none">
+                <div class="mw-qsched-modal">
+                  <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                      <div class="mw-qsched-title" id="mwQschedTitle">Schedule Visit</div>
+                      <div class="mw-qsched-sub" id="mwQschedSub"></div>
+                    </div>
+                    <button type="button" class="mw-qsched-close" id="mwQschedClose" aria-label="Close">&times;</button>
+                  </div>
+                  <div class="form-group mb-2">
+                    <label class="mw-qsched-label">Schedule for:</label>
+                    <input type="date" class="form-control form-control-sm" id="mwQschedDate">
+                  </div>
+                  <div class="mw-qsched-msg" id="mwQschedMsg"></div>
+                  <div style="display:flex;gap:8px;">
+                    <button type="button" class="btn btn-sm btn-success mw-qsched-submit-btn" id="mwQschedSubmit">Schedule Visit</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="mwQschedCancel">Cancel</button>
                   </div>
                 </div>
               </div>
@@ -632,18 +709,20 @@ $activePage = 'map';
             const allPropertiesData = <?php echo json_encode($allProperties); ?>;
             const fsaStatsData = <?php echo json_encode($fsaStats); ?>;
             const fsaNames = <?php echo json_encode($fsaNames); ?>;
+            const unscheduledData = <?php echo json_encode($unscheduledProperties); ?>;
 
             // ── Layer State ────────────────────────────────────
             const layerVisibility = {
               pins: true,
               density: true,
               revenue: false,
-              requests: true
+              requests: true,
+              unscheduled: false
             };
 
             // ── Map & Overlays ─────────────────────────────────
             let gmap = null;
-            const markers = { properties: [], requests: [] };
+            const markers = { properties: [], requests: [], unscheduled: [] };
             const overlays = { density: [], revenue: [], labels: [] };
 
             // ── Initialize ─────────────────────────────────────
@@ -969,6 +1048,112 @@ $activePage = 'map';
               });
             }
 
+            // ── Unscheduled Property Markers (3b) ─────────────
+            function renderUnscheduledMarkers() {
+              markers.unscheduled.forEach(m => m.setMap(null));
+              markers.unscheduled = [];
+              if (!layerVisibility.unscheduled) return;
+
+              unscheduledData.forEach(prop => {
+                const lat = parseFloat(prop.latitude), lng = parseFloat(prop.longitude);
+                if (!lat || !lng) return;
+
+                const icon = {
+                  path: 'M12 0C7.58 0 4 3.58 4 8c0 5.25 8 16 8 16s8-10.75 8-16c0-4.42-3.58-8-8-8zm0 11c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3z',
+                  fillColor: '#e85d04',
+                  fillOpacity: 0.9,
+                  scale: 1.6,
+                  strokeColor: '#fff',
+                  strokeWeight: 2,
+                  anchor: new google.maps.Point(12, 24)
+                };
+
+                const contactName = ((prop.first_name || '') + ' ' + (prop.last_name || '')).trim() || '';
+                const marker = new google.maps.Marker({
+                  position: { lat, lng },
+                  map: gmap,
+                  title: prop.address,
+                  icon,
+                  data: prop,
+                  type: 'unscheduled'
+                });
+
+                marker.addListener('click', () => {
+                  closeAllInfoWindows();
+                  openQuickSchedule(prop);
+                });
+
+                markers.unscheduled.push(marker);
+              });
+            }
+
+            // ── Quick-Schedule (3b) ────────────────────────────
+            let qschedCurrentProp = null;
+
+            function openQuickSchedule(prop) {
+              qschedCurrentProp = prop;
+              const contactName = ((prop.first_name || '') + ' ' + (prop.last_name || '')).trim();
+              document.getElementById('mwQschedTitle').textContent = prop.plan_title || 'Schedule Visit';
+              document.getElementById('mwQschedSub').textContent =
+                (prop.address || '') +
+                (prop.city ? ', ' + prop.city : '') +
+                (contactName ? ' — ' + contactName : '');
+              document.getElementById('mwQschedMsg').textContent = '';
+              document.getElementById('mwQschedSubmit').disabled = false;
+
+              // Default to tomorrow
+              const tomorrow = new Date();
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              const tStr = tomorrow.getFullYear() + '-' +
+                String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' +
+                String(tomorrow.getDate()).padStart(2, '0');
+              const dateInput = document.getElementById('mwQschedDate');
+              dateInput.value = tStr;
+              dateInput.min = new Date().toISOString().split('T')[0];
+
+              document.getElementById('mwQschedOverlay').style.display = 'flex';
+            }
+
+            function closeQuickSchedule() {
+              document.getElementById('mwQschedOverlay').style.display = 'none';
+              qschedCurrentProp = null;
+            }
+
+            function submitQuickSchedule() {
+              if (!qschedCurrentProp || !qschedCurrentProp.visit_id) {
+                document.getElementById('mwQschedMsg').textContent = 'No schedulable visit found for this property.';
+                return;
+              }
+              const date = document.getElementById('mwQschedDate').value;
+              if (!date) { document.getElementById('mwQschedMsg').textContent = 'Please select a date.'; return; }
+
+              const msg = document.getElementById('mwQschedMsg');
+              const btn = document.getElementById('mwQschedSubmit');
+              msg.textContent = 'Scheduling\u2026';
+              btn.disabled = true;
+
+              fetch('/crm/api/schedule-visit.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ visit_id: parseInt(qschedCurrentProp.visit_id), date })
+              })
+              .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+              .then(res => {
+                if (res.ok) {
+                  msg.textContent = '\u2713 Scheduled for ' + date + '!';
+                  setTimeout(() => { closeQuickSchedule(); window.location.reload(); }, 1400);
+                } else {
+                  btn.disabled = false;
+                  msg.textContent = (res.data && res.data.error) ? res.data.error : 'Failed to schedule. Try again.';
+                }
+              })
+              .catch(() => {
+                btn.disabled = false;
+                msg.textContent = 'Network error. Please try again.';
+              });
+            }
+
             // ── Layer Toggle ───────────────────────────────────
             function toggleLayer(layer) {
               layerVisibility[layer] = !layerVisibility[layer];
@@ -977,7 +1162,7 @@ $activePage = 'map';
               if (btn) btn.classList.toggle('active');
 
               // Update legend visibility
-              const legendMap = { pins: 'legend-pins', requests: 'legend-requests', density: 'legend-density', revenue: 'legend-revenue' };
+              const legendMap = { pins: 'legend-pins', requests: 'legend-requests', density: 'legend-density', revenue: 'legend-revenue', unscheduled: 'legend-unscheduled' };
               const legendEl = document.getElementById(legendMap[layer]);
               if (legendEl) legendEl.style.display = layerVisibility[layer] ? '' : 'none';
 
@@ -986,6 +1171,7 @@ $activePage = 'map';
               if (layer === 'requests') renderRequestMarkers();
               if (layer === 'density') renderDensityOverlay();
               if (layer === 'revenue') renderRevenueOverlay();
+              if (layer === 'unscheduled') renderUnscheduledMarkers();
             }
 
             // ── Focus Functions ────────────────────────────────
@@ -1042,6 +1228,14 @@ $activePage = 'map';
               } else {
                 initMap();
               }
+
+              // Wire quick-schedule modal buttons (3b)
+              document.getElementById('mwQschedClose').addEventListener('click', closeQuickSchedule);
+              document.getElementById('mwQschedCancel').addEventListener('click', closeQuickSchedule);
+              document.getElementById('mwQschedSubmit').addEventListener('click', submitQuickSchedule);
+              document.getElementById('mwQschedOverlay').addEventListener('click', function(e) {
+                if (e.target === this) closeQuickSchedule();
+              });
             });
           </script>
 
