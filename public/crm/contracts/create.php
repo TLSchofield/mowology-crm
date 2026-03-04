@@ -1,7 +1,10 @@
 <?php
 /**
  * Create Contract
- * Can be reached from an accepted quote (quote_id in GET) or manually from the Contracts list.
+ * Can be reached from an accepted quote (quote_id in GET), directly from a client
+ * page (?contact_id=X&property_id=Y), or manually from the Contracts list.
+ *
+ * Wizard flow (manual): 1) pick contact  2) pick property  3) fill details
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
@@ -15,8 +18,6 @@ $db = getDB();
 // ── Pre-fill from quote if provided ──────────────────────────────────────
 $quoteId = intval($_GET['quote_id'] ?? 0);
 $quote   = null;
-$prop    = null;
-$contact = null;
 
 if ($quoteId) {
     $stmt = $db->prepare("
@@ -36,16 +37,41 @@ if ($quoteId) {
     $stmt->execute([$quoteId]);
     $quote = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // Check if a contract already exists for this quote
     if ($quote) {
         $existing = $db->prepare("SELECT id, contract_number FROM contracts WHERE quote_id = ? LIMIT 1");
         $existing->execute([$quoteId]);
         $existingContract = $existing->fetch(PDO::FETCH_ASSOC);
         if ($existingContract) {
-            // Contract already exists — redirect to its view
             header("Location: view.php?id={$existingContract['id']}&from=quote");
             exit;
         }
+    }
+}
+
+// ── Pre-fill from direct URL params (?contact_id=X&property_id=Y) ────────
+$directContactId  = intval($_GET['contact_id']  ?? 0);
+$directPropertyId = intval($_GET['property_id'] ?? 0);
+
+$prefilledContactId   = 0;
+$prefilledContactName = '';
+$prefilledPropertyId  = 0;
+$prefilledProperties  = [];
+
+if ($quote) {
+    $prefilledContactId   = intval($quote['resolved_contact_id'] ?? 0);
+    $prefilledContactName = trim(($quote['contact_first'] ?? '') . ' ' . ($quote['contact_last'] ?? ''));
+    $prefilledPropertyId  = intval($quote['property_id'] ?? 0);
+} elseif ($directContactId) {
+    $stmt = $db->prepare("SELECT id, first_name, last_name FROM contacts WHERE id = ?");
+    $stmt->execute([$directContactId]);
+    $dc = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($dc) {
+        $prefilledContactId   = $directContactId;
+        $prefilledContactName = trim($dc['first_name'] . ' ' . $dc['last_name']);
+        $prefilledPropertyId  = $directPropertyId;
+        $stmt2 = $db->prepare("SELECT id, address, city, province, postal_code, property_type FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
+        $stmt2->execute([$directContactId]);
+        $prefilledProperties = $stmt2->fetchAll(PDO::FETCH_ASSOC);
     }
 }
 
@@ -69,7 +95,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     if ($result['success']) {
         $contractId = $result['contract_id'];
-        // If from a quote, go directly to create-from-quote with contract context
         if (!empty($data['quote_id'])) {
             header("Location: ../jobs/create-from-quote.php?quote_id={$data['quote_id']}&contract_id={$contractId}");
         } else {
@@ -84,13 +109,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 $csrfToken = generateCSRFToken();
 
 // Defaults from quote
-$defaultPropertyId  = $quote['property_id'] ?? 0;
-$defaultContactId   = $quote['resolved_contact_id'] ?? 0;
+$defaultPropertyId  = $quote['property_id']  ?? $directPropertyId;
+$defaultContactId   = $prefilledContactId;
 $defaultTitle       = $quote ? ($quote['title'] ?: '') : '';
 $defaultStartDate   = $quote && $quote['accepted_at'] ? date('Y-m-d', strtotime($quote['accepted_at'])) : date('Y-m-d');
 $defaultBillingAmt  = $quote ? (number_format((float)($quote['total_amount'] ?? 0), 2)) : '';
-$contactName        = $quote ? trim($quote['contact_first'] . ' ' . $quote['contact_last']) : '';
-$propertyAddress    = $quote ? trim($quote['property_address'] . ', ' . $quote['property_city']) : '';
+$contactName        = $prefilledContactName;
+$propertyAddress    = $quote ? trim(($quote['property_address'] ?? '') . ', ' . ($quote['property_city'] ?? '')) : '';
 
 $pageTitle  = 'New Contract';
 $activePage = 'contracts';
@@ -108,7 +133,7 @@ $activePage = 'contracts';
                   &mdash; <?php echo htmlspecialchars($contactName); ?>
                   &mdash; <?php echo htmlspecialchars($propertyAddress); ?>
               <?php else: ?>
-                  Create a service contract for a client property.
+                  Select a contact and property, then fill in the contract details.
               <?php endif; ?>
           </p>
 
@@ -116,28 +141,92 @@ $activePage = 'contracts';
               <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
           <?php endif; ?>
 
-          <form method="POST">
+          <form method="POST" id="contractForm">
               <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-              <input type="hidden" name="property_id" value="<?php echo (int)$defaultPropertyId; ?>">
-              <input type="hidden" name="contact_id"  value="<?php echo (int)$defaultContactId; ?>">
               <input type="hidden" name="quote_id"    value="<?php echo (int)$quoteId; ?>">
+              <input type="hidden" name="contact_id"  id="hiddenContactId" value="<?php echo (int)$defaultContactId; ?>">
+              <input type="hidden" name="property_id" id="hiddenPropertyId" value="<?php echo (int)$defaultPropertyId; ?>">
 
               <div class="row">
                   <div class="col-md-8">
-                      <div class="card mb-3">
-                          <div class="card-header"><h5 class="card-title mb-0">Contract Details</h5></div>
-                          <div class="card-body">
 
-                              <?php if ($quote): ?>
-                                  <div class="mw-form-row">
-                                      <label class="mw-form-label">Property</label>
-                                      <div class="mw-form-value text-muted"><?php echo htmlspecialchars($propertyAddress); ?></div>
-                                  </div>
+                      <?php if ($quote): ?>
+                          <!-- Quote-originated: show locked contact/property -->
+                          <div class="card mb-3">
+                              <div class="card-header"><h5 class="card-title mb-0">Client &amp; Property</h5></div>
+                              <div class="card-body">
                                   <div class="mw-form-row">
                                       <label class="mw-form-label">Client</label>
                                       <div class="mw-form-value text-muted"><?php echo htmlspecialchars($contactName); ?></div>
                                   </div>
-                              <?php endif; ?>
+                                  <div class="mw-form-row">
+                                      <label class="mw-form-label">Property</label>
+                                      <div class="mw-form-value text-muted"><?php echo htmlspecialchars($propertyAddress); ?></div>
+                                  </div>
+                              </div>
+                          </div>
+
+                      <?php else: ?>
+                          <!-- Manual / direct-link: wizard steps 1 & 2 -->
+                          <div class="card mb-3" id="clientPropertyCard">
+                              <div class="card-header"><h5 class="card-title mb-0">Step 1 — Select Client</h5></div>
+                              <div class="card-body">
+
+                                  <!-- Contact search -->
+                                  <div class="mw-form-row">
+                                      <label class="mw-form-label" for="clientSearchInput">Contact <span class="text-danger">*</span></label>
+                                      <div class="mw-client-search-wrapper">
+                                          <input type="text" id="clientSearchInput" class="form-control"
+                                                 placeholder="Type to search contacts…"
+                                                 autocomplete="off"
+                                                 value="<?php echo htmlspecialchars($contactName); ?>">
+                                          <div id="clientSearchResults" class="mw-client-search-results"></div>
+                                      </div>
+                                      <small class="form-text text-muted" id="contactHint">
+                                          <?php echo $prefilledContactId ? '' : 'Start typing a name or email.'; ?>
+                                      </small>
+                                  </div>
+
+                                  <!-- Property dropdown (step 2, revealed after contact chosen) -->
+                                  <div class="mw-form-row" id="propertyRow" style="<?php echo $prefilledContactId ? '' : 'display:none'; ?>">
+                                      <label class="mw-form-label" for="propertySelect">Property <span class="text-danger">*</span></label>
+                                      <select id="propertySelect" class="form-control">
+                                          <option value="">— select a property —</option>
+                                          <?php foreach ($prefilledProperties as $prop): ?>
+                                              <option value="<?php echo (int)$prop['id']; ?>"
+                                                  <?php echo ($defaultPropertyId == $prop['id']) ? 'selected' : ''; ?>>
+                                                  <?php echo htmlspecialchars($prop['address'] . ', ' . $prop['city']); ?>
+                                                  <?php echo $prop['property_type'] ? ' (' . htmlspecialchars($prop['property_type']) . ')' : ''; ?>
+                                              </option>
+                                          <?php endforeach; ?>
+                                      </select>
+                                      <small class="form-text text-muted" id="propertyHint">
+                                          <?php echo $prefilledContactId ? '' : ''; ?>
+                                      </small>
+                                  </div>
+
+                                  <!-- Selection summary chip (shows after both chosen) -->
+                                  <div id="selectionSummary" class="mt-2" style="display:none;">
+                                      <div class="alert alert-success py-2 px-3 mb-0 d-flex justify-content-between align-items-center">
+                                          <span id="selectionText"></span>
+                                          <button type="button" class="btn btn-sm btn-link text-muted p-0 ml-2" id="clearSelectionBtn"
+                                                  title="Change contact/property">
+                                              <i data-feather="x" style="width:14px;height:14px;"></i>
+                                          </button>
+                                      </div>
+                                  </div>
+
+                              </div>
+                          </div>
+                      <?php endif; ?>
+
+                      <!-- Contract Details (step 3) -->
+                      <div class="card mb-3" id="detailsCard"
+                           style="<?php echo (!$quote && !$defaultPropertyId) ? 'display:none;' : ''; ?>">
+                          <div class="card-header">
+                              <h5 class="card-title mb-0"><?php echo $quote ? 'Contract Details' : 'Step 2 — Contract Details'; ?></h5>
+                          </div>
+                          <div class="card-body">
 
                               <div class="mw-form-row">
                                   <label class="mw-form-label" for="title">Contract Title <span class="text-muted">(optional)</span></label>
@@ -170,15 +259,17 @@ $activePage = 'contracts';
                               <div class="mw-form-row">
                                   <label class="mw-form-label" for="notes">Notes <span class="text-muted">(optional)</span></label>
                                   <textarea id="notes" name="notes" class="form-control" rows="3"
-                                            placeholder="Internal notes about this contract..."></textarea>
+                                            placeholder="Internal notes about this contract…"></textarea>
                               </div>
 
                           </div>
                       </div>
-                  </div>
+
+                  </div><!-- /col-md-8 -->
 
                   <div class="col-md-4">
-                      <div class="card mb-3">
+                      <div class="card mb-3" id="billingCard"
+                           style="<?php echo (!$quote && !$defaultPropertyId) ? 'display:none;' : ''; ?>">
                           <div class="card-header"><h5 class="card-title mb-0">Billing</h5></div>
                           <div class="card-body">
 
@@ -210,21 +301,218 @@ $activePage = 'contracts';
                           </div>
                       </div>
 
-                      <div class="d-grid">
-                          <button type="submit" class="btn btn-primary btn-block">
-                              <i data-feather="pen-tool" style="width:14px;height:14px;"></i>
-                              Create Contract<?php echo $quoteId ? ' &amp; Add Plans' : ''; ?>
-                          </button>
+                      <div id="submitCard" style="<?php echo (!$quote && !$defaultPropertyId) ? 'display:none;' : ''; ?>">
+                          <div class="d-grid">
+                              <button type="submit" class="btn btn-primary btn-block">
+                                  <i data-feather="pen-tool" style="width:14px;height:14px;"></i>
+                                  Create Contract<?php echo $quoteId ? ' &amp; Add Plans' : ''; ?>
+                              </button>
+                          </div>
+                          <p class="text-muted text-center small mt-2">
+                              <?php if ($quoteId): ?>
+                                  You'll be taken to the plan builder next.
+                              <?php else: ?>
+                                  You can add service plans after creating the contract.
+                              <?php endif; ?>
+                          </p>
                       </div>
-                      <p class="text-muted text-center small mt-2">
-                          <?php if ($quoteId): ?>
-                              You'll be taken to the plan builder next.
-                          <?php else: ?>
-                              You can add service plans after creating the contract.
-                          <?php endif; ?>
-                      </p>
                   </div>
-              </div>
+
+              </div><!-- /row -->
           </form>
+
+<?php if (!$quote): ?>
+<script>
+(function () {
+    const contactInput    = document.getElementById('clientSearchInput');
+    const searchResults   = document.getElementById('clientSearchResults');
+    const hiddenContactId = document.getElementById('hiddenContactId');
+    const hiddenPropertyId= document.getElementById('hiddenPropertyId');
+    const propertyRow     = document.getElementById('propertyRow');
+    const propertySelect  = document.getElementById('propertySelect');
+    const detailsCard     = document.getElementById('detailsCard');
+    const billingCard     = document.getElementById('billingCard');
+    const submitCard      = document.getElementById('submitCard');
+    const selectionSummary= document.getElementById('selectionSummary');
+    const selectionText   = document.getElementById('selectionText');
+    const clearBtn        = document.getElementById('clearSelectionBtn');
+    const cardHeader      = document.querySelector('#clientPropertyCard .card-header h5');
+
+    let searchTimer = null;
+    let loadedProperties = [];
+    let selectedContactName = <?php echo json_encode($prefilledContactName); ?>;
+
+    // ── Visibility helpers ────────────────────────────────────────────────
+    function showDetailsSection() {
+        detailsCard.style.display  = '';
+        billingCard.style.display  = '';
+        submitCard.style.display   = '';
+        feather.replace();
+    }
+    function hideDetailsSection() {
+        detailsCard.style.display  = 'none';
+        billingCard.style.display  = 'none';
+        submitCard.style.display   = 'none';
+    }
+
+    function showSelectionSummary(contactName, propertyLabel) {
+        selectionText.textContent = contactName + ' — ' + propertyLabel;
+        selectionSummary.style.display = '';
+        propertyRow.style.display      = 'none';
+        contactInput.parentElement.parentElement.style.display = 'none'; // hide contact row
+        cardHeader.textContent = 'Client & Property';
+        feather.replace();
+        showDetailsSection();
+    }
+
+    function resetWizard() {
+        contactInput.value = '';
+        hiddenContactId.value  = '';
+        hiddenPropertyId.value = '';
+        selectedContactName    = '';
+        loadedProperties       = [];
+        propertySelect.innerHTML = '<option value="">— select a property —</option>';
+        propertyRow.style.display      = 'none';
+        selectionSummary.style.display = 'none';
+        contactInput.parentElement.parentElement.style.display = ''; // show contact row
+        cardHeader.textContent = 'Step 1 — Select Client';
+        hideDetailsSection();
+        contactInput.focus();
+    }
+
+    clearBtn.addEventListener('click', resetWizard);
+
+    // ── Property select change ────────────────────────────────────────────
+    propertySelect.addEventListener('change', function () {
+        const val = parseInt(this.value, 10);
+        if (!val) {
+            hiddenPropertyId.value = '';
+            hideDetailsSection();
+            return;
+        }
+        hiddenPropertyId.value = val;
+        const prop = loadedProperties.find(p => p.id === val);
+        const propLabel = prop ? (prop.address + ', ' + prop.city) : 'Property #' + val;
+        showSelectionSummary(selectedContactName, propLabel);
+    });
+
+    // ── Contact search ────────────────────────────────────────────────────
+    function escHtml(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function renderResults(results) {
+        if (!results.length) {
+            searchResults.innerHTML = '<div class="mw-client-search-result mw-client-search-result--empty">No contacts found</div>';
+        } else {
+            searchResults.innerHTML = results.map(r => `
+                <div class="mw-client-search-result" data-id="${r.id}" data-name="${escHtml(r.label)}">
+                    <strong>${escHtml(r.label)}</strong>
+                    ${r.sublabel ? '<br><small class="text-muted">' + escHtml(r.sublabel) + '</small>' : ''}
+                    <small class="text-muted float-right">${r.property_count} prop${r.property_count !== 1 ? 's' : ''}</small>
+                </div>
+            `).join('');
+        }
+        searchResults.style.display = 'block';
+
+        // Attach click handlers
+        searchResults.querySelectorAll('.mw-client-search-result[data-id]').forEach(el => {
+            el.addEventListener('click', function () {
+                selectContact(parseInt(this.dataset.id, 10), this.dataset.name);
+            });
+        });
+    }
+
+    function selectContact(contactId, contactName) {
+        hiddenContactId.value  = contactId;
+        contactInput.value     = contactName;
+        selectedContactName    = contactName;
+        searchResults.style.display = 'none';
+        hiddenPropertyId.value = '';
+
+        // Load properties
+        cardHeader.textContent = 'Step 2 — Select Property';
+        propertyRow.style.display = '';
+        propertySelect.innerHTML = '<option value="">Loading…</option>';
+        document.getElementById('contactHint').textContent = '';
+
+        fetch('../api/client-search.php?action=properties&contact_id=' + contactId)
+            .then(r => r.json())
+            .then(data => {
+                loadedProperties = data.properties || [];
+                if (!loadedProperties.length) {
+                    propertySelect.innerHTML = '<option value="">No active properties for this contact</option>';
+                    return;
+                }
+                propertySelect.innerHTML = '<option value="">— select a property —</option>' +
+                    loadedProperties.map(p =>
+                        `<option value="${p.id}">${escHtml(p.address + ', ' + p.city)}${p.property_type ? ' (' + escHtml(p.property_type) + ')' : ''}</option>`
+                    ).join('');
+
+                // Auto-select if only one property
+                if (loadedProperties.length === 1) {
+                    propertySelect.value = loadedProperties[0].id;
+                    propertySelect.dispatchEvent(new Event('change'));
+                }
+            });
+    }
+
+    contactInput.addEventListener('input', function () {
+        const q = this.value.trim();
+        clearTimeout(searchTimer);
+        if (hiddenContactId.value) {
+            // User is editing after a selection — reset
+            hiddenContactId.value = '';
+            hiddenPropertyId.value = '';
+            propertyRow.style.display = 'none';
+            hideDetailsSection();
+        }
+        if (q.length < 1) {
+            searchResults.innerHTML = '';
+            searchResults.style.display = 'none';
+            return;
+        }
+        searchTimer = setTimeout(() => {
+            fetch('../api/client-search.php?action=search&q=' + encodeURIComponent(q) + '&type=contact')
+                .then(r => r.json())
+                .then(data => renderResults(data.results || []));
+        }, 200);
+    });
+
+    contactInput.addEventListener('focus', function () {
+        if (searchResults.innerHTML && !hiddenContactId.value) {
+            searchResults.style.display = 'block';
+        }
+    });
+
+    document.addEventListener('click', function (e) {
+        if (!e.target.closest('.mw-client-search-wrapper')) {
+            searchResults.style.display = 'none';
+        }
+    });
+
+    // ── If pre-filled (direct link), trigger property load ────────────────
+    <?php if ($prefilledContactId && !$directPropertyId): ?>
+    // Contact pre-filled but no property yet — just show property step
+    (function () {
+        cardHeader.textContent = 'Step 2 — Select Property';
+        propertyRow.style.display = '';
+        // properties already rendered server-side
+        loadedProperties = <?php echo json_encode(array_values($prefilledProperties)); ?>;
+    })();
+    <?php elseif ($prefilledContactId && $directPropertyId): ?>
+    // Both pre-filled — show summary immediately
+    (function () {
+        loadedProperties = <?php echo json_encode(array_values($prefilledProperties)); ?>;
+        const prop = loadedProperties.find(p => p.id === <?php echo (int)$directPropertyId; ?>);
+        const propLabel = prop ? (prop.address + ', ' + prop.city) : 'Property #<?php echo (int)$directPropertyId; ?>';
+        showSelectionSummary(selectedContactName, propLabel);
+    })();
+    <?php endif; ?>
+})();
+</script>
+<?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
