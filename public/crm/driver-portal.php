@@ -101,7 +101,7 @@ $activePage = 'driver';
     </div>
 
     <!-- ══ Today's Jobs ══ -->
-    <div class="dp-card">
+    <div class="dp-card" id="dpJobsCard">
         <div class="dp-card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8l-2 4h12l-2-4z"/></svg>
             Today's Jobs
@@ -166,7 +166,7 @@ $activePage = 'driver';
     <?php endif; ?>
 
     <!-- ══ Clock In / Out ══ -->
-    <div class="dp-card">
+    <div class="dp-card" id="dpClockCard">
         <div class="dp-card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             Time Clock
@@ -508,18 +508,21 @@ function dpClockIn() {
         .then(function(data) {
             if (data.success || data.clocked_in) {
                 dpToast('Clocked in!');
-                // Flatline animation on weather card before reload
-                var weatherCard = document.getElementById('dpWeatherCard');
-                if (weatherCard) {
-                    weatherCard.classList.add('mw-flatline-out');
-                    setTimeout(function() {
-                        weatherCard.classList.remove('mw-flatline-out');
-                        weatherCard.classList.add('mw-flatline-collapse');
-                        setTimeout(function(){ location.reload(); }, 380);
-                    }, 900);
-                } else {
-                    setTimeout(function(){ location.reload(); }, 800);
-                }
+                // Flatline animation — jobs, weather, clock cards vanish before reload
+                var targets = [
+                    document.getElementById('dpJobsCard'),
+                    document.getElementById('dpWeatherCard'),
+                    document.getElementById('dpClockCard')
+                ].filter(Boolean);
+
+                targets.forEach(function(el) { el.classList.add('mw-flatline-out'); });
+                setTimeout(function() {
+                    targets.forEach(function(el) {
+                        el.classList.remove('mw-flatline-out');
+                        el.classList.add('mw-flatline-collapse');
+                    });
+                    setTimeout(function(){ location.reload(); }, 380);
+                }, 900);
             } else {
                 dpToast(data.error || 'Clock in failed', true);
                 btn.disabled = false;
