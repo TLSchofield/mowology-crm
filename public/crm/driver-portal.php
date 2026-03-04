@@ -452,6 +452,14 @@ $activePage = 'driver';
 <div class="dp-toast" id="dpToast"></div>
 
 <script>
+// Inject flatline CSS at runtime — bypasses SW/HTTP cache on device
+function mwInjectFlatlineCSS() {
+    if (document.getElementById('mw-flatline-css')) return;
+    var s = document.createElement('style');
+    s.id = 'mw-flatline-css';
+    s.textContent = '@keyframes mw-flatline{0%{transform:scaleY(1);opacity:1}26%{transform:scaleY(.04);opacity:1;box-shadow:0 0 0 1px #7FD858,0 0 22px 6px rgba(127,216,88,.55)}62%{transform:scaleY(.04);opacity:1;box-shadow:0 0 0 1px #7FD858,0 0 22px 6px rgba(127,216,88,.55)}78%{transform:scaleY(.04);opacity:0}100%{transform:scaleY(0);opacity:0}}.mw-flatline-out{animation:mw-flatline 1.4s cubic-bezier(.4,0,.8,1) forwards;transform-origin:center;overflow:hidden}';
+    document.head.appendChild(s);
+}
 var DP = {
     csrf:        <?php echo json_encode($csrf); ?>,
     isClockedIn: <?php echo $isClockedIn ? 'true' : 'false'; ?>,
@@ -509,6 +517,7 @@ function dpClockIn() {
             if (data.success || data.clocked_in) {
                 dpToast('Clocked in!');
                 // Flatline animation — jobs, weather, clock cards vanish before reload
+                mwInjectFlatlineCSS();
                 var targets = [
                     document.getElementById('dpJobsCard'),
                     document.getElementById('dpWeatherCard'),

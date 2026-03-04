@@ -9851,15 +9851,13 @@ textarea.font-monospace {
  */
 
 @keyframes mw-flatline {
-  0%   { transform: scaleY(1);    opacity: 1; max-height: 400px; margin-bottom: 24px; box-shadow: none; }
-  26%  { transform: scaleY(0.04); opacity: 1; max-height: 400px; margin-bottom: 24px;
-         box-shadow: 0 0 0 1px var(--mw-lime), 0 0 22px 6px rgba(127, 216, 88, 0.55); }
-  62%  { transform: scaleY(0.04); opacity: 1; max-height: 400px; margin-bottom: 24px;
-         box-shadow: 0 0 0 1px var(--mw-lime), 0 0 22px 6px rgba(127, 216, 88, 0.55); }
-  78%  { transform: scaleY(0.04); opacity: 0; max-height: 400px; margin-bottom: 24px; box-shadow: none; }
-  92%  { transform: scaleY(0);    opacity: 0; max-height: 0;     margin-bottom: 0; }
-  100% { transform: scaleY(0);    opacity: 0; max-height: 0;     margin-bottom: 0;
-         padding-top: 0; padding-bottom: 0; }
+  0%   { transform: scaleY(1);    opacity: 1; }
+  26%  { transform: scaleY(0.04); opacity: 1;
+         box-shadow: 0 0 0 1px #7FD858, 0 0 22px 6px rgba(127, 216, 88, 0.55); }
+  62%  { transform: scaleY(0.04); opacity: 1;
+         box-shadow: 0 0 0 1px #7FD858, 0 0 22px 6px rgba(127, 216, 88, 0.55); }
+  78%  { transform: scaleY(0.04); opacity: 0; }
+  100% { transform: scaleY(0);    opacity: 0; }
 }
 
 .mw-flatline-out {
