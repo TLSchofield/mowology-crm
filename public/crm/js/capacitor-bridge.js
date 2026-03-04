@@ -424,21 +424,30 @@
         });
     }
 
-    // Save PHPSESSID cookie to SharedPreferences for WorkManager sync
-    // (WorkManager runs outside the WebView and needs the auth cookie)
-    if (MwTracking) {
-        var cookies = document.cookie;
-        var phpsessid = '';
-        cookies.split(';').forEach(function(c) {
+    // Save MOWOSESS cookie to SharedPreferences for WorkManager sync.
+    // WorkManager runs outside the WebView and needs the auth cookie so that
+    // tracking-sync.php and pow-gps-sync.php can authenticate the request.
+    // Note: session is named MOWOSESS (not PHPSESSID) per session_config.php.
+    if (MwTracking && MwTracking.storeSessionCookie) {
+        var sessionCookieName = 'MOWOSESS';
+        var sessionValue = '';
+        document.cookie.split(';').forEach(function(c) {
             var trimmed = c.trim();
-            if (trimmed.indexOf('PHPSESSID=') === 0) {
-                phpsessid = trimmed;
+            if (trimmed.indexOf(sessionCookieName + '=') === 0) {
+                sessionValue = trimmed.substring(sessionCookieName.length + 1);
             }
         });
-        if (phpsessid) {
-            // Store via the plugin's SharedPreferences
-            MwTracking.storePoint; // Just accessing to ensure plugin is loaded
-            // Use a direct approach — the plugin stores it via startSession
+        if (sessionValue) {
+            MwTracking.storeSessionCookie({
+                name: sessionCookieName,
+                value: sessionValue
+            }).then(function() {
+                console.log('[MwNative] Session cookie saved to SharedPreferences for WorkManager');
+            }).catch(function(e) {
+                console.warn('[MwNative] Failed to save session cookie:', e);
+            });
+        } else {
+            console.warn('[MwNative] MOWOSESS cookie not found in document.cookie — WorkManager sync will not authenticate');
         }
     }
 

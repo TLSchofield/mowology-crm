@@ -18,7 +18,7 @@
  *
  * Returns: { "success":true, "inserted":N, "skipped":M }
  *
- * Auth: session cookie (PHPSESSID). Crew can only sync their own assigned visits.
+ * Auth: session cookie (MOWOSESS). Crew can only sync their own assigned visits.
  * CSRF: not required for API endpoints called by native app WorkManager.
  *       Origin header checked for browser callers.
  */
@@ -43,6 +43,11 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    // Release session lock immediately — this endpoint never writes to $_SESSION.
+    // Without this, batch GPS syncs hold the session file lock while inserting
+    // many DB rows, blocking concurrent WebView navigations at session_start()
+    // and causing Android ERR_FAILED timeouts that look like logouts.
+    session_write_close();
     $db   = getDB();
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

@@ -10,7 +10,7 @@
  *   { "action": "sync_compliance", "events": [...] }
  *
  * Idempotent: uses device_id + timestamp to prevent duplicates.
- * Auth: uses PHPSESSID cookie (passed by WorkManager from SharedPreferences).
+ * Auth: uses MOWOSESS cookie (passed by WorkManager from SharedPreferences).
  */
 declare(strict_types=1);
 header('Content-Type: application/json');

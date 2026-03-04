@@ -48,7 +48,12 @@ $sessionLifetime = 9 * 3600; // 9 hours in seconds
 ini_set('session.gc_maxlifetime', (string)$sessionLifetime);
 
 // Cookie hardening
-$secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+// Check both direct HTTPS and reverse-proxy forwarded headers.
+// cPanel shared hosting uses Apache/SSL at the server level, but some
+// configurations forward via X-Forwarded-Proto (e.g., load balancers).
+$secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+       || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+       || (!empty($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on');
 
 session_name('MOWOSESS');
 
