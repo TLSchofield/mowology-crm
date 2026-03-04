@@ -137,7 +137,7 @@ function getContractPlans(int $contractId): array {
                (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'completed') AS visits_completed,
                (SELECT COUNT(*) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status != 'cancelled') AS total_visits,
                (SELECT MIN(scheduled_date) FROM job_visits jv WHERE jv.plan_id = jp.id AND jv.status = 'scheduled' AND jv.scheduled_date >= CURDATE()) AS next_visit_date,
-               (SELECT COUNT(*) FROM geofences g WHERE g.plan_id = jp.id AND g.is_active = 1) AS has_work_zone
+               0 AS has_work_zone
         FROM job_plans jp
         LEFT JOIN users u ON jp.default_crew_id = u.id
         WHERE jp.contract_id = ?
