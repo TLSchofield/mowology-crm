@@ -1044,7 +1044,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303l" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303m" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -3560,6 +3560,15 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 
     var TODAY_URL = '/crm/jobs/schedule.php'; // no date param = today
 
+    // Inject flatline CSS at runtime — bypasses SW/HTTP cache on device
+    function mwInjectFlatlineCSS() {
+        if (document.getElementById('mw-flatline-css')) return;
+        var s = document.createElement('style');
+        s.id = 'mw-flatline-css';
+        s.textContent = '@keyframes mw-flatline{0%{transform:scaleY(1);opacity:1}26%{transform:scaleY(.04);opacity:1;box-shadow:0 0 0 1px #7FD858,0 0 22px 6px rgba(127,216,88,.55)}62%{transform:scaleY(.04);opacity:1;box-shadow:0 0 0 1px #7FD858,0 0 22px 6px rgba(127,216,88,.55)}78%{transform:scaleY(.04);opacity:0}100%{transform:scaleY(0);opacity:0}}.mw-flatline-out{animation:mw-flatline 1.4s cubic-bezier(.4,0,.8,1) forwards;transform-origin:center;overflow:hidden}';
+        document.head.appendChild(s);
+    }
+
     function getGPS(cb) {
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
@@ -3590,6 +3599,7 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                 .then(function (data) {
                     if (data.success) {
                         // Flatline weather + clock cards before navigating away
+                        mwInjectFlatlineCSS();
                         var targets = [
                             document.querySelector('.mw-ds-weather-row'),
                             document.querySelector('.mw-ds-clock-card')

@@ -119,8 +119,8 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 44px;
-        height: 44px;
+        width: 48px;   /* raised from 44px — glove-safe tap target */
+        height: 48px;
         border: none;
         border-radius: 10px;
         background: #f4f4f4;
@@ -461,6 +461,7 @@
         align-items: center;
         gap: 7px;
         padding: 10px 18px;
+        min-height: 48px;   /* glove-safe tap target */
         border: none;
         border-radius: 10px;
         font-size: 0.85rem;

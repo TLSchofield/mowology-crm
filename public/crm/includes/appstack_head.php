@@ -86,7 +86,7 @@ $bodyClass  = $bodyClass  ?? '';
   <link href="/crm/css/mowology-brand.css?v=20260303a" rel="stylesheet">
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
-  <link href="/crm/css/mobile-nav.css?v=20260303b" rel="stylesheet">
+  <link href="/crm/css/mobile-nav.css?v=20260303c" rel="stylesheet">
 
   <!-- Feather Icons (self-hosted — no CDN dependency) -->
   <script src="/crm/js/feather.min.js"></script>
