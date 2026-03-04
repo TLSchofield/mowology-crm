@@ -519,8 +519,9 @@ function dpClockIn() {
 
     var lat = null, lng = null;
     function doClockIn() {
-        fetch('/app/Modules/Team/Api/time-clock.php', {
+        fetch('/crm/api/time-clock.php', {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'clock_in', lat: lat, lng: lng})
         })
@@ -573,8 +574,9 @@ function dpClockOut() {
 
     var lat = null, lng = null;
     function doClockOut() {
-        fetch('/app/Modules/Team/Api/time-clock.php', {
+        fetch('/crm/api/time-clock.php', {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'clock_out', lat: lat, lng: lng})
         })
