@@ -96,6 +96,14 @@ $bodyClass  = $bodyClass  ?? '';
 
   <?php echo $extraHead; ?>
 
+  <!-- Service Worker: caches CSS/JS so static assets load instantly after first visit -->
+  <script>
+  if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/crm/sw.js', { scope: '/crm/' })
+          .catch(function () {}); // silent fail — app works fine without SW
+  }
+  </script>
+
 </head>
 <body<?php echo $bodyClass ? ' class="' . htmlspecialchars($bodyClass) . '"' : ''; ?>>
   <?php include __DIR__ . '/mobile-nav.php'; ?>

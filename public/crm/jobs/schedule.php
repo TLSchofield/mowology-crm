@@ -1045,12 +1045,19 @@ $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303i" rel="stylesheet">';
-// Prefetch adjacent days + adjacent weeks so strip navigation feels instant
-$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobilePrevDay)      . $filterQueryStr . '">';
-$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobileNextDay)      . $filterQueryStr . '">';
-$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($stripPrevWeekDate)  . $filterQueryStr . '">';
-$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($stripNextWeekDate)  . $filterQueryStr . '">';
-// Prefetch bottom nav destinations so taps navigate instantly
+// Prefetch every day visible in the strip so any day tap is instant
+foreach ($stripDays as $_sd) {
+    if ($_sd['date'] !== $mobileDate) {
+        $extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($_sd['date']) . $filterQueryStr . '">';
+    }
+}
+// Also cover adjacent days at week boundaries (prev/next may be outside the strip)
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobilePrevDay)     . $filterQueryStr . '">';
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($mobileNextDay)     . $filterQueryStr . '">';
+// Adjacent weeks for strip swipes
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($stripPrevWeekDate) . $filterQueryStr . '">';
+$extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($stripNextWeekDate) . $filterQueryStr . '">';
+// Bottom nav pages
 $extraHead .= '<link rel="prefetch" href="/crm/expenses_appstack.php?mode=quick&return=schedule">';
 $extraHead .= '<link rel="prefetch" href="/crm/jobs/index.php">';
 if ($apiKey) {
@@ -3476,6 +3483,30 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                 b.style.pointerEvents = 'none';
             });
         });
+    });
+})();
+
+// ── Touchstart prefetch: begin loading the target page the moment a finger lands ─
+// Fires ~150ms before touchend/click, giving the browser a head start.
+// Browsers deduplicate — safe to call even if the page is already prefetched.
+(function () {
+    'use strict';
+    function prefetchHref(href) {
+        if (!href || href.charAt(0) === '#') return;
+        var link = document.createElement('link');
+        link.rel  = 'prefetch';
+        link.href = href;
+        document.head.appendChild(link);
+    }
+    var sel = [
+        '.mw-mc-strip-day[href]:not(.mw-mc-strip-day-selected)',
+        '.mw-mc-strip-nav-arrow[href]',
+        '.mw-mc-bottombar-btn[href]',
+    ].join(',');
+    document.querySelectorAll(sel).forEach(function (el) {
+        el.addEventListener('touchstart', function () {
+            prefetchHref(el.getAttribute('href'));
+        }, { passive: true });
     });
 })();
 
