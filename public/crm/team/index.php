@@ -98,6 +98,11 @@ $activePage = 'team';
                             <i data-feather="truck" style="width:11px;height:11px;margin-right:2px;"></i> Truck
                         </span>
                     <?php endif; ?>
+                    <?php if (!empty($emp['is_driver'])): ?>
+                        <span class="mw-ts-status" style="background: var(--mw-forest); color: #7FD858;">
+                            <i data-feather="smartphone" style="width:11px;height:11px;margin-right:2px;"></i> Driver Portal
+                        </span>
+                    <?php endif; ?>
                     <?php if (!$emp['is_active']): ?>
                         <span class="mw-ts-status mw-ts-status-rejected">Inactive</span>
                     <?php endif; ?>
@@ -153,6 +158,14 @@ $activePage = 'team';
                     <?php endif; ?>
                 <?php endif; ?>
                 <?php if ($user['role'] === 'admin'): ?>
+                <div class="mw-tracking-toggle" title="<?php echo !empty($emp['is_driver']) ? 'Driver Portal ON' : 'Driver Portal OFF'; ?>">
+                    <label class="mw-toggle-switch">
+                        <input type="checkbox" <?php echo !empty($emp['is_driver']) ? 'checked' : ''; ?>
+                               onchange="toggleDriverPortal(<?php echo (int)$emp['id']; ?>, this.checked)">
+                        <span class="mw-toggle-slider"></span>
+                    </label>
+                    <i data-feather="smartphone" style="width:13px;height:13px;" class="<?php echo !empty($emp['is_driver']) ? 'text-success' : 'text-muted'; ?>"></i>
+                </div>
                 <div class="mw-tracking-toggle" title="<?php echo !empty($emp['receive_weather_sms']) ? 'Weather SMS alerts ON' : 'Weather SMS alerts OFF'; ?>">
                     <label class="mw-toggle-switch">
                         <input type="checkbox" <?php echo !empty($emp['receive_weather_sms']) ? 'checked' : ''; ?>
@@ -382,6 +395,35 @@ $activePage = 'team';
             }
         })
         .catch(function() { showAlert('Network error', 'danger'); });
+    };
+
+    // Toggle driver portal access
+    window.toggleDriverPortal = function(empId, enabled) {
+        fetch('/crm/api/employees.php', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'update',
+                id: empId,
+                is_driver: enabled ? 1 : 0,
+                csrf_token: document.querySelector('input[name="csrf_token"]').value
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                showAlert('Driver Portal ' + (enabled ? 'enabled' : 'disabled'), 'success');
+                setTimeout(function() { location.reload(); }, 800);
+            } else {
+                showAlert(data.error || 'Failed to update', 'danger');
+                setTimeout(function() { location.reload(); }, 500);
+            }
+        })
+        .catch(function() {
+            showAlert('Network error', 'danger');
+            setTimeout(function() { location.reload(); }, 500);
+        });
     };
 
     // Toggle weather SMS alerts

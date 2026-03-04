@@ -14,6 +14,12 @@ require_once 'includes/weather-service.php';
 requireLogin();
 $user = getCurrentUser();
 
+// Only designated drivers (and admins) can see the driver portal
+if (empty($user['is_driver']) && $user['role'] !== 'admin') {
+    header('Location: /crm/');
+    exit;
+}
+
 $db    = getDB();
 $today = date('Y-m-d');
 $hour  = (int)date('G');
