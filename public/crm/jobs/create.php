@@ -675,6 +675,56 @@ $activePage = 'jobs';
                   </div>
                   <div class="card-body">
 
+                      <?php if ($urlContractId): ?>
+                      <?php
+                      // Fetch contract billing context
+                      $ctrBudgetStmt = $db->prepare("
+                          SELECT c.contract_number, c.billing_amount, c.billing_cycle,
+                                 COALESCE(SUM(jp.estimated_amount), 0) AS already_allocated
+                          FROM contracts c
+                          LEFT JOIN job_plans jp ON jp.contract_id = c.id
+                          WHERE c.id = ?
+                          GROUP BY c.id
+                      ");
+                      $ctrBudgetStmt->execute([$urlContractId]);
+                      $ctrBudget = $ctrBudgetStmt->fetch(PDO::FETCH_ASSOC);
+                      $ctrBillingLabels = ['monthly'=>'Monthly','per_visit'=>'Per Visit','seasonal'=>'Seasonal','annual'=>'Annual','custom'=>'Custom'];
+                      ?>
+                      <?php if ($ctrBudget && $ctrBudget['billing_amount'] > 0): ?>
+                      <?php
+                      $budgetTotal     = (float)$ctrBudget['billing_amount'];
+                      $budgetAllocated = (float)$ctrBudget['already_allocated'];
+                      $budgetRemaining = $budgetTotal - $budgetAllocated;
+                      $remainingClass  = $budgetRemaining > 0.01 ? 'is-remaining' : ($budgetRemaining < -0.01 ? 'is-over' : 'is-zero');
+                      ?>
+                      <div class="mw-contract-budget-ctx">
+                          <div class="mw-contract-budget-accent"></div>
+                          <div class="mw-contract-budget-body">
+                              <div class="mw-contract-budget-title">
+                                  <i data-feather="pen-tool" style="width:11px;height:11px;vertical-align:-1px;"></i>
+                                  Contract <?php echo htmlspecialchars($ctrBudget['contract_number']); ?> — <?php echo htmlspecialchars($ctrBillingLabels[$ctrBudget['billing_cycle']] ?? ''); ?> budget
+                              </div>
+                              <div class="mw-contract-budget-row">
+                                  <div class="mw-contract-budget-item">
+                                      <span class="mw-contract-budget-item-label">Contract total</span>
+                                      <span class="mw-contract-budget-item-value">$<?php echo number_format($budgetTotal, 2); ?></span>
+                                  </div>
+                                  <div class="mw-contract-budget-item">
+                                      <span class="mw-contract-budget-item-label">Already allocated</span>
+                                      <span class="mw-contract-budget-item-value">$<?php echo number_format($budgetAllocated, 2); ?></span>
+                                  </div>
+                                  <div class="mw-contract-budget-item">
+                                      <span class="mw-contract-budget-item-label"><?php echo $budgetRemaining >= 0 ? 'Remaining' : 'Over by'; ?></span>
+                                      <span class="mw-contract-budget-item-value <?php echo $remainingClass; ?>">
+                                          <?php echo $budgetRemaining >= 0 ? '$' . number_format($budgetRemaining, 2) : '-$' . number_format(abs($budgetRemaining), 2); ?>
+                                      </span>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                      <?php endif; ?>
+                      <?php endif; ?>
+
                       <div class="mw-form-row">
                           <div class="mw-form-group">
                               <label class="form-label">Pricing Model</label>
@@ -706,7 +756,7 @@ $activePage = 'jobs';
 
               <div class="mw-form-actions">
                   <button type="submit" class="btn btn-primary">Create Plan</button>
-                  <a href="index.php" class="btn btn-secondary">Cancel</a>
+                  <a href="<?php echo $urlContractId ? '../contracts/view.php?id=' . $urlContractId : 'index.php'; ?>" class="btn btn-secondary">Cancel</a>
               </div>
           </form>
 

@@ -83,7 +83,7 @@ $bodyClass  = $bodyClass  ?? '';
   <link href="/crm/css/classic.css" rel="stylesheet">
 
   <!-- Mowology brand override -->
-  <link href="/crm/css/mowology-brand.css?v=20260303b" rel="stylesheet">
+  <link href="/crm/css/mowology-brand.css?v=20260303c" rel="stylesheet">
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="/crm/css/mobile-nav.css?v=20260303c" rel="stylesheet">
@@ -97,7 +97,7 @@ $bodyClass  = $bodyClass  ?? '';
   <!-- Offline Action Queue: intercepts time-clock / pow-actions / job-timer
        fetch() calls when offline and queues them in IndexedDB for replay.
        Loads on every CRM page so queued actions sync on any page load. -->
-  <script src="/crm/js/offline-queue.js?v=20260303b" defer></script>
+  <script src="/crm/js/offline-queue.js?v=20260303c" defer></script>
 
   <?php echo $extraHead; ?>
 

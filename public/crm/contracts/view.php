@@ -64,6 +64,11 @@ if (isset($_GET['from']) && $_GET['from'] === 'quote') { $message = 'Contract al
 
 $plans = getContractPlans($contractId);
 
+// Reconciliation: sum of plan estimated_amounts vs contract billing_amount
+$plansAllocated  = array_sum(array_map(fn($p) => (float)($p['estimated_amount'] ?? 0), $plans));
+$contractBilling = (float)($contract['billing_amount'] ?? 0);
+$reconcileDiff   = $contractBilling - $plansAllocated;
+
 $billingCycleLabels = [
     'monthly'   => 'Monthly',
     'per_visit' => 'Per Visit',
@@ -274,6 +279,26 @@ $activePage = 'contracts';
                       </div>
                   <?php endif; ?>
               </div>
+              <?php if ($contractBilling > 0): ?>
+              <div class="mw-contract-reconcile">
+                  <div class="mw-reconcile-item">
+                      <span class="mw-reconcile-label">Plans allocated</span>
+                      <span class="mw-reconcile-value">$<?php echo number_format($plansAllocated, 2); ?></span>
+                  </div>
+                  <div class="mw-reconcile-sep"></div>
+                  <div class="mw-reconcile-item">
+                      <span class="mw-reconcile-label">Contract <?php echo htmlspecialchars($billingCycleLabels[$contract['billing_cycle']] ?? ''); ?></span>
+                      <span class="mw-reconcile-value">$<?php echo number_format($contractBilling, 2); ?></span>
+                  </div>
+                  <div class="mw-reconcile-sep"></div>
+                  <div class="mw-reconcile-item">
+                      <span class="mw-reconcile-label"><?php echo $reconcileDiff >= 0 ? 'Unallocated' : 'Over by'; ?></span>
+                      <span class="mw-reconcile-value <?php echo abs($reconcileDiff) < 0.01 ? 'mw-reconcile--balanced' : ($reconcileDiff > 0 ? 'mw-reconcile--under' : 'mw-reconcile--over'); ?>">
+                          <?php echo $reconcileDiff >= 0 ? '$' . number_format($reconcileDiff, 2) : '-$' . number_format(abs($reconcileDiff), 2); ?>
+                      </span>
+                  </div>
+              </div>
+              <?php endif; ?>
           </div>
 
           <!-- ── Contract Details ─────────────────────────────────────────────── -->
