@@ -805,6 +805,22 @@ function findBumpDate(string $holidayDate, array $holidays, array $blackouts): ?
 }
 
 /**
+ * Parse a recurrence_day_of_week value into an array of day integers (0=Sun..6=Sat).
+ * Handles both the old single-integer format ("3") and the new multi-day format ("1,3,5").
+ * Falls back to the plan's start-date day-of-week when the value is null or empty.
+ */
+function parseDowList($rawDow, DateTime $fallback): array {
+    if ($rawDow === null || $rawDow === '') {
+        return [(int)$fallback->format('w')];
+    }
+    $days = array_values(array_filter(
+        array_unique(array_map('intval', explode(',', (string)$rawDow))),
+        function (int $d): bool { return $d >= 0 && $d <= 6; }
+    ));
+    return !empty($days) ? $days : [(int)$fallback->format('w')];
+}
+
+/**
  * Calculate occurrence dates for a recurring plan.
  * Returns array of YYYY-MM-DD strings. Respects blackout_dates and holidays.
  * Holiday visits are bumped to the last available working day before the holiday.
@@ -840,10 +856,11 @@ function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate,
         switch ($pattern) {
             case 'weekly':
             case 'biweekly':
-                $targetDay = ($targetDow !== null) ? (int)$targetDow : (int)$planStart->format('w');
+                // Parse comma-separated days (supports "3" legacy or "1,3,5" multi-day)
+                $targetDays = parseDowList($targetDow, $planStart);
                 // Use interval from the plan (biweekly forces 2, weekly defaults to 1)
                 $weekInterval = ($pattern === 'biweekly') ? max(2, $interval) : $interval;
-                if ($currentDow === $targetDay) {
+                if (in_array($currentDow, $targetDays, true)) {
                     if ($weekInterval <= 1) {
                         $shouldInclude = true;
                     } else {
@@ -895,8 +912,8 @@ function calculateRecurrenceDates(array $plan, string $fromDate, string $toDate,
                 $shouldInclude = ($unitValue >= 0 && $unitValue % $interval === 0);
                 // For weeks/months custom, also check day-of-week match
                 if ($shouldInclude && $intervalUnit === 'weeks') {
-                    $targetDay = ($targetDow !== null) ? (int)$targetDow : (int)$planStart->format('w');
-                    $shouldInclude = ($currentDow === $targetDay);
+                    $targetDays = parseDowList($targetDow, $planStart);
+                    $shouldInclude = in_array($currentDow, $targetDays, true);
                 }
                 // For months/years custom, check day-of-month match
                 if ($shouldInclude && in_array($intervalUnit, ['months', 'years'], true)) {

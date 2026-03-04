@@ -179,8 +179,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $recurrencePattern = $isRecurring ? ($_POST['recurrence_pattern'] ?? 'weekly') : null;
         $recurrenceInterval = $isRecurring ? max(1, intval($_POST['recurrence_interval'] ?? 1)) : 1;
         $recurrenceIntervalUnit = $isRecurring ? ($_POST['recurrence_interval_unit'] ?? 'weeks') : 'weeks';
-        $recurrenceDow = $isRecurring && isset($_POST['recurrence_day_of_week']) && $_POST['recurrence_day_of_week'] !== ''
-            ? intval($_POST['recurrence_day_of_week']) : null;
+        $recurrenceDow = null;
+        if ($isRecurring && isset($_POST['recurrence_day_of_week']) && $_POST['recurrence_day_of_week'] !== '') {
+            $dowParts = array_values(array_filter(
+                array_unique(array_map('intval', explode(',', $_POST['recurrence_day_of_week']))),
+                function($d) { return $d >= 0 && $d <= 6; }
+            ));
+            sort($dowParts);
+            if (!empty($dowParts)) $recurrenceDow = implode(',', $dowParts);
+        }
 
         // Map presets
         if ($recurrencePattern === 'daily') {
@@ -961,11 +968,13 @@ if ($hasPropCoords) {
                                     <span class="mw-detail-label">Recurrence</span>
                                     <span class="mw-detail-value">
                                         <?php echo htmlspecialchars(describeRecurrence($plan)); ?>
-                                        <?php if ($plan['recurrence_day_of_week'] !== null): ?>
+                                        <?php if ($plan['recurrence_day_of_week'] !== null && $plan['recurrence_day_of_week'] !== ''): ?>
                                             <?php
-                                                $days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-                                                $dow = (int)$plan['recurrence_day_of_week'];
-                                                if (isset($days[$dow])) echo ' (' . $days[$dow] . ')';
+                                                $dowShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                                                $dowParts = array_filter(array_map('intval', explode(',', (string)$plan['recurrence_day_of_week'])));
+                                                $dowLabels = array_map(function($d) use ($dowShort) { return $dowShort[$d] ?? ''; }, $dowParts);
+                                                $dowLabels = array_filter($dowLabels);
+                                                if (!empty($dowLabels)) echo ' (' . implode(', ', $dowLabels) . ')';
                                             ?>
                                         <?php endif; ?>
                                     </span>
@@ -1943,9 +1952,15 @@ if ($hasPropCoords) {
                     <div id="editDowPickerWrap" style="<?php echo in_array($editRecPattern, ['weekly','biweekly']) ? '' : 'display:none;'; ?>">
                         <label class="form-label mb-2">On</label>
                         <div class="mw-dow-picker" id="editDowPicker">
-                            <?php $dowLetters = ['S','M','T','W','T','F','S']; ?>
+                            <?php
+                                $dowLetters = ['S','M','T','W','T','F','S'];
+                                $editDowArr = [];
+                                if ($editDow !== null && $editDow !== '') {
+                                    $editDowArr = array_filter(array_map('intval', explode(',', (string)$editDow)));
+                                }
+                            ?>
                             <?php for ($d = 0; $d <= 6; $d++): ?>
-                                <button type="button" class="mw-dow-btn <?php echo ($editDow !== null && (int)$editDow === $d) ? 'active' : ''; ?>" data-dow="<?php echo $d; ?>"><?php echo $dowLetters[$d]; ?></button>
+                                <button type="button" class="mw-dow-btn <?php echo in_array($d, $editDowArr) ? 'active' : ''; ?>" data-dow="<?php echo $d; ?>"><?php echo $dowLetters[$d]; ?></button>
                             <?php endfor; ?>
                         </div>
                     </div>
@@ -1962,7 +1977,7 @@ if ($hasPropCoords) {
 
                     <!-- Hidden fields synced by JS -->
                     <input type="hidden" name="recurrence_pattern" id="editRecurrencePatternHidden" value="<?php echo htmlspecialchars($editRecPattern); ?>">
-                    <input type="hidden" name="recurrence_day_of_week" id="editRecurrenceDowHidden" value="<?php echo $editDow !== null ? (int)$editDow : ''; ?>">
+                    <input type="hidden" name="recurrence_day_of_week" id="editRecurrenceDowHidden" value="<?php echo htmlspecialchars($editDow ?? ''); ?>">
 
                     <!-- Summary -->
                     <div class="mw-recurrence-summary" id="editRecurrenceSummary">
@@ -2222,8 +2237,17 @@ if ($hasPropCoords) {
 
         // ── Edit Modal: Jobber-style recurrence controls ─────
         var editCurrentFreq = <?php echo json_encode($editRecPattern); ?>;
-        var editSelectedDow = <?php echo ($editDow !== null) ? (int)$editDow : 'null'; ?>;
+        // Multi-day: array of selected day ints (e.g. [1,3,5] = Mon/Wed/Fri)
+        var editSelectedDows = <?php
+            $eDowArr = [];
+            if ($editDow !== null && $editDow !== '') {
+                $eDowArr = array_values(array_filter(array_map('intval', explode(',', (string)$editDow)),
+                    function($d) { return $d >= 0 && $d <= 6; }));
+            }
+            echo json_encode($eDowArr);
+        ?>;
         var editDayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        var editDayNamesShort = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
         // Frequency picker
         document.querySelectorAll('#editFreqPicker .mw-freq-btn').forEach(function(btn) {
@@ -2235,12 +2259,18 @@ if ($hasPropCoords) {
             });
         });
 
-        // DOW picker
+        // DOW picker — multi-select: click toggles each day independently
         document.querySelectorAll('#editDowPicker .mw-dow-btn').forEach(function(btn) {
             btn.addEventListener('click', function() {
-                document.querySelectorAll('#editDowPicker .mw-dow-btn').forEach(function(b) { b.classList.remove('active'); });
-                this.classList.add('active');
-                editSelectedDow = parseInt(this.dataset.dow);
+                var d = parseInt(this.dataset.dow);
+                var idx = editSelectedDows.indexOf(d);
+                if (idx === -1) {
+                    editSelectedDows.push(d);
+                    editSelectedDows.sort(function(a, b) { return a - b; });
+                } else {
+                    editSelectedDows.splice(idx, 1);
+                }
+                this.classList.toggle('active');
                 editUpdateHiddenFields();
                 editUpdateSummaryText();
             });
@@ -2287,7 +2317,7 @@ if ($hasPropCoords) {
 
         function editUpdateHiddenFields() {
             document.getElementById('editRecurrencePatternHidden').value = editCurrentFreq;
-            document.getElementById('editRecurrenceDowHidden').value = (editSelectedDow !== null) ? editSelectedDow : '';
+            document.getElementById('editRecurrenceDowHidden').value = editSelectedDows.length > 0 ? editSelectedDows.join(',') : '';
         }
 
         function editUpdateSummaryText() {
@@ -2297,7 +2327,9 @@ if ($hasPropCoords) {
                 case 'daily': text += interval === 1 ? 'every day' : 'every ' + interval + ' days'; break;
                 case 'weekly':
                     text += interval === 1 ? 'every week' : 'every ' + interval + ' weeks';
-                    if (editSelectedDow !== null) text += ' on ' + editDayNames[editSelectedDow];
+                    if (editSelectedDows.length > 0) {
+                        text += ' on ' + editSelectedDows.map(function(d) { return editDayNamesShort[d]; }).join(', ');
+                    }
                     break;
                 case 'monthly': text += interval === 1 ? 'every month' : 'every ' + interval + ' months'; break;
                 case 'yearly': text += interval === 1 ? 'every year' : 'every ' + interval + ' years'; break;

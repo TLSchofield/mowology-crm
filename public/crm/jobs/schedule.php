@@ -176,7 +176,15 @@ foreach ($unscheduledVisits as $uv) {
     $duration = (int)($uv['estimated_duration'] ?? 45);
     $pattern  = $uv['recurrence_pattern'] ?? 'weekly';
     $interval = max(1, (int)($uv['recurrence_interval'] ?? 1));
-    $prefDow  = $uv['recurrence_day_of_week'] !== null ? (int)$uv['recurrence_day_of_week'] : null;
+    // Parse comma-separated preferred days ("3" legacy or "1,3,5" multi-day) into an array
+    $prefDows = null;
+    if ($uv['recurrence_day_of_week'] !== null && $uv['recurrence_day_of_week'] !== '') {
+        $prefDows = array_values(array_filter(
+            array_map('intval', explode(',', (string)$uv['recurrence_day_of_week'])),
+            function($d) { return $d >= 0 && $d <= 6; }
+        ));
+        if (empty($prefDows)) $prefDows = null;
+    }
     $lastDone = !empty($uv['last_completed_at']) ? strtotime($uv['last_completed_at']) : null;
     $planStart= !empty($uv['plan_start_date'])   ? strtotime($uv['plan_start_date'])  : null;
     $isBiweekly = ($pattern === 'biweekly') || ($pattern === 'weekly' && $interval >= 2)
@@ -223,8 +231,8 @@ foreach ($unscheduledVisits as $uv) {
                 $cycleNote = 'Off cycle';
             }
         } elseif ($pattern === 'weekly' || ($pattern === 'custom' && $interval === 1)) {
-            if ($prefDow !== null) {
-                if ($dayDow === $prefDow) {
+            if ($prefDows !== null) {
+                if (in_array($dayDow, $prefDows, true)) {
                     $cycleScore = 40;
                     $cycleNote = 'Preferred day ✓';
                 } else {

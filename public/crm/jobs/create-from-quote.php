@@ -211,8 +211,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     // Recurring fields
     $isRecurring       = ($planType === 'recurring') ? 1 : 0;
     $recurrencePattern = $isRecurring ? ($_POST['recurrence_pattern'] ?? 'weekly') : null;
-    $recurrenceDow     = $isRecurring && isset($_POST['recurrence_day_of_week']) && $_POST['recurrence_day_of_week'] !== ''
-                         ? intval($_POST['recurrence_day_of_week']) : null;
+    $recurrenceDow = null;
+    if ($isRecurring && isset($_POST['recurrence_day_of_week']) && $_POST['recurrence_day_of_week'] !== '') {
+        $dowParts = array_values(array_filter(
+            array_unique(array_map('intval', explode(',', $_POST['recurrence_day_of_week']))),
+            function($d) { return $d >= 0 && $d <= 6; }
+        ));
+        sort($dowParts);
+        if (!empty($dowParts)) $recurrenceDow = implode(',', $dowParts);
+    }
     $recurrenceInterval = $isRecurring ? max(1, intval($_POST['recurrence_interval'] ?? 1)) : 1;
     $recurrenceUnit    = $isRecurring ? ($_POST['recurrence_interval_unit'] ?? 'weeks') : 'weeks';
 
@@ -986,7 +993,7 @@ if ($propLat && $propLng && $apiKey) {
               // Exposed on window so the Scheduling Intelligence script can access them
               window._recurrenceState = { freq: 'weekly', dow: null };
               var currentFreq = 'weekly';
-              var selectedDow = null;
+              var selectedDows = []; // multi-day array: [1,3,5] = Mon/Wed/Fri
               var dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
               // Frequency picker
@@ -999,13 +1006,19 @@ if ($propLat && $propLng && $apiKey) {
                   });
               });
 
-              // Day-of-week picker
+              // Day-of-week picker — multi-select: click toggles each day independently
               document.querySelectorAll('.mw-dow-btn').forEach(function(btn) {
                   btn.addEventListener('click', function() {
-                      document.querySelectorAll('.mw-dow-btn').forEach(function(b) { b.classList.remove('active'); });
-                      this.classList.add('active');
-                      selectedDow = parseInt(this.dataset.dow);
-                      window._recurrenceState.dow = selectedDow;
+                      var d = parseInt(this.dataset.dow);
+                      var idx = selectedDows.indexOf(d);
+                      if (idx === -1) {
+                          selectedDows.push(d);
+                          selectedDows.sort(function(a, b) { return a - b; });
+                      } else {
+                          selectedDows.splice(idx, 1);
+                      }
+                      this.classList.toggle('active');
+                      window._recurrenceState.dow = selectedDows.length > 0 ? selectedDows[0] : null;
                       updateHiddenFields();
                       updateSummaryText();
                   });
@@ -1062,7 +1075,7 @@ if ($propLat && $propLng && $apiKey) {
 
               function updateHiddenFields() {
                   document.getElementById('recurrencePatternHidden').value = currentFreq;
-                  document.getElementById('recurrenceDowHidden').value = (selectedDow !== null) ? selectedDow : '';
+                  document.getElementById('recurrenceDowHidden').value = selectedDows.length > 0 ? selectedDows.join(',') : '';
               }
 
               function updateSummaryText() {
@@ -1075,7 +1088,10 @@ if ($propLat && $propLng && $apiKey) {
                           break;
                       case 'weekly':
                           text += interval === 1 ? 'every week' : 'every ' + interval + ' weeks';
-                          if (selectedDow !== null) text += ' on ' + dayNames[selectedDow];
+                          if (selectedDows.length > 0) {
+                              var shortDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                              text += ' on ' + selectedDows.map(function(d) { return shortDays[d]; }).join(', ');
+                          }
                           break;
                       case 'monthly':
                           text += interval === 1 ? 'every month' : 'every ' + interval + ' months';
@@ -1086,7 +1102,10 @@ if ($propLat && $propLng && $apiKey) {
                       case 'custom':
                           var unit = document.getElementById('recurrenceUnit').value;
                           text += 'every ' + interval + ' ' + unit;
-                          if (selectedDow !== null && unit === 'weeks') text += ' on ' + dayNames[selectedDow];
+                          if (selectedDows.length > 0 && unit === 'weeks') {
+                              var shortDaysC = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                              text += ' on ' + selectedDows.map(function(d) { return shortDaysC[d]; }).join(', ');
+                          }
                           break;
                   }
 
@@ -1483,7 +1502,8 @@ if ($propLat && $propLng && $apiKey) {
                   activeFilter = dow;
 
                   if (dow !== null) {
-                      // Activate the DOW circle button
+                      // Nearby-client suggestion sets a single day (replaces current selection)
+                      selectedDows = [dow];
                       document.querySelectorAll('.mw-dow-btn').forEach(function(b) {
                           b.classList.toggle('active', parseInt(b.dataset.dow) === dow);
                       });
