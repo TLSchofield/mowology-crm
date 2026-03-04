@@ -56,6 +56,12 @@ $totalRevenue = (float)($revStmt->fetchColumn() ?: 0);
 $activeClock = getActiveClockEntry($user['id']);
 $isClockedIn = (bool)$activeClock;
 
+// Already clocked in — skip the portal, go straight to the day's stops
+if ($isClockedIn) {
+    header('Location: /crm/jobs/schedule.php');
+    exit;
+}
+
 if ($isClockedIn) {
     $elapsedSec = (int)($activeClock['elapsed_seconds'] ?? 0);
     $elapsedH   = floor($elapsedSec / 3600);
