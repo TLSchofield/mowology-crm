@@ -427,16 +427,20 @@ if (!$plan) {
 
 // ── Contract value for the rate calculator ───────────────────────────
 // Priority: contract billing_amount > quote total_amount > plan estimated_amount
-$contractTotal = null;
+$contractTotal = null;   // raw billing amount (per-cycle for monthly, lump-sum for others)
 $contractLabel = null;
+$contractCycle = null;   // 'monthly','per_visit','seasonal','annual','custom' — null if quote/estimate
 if (!empty($plan['contract_billing_amount'])) {
     $contractTotal = (float)$plan['contract_billing_amount'];
     $contractLabel = $plan['contract_number'] ?? null;
+    $contractCycle = $plan['contract_billing_cycle'] ?? 'monthly';
 } elseif (!empty($plan['quote_total_amount'])) {
     $contractTotal = (float)$plan['quote_total_amount'];
     $contractLabel = $plan['quote_number'] ?? null;
+    $contractCycle = 'seasonal'; // quote totals are lump-sum
 } elseif (!empty($plan['estimated_amount'])) {
     $contractTotal = (float)$plan['estimated_amount'];
+    $contractCycle = 'seasonal'; // estimated amounts are lump-sum
 }
 
 // Profitability data
@@ -2048,7 +2052,12 @@ if ($hasPropCoords) {
                         <div class="mw-calc-auto-source">
                             <i data-feather="link" style="width:11px;height:11px;"></i>
                             <?php echo $contractLabel ? htmlspecialchars($contractLabel) . ': ' : ''; ?>
-                            <strong>$<?php echo number_format($contractTotal, 2); ?></strong>
+                            <strong>$<?php echo number_format($contractTotal, 2); ?></strong><?php
+                            $cycleDisplay = ['monthly'=>'/mo','per_visit'=>'/visit','annual'=>'/yr','seasonal'=>'','custom'=>''];
+                            if ($contractCycle && isset($cycleDisplay[$contractCycle]) && $cycleDisplay[$contractCycle]) {
+                                echo '<span class="mw-calc-cycle-label">' . $cycleDisplay[$contractCycle] . '</span>';
+                            }
+                            ?>
                         </div>
                         <details class="mw-calc-override-details mt-2">
                             <summary class="mw-calc-override-toggle">Override rate manually</summary>
@@ -2298,8 +2307,9 @@ if ($hasPropCoords) {
         });
 
         // ── Contract value from server ────────────────────────
-        var editContractTotal = <?php echo json_encode($contractTotal); ?>; // null or float
+        var editContractTotal = <?php echo json_encode($contractTotal); ?>; // null or float (raw per-cycle amount)
         var editContractLabel = <?php echo json_encode($contractLabel); ?>; // "CTR-2026-0001" etc.
+        var editContractCycle = <?php echo json_encode($contractCycle); ?>; // 'monthly','per_visit','seasonal','annual','custom'
 
         // ── Edit Plan modal toggles ─────────────────────────
         function toggleEditRecurring() {
@@ -2573,59 +2583,106 @@ if ($hasPropCoords) {
             var crewHours    = durationHrs * (crewCount || 1);
             var daysPerWeek  = editSelectedDows.length;
 
-            // Season weeks from date fields
-            var startDateEl = document.getElementById('editStartDateInput');
-            var endDateEl   = document.getElementById('editEndDateInput');
-            var startDateV  = startDateEl ? startDateEl.value : '';
-            var endDateV    = endDateEl   ? endDateEl.value   : '';
-            var seasonWeeks = 0, seasonLabel = '';
+            // Season weeks / months from date fields
+            // Fall back to 12-month rolling if no end date but contract total is known
+            var startDateEl    = document.getElementById('editStartDateInput');
+            var endDateEl      = document.getElementById('editEndDateInput');
+            var startDateV     = startDateEl ? startDateEl.value : '';
+            var endDateV       = endDateEl   ? endDateEl.value   : '';
+            var seasonWeeks    = 0, seasonMonths = 0, seasonLabel = '', seasonIsEstimate = false;
             if (startDateV && endDateV) {
                 var sd = new Date(startDateV), ed = new Date(endDateV);
-                seasonWeeks = Math.round((ed - sd) / (7 * 24 * 3600 * 1000));
+                seasonWeeks  = Math.round((ed - sd) / (7 * 24 * 3600 * 1000));
+                // Fractional months for monthly billing math
+                seasonMonths = (ed.getFullYear() - sd.getFullYear()) * 12 +
+                               (ed.getMonth()    - sd.getMonth())    +
+                               (ed.getDate()     - sd.getDate()) / 30;
                 var opts = { month: 'short', day: 'numeric' };
-                seasonLabel = sd.toLocaleDateString('en-CA', opts) + ' – ' + ed.toLocaleDateString('en-CA', opts);
+                seasonLabel  = sd.toLocaleDateString('en-CA', opts) + ' – ' + ed.toLocaleDateString('en-CA', opts);
+            } else if (startDateV && editContractTotal) {
+                // No end date but contract total known → assume 12-month rolling
+                seasonWeeks      = 52;
+                seasonMonths     = 12;
+                seasonLabel      = '12-mo rolling';
+                seasonIsEstimate = true;
             }
 
             // ── Auto-calculate price per visit from contract total ──────
-            var ppvInput      = document.getElementById('editPricePerVisitInput');
-            var pricePerVisit = ppvInput ? (parseFloat(ppvInput.value) || 0) : 0;
-            var autoCalcChain = document.getElementById('editCalcAutoChain');
+            var ppvInput        = document.getElementById('editPricePerVisitInput');
+            var pricePerVisit   = ppvInput ? (parseFloat(ppvInput.value) || 0) : 0;
+            var autoCalcChain   = document.getElementById('editCalcAutoChain');
+            var ppvFromContract = 0;
+            var effectiveTotal  = 0;
 
-            if (editContractTotal && daysPerWeek > 0 && seasonWeeks > 0) {
-                var weeklyFromContract = editContractTotal / seasonWeeks;
-                var ppvFromContract    = weeklyFromContract / daysPerWeek;
+            var canAutoCalc = editContractTotal && (
+                editContractCycle === 'per_visit' ||
+                (daysPerWeek > 0 && seasonWeeks > 0)
+            );
 
-                // Auto-fill the price per visit field if it's empty
-                if (ppvInput && pricePerVisit === 0) {
-                    ppvInput.value    = ppvFromContract.toFixed(2);
-                    pricePerVisit     = ppvFromContract;
+            if (canAutoCalc) {
+                function fmtC(n) { return '$' + Math.round(n).toLocaleString(); }
+                var chainHtml = '<div class="mw-calc-chain-row">';
+
+                if (editContractCycle === 'per_visit') {
+                    // billing_amount IS the price per visit — no division needed
+                    ppvFromContract = editContractTotal;
+                    effectiveTotal  = ppvFromContract * daysPerWeek * seasonWeeks;
+                    chainHtml += '<span class="mw-calc-chain-step mw-calc-chain-result">' + fmtC(ppvFromContract) + '/visit</span>' +
+                                 '<span class="mw-calc-chain-op">from contract rate</span>';
+
+                } else if (editContractCycle === 'monthly' && seasonMonths > 0) {
+                    // billing_amount × months → total, then ÷ weeks ÷ days
+                    effectiveTotal  = editContractTotal * seasonMonths;
+                    var weeklyAmt   = effectiveTotal / seasonWeeks;
+                    ppvFromContract = weeklyAmt / daysPerWeek;
+                    var roundedMo   = Math.round(seasonMonths * 10) / 10;
+                    chainHtml +=
+                        '<span class="mw-calc-chain-step">' + fmtC(editContractTotal) + '/mo</span>' +
+                        '<span class="mw-calc-chain-op">× ' + roundedMo + ' mo</span>' +
+                        '<span class="mw-calc-chain-step">' + fmtC(effectiveTotal) + '</span>' +
+                        '<span class="mw-calc-chain-op">÷ ' + seasonWeeks + 'w ÷ ' + daysPerWeek + 'd</span>' +
+                        '<span class="mw-calc-chain-step mw-calc-chain-result">' + fmtC(ppvFromContract) + '/visit</span>';
+
+                } else {
+                    // seasonal, annual, custom (or monthly with no month data) → lump sum ÷ weeks ÷ days
+                    effectiveTotal  = editContractTotal;
+                    var weeklyAmt   = effectiveTotal / seasonWeeks;
+                    ppvFromContract = weeklyAmt / daysPerWeek;
+                    chainHtml +=
+                        '<span class="mw-calc-chain-step">' + fmtC(editContractTotal) + '</span>' +
+                        '<span class="mw-calc-chain-op">÷ ' + seasonWeeks + 'w ÷ ' + daysPerWeek + 'd</span>' +
+                        '<span class="mw-calc-chain-step mw-calc-chain-result">' + fmtC(ppvFromContract) + '/visit</span>';
                 }
 
-                // Update the auto-chain display
+                chainHtml += '</div>';
+                if (seasonIsEstimate) {
+                    chainHtml += '<p class="mw-calc-chain-hint">est. — no end date set</p>';
+                }
+
+                // Auto-fill the price per visit field if it's empty
+                if (ppvInput && pricePerVisit === 0 && ppvFromContract > 0) {
+                    ppvInput.value = ppvFromContract.toFixed(2);
+                    pricePerVisit  = ppvFromContract;
+                }
+
                 if (autoCalcChain) {
-                    function fmtC(n) { return '$' + Math.round(n).toLocaleString(); }
-                    autoCalcChain.innerHTML =
-                        '<div class="mw-calc-chain-row">' +
-                        '<span class="mw-calc-chain-step">' + fmtC(editContractTotal) + '</span>' +
-                        '<span class="mw-calc-chain-op">÷ ' + seasonWeeks + ' wks</span>' +
-                        '<span class="mw-calc-chain-step">' + fmtC(weeklyFromContract) + '/wk</span>' +
-                        '<span class="mw-calc-chain-op">÷ ' + daysPerWeek + ' days</span>' +
-                        '<span class="mw-calc-chain-step mw-calc-chain-result">' + fmtC(ppvFromContract) + '/visit</span>' +
-                        '</div>';
+                    autoCalcChain.innerHTML = chainHtml;
                     if (typeof feather !== 'undefined') feather.replace();
                 }
             } else if (autoCalcChain) {
                 var missing = [];
                 if (!editContractTotal) missing.push('contract value');
-                if (daysPerWeek === 0)  missing.push('days selected');
-                if (seasonWeeks === 0)  missing.push('start & end dates');
+                if (editContractCycle !== 'per_visit') {
+                    if (daysPerWeek === 0) missing.push('days selected');
+                    if (seasonWeeks === 0) missing.push(startDateV ? 'end date' : 'start & end dates');
+                }
                 autoCalcChain.innerHTML = missing.length
                     ? '<p class="mw-calc-chain-hint">Set ' + missing.join(', ') + ' to auto-calculate</p>'
                     : '';
             }
 
             var weeklyRev  = pricePerVisit * daysPerWeek;
-            var totalValue = editContractTotal || (weeklyRev * seasonWeeks);
+            var totalValue = effectiveTotal || (weeklyRev * seasonWeeks);
 
             if (pricePerVisit <= 0 && durationMin <= 0) { container.innerHTML = ''; return; }
 
@@ -2653,7 +2710,9 @@ if ($hasPropCoords) {
             }
             if (seasonWeeks > 0) {
                 items += '<div class="mw-rev-item"><span class="mw-rev-label">Season</span><span class="mw-rev-value">' +
-                    seasonWeeks + ' wks<small class="mw-rev-sub">' + seasonLabel + '</small></span></div>';
+                    seasonWeeks + ' wks<small class="mw-rev-sub">' + seasonLabel +
+                    (seasonIsEstimate ? ' <em>(est.)</em>' : '') +
+                    '</small></span></div>';
             }
             if (totalValue > 0) {
                 var totalLabel = editContractTotal ? 'Contract Total' : 'Est. Total';
