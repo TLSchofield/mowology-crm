@@ -3589,8 +3589,20 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (data.success) {
-                        // Redirect to today — server-rendered card will show clocked-in state
-                        window.location.href = TODAY_URL;
+                        // Flatline weather + clock cards before navigating away
+                        var targets = [
+                            document.querySelector('.mw-ds-weather-row'),
+                            document.querySelector('.mw-ds-clock-card')
+                        ].filter(Boolean);
+
+                        targets.forEach(function (el) { el.classList.add('mw-flatline-out'); });
+                        setTimeout(function () {
+                            targets.forEach(function (el) {
+                                el.classList.remove('mw-flatline-out');
+                                el.classList.add('mw-flatline-collapse');
+                            });
+                            setTimeout(function () { window.location.href = TODAY_URL; }, 380);
+                        }, 900);
                     } else {
                         btnIn.disabled = false;
                         btnIn.textContent = 'Clock In';
