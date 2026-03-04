@@ -3133,8 +3133,13 @@ if ($hasPropCoords) {
                 document.getElementById('pwz-save-type-label').textContent = typeLabel;
                 document.getElementById('pwz-save-label-row').style.display =
                     pwzPendingType === 'work_zone' ? 'block' : 'none';
-                document.getElementById('pwz-save-label-input').value = '';
-                pwzSetHint('Shape outlined. Add a label and click Save Zone.', 'success');
+                // Copy any label the user typed during drawing rather than clearing it
+                var drawnLabel = (document.getElementById('pwz-draw-label-input').value || '').trim();
+                document.getElementById('pwz-save-label-input').value = drawnLabel;
+                var hint = drawnLabel
+                    ? 'Shape outlined. Label pre-filled — click Save Zone.'
+                    : 'Shape outlined. Add a label and click Save Zone.';
+                pwzSetHint(hint, 'success');
                 pwzSafeFeather();
             },
         });
@@ -3172,12 +3177,13 @@ if ($hasPropCoords) {
     }
 
     // ── Load zones from server ────────────────────────────────────────
+    // Returns a Promise so callers can chain .then() for post-load hints.
     function pwzLoadZones() {
         if (!PWZ_PROP_ID) {
             pwzSetHint('No property linked to this plan.', 'error');
-            return;
+            return Promise.resolve();
         }
-        fetch(PWZ_API + '?action=get_zones&property_id=' + PWZ_PROP_ID, { credentials: 'same-origin' })
+        return fetch(PWZ_API + '?action=get_zones&property_id=' + PWZ_PROP_ID, { credentials: 'same-origin' })
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (!data.success) throw new Error(data.error || 'Load failed');
@@ -3185,14 +3191,6 @@ if ($hasPropCoords) {
                 pwzRenderPanel(data.zones);
                 document.getElementById('pwz-add-border-btn').disabled = false;
                 document.getElementById('pwz-add-zone-btn').disabled   = false;
-                var relevant = data.zones.filter(function(z) {
-                    return z.zone_type === 'arrival_border' || z.plan_id === PWZ_PLAN_ID;
-                });
-                if (relevant.length === 0) {
-                    pwzSetHint('No zones yet — draw the property border first, then add work zones.', 'info');
-                } else {
-                    pwzSetHint(relevant.length + ' zone' + (relevant.length !== 1 ? 's' : '') + ' loaded. Add more or delete existing zones.', 'success');
-                }
             })
             .catch(function(err) {
                 pwzSetHint('Could not load zones: ' + err.message, 'error');
@@ -3399,8 +3397,10 @@ if ($hasPropCoords) {
             pwzPendingRing = null;
             pwzPendingType = null;
             pwzShowPanel('idle');
-            pwzSetHint(tLabel + ' saved!', 'success');
-            pwzLoadZones();
+            // Reload zones first, THEN show the success hint so it is never overwritten
+            pwzLoadZones().then(function() {
+                pwzSetHint(tLabel + ' saved! Add another zone or close this panel.', 'success');
+            });
         })
         .catch(function(err) {
             pwzIsSaving = false;
