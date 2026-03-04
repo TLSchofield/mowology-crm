@@ -3260,8 +3260,9 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 (function() {
     'use strict';
 
-    var CSRF    = <?php echo json_encode($csrfToken); ?>;
-    var IS_CREW = <?php echo json_encode($isCrew); ?>;
+    var CSRF       = <?php echo json_encode($csrfToken); ?>;
+    var IS_CREW    = <?php echo json_encode($isCrew); ?>;
+    var WEEK_START = <?php echo json_encode($startDate); ?>;
 
     var stopGrid   = document.getElementById('mwStopGrid');
     var trayToggle  = document.getElementById('mwTrayToggle');
@@ -3458,21 +3459,108 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
         });
     });
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function _esc(str) {
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Inject a minimal "just placed" placeholder card into the target day column.
+    // A full stop card appears the next time the page loads; this gives immediate
+    // visual confirmation without requiring a page reload.
+    function injectPlaceholderStop(date, stopId, address, clientName) {
+        var col = document.querySelector('.mw-day-column[data-date="' + date + '"]');
+        if (!col) return;
+        // Remove the "No stops" empty state
+        var emptyEl = col.querySelector('.mw-day-empty');
+        if (emptyEl) emptyEl.remove();
+
+        var ph = document.createElement('div');
+        ph.className = 'mw-stop-card mw-stop-card--just-placed';
+        ph.setAttribute('data-stop-id', String(stopId));
+        ph.innerHTML =
+            '<div class="mw-stop-time-client"><span class="mw-stop-client-name">' + _esc(clientName) + '</span></div>' +
+            '<div class="mw-stop-address">' + _esc(address) + '</div>' +
+            '<div class="mw-stop-placed-label">&#10003; Just scheduled</div>';
+        col.appendChild(ph);
+    }
+
+    // Fetch fresh placement scores for remaining tray cards from the API and
+    // update their data attributes and best-day badge chips in-place.
+    function refreshPlacementScores() {
+        var remainingCards = Array.from(document.querySelectorAll('.mw-tray-card'));
+        if (remainingCards.length === 0) return;
+
+        var visitIds = remainingCards
+            .map(function(c) { return parseInt(c.dataset.visitId, 10); })
+            .filter(Boolean);
+        if (visitIds.length === 0) return;
+
+        fetch('/crm/api/placement-scores.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
+            body: JSON.stringify({ week_start: WEEK_START, visit_ids: visitIds })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success || !data.scores) return;
+            var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+            remainingCards.forEach(function(card) {
+                var vid       = parseInt(card.dataset.visitId, 10);
+                var newScores = data.scores[vid];
+                var bestDay   = data.best_days && data.best_days[vid];
+                if (!newScores) return;
+
+                // Refresh the data payload used by activatePlacementIntelligence
+                card.dataset.placementScores = JSON.stringify(newScores);
+
+                if (bestDay && bestDay.date) {
+                    card.dataset.bestDay   = bestDay.date;
+                    card.dataset.bestScore = String(bestDay.score);
+
+                    // Update the always-visible best-day chip
+                    var chip = card.querySelector('.mw-tray-best-chip');
+                    if (chip) {
+                        var d       = new Date(bestDay.date + 'T12:00:00');
+                        var abbr    = DOW[d.getDay()] || '';
+                        var cls     = (bestDay.label || 'poor').toLowerCase().replace(/\s+/g, '-');
+                        chip.textContent = (bestDay.label || '') + '\u2009\u00B7\u2009' + abbr;
+                        chip.className   = 'mw-tray-best-chip mw-tray-best-' + cls;
+                    }
+
+                    // Keep the Place → button's target in sync
+                    var btn = card.querySelector('.mw-tray-auto-place-btn');
+                    if (btn) btn.dataset.bestDay = bestDay.date;
+                }
+
+                // If this card is currently showing PI strips, refresh them with new data
+                if (card === _piActiveCard) {
+                    _piActiveCard = null;
+                    activatePlacementIntelligence(card);
+                }
+            });
+        })
+        .catch(function() { /* silent — stale scores are not critical */ });
+    }
+
     // ── Perform schedule API call ─────────────────────────────────────────────
     function scheduleTrayVisit(visitId, date, routeOrder) {
-        // Optimistically dim the tray card
         var card = document.querySelector('.mw-tray-card[data-visit-id="' + visitId + '"]');
+
+        // Capture display text before the card is removed
+        var cardAddr   = card ? ((card.querySelector('.mw-tray-card-address')  || {}).textContent || '').trim() : '';
+        var cardClient = card ? ((card.querySelector('.mw-tray-card-client')   || {}).textContent || '').trim() : '';
+
         if (card) {
-            card.style.opacity = '0.4';
+            card.style.opacity      = '0.4';
             card.style.pointerEvents = 'none';
         }
 
         fetch('/crm/api/schedule-visit.php', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': CSRF
-            },
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF },
             body: JSON.stringify({
                 visit_id:         visitId,
                 date:             date,
@@ -3480,10 +3568,10 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                 auto_assign_self: IS_CREW
             })
         })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
             if (data.success) {
-                // Remove the card from the tray
+                // Remove the scheduled card from the tray
                 if (card) card.remove();
 
                 // Update count badge
@@ -3497,14 +3585,18 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                     trayBody.innerHTML = '<div class="mw-tray-empty">All jobs scheduled &#10003;</div>';
                 }
 
-                // Reload to show the new stop card in the day column
-                window.location.reload();
+                // Inject a lightweight placeholder into the day column so the user
+                // gets immediate visual confirmation — no page reload needed.
+                injectPlaceholderStop(date, data.stop_id, cardAddr, cardClient);
+
+                // Refresh scores for the remaining tray cards (capacity changed).
+                refreshPlacementScores();
             } else {
                 if (card) { card.style.opacity = ''; card.style.pointerEvents = ''; }
                 alert('Could not schedule job: ' + (data.error || 'Unknown error'));
             }
         })
-        .catch(function () {
+        .catch(function() {
             if (card) { card.style.opacity = ''; card.style.pointerEvents = ''; }
             alert('Network error — please try again.');
         });

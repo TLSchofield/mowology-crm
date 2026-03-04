@@ -7168,6 +7168,27 @@ textarea.font-monospace {
   font-style: italic;
 }
 
+/* ── Just-placed placeholder stop card ──────────────── */
+/* Injected by scheduleTrayVisit() after a tray drop; replaces the full card that
+   renders on the next page load. Fades in with a green flash. */
+@keyframes mw-placed-in {
+  from { opacity: 0; transform: translateY(-6px); background: #dcfce7; }
+  60%  { background: #d1fae5; }
+  to   { opacity: 1; transform: translateY(0);   background: #fff; }
+}
+.mw-stop-card--just-placed {
+  animation: mw-placed-in 0.5s ease forwards;
+  border-left-color: var(--mw-lime, #7FD858) !important;
+  cursor: default;
+}
+.mw-stop-placed-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--mw-green);
+  margin-top: 4px;
+  letter-spacing: 0.2px;
+}
+
 /* ── Stop Cards ─────────────────────────────────────── */
 .mw-stop-card {
   background: #fff;
