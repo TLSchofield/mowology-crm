@@ -66,6 +66,14 @@ if (empty($checklist) && !empty($visit['checklist_template'])) {
 
 $csrfToken = generateCSRFToken();
 
+// Extras billing rate (per 5-min block)
+try {
+    $rateRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'extras_rate_per_5min' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    $extrasRatePerBlock = round(floatval($rateRow['setting_value'] ?? 5.00), 2);
+} catch (PDOException $e) {
+    $extrasRatePerBlock = 5.00;
+}
+
 $pageTitle  = 'Work: ' . ($visit['visit_number'] ?? "Visit #{$visitId}");
 $activePage = 'jobs';
 ?>
@@ -383,6 +391,58 @@ $activePage = 'jobs';
 <input type="hidden" id="pow-service-type" value="<?= htmlspecialchars($visit['service_type']) ?>">
 <input type="hidden" id="pow-status" value="<?= htmlspecialchars($visit['status']) ?>">
 <input type="hidden" id="pow-started-at" value="<?= htmlspecialchars($visit['started_at'] ?? '') ?>">
+<input type="hidden" id="pow-extras-rate" value="<?= htmlspecialchars((string)$extrasRatePerBlock) ?>">
+
+<!-- ─ Billable Extras Modal ───────────────────────────────────────────────── -->
+<?php if ($visit['status'] === 'in_progress'): ?>
+<div id="mw-extras-modal" class="mw-extras-modal" role="dialog" aria-modal="true" aria-labelledby="mw-extras-title">
+  <div class="mw-extras-modal-inner">
+
+    <div class="mw-extras-header">
+      <button class="mw-extras-close" id="btn-extras-close" aria-label="Cancel — return to visit">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <h2 class="mw-extras-title" id="mw-extras-title">Add-On Services</h2>
+      <p class="mw-extras-subtitle">Did the client ask for anything extra?</p>
+    </div>
+
+    <div class="mw-extras-timer-section">
+      <div class="mw-extras-timer-display" id="extras-timer-display">0:00</div>
+      <button class="mw-extras-timer-btn" id="btn-extras-timer">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><polygon points="5,3 19,12 5,21"/></svg>
+        Start Timer
+      </button>
+    </div>
+
+    <div class="mw-extras-manual-section">
+      <p class="mw-extras-label">Quick-add minutes</p>
+      <div class="mw-extras-block-btns">
+        <button class="mw-extras-block-btn" data-mins="5">+5</button>
+        <button class="mw-extras-block-btn" data-mins="10">+10</button>
+        <button class="mw-extras-block-btn" data-mins="15">+15</button>
+        <button class="mw-extras-block-btn" data-mins="30">+30</button>
+      </div>
+    </div>
+
+    <div class="mw-extras-total-section">
+      <div class="mw-extras-total-amount" id="extras-total-amount">$0.00</div>
+      <p class="mw-extras-total-meta" id="extras-total-meta">No extras added</p>
+    </div>
+
+    <div class="mw-extras-note-section">
+      <p class="mw-extras-label">Note to client <span style="font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></p>
+      <textarea class="mw-extras-note-input" id="extras-note" rows="3"
+                placeholder="e.g. Trimmed hedge by gate as requested — 15 extra min."></textarea>
+    </div>
+
+    <div class="mw-extras-actions">
+      <button class="mw-extras-skip-btn" id="btn-extras-skip">No Extras — Complete Visit</button>
+      <button class="mw-extras-confirm-btn" id="btn-extras-confirm">Add to Invoice &amp; Complete</button>
+    </div>
+
+  </div>
+</div>
+<?php endif; ?>
 
 <script>
 (function() {
@@ -951,33 +1011,194 @@ $activePage = 'jobs';
     if (e.key === 'Escape') closeLightbox();
   });
 
-  // ── End Visit ─────────────────────────────────────────────────────────────
+  // ── End Visit + Billable Extras Modal ────────────────────────────────────
+  var EXTRAS_RATE        = parseFloat((document.getElementById('pow-extras-rate') || {}).value) || 5.00;
+  var extrasTimerIval    = null;
+  var extrasSeconds      = 0;   // live timer accumulated seconds
+  var extrasManualMins   = 0;   // quick-add manual minutes
+  var extrasTimerRunning = false;
+  var pendingLat         = null;
+  var pendingLng         = null;
+
+  function extrasTotal() {
+    return (extrasSeconds > 0 ? Math.ceil(extrasSeconds / 60) : 0) + extrasManualMins;
+  }
+
+  function setTimerBtn(state) {
+    var btn = document.getElementById('btn-extras-timer');
+    if (!btn) return;
+    var play  = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><polygon points="5,3 19,12 5,21"/></svg> ';
+    var pause = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> ';
+    if (state === 'stop') {
+      btn.className = 'mw-extras-timer-btn mw-extras-timer-running';
+      btn.innerHTML = pause + 'Stop Timer';
+    } else if (state === 'resume') {
+      btn.className = 'mw-extras-timer-btn';
+      btn.innerHTML = play + 'Resume Timer';
+    } else {
+      btn.className = 'mw-extras-timer-btn';
+      btn.innerHTML = play + 'Start Timer';
+    }
+  }
+
+  function updateExtrasDisplay() {
+    var mins   = extrasTotal();
+    var blocks = mins > 0 ? Math.ceil(mins / 5) : 0;
+    var amount = blocks * EXTRAS_RATE;
+    var amtEl  = document.getElementById('extras-total-amount');
+    var metaEl = document.getElementById('extras-total-meta');
+    if (amtEl)  amtEl.textContent = '$' + amount.toFixed(2);
+    if (metaEl) {
+      if (mins === 0) {
+        metaEl.textContent = 'No extras added';
+      } else {
+        var billed = blocks * 5;
+        metaEl.textContent = mins + ' min \u2192 ' + billed + ' min billed \u00b7 ' +
+                             blocks + ' \u00d7 $' + EXTRAS_RATE.toFixed(2) + '/block';
+      }
+    }
+  }
+
+  function fmtTimer(secs) {
+    var m = Math.floor(secs / 60), s = secs % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function showExtrasModal() {
+    clearInterval(extrasTimerIval);
+    extrasTimerIval    = null;
+    extrasSeconds      = 0;
+    extrasManualMins   = 0;
+    extrasTimerRunning = false;
+    var disp = document.getElementById('extras-timer-display');
+    if (disp) disp.textContent = '0:00';
+    var note = document.getElementById('extras-note');
+    if (note) note.value = '';
+    setTimerBtn('start');
+    updateExtrasDisplay();
+    var modal = document.getElementById('mw-extras-modal');
+    if (modal) modal.classList.add('mw-extras-modal-open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function hideExtrasModal() {
+    clearInterval(extrasTimerIval);
+    extrasTimerIval    = null;
+    extrasTimerRunning = false;
+    var modal = document.getElementById('mw-extras-modal');
+    if (modal) modal.classList.remove('mw-extras-modal-open');
+    document.body.style.overflow = '';
+  }
+
+  function completeVisit(lat, lng, extrasMins, extrasNote) {
+    var skipBtn    = document.getElementById('btn-extras-skip');
+    var closeBtn   = document.getElementById('btn-extras-close');
+    var confirmBtn = document.getElementById('btn-extras-confirm');
+    if (skipBtn)    skipBtn.disabled    = true;
+    if (closeBtn)   closeBtn.disabled   = true;
+    if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Completing\u2026'; }
+
+    powPost('end_visit', { lat: lat, lng: lng, extras_minutes: extrasMins, extras_note: extrasNote })
+      .then(function(res) {
+        if (res.success) {
+          hideExtrasModal();
+          showToast('Visit completed! Redirecting\u2026', 'success');
+          setTimeout(function() { location.href = 'visit-detail.php?id=' + VISIT_ID; }, 1500);
+        } else {
+          alert(res.error || 'Could not complete visit');
+          if (skipBtn)    skipBtn.disabled    = false;
+          if (closeBtn)   closeBtn.disabled   = false;
+          if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.innerHTML = 'Add to Invoice &amp; Complete'; }
+        }
+      })
+      .catch(function() {
+        alert('Network error \u2014 please try again.');
+        if (skipBtn)    skipBtn.disabled    = false;
+        if (closeBtn)   closeBtn.disabled   = false;
+        if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.innerHTML = 'Add to Invoice &amp; Complete'; }
+      });
+  }
+
+  // End visit button → GPS capture → show modal
   var btnEnd = document.getElementById('btn-end-visit');
   if (btnEnd) {
     btnEnd.addEventListener('click', function() {
-      if (!confirm('End this visit and finalize? You will not be able to track GPS after this.')) return;
       stopGPS();
+      btnEnd.disabled = true;
+      btnEnd.innerHTML = '<span class="spinner-border spinner-border-sm mr-2"></span>Getting location\u2026';
 
-      function doEnd(lat, lng) {
-        fetch(API_ACTIONS, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ action: 'end_visit', visit_id: VISIT_ID, csrf_token: CSRF,
-                                 lat: lat, lng: lng })
-        }).then(function(r) { return r.json(); }).then(function(res) {
-          if (res.success) {
-            showToast('Visit completed! Redirecting…', 'success');
-            setTimeout(function() { location.href = 'visit-detail.php?id=' + VISIT_ID; }, 1500);
-          } else alert(res.error || 'Could not end visit');
-        });
+      function gotGPS(lat, lng) {
+        pendingLat = lat;
+        pendingLng = lng;
+        btnEnd.disabled = false;
+        btnEnd.innerHTML = '<i data-feather="stop-circle" class="mr-2"></i>End Visit &amp; Finalize';
+        feather.replace();
+        showExtrasModal();
       }
 
       if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(function(p) {
-          doEnd(p.coords.latitude, p.coords.longitude);
-        }, function() { doEnd(null,null); }, { enableHighAccuracy:true, timeout:8000 });
-      } else { doEnd(null,null); }
+        navigator.geolocation.getCurrentPosition(
+          function(p) { gotGPS(p.coords.latitude, p.coords.longitude); },
+          function()  { gotGPS(null, null); },
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      } else {
+        gotGPS(null, null);
+      }
+    });
+  }
+
+  // Timer toggle
+  var btnExtrasTimer = document.getElementById('btn-extras-timer');
+  if (btnExtrasTimer) {
+    btnExtrasTimer.addEventListener('click', function() {
+      extrasTimerRunning = !extrasTimerRunning;
+      if (extrasTimerRunning) {
+        setTimerBtn('stop');
+        extrasTimerIval = setInterval(function() {
+          extrasSeconds++;
+          var disp = document.getElementById('extras-timer-display');
+          if (disp) disp.textContent = fmtTimer(extrasSeconds);
+          updateExtrasDisplay();
+        }, 1000);
+      } else {
+        setTimerBtn('resume');
+        clearInterval(extrasTimerIval);
+      }
+    });
+  }
+
+  // Quick-add block buttons
+  document.querySelectorAll('.mw-extras-block-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      extrasManualMins += parseInt(this.dataset.mins, 10) || 0;
+      updateExtrasDisplay();
+    });
+  });
+
+  // X button = cancel (return to visit, no API call)
+  var btnExtrasClose = document.getElementById('btn-extras-close');
+  if (btnExtrasClose) {
+    btnExtrasClose.addEventListener('click', function() {
+      hideExtrasModal();
+    });
+  }
+
+  // "No Extras" = complete with 0 extras
+  var btnExtrasSkip = document.getElementById('btn-extras-skip');
+  if (btnExtrasSkip) {
+    btnExtrasSkip.addEventListener('click', function() {
+      completeVisit(pendingLat, pendingLng, 0, '');
+    });
+  }
+
+  // "Add to Invoice & Complete" = complete with extras
+  var btnExtrasConfirm = document.getElementById('btn-extras-confirm');
+  if (btnExtrasConfirm) {
+    btnExtrasConfirm.addEventListener('click', function() {
+      var mins = extrasTotal();
+      var note = (document.getElementById('extras-note') || {}).value || '';
+      completeVisit(pendingLat, pendingLng, mins, note.trim());
     });
   }
 

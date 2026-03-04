@@ -4161,3 +4161,279 @@
 }
 
 } /* end @media (max-width: 991px) */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   BILLABLE EXTRAS MODAL  (visit-work.php)
+   Full-screen overlay — not scoped to mobile breakpoint so it works on
+   any viewport. Hidden by default; toggled via .mw-extras-modal-open class.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.mw-extras-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: #fff;
+    flex-direction: column;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.mw-extras-modal.mw-extras-modal-open {
+    display: flex;
+}
+
+.mw-extras-modal-inner {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 24px 20px;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+    max-width: 480px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ── Header ── */
+.mw-extras-header {
+    position: relative;
+    margin-bottom: 24px;
+}
+
+.mw-extras-close {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: #f3f4f6;
+    border-radius: 50%;
+    cursor: pointer;
+    color: #6b7280;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s, transform 0.12s;
+}
+
+.mw-extras-close:active {
+    transform: scale(0.9);
+    background: #e5e7eb;
+}
+
+.mw-extras-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #111827;
+    margin: 0 0 4px 0;
+    padding-right: 52px;
+    line-height: 1.25;
+}
+
+.mw-extras-subtitle {
+    font-size: 0.9rem;
+    color: #6b7280;
+    margin: 0;
+}
+
+/* ── Timer section ── */
+.mw-extras-timer-section {
+    background: #f8faf9;
+    border: 1.5px solid #d1ead8;
+    border-radius: 16px;
+    padding: 20px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.mw-extras-timer-display {
+    font-size: 3.2rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #111827;
+    letter-spacing: 2px;
+    line-height: 1;
+    margin-bottom: 16px;
+    font-family: 'SF Mono', 'Roboto Mono', 'Courier New', monospace;
+}
+
+.mw-extras-timer-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 28px;
+    min-height: 48px;
+    border: none;
+    border-radius: 24px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.2s, transform 0.15s;
+}
+
+.mw-extras-timer-btn:active {
+    transform: scale(0.95);
+}
+
+.mw-extras-timer-btn.mw-extras-timer-running {
+    background: #ef4444;
+}
+
+/* ── Manual quick-add section ── */
+.mw-extras-manual-section {
+    margin-bottom: 20px;
+}
+
+.mw-extras-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.mw-extras-block-btns {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+}
+
+.mw-extras-block-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 52px;
+    border: 2px solid var(--mw-green, #2D8659);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--mw-green, #2D8659);
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s, color 0.15s, transform 0.12s;
+}
+
+.mw-extras-block-btn:active {
+    transform: scale(0.93);
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+}
+
+/* ── Total display ── */
+.mw-extras-total-section {
+    background: #111827;
+    border-radius: 14px;
+    padding: 16px 20px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.mw-extras-total-amount {
+    font-size: 2.4rem;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.5px;
+    line-height: 1;
+    margin-bottom: 6px;
+}
+
+.mw-extras-total-meta {
+    font-size: 0.78rem;
+    color: #9ca3af;
+    margin: 0;
+    line-height: 1.4;
+}
+
+/* ── Client note section ── */
+.mw-extras-note-section {
+    flex: 1;
+    margin-bottom: 24px;
+}
+
+.mw-extras-note-input {
+    width: 100%;
+    border: 1.5px solid #d1d5db;
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 0.95rem;
+    color: #111827;
+    resize: none;
+    outline: none;
+    line-height: 1.5;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+
+.mw-extras-note-input:focus {
+    border-color: var(--mw-green, #2D8659);
+    box-shadow: 0 0 0 3px rgba(45, 134, 89, 0.12);
+}
+
+/* ── Action buttons ── */
+.mw-extras-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mw-extras-skip-btn {
+    min-height: 52px;
+    border: 2px solid #d1d5db;
+    border-radius: 14px;
+    background: #fff;
+    color: #6b7280;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: border-color 0.2s, color 0.2s, transform 0.12s;
+}
+
+.mw-extras-skip-btn:active {
+    transform: scale(0.97);
+    border-color: #9ca3af;
+    color: #374151;
+}
+
+.mw-extras-confirm-btn {
+    min-height: 56px;
+    border: none;
+    border-radius: 14px;
+    background: var(--mw-green, #2D8659);
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 4px 16px rgba(45, 134, 89, 0.3);
+    transition: background 0.2s, transform 0.12s;
+}
+
+.mw-extras-confirm-btn:active {
+    transform: scale(0.97);
+    background: var(--mw-dark, #1A5F4A);
+}
+
+.mw-extras-confirm-btn:disabled,
+.mw-extras-skip-btn:disabled,
+.mw-extras-close:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+}
