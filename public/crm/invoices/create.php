@@ -20,6 +20,7 @@ if ($visitId) {
     $stmt = $db->prepare("
         SELECT jv.id as visit_id, jv.visit_number, jv.actual_amount,
                jv.plan_id, jv.scheduled_date, jv.invoice_id as existing_invoice_id,
+               jv.extras_minutes, jv.extras_amount, jv.extras_note,
                jp.plan_number, jp.title, jp.price_per_visit, jp.estimated_amount,
                jp.property_id, jp.company_id,
                c.company_name,
@@ -86,6 +87,9 @@ if ($visitId) {
             'visit_number'      => $visit['visit_number'],
             'plan_number'       => $visit['plan_number'],
             'plan_line_items'   => $prefillLineItems,
+            'extras_minutes'    => (int)($visit['extras_minutes'] ?? 0),
+            'extras_amount'     => round(floatval($visit['extras_amount'] ?? 0), 2),
+            'extras_note'       => trim($visit['extras_note'] ?? ''),
         ];
     }
 }
@@ -109,6 +113,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $taxAmount     = round($subtotal * $taxRate, 2);
         $total         = $subtotal + $taxAmount;
         $notes         = trim($_POST['notes'] ?? '');
+        $extrasMinutes = max(0, intval($_POST['extras_minutes'] ?? 0));
+        $extrasAmount  = round(max(0.0, floatval($_POST['extras_amount'] ?? 0)), 2);
 
         $serviceAddress    = trim($_POST['service_address'] ?? '');
         $serviceCity       = trim($_POST['service_city'] ?? '');
@@ -249,6 +255,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ]);
                 }
 
+                // ── Billable extras line item ──────────────────────────────
+                if ($extrasAmount > 0 && $extrasMinutes > 0 && $linkedVisitId) {
+                    $db->prepare("
+                        INSERT INTO invoice_line_items
+                            (invoice_id, description, quantity, unit_price, line_total, visit_id, sort_order)
+                        VALUES (?, ?, 1, ?, ?, ?, 999)
+                    ")->execute([
+                        $invoiceId,
+                        'Additional services (' . $extrasMinutes . ' min)',
+                        $extrasAmount,
+                        $extrasAmount,
+                        $linkedVisitId,
+                    ]);
+
+                    // Recalculate invoice totals to include extras
+                    $sumStmt = $db->prepare("SELECT COALESCE(SUM(line_total),0) FROM invoice_line_items WHERE invoice_id = ?");
+                    $sumStmt->execute([$invoiceId]);
+                    $newSubtotal = round(floatval($sumStmt->fetchColumn()), 2);
+                    $newTax      = round($newSubtotal * $taxRate, 2);
+                    $newTotal    = round($newSubtotal + $newTax, 2);
+                    $db->prepare("
+                        UPDATE invoices SET subtotal = ?, tax_amount = ?, total_amount = ?, total = ?, balance_due = ?
+                        WHERE id = ?
+                    ")->execute([$newSubtotal, $newTax, $newTotal, $newTotal, $newTotal, $invoiceId]);
+                }
+
                 $recipientContacts = $db->prepare("
                     SELECT id, first_name, last_name, email, mobile, receive_sms
                     FROM contacts WHERE id = ?
@@ -357,6 +389,8 @@ if ($apiKey) {
                 <input type="hidden" name="company_id"          id="companyIdInput"     value="<?php echo (int)($prefill['company_id'] ?? 0); ?>">
                 <input type="hidden" name="contact_id"          id="contactIdInput"     value="<?php echo (int)($prefill['contact_id'] ?? 0); ?>">
                 <input type="hidden" name="selected_recipients" id="selectedRecipientsInput" value="[]">
+                <input type="hidden" name="extras_minutes" value="<?php echo (int)($prefill['extras_minutes'] ?? 0); ?>">
+                <input type="hidden" name="extras_amount"  value="<?php echo htmlspecialchars((string)($prefill['extras_amount'] ?? '0')); ?>">
 
                 <div class="card">
                     <div class="card-body">
@@ -586,6 +620,22 @@ if ($apiKey) {
                             </div>
                         </div>
                         <?php endif; ?>
+
+                        <?php
+                        // Extras add-on preview
+                        $prevExtrasAmt  = floatval($prefill['extras_amount'] ?? 0);
+                        $prevExtrasMins = intval($prefill['extras_minutes'] ?? 0);
+                        $prevExtrasNote = $prefill['extras_note'] ?? '';
+                        if ($prevExtrasAmt > 0 && $prevExtrasMins > 0):
+                        ?>
+                        <div class="alert alert-info d-flex align-items-start gap-2 py-2 mt-3 mb-0" style="font-size:.85rem;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            <div>
+                                <strong>+ $<?php echo number_format($prevExtrasAmt, 2); ?> add-on services (<?php echo $prevExtrasMins; ?> min)</strong> will be added as a separate line item.
+                                <?php if ($prevExtrasNote): ?><br><span class="text-muted">Crew note: &ldquo;<?php echo htmlspecialchars($prevExtrasNote); ?>&rdquo; — pre-filled in Notes below.</span><?php endif; ?>
+                            </div>
+                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -594,8 +644,14 @@ if ($apiKey) {
                         <h3 class="card-title">Notes</h3>
                         <div class="mw-form-group">
                             <label class="form-label">Invoice Notes (shown to customer)</label>
+                            <?php
+                            $defaultNote = 'Thank you for your business!';
+                            $notesValue  = !empty($prevExtrasNote)
+                                ? $prevExtrasNote . "\n\n" . $defaultNote
+                                : $defaultNote;
+                            ?>
                             <textarea name="notes" class="form-control" rows="3"
-                                      placeholder="Payment terms, thank you message, etc.">Thank you for your business!</textarea>
+                                      placeholder="Payment terms, thank you message, etc."><?php echo htmlspecialchars($notesValue); ?></textarea>
                         </div>
                     </div>
                 </div>

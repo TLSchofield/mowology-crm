@@ -75,6 +75,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <a class="nav-link" id="reviews-tab" data-toggle="tab" href="#reviews" role="tab">Reviews</a>
     </li>
     <li class="nav-item">
+        <a class="nav-link" id="extras-tab" data-toggle="tab" href="#extras" role="tab">Extras Billing</a>
+    </li>
+    <li class="nav-item">
         <a class="nav-link" id="summary-card-tab" data-toggle="tab" href="#summary-card" role="tab">Summary Card</a>
     </li>
     <li class="nav-item">
@@ -922,6 +925,52 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
         </div>
 
+        <!-- Extras Billing Tab -->
+        <div class="tab-pane fade" id="extras" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">Billable Extras Rate</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        When crew tap <strong>Add-On Services</strong> at the end of a visit, the timer and
+                        quick-add buttons track extra time. Time is billed in 5-minute blocks at the rate
+                        below. The amount is automatically added as a separate line item on the invoice.
+                    </p>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="extras_rate_per_5min" class="form-label">Rate per 5-minute block (CAD) <span class="text-danger">*</span></label>
+                            <div class="input-group" style="max-width:200px;">
+                                <div class="input-group-prepend"><span class="input-group-text">$</span></div>
+                                <input type="number" class="form-control" id="extras_rate_per_5min"
+                                       step="0.25" min="0" max="500" placeholder="5.00">
+                            </div>
+                            <small class="form-text text-muted">
+                                e.g. $5.00/block = $60/hr &nbsp;·&nbsp; $7.50/block = $90/hr
+                            </small>
+                        </div>
+                    </div>
+                    <div id="extrasBillingSaveResult" class="alert" style="display:none;"></div>
+                    <button type="button" class="btn btn-primary" id="saveExtrasRateBtn">
+                        <i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
+                        Save Rate
+                    </button>
+                    <a href="/crm/api/run-migration-extras.php" target="_blank" class="btn btn-outline-secondary ml-2">
+                        <i data-feather="database" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
+                        Run DB Migration
+                    </a>
+                    <div class="card bg-light border-0 mt-4">
+                        <div class="card-body py-2 px-3">
+                            <small class="text-muted">
+                                <strong>How it works:</strong>
+                                Crew tap the <em>Extras</em> timer or use quick-add buttons (+5/+10/+15/+30 min).
+                                Time is rounded <strong>up</strong> to the nearest 5-min block on every invoice.
+                                An optional crew note is pre-filled into the invoice notes for the client.
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Summary Card Tab -->
         <div class="tab-pane fade" id="summary-card" role="tabpanel">
             <div class="card mb-3">
@@ -1141,6 +1190,84 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Load when tab is shown (in case it wasn't loaded yet)
         var tab = document.getElementById('reviews-tab');
         if (tab) tab.addEventListener('shown.bs.tab', loadReviewSettings);
+    });
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXTRAS BILLING RATE — load + save extras_rate_per_5min from ops_settings
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    var csrf = function () { return document.querySelector('meta[name="csrf-token"]')?.content || ''; };
+
+    function loadExtrasRate() {
+        fetch('/crm/api/ops-settings.php?action=get&key=extras_rate_per_5min')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.success && data.value !== null) {
+                    var el = document.getElementById('extras_rate_per_5min');
+                    if (el) el.value = parseFloat(data.value).toFixed(2);
+                }
+            })
+            .catch(function () {});
+    }
+
+    function saveExtrasRate() {
+        var el  = document.getElementById('extras_rate_per_5min');
+        var btn = document.getElementById('saveExtrasRateBtn');
+        var res = document.getElementById('extrasBillingSaveResult');
+        if (!el) return;
+
+        var rate = parseFloat(el.value);
+        if (isNaN(rate) || rate < 0) {
+            res.style.display = '';
+            res.className = 'alert alert-danger';
+            res.textContent = 'Please enter a valid rate (0 or higher).';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+        res.style.display = 'none';
+
+        fetch('/crm/api/ops-settings.php?action=save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                csrf_token:  csrf(),
+                key:         'extras_rate_per_5min',
+                value:       rate.toFixed(2),
+                description: 'Billable extras rate per 5-minute block (CAD)'
+            })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            res.style.display = '';
+            if (data.success) {
+                res.className = 'alert alert-success';
+                res.textContent = 'Rate saved — $' + rate.toFixed(2) + '/block ($' + (rate * 12).toFixed(2) + '/hr).';
+            } else {
+                res.className = 'alert alert-danger';
+                res.textContent = data.error || 'Save failed.';
+            }
+        })
+        .catch(function (e) {
+            res.style.display = '';
+            res.className = 'alert alert-danger';
+            res.textContent = 'Network error: ' + e.message;
+        })
+        .finally(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i> Save Rate';
+            if (typeof feather !== 'undefined') feather.replace();
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        loadExtrasRate();
+        var btn = document.getElementById('saveExtrasRateBtn');
+        if (btn) btn.addEventListener('click', saveExtrasRate);
+        var tab = document.getElementById('extras-tab');
+        if (tab) tab.addEventListener('shown.bs.tab', loadExtrasRate);
     });
 })();
 
