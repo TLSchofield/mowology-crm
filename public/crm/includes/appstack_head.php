@@ -94,6 +94,11 @@ $bodyClass  = $bodyClass  ?? '';
   <!-- Global Spotlight Search -->
   <script src="/crm/js/global-search.js?v=1" defer></script>
 
+  <!-- Offline Action Queue: intercepts time-clock / pow-actions / job-timer
+       fetch() calls when offline and queues them in IndexedDB for replay.
+       Loads on every CRM page so queued actions sync on any page load. -->
+  <script src="/crm/js/offline-queue.js?v=20260303a" defer></script>
+
   <?php echo $extraHead; ?>
 
   <!-- Service Worker: caches CSS/JS so static assets load instantly after first visit -->

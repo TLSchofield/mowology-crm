@@ -1044,7 +1044,8 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303k" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303l" rel="stylesheet">';
+$extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
     if ($_sd['date'] !== $mobileDate) {
@@ -2077,6 +2078,23 @@ if ($apiKey) {
                       </a>
                   </div>
 
+                  <!-- Offline sync strip: hidden by default, shown by offline-queue.js -->
+                  <div class="mw-mc-offline-strip" id="mwOfflineStrip" style="display:none">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                           stroke="currentColor" stroke-width="2.2"
+                           stroke-linecap="round" stroke-linejoin="round"
+                           style="flex-shrink:0">
+                          <line x1="1" y1="1" x2="23" y2="23"/>
+                          <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+                          <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+                          <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
+                          <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+                          <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+                          <circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/>
+                      </svg>
+                      <span id="mwOfflineStripText">Offline</span>
+                  </div>
+
               </div>
 
               <!-- ── Scrollable Card Area ── -->
@@ -2247,6 +2265,8 @@ if ($apiKey) {
                           id="mwClockNavBtn"
                           title="<?php echo $isClockedIn ? 'Clocked in — tap to see timesheet' : 'Not clocked in — tap to clock in'; ?>">
                       <div class="mw-clock-icon-wrap">
+                          <!-- Badge: amber count of pending queued actions -->
+                          <span class="mw-clock-queue-badge" id="mwClockQueueBadge"></span>
                           <svg class="mw-pong-icon" viewBox="0 0 24 24" width="22" height="22" fill="none">
                               <!-- Net -->
                               <line x1="12" y1="3" x2="12" y2="21"

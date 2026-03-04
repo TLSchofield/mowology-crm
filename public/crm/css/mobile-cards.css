@@ -2937,6 +2937,75 @@
     }
 
     /* ════════════════════════════════════════════════════
+       OFFLINE SYNC STRIP
+       Thin bar below the day strip — shows queue state.
+       Controlled entirely by offline-queue.js:
+         .mw-offline-state-offline  → amber  (offline, may have queued actions)
+         .mw-offline-state-syncing  → blue   (online, replaying queue)
+         .mw-offline-state-clear    → green  (just synced — hides after 2.5s)
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-offline-strip {
+        display: none; /* JS controls visibility */
+        align-items: center;
+        gap: 7px;
+        padding: 5px 14px 6px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        font-family: 'Montserrat', sans-serif;
+        letter-spacing: 0.1px;
+        transition: background 0.3s, color 0.3s;
+    }
+
+    .mw-mc-offline-strip.mw-offline-state-offline {
+        background: rgba(245, 158, 11, 0.12);
+        color: #b45309;
+        border-top: 1px solid rgba(245, 158, 11, 0.25);
+    }
+
+    .mw-mc-offline-strip.mw-offline-state-syncing {
+        background: rgba(59, 130, 246, 0.10);
+        color: #1d4ed8;
+        border-top: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .mw-mc-offline-strip.mw-offline-state-clear {
+        background: rgba(34, 197, 94, 0.10);
+        color: #15803d;
+        border-top: 1px solid rgba(34, 197, 94, 0.2);
+    }
+
+    /* ════════════════════════════════════════════════════
+       PONG CLOCK QUEUE BADGE
+       Amber badge on the Pong icon showing queued count.
+       Managed by offline-queue.js via .mw-queue-has-items.
+       ════════════════════════════════════════════════════ */
+
+    .mw-clock-queue-badge {
+        display: none; /* hidden until .mw-queue-has-items is set */
+        position: absolute;
+        top: -5px;
+        right: -6px;
+        min-width: 15px;
+        height: 15px;
+        border-radius: 8px;
+        background: #f59e0b;
+        color: #7c2d00;
+        font-size: 0.58rem;
+        font-weight: 800;
+        font-family: 'Montserrat', sans-serif;
+        line-height: 15px;
+        text-align: center;
+        padding: 0 3px;
+        pointer-events: none;
+        z-index: 3;
+    }
+
+    .mw-clock-queue-badge.mw-queue-has-items {
+        display: block;
+    }
+
+    /* ════════════════════════════════════════════════════
        PWA STANDALONE TWEAKS
        ════════════════════════════════════════════════════ */
 

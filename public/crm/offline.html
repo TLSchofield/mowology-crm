@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0D3B2E">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Offline — Mowology</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --mw-green:  #2D8659;
+      --mw-forest: #0D3B2E;
+      --mw-lime:   #7FD858;
+      --mw-amber:  #f59e0b;
+    }
+
+    body {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--mw-forest);
+      color: #fff;
+      padding: max(env(safe-area-inset-top, 24px), 24px)
+               max(env(safe-area-inset-right, 20px), 20px)
+               max(env(safe-area-inset-bottom, 24px), 24px)
+               max(env(safe-area-inset-left, 20px), 20px);
+      text-align: center;
+    }
+
+    .mw-offline-card {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 24px;
+      padding: 40px 32px 36px;
+      max-width: 360px;
+      width: 100%;
+    }
+
+    /* Logo mark */
+    .mw-logo {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--mw-green) 0%, #1A5F4A 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      font-weight: 800;
+      font-size: 1.5rem;
+      font-family: 'Montserrat', 'Segoe UI', sans-serif;
+      letter-spacing: -1px;
+    }
+
+    /* Offline icon */
+    .mw-offline-icon {
+      margin: 0 auto 28px;
+      color: var(--mw-amber);
+      opacity: 0.9;
+      animation: mw-pulse 3s ease-in-out infinite;
+    }
+
+    @keyframes mw-pulse {
+      0%, 100% { opacity: 0.9; transform: scale(1); }
+      50%       { opacity: 0.55; transform: scale(0.96); }
+    }
+
+    h1 {
+      font-size: 1.45rem;
+      font-weight: 800;
+      font-family: 'Montserrat', 'Segoe UI', sans-serif;
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+      color: #fff;
+    }
+
+    .mw-offline-sub {
+      font-size: 0.88rem;
+      color: rgba(255,255,255,0.65);
+      line-height: 1.5;
+      margin-bottom: 28px;
+    }
+
+    /* Pending count pill */
+    .mw-pending-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(245,158,11,0.15);
+      border: 1px solid rgba(245,158,11,0.35);
+      border-radius: 40px;
+      padding: 8px 18px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--mw-amber);
+      margin-bottom: 28px;
+    }
+
+    .mw-pending-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--mw-amber);
+      flex-shrink: 0;
+      animation: mw-pulse 2s ease-in-out infinite;
+    }
+
+    /* Action buttons */
+    .mw-btn-row {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .mw-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px 20px;
+      border-radius: 14px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      font-family: 'Montserrat', 'Segoe UI', sans-serif;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .mw-btn:active { opacity: 0.75; transform: scale(0.97); }
+
+    .mw-btn-primary {
+      background: var(--mw-green);
+      color: #fff;
+    }
+
+    .mw-btn-ghost {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.8);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+
+    /* What works offline */
+    .mw-offline-works {
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .mw-offline-works-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: rgba(255,255,255,0.4);
+      margin-bottom: 12px;
+    }
+
+    .mw-offline-works-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      list-style: none;
+    }
+
+    .mw-offline-works-list li {
+      font-size: 0.8rem;
+      color: rgba(255,255,255,0.55);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-align: left;
+    }
+
+    .mw-offline-works-list li::before {
+      content: '';
+      flex-shrink: 0;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--mw-lime);
+    }
+
+    /* Footer */
+    .mw-offline-footer {
+      margin-top: 20px;
+      font-size: 0.72rem;
+      color: rgba(255,255,255,0.3);
+    }
+
+    .mw-offline-footer a {
+      color: rgba(255,255,255,0.5);
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="mw-offline-card">
+
+    <!-- Logo mark -->
+    <div class="mw-logo">M</div>
+
+    <!-- Offline icon: Wi-Fi with slash -->
+    <div class="mw-offline-icon">
+      <svg width="52" height="52" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round">
+        <line x1="1" y1="1" x2="23" y2="23"/>
+        <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+        <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
+        <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+        <circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/>
+      </svg>
+    </div>
+
+    <h1>You're offline</h1>
+
+    <p class="mw-offline-sub">
+      No connection detected. Your actions are saved and will sync automatically when you reconnect.
+    </p>
+
+    <!-- Pending actions count — updated by JS from IDB -->
+    <div class="mw-pending-pill" id="mwPendingPill" style="display:none">
+      <span class="mw-pending-dot"></span>
+      <span id="mwPendingText">0 actions queued</span>
+    </div>
+
+    <div class="mw-btn-row">
+      <button class="mw-btn mw-btn-primary" onclick="window.location.reload()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Try Again
+      </button>
+      <a class="mw-btn mw-btn-ghost" href="/crm/jobs/schedule.php">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Go to Schedule
+      </a>
+    </div>
+
+    <div class="mw-offline-works">
+      <p class="mw-offline-works-title">What's saved while offline</p>
+      <ul class="mw-offline-works-list">
+        <li>Clock in / clock out</li>
+        <li>Job timer start &amp; stop</li>
+        <li>Visit completion</li>
+        <li>Receipt photos</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <p class="mw-offline-footer">
+    Need help? Call <a href="tel:+17788469273">(778) 846-9273</a>
+  </p>
+
+  <script>
+    // Read pending action count from IndexedDB and display the pill
+    (function () {
+      var DB_NAME    = 'mowology-actions';
+      var STORE_NAME = 'pending-actions';
+
+      function showCount(n) {
+        var pill = document.getElementById('mwPendingPill');
+        var text = document.getElementById('mwPendingText');
+        if (!pill || !text) return;
+        if (n > 0) {
+          text.textContent = n + ' action' + (n !== 1 ? 's' : '') + ' queued';
+          pill.style.display = 'inline-flex';
+        }
+      }
+
+      // Try IndexedDB first
+      try {
+        var req = indexedDB.open(DB_NAME, 1);
+        req.onsuccess = function (e) {
+          var db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) { showCount(0); return; }
+          var tx  = db.transaction(STORE_NAME, 'readonly');
+          var cnt = tx.objectStore(STORE_NAME).count();
+          cnt.onsuccess = function () { showCount(cnt.result || 0); };
+          cnt.onerror   = function () { showCount(0); };
+        };
+        req.onerror = function () {
+          // Fallback: read from localStorage written by offline-queue.js
+          var n = parseInt(localStorage.getItem('mw-action-queue-count') || '0', 10);
+          showCount(n);
+        };
+      } catch (e) {
+        var n = parseInt(localStorage.getItem('mw-action-queue-count') || '0', 10);
+        showCount(n);
+      }
+
+      // Auto-redirect to schedule when connectivity returns
+      window.addEventListener('online', function () {
+        setTimeout(function () {
+          window.location.href = '/crm/jobs/schedule.php';
+        }, 800);
+      });
+    }());
+  </script>
+
+</body>
+</html>
