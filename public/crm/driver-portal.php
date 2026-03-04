@@ -525,7 +525,7 @@ function dpClockIn() {
                 ].filter(Boolean);
 
                 targets.forEach(function(el) { el.classList.add('mw-flatline-out'); });
-                setTimeout(function(){ location.reload(); }, 3200);
+                setTimeout(function(){ window.location.href = '/crm/jobs/schedule.php'; }, 3200);
             } else {
                 dpToast(data.error || 'Clock in failed', true);
                 btn.disabled = false;
