@@ -150,9 +150,10 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_properties' && $_SERVER['
 $error = '';
 $prefill = [];
 
-// Pre-fill from URL params (contact_id + property_id from client page)
-$urlContactId = isset($_GET['contact_id']) ? intval($_GET['contact_id']) : 0;
+// Pre-fill from URL params (contact_id + property_id from client page, contract_id from contract)
+$urlContactId  = isset($_GET['contact_id'])  ? intval($_GET['contact_id'])  : 0;
 $urlPropertyId = isset($_GET['property_id']) ? intval($_GET['property_id']) : 0;
+$urlContractId = isset($_GET['contract_id']) ? intval($_GET['contract_id']) : 0;
 
 if ($urlContactId && $urlPropertyId) {
     $cpStmt = $db->prepare("
@@ -245,6 +246,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $defaultCrewId       = !empty($_POST['default_crew_id']) ? intval($_POST['default_crew_id']) : null;
         $horizonDays         = intval($_POST['horizon_days'] ?? 28);
         $linkedQuoteId       = intval($_POST['quote_id'] ?? 0);
+        $linkedContractId    = intval($_POST['contract_id'] ?? 0);
 
         // Multi-crew assignment
         $crewIds = [];
@@ -305,6 +307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'description'              => $description,
             'service_type'             => $serviceType,
             'quote_id'                 => $linkedQuoteId ?: null,
+            'contract_id'              => $linkedContractId ?: null,
             'is_recurring'             => $isRecurring,
             'recurrence_pattern'       => $recurrencePattern,
             'recurrence_interval'      => $recurrenceInterval,
@@ -335,7 +338,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = createJobPlan($planData, (int)$user['id']);
 
             if ($result['success']) {
-                header("Location: view.php?id={$result['plan_id']}&created=1");
+                if ($linkedContractId) {
+                    header("Location: ../contracts/view.php?id={$linkedContractId}&plan_added=1");
+                } else {
+                    header("Location: view.php?id={$result['plan_id']}&created=1");
+                }
                 exit;
             } else {
                 $error = implode(' ', $result['errors']);
@@ -365,11 +372,24 @@ $activePage = 'jobs';
                   <strong>Creating from Quote <?php echo htmlspecialchars($quote['quote_number']); ?></strong><br>
                   <?php echo htmlspecialchars($quote['company_name']); ?> &mdash; <?php echo htmlspecialchars($quote['address']); ?>
               </div>
+          <?php elseif ($urlContractId): ?>
+              <?php
+              $ctrStmt = $db->prepare("SELECT contract_number FROM contracts WHERE id = ?");
+              $ctrStmt->execute([$urlContractId]);
+              $ctrRow = $ctrStmt->fetch(PDO::FETCH_ASSOC);
+              ?>
+              <?php if ($ctrRow): ?>
+              <div class="mw-info-banner">
+                  <strong>Adding plan to contract <?php echo htmlspecialchars($ctrRow['contract_number']); ?></strong><br>
+                  <small class="text-muted">After saving, you'll return to the contract.</small>
+              </div>
+              <?php endif; ?>
           <?php endif; ?>
 
           <form method="POST" id="createPlanForm">
-              <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-              <input type="hidden" name="quote_id" value="<?php echo $prefill['quote_id'] ?? ''; ?>">
+              <input type="hidden" name="csrf_token"   value="<?php echo $csrfToken; ?>">
+              <input type="hidden" name="quote_id"    value="<?php echo $prefill['quote_id'] ?? ''; ?>">
+              <input type="hidden" name="contract_id" value="<?php echo $urlContractId ?: ''; ?>">
               <input type="hidden" name="property_id" id="propertyIdInput" value="<?php echo $prefill['property_id'] ?? ''; ?>">
 
               <!-- Client / Property Selection Card -->

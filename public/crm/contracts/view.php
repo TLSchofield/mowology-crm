@@ -58,7 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 }
 
 // Flash message from redirect
-if (isset($_GET['created'])) { $message = 'Contract created successfully!'; $messageType = 'success'; }
+if (isset($_GET['created']))   { $message = 'Contract created successfully!'; $messageType = 'success'; }
+if (isset($_GET['plan_added'])) { $message = 'Plan added to contract.'; $messageType = 'success'; }
 if (isset($_GET['from']) && $_GET['from'] === 'quote') { $message = 'Contract already exists for this quote.'; $messageType = 'info'; }
 
 $plans = getContractPlans($contractId);
@@ -99,12 +100,14 @@ $activePage = 'contracts';
                   </div>
               </div>
               <div class="mw-header-actions">
-                  <?php if ($contract['quote_id']): ?>
-                      <a href="../jobs/create-from-quote.php?quote_id=<?php echo (int)$contract['quote_id']; ?>&contract_id=<?php echo $contractId; ?>"
-                         class="btn btn-primary">
-                          <i data-feather="plus" style="width:14px;height:14px;"></i> Add Plan
-                      </a>
-                  <?php endif; ?>
+                  <?php
+                  $addPlanUrl = $contract['quote_id']
+                      ? '../jobs/create-from-quote.php?quote_id=' . (int)$contract['quote_id'] . '&contract_id=' . $contractId
+                      : '../jobs/create.php?contract_id=' . $contractId . '&property_id=' . (int)$contract['property_id'] . '&contact_id=' . (int)$contract['contact_id'];
+                  ?>
+                  <a href="<?php echo $addPlanUrl; ?>" class="btn btn-primary">
+                      <i data-feather="plus" style="width:14px;height:14px;"></i> Add Plan
+                  </a>
                   <?php if ($contract['status'] === 'active'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
@@ -189,24 +192,18 @@ $activePage = 'contracts';
                       <i data-feather="briefcase" style="width:16px;height:16px;vertical-align:-2px;"></i>
                       Service Plans
                   </h5>
-                  <?php if ($contract['quote_id']): ?>
-                      <a href="../jobs/create-from-quote.php?quote_id=<?php echo (int)$contract['quote_id']; ?>&contract_id=<?php echo $contractId; ?>"
-                         class="btn btn-sm btn-outline-primary">
-                          <i data-feather="plus" style="width:12px;height:12px;"></i> Add Plan
-                      </a>
-                  <?php endif; ?>
+                  <a href="<?php echo $addPlanUrl; ?>" class="btn btn-sm btn-outline-primary">
+                      <i data-feather="plus" style="width:12px;height:12px;"></i> Add Plan
+                  </a>
               </div>
               <div class="card-body p-0">
                   <?php if (empty($plans)): ?>
                       <div class="text-center p-4 text-muted">
                           <i data-feather="inbox" style="width:32px;height:32px;opacity:.3;"></i>
                           <p class="mt-2 mb-0">No plans yet.</p>
-                          <?php if ($contract['quote_id']): ?>
-                              <a href="../jobs/create-from-quote.php?quote_id=<?php echo (int)$contract['quote_id']; ?>&contract_id=<?php echo $contractId; ?>"
-                                 class="btn btn-primary mt-3">
+                                  <a href="<?php echo $addPlanUrl; ?>" class="btn btn-primary mt-3">
                                   <i data-feather="plus" style="width:14px;height:14px;"></i> Create First Plan
                               </a>
-                          <?php endif; ?>
                       </div>
                   <?php else: ?>
                       <div class="table-responsive">
