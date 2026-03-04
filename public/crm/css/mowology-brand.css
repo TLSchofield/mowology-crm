@@ -6878,6 +6878,90 @@ textarea.font-monospace {
   margin-top: 3px;
 }
 
+/* ── Best-day badge + auto-place button ── */
+.mw-tray-card-best-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.mw-tray-best-chip {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 20px;
+  letter-spacing: 0.2px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.mw-tray-best-best      { background: #dcfce7; color: #166534; }
+.mw-tray-best-good      { background: #d1fae5; color: #065f46; }
+.mw-tray-best-ok        { background: #fef9c3; color: #854d0e; }
+.mw-tray-best-poor      { background: #f3f4f6; color: #6b7280; }
+.mw-tray-best-full      { background: #fee2e2; color: #991b1b; }
+.mw-tray-best-off-cycle { background: #fef3c7; color: #92400e; }
+
+.mw-tray-auto-place-btn {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--mw-green, #2D8659);
+  background: transparent;
+  color: var(--mw-green, #2D8659);
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.mw-tray-auto-place-btn:hover,
+.mw-tray-auto-place-btn:active {
+  background: var(--mw-green, #2D8659);
+  color: #fff;
+}
+
+/* ── Optimise route button (day column level) ──────────────────────────────── */
+.mw-optimize-row {
+  padding: 4px 6px 3px;
+  text-align: right;
+}
+.mw-optimize-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--mw-green, #2D8659);
+  background: transparent;
+  color: var(--mw-green, #2D8659);
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+  line-height: 1.5;
+}
+.mw-optimize-btn svg {
+  flex-shrink: 0;
+}
+.mw-optimize-btn:hover,
+.mw-optimize-btn:active {
+  background: var(--mw-green, #2D8659);
+  color: #fff;
+}
+.mw-optimize-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* Day column drop-zone highlights when a tray card is being dragged */
 .mw-day-column.mw-tray-drop-target {
   background: rgba(45,134,89,0.04);
@@ -7913,6 +7997,13 @@ textarea.font-monospace {
   padding: 1px 4px;
   border-radius: 3px;
   flex-shrink: 0;
+}
+.mw-crew-overlap-badge {
+  font-size: 10px;
+  color: #D97706;
+  flex-shrink: 0;
+  cursor: default;
+  line-height: 1;
 }
 .mw-dsc-stops {
   font-size: 8px;

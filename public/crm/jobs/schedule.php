@@ -283,6 +283,21 @@ foreach ($unscheduledVisits as $uv) {
     $placementScores[$visitId] = $scores;
 }
 
+// Pre-compute best day per visit so the tray card badge is always visible
+// (avoids needing JS hover to discover which day scores highest)
+$visitBestDays = [];
+foreach ($placementScores as $_vid => $_dayScores) {
+    $bDay = null; $bScore = -1; $bLabel = 'Poor';
+    foreach ($_dayScores as $_ds => $_sd) {
+        if ($_sd['score'] > $bScore) {
+            $bScore = $_sd['score'];
+            $bDay   = $_ds;
+            $bLabel = $_sd['label'];
+        }
+    }
+    $visitBestDays[$_vid] = ['date' => $bDay, 'score' => $bScore, 'label' => $bLabel];
+}
+
 // ─── Mission Control: Weekly aggregate calculations ──────────────────
 // Computed once here, used both in the Mission Control header and per-day
 // Battle Cards. All numbers are estimates derived from plan prices and
@@ -609,6 +624,25 @@ for ($di = 0; $di < 7; $di++) {
 
     $currentDate2b->modify('+1 day');
 }
+
+// ─── Crew double-stop detection ─────────────────────────────────────
+// For each day, check if any crew member appears in >1 stop — indicates
+// potential scheduling overlap. Shown as an amber ⚠ badge on the day column.
+$dayCrewOverlaps = []; // dateStr => bool
+foreach ($calendarData as $_ds => $_dayStops) {
+    $crewCounts = [];
+    foreach ($_dayStops as $_stop) {
+        $ids = !empty($_stop['crew_ids']) ? $_stop['crew_ids'] : ($_stop['crew_id'] ? [(int)$_stop['crew_id']] : []);
+        foreach ($ids as $_cid) {
+            if ($_cid > 0) $crewCounts[$_cid] = ($crewCounts[$_cid] ?? 0) + 1;
+        }
+    }
+    $dayCrewOverlaps[$_ds] = false;
+    foreach ($crewCounts as $_cnt) {
+        if ($_cnt > 1) { $dayCrewOverlaps[$_ds] = true; break; }
+    }
+}
+unset($_ds, $_dayStops, $_stop, $ids, $_cid, $crewCounts, $_cnt);
 
 // ─── Holiday lookup for calendar display ────────────────────────────
 $weekHolidays = [];
@@ -1368,6 +1402,11 @@ if ($apiKey) {
                               $uvRecLabel  = $uvIsBiweek ? '14-day' : ($uvPattern === 'weekly' ? 'Weekly' : ucfirst($uvPattern));
                               $uvScores    = $placementScores[$uvId] ?? [];
                               $uvScoreJson = htmlspecialchars(json_encode($uvScores), ENT_QUOTES);
+                              $uvBest      = $visitBestDays[$uvId] ?? ['date' => null, 'score' => 0, 'label' => 'Poor'];
+                              $uvBestDate  = $uvBest['date'];
+                              $uvBestScore = (int)$uvBest['score'];
+                              $uvBestLabel = $uvBest['label'];
+                              $uvBestClass = 'mw-tray-best-' . strtolower(str_replace(' ', '-', $uvBestLabel));
                           ?>
                           <div class="mw-tray-card"
                                draggable="true"
@@ -1381,7 +1420,9 @@ if ($apiKey) {
                                data-recurrence-interval="<?php echo $uvInterval; ?>"
                                data-is-biweekly="<?php echo $uvIsBiweek ? '1' : '0'; ?>"
                                data-pref-dow="<?php echo $uvPrefDow !== null ? $uvPrefDow : ''; ?>"
-                               data-placement-scores="<?php echo $uvScoreJson; ?>">
+                               data-placement-scores="<?php echo $uvScoreJson; ?>"
+                               data-best-day="<?php echo htmlspecialchars($uvBestDate ?? ''); ?>"
+                               data-best-score="<?php echo $uvBestScore; ?>">
                               <div class="mw-tray-card-service" style="border-left:3px solid <?php echo getServiceColorLocal($uv['service_type'] ?? ''); ?>">
                                   <span class="mw-tray-card-type"><?php echo htmlspecialchars(getServiceLabelLocal($uv['service_type'] ?? '')); ?></span>
                                   <?php if ($uvIsBiweek): ?>
@@ -1397,6 +1438,16 @@ if ($apiKey) {
                               </div>
                               <?php if (!empty($uv['scheduled_date'])): ?>
                               <div class="mw-tray-card-date">Due <?php echo date('M j', strtotime($uv['scheduled_date'])); ?></div>
+                              <?php endif; ?>
+                              <?php if ($uvBestDate): ?>
+                              <div class="mw-tray-card-best-row">
+                                  <span class="mw-tray-best-chip <?php echo $uvBestClass; ?>"><?php echo htmlspecialchars($uvBestLabel); ?>&thinsp;·&thinsp;<?php echo date('D', strtotime($uvBestDate)); ?></span>
+                                  <button type="button"
+                                          class="mw-tray-auto-place-btn"
+                                          data-visit-id="<?php echo $uvId; ?>"
+                                          data-best-day="<?php echo htmlspecialchars($uvBestDate); ?>"
+                                          title="Place on <?php echo date('D M j', strtotime($uvBestDate)); ?> (score <?php echo $uvBestScore; ?>)">Place&thinsp;&rarr;</button>
+                              </div>
                               <?php endif; ?>
                           </div>
                           <?php endforeach; ?>
@@ -1496,6 +1547,9 @@ if ($apiKey) {
                                   <span class="mw-dsc-revenue">$<?php echo number_format($bcRev, 0); ?></span>
                                   <?php if ($isToday): ?>
                                   <span class="mw-dsc-today-badge">Today</span>
+                                  <?php endif; ?>
+                                  <?php if (!empty($dayCrewOverlaps[$dateStr])): ?>
+                                  <span class="mw-crew-overlap-badge" title="A crew member has multiple stops on this day">&#9888;</span>
                                   <?php endif; ?>
                                   <?php if ($dscLoss): ?>
                                   <span class="mw-dsc-outlier-flag" title="Loss day">&#9888;</span>
@@ -1599,6 +1653,18 @@ if ($apiKey) {
                                   <span class="mw-pi-label"></span>
                                   <span class="mw-pi-cycle-note"></span>
                               </div>
+                          </div>
+                          <?php endif; ?>
+
+                          <?php if ($bcStops >= 2): ?>
+                          <div class="mw-optimize-row">
+                              <button type="button"
+                                      class="mw-optimize-btn"
+                                      data-date="<?php echo $dateStr; ?>"
+                                      title="Reorder stops by nearest-neighbour for the shortest route">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                                  Optimise route
+                              </button>
                           </div>
                           <?php endif; ?>
 
@@ -3444,9 +3510,78 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
         });
     }
 
+    // ── Auto-place button: one tap to schedule on best-scoring day ────────────
+    document.querySelectorAll('.mw-tray-auto-place-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation(); // prevent triggering tray card drag
+            var visitId = parseInt(btn.dataset.visitId, 10);
+            var bestDay = btn.dataset.bestDay;
+            if (!visitId || !bestDay) return;
+            var dayCol     = document.querySelector('.mw-day-column[data-date="' + bestDay + '"]');
+            var routeOrder = dayCol ? dayCol.querySelectorAll('.mw-stop-card').length : 0;
+            scheduleTrayVisit(visitId, bestDay, routeOrder);
+        });
+    });
+
 })();
 </script>
 <?php endif; ?>
+
+<script>
+// ── Route optimise button ──────────────────────────────────────────────────────
+(function () {
+    'use strict';
+
+    var CSRF        = <?php echo json_encode($csrfToken); ?>;
+    var feedbackEl  = document.getElementById('dragFeedback');
+    var feedbackMsg = document.getElementById('dragMessage');
+    var reloadTimer = null;
+
+    function showMsg(text, type) {
+        if (!feedbackEl || !feedbackMsg) return;
+        feedbackMsg.textContent = text;
+        feedbackEl.className = 'mw-drag-feedback' + (type === 'error' ? ' error' : type === 'success' ? ' success' : '');
+        feedbackEl.style.display = 'flex';
+        clearTimeout(reloadTimer);
+    }
+
+    document.querySelectorAll('.mw-optimize-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var date = btn.dataset.date;
+            if (!date) return;
+
+            btn.disabled = true;
+            btn.textContent = 'Optimising…';
+            showMsg('Optimising route…', 'loading');
+
+            fetch('/crm/api/optimize-route.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ date: date, csrf_token: CSRF })
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.success) {
+                    var msg = (data.savings_km >= 0.1)
+                        ? 'Route optimised · saved ' + data.savings_km + ' km'
+                        : 'Route optimised';
+                    showMsg(msg, 'success');
+                    reloadTimer = setTimeout(function () { window.location.reload(); }, 1000);
+                } else {
+                    showMsg(data.error || 'Optimise failed', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg> Optimise route';
+                }
+            })
+            .catch(function () {
+                showMsg('Network error — try again', 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4"/></svg> Optimise route';
+            });
+        });
+    });
+}());
+</script>
 
 <script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(__DIR__ . '/../js/profit-risk-octagon.js'); ?>"></script>
 

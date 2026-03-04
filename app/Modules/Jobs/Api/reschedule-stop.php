@@ -39,6 +39,7 @@ try {
     $newDate = $input['new_date'];
     $newRouteOrder = isset($input['new_route_order']) ? (int)$input['new_route_order'] : null;
     $newTime = $input['new_time'] ?? null;
+    $force = !empty($input['force']);
 
     // Validate date format
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $newDate)) {
@@ -61,6 +62,51 @@ try {
     }
 
     $oldDate = $stop['stop_date'];
+
+    // ── Capacity warning (before transaction) ────────────────────────────────
+    // If moving to a different date AND the crew is set, check if the day
+    // would exceed 540 min (9-hour day) after adding this stop's visits.
+    // Return a soft warning so the client can ask for confirmation (force=1).
+    if (!$force && $newDate !== $oldDate && !empty($stop['crew_id'])) {
+        $crewId = (int)$stop['crew_id'];
+
+        // Minutes already scheduled for this crew on the target date (excluding this stop)
+        $capStmt = $db->prepare("
+            SELECT COALESCE(SUM(jp.estimated_duration_minutes), 0) AS existing_min
+            FROM calendar_stops cs
+            JOIN job_visits jv ON jv.stop_id = cs.id
+                AND jv.status NOT IN ('cancelled', 'skipped', 'completed')
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE cs.stop_date = ?
+              AND cs.crew_id = ?
+              AND cs.id != ?
+        ");
+        $capStmt->execute([$newDate, $crewId, $stopId]);
+        $existingMin = (int)$capStmt->fetchColumn();
+
+        // Minutes this stop will contribute
+        $stopStmt = $db->prepare("
+            SELECT COALESCE(SUM(jp.estimated_duration_minutes), 0) AS stop_min
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            WHERE jv.stop_id = ?
+              AND jv.status NOT IN ('cancelled', 'skipped', 'completed')
+        ");
+        $stopStmt->execute([$stopId]);
+        $stopMin = (int)$stopStmt->fetchColumn();
+
+        $minutesAfter = $existingMin + $stopMin;
+        if ($minutesAfter > 540) {
+            $hoursAfter = round($minutesAfter / 60, 1);
+            http_response_code(200);
+            echo json_encode([
+                'warning'      => true,
+                'message'      => "Crew day is over capacity ({$hoursAfter}h) — continue?",
+                'minutes_after'=> $minutesAfter,
+            ]);
+            exit;
+        }
+    }
 
     $db->beginTransaction();
 

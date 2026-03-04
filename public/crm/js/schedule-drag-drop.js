@@ -327,6 +327,13 @@
         return response.json();
       })
       .then(function (data) {
+        // ── Capacity over-limit: show confirm toast, wait for user ──────
+        if (data && data.warning) {
+          card.style.opacity = '1';
+          showCapacityWarning(card, newDate, newRouteOrder, data.message);
+          return;
+        }
+
         // Update the card's data attributes to reflect the new state
         card.dataset.stopDate = newDate;
         card.dataset.routeOrder = newRouteOrder;
@@ -437,6 +444,59 @@
   }
 
   // ── Feedback Toast ─────────────────────────────────────────────────────
+
+  /**
+   * Show an amber toast warning about crew capacity with a "Continue" button.
+   * If the user confirms, resends the reschedule with force=1.
+   */
+  function showCapacityWarning(card, newDate, newRouteOrder, message) {
+    if (!feedbackEl || !feedbackMsg) return;
+
+    feedbackMsg.textContent = message || 'Crew day is over capacity — continue?';
+    feedbackEl.className = 'mw-drag-feedback warning';
+    feedbackEl.style.display = 'block';
+
+    // Inject a "Continue anyway" button (removed after use)
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Continue anyway';
+    btn.className = 'mw-cap-confirm-btn';
+    btn.style.cssText = 'margin-left:10px;padding:2px 10px;font-size:11px;cursor:pointer;background:#e85d04;color:#fff;border:none;border-radius:4px;';
+    feedbackEl.appendChild(btn);
+
+    btn.addEventListener('click', function () {
+      btn.remove();
+      // Re-run reschedule with force flag
+      var stopId = parseInt(card.dataset.stopId, 10);
+      card.style.opacity = '0.5';
+      showFeedback('Moving stop...', 'loading');
+
+      fetch('/crm/api/reschedule-stop.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stop_id: stopId,
+          new_date: newDate,
+          new_route_order: newRouteOrder,
+          force: 1
+        })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          card.style.opacity = '1';
+          if (data && data.success) {
+            showFeedback('Stop moved (over capacity)', 'success');
+            setTimeout(function () { location.reload(); }, 1500);
+          } else {
+            showFeedback(data.error || 'Move failed', 'error');
+          }
+        })
+        .catch(function () {
+          card.style.opacity = '1';
+          showFeedback('Connection error', 'error');
+        });
+    });
+  }
 
   /**
    * Show a toast-style feedback message.
