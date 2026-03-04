@@ -2859,16 +2859,15 @@
     }
 
     /* ════════════════════════════════════════════════════
-       CLOCK STATUS NAV BUTTON
-       Red + frozen hand = not clocked in
-       Green + sweeping hand + glow = clocked in
+       PONG STATUS NAV BUTTON
+       Red + frozen ball = not clocked in (game over)
+       Green + bouncing ball + tracking paddles = clocked in
        ════════════════════════════════════════════════════ */
 
     .mw-mc-clock-navbtn {
         position: relative;
     }
 
-    /* Icon wrapper — holds the SVG and the pulsing ring */
     .mw-clock-icon-wrap {
         position: relative;
         display: flex;
@@ -2876,55 +2875,53 @@
         justify-content: center;
     }
 
-    /* ── NOT clocked in: red, hand points down (6 o'clock = stopped) ── */
+    /* ── NOT clocked in: red, ball frozen at centre, gentle alert pulse ── */
     .mw-clock-off {
         color: #ef4444;
     }
 
-    .mw-clock-off .mw-clock-sweep {
-        transform-origin: 12px 12px;
-        transform: rotate(180deg);   /* straight down = clock stopped */
+    .mw-clock-off .mw-pong-icon {
+        animation: mw-pong-alert 2.8s ease-in-out infinite;
     }
 
-    /* Slow fade-pulse to draw attention when not yet clocked in */
-    .mw-clock-off .mw-clock-face {
-        animation: mw-clock-alert 3.5s ease-in-out infinite;
+    @keyframes mw-pong-alert {
+        0%, 55%, 100% { opacity: 1; }
+        78%           { opacity: 0.25; }
     }
 
-    @keyframes mw-clock-alert {
-        0%, 60%, 100% { opacity: 1; }
-        80%            { opacity: 0.35; }
-    }
-
-    /* ── Clocked in: green, hand sweeps, soft glow ring pulses ── */
+    /* ── Clocked in: green, ball bounces diagonally, paddles track ── */
     .mw-clock-on {
         color: #22c55e;
     }
 
-    /* Sweeping second hand — full rotation in 6s */
-    .mw-clock-on .mw-clock-sweep {
-        transform-origin: 12px 12px;
-        animation: mw-clock-sweep 6s linear infinite;
+    /* Ball: sweeps corner-to-corner, 1.4 s cycle */
+    .mw-clock-on .mw-pong-b {
+        animation: mw-pong-ball 1.4s linear infinite;
     }
 
-    @keyframes mw-clock-sweep {
-        from { transform: rotate(0deg); }
-        to   { transform: rotate(360deg); }
+    @keyframes mw-pong-ball {
+        0%, 100% { transform: translate(-6px, -3px); }
+        50%      { transform: translate( 6px,  3px); }
     }
 
-    /* Expanding ring pulse around the icon when active */
-    .mw-clock-on .mw-clock-icon-wrap::after {
-        content: '';
-        position: absolute;
-        inset: -5px;
-        border-radius: 50%;
-        border: 1.5px solid rgba(34, 197, 94, 0.5);
-        animation: mw-clock-ring 2s ease-out infinite;
+    /* Left paddle: in position (y−3) when ball arrives at left (t=0/1) */
+    .mw-clock-on .mw-pong-l {
+        animation: mw-pong-lpad 1.4s linear infinite;
     }
 
-    @keyframes mw-clock-ring {
-        0%   { transform: scale(0.7);  opacity: 0.8; }
-        100% { transform: scale(1.6);  opacity: 0; }
+    @keyframes mw-pong-lpad {
+        0%, 100% { transform: translateY(-3px); }
+        50%      { transform: translateY( 3px); }
+    }
+
+    /* Right paddle: opposite phase — in position (y+3) when ball arrives at right (t=0.5) */
+    .mw-clock-on .mw-pong-r {
+        animation: mw-pong-rpad 1.4s linear infinite;
+    }
+
+    @keyframes mw-pong-rpad {
+        0%, 100% { transform: translateY( 3px); }
+        50%      { transform: translateY(-3px); }
     }
 
     /* Label doubles as elapsed timer when clocked in */

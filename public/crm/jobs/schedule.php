@@ -1044,7 +1044,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303j" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303k" rel="stylesheet">';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
     if ($_sd['date'] !== $mobileDate) {
@@ -1060,6 +1060,7 @@ $extraHead .= '<link rel="prefetch" href="?view=day&date=' . htmlspecialchars($s
 // Bottom nav pages
 $extraHead .= '<link rel="prefetch" href="/crm/expenses_appstack.php?mode=quick&return=schedule">';
 $extraHead .= '<link rel="prefetch" href="/crm/jobs/index.php">';
+$extraHead .= '<link rel="prefetch" href="/crm/timeclock/my-timesheet.php">';
 if ($apiKey) {
     $extraHead .= '<script src="https://maps.googleapis.com/maps/api/js?key='
         . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
@@ -2240,24 +2241,23 @@ if ($apiKey) {
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                       <span>List</span>
                   </a>
-                  <!-- Clock status button: red/frozen = not clocked in, green/sweeping = clocked in -->
+                  <!-- Clock status button: Pong — ball bouncing = clocked in, frozen = not clocked in -->
                   <button type="button"
                           class="mw-mc-bottombar-btn mw-mc-clock-navbtn <?php echo $isClockedIn ? 'mw-clock-on' : 'mw-clock-off'; ?>"
                           id="mwClockNavBtn"
-                          title="<?php echo $isClockedIn ? 'Clocked in — tap to go to clock' : 'Not clocked in — tap to clock in'; ?>">
+                          title="<?php echo $isClockedIn ? 'Clocked in — tap to see timesheet' : 'Not clocked in — tap to clock in'; ?>">
                       <div class="mw-clock-icon-wrap">
-                          <svg class="mw-clock-face" viewBox="0 0 24 24" width="22" height="22"
-                               fill="none" stroke="currentColor" stroke-linecap="round"
-                               stroke-linejoin="round" stroke-width="2">
-                              <!-- Face -->
-                              <circle cx="12" cy="12" r="10"/>
-                              <!-- Centre dot -->
-                              <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
-                              <!-- Hour hand — fixed at ~10 past -->
-                              <line x1="12" y1="12" x2="9.5" y2="7.8"/>
-                              <!-- Sweep hand — animated via CSS when clocked in -->
-                              <line x1="12" y1="12" x2="12" y2="5" class="mw-clock-sweep"
-                                    stroke-width="1.5"/>
+                          <svg class="mw-pong-icon" viewBox="0 0 24 24" width="22" height="22" fill="none">
+                              <!-- Net -->
+                              <line x1="12" y1="3" x2="12" y2="21"
+                                    stroke="currentColor" stroke-width="0.75"
+                                    stroke-dasharray="2 1.5" opacity="0.28"/>
+                              <!-- Left paddle -->
+                              <rect class="mw-pong-l" x="1.5" y="9" width="2.5" height="6" rx="1.25" fill="currentColor"/>
+                              <!-- Right paddle -->
+                              <rect class="mw-pong-r" x="20" y="9" width="2.5" height="6" rx="1.25" fill="currentColor"/>
+                              <!-- Ball -->
+                              <circle class="mw-pong-b" cx="12" cy="12" r="1.6" fill="currentColor"/>
                           </svg>
                       </div>
                       <span class="mw-clock-nav-label" id="mwClockNavLabel">
@@ -3640,7 +3640,7 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
     }
 })();
 
-// ── Clock nav button: live elapsed timer + tap-to-scroll ──────────────────────
+// ── Clock nav button (Pong icon): live elapsed timer + tap → timesheet ────────
 (function () {
     'use strict';
 
@@ -3668,13 +3668,9 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
         }, 1000);
     }
 
-    // Tap: scroll smoothly to the summary card (which holds the clock in/out buttons)
+    // Tap → navigate to personal timesheet
     btn.addEventListener('click', function () {
-        var scrollArea   = document.querySelector('.mw-mc-scroll-area');
-        var summaryWrap  = document.querySelector('.mw-ds-wrap');
-        if (scrollArea && summaryWrap) {
-            scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
-        }
+        window.location.href = '/crm/timeclock/my-timesheet.php';
     });
 })();
 </script>
