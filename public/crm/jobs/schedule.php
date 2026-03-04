@@ -2183,7 +2183,9 @@ if ($apiKey) {
 
               <!-- ════════════════════════════════════════════
                    DAY SUMMARY CARD — metrics, weather, clock
+                   Hidden for drivers (they see it on the portal before clocking in)
                    ════════════════════════════════════════════ -->
+              <?php if (empty($user['is_driver'])): ?>
               <div class="mw-ds-wrap<?php echo $isClockedIn ? ' mw-ds-wrap-active' : ''; ?>">
 
                   <!-- Metrics card -->
@@ -2276,6 +2278,7 @@ if ($apiKey) {
                   <?php endif; ?>
 
               </div><!-- /.mw-ds-wrap -->
+              <?php endif; // is_driver guard ?>
 
               <?php if (empty($mobileStops)): ?>
                   <!-- Empty state -->

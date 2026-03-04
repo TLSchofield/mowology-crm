@@ -22,27 +22,24 @@ if (empty($user['is_driver']) && $user['role'] !== 'admin') {
 
 $db    = getDB();
 $today = date('Y-m-d');
-$hour  = (int)date('G');
-
-if ($hour < 12)       $greeting = 'Good morning';
-elseif ($hour < 17)   $greeting = 'Good afternoon';
-else                  $greeting = 'Good evening';
-
-$firstName = explode(' ', $user['name'])[0];
+$hour             = (int)date('G');
+$greetingHour     = $hour;
+$dayGreeting      = $greetingHour < 12 ? 'Good morning' : ($greetingHour < 17 ? 'Good afternoon' : 'Good evening');
+$greetingFirstName = explode(' ', trim($user['name'] ?? 'there'))[0];
 
 // ── Today's jobs ──────────────────────────────────────────────────────────────
-$jobs = getUserJobsForDate($user['id'], $today);
-$jobCount = count($jobs);
+$jobs       = getUserJobsForDate($user['id'], $today);
+$totalStops = count($jobs);
 
-// Estimate revenue: sum estimated_duration_minutes * some rate — or just count
-// Show simple job count + rough revenue from job plans if available
-$totalRevenue = 0;
+// Completed stops
+$completedStops = 0;
 foreach ($jobs as $j) {
-    // Try to pull quoted amount from job_plans
+    if (($j['status'] ?? '') === 'completed') $completedStops++;
 }
-// Query separately for revenue (join job_plans)
+
+// Estimated revenue
 $revStmt = $db->prepare("
-    SELECT COALESCE(SUM(jp.price_per_visit), 0) as total_revenue
+    SELECT COALESCE(SUM(jp.price_per_visit), 0)
     FROM job_visits jv
     JOIN job_plans jp ON jv.plan_id = jp.id
     WHERE jv.scheduled_date = ?
@@ -50,7 +47,14 @@ $revStmt = $db->prepare("
       AND jv.status IN ('scheduled','in_progress','completed')
 ");
 $revStmt->execute([$today, $user['id']]);
-$totalRevenue = (float)($revStmt->fetchColumn() ?: 0);
+$summaryRevenue = (float)($revStmt->fetchColumn() ?: 0);
+
+// Estimated time
+$summaryMinutes = 0;
+foreach ($jobs as $j) {
+    $summaryMinutes += (int)($j['estimated_duration_minutes'] ?? 0);
+}
+$summaryMinutes += $totalStops > 0 ? (max(0, $totalStops - 1) * 8 + 10) : 0;
 
 // ── Clock status ──────────────────────────────────────────────────────────────
 $activeClock = getActiveClockEntry($user['id']);
@@ -60,15 +64,6 @@ $isClockedIn = (bool)$activeClock;
 if ($isClockedIn) {
     header('Location: /crm/jobs/schedule.php');
     exit;
-}
-
-if ($isClockedIn) {
-    $elapsedSec = (int)($activeClock['elapsed_seconds'] ?? 0);
-    $elapsedH   = floor($elapsedSec / 3600);
-    $elapsedM   = floor(($elapsedSec % 3600) / 60);
-    $elapsedStr = $elapsedH > 0 ? "{$elapsedH}h {$elapsedM}m" : "{$elapsedM}m";
-} else {
-    $elapsedStr = '';
 }
 
 // ── Trip report ───────────────────────────────────────────────────────────────
@@ -81,137 +76,122 @@ $postComplete = $tripReport && $tripReport['post_trip_at'] !== null;
 $preTime      = $preComplete  ? date('g:i a', strtotime($tripReport['pre_trip_at']))  : null;
 $postTime     = $postComplete ? date('g:i a', strtotime($tripReport['post_trip_at'])) : null;
 
-// ── Weather ───────────────────────────────────────────────────────────────────
-$weather = [];
+// ── Weather — hourly AM/PM split (same as schedule.php) ──────────────────────
+$weatherAM = null;
+$weatherPM = null;
 try {
-    $morningWeather   = getWeatherForecast('Vancouver', 'BC', $today);
-    $afternoonWeather = $morningWeather; // same day data, use high/low split
-} catch (Throwable $t) {
-    $morningWeather = $afternoonWeather = [];
-}
+    $hourlyBlocks = getHourlyForecastByCity('Vancouver', 'BC');
+    $amBlocks = []; $pmBlocks = [];
+    foreach ($hourlyBlocks as $blk) {
+        if (strncmp($blk['hour'], $today, 10) !== 0) continue;
+        $h = (int)substr($blk['hour'], 11, 2);
+        if ($h >= 6  && $h < 12) $amBlocks[] = $blk;
+        elseif ($h >= 12 && $h < 17) $pmBlocks[] = $blk;
+    }
+    if (!empty($amBlocks)) $weatherAM = $amBlocks[intval(count($amBlocks) / 2)];
+    if (!empty($pmBlocks)) $weatherPM = $pmBlocks[intval(count($pmBlocks) / 2)];
+} catch (Throwable $t) { /* fall through to daily fallback */ }
 
-$wIcon  = function_exists('getWeatherIcon')  ? getWeatherIcon($morningWeather['condition']  ?? 'Clear') : '☁️';
-$wHigh  = isset($morningWeather['temp_high']) ? (int)$morningWeather['temp_high'] : null;
-$wLow   = isset($morningWeather['temp_low'])  ? (int)$morningWeather['temp_low']  : null;
-$wCond  = $morningWeather['condition'] ?? null;
-$wPrecip = isset($morningWeather['precipitation']) ? (int)$morningWeather['precipitation'] : 0;
+// Fallback to daily forecast
+$dailyWeather = [];
+try { $dailyWeather = getWeatherForecast('Vancouver', 'BC', $today); } catch (Throwable $t) {}
+if (!$weatherAM) {
+    $weatherAM = [
+        'temp_c'            => $dailyWeather['temp_low']    ?? 8,
+        'condition'         => $dailyWeather['condition']   ?? 'Clear',
+        'icon'              => getWeatherIcon($dailyWeather['condition'] ?? 'Clear'),
+        'precip_chance_pct' => $dailyWeather['precipitation'] ?? 0,
+    ];
+}
+if (!$weatherPM) {
+    $weatherPM = [
+        'temp_c'            => $dailyWeather['temp_high']   ?? 12,
+        'condition'         => $dailyWeather['condition']   ?? 'Clear',
+        'icon'              => getWeatherIcon($dailyWeather['condition'] ?? 'Clear'),
+        'precip_chance_pct' => $dailyWeather['precipitation'] ?? 0,
+    ];
+}
 
 // ── CSRF ──────────────────────────────────────────────────────────────────────
 $csrf = generateCSRFToken();
 
 $pageTitle  = 'Driver Portal';
 $activePage = 'driver';
+$extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="stylesheet">';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
 <div class="dp-page">
 
-    <!-- ══ Welcome Card ══ -->
-    <div class="dp-card">
-        <div class="dp-welcome-name"><?php echo htmlspecialchars($greeting . ', ' . $firstName); ?></div>
-        <div class="dp-welcome-date"><?php echo date('l, F j'); ?> &bull; <?php echo htmlspecialchars($user['name']); ?></div>
-    </div>
+    <!-- ══ Day Summary Card — metrics, weather, clock in ══════════════════════ -->
+    <div class="mw-ds-wrap" id="dpDaySummary">
 
-    <!-- ══ Today's Jobs ══ -->
-    <div class="dp-card" id="dpJobsCard">
-        <div class="dp-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8l-2 4h12l-2-4z"/></svg>
-            Today's Jobs
-        </div>
-        <?php if ($jobCount > 0): ?>
-        <div class="dp-jobs-row">
-            <div class="dp-jobs-stat">
-                <div class="dp-jobs-num"><?php echo $jobCount; ?></div>
-                <div class="dp-jobs-lbl"><?php echo $jobCount === 1 ? 'Visit' : 'Visits'; ?></div>
+        <!-- Metrics card -->
+        <div class="mw-ds-card">
+            <div class="mw-ds-greeting">
+                <span class="mw-ds-hi"><?php echo htmlspecialchars($dayGreeting . ', ' . $greetingFirstName); ?></span>
+                <span class="mw-ds-date-lbl"><?php echo date('l, F j'); ?></span>
             </div>
-            <?php if ($totalRevenue > 0): ?>
-            <div class="dp-jobs-divider"></div>
-            <div class="dp-jobs-stat">
-                <div class="dp-jobs-num">$<?php echo number_format($totalRevenue, 0); ?></div>
-                <div class="dp-jobs-lbl">Est. Revenue</div>
-            </div>
-            <?php endif; ?>
-            <div style="flex:1; text-align:right;">
-                <a href="/crm/timeclock/my-schedule.php" class="dp-jobs-link">
-                    View Schedule
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </a>
-            </div>
-        </div>
-        <?php else: ?>
-        <div class="dp-no-jobs">No jobs scheduled today.</div>
-        <?php endif; ?>
-    </div>
-
-    <!-- ══ Weather ══ -->
-    <?php if ($wHigh !== null || $wCond): ?>
-    <div class="dp-card" id="dpWeatherCard">
-        <div class="dp-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></svg>
-            Today's Weather
-        </div>
-        <div class="dp-weather-row">
-            <?php if ($wHigh !== null): ?>
-            <div class="dp-weather-period">
-                <div class="dp-weather-icon"><?php echo $wIcon; ?></div>
-                <div>
-                    <div class="dp-weather-label">Morning</div>
-                    <div class="dp-weather-temp"><?php echo $wHigh; ?>&deg;C</div>
-                    <?php if ($wCond): ?><div class="dp-weather-cond"><?php echo htmlspecialchars($wCond); ?></div><?php endif; ?>
+            <?php if ($totalStops > 0 || $summaryRevenue > 0 || $summaryMinutes > 0): ?>
+            <div class="mw-ds-metrics">
+                <div class="mw-ds-metric">
+                    <span class="mw-ds-mval"><?php echo $totalStops; ?></span>
+                    <span class="mw-ds-mlbl"><?php echo $totalStops === 1 ? 'Stop' : 'Stops'; ?></span>
                 </div>
-            </div>
-            <?php if ($wLow !== null): ?>
-            <div class="dp-weather-divider"></div>
-            <div class="dp-weather-period">
-                <div>
-                    <div class="dp-weather-label">Afternoon Low</div>
-                    <div class="dp-weather-temp"><?php echo $wLow; ?>&deg;C</div>
-                    <?php if ($wPrecip > 20): ?><div class="dp-weather-cond"><?php echo $wPrecip; ?>% precip.</div><?php endif; ?>
+                <?php if ($summaryRevenue > 0): ?>
+                <div class="mw-ds-metric">
+                    <span class="mw-ds-mval">$<?php echo number_format($summaryRevenue, 0); ?></span>
+                    <span class="mw-ds-mlbl">Est. Revenue</span>
                 </div>
+                <?php endif; ?>
+                <?php if ($summaryMinutes > 0): ?>
+                <div class="mw-ds-metric">
+                    <span class="mw-ds-mval"><?php echo $summaryMinutes >= 60 ? round($summaryMinutes / 60, 1) . 'h' : $summaryMinutes . 'm'; ?></span>
+                    <span class="mw-ds-mlbl">Est. Time</span>
+                </div>
+                <?php endif; ?>
+                <?php if ($completedStops > 0): ?>
+                <div class="mw-ds-metric mw-ds-metric-done">
+                    <span class="mw-ds-mval"><?php echo $completedStops; ?>/<?php echo $totalStops; ?></span>
+                    <span class="mw-ds-mlbl">Done</span>
+                </div>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
-            <?php else: ?>
-            <div class="dp-no-jobs">Weather data unavailable.</div>
-            <?php endif; ?>
         </div>
-    </div>
-    <?php endif; ?>
 
-    <!-- ══ Clock In / Out ══ -->
-    <div class="dp-card" id="dpClockCard">
-        <div class="dp-card-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            Time Clock
-        </div>
-        <div class="dp-clock-row" id="dpClockRow">
-            <?php if ($isClockedIn): ?>
-            <div class="dp-clock-status">
-                <div class="dp-clock-dot in"></div>
-                Clocked In
-                <span class="dp-clock-elapsed" id="dpElapsed"><?php echo htmlspecialchars($elapsedStr); ?></span>
+        <!-- Weather AM / PM -->
+        <div class="mw-ds-weather-row">
+            <div class="mw-ds-wx mw-ds-wx-am">
+                <span class="mw-ds-wx-label">Morning</span>
+                <span class="mw-ds-wx-icon"><?php echo $weatherAM['icon'] ?? '☀️'; ?></span>
+                <span class="mw-ds-wx-temp"><?php echo round((float)($weatherAM['temp_c'] ?? 8)); ?>&deg;</span>
+                <span class="mw-ds-wx-cond"><?php echo htmlspecialchars(ucfirst(strtolower($weatherAM['condition'] ?? 'Clear'))); ?></span>
+                <?php if (!empty($weatherAM['precip_chance_pct']) && (int)$weatherAM['precip_chance_pct'] > 10): ?>
+                <span class="mw-ds-wx-precip">💧 <?php echo (int)$weatherAM['precip_chance_pct']; ?>%</span>
+                <?php endif; ?>
             </div>
-            <button class="dp-clock-btn clock-out" id="dpClockOutBtn" onclick="dpClockOut()">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                Clock Out
-            </button>
-            <?php else: ?>
-            <div class="dp-clock-status">
-                <div class="dp-clock-dot out"></div>
-                Clocked Out
+            <div class="mw-ds-wx mw-ds-wx-pm">
+                <span class="mw-ds-wx-label">Afternoon</span>
+                <span class="mw-ds-wx-icon"><?php echo $weatherPM['icon'] ?? '⛅'; ?></span>
+                <span class="mw-ds-wx-temp"><?php echo round((float)($weatherPM['temp_c'] ?? 12)); ?>&deg;</span>
+                <span class="mw-ds-wx-cond"><?php echo htmlspecialchars(ucfirst(strtolower($weatherPM['condition'] ?? 'Clear'))); ?></span>
+                <?php if (!empty($weatherPM['precip_chance_pct']) && (int)$weatherPM['precip_chance_pct'] > 10): ?>
+                <span class="mw-ds-wx-precip">💧 <?php echo (int)$weatherPM['precip_chance_pct']; ?>%</span>
+                <?php endif; ?>
             </div>
-            <button class="dp-clock-btn clock-in" id="dpClockInBtn" onclick="dpClockIn()">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-                Clock In
-            </button>
-            <?php endif; ?>
         </div>
-        <?php if ($isClockedIn && !$postComplete): ?>
-        <div class="dp-clock-blocked" id="dpClockoutWarning">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            Complete the post-trip vehicle check before clocking out
+
+        <!-- Clock in card -->
+        <div class="mw-ds-clock-card">
+            <div class="mw-ds-clock-info">
+                <div class="mw-ds-clock-dot"></div>
+                <span class="mw-ds-clock-status">Not clocked in</span>
+            </div>
+            <button class="mw-ds-clock-btn mw-ds-clock-btn-in" id="dpClockInBtn" type="button" onclick="dpClockIn()">Clock In</button>
         </div>
-        <?php endif; ?>
-    </div>
+
+    </div><!-- /.mw-ds-wrap -->
 
     <!-- ══ Vehicle Check ══ -->
     <div class="dp-card">
@@ -474,10 +454,10 @@ function mwInjectFlatlineCSS() {
 }
 var DP = {
     csrf:        <?php echo json_encode($csrf); ?>,
-    isClockedIn: <?php echo $isClockedIn ? 'true' : 'false'; ?>,
+    isClockedIn: false,
     preComplete: <?php echo $preComplete ? 'true' : 'false'; ?>,
     postComplete:<?php echo $postComplete ? 'true' : 'false'; ?>,
-    clockStart:  <?php echo $isClockedIn ? (int)strtotime($activeClock['clock_in']) : 'null'; ?>,
+    clockStart:  null,
     reportId:    <?php echo $tripReport ? (int)$tripReport['id'] : 'null'; ?>
 };
 
@@ -529,15 +509,10 @@ function dpClockIn() {
         .then(function(data) {
             if (data.success || data.clocked_in) {
                 dpToast('Clocked in!');
-                // Flatline animation — jobs, weather, clock cards vanish before reload
+                // Flatline the whole day summary wrap, then navigate to schedule
                 mwInjectFlatlineCSS();
-                var targets = [
-                    document.getElementById('dpJobsCard'),
-                    document.getElementById('dpWeatherCard'),
-                    document.getElementById('dpClockCard')
-                ].filter(Boolean);
-
-                targets.forEach(function(el) { el.classList.add('mw-flatline-out'); });
+                var wrap = document.getElementById('dpDaySummary');
+                if (wrap) wrap.classList.add('mw-flatline-out');
                 setTimeout(function(){ window.location.href = '/crm/jobs/schedule.php'; }, 3200);
             } else {
                 dpToast(data.error || 'Clock in failed', true);
@@ -653,20 +628,6 @@ function dpSubmitPostTrip(e) {
         }
     })
     .catch(function(){ dpToast('Network error', true); btn.disabled = false; });
-}
-
-// ── Elapsed clock timer ───────────────────────────────────────────────────────
-if (DP.isClockedIn && DP.clockStart) {
-    function updateElapsed() {
-        var now  = Math.floor(Date.now() / 1000);
-        var secs = now - DP.clockStart;
-        var h = Math.floor(secs / 3600);
-        var m = Math.floor((secs % 3600) / 60);
-        var el = document.getElementById('dpElapsed');
-        if (el) el.textContent = h > 0 ? h + 'h ' + m + 'm' : m + 'm';
-    }
-    updateElapsed();
-    setInterval(updateElapsed, 30000);
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
