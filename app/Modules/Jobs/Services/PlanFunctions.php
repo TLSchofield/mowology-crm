@@ -1335,8 +1335,10 @@ function getPlanDetails(int $planId): ?array {
                u.full_name AS default_crew_name,
                creator.full_name AS created_by_name,
                q.quote_number,
+               q.total_amount AS quote_total_amount,
                ctr.contract_number,
-               ctr.status AS contract_status
+               ctr.status AS contract_status,
+               ctr.billing_amount AS contract_billing_amount
         FROM job_plans jp
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN companies co ON jp.company_id = co.id

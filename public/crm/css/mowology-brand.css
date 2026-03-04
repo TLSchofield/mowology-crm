@@ -17225,6 +17225,35 @@ textarea.font-monospace {
     color: #fff;
     border-color: var(--mw-green);
 }
+/* Auto calculation chain (contract total → weekly → per visit) */
+.mw-calc-auto-chain { margin-bottom: 6px; }
+.mw-calc-chain-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--mw-light);
+    border-radius: 6px;
+    font-size: 13px;
+}
+.mw-calc-chain-step { font-weight: 600; color: var(--mw-dark); }
+.mw-calc-chain-result { color: var(--mw-green); font-size: 16px; }
+.mw-calc-chain-op { color: #6c757d; font-size: 12px; }
+.mw-calc-chain-hint { font-size: 12px; color: #6c757d; margin: 2px 0 6px; }
+.mw-calc-auto-source { font-size: 11px; color: #6c757d; margin-bottom: 6px; }
+.mw-calc-override-details summary.mw-calc-override-toggle {
+    font-size: 12px;
+    color: #6c757d;
+    cursor: pointer;
+    list-style: none;
+    padding: 4px 0;
+    user-select: none;
+}
+.mw-calc-override-details summary.mw-calc-override-toggle::-webkit-details-marker { display: none; }
+.mw-calc-override-details summary.mw-calc-override-toggle::before { content: '+ '; color: var(--mw-green); }
+.mw-calc-override-details[open] summary.mw-calc-override-toggle::before { content: '− '; }
+
 .mw-calc-result-group {
     display: flex;
     flex-direction: column;

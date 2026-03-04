@@ -425,6 +425,20 @@ if (!$plan) {
     exit;
 }
 
+// ── Contract value for the rate calculator ───────────────────────────
+// Priority: contract billing_amount > quote total_amount > plan estimated_amount
+$contractTotal = null;
+$contractLabel = null;
+if (!empty($plan['contract_billing_amount'])) {
+    $contractTotal = (float)$plan['contract_billing_amount'];
+    $contractLabel = $plan['contract_number'] ?? null;
+} elseif (!empty($plan['quote_total_amount'])) {
+    $contractTotal = (float)$plan['quote_total_amount'];
+    $contractLabel = $plan['quote_number'] ?? null;
+} elseif (!empty($plan['estimated_amount'])) {
+    $contractTotal = (float)$plan['estimated_amount'];
+}
+
 // Profitability data
 $profitability = getPlanProfitability($planId);
 
@@ -2022,11 +2036,25 @@ if ($hasPropCoords) {
                 <div class="mw-contract-calc mw-contract-calc-open" id="editContractCalc">
                     <div class="mw-contract-calc-header" onclick="this.parentElement.classList.toggle('mw-contract-calc-open')">
                         <i data-feather="calculator" style="width:14px;height:14px;"></i>
-                        <span>Contract Rate Calculator</span>
+                        <span>Rate Calculator</span>
                         <i data-feather="chevron-down" class="mw-calc-chevron" style="width:14px;height:14px;margin-left:auto;"></i>
                     </div>
                     <div class="mw-contract-calc-body">
-                        <div class="mw-calc-toggle-row">
+                        <?php if ($contractTotal !== null): ?>
+                        <!-- Auto-calculated from contract/quote value -->
+                        <div class="mw-calc-auto-chain" id="editCalcAutoChain">
+                            <!-- Populated by JS once days/dates are known -->
+                        </div>
+                        <div class="mw-calc-auto-source">
+                            <i data-feather="link" style="width:11px;height:11px;"></i>
+                            <?php echo $contractLabel ? htmlspecialchars($contractLabel) . ': ' : ''; ?>
+                            <strong>$<?php echo number_format($contractTotal, 2); ?></strong>
+                        </div>
+                        <details class="mw-calc-override-details mt-2">
+                            <summary class="mw-calc-override-toggle">Override rate manually</summary>
+                        <?php endif; ?>
+
+                        <div class="mw-calc-toggle-row mt-2">
                             <button type="button" class="mw-calc-mode-btn active" onclick="editSetCalcMode('weekly')">Weekly Value</button>
                             <button type="button" class="mw-calc-mode-btn" onclick="editSetCalcMode('hourly')">Hourly Rate</button>
                         </div>
@@ -2044,6 +2072,10 @@ if ($hasPropCoords) {
                                         style="display:none;" onclick="editApplyCalcResult()">Apply ↑</button>
                             </div>
                         </div>
+
+                        <?php if ($contractTotal !== null): ?>
+                        </details>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -2264,6 +2296,10 @@ if ($hasPropCoords) {
                 });
             });
         });
+
+        // ── Contract value from server ────────────────────────
+        var editContractTotal = <?php echo json_encode($contractTotal); ?>; // null or float
+        var editContractLabel = <?php echo json_encode($contractLabel); ?>; // "CTR-2026-0001" etc.
 
         // ── Edit Plan modal toggles ─────────────────────────
         function toggleEditRecurring() {
@@ -2536,9 +2572,6 @@ if ($hasPropCoords) {
             var crewCount    = editAssignedCrew.length;
             var crewHours    = durationHrs * (crewCount || 1);
             var daysPerWeek  = editSelectedDows.length;
-            var ppvInput     = document.getElementById('editPricePerVisitInput');
-            var pricePerVisit = ppvInput ? (parseFloat(ppvInput.value) || 0) : 0;
-            var weeklyRev    = pricePerVisit * daysPerWeek;
 
             // Season weeks from date fields
             var startDateEl = document.getElementById('editStartDateInput');
@@ -2552,7 +2585,47 @@ if ($hasPropCoords) {
                 var opts = { month: 'short', day: 'numeric' };
                 seasonLabel = sd.toLocaleDateString('en-CA', opts) + ' – ' + ed.toLocaleDateString('en-CA', opts);
             }
-            var totalValue = weeklyRev * seasonWeeks;
+
+            // ── Auto-calculate price per visit from contract total ──────
+            var ppvInput      = document.getElementById('editPricePerVisitInput');
+            var pricePerVisit = ppvInput ? (parseFloat(ppvInput.value) || 0) : 0;
+            var autoCalcChain = document.getElementById('editCalcAutoChain');
+
+            if (editContractTotal && daysPerWeek > 0 && seasonWeeks > 0) {
+                var weeklyFromContract = editContractTotal / seasonWeeks;
+                var ppvFromContract    = weeklyFromContract / daysPerWeek;
+
+                // Auto-fill the price per visit field if it's empty
+                if (ppvInput && pricePerVisit === 0) {
+                    ppvInput.value    = ppvFromContract.toFixed(2);
+                    pricePerVisit     = ppvFromContract;
+                }
+
+                // Update the auto-chain display
+                if (autoCalcChain) {
+                    function fmtC(n) { return '$' + Math.round(n).toLocaleString(); }
+                    autoCalcChain.innerHTML =
+                        '<div class="mw-calc-chain-row">' +
+                        '<span class="mw-calc-chain-step">' + fmtC(editContractTotal) + '</span>' +
+                        '<span class="mw-calc-chain-op">÷ ' + seasonWeeks + ' wks</span>' +
+                        '<span class="mw-calc-chain-step">' + fmtC(weeklyFromContract) + '/wk</span>' +
+                        '<span class="mw-calc-chain-op">÷ ' + daysPerWeek + ' days</span>' +
+                        '<span class="mw-calc-chain-step mw-calc-chain-result">' + fmtC(ppvFromContract) + '/visit</span>' +
+                        '</div>';
+                    if (typeof feather !== 'undefined') feather.replace();
+                }
+            } else if (autoCalcChain) {
+                var missing = [];
+                if (!editContractTotal) missing.push('contract value');
+                if (daysPerWeek === 0)  missing.push('days selected');
+                if (seasonWeeks === 0)  missing.push('start & end dates');
+                autoCalcChain.innerHTML = missing.length
+                    ? '<p class="mw-calc-chain-hint">Set ' + missing.join(', ') + ' to auto-calculate</p>'
+                    : '';
+            }
+
+            var weeklyRev  = pricePerVisit * daysPerWeek;
+            var totalValue = editContractTotal || (weeklyRev * seasonWeeks);
 
             if (pricePerVisit <= 0 && durationMin <= 0) { container.innerHTML = ''; return; }
 
@@ -2583,7 +2656,8 @@ if ($hasPropCoords) {
                     seasonWeeks + ' wks<small class="mw-rev-sub">' + seasonLabel + '</small></span></div>';
             }
             if (totalValue > 0) {
-                items += '<div class="mw-rev-item mw-rev-item--total"><span class="mw-rev-label">Contract Total</span><span class="mw-rev-value">' + fmtMoney(totalValue) + '</span></div>';
+                var totalLabel = editContractTotal ? 'Contract Total' : 'Est. Total';
+                items += '<div class="mw-rev-item mw-rev-item--total"><span class="mw-rev-label">' + totalLabel + '</span><span class="mw-rev-value">' + fmtMoney(totalValue) + '</span></div>';
             }
 
             var crewNote = (crewCount > 0 && durationHrs > 0)
