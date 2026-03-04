@@ -1453,6 +1453,22 @@ a:hover {
 .mw-contract-budget-item-value.is-remaining { color: var(--mw-green); }
 .mw-contract-budget-item-value.is-zero      { color: #999; }
 
+/* ── Contract Renewal Badge ──────────────────────────── */
+.mw-renewal-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    background: var(--mw-light);
+    color: var(--mw-dark);
+}
+.mw-renewal-badge--active {
+    background: #d4edda;
+    color: var(--mw-green);
+}
+
 /* ── Contract Pathway Toggle (Quote Create/Edit) ──────── */
 .mw-contract-toggle {
   border: 1px solid var(--mw-light);

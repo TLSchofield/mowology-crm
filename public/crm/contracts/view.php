@@ -55,6 +55,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'success';
         $contract    = getContractById($contractId);
     }
+
+    if ($action === 'update_contract') {
+        $data = [
+            'title'                => trim($_POST['title'] ?? ''),
+            'billing_cycle'        => $_POST['billing_cycle'] ?? 'monthly',
+            'billing_amount'       => $_POST['billing_amount'] ?? '',
+            'start_date'           => $_POST['start_date'] ?? '',
+            'end_date'             => $_POST['end_date'] ?? '',
+            'renewal_date'         => $_POST['renewal_date'] ?? '',
+            'auto_renew'           => !empty($_POST['auto_renew']) ? 1 : 0,
+            'renewal_increase_pct' => $_POST['renewal_increase_pct'] ?? '0',
+            'notes'                => trim($_POST['notes'] ?? ''),
+        ];
+        $result = updateContract($contractId, $data, (int)$user['id']);
+        if ($result['success']) {
+            $contract    = getContractById($contractId);
+            $plans       = getContractPlans($contractId);
+            $message     = 'Contract updated successfully.';
+            $messageType = 'success';
+        } else {
+            $message     = implode(' ', $result['errors']);
+            $messageType = 'error';
+        }
+    }
 }
 
 // Flash message from redirect
@@ -166,6 +190,12 @@ if ($hasPropCoords && !$hasBorder) {
                   <a href="<?php echo $addPlanUrl; ?>" class="btn btn-primary">
                       <i data-feather="plus" style="width:14px;height:14px;"></i> Add Plan
                   </a>
+                  <?php if (in_array($contract['status'], ['active', 'paused'])): ?>
+                      <button type="button" class="btn btn-outline-secondary"
+                              data-toggle="modal" data-target="#editContractModal">
+                          <i data-feather="edit-2" style="width:14px;height:14px;"></i> Edit Contract
+                      </button>
+                  <?php endif; ?>
                   <?php if ($contract['status'] === 'active'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
@@ -230,13 +260,24 @@ if ($hasPropCoords && !$hasBorder) {
                   <div class="card">
                       <div class="card-body">
                           <div class="mw-stat-label">
-                              <?php echo $contract['renewal_date'] ? 'Renewal Date' : 'End Date'; ?>
+                              <?php
+                              if ($contract['auto_renew'] ?? 0) {
+                                  echo 'Next Renewal';
+                              } else {
+                                  echo $contract['renewal_date'] ? 'Renewal Date' : 'End Date';
+                              }
+                              ?>
                           </div>
                           <div class="mw-stat-value">
                               <?php
                               $d = $contract['renewal_date'] ?: $contract['end_date'];
                               echo $d ? date('M j, Y', strtotime($d)) : 'Ongoing';
                               ?>
+                              <?php if ($contract['auto_renew'] ?? 0): ?>
+                                  <small class="d-block" style="font-size:.72rem;color:var(--mw-green);font-weight:600;">
+                                      Auto-renews<?php echo (($contract['renewal_increase_pct'] ?? 0) > 0) ? ' +' . number_format((float)$contract['renewal_increase_pct'], 1) . '%' : ''; ?>
+                                  </small>
+                              <?php endif; ?>
                           </div>
                       </div>
                   </div>
@@ -401,11 +442,157 @@ if ($hasPropCoords && !$hasBorder) {
                               <dd class="col-sm-8"><?php echo htmlspecialchars($contract['created_by_name'] ?? '—'); ?></dd>
                               <dt class="col-sm-4">Created</dt>
                               <dd class="col-sm-8"><?php echo date('M j, Y', strtotime($contract['created_at'])); ?></dd>
+                              <dt class="col-sm-4">Auto-Renew</dt>
+                              <dd class="col-sm-8">
+                                  <?php if ($contract['auto_renew'] ?? 0): ?>
+                                      <span style="color:var(--mw-green);font-weight:600;">Enabled</span>
+                                      <?php if (($contract['renewal_increase_pct'] ?? 0) > 0): ?>
+                                          <span class="text-muted"> &mdash; +<?php echo number_format((float)$contract['renewal_increase_pct'], 1); ?>% on renewal</span>
+                                      <?php endif; ?>
+                                  <?php else: ?>
+                                      <span class="text-muted">Off</span>
+                                  <?php endif; ?>
+                              </dd>
+                              <?php if (!empty($contract['last_renewed_at'])): ?>
+                                  <dt class="col-sm-4">Last Renewed</dt>
+                                  <dd class="col-sm-8"><?php echo date('M j, Y', strtotime($contract['last_renewed_at'])); ?></dd>
+                              <?php endif; ?>
                           </dl>
                       </div>
                   </div>
               </div>
           </div>
+
+<!-- ══════════════════════════════════════════════════════
+     EDIT CONTRACT MODAL
+     ══════════════════════════════════════════════════════ -->
+<div class="modal fade" id="editContractModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                <input type="hidden" name="action" value="update_contract">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i data-feather="edit-2" style="width:16px;height:16px;vertical-align:-2px;margin-right:6px;"></i>
+                        Edit Contract
+                    </h5>
+                    <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body">
+
+                    <!-- Row 1: Title + Billing Cycle -->
+                    <div class="row">
+                        <div class="col-sm-8">
+                            <div class="form-group">
+                                <label class="form-label">Contract Title</label>
+                                <input type="text" name="title" class="form-control"
+                                       value="<?php echo htmlspecialchars($contract['title'] ?? ''); ?>"
+                                       placeholder="e.g. Lawn Care – 2026 Season">
+                            </div>
+                        </div>
+                        <div class="col-sm-4">
+                            <div class="form-group">
+                                <label class="form-label">Billing Cycle</label>
+                                <select name="billing_cycle" class="form-control">
+                                    <?php
+                                    $cycleOpts = ['monthly' => 'Monthly', 'per_visit' => 'Per Visit', 'seasonal' => 'Seasonal', 'annual' => 'Annual', 'custom' => 'Custom'];
+                                    foreach ($cycleOpts as $val => $label):
+                                    ?>
+                                        <option value="<?php echo $val; ?>"<?php echo ($contract['billing_cycle'] ?? 'monthly') === $val ? ' selected' : ''; ?>>
+                                            <?php echo $label; ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Row 2: Contract Value + Start Date + End Date -->
+                    <div class="row">
+                        <div class="col-sm-4">
+                            <div class="form-group">
+                                <label class="form-label">Contract Value</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend"><span class="input-group-text">$</span></div>
+                                    <input type="number" name="billing_amount" class="form-control"
+                                           step="0.01" min="0"
+                                           value="<?php echo htmlspecialchars($contract['billing_amount'] ?? ''); ?>"
+                                           placeholder="0.00">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-sm-4">
+                            <div class="form-group">
+                                <label class="form-label">Start Date <span class="text-danger">*</span></label>
+                                <input type="date" name="start_date" class="form-control" required
+                                       value="<?php echo htmlspecialchars($contract['start_date'] ?? ''); ?>">
+                            </div>
+                        </div>
+                        <div class="col-sm-4">
+                            <div class="form-group">
+                                <label class="form-label">End Date <small class="text-muted">(optional)</small></label>
+                                <input type="date" name="end_date" class="form-control"
+                                       value="<?php echo htmlspecialchars($contract['end_date'] ?? ''); ?>">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Row 3: Renewal Date + Annual Increase % -->
+                    <div class="row">
+                        <div class="col-sm-6">
+                            <div class="form-group">
+                                <label class="form-label">Renewal Date</label>
+                                <input type="date" name="renewal_date" class="form-control"
+                                       value="<?php echo htmlspecialchars($contract['renewal_date'] ?? ''); ?>">
+                                <small class="form-text text-muted">Cron auto-renews on or after this date.</small>
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="form-group">
+                                <label class="form-label">Annual Increase %</label>
+                                <div class="input-group">
+                                    <input type="number" name="renewal_increase_pct" class="form-control"
+                                           step="0.1" min="0" max="50"
+                                           value="<?php echo htmlspecialchars(number_format((float)($contract['renewal_increase_pct'] ?? 0), 1)); ?>"
+                                           placeholder="0.0">
+                                    <div class="input-group-append"><span class="input-group-text">%</span></div>
+                                </div>
+                                <small class="form-text text-muted">Applied to billing amount on each renewal.</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Row 4: Auto-Renew toggle -->
+                    <div class="mw-contract-toggle mb-3">
+                        <label class="mw-contract-toggle-label">
+                            <input type="checkbox" name="auto_renew" value="1"
+                                   <?php echo !empty($contract['auto_renew']) ? 'checked' : ''; ?>>
+                            <span class="mw-contract-toggle-track"></span>
+                            <span class="mw-contract-toggle-text">
+                                <strong>Auto-Renew</strong>
+                                <small class="d-block text-muted">Contract renews automatically on the renewal date.</small>
+                            </span>
+                        </label>
+                    </div>
+
+                    <!-- Row 5: Notes -->
+                    <div class="form-group mb-0">
+                        <label class="form-label">Notes</label>
+                        <textarea name="notes" class="form-control" rows="3"><?php echo htmlspecialchars($contract['notes'] ?? ''); ?></textarea>
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i data-feather="save" style="width:14px;height:14px;"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
 <?php if ($hasPropCoords && !$hasBorder): ?>
 <!-- ══════════════════════════════════════════════════════

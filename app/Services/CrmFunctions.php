@@ -103,6 +103,153 @@ function createContract(array $data, int $userId): array {
 }
 
 /**
+ * Calculate price_per_visit for a plan given a contract billing_amount and billing_cycle.
+ * Mirrors the JS editUpdateRevenuePreview() formula in jobs/view.php.
+ *
+ * @param float  $billingAmount  Contract billing_amount ($ per billing cycle)
+ * @param string $billingCycle   'monthly'|'per_visit'|'seasonal'|'annual'|'custom'
+ * @param array  $plan           job_plans row (needs plan_start_date, plan_end_date, recurrence_day_of_week)
+ * @return float|null            Computed price_per_visit, or null if unable to calculate
+ */
+function calcPricePerVisit(float $billingAmount, string $billingCycle, array $plan): ?float {
+    if ($billingAmount <= 0) return null;
+
+    // Count days per week from recurrence_day_of_week (comma-separated day numbers, e.g. "1,3,5")
+    $rawDow      = (string)($plan['recurrence_day_of_week'] ?? '');
+    $daysPerWeek = ($rawDow !== '')
+        ? count(array_filter(array_unique(explode(',', $rawDow)), fn($d) => is_numeric($d) && (int)$d >= 0 && (int)$d <= 6))
+        : 1;
+    $daysPerWeek = max(1, $daysPerWeek);
+
+    // Per-visit: billing_amount IS the price per visit
+    if ($billingCycle === 'per_visit') {
+        return $billingAmount;
+    }
+
+    // Determine weeks and months in the plan period
+    $weeks  = 52;
+    $months = 12;
+    if (!empty($plan['plan_start_date']) && !empty($plan['plan_end_date'])) {
+        $sd    = new DateTime($plan['plan_start_date']);
+        $ed    = new DateTime($plan['plan_end_date']);
+        $days  = (int)$sd->diff($ed)->days;
+        $weeks = max(1, (int)round($days / 7));
+        // Fractional months: total days / average days per month
+        $months = max(1, $days / (365 / 12));
+    }
+
+    // Monthly: billing_amount × months → total, then ÷ weeks ÷ days
+    if ($billingCycle === 'monthly') {
+        return round($billingAmount * $months / $weeks / $daysPerWeek, 2);
+    }
+
+    // Seasonal / annual / custom: billing_amount covers the whole period
+    return round($billingAmount / $weeks / $daysPerWeek, 2);
+}
+
+/**
+ * Recalculate price_per_visit for all active plans linked to a contract.
+ * Called after billing_amount changes (manual edit or auto-renewal).
+ */
+function recalcContractPlanPrices(int $contractId, float $billingAmount, string $billingCycle): void {
+    $db   = getDB();
+    $stmt = $db->prepare("
+        SELECT id, pricing_model, plan_start_date, plan_end_date, recurrence_day_of_week
+        FROM job_plans
+        WHERE contract_id = ? AND status != 'cancelled'
+    ");
+    $stmt->execute([$contractId]);
+    $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($plans as $plan) {
+        $ppv = calcPricePerVisit($billingAmount, $billingCycle, $plan);
+        if ($ppv !== null) {
+            $db->prepare("UPDATE job_plans SET price_per_visit = ?, estimated_amount = ?, updated_at = NOW() WHERE id = ?")
+               ->execute([$ppv, $ppv, (int)$plan['id']]);
+        }
+    }
+}
+
+/**
+ * Update an existing contract's editable fields.
+ * Also recalculates linked plan prices if billing_amount changes.
+ *
+ * @param int   $contractId
+ * @param array $data  Keys: title, billing_cycle, billing_amount, start_date,
+ *                           end_date, renewal_date, auto_renew,
+ *                           renewal_increase_pct, notes
+ * @param int   $userId
+ * @return array ['success' => bool, 'errors' => string[]]
+ */
+function updateContract(int $contractId, array $data, int $userId): array {
+    $errors = [];
+
+    if (empty($data['start_date'])) {
+        $errors[] = 'Start date is required.';
+    }
+    $validCycles = ['monthly', 'per_visit', 'seasonal', 'annual', 'custom'];
+    if (!in_array($data['billing_cycle'] ?? '', $validCycles, true)) {
+        $errors[] = 'Invalid billing cycle.';
+    }
+    if (!empty($errors)) {
+        return ['success' => false, 'errors' => $errors];
+    }
+
+    $billingAmount = (isset($data['billing_amount']) && $data['billing_amount'] !== '')
+        ? (float)$data['billing_amount']
+        : null;
+
+    $db = getDB();
+    try {
+        $stmt = $db->prepare("
+            UPDATE contracts
+            SET title                = ?,
+                billing_cycle        = ?,
+                billing_amount       = ?,
+                start_date           = ?,
+                end_date             = ?,
+                renewal_date         = ?,
+                auto_renew           = ?,
+                renewal_increase_pct = ?,
+                notes                = ?,
+                updated_at           = NOW()
+            WHERE id = ?
+        ");
+        $stmt->execute([
+            !empty($data['title'])          ? trim($data['title'])           : null,
+            $data['billing_cycle'],
+            $billingAmount,
+            $data['start_date'],
+            !empty($data['end_date'])           ? $data['end_date']           : null,
+            !empty($data['renewal_date'])       ? $data['renewal_date']       : null,
+            !empty($data['auto_renew'])         ? 1                           : 0,
+            isset($data['renewal_increase_pct']) ? (float)$data['renewal_increase_pct'] : 0.00,
+            !empty($data['notes'])              ? trim($data['notes'])        : null,
+            $contractId,
+        ]);
+
+        // Recalculate plan prices when billing_amount is set
+        if ($billingAmount !== null) {
+            recalcContractPlanPrices($contractId, $billingAmount, $data['billing_cycle']);
+        }
+
+        logActivityExtended(
+            $userId,
+            'contract_updated',
+            json_encode([
+                'contract_id'    => $contractId,
+                'changed_fields' => array_keys(array_filter($data, fn($v) => $v !== '' && $v !== null)),
+            ])
+        );
+
+        return ['success' => true, 'errors' => []];
+    } catch (PDOException $e) {
+        error_log('updateContract error: ' . $e->getMessage());
+        return ['success' => false, 'errors' => ['An error occurred while updating the contract.']];
+    }
+}
+
+/**
  * Load a single contract with property + contact + quote info.
  */
 function getContractById(int $id): ?array {
