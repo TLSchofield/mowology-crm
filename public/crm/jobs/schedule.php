@@ -3561,7 +3561,7 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
     });
 })();
 
-/ ── Day Summary Card: clock buttons + elapsed timer ──────────────────────────
+// ── Day Summary Card: clock buttons + elapsed timer ──────────────────────────
 (function () {
     'use strict';
 
