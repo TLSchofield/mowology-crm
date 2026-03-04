@@ -2859,6 +2859,87 @@
     }
 
     /* ════════════════════════════════════════════════════
+       CLOCK STATUS NAV BUTTON
+       Red + frozen hand = not clocked in
+       Green + sweeping hand + glow = clocked in
+       ════════════════════════════════════════════════════ */
+
+    .mw-mc-clock-navbtn {
+        position: relative;
+    }
+
+    /* Icon wrapper — holds the SVG and the pulsing ring */
+    .mw-clock-icon-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* ── NOT clocked in: red, hand points down (6 o'clock = stopped) ── */
+    .mw-clock-off {
+        color: #ef4444;
+    }
+
+    .mw-clock-off .mw-clock-sweep {
+        transform-origin: 12px 12px;
+        transform: rotate(180deg);   /* straight down = clock stopped */
+    }
+
+    /* Slow fade-pulse to draw attention when not yet clocked in */
+    .mw-clock-off .mw-clock-face {
+        animation: mw-clock-alert 3.5s ease-in-out infinite;
+    }
+
+    @keyframes mw-clock-alert {
+        0%, 60%, 100% { opacity: 1; }
+        80%            { opacity: 0.35; }
+    }
+
+    /* ── Clocked in: green, hand sweeps, soft glow ring pulses ── */
+    .mw-clock-on {
+        color: #22c55e;
+    }
+
+    /* Sweeping second hand — full rotation in 6s */
+    .mw-clock-on .mw-clock-sweep {
+        transform-origin: 12px 12px;
+        animation: mw-clock-sweep 6s linear infinite;
+    }
+
+    @keyframes mw-clock-sweep {
+        from { transform: rotate(0deg); }
+        to   { transform: rotate(360deg); }
+    }
+
+    /* Expanding ring pulse around the icon when active */
+    .mw-clock-on .mw-clock-icon-wrap::after {
+        content: '';
+        position: absolute;
+        inset: -5px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(34, 197, 94, 0.5);
+        animation: mw-clock-ring 2s ease-out infinite;
+    }
+
+    @keyframes mw-clock-ring {
+        0%   { transform: scale(0.7);  opacity: 0.8; }
+        100% { transform: scale(1.6);  opacity: 0; }
+    }
+
+    /* Label doubles as elapsed timer when clocked in */
+    .mw-clock-on .mw-clock-nav-label {
+        color: #22c55e;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.3px;
+        font-size: 0.65rem;
+    }
+
+    .mw-clock-off .mw-clock-nav-label {
+        color: #ef4444;
+    }
+
+    /* ════════════════════════════════════════════════════
        PWA STANDALONE TWEAKS
        ════════════════════════════════════════════════════ */
 

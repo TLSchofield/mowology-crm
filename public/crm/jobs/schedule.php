@@ -1044,7 +1044,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303i" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303j" rel="stylesheet">';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
     if ($_sd['date'] !== $mobileDate) {
@@ -2240,6 +2240,30 @@ if ($apiKey) {
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                       <span>List</span>
                   </a>
+                  <!-- Clock status button: red/frozen = not clocked in, green/sweeping = clocked in -->
+                  <button type="button"
+                          class="mw-mc-bottombar-btn mw-mc-clock-navbtn <?php echo $isClockedIn ? 'mw-clock-on' : 'mw-clock-off'; ?>"
+                          id="mwClockNavBtn"
+                          title="<?php echo $isClockedIn ? 'Clocked in — tap to go to clock' : 'Not clocked in — tap to clock in'; ?>">
+                      <div class="mw-clock-icon-wrap">
+                          <svg class="mw-clock-face" viewBox="0 0 24 24" width="22" height="22"
+                               fill="none" stroke="currentColor" stroke-linecap="round"
+                               stroke-linejoin="round" stroke-width="2">
+                              <!-- Face -->
+                              <circle cx="12" cy="12" r="10"/>
+                              <!-- Centre dot -->
+                              <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+                              <!-- Hour hand — fixed at ~10 past -->
+                              <line x1="12" y1="12" x2="9.5" y2="7.8"/>
+                              <!-- Sweep hand — animated via CSS when clocked in -->
+                              <line x1="12" y1="12" x2="12" y2="5" class="mw-clock-sweep"
+                                    stroke-width="1.5"/>
+                          </svg>
+                      </div>
+                      <span class="mw-clock-nav-label" id="mwClockNavLabel">
+                          <?php echo $isClockedIn ? '' : 'Clock In'; ?>
+                      </span>
+                  </button>
               </div>
 
           </div><!-- /.mw-mc-container -->
@@ -3614,6 +3638,44 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
             setInterval(updateDsClock, 30000);
         }
     }
+})();
+
+// ── Clock nav button: live elapsed timer + tap-to-scroll ──────────────────────
+(function () {
+    'use strict';
+
+    var btn   = document.getElementById('mwClockNavBtn');
+    var label = document.getElementById('mwClockNavLabel');
+    if (!btn || !label) return;
+
+    var isClockedIn = <?php echo $isClockedIn ? 'true' : 'false'; ?>;
+    var seconds     = <?php echo (int)$clockElapsedSeconds; ?>;
+
+    function fmt(s) {
+        var h  = Math.floor(s / 3600);
+        var m  = Math.floor((s % 3600) / 60);
+        var ss = s % 60;
+        // Show h:mm when ≥ 1 hour, else m:ss
+        if (h > 0) return h + ':' + (m  < 10 ? '0' : '') + m;
+        return              m  + ':' + (ss < 10 ? '0' : '') + ss;
+    }
+
+    if (isClockedIn) {
+        label.textContent = fmt(seconds);
+        setInterval(function () {
+            seconds++;
+            label.textContent = fmt(seconds);
+        }, 1000);
+    }
+
+    // Tap: scroll smoothly to the summary card (which holds the clock in/out buttons)
+    btn.addEventListener('click', function () {
+        var scrollArea   = document.querySelector('.mw-mc-scroll-area');
+        var summaryWrap  = document.querySelector('.mw-ds-wrap');
+        if (scrollArea && summaryWrap) {
+            scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    });
 })();
 </script>
 
