@@ -403,22 +403,53 @@ $activePage = 'contracts';
         return d.innerHTML;
     }
 
+    // SVG icons (inline, no feather dependency)
+    const ICON_MAIL = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22,4 12,13 2,4"/></svg>`;
+    const ICON_PHONE = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 10a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.28h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.92a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`;
+    const ICON_HOME = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>`;
+    const ICON_SEARCH_OFF = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`;
+
+    function initials(name) {
+        return name.trim().split(/\s+/).map(w => w[0]).join('').substring(0, 2).toUpperCase();
+    }
+
+    function metaIcon(sublabel) {
+        if (!sublabel) return '';
+        const isPhone = /^[\d\s\(\)\+\-]+$/.test(sublabel.trim());
+        return isPhone ? ICON_PHONE : ICON_MAIL;
+    }
+
     function renderResults(results) {
         if (!results.length) {
-            searchResults.innerHTML = '<div class="mw-client-search-result mw-client-search-result--empty">No contacts found</div>';
+            searchResults.innerHTML = `
+                <div class="mw-client-no-results">
+                    ${ICON_SEARCH_OFF}
+                    <span>No contacts found</span>
+                </div>`;
         } else {
-            searchResults.innerHTML = results.map(r => `
-                <div class="mw-client-search-result" data-id="${r.id}" data-name="${escHtml(r.label)}">
-                    <strong>${escHtml(r.label)}</strong>
-                    ${r.sublabel ? '<br><small class="text-muted">' + escHtml(r.sublabel) + '</small>' : ''}
-                    <small class="text-muted float-right">${r.property_count} prop${r.property_count !== 1 ? 's' : ''}</small>
-                </div>
-            `).join('');
+            searchResults.innerHTML = results.map(r => {
+                const propLabel = r.property_count === 1 ? '1 property' : r.property_count + ' properties';
+                const propPill  = r.property_count > 0
+                    ? `<span class="mw-client-result-prop-pill">${ICON_HOME} ${propLabel}</span>`
+                    : '';
+                const meta = r.sublabel
+                    ? `<span class="mw-client-result-meta">${metaIcon(r.sublabel)} ${escHtml(r.sublabel)}</span>`
+                    : '';
+                return `
+                <div class="mw-client-result" data-id="${r.id}" data-name="${escHtml(r.label)}">
+                    <div class="mw-client-result-avatar">${escHtml(initials(r.label))}</div>
+                    <div class="mw-client-result-body">
+                        <div class="mw-client-result-name">${escHtml(r.label)}</div>
+                        ${meta}
+                    </div>
+                    ${propPill}
+                </div>`;
+            }).join('');
         }
         searchResults.style.display = 'block';
 
         // Attach click handlers
-        searchResults.querySelectorAll('.mw-client-search-result[data-id]').forEach(el => {
+        searchResults.querySelectorAll('.mw-client-result[data-id]').forEach(el => {
             el.addEventListener('click', function () {
                 selectContact(parseInt(this.dataset.id, 10), this.dataset.name);
             });

@@ -1255,45 +1255,111 @@ a:hover {
 .mw-client-search-results {
   display: none;
   position: absolute;
-  top: 100%;
+  top: calc(100% + 2px);
   left: 0;
   right: 0;
   background: #fff;
-  border: 1px solid #dee2e6;
-  border-top: none;
-  border-radius: 0 0 6px 6px;
-  max-height: 240px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  max-height: 300px;
   overflow-y: auto;
   z-index: 1050;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.13), 0 2px 6px rgba(0,0,0,0.07);
 }
 .mw-client-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 10px 14px;
   cursor: pointer;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background 0.1s;
+  border-bottom: 1px solid #f2f4f6;
+  border-left: 3px solid transparent;
+  transition: background 0.12s, border-left-color 0.12s;
+  text-decoration: none;
 }
 .mw-client-result:last-child {
   border-bottom: none;
+  border-radius: 0 0 8px 8px;
+}
+.mw-client-result:first-child {
+  border-radius: 8px 8px 0 0;
+}
+.mw-client-result:only-child {
+  border-radius: 8px;
 }
 .mw-client-result:hover {
   background: var(--mw-light);
+  border-left-color: var(--mw-green);
+}
+/* Avatar circle with initials */
+.mw-client-result-avatar {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--mw-green), var(--mw-dark));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  user-select: none;
+}
+.mw-client-result-body {
+  flex: 1;
+  min-width: 0;
 }
 .mw-client-result-name {
-  font-weight: 500;
+  font-weight: 600;
   font-size: 14px;
-  color: #333;
+  color: #1a1a2e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .mw-client-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: #888;
-  margin-top: 2px;
+  margin-top: 3px;
+}
+.mw-client-result-meta svg {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+/* Property count pill */
+.mw-client-result-prop-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--mw-light);
+  color: var(--mw-dark);
+  border-radius: 20px;
+  padding: 2px 9px 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mw-client-result-prop-pill svg {
+  opacity: 0.7;
 }
 .mw-client-no-results {
-  padding: 12px 14px;
-  color: #999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 20px 14px;
+  color: #aaa;
   font-size: 13px;
   text-align: center;
+}
+.mw-client-no-results svg {
+  opacity: 0.35;
 }
 
 /* ── Contract Pathway Toggle (Quote Create/Edit) ──────── */
