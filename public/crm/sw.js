@@ -29,7 +29,7 @@
  */
 'use strict';
 
-var CACHE_NAME  = 'mwcrm-assets-v3';
+var CACHE_NAME  = 'mwcrm-assets-v4';
 var OFFLINE_URL = '/crm/offline.html';
 
 // Must match constants in offline-queue.js
