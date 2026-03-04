@@ -17081,6 +17081,137 @@ textarea.font-monospace {
     color: #6c757d;
 }
 
+/* ── Duration hrs label (inline, next to Duration label) ───────────────── */
+.mw-duration-hrs-label {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--mw-green);
+    margin-left: 6px;
+}
+
+/* ── Contract Rate Calculator (Edit Plan Modal) ─────────────────────────── */
+.mw-contract-calc {
+    border: 1px solid var(--mw-light);
+    border-radius: 8px;
+    margin-top: 12px;
+    overflow: hidden;
+}
+.mw-contract-calc-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    background: var(--mw-light);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--mw-dark);
+    user-select: none;
+    transition: background-color .15s;
+}
+.mw-contract-calc-header:hover { background: #d4e9e2; }
+.mw-calc-chevron { transition: transform .2s; }
+.mw-contract-calc.mw-contract-calc-open .mw-calc-chevron { transform: rotate(180deg); }
+.mw-contract-calc-body { display: none; padding: 14px 14px 10px; }
+.mw-contract-calc.mw-contract-calc-open .mw-contract-calc-body { display: block; }
+
+.mw-calc-toggle-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+.mw-calc-mode-btn {
+    padding: 4px 14px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background: #fff;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all .15s;
+}
+.mw-calc-mode-btn.active {
+    background: var(--mw-green);
+    color: #fff;
+    border-color: var(--mw-green);
+}
+.mw-calc-result-group {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-width: 140px;
+}
+.mw-calc-result {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--mw-green);
+    padding: 4px 0;
+    line-height: 1.2;
+}
+
+/* ── Revenue Preview Panel (Edit Plan Modal) ────────────────────────────── */
+.mw-revenue-preview-panel {
+    margin-top: 12px;
+    border: 1px solid var(--mw-light);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.mw-rev-preview-header {
+    background: var(--mw-forest);
+    color: #fff;
+    padding: 7px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .6px;
+    text-transform: uppercase;
+}
+.mw-rev-preview-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px;
+    background: var(--mw-light);
+}
+.mw-rev-item {
+    background: #fff;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 110px;
+    flex: 1 1 auto;
+}
+.mw-rev-item--total {
+    background: var(--mw-light);
+}
+.mw-rev-label {
+    font-size: 10px;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+}
+.mw-rev-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--mw-dark);
+    line-height: 1.2;
+}
+.mw-rev-item--total .mw-rev-value {
+    color: var(--mw-green);
+    font-size: 24px;
+}
+.mw-rev-sub {
+    font-size: 11px;
+    font-weight: 400;
+    color: #6c757d;
+    display: block;
+}
+.mw-rev-crew-note {
+    padding: 7px 14px;
+    font-size: 12px;
+    color: #6c757d;
+    border-top: 1px solid var(--mw-light);
+    background: #fff;
+}
+
 /* ── Unbilled Visit Pulse Indicator ────────────────────────────────────── */
 .mw-unbilled-pulse {
     display: inline-flex;

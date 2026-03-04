@@ -1841,13 +1841,15 @@ if ($hasPropCoords) {
                     </div>
                     <div class="mw-form-group">
                         <label class="form-label">Start Date</label>
-                        <input type="date" name="edit_start_date" class="form-control"
-                               value="<?php echo $plan['plan_start_date'] ?? ''; ?>">
+                        <input type="date" name="edit_start_date" id="editStartDateInput" class="form-control"
+                               value="<?php echo $plan['plan_start_date'] ?? ''; ?>"
+                               oninput="editUpdateRevenuePreview()">
                     </div>
                     <div class="mw-form-group">
                         <label class="form-label">End Date</label>
-                        <input type="date" name="edit_end_date" class="form-control"
-                               value="<?php echo $plan['plan_end_date'] ?? ''; ?>">
+                        <input type="date" name="edit_end_date" id="editEndDateInput" class="form-control"
+                               value="<?php echo $plan['plan_end_date'] ?? ''; ?>"
+                               oninput="editUpdateRevenuePreview()">
                         <small class="text-muted">Blank = ongoing</small>
                     </div>
                 </div>
@@ -1855,18 +1857,21 @@ if ($hasPropCoords) {
                 <div class="mw-form-row">
                     <div class="mw-form-group">
                         <label class="form-label">Default Start Time</label>
-                        <input type="time" name="edit_time_start" class="form-control"
-                               value="<?php echo $plan['default_time_start'] ?? ''; ?>">
+                        <input type="time" name="edit_time_start" id="editTimeStartInput" class="form-control"
+                               value="<?php echo $plan['default_time_start'] ?? ''; ?>"
+                               oninput="editCalcDurationFromTime()">
                     </div>
                     <div class="mw-form-group">
                         <label class="form-label">Default End Time</label>
-                        <input type="time" name="edit_time_end" class="form-control"
-                               value="<?php echo $plan['default_time_end'] ?? ''; ?>">
+                        <input type="time" name="edit_time_end" id="editTimeEndInput" class="form-control"
+                               value="<?php echo $plan['default_time_end'] ?? ''; ?>"
+                               oninput="editCalcDurationFromTime()">
                     </div>
                     <div class="mw-form-group">
-                        <label class="form-label">Duration (min)</label>
-                        <input type="number" name="edit_duration" class="form-control"
-                               value="<?php echo (int)$plan['estimated_duration_minutes']; ?>" min="15" step="15">
+                        <label class="form-label">Duration (min) <span id="editDurationHrsLabel" class="mw-duration-hrs-label"></span></label>
+                        <input type="number" name="edit_duration" id="editDurationInput" class="form-control"
+                               value="<?php echo (int)$plan['estimated_duration_minutes']; ?>" min="15" step="15"
+                               oninput="editCalcContractHelper(); editUpdateRevenuePreview();">
                     </div>
                 </div>
 
@@ -2007,10 +2012,43 @@ if ($hasPropCoords) {
                     </div>
                     <div class="mw-form-group">
                         <label class="form-label">Price Per Visit ($)</label>
-                        <input type="number" name="edit_price_per_visit" class="form-control" step="0.01" min="0"
-                               value="<?php echo $plan['price_per_visit'] ?? ''; ?>">
+                        <input type="number" name="edit_price_per_visit" id="editPricePerVisitInput" class="form-control" step="0.01" min="0"
+                               value="<?php echo $plan['price_per_visit'] ?? ''; ?>"
+                               oninput="editUpdateRevenuePreview()">
                     </div>
                 </div>
+
+                <!-- Contract Rate Calculator -->
+                <div class="mw-contract-calc" id="editContractCalc">
+                    <div class="mw-contract-calc-header" onclick="this.parentElement.classList.toggle('mw-contract-calc-open')">
+                        <i data-feather="calculator" style="width:14px;height:14px;"></i>
+                        <span>Contract Rate Calculator</span>
+                        <i data-feather="chevron-down" class="mw-calc-chevron" style="width:14px;height:14px;margin-left:auto;"></i>
+                    </div>
+                    <div class="mw-contract-calc-body">
+                        <div class="mw-calc-toggle-row">
+                            <button type="button" class="mw-calc-mode-btn active" onclick="editSetCalcMode('weekly')">Weekly Value</button>
+                            <button type="button" class="mw-calc-mode-btn" onclick="editSetCalcMode('hourly')">Hourly Rate</button>
+                        </div>
+                        <div class="mw-form-row mt-2 mb-0">
+                            <div class="mw-form-group mb-0">
+                                <label class="form-label" id="editCalcInputLabel">Weekly Contract Value ($)</label>
+                                <input type="number" id="editCalcInput" class="form-control" step="0.01" min="0"
+                                       placeholder="e.g. 3840" oninput="editCalcContractHelper()">
+                                <small class="text-muted" id="editCalcDivisorNote"></small>
+                            </div>
+                            <div class="mw-form-group mb-0 mw-calc-result-group">
+                                <label class="form-label">→ Price Per Visit</label>
+                                <div id="editCalcResult" class="mw-calc-result">—</div>
+                                <button type="button" class="btn btn-sm btn-outline-primary mt-1" id="editCalcApplyBtn"
+                                        style="display:none;" onclick="editApplyCalcResult()">Apply ↑</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Revenue Preview -->
+                <div class="mw-revenue-preview-panel" id="editRevenuePreview"></div>
 
                 <hr class="my-3">
                 <h6>Billing</h6>
@@ -2273,6 +2311,8 @@ if ($hasPropCoords) {
                 this.classList.toggle('active');
                 editUpdateHiddenFields();
                 editUpdateSummaryText();
+                editCalcContractHelper();
+                editUpdateRevenuePreview();
             });
         });
 
@@ -2390,6 +2430,173 @@ if ($hasPropCoords) {
             html += '<button type="button" class="mw-crew-add-btn" onclick="editToggleCrewDropdown()">+ Assign</button>';
             container.innerHTML = html;
             document.getElementById('editDefaultCrewIdHidden').value = editAssignedCrew.length > 0 ? editAssignedCrew[0].id : '';
+            editUpdateRevenuePreview();
+        }
+
+        // ── Contract Rate Calculator ──────────────────────────────
+        var editCalcMode = 'weekly';
+        var editCalcResultValue = null;
+
+        function editSetCalcMode(mode) {
+            editCalcMode = mode;
+            var label    = document.getElementById('editCalcInputLabel');
+            var input    = document.getElementById('editCalcInput');
+            var btns     = document.querySelectorAll('#editContractCalc .mw-calc-mode-btn');
+            btns.forEach(function(b, i) {
+                b.classList.toggle('active', (i === 0 && mode === 'weekly') || (i === 1 && mode === 'hourly'));
+            });
+            if (mode === 'weekly') {
+                label.textContent = 'Weekly Contract Value ($)';
+                input.placeholder = 'e.g. 3840';
+            } else {
+                label.textContent = 'Hourly Rate ($/hr)';
+                input.placeholder = 'e.g. 80';
+            }
+            input.value = '';
+            editCalcResultValue = null;
+            document.getElementById('editCalcResult').textContent = '—';
+            document.getElementById('editCalcApplyBtn').style.display = 'none';
+            document.getElementById('editCalcDivisorNote').textContent = '';
+        }
+
+        function editCalcContractHelper() {
+            var inputVal    = parseFloat(document.getElementById('editCalcInput').value) || 0;
+            var durationMin = parseInt(document.getElementById('editDurationInput').value) || 0;
+            var durationHrs = durationMin / 60;
+            var resultEl    = document.getElementById('editCalcResult');
+            var applyBtn    = document.getElementById('editCalcApplyBtn');
+            var noteEl      = document.getElementById('editCalcDivisorNote');
+            editCalcResultValue = null;
+
+            if (editCalcMode === 'weekly') {
+                var days = editSelectedDows.length;
+                if (inputVal > 0 && days > 0) {
+                    editCalcResultValue = inputVal / days;
+                    resultEl.textContent = '$' + editCalcResultValue.toFixed(2);
+                    noteEl.textContent   = '$' + inputVal.toLocaleString() + ' ÷ ' + days + ' day' + (days !== 1 ? 's' : '') + '/wk';
+                    applyBtn.style.display = '';
+                } else if (inputVal > 0 && days === 0) {
+                    resultEl.textContent   = '—';
+                    noteEl.textContent     = 'Select days above first';
+                    applyBtn.style.display = 'none';
+                } else {
+                    resultEl.textContent   = '—';
+                    noteEl.textContent     = '';
+                    applyBtn.style.display = 'none';
+                }
+            } else {
+                if (inputVal > 0 && durationHrs > 0) {
+                    editCalcResultValue = inputVal * durationHrs;
+                    resultEl.textContent = '$' + editCalcResultValue.toFixed(2);
+                    noteEl.textContent   = '$' + inputVal + '/hr × ' + durationHrs.toFixed(1) + 'h';
+                    applyBtn.style.display = '';
+                } else if (inputVal > 0 && durationHrs === 0) {
+                    resultEl.textContent   = '—';
+                    noteEl.textContent     = 'Set duration above first';
+                    applyBtn.style.display = 'none';
+                } else {
+                    resultEl.textContent   = '—';
+                    noteEl.textContent     = '';
+                    applyBtn.style.display = 'none';
+                }
+            }
+            editUpdateRevenuePreview();
+        }
+
+        function editApplyCalcResult() {
+            if (editCalcResultValue !== null) {
+                document.getElementById('editPricePerVisitInput').value = editCalcResultValue.toFixed(2);
+                editUpdateRevenuePreview();
+            }
+        }
+
+        function editCalcDurationFromTime() {
+            var startVal = document.getElementById('editTimeStartInput').value;
+            var endVal   = document.getElementById('editTimeEndInput').value;
+            if (!startVal || !endVal) return;
+            var sp = startVal.split(':').map(Number);
+            var ep = endVal.split(':').map(Number);
+            var diff = (ep[0] * 60 + (ep[1] || 0)) - (sp[0] * 60 + (sp[1] || 0));
+            if (diff > 0) {
+                document.getElementById('editDurationInput').value = diff;
+                var h = Math.floor(diff / 60), m = diff % 60;
+                document.getElementById('editDurationHrsLabel').textContent =
+                    h + 'h' + (m > 0 ? ' ' + m + 'm' : '');
+                editCalcContractHelper();
+                editUpdateRevenuePreview();
+            }
+        }
+
+        function editUpdateRevenuePreview() {
+            var container = document.getElementById('editRevenuePreview');
+            if (!container) return;
+
+            var durationMin  = parseInt((document.getElementById('editDurationInput') || {}).value) || 0;
+            var durationHrs  = durationMin / 60;
+            var crewCount    = editAssignedCrew.length;
+            var crewHours    = durationHrs * (crewCount || 1);
+            var daysPerWeek  = editSelectedDows.length;
+            var ppvInput     = document.getElementById('editPricePerVisitInput');
+            var pricePerVisit = ppvInput ? (parseFloat(ppvInput.value) || 0) : 0;
+            var weeklyRev    = pricePerVisit * daysPerWeek;
+
+            // Season weeks from date fields
+            var startDateEl = document.getElementById('editStartDateInput');
+            var endDateEl   = document.getElementById('editEndDateInput');
+            var startDateV  = startDateEl ? startDateEl.value : '';
+            var endDateV    = endDateEl   ? endDateEl.value   : '';
+            var seasonWeeks = 0, seasonLabel = '';
+            if (startDateV && endDateV) {
+                var sd = new Date(startDateV), ed = new Date(endDateV);
+                seasonWeeks = Math.round((ed - sd) / (7 * 24 * 3600 * 1000));
+                var opts = { month: 'short', day: 'numeric' };
+                seasonLabel = sd.toLocaleDateString('en-CA', opts) + ' – ' + ed.toLocaleDateString('en-CA', opts);
+            }
+            var totalValue = weeklyRev * seasonWeeks;
+
+            if (pricePerVisit <= 0 && durationMin <= 0) { container.innerHTML = ''; return; }
+
+            function fmtMoney(n) {
+                if (n >= 100000) return '$' + (n / 1000).toFixed(0) + 'k';
+                if (n >= 10000)  return '$' + (n / 1000).toFixed(1) + 'k';
+                return '$' + Math.round(n).toLocaleString();
+            }
+            function fmtDur(min) {
+                if (min <= 0) return '—';
+                var h = Math.floor(min / 60), m = min % 60;
+                return h > 0 ? h + 'h' + (m > 0 ? ' ' + m + 'm' : '') : m + 'm';
+            }
+
+            var items = '';
+            if (durationMin > 0) {
+                items += '<div class="mw-rev-item"><span class="mw-rev-label">Duration</span><span class="mw-rev-value">' + fmtDur(durationMin) + '</span></div>';
+            }
+            if (pricePerVisit > 0) {
+                items += '<div class="mw-rev-item"><span class="mw-rev-label">Per visit</span><span class="mw-rev-value">$' + Math.round(pricePerVisit).toLocaleString() + '</span></div>';
+            }
+            if (daysPerWeek > 0 && pricePerVisit > 0) {
+                items += '<div class="mw-rev-item"><span class="mw-rev-label">Per week</span><span class="mw-rev-value">' +
+                    fmtMoney(weeklyRev) + '<small class="mw-rev-sub">' + daysPerWeek + ' day' + (daysPerWeek !== 1 ? 's' : '') + '</small></span></div>';
+            }
+            if (seasonWeeks > 0) {
+                items += '<div class="mw-rev-item"><span class="mw-rev-label">Season</span><span class="mw-rev-value">' +
+                    seasonWeeks + ' wks<small class="mw-rev-sub">' + seasonLabel + '</small></span></div>';
+            }
+            if (totalValue > 0) {
+                items += '<div class="mw-rev-item mw-rev-item--total"><span class="mw-rev-label">Contract Total</span><span class="mw-rev-value">' + fmtMoney(totalValue) + '</span></div>';
+            }
+
+            var crewNote = (crewCount > 0 && durationHrs > 0)
+                ? '<div class="mw-rev-crew-note"><i data-feather="users" style="width:12px;height:12px;vertical-align:-2px;"></i> ' +
+                  crewCount + ' crew × ' + durationHrs.toFixed(1) + 'h = ' + crewHours.toFixed(1) + ' crew-hrs/visit</div>'
+                : '';
+
+            container.innerHTML =
+                '<div class="mw-rev-preview-header">Revenue Breakdown</div>' +
+                '<div class="mw-rev-preview-grid">' + items + '</div>' +
+                crewNote;
+
+            if (typeof feather !== 'undefined') feather.replace();
         }
 
         function escHtml(str) {
