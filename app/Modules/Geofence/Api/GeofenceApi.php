@@ -45,6 +45,21 @@
  *
  *   set_plan_override  POST {action, plan_id, enabled: 0|1|null}
  *                           Override geofence on/off at the plan level.
+ *
+ *   save_zone      POST {action, property_id, zone_type, plan_id?, ring, label?, notes?}
+ *                       Save an arrival_border or work_zone polygon for a property.
+ *
+ *   get_zones      GET  ?action=get_zones&property_id=N
+ *                       All zones (arrival border + work zones) for a property.
+ *
+ *   delete_zone    POST {action, geofence_id}
+ *                       Delete a zone by ID.
+ *
+ *   get_zone_sessions GET ?action=get_zone_sessions&visit_id=N
+ *                         Per-zone time breakdown for a completed visit.
+ *
+ *   compute_zone_sessions POST {action, visit_id}
+ *                              Manually trigger zone session computation.
  */
 declare(strict_types=1);
 header('Content-Type: application/json');
@@ -387,6 +402,136 @@ try {
             ]);
             break;
 
+        // ── POST: save zone (arrival_border or work_zone) ───────────────────
+        case 'save_zone':
+            if (!$canEdit) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Permission denied.']);
+                break;
+            }
+
+            $propertyId = (int)($input['property_id'] ?? 0);
+            $zoneType   = $input['zone_type'] ?? 'work_zone';
+            $planId     = isset($input['plan_id']) && $input['plan_id'] ? (int)$input['plan_id'] : null;
+            $ring       = $input['ring'] ?? [];
+            $label      = trim($input['label'] ?? '');
+
+            if (!$propertyId) throw new InvalidArgumentException('property_id required');
+            if (count($ring) < 3) throw new InvalidArgumentException('Polygon must have at least 3 vertices.');
+            if ($zoneType === 'work_zone' && !$planId) throw new InvalidArgumentException('plan_id required for work_zone.');
+
+            foreach ($ring as $pt) {
+                if (!is_array($pt) || count($pt) < 2) {
+                    throw new InvalidArgumentException('Each point must be [lat, lng].');
+                }
+            }
+
+            $geofenceId = geofenceSaveZone(
+                $propertyId, $zoneType, $planId, $ring, (int)$user['id'],
+                $label ?: null,
+                $input['notes'] ?? null
+            );
+
+            echo json_encode([
+                'success'     => true,
+                'geofence_id' => $geofenceId,
+                'message'     => ($zoneType === 'arrival_border' ? 'Arrival border' : 'Work zone') . ' saved.',
+            ]);
+            break;
+
+        // ── GET: all zones for a property ────────────────────────────────────
+        case 'get_zones':
+            $propertyId = (int)($_GET['property_id'] ?? 0);
+            if (!$propertyId) throw new InvalidArgumentException('property_id required');
+
+            $zones = geofenceGetZonesForProperty($propertyId);
+
+            $out = array_map(function($z) {
+                return [
+                    'id'           => (int)$z['id'],
+                    'zone_type'    => $z['zone_type'] ?? 'work_zone',
+                    'plan_id'      => $z['plan_id'] ? (int)$z['plan_id'] : null,
+                    'plan_title'   => $z['plan_title'] ?? null,
+                    'label'        => $z['label'],
+                    'ring'         => $z['polygon'],
+                    'area_sqm'     => $z['area_sqm'] ? (float)$z['area_sqm'] : null,
+                    'bbox'         => [
+                        'lat_min' => (float)$z['bbox_lat_min'],
+                        'lat_max' => (float)$z['bbox_lat_max'],
+                        'lng_min' => (float)$z['bbox_lng_min'],
+                        'lng_max' => (float)$z['bbox_lng_max'],
+                    ],
+                ];
+            }, $zones);
+
+            echo json_encode(['success' => true, 'zones' => $out]);
+            break;
+
+        // ── POST: delete a zone by ID ────────────────────────────────────────
+        case 'delete_zone':
+            if (!$canEdit) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Permission denied.']);
+                break;
+            }
+
+            $geofenceId = (int)($input['geofence_id'] ?? 0);
+            if (!$geofenceId) throw new InvalidArgumentException('geofence_id required');
+
+            geofenceDelete($geofenceId);
+
+            echo json_encode(['success' => true, 'message' => 'Zone deleted.']);
+            break;
+
+        // ── GET: zone session breakdown for a visit ──────────────────────────
+        case 'get_zone_sessions':
+            $visitId = (int)($_GET['visit_id'] ?? 0);
+            if (!$visitId) throw new InvalidArgumentException('visit_id required');
+
+            $sessions = geofenceGetZoneSessions($visitId);
+
+            // Also fetch transit seconds from job_visits
+            $db = getDB();
+            $transitStmt = $db->prepare("SELECT transit_seconds FROM job_visits WHERE id = ?");
+            $transitStmt->execute([$visitId]);
+            $transitRow = $transitStmt->fetch(PDO::FETCH_ASSOC);
+            $transitSec = $transitRow ? (int)$transitRow['transit_seconds'] : null;
+
+            echo json_encode([
+                'success'         => true,
+                'zone_sessions'   => $sessions,
+                'transit_seconds' => $transitSec,
+            ]);
+            break;
+
+        // ── POST: compute zone sessions manually ─────────────────────────────
+        case 'compute_zone_sessions':
+            $visitId = (int)($input['visit_id'] ?? 0);
+            if (!$visitId) throw new InvalidArgumentException('visit_id required');
+
+            // Look up property_id via visit → plan
+            $db = getDB();
+            $stmt = $db->prepare("
+                SELECT jp.property_id
+                FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                WHERE jv.id = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$visitId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) throw new RuntimeException('Visit not found.');
+
+            geofenceComputeZoneSessions($visitId, (int)$row['property_id']);
+            $sessions = geofenceGetZoneSessions($visitId);
+
+            echo json_encode([
+                'success'       => true,
+                'zone_sessions' => $sessions,
+                'message'       => 'Zone sessions computed.',
+            ]);
+            break;
+
         default:
             http_response_code(400);
             echo json_encode([
@@ -395,6 +540,7 @@ try {
                     'resolve', 'get_polygon', 'save_polygon', 'delete_polygon',
                     'sync_samples', 'compute_session', 'get_session',
                     'get_settings', 'save_settings', 'set_visit_override', 'set_plan_override',
+                    'save_zone', 'get_zones', 'delete_zone', 'get_zone_sessions', 'compute_zone_sessions',
                 ],
             ]);
     }

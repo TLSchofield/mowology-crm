@@ -561,25 +561,58 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
     }
 
     // Guard 6+7: find nearest scheduled visit within proximity
+    // Enhanced: if the property has an arrival border polygon, use point-in-polygon
+    // instead of the 150m haversine circle (more accurate for large multi-address sites).
     $allowedTypesStr = getTimeClockSetting('auto_arrival_service_types', '');
     $allowedTypes = array_filter(array_map('trim', explode(',', $allowedTypesStr)));
 
-    $nearest = null;
+    $nearest     = null;
     $nearestDist = PHP_FLOAT_MAX;
 
+    // Pre-load arrival borders per property to avoid per-visit queries in the loop
+    $arrivalBorderCache = [];
+    $geofenceModelPath  = null;
+    foreach ([APP_ROOT . '/Modules/Geofence/Models/GeofenceModel.php',
+              dirname(dirname(dirname(__DIR__))) . '/app/Modules/Geofence/Models/GeofenceModel.php'] as $p) {
+        if (is_file($p)) { $geofenceModelPath = $p; break; }
+    }
+    if ($geofenceModelPath) {
+        require_once $geofenceModelPath;
+    }
+
     foreach ($allVisits as $visit) {
-        // Must be scheduled
         if ($visit['status'] !== 'scheduled') continue;
 
-        // Must have coordinates
-        $vLat = $visit['property_lat'] ?? null;
-        $vLng = $visit['property_lng'] ?? null;
+        $vLat      = $visit['property_lat'] ?? null;
+        $vLng      = $visit['property_lng'] ?? null;
+        $propertyId = isset($visit['property_id']) ? (int)$visit['property_id'] : 0;
+
         if (!$vLat || !$vLng) continue;
 
+        // Check arrival border polygon if one exists for this property
+        $insideBorder = false;
+        if ($propertyId && $geofenceModelPath && function_exists('geofenceGetArrivalBorder')) {
+            if (!array_key_exists($propertyId, $arrivalBorderCache)) {
+                $arrivalBorderCache[$propertyId] = geofenceGetArrivalBorder($propertyId);
+            }
+            $border = $arrivalBorderCache[$propertyId];
+            if ($border && !empty($border['polygon'])) {
+                $insideBorder = geofencePointInPolygon($lat, $lng, $border['polygon'], $border['bbox']);
+            }
+        }
+
+        if ($insideBorder) {
+            // Polygon match is definitive — treat as distance 0 so it always wins
+            $nearestDist = 0;
+            $nearest     = $visit;
+            break; // first polygon match wins (already inside the site)
+        }
+
+        // Fallback: haversine distance check (no arrival border drawn yet)
         $dist = haversineDistance($lat, $lng, (float)$vLat, (float)$vLng);
         if ($dist < $nearestDist) {
             $nearestDist = $dist;
-            $nearest = $visit;
+            $nearest     = $visit;
         }
     }
 

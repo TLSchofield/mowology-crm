@@ -290,6 +290,376 @@ function geofenceDelete(int $geofenceId): void {
     $db->prepare("DELETE FROM job_geofences WHERE id = ?")->execute([$geofenceId]);
 }
 
+/**
+ * Save a zone polygon — works for both arrival_border and work_zone types.
+ * For 'arrival_border': pass $planId = null, links to property only.
+ * For 'work_zone': pass $planId to link attribution to a plan.
+ * Returns the new geofence_id.
+ */
+function geofenceSaveZone(
+    int $propertyId, string $zoneType, ?int $planId,
+    array $ring, int $userId,
+    ?string $label = null, ?string $notes = null
+): int {
+    if (count($ring) < 3) {
+        throw new InvalidArgumentException('A polygon must have at least 3 vertices.');
+    }
+    if (!in_array($zoneType, ['arrival_border', 'work_zone'], true)) {
+        throw new InvalidArgumentException('zone_type must be arrival_border or work_zone.');
+    }
+
+    $first = $ring[0];
+    $last  = end($ring);
+    if ($first[0] !== $last[0] || $first[1] !== $last[1]) {
+        $ring[] = $first;
+    }
+
+    [$latMin, $latMax, $lngMin, $lngMax] = geofenceBbox($ring);
+    $areaSqm = geofencePolygonArea($ring);
+
+    $db = getDB();
+    $stmt = $db->prepare("
+        INSERT INTO job_geofences
+            (plan_id, property_id, zone_type, polygon_json, vertex_count,
+             bbox_lat_min, bbox_lat_max, bbox_lng_min, bbox_lng_max,
+             area_sqm, label, notes, drawn_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ");
+    $stmt->execute([
+        $planId,
+        $propertyId,
+        $zoneType,
+        json_encode($ring),
+        count($ring) - 1,
+        $latMin, $latMax, $lngMin, $lngMax,
+        $areaSqm,
+        $label, $notes,
+        $userId,
+    ]);
+    return (int)$db->lastInsertId();
+}
+
+/**
+ * Get all zones for a property (arrival borders + work zones).
+ * Ordered: arrival_border first, then work_zones by label.
+ */
+function geofenceGetZonesForProperty(int $propertyId): array {
+    try {
+        $db   = getDB();
+        $stmt = $db->prepare("
+            SELECT g.*, p.title AS plan_title, p.service_type AS plan_service_type
+            FROM job_geofences g
+            LEFT JOIN job_plans p ON g.plan_id = p.id
+            WHERE g.property_id = ?
+            ORDER BY g.zone_type ASC, g.label ASC, g.drawn_at DESC
+        ");
+        $stmt->execute([$propertyId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) {
+            $row['polygon'] = json_decode($row['polygon_json'], true) ?: [];
+        }
+        return $rows;
+    } catch (PDOException $e) {
+        error_log('[GeofenceModel] geofenceGetZonesForProperty: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get the arrival border polygon for a property, if one exists.
+ */
+function geofenceGetArrivalBorder(int $propertyId): ?array {
+    try {
+        $db   = getDB();
+        $stmt = $db->prepare("
+            SELECT * FROM job_geofences
+            WHERE property_id = ? AND zone_type = 'arrival_border'
+            ORDER BY drawn_at DESC LIMIT 1
+        ");
+        $stmt->execute([$propertyId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        $row['polygon'] = json_decode($row['polygon_json'], true) ?: [];
+        $row['bbox'] = [
+            'lat_min' => (float)$row['bbox_lat_min'],
+            'lat_max' => (float)$row['bbox_lat_max'],
+            'lng_min' => (float)$row['bbox_lng_min'],
+            'lng_max' => (float)$row['bbox_lng_max'],
+        ];
+        return $row;
+    } catch (PDOException $e) {
+        error_log('[GeofenceModel] geofenceGetArrivalBorder: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * Get all work zone polygons for a property.
+ * Includes bbox as parsed array for efficient point-in-polygon.
+ */
+function geofenceGetWorkZones(int $propertyId): array {
+    try {
+        $db   = getDB();
+        $stmt = $db->prepare("
+            SELECT id, plan_id, label, polygon_json,
+                   bbox_lat_min, bbox_lat_max, bbox_lng_min, bbox_lng_max
+            FROM job_geofences
+            WHERE property_id = ? AND zone_type = 'work_zone'
+            ORDER BY id ASC
+        ");
+        $stmt->execute([$propertyId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) {
+            $row['polygon'] = json_decode($row['polygon_json'], true) ?: [];
+            $row['bbox'] = [
+                'lat_min' => (float)$row['bbox_lat_min'],
+                'lat_max' => (float)$row['bbox_lat_max'],
+                'lng_min' => (float)$row['bbox_lng_min'],
+                'lng_max' => (float)$row['bbox_lng_max'],
+            ];
+        }
+        return $rows;
+    } catch (PDOException $e) {
+        error_log('[GeofenceModel] geofenceGetWorkZones: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Classify a single GPS ping against an array of work zones.
+ * Returns the zone_id the ping fell inside (first match), or null (transit).
+ */
+function geofenceClassifyPingAgainstWorkZones(float $lat, float $lng, array $workZones): ?int {
+    foreach ($workZones as $zone) {
+        if (empty($zone['polygon'])) continue;
+        if (geofencePointInPolygon($lat, $lng, $zone['polygon'], $zone['bbox'])) {
+            return (int)$zone['id'];
+        }
+    }
+    return null;
+}
+
+/**
+ * Classify all pending location samples for a visit against work zones.
+ * Writes work_zone_id (null = transit) to each sample.
+ */
+function geofenceClassifySamplesForWorkZones(int $visitId, int $propertyId): void {
+    $workZones = geofenceGetWorkZones($propertyId);
+    if (empty($workZones)) return;
+
+    $db       = getDB();
+    $settings = geofenceGetSettings();
+    $maxAcc   = (float)($settings['geofence.max_accuracy_m'] ?? 150);
+
+    // Load samples that have been zone_checked (standard classification done) but not work-zone classified
+    $stmt = $db->prepare("
+        SELECT id, lat, lng, accuracy_m
+        FROM job_location_samples
+        WHERE visit_id = ? AND zone_checked = 1 AND work_zone_id IS NULL
+        ORDER BY sampled_at ASC
+    ");
+    $stmt->execute([$visitId]);
+    $samples = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (empty($samples)) return;
+
+    $update = $db->prepare("UPDATE job_location_samples SET work_zone_id = ? WHERE id = ?");
+    foreach ($samples as $s) {
+        $acc = $s['accuracy_m'] !== null ? (float)$s['accuracy_m'] : null;
+        if ($acc !== null && $acc > $maxAcc) {
+            $update->execute([null, $s['id']]); // inaccurate → treat as transit
+            continue;
+        }
+        $zoneId = geofenceClassifyPingAgainstWorkZones((float)$s['lat'], (float)$s['lng'], $workZones);
+        $update->execute([$zoneId, $s['id']]);
+    }
+}
+
+/**
+ * Compute per-zone time summaries from classified pings for a visit.
+ *
+ * Applies a 2-minute minimum dwell filter (pass-throughs ignored).
+ * Writes rows to visit_zone_sessions.
+ * Writes transit_seconds to job_visits.
+ *
+ * Safe to call multiple times — upserts.
+ */
+function geofenceComputeZoneSessions(int $visitId, int $propertyId): void {
+    $db = getDB();
+
+    // Ensure pending pings are work-zone classified first
+    geofenceClassifySamplesForWorkZones($visitId, $propertyId);
+
+    // Load all classified samples in chronological order
+    $stmt = $db->prepare("
+        SELECT sampled_at, work_zone_id
+        FROM job_location_samples
+        WHERE visit_id = ? AND zone_checked = 1
+        ORDER BY sampled_at ASC
+    ");
+    $stmt->execute([$visitId]);
+    $samples = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (empty($samples)) return;
+
+    $minDwellSec = 120; // 2-minute minimum to count as real zone work
+
+    // Build continuous sequences per zone
+    // $sequences[zoneId|null] = [[duration => int], ...]
+    $sequences    = [];
+    $currentZone  = 'UNSET'; // sentinel so first sample always triggers a segment start
+    $segmentStart = null;
+    $lastTs       = null;
+    $count        = count($samples);
+
+    foreach ($samples as $i => $s) {
+        $zoneId = $s['work_zone_id'] !== null ? (int)$s['work_zone_id'] : null;
+        $ts     = strtotime($s['sampled_at']);
+        $isLast = ($i === $count - 1);
+
+        if ($currentZone === 'UNSET') {
+            // First sample — start a segment
+            $currentZone  = $zoneId;
+            $segmentStart = $ts;
+        } elseif ($currentZone !== $zoneId) {
+            // Zone changed — close previous segment
+            $duration = $ts - $segmentStart;
+            if ($duration >= $minDwellSec) {
+                $key = $currentZone === null ? '__transit__' : (string)$currentZone;
+                $sequences[$key][] = $duration;
+            }
+            $currentZone  = $zoneId;
+            $segmentStart = $ts;
+        }
+
+        // Close open segment on last sample
+        if ($isLast && $segmentStart !== null) {
+            $duration = $ts - $segmentStart;
+            if ($duration >= $minDwellSec) {
+                $key = $currentZone === null ? '__transit__' : (string)$currentZone;
+                $sequences[$key][] = $duration;
+            }
+        }
+
+        $lastTs = $ts;
+    }
+
+    // Sum transit seconds (NULL zone = inside outer border but not in a work zone)
+    $transitSec = 0;
+    if (isset($sequences['__transit__'])) {
+        foreach ($sequences['__transit__'] as $dur) {
+            $transitSec += $dur;
+        }
+        unset($sequences['__transit__']);
+    }
+
+    // Write transit time to job_visits
+    $db->prepare("UPDATE job_visits SET transit_seconds = ? WHERE id = ?")
+       ->execute([$transitSec, $visitId]);
+
+    // Load zone metadata (label, plan_id) for the zones we found
+    $workZones = geofenceGetWorkZones($propertyId);
+    $zoneIndex = [];
+    foreach ($workZones as $z) {
+        $zoneIndex[(int)$z['id']] = $z;
+    }
+
+    // Count distinct crew who worked this visit
+    $crewStmt = $db->prepare("
+        SELECT COUNT(DISTINCT user_id) FROM job_time_entries WHERE visit_id = ?
+    ");
+    $crewStmt->execute([$visitId]);
+    $crewCount = max(1, (int)$crewStmt->fetchColumn());
+
+    // Upsert one row per work zone
+    foreach ($sequences as $zoneIdStr => $durations) {
+        $zoneId   = (int)$zoneIdStr;
+        $inSec    = array_sum($durations);
+        $entries  = count($durations); // each continuous segment = 1 entry + 1 exit
+        $zoneInfo = $zoneIndex[$zoneId] ?? [];
+        $planId   = $zoneInfo['plan_id'] ?? null;
+        $label    = $zoneInfo['label']   ?? null;
+
+        $db->prepare("
+            INSERT INTO visit_zone_sessions
+                (visit_id, zone_id, zone_label, plan_id, in_seconds, entry_count, exit_count, crew_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                zone_label  = VALUES(zone_label),
+                plan_id     = VALUES(plan_id),
+                in_seconds  = VALUES(in_seconds),
+                entry_count = VALUES(entry_count),
+                exit_count  = VALUES(exit_count),
+                crew_count  = VALUES(crew_count),
+                computed_at = NOW()
+        ")->execute([$visitId, $zoneId, $label, $planId, $inSec, $entries, $entries, $crewCount]);
+    }
+}
+
+/**
+ * Get zone sessions for a visit, enriched with zone + plan metadata.
+ * Ordered by time spent descending.
+ */
+function geofenceGetZoneSessions(int $visitId): array {
+    try {
+        $db   = getDB();
+        $stmt = $db->prepare("
+            SELECT vzs.*,
+                   jp.title AS plan_title,
+                   jp.service_type AS plan_service_type
+            FROM visit_zone_sessions vzs
+            LEFT JOIN job_plans jp ON jp.id = vzs.plan_id
+            WHERE vzs.visit_id = ?
+            ORDER BY vzs.in_seconds DESC
+        ");
+        $stmt->execute([$visitId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log('[GeofenceModel] geofenceGetZoneSessions: ' . $e->getMessage());
+        return [];
+    }
+}
+
+/**
+ * Get zone time summary for a date range — for the zone report page.
+ * Returns rows: zone_label, plan_title, total_in_seconds, visit_count, crew_count, property details.
+ */
+function geofenceGetZoneReport(PDO $db, string $dateFrom, string $dateTo, ?int $propertyId = null): array {
+    $params = [$dateFrom, $dateTo];
+    $where  = 'WHERE jv.scheduled_date BETWEEN ? AND ?';
+    if ($propertyId) {
+        $where .= ' AND jp.property_id = ?';
+        $params[] = $propertyId;
+    }
+    try {
+        $stmt = $db->prepare("
+            SELECT
+                vzs.zone_id,
+                vzs.zone_label,
+                vzs.plan_id,
+                jp.title        AS plan_title,
+                jp.service_type AS plan_service_type,
+                jp.property_id,
+                pr.address      AS property_address,
+                SUM(vzs.in_seconds)  AS total_in_seconds,
+                COUNT(DISTINCT vzs.visit_id) AS visit_count,
+                MAX(vzs.crew_count)  AS max_crew,
+                SUM(jv.transit_seconds) AS total_transit_seconds
+            FROM visit_zone_sessions vzs
+            JOIN job_visits jv ON jv.id = vzs.visit_id
+            JOIN job_plans jp   ON jp.id = vzs.plan_id
+            JOIN properties pr  ON pr.id = jp.property_id
+            $where
+            GROUP BY vzs.zone_id, vzs.zone_label, vzs.plan_id,
+                     jp.title, jp.service_type, jp.property_id, pr.address
+            ORDER BY jp.property_id ASC, vzs.zone_label ASC
+        ");
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (PDOException $e) {
+        error_log('[GeofenceModel] geofenceGetZoneReport: ' . $e->getMessage());
+        return [];
+    }
+}
+
 
 // ============================================================================
 // LOCATION SAMPLE INGESTION

@@ -166,6 +166,21 @@ class VisitCompletionService
                 WHERE id = ?
             ")->execute([$visitId, $visitId]);
 
+            // ── 12b. Compute work-zone time attribution from GPS pings ────────────
+            // Derives per-zone in_seconds from classified job_location_samples.
+            // Safe to call even if no zones are drawn — exits early.
+            $geoModelPath = APP_ROOT . '/Modules/Geofence/Models/GeofenceModel.php';
+            if (is_file($geoModelPath) && $visit['property_id']) {
+                require_once $geoModelPath;
+                if (function_exists('geofenceComputeZoneSessions')) {
+                    try {
+                        geofenceComputeZoneSessions($visitId, (int)$visit['property_id']);
+                    } catch (Throwable $ze) {
+                        error_log('[VisitCompletionService] Zone session compute failed for visit ' . $visitId . ': ' . $ze->getMessage());
+                    }
+                }
+            }
+
             // ── 13. Update plan's estimated_duration_minutes with rolling average ──
             // Average per-visit actual timer totals across all completed visits that
             // have real timer data. Rounds to nearest minute. This continuously

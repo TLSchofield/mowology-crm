@@ -351,16 +351,42 @@ try {
             // ── Generate image variants ──────────────────────────────────
             $variants = generatePhotoVariants($fullPath, $visitId, $base, $realMime);
 
+            // Auto-tag photo to the work zone the crew is currently in (if any)
+            $photoWorkZoneId = null;
+            if (isset($input['lat']) && isset($input['lng'])) {
+                $photoLat = (float)$input['lat'];
+                $photoLng = (float)$input['lng'];
+                $geoModel = APP_ROOT . '/Modules/Geofence/Models/GeofenceModel.php';
+                if (is_file($geoModel)) {
+                    require_once $geoModel;
+                    // Look up property for this visit
+                    $propStmt = $db->prepare("
+                        SELECT jp.property_id FROM job_visits jv
+                        JOIN job_plans jp ON jp.id = jv.plan_id
+                        WHERE jv.id = ? LIMIT 1
+                    ");
+                    $propStmt->execute([$visitId]);
+                    $propRow = $propStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($propRow && function_exists('geofenceGetWorkZones')) {
+                        $zones = geofenceGetWorkZones((int)$propRow['property_id']);
+                        if (!empty($zones) && function_exists('geofenceClassifyPingAgainstWorkZones')) {
+                            $photoWorkZoneId = geofenceClassifyPingAgainstWorkZones($photoLat, $photoLng, $zones);
+                        }
+                    }
+                }
+            }
+
             $db->prepare("
                 INSERT INTO visit_photos
                     (visit_id, photo_type, filename, original_filename, file_size,
-                     mime_type, caption, sort_order, thumb_path, grid_path, view_path, uploaded_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     mime_type, caption, sort_order, thumb_path, grid_path, view_path,
+                     uploaded_by, work_zone_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ")->execute([
                 $visitId, $photoType, $filename, $file['name'],
                 $file['size'], $realMime, $caption, $sortOrder,
                 $variants['thumb_path'], $variants['grid_path'], $variants['view_path'],
-                $user['id'],
+                $user['id'], $photoWorkZoneId,
             ]);
             $photoId = (int)$db->lastInsertId();
 
