@@ -516,13 +516,7 @@ function dpClockIn() {
                 ].filter(Boolean);
 
                 targets.forEach(function(el) { el.classList.add('mw-flatline-out'); });
-                setTimeout(function() {
-                    targets.forEach(function(el) {
-                        el.classList.remove('mw-flatline-out');
-                        el.classList.add('mw-flatline-collapse');
-                    });
-                    setTimeout(function(){ location.reload(); }, 380);
-                }, 900);
+                setTimeout(function(){ location.reload(); }, 1450);
             } else {
                 dpToast(data.error || 'Clock in failed', true);
                 btn.disabled = false;

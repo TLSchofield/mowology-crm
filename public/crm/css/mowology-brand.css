@@ -9843,51 +9843,29 @@ textarea.font-monospace {
 }
 
 /* ── Flatline Animation (clock-in transition) ─────────── */
+/*
+ * Single keyframe — squish to a glowing green line, then collapse.
+ * box-shadow on the scaled element creates the visible glow line
+ * (::after pseudo-elements scale with the parent so don't work here).
+ * JS adds .mw-flatline-out; page reloads after 1450ms.
+ */
 
-@keyframes mw-flatline-squish {
-  0%   { transform: scaleY(1);    opacity: 1; }
-  30%  { transform: scaleY(0.04); opacity: 1; }
-  65%  { transform: scaleY(0.04); opacity: 1; }
-  100% { transform: scaleY(0.04); opacity: 0; }
+@keyframes mw-flatline {
+  0%   { transform: scaleY(1);    opacity: 1; max-height: 400px; margin-bottom: 24px; box-shadow: none; }
+  26%  { transform: scaleY(0.04); opacity: 1; max-height: 400px; margin-bottom: 24px;
+         box-shadow: 0 0 0 1px var(--mw-lime), 0 0 22px 6px rgba(127, 216, 88, 0.55); }
+  62%  { transform: scaleY(0.04); opacity: 1; max-height: 400px; margin-bottom: 24px;
+         box-shadow: 0 0 0 1px var(--mw-lime), 0 0 22px 6px rgba(127, 216, 88, 0.55); }
+  78%  { transform: scaleY(0.04); opacity: 0; max-height: 400px; margin-bottom: 24px; box-shadow: none; }
+  92%  { transform: scaleY(0);    opacity: 0; max-height: 0;     margin-bottom: 0; }
+  100% { transform: scaleY(0);    opacity: 0; max-height: 0;     margin-bottom: 0;
+         padding-top: 0; padding-bottom: 0; }
 }
 
-@keyframes mw-flatline-line-glow {
-  0%   { opacity: 0; box-shadow: none; }
-  30%  { opacity: 1; box-shadow: 0 0 6px 2px var(--mw-lime), 0 0 24px 4px var(--mw-green); }
-  65%  { opacity: 1; box-shadow: 0 0 6px 2px var(--mw-lime), 0 0 24px 4px var(--mw-green); }
-  100% { opacity: 0; box-shadow: none; }
-}
-
-@keyframes mw-flatline-height-collapse {
-  from { max-height: 200px; margin-bottom: 16px; opacity: 0; }
-  to   { max-height: 0;     margin-bottom: 0;    opacity: 0; padding-top: 0; padding-bottom: 0; }
-}
-
-/* Applied by JS on clock-in success */
 .mw-flatline-out {
-  animation: mw-flatline-squish 900ms cubic-bezier(0.4, 0, 0.8, 1) forwards;
+  animation: mw-flatline 1.4s cubic-bezier(0.4, 0, 0.8, 1) forwards;
   transform-origin: center;
   overflow: hidden;
-  position: relative;
-}
-
-.mw-flatline-out::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: -12px;
-  right: -12px;
-  height: 2px;
-  background: var(--mw-lime);
-  transform: translateY(-50%);
-  animation: mw-flatline-line-glow 900ms cubic-bezier(0.4, 0, 0.8, 1) forwards;
-  pointer-events: none;
-  border-radius: 2px;
-}
-
-.mw-flatline-collapse {
-  overflow: hidden;
-  animation: mw-flatline-height-collapse 350ms ease-out forwards;
 }
 
 /* ── My Schedule Page ─────────────────────────────────── */

@@ -3596,13 +3596,7 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                         ].filter(Boolean);
 
                         targets.forEach(function (el) { el.classList.add('mw-flatline-out'); });
-                        setTimeout(function () {
-                            targets.forEach(function (el) {
-                                el.classList.remove('mw-flatline-out');
-                                el.classList.add('mw-flatline-collapse');
-                            });
-                            setTimeout(function () { window.location.href = TODAY_URL; }, 380);
-                        }, 900);
+                        setTimeout(function () { window.location.href = TODAY_URL; }, 1450);
                     } else {
                         btnIn.disabled = false;
                         btnIn.textContent = 'Clock In';
