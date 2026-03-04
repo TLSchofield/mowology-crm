@@ -1362,6 +1362,97 @@ a:hover {
   opacity: 0.35;
 }
 
+/* ── Contract Plans Reconciliation Strip ──────────────── */
+.mw-contract-reconcile {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-top: 1px solid #f0f2f4;
+  background: #fafbfc;
+  border-radius: 0 0 6px 6px;
+  padding: 10px 18px;
+}
+.mw-reconcile-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.mw-reconcile-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+.mw-reconcile-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: #333;
+}
+.mw-reconcile--balanced { color: var(--mw-green); }
+.mw-reconcile--under    { color: #e85d04; }
+.mw-reconcile--over     { color: #dc3545; }
+.mw-reconcile-sep {
+  width: 1px;
+  height: 32px;
+  background: #e4e7eb;
+  margin: 0 16px;
+  flex-shrink: 0;
+}
+
+/* ── Contract Budget Context (Plan Create from Contract) ── */
+.mw-contract-budget-ctx {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid #d0eada;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f0faf5 0%, #e8f5ee 100%);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.mw-contract-budget-accent {
+  width: 4px;
+  background: var(--mw-green);
+  flex-shrink: 0;
+}
+.mw-contract-budget-body {
+  flex: 1;
+  padding: 12px 14px;
+}
+.mw-contract-budget-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mw-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+.mw-contract-budget-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.mw-contract-budget-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.mw-contract-budget-item-label {
+  font-size: 11px;
+  color: #888;
+}
+.mw-contract-budget-item-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--mw-dark);
+}
+.mw-contract-budget-item-value.is-remaining { color: var(--mw-green); }
+.mw-contract-budget-item-value.is-zero      { color: #999; }
+
 /* ── Contract Pathway Toggle (Quote Create/Edit) ──────── */
 .mw-contract-toggle {
   border: 1px solid var(--mw-light);
@@ -9910,26 +10001,23 @@ textarea.font-monospace {
 
 /* ── Flatline Animation (clock-in transition) ─────────── */
 /*
- * Single keyframe — squish to a glowing green line, then collapse.
- * box-shadow on the scaled element creates the visible glow line
- * (::after pseudo-elements scale with the parent so don't work here).
- * JS adds .mw-flatline-out; page reloads after 1450ms.
+ * clip-path: inset clips the card to a thin center strip without
+ * distorting content. filter: drop-shadow adds the green glow around
+ * the clipped strip. JS adds .mw-flatline-out; page reloads after 3200ms.
  */
 
 @keyframes mw-flatline {
-  0%   { transform: scaleY(1);    opacity: 1; }
-  26%  { transform: scaleY(0.04); opacity: 1;
-         box-shadow: 0 0 0 1px #7FD858, 0 0 22px 6px rgba(127, 216, 88, 0.55); }
-  62%  { transform: scaleY(0.04); opacity: 1;
-         box-shadow: 0 0 0 1px #7FD858, 0 0 22px 6px rgba(127, 216, 88, 0.55); }
-  78%  { transform: scaleY(0.04); opacity: 0; }
-  100% { transform: scaleY(0);    opacity: 0; }
+  0%   { clip-path: inset(0% 0% 0% 0%);     opacity: 1; filter: none; }
+  20%  { clip-path: inset(48% 0% 48% 0%);   opacity: 1;
+         filter: drop-shadow(0 0 6px #7FD858) drop-shadow(0 0 20px rgba(127, 216, 88, 0.6)); }
+  65%  { clip-path: inset(48% 0% 48% 0%);   opacity: 1;
+         filter: drop-shadow(0 0 6px #7FD858) drop-shadow(0 0 20px rgba(127, 216, 88, 0.6)); }
+  88%  { clip-path: inset(48% 0% 48% 0%);   opacity: 0; filter: none; }
+  100% { clip-path: inset(50% 0% 50% 0%);   opacity: 0; filter: none; }
 }
 
 .mw-flatline-out {
-  animation: mw-flatline 1.4s cubic-bezier(0.4, 0, 0.8, 1) forwards;
-  transform-origin: center;
-  overflow: hidden;
+  animation: mw-flatline 2.8s ease-out forwards;
 }
 
 /* ── My Schedule Page ─────────────────────────────────── */

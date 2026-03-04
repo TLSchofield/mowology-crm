@@ -457,7 +457,7 @@ function mwInjectFlatlineCSS() {
     if (document.getElementById('mw-flatline-css')) return;
     var s = document.createElement('style');
     s.id = 'mw-flatline-css';
-    s.textContent = '@keyframes mw-flatline{0%{transform:scaleY(1);opacity:1}26%{transform:scaleY(.04);opacity:1;box-shadow:0 0 0 1px #7FD858,0 0 22px 6px rgba(127,216,88,.55)}62%{transform:scaleY(.04);opacity:1;box-shadow:0 0 0 1px #7FD858,0 0 22px 6px rgba(127,216,88,.55)}78%{transform:scaleY(.04);opacity:0}100%{transform:scaleY(0);opacity:0}}.mw-flatline-out{animation:mw-flatline 1.4s cubic-bezier(.4,0,.8,1) forwards;transform-origin:center;overflow:hidden}';
+    s.textContent = '@keyframes mw-flatline{0%{clip-path:inset(0% 0% 0% 0%);opacity:1;filter:none}20%{clip-path:inset(48% 0% 48% 0%);opacity:1;filter:drop-shadow(0 0 6px #7FD858) drop-shadow(0 0 20px rgba(127,216,88,.6))}65%{clip-path:inset(48% 0% 48% 0%);opacity:1;filter:drop-shadow(0 0 6px #7FD858) drop-shadow(0 0 20px rgba(127,216,88,.6))}88%{clip-path:inset(48% 0% 48% 0%);opacity:0;filter:none}100%{clip-path:inset(50% 0% 50% 0%);opacity:0;filter:none}}.mw-flatline-out{animation:mw-flatline 2.8s ease-out forwards}';
     document.head.appendChild(s);
 }
 var DP = {
@@ -525,7 +525,7 @@ function dpClockIn() {
                 ].filter(Boolean);
 
                 targets.forEach(function(el) { el.classList.add('mw-flatline-out'); });
-                setTimeout(function(){ location.reload(); }, 1450);
+                setTimeout(function(){ location.reload(); }, 3200);
             } else {
                 dpToast(data.error || 'Clock in failed', true);
                 btn.disabled = false;
