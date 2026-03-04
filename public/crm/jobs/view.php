@@ -2948,109 +2948,134 @@ if ($hasPropCoords) {
 
 <?php if ($hasPropCoords): ?>
 <!-- ══════════════════════════════════════════════════════
-     WORK ZONE MODAL — Geofence for auto clock-in tracking
+     WORK ZONE MODAL — Multi-zone geofence management
      ══════════════════════════════════════════════════════ -->
 <div class="modal fade" id="planWorkZoneModal" tabindex="-1" role="dialog" aria-labelledby="planWorkZoneModalLabel" aria-hidden="true">
     <div class="modal-dialog mw-modal-fullscreen" role="document">
         <div class="modal-content">
-            <div class="modal-header py-2">
+
+            <div class="modal-header py-2 px-3">
                 <h5 class="modal-title" id="planWorkZoneModalLabel">
                     <i data-feather="map-pin" style="width:16px;height:16px;vertical-align:-2px;color:var(--mw-green);"></i>
-                    Work Zone — Auto Clock-In Area
+                    Work Zones &amp; Property Border
+                    <span class="text-muted font-weight-normal small ml-2">
+                        <?php echo htmlspecialchars($plan['property_address'] ?? ''); ?>
+                    </span>
                 </h5>
                 <button type="button" class="close" data-dismiss="modal" aria-label="Close">
                     <span aria-hidden="true">&times;</span>
                 </button>
             </div>
-            <div class="modal-body p-3 mw-wz-fullscreen-body">
 
-                <!-- ── Plan Badge (Step 1 already done — plan is this page) ─── -->
-                <div class="mw-wz-steps mb-3">
-                    <div class="mw-wz-step mw-wz-step--done" id="pwz-step-1">
-                        <div class="mw-wz-step-num">1</div>
-                        <div class="mw-wz-step-body">
-                            <div class="mw-wz-step-title">Plan Selected</div>
-                            <div class="mw-wz-step-desc">
-                                <?php echo htmlspecialchars($plan['plan_number']); ?>
-                                <?php if (!empty($plan['title'])): ?>— <?php echo htmlspecialchars($plan['title']); ?><?php endif; ?>
+            <!-- Split body: left panel + map -->
+            <div class="mw-wz-split-body">
+
+                <!-- Left management panel -->
+                <div class="mw-wz-panel" id="pwz-panel">
+
+                    <!-- Hint bar -->
+                    <div id="pwz-hint" class="mw-wz-hint mw-wz-hint--info">
+                        <span id="pwz-hint-text">Loading zones…</span>
+                    </div>
+
+                    <!-- IDLE mode: zone list -->
+                    <div id="pwz-idle-panel">
+
+                        <!-- Property Border section -->
+                        <div class="mw-wz-panel-section">
+                            <div class="mw-wz-section-hdr">
+                                <div>
+                                    <div class="mw-wz-section-title">Property Border</div>
+                                    <div class="mw-wz-section-sub">Auto clock-in boundary</div>
+                                </div>
+                                <span class="mw-wz-zone-dot" style="background:var(--mw-orange);border:2px dashed rgba(0,0,0,0.2);flex-shrink:0;"></span>
                             </div>
+                            <div id="pwz-border-list" class="mw-wz-zone-list"></div>
+                            <button class="mw-wz-add-btn" id="pwz-add-border-btn" onclick="pwzStartDraw('arrival_border')" disabled>
+                                + Draw Property Border
+                            </button>
                         </div>
-                    </div>
-                    <div class="mw-wz-step-connector"></div>
-                    <div class="mw-wz-step mw-wz-step--active" id="pwz-step-2">
-                        <div class="mw-wz-step-num">2</div>
-                        <div class="mw-wz-step-body">
-                            <div class="mw-wz-step-title">Draw Boundary</div>
-                            <div class="mw-wz-step-desc">Click the map to outline the property work area</div>
-                        </div>
-                    </div>
-                    <div class="mw-wz-step-connector"></div>
-                    <div class="mw-wz-step" id="pwz-step-3">
-                        <div class="mw-wz-step-num">3</div>
-                        <div class="mw-wz-step-body">
-                            <div class="mw-wz-step-title">Save Zone</div>
-                            <div class="mw-wz-step-desc">Zone activates on next crew clock-in visit</div>
-                        </div>
-                    </div>
-                </div>
 
-                <!-- ── Property Info ─────────────────────────────────────────── -->
-                <div class="mb-2 small text-muted">
-                    <i data-feather="home" style="width:12px;height:12px;"></i>
-                    <?php echo htmlspecialchars(($plan['property_address'] ?? '') . ', ' . ($plan['property_city'] ?? '')); ?>
-                    — Work zones are tied to this plan.
-                </div>
+                        <div class="mw-wz-panel-divider"></div>
 
-                <!-- ── Map ──────────────────────────────────────────────────── -->
-                <div class="mw-wz-map-wrap">
+                        <!-- Work Zones section -->
+                        <div class="mw-wz-panel-section">
+                            <div class="mw-wz-section-hdr">
+                                <div>
+                                    <div class="mw-wz-section-title">Work Zones</div>
+                                    <div class="mw-wz-section-sub">Per-area time tracking</div>
+                                </div>
+                                <span class="mw-wz-zone-dot" style="background:var(--mw-green);flex-shrink:0;"></span>
+                            </div>
+                            <div id="pwz-zone-list" class="mw-wz-zone-list"></div>
+                            <button class="mw-wz-add-btn mw-wz-add-btn--green" id="pwz-add-zone-btn" onclick="pwzStartDraw('work_zone')" disabled>
+                                + Add Work Zone
+                            </button>
+                        </div>
+
+                    </div><!-- /pwz-idle-panel -->
+
+                    <!-- DRAW mode controls -->
+                    <div id="pwz-draw-panel" style="display:none;">
+                        <div class="mw-wz-draw-active-hdr">
+                            <span id="pwz-drawing-label">Drawing…</span>
+                        </div>
+                        <div id="pwz-draw-label-row" class="mw-wz-form-row" style="display:none;">
+                            <label class="mw-wz-label">Zone Label <span class="text-muted">(optional)</span></label>
+                            <input type="text" id="pwz-draw-label-input" class="form-control form-control-sm"
+                                   placeholder="e.g. Front lawn, Back beds…" maxlength="80">
+                        </div>
+                        <div class="mw-wz-draw-tips">
+                            <div class="mw-wz-draw-tip"><strong>Click</strong> map to add corner points</div>
+                            <div class="mw-wz-draw-tip"><strong>Double-click</strong> to close the shape</div>
+                            <div class="mw-wz-draw-tip">Aim for 4–8 points for best accuracy</div>
+                        </div>
+                        <div class="mw-wz-vertex-count" id="pwz-vertex-count" style="display:none;">
+                            <span id="pwz-vertex-num">0</span> vertices added
+                        </div>
+                        <div class="mw-wz-draw-btns">
+                            <button class="btn btn-success btn-sm btn-block" id="pwz-finish-draw-btn"
+                                    onclick="pwzFinishDraw()" disabled>
+                                ✓ Finish Drawing
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm btn-block mt-1"
+                                    onclick="pwzCancelDraw()">
+                                Cancel
+                            </button>
+                        </div>
+                    </div><!-- /pwz-draw-panel -->
+
+                    <!-- SAVE PENDING mode controls -->
+                    <div id="pwz-save-panel" style="display:none;">
+                        <div class="mw-wz-draw-active-hdr mw-wz-draw-active-hdr--ready">
+                            <span id="pwz-save-type-label">Zone drawn</span> — ready to save
+                        </div>
+                        <div id="pwz-save-label-row" class="mw-wz-form-row" style="display:none;">
+                            <label class="mw-wz-label">Zone Label <span class="text-muted">(optional)</span></label>
+                            <input type="text" id="pwz-save-label-input" class="form-control form-control-sm"
+                                   placeholder="e.g. Front lawn, Back beds…" maxlength="80">
+                        </div>
+                        <div class="mw-wz-draw-btns">
+                            <button class="btn btn-success btn-sm btn-block" id="pwz-confirm-save-btn"
+                                    onclick="pwzSavePending()">
+                                <span id="pwz-save-spinner" style="display:none;">⏳ </span>Save Zone
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm btn-block mt-1"
+                                    onclick="pwzCancelPending()">
+                                ↩ Redraw
+                            </button>
+                        </div>
+                    </div><!-- /pwz-save-panel -->
+
+                </div><!-- /mw-wz-panel -->
+
+                <!-- Map area (right, fills remaining space) -->
+                <div class="mw-wz-map-area">
                     <div id="pwz-map"></div>
                 </div>
 
-                <!-- ── Contextual Hint ───────────────────────────────────────── -->
-                <div id="pwz-hint" class="mw-wz-hint mt-2 mw-wz-hint--info">
-                    <i class="mw-wz-hint-icon" data-feather="info" style="width:13px;height:13px;flex-shrink:0;"></i>
-                    <span id="pwz-hint-text">Loading map…</span>
-                </div>
+            </div><!-- /mw-wz-split-body -->
 
-                <!-- ── Status feedback ────────────────────────────────────────── -->
-                <div id="pwz-status" class="mw-wz-status mt-2" style="display:none;"></div>
-
-                <!-- ── Drawing Tips (shown only during draw mode) ─────────────── -->
-                <div id="pwz-draw-tips" class="mw-wz-draw-tips mt-2" style="display:none;">
-                    <div class="mw-wz-draw-tips-title">
-                        <i data-feather="crosshair" style="width:12px;height:12px;"></i> Drawing mode active
-                    </div>
-                    <ul class="mw-wz-draw-tips-list">
-                        <li><strong>Click</strong> anywhere on the map to add a corner point</li>
-                        <li><strong>Double-click</strong> the last point (or click the first) to close the shape</li>
-                        <li>Aim for 4–8 points — trace the property edge, not just the house</li>
-                        <li>Press <kbd>Esc</kbd> or click <strong>Cancel Draw</strong> to start over</li>
-                    </ul>
-                </div>
-
-            </div>
-            <div class="modal-footer d-flex justify-content-between align-items-center">
-                <button type="button" class="btn btn-outline-danger btn-sm" id="pwz-delete-btn" disabled
-                        onclick="pwzDeleteZone()">
-                    <i data-feather="trash-2" style="width:13px;height:13px;"></i> Delete Zone
-                </button>
-                <div>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="pwz-cancel-draw-btn"
-                            style="display:none;" onclick="pwzCancelDraw()">Cancel Draw</button>
-                    <button type="button" class="btn btn-outline-success btn-sm" id="pwz-finish-draw-btn"
-                            style="display:none;" onclick="pwzFinishDraw()">
-                        <i data-feather="check" style="width:13px;height:13px;"></i> Finish Drawing
-                    </button>
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="pwz-draw-btn"
-                            disabled onclick="pwzStartDraw()">
-                        <i data-feather="edit-3" style="width:13px;height:13px;"></i> Draw Zone
-                    </button>
-                    <button type="button" class="btn btn-success btn-sm" id="pwz-save-btn"
-                            disabled onclick="pwzSave()">
-                        <i data-feather="save" style="width:13px;height:13px;"></i> Save Zone
-                    </button>
-                </div>
-            </div>
         </div>
     </div>
 </div>
@@ -3059,107 +3084,238 @@ if ($hasPropCoords) {
 <script>
 (function() {
     var PWZ_PLAN_ID  = <?php echo (int)$plan['id']; ?>;
+    var PWZ_PROP_ID  = <?php echo (int)($plan['property_id'] ?? 0); ?>;
     var PWZ_PROP_LAT = <?php echo (float)($plan['latitude']  ?? 49.2827); ?>;
     var PWZ_PROP_LNG = <?php echo (float)($plan['longitude'] ?? -123.1207); ?>;
     var PWZ_CSRF     = <?php echo json_encode(generateCSRFToken()); ?>;
+    var PWZ_API      = '/crm/api/geofence.php';
 
-    var pwzMgr      = null;
-    var pwzMapReady = false;
+    // Zone color palette
+    var PWZ_BORDER_COLOR = '#e85d04';
+    var PWZ_ZONE_COLORS  = ['#2D8659', '#1a73e8', '#9b59b6', '#16a085', '#e74c3c', '#f39c12', '#2ecc71', '#e91e63'];
 
-    // ── Open: init map ────────────────────────────────────────────────
+    var pwzMgr          = null;
+    var pwzZoneLayers   = []; // [{id, type, layer (L.polygon), color}]
+    var pwzPendingRing  = null;
+    var pwzPendingType  = null;
+    var pwzDrawVertices = 0;
+    var pwzIsSaving     = false;
+
+    // ── Modal open/close ──────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', function() {
         $('#planWorkZoneModal').on('shown.bs.modal', function() {
-            pwzMapReady = true;
             pwzInitMap();
             pwzSafeFeather();
         });
         $('#planWorkZoneModal').on('hidden.bs.modal', function() {
             pwzDestroyMap();
-            pwzMapReady = false;
-            pwzShowDrawTips(false);
+            pwzShowPanel('idle');
         });
     });
 
+    // ── Map init ──────────────────────────────────────────────────────
     function pwzInitMap() {
         pwzDestroyMap();
+        // Use GeofenceManager for map + draw only (planId=null prevents auto-load)
         pwzMgr = new GeofenceManager({
             mapContainer: 'pwz-map',
-            apiBase:      '/crm/api/geofence.php',
+            apiBase:      PWZ_API,
             csrfToken:    PWZ_CSRF,
-            planId:       PWZ_PLAN_ID,
+            planId:       null,
             mode:         'edit',
             center:       [PWZ_PROP_LAT, PWZ_PROP_LNG],
             zoom:         18,
-            onLoad: function(hasPolygon) {
-                if (hasPolygon) {
-                    pwzSetStep(3, 'done');
-                    pwzSetHint('Zone is active — crew will auto-track when they enter this area. Click <strong>Draw Zone</strong> to redraw it.', 'success');
-                } else {
-                    pwzSetStep(2);
-                    pwzSetHint('Click <strong>Draw Zone</strong> below to start drawing the property boundary on the map.', 'info');
-                }
-                pwzSetControls(true);
-            },
-            onSave: function(id) {
-                pwzShowStatus('Work zone saved — GPS auto-tracking activates on the next crew visit.', 'success');
-                pwzSetStep(3, 'done');
-                pwzSetHint('Zone saved! Crew will auto clock-in when they enter this area.', 'success');
-                pwzShowDrawTips(false);
-                pwzSetControls(true);
-                document.getElementById('pwz-draw-btn').style.display        = 'inline-block';
-                document.getElementById('pwz-cancel-draw-btn').style.display = 'none';
-            },
-            onDraw: function() {
-                // Polygon drawn — re-enable Save, swap buttons, update hint
-                document.getElementById('pwz-save-btn').disabled              = false;
-                document.getElementById('pwz-draw-btn').style.display         = 'inline-block';
-                document.getElementById('pwz-cancel-draw-btn').style.display  = 'none';
-                document.getElementById('pwz-finish-draw-btn').style.display  = 'none';
-                pwzSetStep(2);
-                pwzSetHint('Zone outlined — click <strong>Save Zone</strong> to activate GPS tracking.', 'success');
-                pwzShowDrawTips(false);
+            onDraw: function(ring) {
+                // Drawing complete — switch to save panel
+                pwzPendingRing = ring;
+                pwzShowPanel('save');
+                var typeLabel = pwzPendingType === 'arrival_border' ? 'Property Border' : 'Work Zone';
+                document.getElementById('pwz-save-type-label').textContent = typeLabel;
+                document.getElementById('pwz-save-label-row').style.display =
+                    pwzPendingType === 'work_zone' ? 'block' : 'none';
+                document.getElementById('pwz-save-label-input').value = '';
+                pwzSetHint('Shape outlined. Add a label and click Save Zone.', 'success');
                 pwzSafeFeather();
-            },
-            onDelete: function() {
-                pwzShowStatus('Work zone removed.', 'info');
-                pwzSetStep(2);
-                pwzSetHint('Zone removed. Click <strong>Draw Zone</strong> to create a new boundary.', 'info');
-                pwzShowDrawTips(false);
-                pwzSetControls(true);
             },
         });
         pwzMgr.init();
-        pwzSetHint('Map loading — click <strong>Draw Zone</strong> to outline the property boundary.', 'info');
-        pwzSetControls(true);
+
+        // Hook into map click to track vertex count for the Finish button
+        if (pwzMgr._map) {
+            pwzMgr._map.on('click', function() {
+                if (pwzPendingType) {
+                    pwzDrawVertices++;
+                    var cEl  = document.getElementById('pwz-vertex-count');
+                    var nEl  = document.getElementById('pwz-vertex-num');
+                    var fBtn = document.getElementById('pwz-finish-draw-btn');
+                    if (cEl)  cEl.style.display = 'block';
+                    if (nEl)  nEl.textContent = pwzDrawVertices;
+                    if (fBtn) fBtn.disabled = (pwzDrawVertices < 3);
+                }
+            });
+        }
+
+        pwzSetHint('Loading saved zones…', 'info');
+        pwzLoadZones();
     }
 
     function pwzDestroyMap() {
+        pwzZoneLayers.forEach(function(zl) {
+            try { if (pwzMgr && pwzMgr._map) pwzMgr._map.removeLayer(zl.layer); } catch(e) {}
+        });
+        pwzZoneLayers = [];
         if (pwzMgr) { pwzMgr.destroy(); pwzMgr = null; }
+        pwzPendingRing  = null;
+        pwzPendingType  = null;
+        pwzDrawVertices = 0;
+        pwzIsSaving     = false;
     }
 
-    window.pwzStartDraw = function() {
-        if (!pwzMgr) return;
-        pwzMgr.startDraw();
-        document.getElementById('pwz-draw-btn').style.display         = 'none';
-        document.getElementById('pwz-cancel-draw-btn').style.display  = 'inline-block';
-        document.getElementById('pwz-finish-draw-btn').style.display  = 'inline-block';
-        document.getElementById('pwz-save-btn').disabled = true;
-        pwzSetStep(2);
-        pwzSetHint('Drawing mode — click to add vertices. Click <strong>Finish Drawing</strong> (or double-click) to close the shape.', 'draw');
-        pwzShowDrawTips(true);
-        pwzSafeFeather();
-    };
+    // ── Load zones from server ────────────────────────────────────────
+    function pwzLoadZones() {
+        if (!PWZ_PROP_ID) {
+            pwzSetHint('No property linked to this plan.', 'error');
+            return;
+        }
+        fetch(PWZ_API + '?action=get_zones&property_id=' + PWZ_PROP_ID, { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) throw new Error(data.error || 'Load failed');
+                pwzRenderZonesOnMap(data.zones);
+                pwzRenderPanel(data.zones);
+                document.getElementById('pwz-add-border-btn').disabled = false;
+                document.getElementById('pwz-add-zone-btn').disabled   = false;
+                var relevant = data.zones.filter(function(z) {
+                    return z.zone_type === 'arrival_border' || z.plan_id === PWZ_PLAN_ID;
+                });
+                if (relevant.length === 0) {
+                    pwzSetHint('No zones yet — draw the property border first, then add work zones.', 'info');
+                } else {
+                    pwzSetHint(relevant.length + ' zone' + (relevant.length !== 1 ? 's' : '') + ' loaded. Add more or delete existing zones.', 'success');
+                }
+            })
+            .catch(function(err) {
+                pwzSetHint('Could not load zones: ' + err.message, 'error');
+            });
+    }
 
-    window.pwzCancelDraw = function() {
+    // ── Render zones on map ───────────────────────────────────────────
+    function pwzRenderZonesOnMap(zones) {
+        pwzZoneLayers.forEach(function(zl) {
+            try { if (pwzMgr._map) pwzMgr._map.removeLayer(zl.layer); } catch(e) {}
+        });
+        pwzZoneLayers = [];
+        if (pwzMgr) pwzMgr.setPolygon([]);
+
+        var workZoneIdx = 0;
+        var allLatLngs  = [];
+
+        zones.forEach(function(zone) {
+            var isBorder = zone.zone_type === 'arrival_border';
+            var isPlanWz = zone.zone_type === 'work_zone' && zone.plan_id === PWZ_PLAN_ID;
+            if (!isBorder && !isPlanWz) return;
+
+            var ring = zone.ring;
+            if (!ring || ring.length < 3) return;
+
+            var color   = isBorder ? PWZ_BORDER_COLOR : PWZ_ZONE_COLORS[workZoneIdx++ % PWZ_ZONE_COLORS.length];
+            var latLngs = ring.map(function(pt) { return L.latLng(pt[0], pt[1]); });
+
+            var layer = L.polygon(latLngs, {
+                color:       color,
+                fillColor:   color,
+                fillOpacity: 0.13,
+                weight:      isBorder ? 2 : 2.5,
+                dashArray:   isBorder ? '8 5' : null,
+            }).addTo(pwzMgr._map);
+
+            var tipLabel = zone.label || (isBorder ? 'Property Border' : 'Work Zone');
+            layer.bindTooltip(tipLabel, { permanent: false, direction: 'center', className: 'mw-wz-tooltip' });
+
+            pwzZoneLayers.push({ id: zone.id, type: zone.zone_type, layer: layer, color: color });
+            allLatLngs = allLatLngs.concat(latLngs);
+        });
+
+        if (allLatLngs.length > 0 && pwzMgr._map) {
+            try { pwzMgr._map.fitBounds(L.latLngBounds(allLatLngs).pad(0.15)); } catch(e) {}
+        }
+    }
+
+    // ── Render zone list in panel ─────────────────────────────────────
+    function pwzRenderPanel(zones) {
+        var borderList = document.getElementById('pwz-border-list');
+        var zoneList   = document.getElementById('pwz-zone-list');
+        if (!borderList || !zoneList) return;
+
+        var borders   = zones.filter(function(z) { return z.zone_type === 'arrival_border'; });
+        var workZones = zones.filter(function(z) { return z.zone_type === 'work_zone' && z.plan_id === PWZ_PLAN_ID; });
+
+        if (borders.length === 0) {
+            borderList.innerHTML = '<div class="mw-wz-empty-zone">No border drawn yet</div>';
+        } else {
+            var bHtml = '';
+            borders.forEach(function(zone, bi) {
+                bHtml += pwzZoneCardHtml(zone, PWZ_BORDER_COLOR, bi > 0);
+            });
+            borderList.innerHTML = bHtml;
+        }
+        var borderBtn = document.getElementById('pwz-add-border-btn');
+        if (borderBtn) borderBtn.textContent = borders.length > 0 ? '↺ Redraw Border' : '+ Draw Property Border';
+
+        if (workZones.length === 0) {
+            zoneList.innerHTML = '<div class="mw-wz-empty-zone">No work zones yet</div>';
+        } else {
+            var wHtml = '';
+            workZones.forEach(function(zone, wi) {
+                wHtml += pwzZoneCardHtml(zone, PWZ_ZONE_COLORS[wi % PWZ_ZONE_COLORS.length], false);
+            });
+            zoneList.innerHTML = wHtml;
+        }
+    }
+
+    function pwzZoneCardHtml(zone, color, isOld) {
+        var label     = zone.label || (zone.zone_type === 'arrival_border' ? 'Property Border' : 'Work Zone');
+        var oldNote   = isOld ? ' <span class="text-muted small">(old)</span>' : '';
+        var dotStyle  = 'background:' + color + ';' + (zone.zone_type === 'arrival_border' ? 'border:2px dashed #6c757d;' : '');
+        return '<div class="mw-wz-zone-card">' +
+            '<span class="mw-wz-zone-dot" style="' + dotStyle + '"></span>' +
+            '<span class="mw-wz-zone-name">' + htmlEsc(label) + oldNote + '</span>' +
+            '<button class="mw-wz-zone-del" onclick="pwzDeleteZone(' + zone.id + ')" title="Delete zone">&#x2715;</button>' +
+            '</div>';
+    }
+
+    function htmlEsc(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Panel switching ───────────────────────────────────────────────
+    function pwzShowPanel(mode) {
+        document.getElementById('pwz-idle-panel').style.display  = mode === 'idle' ? 'block' : 'none';
+        document.getElementById('pwz-draw-panel').style.display  = mode === 'draw' ? 'block' : 'none';
+        document.getElementById('pwz-save-panel').style.display  = mode === 'save' ? 'block' : 'none';
+    }
+
+    // ── Draw actions ──────────────────────────────────────────────────
+    window.pwzStartDraw = function(type) {
         if (!pwzMgr) return;
-        pwzMgr.cancelDraw();
-        document.getElementById('pwz-draw-btn').style.display         = 'inline-block';
-        document.getElementById('pwz-cancel-draw-btn').style.display  = 'none';
-        document.getElementById('pwz-finish-draw-btn').style.display  = 'none';
-        pwzSetStep(2);
-        pwzSetHint('Draw cancelled. Click <strong>Draw Zone</strong> again to start over.', 'info');
-        pwzShowDrawTips(false);
-        pwzSafeFeather();
+        pwzPendingType  = type;
+        pwzPendingRing  = null;
+        pwzDrawVertices = 0;
+
+        pwzMgr.startDraw();
+        pwzShowPanel('draw');
+
+        var typeLabel = type === 'arrival_border' ? 'Property Border' : 'Work Zone';
+        document.getElementById('pwz-drawing-label').textContent = 'Drawing ' + typeLabel;
+        document.getElementById('pwz-draw-label-row').style.display  = type === 'work_zone' ? 'block' : 'none';
+        document.getElementById('pwz-draw-label-input').value        = '';
+
+        var cEl  = document.getElementById('pwz-vertex-count');
+        var fBtn = document.getElementById('pwz-finish-draw-btn');
+        if (cEl)  { cEl.style.display = 'none'; document.getElementById('pwz-vertex-num').textContent = '0'; }
+        if (fBtn) fBtn.disabled = true;
+
+        pwzSetHint('Click the map to add corner points. Double-click (or Finish) to close the shape.', 'draw');
     };
 
     window.pwzFinishDraw = function() {
@@ -3167,64 +3323,121 @@ if ($hasPropCoords) {
         pwzMgr.finishDraw();
     };
 
-    window.pwzSave = function() {
+    window.pwzCancelDraw = function() {
         if (!pwzMgr) return;
-        document.getElementById('pwz-draw-btn').style.display         = 'inline-block';
-        document.getElementById('pwz-cancel-draw-btn').style.display  = 'none';
-        document.getElementById('pwz-finish-draw-btn').style.display  = 'none';
-        pwzSetHint('Saving zone\u2026', 'info');
-        pwzMgr.save();
-        pwzSafeFeather();
+        var savedType   = pwzPendingType;
+        pwzPendingType  = null;
+        pwzPendingRing  = null;
+        pwzDrawVertices = 0;
+        pwzMgr.cancelDraw();
+        pwzMgr.setPolygon([]);
+        pwzShowPanel('idle');
+        pwzSetHint('Draw cancelled.', 'info');
     };
 
-    window.pwzDeleteZone = function() {
+    window.pwzCancelPending = function() {
         if (!pwzMgr) return;
-        if (!confirm('Remove the work zone for this plan?\nThe crew will no longer be auto-tracked at this property.')) return;
-        pwzMgr.deletePolygon();
+        var type        = pwzPendingType;
+        pwzPendingRing  = null;
+        pwzDrawVertices = 0;
+        pwzMgr.setPolygon([]);
+        // Restart draw for the same type
+        if (type) {
+            pwzMgr.startDraw();
+            pwzShowPanel('draw');
+            var fBtn = document.getElementById('pwz-finish-draw-btn');
+            var cEl  = document.getElementById('pwz-vertex-count');
+            if (fBtn) fBtn.disabled = true;
+            if (cEl)  { cEl.style.display = 'none'; document.getElementById('pwz-vertex-num').textContent = '0'; }
+            pwzSetHint('Restarting — click the map to add corner points.', 'draw');
+        } else {
+            pwzShowPanel('idle');
+        }
     };
 
-    // ── Step indicator ────────────────────────────────────────────────
-    function pwzSetStep(n, doneTo) {
-        [1, 2, 3].forEach(function(i) {
-            var el = document.getElementById('pwz-step-' + i);
-            if (!el) return;
-            el.className = 'mw-wz-step';
-            if (doneTo === 'done' && i <= n) { el.className += ' mw-wz-step--done'; }
-            else if (i === n)  { el.className += ' mw-wz-step--active'; }
-            else if (i < n)    { el.className += ' mw-wz-step--done'; }
+    // ── Save pending zone ─────────────────────────────────────────────
+    window.pwzSavePending = function() {
+        if (!pwzPendingRing || pwzIsSaving) return;
+        pwzIsSaving = true;
+
+        var label = '';
+        if (pwzPendingType === 'work_zone') {
+            label = (document.getElementById('pwz-save-label-input').value || '').trim();
+        }
+
+        var spinner = document.getElementById('pwz-save-spinner');
+        var saveBtn = document.getElementById('pwz-confirm-save-btn');
+        if (spinner) spinner.style.display = 'inline';
+        if (saveBtn) saveBtn.disabled = true;
+
+        pwzSetHint('Saving zone…', 'info');
+
+        var body = {
+            action:      'save_zone',
+            csrf_token:  PWZ_CSRF,
+            property_id: PWZ_PROP_ID,
+            zone_type:   pwzPendingType,
+            plan_id:     pwzPendingType === 'work_zone' ? PWZ_PLAN_ID : null,
+            ring:        pwzPendingRing,
+            label:       label || null,
+        };
+
+        fetch(PWZ_API, {
+            method:      'POST',
+            headers:     { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body:        JSON.stringify(body),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            pwzIsSaving = false;
+            if (spinner) spinner.style.display = 'none';
+            if (saveBtn) saveBtn.disabled = false;
+            if (!data.success) throw new Error(data.error || 'Save failed');
+
+            var tLabel    = pwzPendingType === 'arrival_border' ? 'Property border' : 'Work zone';
+            pwzPendingRing = null;
+            pwzPendingType = null;
+            pwzShowPanel('idle');
+            pwzSetHint(tLabel + ' saved!', 'success');
+            pwzLoadZones();
+        })
+        .catch(function(err) {
+            pwzIsSaving = false;
+            if (spinner) spinner.style.display = 'none';
+            if (saveBtn) saveBtn.disabled = false;
+            pwzSetHint('Save failed: ' + err.message, 'error');
         });
-    }
+    };
+
+    // ── Delete zone ───────────────────────────────────────────────────
+    window.pwzDeleteZone = function(zoneId) {
+        if (!confirm('Delete this zone? This cannot be undone.')) return;
+
+        fetch(PWZ_API, {
+            method:      'POST',
+            headers:     { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body:        JSON.stringify({ action: 'delete_zone', csrf_token: PWZ_CSRF, geofence_id: zoneId }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) throw new Error(data.error || 'Delete failed');
+            pwzSetHint('Zone deleted.', 'info');
+            pwzLoadZones();
+        })
+        .catch(function(err) {
+            pwzSetHint('Delete failed: ' + err.message, 'error');
+        });
+    };
 
     // ── Hint bar ──────────────────────────────────────────────────────
-    function pwzSetHint(html, variant) {
+    function pwzSetHint(text, variant) {
         var el   = document.getElementById('pwz-hint');
-        var text = document.getElementById('pwz-hint-text');
-        if (!el || !text) return;
-        text.innerHTML = html;
-        el.className   = 'mw-wz-hint mt-2 mw-wz-hint--' + (variant || 'info');
-    }
-
-    // ── Drawing tips panel ────────────────────────────────────────────
-    function pwzShowDrawTips(show) {
-        var el = document.getElementById('pwz-draw-tips');
-        if (el) el.style.display = show ? 'block' : 'none';
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────
-    function pwzSetControls(enabled) {
-        ['pwz-draw-btn', 'pwz-save-btn', 'pwz-delete-btn'].forEach(function(id) {
-            var el = document.getElementById(id);
-            if (el) el.disabled = !enabled;
-        });
-    }
-
-    function pwzShowStatus(msg, type) {
-        var el = document.getElementById('pwz-status');
-        if (!el) return;
-        el.className   = 'mw-wz-status mt-2 ' + (type || 'success');
-        el.textContent = msg;
-        el.style.display = 'block';
-        setTimeout(function() { el.style.display = 'none'; }, 4000);
+        var span = document.getElementById('pwz-hint-text');
+        if (!el || !span) return;
+        span.textContent = text;
+        el.className = 'mw-wz-hint mw-wz-hint--' + (variant || 'info');
     }
 
     function pwzSafeFeather() {
