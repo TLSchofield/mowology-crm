@@ -22015,3 +22015,357 @@ textarea.font-monospace {
     margin-bottom: 8px;
 }
 .mw-qsched-submit-btn { flex: 1; }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   Flashcard Learn Mode  (.mw-fc-*)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.mw-fc-wrap {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 0 0 40px;
+}
+
+/* Top bar */
+.mw-fc-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 0 10px;
+    margin-bottom: 8px;
+}
+.mw-fc-back-link {
+    color: var(--mw-green);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    text-decoration: none;
+}
+.mw-fc-back-link:hover { color: var(--mw-dark); }
+.mw-fc-progress-track {
+    flex: 1;
+    height: 6px;
+    background: var(--mw-light);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.mw-fc-progress-fill {
+    height: 100%;
+    background: var(--mw-lime);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+    width: 0%;
+}
+.mw-fc-counter {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--mw-forest);
+    flex-shrink: 0;
+    min-width: 44px;
+    text-align: right;
+}
+
+/* Hint text */
+.mw-fc-hint {
+    text-align: center;
+    font-size: 12px;
+    color: #9ca3af;
+    margin-bottom: 10px;
+    letter-spacing: 0.02em;
+}
+
+/* 3D flip scene */
+.mw-fc-scene {
+    perspective: 1000px;
+    cursor: pointer;
+    margin-bottom: 16px;
+}
+.mw-fc-card {
+    position: relative;
+    min-height: 320px;
+    transform-style: preserve-3d;
+    transition: transform 0.45s cubic-bezier(0.4,0,0.2,1);
+    border-radius: 16px;
+}
+.mw-fc-card.mw-fc-flipped {
+    transform: rotateY(180deg);
+}
+.mw-fc-face {
+    position: absolute;
+    inset: 0;
+    border-radius: 16px;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 28px 24px;
+    text-align: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+}
+.mw-fc-front {
+    background: #fff;
+    border: 2px solid var(--mw-light);
+}
+.mw-fc-back {
+    background: var(--mw-forest);
+    color: #fff;
+    transform: rotateY(180deg);
+}
+
+/* Card content */
+.mw-fc-cat-tag {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    opacity: 0.85;
+}
+.mw-fc-img-wrap {
+    margin-bottom: 12px;
+    max-width: 240px;
+    width: 100%;
+}
+.mw-fc-img {
+    width: 100%;
+    max-height: 160px;
+    object-fit: cover;
+    border-radius: 10px;
+}
+.mw-fc-q-text {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--mw-forest);
+    line-height: 1.4;
+    margin-bottom: 12px;
+}
+.mw-fc-tap-hint {
+    font-size: 11px;
+    color: #9ca3af;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: auto;
+}
+.mw-fc-answer {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--mw-lime);
+    margin-bottom: 10px;
+    line-height: 1.25;
+}
+.mw-fc-notes {
+    font-size: 0.82rem;
+    color: rgba(255,255,255,0.78);
+    line-height: 1.5;
+    max-width: 380px;
+    white-space: pre-line;
+}
+
+/* Need min-height when card is flipped so absolute face fills space */
+.mw-fc-scene {
+    min-height: 320px;
+}
+
+/* Action buttons */
+.mw-fc-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    margin-bottom: 10px;
+}
+.mw-fc-still-learning,
+.mw-fc-got-it {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 20px;
+    border-radius: 10px;
+    font-size: 0.93rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+.mw-fc-still-learning {
+    background: #f3f4f6;
+    color: var(--mw-orange);
+}
+.mw-fc-still-learning:hover {
+    background: #fde8d8;
+    transform: translateY(-1px);
+}
+.mw-fc-got-it {
+    background: var(--mw-green);
+    color: #fff;
+}
+.mw-fc-got-it:hover {
+    background: var(--mw-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(45,134,89,0.3);
+}
+
+/* Mastery badge on card */
+.mw-fc-level {
+    text-align: center;
+    margin-top: 6px;
+}
+
+/* Done screen */
+.mw-fc-done {
+    text-align: center;
+    padding: 40px 24px;
+}
+.mw-fc-done-emoji {
+    font-size: 3.5rem;
+    margin-bottom: 12px;
+}
+.mw-fc-done-stats {
+    font-size: 1.1rem;
+    color: var(--mw-forest);
+    margin: 10px 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   Mastery Levels & Progress
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Badge: level indicator pill */
+.mw-mastery-badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+.mw-mastery-badge-0 { background: #e5e7eb; color: #6b7280; }
+.mw-mastery-badge-1 { background: #fde8d8; color: var(--mw-orange); }
+.mw-mastery-badge-2 { background: #fef9c3; color: #92400e; }
+.mw-mastery-badge-3 { background: #d1fae5; color: #065f46; }
+.mw-mastery-badge-4 { background: var(--mw-lime); color: var(--mw-forest); }
+.mw-mastery-badge-5 { background: var(--mw-green); color: #fff; }
+
+/* Mastery progress bar on category cards */
+.mw-mastery-bar-wrap {
+    width: 100%;
+    height: 5px;
+    background: var(--mw-light);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 6px 0 4px;
+}
+.mw-mastery-bar {
+    height: 100%;
+    background: var(--mw-lime);
+    border-radius: 3px;
+    transition: width 0.5s ease;
+}
+
+/* Mastery delta overlay after answering */
+.mw-mastery-delta {
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 6px 12px;
+    border-radius: 8px;
+    margin-top: 10px;
+    animation: mwMasteryFadeIn 0.25s ease;
+    display: inline-block;
+    width: 100%;
+}
+.mw-mastery-delta-up {
+    color: var(--mw-green);
+    background: #d1fae5;
+}
+.mw-mastery-delta-dn {
+    color: var(--mw-orange);
+    background: #fde8d8;
+}
+@keyframes mwMasteryFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   Quiz Hub — Category Card Updates (mastery view)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.mw-quiz-cat-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+.mw-quiz-cat-top .mw-quiz-cat-icon {
+    flex-shrink: 0;
+}
+.mw-quiz-cat-top-text {
+    flex: 1;
+    min-width: 0;
+}
+.mw-quiz-cat-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--mw-forest);
+    margin: 0 0 2px;
+}
+.mw-quiz-cat-desc {
+    font-size: 11px;
+    color: #6b7280;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mw-quiz-cat-stat-line {
+    font-size: 11px;
+    color: #6b7280;
+    margin: 0 0 10px;
+}
+.mw-quiz-cat-btns {
+    display: flex;
+    gap: 8px;
+}
+.mw-quiz-cat-btn-study {
+    flex: 1;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #f3f4f6;
+    color: var(--mw-forest);
+    border: 1px solid #e5e7eb;
+    cursor: pointer;
+    transition: background 0.15s;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+}
+.mw-quiz-cat-btn-study:hover { background: #e9ecef; color: var(--mw-forest); }
+.mw-quiz-cat-btn-study.disabled {
+    opacity: 0.45;
+    pointer-events: none;
+}
+.mw-quiz-cat-btn-test {
+    flex: 1;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--mw-green);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+    text-align: center;
+}
+.mw-quiz-cat-btn-test:hover { background: var(--mw-dark); }
+.mw-quiz-cat-btn-test:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}

@@ -1,7 +1,7 @@
 <?php
 /**
  * /public/crm/quiz_appstack.php
- * Knowledge Quiz Hub — category selection, personal stats, monthly leaderboard.
+ * Knowledge Quiz Hub — mastery progress, Study / Test per category, leaderboard.
  */
 declare(strict_types=1);
 require_once __DIR__ . '/../loginAuth/auth.php';
@@ -30,7 +30,7 @@ $monthLabel = date('F Y');
 </div>
 
 <!-- ── Personal Stats Bar ─────────────────────────────────────────────────── -->
-<div class="row g-3 mb-4" id="statsRow">
+<div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
         <div class="card text-center mw-quiz-stat-card">
             <div class="card-body py-3">
@@ -50,8 +50,8 @@ $monthLabel = date('F Y');
     <div class="col-6 col-md-3">
         <div class="card text-center mw-quiz-stat-card">
             <div class="card-body py-3">
-                <div class="mw-quiz-stat-num" id="statAccuracy">–</div>
-                <div class="mw-quiz-stat-label">Accuracy</div>
+                <div class="mw-quiz-stat-num" id="statMastered">–</div>
+                <div class="mw-quiz-stat-label">Questions Mastered</div>
             </div>
         </div>
     </div>
@@ -73,13 +73,13 @@ $monthLabel = date('F Y');
     </div>
 </div>
 
-<!-- All Categories Mix button -->
+<!-- Review All Due -->
 <div class="text-center mb-5">
-    <button class="btn mw-btn-green btn-lg px-5 mw-quiz-mix-btn" onclick="startQuiz(null)" id="mixBtn" disabled>
-        <i data-feather="shuffle" style="width:18px;height:18px;"></i>
-        &nbsp;All Categories Mix
+    <button class="btn mw-btn-green btn-lg px-5 mw-quiz-mix-btn" onclick="startTest(null)" id="reviewAllBtn" disabled>
+        <i data-feather="refresh-cw" style="width:18px;height:18px;"></i>
+        &nbsp;Review All Due
     </button>
-    <div class="text-muted small mt-2">Random questions from all categories</div>
+    <div class="text-muted small mt-2">Questions due for review across all categories</div>
 </div>
 
 <!-- ── Mini Leaderboard ───────────────────────────────────────────────────── -->
@@ -104,7 +104,7 @@ $monthLabel = date('F Y');
 const CSRF = <?php echo json_encode($csrfToken); ?>;
 const CURRENT_USER_ID = <?php echo (int)$user['id']; ?>;
 
-// ── Load stats ──────────────────────────────────────────────────────────────
+// ── Load stats ───────────────────────────────────────────────────────────────
 async function loadStats() {
     try {
         const r = await fetch('/crm/api/quiz.php?action=my_stats');
@@ -112,12 +112,12 @@ async function loadStats() {
         if (!d.success) return;
         document.getElementById('statGames').textContent    = d.games_played;
         document.getElementById('statPoints').textContent   = d.monthly_points;
-        document.getElementById('statAccuracy').textContent = d.accuracy_pct + '%';
+        document.getElementById('statMastered').textContent = d.total_mastered;
         document.getElementById('statRank').textContent     = d.monthly_rank ? '#' + d.monthly_rank : '–';
-    } catch(e) { /* silent */ }
+    } catch(e) {}
 }
 
-// ── Load categories ─────────────────────────────────────────────────────────
+// ── Load categories ───────────────────────────────────────────────────────────
 async function loadCategories() {
     try {
         const r = await fetch('/crm/api/quiz.php?action=categories');
@@ -130,39 +130,88 @@ async function loadCategories() {
             return;
         }
 
+        let anyDue = false;
+
         const cols = d.categories.map(cat => {
-            const hasQ     = parseInt(cat.question_count) > 0;
-            const disabled = hasQ ? '' : 'disabled';
-            const noQLabel = hasQ ? `${cat.question_count} question${cat.question_count != 1 ? 's' : ''}` : 'No questions yet';
+            const total    = parseInt(cat.question_count) || 0;
+            const mastered = parseInt(cat.mastered_count) || 0;
+            const learning = parseInt(cat.learning_count) || 0;
+            const unseen   = parseInt(cat.unseen_count) || 0;
+            const due      = parseInt(cat.due_count) || 0;
+
+            if (due > 0) anyDue = true;
+
+            const mastPct  = total > 0 ? Math.round((mastered / total) * 100) : 0;
+            const hasQ     = total > 0;
+
+            const hasStudy = hasQ && (unseen > 0 || due > 0);
+            const studyLabel = due > 0 ? `Study (${due} due)` : `Study (${unseen} new)`;
+
+            const statLine = total === 0
+                ? '<span class="text-muted">No questions yet</span>'
+                : `<span class="text-success">${mastered} mastered</span>` +
+                  (learning > 0 ? ` · <span class="text-primary">${learning} learning</span>` : '') +
+                  (unseen   > 0 ? ` · <span class="text-muted">${unseen} new</span>`          : '');
+
             return `<div class="col-sm-6 col-lg-4">
                 <div class="mw-quiz-category-card" style="--cat-colour:${cat.colour}">
-                    <div class="mw-quiz-cat-icon">
-                        <i data-feather="${cat.icon}"></i>
+                    <div class="mw-quiz-cat-top">
+                        <div class="mw-quiz-cat-icon">
+                            <i data-feather="${cat.icon}"></i>
+                        </div>
+                        <div class="mw-quiz-cat-body">
+                            <div class="mw-quiz-cat-name">${escHtml(cat.name)}</div>
+                            <div class="mw-quiz-cat-desc">${escHtml(cat.description)}</div>
+                        </div>
                     </div>
-                    <div class="mw-quiz-cat-body">
-                        <div class="mw-quiz-cat-name">${escHtml(cat.name)}</div>
-                        <div class="mw-quiz-cat-desc">${escHtml(cat.description)}</div>
-                        <div class="mw-quiz-cat-count">${noQLabel}</div>
+                    <div class="mw-mastery-bar-wrap">
+                        <div class="mw-mastery-bar" style="width:${mastPct}%"></div>
                     </div>
-                    <button class="btn mw-btn-green mw-quiz-cat-play-btn" onclick="startQuiz(${cat.id})" ${disabled}>
-                        <i data-feather="play" style="width:14px;height:14px;"></i> Play
-                    </button>
+                    <div class="mw-quiz-cat-stat-line">${statLine}</div>
+                    <div class="mw-quiz-cat-btns">
+                        <a href="/crm/quiz-learn_appstack.php?category_id=${cat.id}"
+                           class="btn btn-sm btn-outline-secondary mw-quiz-cat-study-btn ${!hasStudy ? 'disabled' : ''}">
+                            <i data-feather="book-open" style="width:13px;height:13px;"></i>
+                            ${studyLabel}
+                        </a>
+                        <button class="btn btn-sm mw-btn-green mw-quiz-cat-test-btn"
+                                onclick="startTest(${cat.id})" ${!hasQ ? 'disabled' : ''}>
+                            <i data-feather="play" style="width:13px;height:13px;"></i> Test
+                        </button>
+                    </div>
                 </div>
             </div>`;
         });
+
         grid.innerHTML = cols.join('');
         if (typeof feather !== 'undefined') feather.replace();
 
-        // Enable mix button if any category has questions
-        if (d.categories.some(c => parseInt(c.question_count) > 0)) {
-            document.getElementById('mixBtn').removeAttribute('disabled');
+        if (anyDue || d.categories.some(c => parseInt(c.question_count) > 0)) {
+            document.getElementById('reviewAllBtn').removeAttribute('disabled');
         }
+
     } catch(e) {
         document.getElementById('categoryGrid').innerHTML = '<div class="col-12 text-danger">Failed to load categories.</div>';
     }
 }
 
-// ── Load leaderboard ────────────────────────────────────────────────────────
+// ── Start test session ────────────────────────────────────────────────────────
+async function startTest(categoryId) {
+    try {
+        const r = await fetch('/crm/api/quiz.php?action=start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category_id: categoryId, mode: 'test', csrf_token: CSRF }),
+        });
+        const d = await r.json();
+        if (!d.success) { alert(d.error || 'Could not start quiz'); return; }
+        window.location.href = `/crm/quiz-play_appstack.php?session_id=${d.session_id}`;
+    } catch(e) {
+        alert('Connection error. Please try again.');
+    }
+}
+
+// ── Mini leaderboard ──────────────────────────────────────────────────────────
 async function loadLeaderboard() {
     try {
         const r = await fetch('/crm/api/quiz.php?action=leaderboard');
@@ -175,53 +224,27 @@ async function loadLeaderboard() {
             return;
         }
 
-        const medals = ['🥇', '🥈', '🥉'];
+        const medals = ['🥇','🥈','🥉'];
         const rows = d.leaderboard.slice(0, 5).map((p, i) => {
-            const medal    = medals[i] || `#${i+1}`;
-            const isMe     = parseInt(p.id) === CURRENT_USER_ID;
-            const accuracy = p.total_questions > 0 ? Math.round((p.total_correct / p.total_questions) * 100) : 0;
-            const prize    = p.prize_awarded ? ' <span class="badge bg-warning text-dark ms-1">🏆 Winner</span>' : '';
+            const isMe  = parseInt(p.id) === CURRENT_USER_ID;
+            const prize = p.prize_awarded ? ' <span class="badge bg-warning text-dark ms-1">🏆 Winner</span>' : '';
             return `<tr class="${isMe ? 'mw-quiz-lb-me' : ''}">
-                <td class="ps-3 py-2 fw-bold">${medal}</td>
+                <td class="ps-3 py-2 fw-bold">${medals[i] || '#'+(i+1)}</td>
                 <td class="py-2">${escHtml(p.full_name)}${prize}${isMe ? ' <span class="badge bg-success ms-1">You</span>' : ''}</td>
                 <td class="py-2 text-end fw-bold text-success">${p.monthly_points} pts</td>
                 <td class="py-2 text-end text-muted small d-none d-md-table-cell">${p.games_played} games</td>
-                <td class="py-2 text-end text-muted small d-none d-md-table-cell pe-3">${accuracy}%</td>
             </tr>`;
         });
 
         lb.innerHTML = `<table class="table table-hover mb-0">
-            <thead class="table-light">
-                <tr>
-                    <th class="ps-3" style="width:48px;">#</th>
-                    <th>Crew Member</th>
-                    <th class="text-end">Points</th>
-                    <th class="text-end d-none d-md-table-cell">Games</th>
-                    <th class="text-end pe-3 d-none d-md-table-cell">Accuracy</th>
-                </tr>
-            </thead>
+            <thead class="table-light"><tr>
+                <th class="ps-3" style="width:48px;">#</th>
+                <th>Crew Member</th><th class="text-end">Points</th>
+                <th class="text-end d-none d-md-table-cell">Games</th>
+            </tr></thead>
             <tbody>${rows.join('')}</tbody>
         </table>`;
-    } catch(e) { /* silent */ }
-}
-
-// ── Start quiz ──────────────────────────────────────────────────────────────
-async function startQuiz(categoryId) {
-    try {
-        const r = await fetch('/crm/api/quiz.php?action=start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ category_id: categoryId, csrf_token: CSRF }),
-        });
-        const d = await r.json();
-        if (!d.success) {
-            alert(d.error || 'Could not start quiz');
-            return;
-        }
-        window.location.href = `/crm/quiz-play_appstack.php?session_id=${d.session_id}`;
-    } catch(e) {
-        alert('Connection error. Please try again.');
-    }
+    } catch(e) {}
 }
 
 function escHtml(s) {
@@ -229,7 +252,6 @@ function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── Init ────────────────────────────────────────────────────────────────────
 loadStats();
 loadCategories();
 loadLeaderboard();

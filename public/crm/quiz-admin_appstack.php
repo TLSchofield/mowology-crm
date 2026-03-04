@@ -194,6 +194,11 @@ $activePage = 'quiz';
                                   placeholder="e.g. What is the name of this weed?"></textarea>
                     </div>
                     <div class="col-12">
+                        <label class="form-label small fw-bold">Learn Notes <span class="text-muted fw-normal">(shown on flashcard back)</span></label>
+                        <textarea id="qmLearnNotes" class="form-control form-control-sm" rows="2"
+                                  placeholder="e.g. Scientific name: Taraxacum officinale. Key ID: hollow stem with milky sap, deep taproot, jagged basal rosette leaves."></textarea>
+                    </div>
+                    <div class="col-12">
                         <label class="form-label small fw-bold">Question Image (optional)</label>
                         <div class="d-flex gap-2 align-items-center flex-wrap">
                             <input type="file" id="qmImageFile" class="form-control form-control-sm" accept="image/*" style="max-width:280px;" onchange="uploadImage()">
@@ -353,6 +358,7 @@ async function loadQuestions() {
 function openQuestionModal(id) {
     document.getElementById('qmId').value          = id || '';
     document.getElementById('qmText').value        = '';
+    document.getElementById('qmLearnNotes').value  = '';
     document.getElementById('qmImagePath').value   = '';
     document.getElementById('qmImagePreview').innerHTML = '';
     document.getElementById('qmDifficulty').value  = 'medium';
@@ -371,8 +377,9 @@ function openQuestionModal(id) {
             .then(d => {
                 if (!d.success) return;
                 const q = d.question;
-                document.getElementById('qmText').value = q.question_text;
-                document.getElementById('qmCategory').value  = q.category_id;
+                document.getElementById('qmText').value       = q.question_text;
+                document.getElementById('qmLearnNotes').value = q.learn_notes || '';
+                document.getElementById('qmCategory').value   = q.category_id;
                 document.getElementById('qmDifficulty').value = q.difficulty;
                 document.getElementById('qmImagePath').value  = q.image_path || '';
                 if (q.image_path) previewImage();
@@ -383,7 +390,7 @@ function openQuestionModal(id) {
             });
     }
 
-    new bootstrap.Modal(document.getElementById('questionModal')).show();
+    $('#questionModal').modal('show');
 }
 
 function addOptionRow(text = '', isCorrect = false) {
@@ -449,6 +456,7 @@ async function saveQuestion() {
         csrf_token:    CSRF,
         category_id:  document.getElementById('qmCategory').value,
         question_text: document.getElementById('qmText').value.trim(),
+        learn_notes:  document.getElementById('qmLearnNotes').value.trim() || null,
         image_path:   document.getElementById('qmImagePath').value.trim() || null,
         difficulty:   document.getElementById('qmDifficulty').value,
         options:      opts,
@@ -462,7 +470,7 @@ async function saveQuestion() {
     });
     const d = await r.json();
     if (d.success) {
-        bootstrap.Modal.getInstance(document.getElementById('questionModal'))?.hide();
+        $('#questionModal').modal('hide');
         loadQuestions();
     } else {
         alert(d.error || 'Save failed');
@@ -537,7 +545,7 @@ function openCategoryModal(id) {
         }
     }
 
-    new bootstrap.Modal(document.getElementById('categoryModal')).show();
+    $('#categoryModal').modal('show');
 }
 
 async function saveCategory() {
@@ -560,7 +568,7 @@ async function saveCategory() {
     });
     const d = await r.json();
     if (d.success) {
-        bootstrap.Modal.getInstance(document.getElementById('categoryModal'))?.hide();
+        $('#categoryModal').modal('hide');
         await loadCategories();
         loadQuestions();
     } else {

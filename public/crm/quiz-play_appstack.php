@@ -194,7 +194,10 @@ async function submitAnswer(selectedOptionId, questionId) {
             showPointsBubble(d.points_earned);
         }
 
-        // Advance after 1.5s
+        // Show mastery delta
+        if (d.mastery) showMasteryDelta(d.mastery);
+
+        // Advance after 1.8s
         setTimeout(() => {
             if (currentQ < totalQ) {
                 currentQ++;
@@ -301,6 +304,17 @@ function showPointsBubble(pts) {
     document.body.appendChild(el);
     requestAnimationFrame(() => el.classList.add('mw-quiz-pts-bubble-pop'));
     setTimeout(() => el.remove(), 1200);
+}
+function showMasteryDelta(m) {
+    // Remove any existing indicator
+    document.querySelector('.mw-mastery-delta')?.remove();
+    if (m.delta === 0) return;
+    const el   = document.createElement('div');
+    const up   = m.delta > 0;
+    el.className = 'mw-mastery-delta ' + (up ? 'mw-mastery-delta-up' : 'mw-mastery-delta-dn');
+    el.innerHTML = `${up ? '▲' : '▼'} ${up ? '+' : ''}${m.delta} → ${escHtml(m.level_name)} <span class="mw-mastery-badge mw-mastery-badge-${m.new_level}">Lv ${m.new_level}</span>`;
+    document.getElementById('optionsArea').after(el);
+    setTimeout(() => el.remove(), 1700);
 }
 function escHtml(s) {
     if (!s) return '';
