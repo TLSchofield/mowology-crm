@@ -6,7 +6,7 @@ requireLogin();
 $user = getCurrentUser();
 
 $pageTitle = 'Cost Factors';
-$activePage = 'products';
+$activePage = 'cost-factors';
 $csrfToken = generateCSRFToken();
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>

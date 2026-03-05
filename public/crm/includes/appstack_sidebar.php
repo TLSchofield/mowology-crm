@@ -8,7 +8,7 @@
  *
  * Active page keys: 'dashboard', 'clients', 'companies', 'quotes', 'jobs',
  *                   'invoices', 'schedule', 'timeclock', 'expenses',
- *                   'profitability', 'marketing', 'social', 'cms', 'media',
+ *                   'profitability', 'cost-factors', 'marketing', 'social', 'cms', 'media',
  *                   'team', 'leaderboard', 'quiz', 'map', 'products', 'portfolio',
  *                   'users', 'settings'
  *
@@ -47,8 +47,9 @@ $navItems = [
 
     // ── Financials ────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Financials'],
-    ['key' => 'expenses',      'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',      'perm' => 'expenses.view'],
-    ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php', 'perm' => 'expenses.view'],
+    ['key' => 'expenses',      'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',          'perm' => 'expenses.view'],
+    ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php',     'perm' => 'expenses.view'],
+    ['key' => 'cost-factors',  'label' => 'Cost Factors',  'icon' => 'sliders',     'href' => '/crm/products/cost-factors.php',      'perm' => 'expenses.view'],
 
     // ── Growth ────────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Growth'],
