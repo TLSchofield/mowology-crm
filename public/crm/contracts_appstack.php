@@ -119,7 +119,7 @@ $activePage = 'contracts';
                           </thead>
                           <tbody>
                               <?php foreach ($contracts as $c): ?>
-                                  <tr>
+                                  <tr class="mw-clickable-row" data-href="contracts/view.php?id=<?php echo (int)$c['id']; ?>">
                                       <td>
                                           <a href="contracts/view.php?id=<?php echo (int)$c['id']; ?>" class="font-weight-bold">
                                               <?php echo htmlspecialchars($c['contract_number']); ?>
@@ -157,4 +157,12 @@ $activePage = 'contracts';
               </div>
           <?php endif; ?>
 
+<script>
+document.querySelectorAll('.mw-clickable-row').forEach(function(row) {
+    row.addEventListener('click', function(e) {
+        if (e.target.closest('a, button')) return;
+        window.location.href = row.dataset.href;
+    });
+});
+</script>
 <?php include 'includes/appstack_footer.php'; ?>

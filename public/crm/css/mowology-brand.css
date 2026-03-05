@@ -1125,6 +1125,10 @@ a:hover {
   text-transform: uppercase;
 }
 
+/* Clickable table rows */
+.mw-clickable-row { cursor: pointer; }
+.mw-clickable-row a { position: relative; z-index: 1; }
+
 /* Empty state */
 .mw-empty-state {
   text-align: center;
