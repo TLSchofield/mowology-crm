@@ -321,6 +321,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $messageType = 'error';
     }
 
+    // Delete a scheduled visit (only if no time entries, not completed/in_progress)
+    if ($action === 'delete_visit') {
+        requirePermission('jobs.edit');
+        $delVisitId = intval($_POST['del_visit_id'] ?? 0);
+        if ($delVisitId) {
+            // Verify visit belongs to this plan and is in a deletable state
+            $vChk = $db->prepare("
+                SELECT id, status FROM job_visits
+                WHERE id = ? AND plan_id = ? AND status IN ('scheduled', 'skipped', 'weather')
+            ");
+            $vChk->execute([$delVisitId, $planId]);
+            $vRow = $vChk->fetch(PDO::FETCH_ASSOC);
+            if ($vRow) {
+                // Check no time entries exist
+                $teChk = $db->prepare("SELECT COUNT(*) FROM job_time_entries WHERE visit_id = ?");
+                $teChk->execute([$delVisitId]);
+                if ((int)$teChk->fetchColumn() === 0) {
+                    $db->prepare("DELETE FROM job_visits WHERE id = ?")->execute([$delVisitId]);
+                    header("Location: view.php?id={$planId}&visit_deleted=1");
+                    exit;
+                } else {
+                    $message = 'Cannot delete a visit that has time entries. Delete the time entries first.';
+                    $messageType = 'error';
+                }
+            } else {
+                $message = 'Visit cannot be deleted (wrong status or plan).';
+                $messageType = 'error';
+            }
+        }
+    }
+
     // Move time entry to a different visit (on any plan at the same property)
     if ($action === 'move_time_entry') {
         requirePermission('jobs.edit');
@@ -507,7 +538,8 @@ if (isset($_GET['items_updated'])) { $message = 'Line items updated!'; $messageT
 if (isset($_GET['visit_updated'])) { $message = 'Visit updated!'; $messageType = 'success'; }
 if (isset($_GET['time_added']))   { $message = 'Time entry added!'; $messageType = 'success'; }
 if (isset($_GET['time_moved']))   { $message = 'Time entry moved!'; $messageType = 'success'; }
-if (isset($_GET['time_deleted'])) { $message = 'Time entry deleted.'; $messageType = 'success'; }
+if (isset($_GET['time_deleted']))   { $message = 'Time entry deleted.'; $messageType = 'success'; }
+if (isset($_GET['visit_deleted']))  { $message = 'Visit deleted.'; $messageType = 'success'; }
 if (isset($_GET['time_edited']))  { $message = 'Time entry updated!'; $messageType = 'success'; }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -1357,6 +1389,13 @@ if ($hasPropCoords) {
                                                             title="Weather delay">
                                                         <i data-feather="cloud-rain" style="width: 14px; height: 14px;"></i>
                                                     </button>
+                                                    <?php if (userHasPermission('jobs.edit')): ?>
+                                                    <button type="button" class="btn btn-sm btn-outline-danger"
+                                                            onclick="openDeleteVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>')"
+                                                            title="Delete this visit">
+                                                        <i data-feather="trash-2" style="width: 14px; height: 14px;"></i>
+                                                    </button>
+                                                    <?php endif; ?>
                                                 <?php elseif ($visit['status'] === 'in_progress'): ?>
                                                     <button type="button" class="btn btn-sm btn-success"
                                                             onclick="openCompleteModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', <?php echo floatval($plan['price_per_visit'] ?? 0); ?>)"
@@ -1504,6 +1543,25 @@ if ($hasPropCoords) {
                         <button type="button" class="btn btn-danger" onclick="doDeleteTimeEntry()">Delete</button>
                         <button type="button" class="btn btn-secondary" onclick="hideModal('deleteTimeEntryModal')">Cancel</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
+                 Delete Visit Modal
+                 ══════════════════════════════════════════════════════ -->
+            <div class="mw-modal-overlay" id="deleteVisitModal">
+                <div class="mw-modal">
+                    <h3 class="mw-modal-title">Delete Visit?</h3>
+                    <p class="text-muted small mb-3">This will permanently remove <strong id="delVisitDesc"></strong> from this plan. This cannot be undone.</p>
+                    <form method="POST" action="view.php?id=<?php echo (int)$planId; ?>">
+                        <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($csrfToken); ?>">
+                        <input type="hidden" name="action" value="delete_visit">
+                        <input type="hidden" name="del_visit_id" id="delVisitId">
+                        <div class="mw-modal-actions">
+                            <button type="submit" class="btn btn-danger">Delete Visit</button>
+                            <button type="button" class="btn btn-secondary" onclick="hideModal('deleteVisitModal')">Cancel</button>
+                        </div>
+                    </form>
                 </div>
             </div>
 
@@ -2286,6 +2344,12 @@ if ($hasPropCoords) {
             document.getElementById('weatherVisitId').value = visitId;
             document.getElementById('weatherVisitNumber').textContent = visitNumber;
             showModal('weatherModal');
+        }
+
+        function openDeleteVisitModal(visitId, visitNumber) {
+            document.getElementById('delVisitId').value = visitId;
+            document.getElementById('delVisitDesc').textContent = visitNumber;
+            showModal('deleteVisitModal');
         }
 
         // ── Visit filter buttons ──────────────────────────────
