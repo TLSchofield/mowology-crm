@@ -1257,7 +1257,9 @@ a:hover {
   position: absolute;
   top: calc(100% + 2px);
   left: 0;
-  right: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 420px;
   background: #fff;
   border: 1px solid #d0d7de;
   border-radius: 8px;
