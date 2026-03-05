@@ -76,10 +76,12 @@ function createContract(array $data, int $userId): array {
         $stmt = $db->prepare("
             INSERT INTO contracts
                 (contract_number, property_id, contact_id, quote_id, title,
-                 status, billing_cycle, billing_amount, start_date, end_date,
+                 status, billing_cycle, billing_amount, invoice_timing, start_date, end_date,
                  renewal_date, notes, created_by)
-            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
         ");
+        $allowedTimings = ['after_visit', 'end_of_month', 'upfront'];
+        $invoiceTiming = in_array($data['invoice_timing'] ?? '', $allowedTimings, true) ? $data['invoice_timing'] : 'after_visit';
         $stmt->execute([
             $contractNumber,
             (int)$data['property_id'],
@@ -88,6 +90,7 @@ function createContract(array $data, int $userId): array {
             !empty($data['title']) ? trim($data['title']) : null,
             $data['billing_cycle'] ?? 'monthly',
             isset($data['billing_amount']) && $data['billing_amount'] !== '' ? (float)$data['billing_amount'] : null,
+            $invoiceTiming,
             $data['start_date'],
             !empty($data['end_date']) ? $data['end_date'] : null,
             !empty($data['renewal_date']) ? $data['renewal_date'] : null,

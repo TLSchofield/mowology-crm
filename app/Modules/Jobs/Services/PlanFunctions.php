@@ -186,6 +186,7 @@ function createJobPlan(array $planData, int $userId): array {
                 plan_number, quote_id, contract_id, property_id, company_id,
                 title, description, service_type, service_package_id, billing_template_id,
                 pricing_model, price_per_visit, monthly_flat_price, seasonal_price, estimated_amount,
+                invoice_timing,
                 checklist_template, photo_types_required, gps_enforcement,
                 checklist_blocks_completion, photos_block_completion,
                 is_recurring, recurrence_pattern, recurrence_interval,
@@ -198,6 +199,7 @@ function createJobPlan(array $planData, int $userId): array {
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
+                ?,
                 ?, ?, ?,
                 ?, ?,
                 ?, ?, ?,
@@ -225,6 +227,7 @@ function createJobPlan(array $planData, int $userId): array {
             $planData['monthly_flat_price'] ?? null,
             $planData['seasonal_price'] ?? null,
             $planData['estimated_amount'] ?? null,
+            in_array($planData['invoice_timing'] ?? '', ['after_visit','end_of_month','upfront'], true) ? $planData['invoice_timing'] : 'after_visit',
             $checklistTemplate,
             $photoTypesRequired,
             $gpsEnforcement,
@@ -1339,7 +1342,8 @@ function getPlanDetails(int $planId): ?array {
                ctr.contract_number,
                ctr.status AS contract_status,
                ctr.billing_amount AS contract_billing_amount,
-               ctr.billing_cycle  AS contract_billing_cycle
+               ctr.billing_cycle  AS contract_billing_cycle,
+               ctr.invoice_timing AS contract_invoice_timing
         FROM job_plans jp
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN companies co ON jp.company_id = co.id

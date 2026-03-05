@@ -2157,41 +2157,65 @@ if ($hasPropCoords) {
                 <div class="mw-revenue-preview-panel" id="editRevenuePreview"></div>
 
                 <hr class="my-3">
-                <h6>Billing</h6>
 
-                <div class="mw-invoice-timing-selector">
+                <?php if (!empty($plan['contract_id'])): ?>
                     <?php
-                    $invoiceTiming = $plan['invoice_timing'] ?? 'after_visit';
-                    $timingOptions = [
-                        'after_visit' => [
-                            'label' => 'After Each Visit',
-                            'desc'  => 'Invoice sent when each visit is marked complete',
-                            'icon'  => 'check-circle',
-                        ],
-                        'end_of_month' => [
-                            'label' => 'End of Month',
-                            'desc'  => 'All visits grouped into one invoice at month end',
-                            'icon'  => 'calendar',
-                        ],
-                        'upfront' => [
-                            'label' => 'Upfront / Prepay',
-                            'desc'  => 'Invoice sent before service begins',
-                            'icon'  => 'credit-card',
-                        ],
+                    $contractTimingLabels = [
+                        'after_visit'  => 'After Each Visit',
+                        'end_of_month' => 'End of Month',
+                        'upfront'      => 'Upfront / Prepay',
                     ];
-                    foreach ($timingOptions as $val => $opt): ?>
-                    <label class="mw-timing-option <?php echo $invoiceTiming === $val ? 'mw-timing-active' : ''; ?>">
-                        <input type="radio" name="edit_invoice_timing" value="<?php echo $val; ?>"
-                               <?php echo $invoiceTiming === $val ? 'checked' : ''; ?>
-                               onchange="document.querySelectorAll('.mw-timing-option').forEach(el=>el.classList.remove('mw-timing-active'));this.closest('.mw-timing-option').classList.add('mw-timing-active')">
-                        <span class="mw-timing-icon"><i data-feather="<?php echo $opt['icon']; ?>"></i></span>
-                        <span class="mw-timing-text">
-                            <strong><?php echo $opt['label']; ?></strong>
-                            <small><?php echo $opt['desc']; ?></small>
+                    $cInvoiceTiming = $plan['contract_invoice_timing'] ?? $plan['invoice_timing'] ?? 'after_visit';
+                    $cTimingLabel   = $contractTimingLabels[$cInvoiceTiming] ?? 'After Each Visit';
+                    ?>
+                    <input type="hidden" name="edit_invoice_timing" value="<?php echo htmlspecialchars($cInvoiceTiming); ?>">
+                    <div class="mw-contract-billing-note">
+                        <i data-feather="file-text" style="width:14px;height:14px;flex-shrink:0;"></i>
+                        <span>
+                            <strong>Billing</strong> is managed by the contract —
+                            <em><?php echo htmlspecialchars($cTimingLabel); ?></em>
                         </span>
-                    </label>
-                    <?php endforeach; ?>
-                </div>
+                        <a href="/crm/contracts/view.php?id=<?php echo (int)$plan['contract_id']; ?>" class="mw-contract-billing-link">
+                            <?php echo htmlspecialchars($plan['contract_number'] ?? 'View contract'); ?>
+                            <i data-feather="external-link" style="width:11px;height:11px;margin-left:3px;"></i>
+                        </a>
+                    </div>
+                <?php else: ?>
+                    <h6>Billing</h6>
+                    <div class="mw-invoice-timing-selector">
+                        <?php
+                        $invoiceTiming = $plan['invoice_timing'] ?? 'after_visit';
+                        $timingOptions = [
+                            'after_visit' => [
+                                'label' => 'After Each Visit',
+                                'desc'  => 'Invoice sent when each visit is marked complete',
+                                'icon'  => 'check-circle',
+                            ],
+                            'end_of_month' => [
+                                'label' => 'End of Month',
+                                'desc'  => 'All visits grouped into one invoice at month end',
+                                'icon'  => 'calendar',
+                            ],
+                            'upfront' => [
+                                'label' => 'Upfront / Prepay',
+                                'desc'  => 'Invoice sent before service begins',
+                                'icon'  => 'credit-card',
+                            ],
+                        ];
+                        foreach ($timingOptions as $val => $opt): ?>
+                        <label class="mw-timing-option <?php echo $invoiceTiming === $val ? 'mw-timing-active' : ''; ?>">
+                            <input type="radio" name="edit_invoice_timing" value="<?php echo $val; ?>"
+                                   <?php echo $invoiceTiming === $val ? 'checked' : ''; ?>
+                                   onchange="document.querySelectorAll('.mw-timing-option').forEach(el=>el.classList.remove('mw-timing-active'));this.closest('.mw-timing-option').classList.add('mw-timing-active')">
+                            <span class="mw-timing-icon"><i data-feather="<?php echo $opt['icon']; ?>"></i></span>
+                            <span class="mw-timing-text">
+                                <strong><?php echo $opt['label']; ?></strong>
+                                <small><?php echo $opt['desc']; ?></small>
+                            </span>
+                        </label>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
 
                 <div class="mw-modal-actions">
                     <button type="submit" class="btn btn-primary">Save Changes</button>

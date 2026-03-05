@@ -17211,6 +17211,56 @@ textarea.font-monospace {
     color: #6c757d;
 }
 
+/* ── Contract billing note (Edit Plan Modal — plan under a contract) ───── */
+.mw-contract-billing-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--mw-light);
+    border: 1px solid #c3d9d0;
+    border-radius: 8px;
+    font-size: 13px;
+    color: #495057;
+    margin-top: 2px;
+}
+.mw-contract-billing-note svg {
+    color: var(--mw-green);
+}
+.mw-contract-billing-link {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--mw-green);
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+}
+.mw-contract-billing-link:hover {
+    color: var(--mw-dark);
+    text-decoration: underline;
+}
+
+/* ── Compact timing selector (used in contract creation billing card) ───── */
+.mw-invoice-timing-compact .mw-timing-option {
+    padding: 8px 10px;
+    gap: 9px;
+}
+.mw-invoice-timing-compact .mw-timing-icon {
+    width: 26px;
+    height: 26px;
+}
+.mw-invoice-timing-compact .mw-timing-icon svg {
+    width: 13px;
+    height: 13px;
+}
+.mw-invoice-timing-compact .mw-timing-text strong {
+    font-size: 12px;
+}
+.mw-invoice-timing-compact .mw-timing-text small {
+    font-size: 10px;
+}
+
 /* ── Duration hrs label (inline, next to Duration label) ───────────────── */
 .mw-duration-hrs-label {
     font-size: 11px;

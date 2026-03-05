@@ -96,6 +96,15 @@ if (!$contactName) {
     $contactName = $quote['company_name'] ?? 'Unknown';
 }
 
+// Load contract's invoice_timing so plans inherit it
+$contractInvoiceTiming = 'after_visit';
+if ($contractId) {
+    $cStmt = $db->prepare("SELECT invoice_timing FROM contracts WHERE id = ?");
+    $cStmt->execute([$contractId]);
+    $ctr = $cStmt->fetch(PDO::FETCH_ASSOC);
+    if ($ctr) $contractInvoiceTiming = $ctr['invoice_timing'] ?? 'after_visit';
+}
+
 // Get staff for crew dropdown
 $staff = getStaffMembers();
 
@@ -286,6 +295,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             'plan_start_date'          => $planStartDate,
             'plan_end_date'            => $planEndDate,
             'pricing_model'            => 'per_visit',
+            'invoice_timing'           => $contractInvoiceTiming,
             'default_crew_id'          => $defaultCrewId,
             'estimated_duration_minutes' => $estimatedDuration,
             'default_time_start'       => $defaultTimeStart,
