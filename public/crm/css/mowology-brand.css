@@ -22385,3 +22385,97 @@ textarea.font-monospace {
     opacity: 0.4;
     cursor: not-allowed;
 }
+
+/* ── Expense Link Panel (Cost Factors → Overhead) ──────── */
+.mw-link-panel {
+    position: fixed;
+    top: 0;
+    right: -490px;
+    width: 470px;
+    max-width: 96vw;
+    height: 100vh;
+    background: #fff;
+    border-left: 2px solid var(--mw-light);
+    box-shadow: -6px 0 28px rgba(0,0,0,0.14);
+    z-index: 1060;
+    transition: right 0.25s ease;
+    display: flex;
+    flex-direction: column;
+}
+.mw-link-panel.is-open { right: 0; }
+.mw-link-panel-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    z-index: 1059;
+    display: none;
+}
+.mw-link-panel-backdrop.is-open { display: block; }
+.mw-link-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.15);
+    background: var(--mw-forest);
+    color: #fff;
+    flex-shrink: 0;
+}
+.mw-link-panel-header h5 { color: #fff; margin: 0; }
+.mw-link-panel-budget {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 9px 18px;
+    background: var(--mw-light);
+    font-size: 12px;
+    flex-shrink: 0;
+    border-bottom: 1px solid #dde9e6;
+}
+.mw-link-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 18px 20px;
+}
+.mw-link-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--mw-green);
+    margin: 14px 0 6px;
+}
+.mw-link-section-title:first-child { margin-top: 0; }
+.mw-link-expense-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #f3f3f3;
+    font-size: 12px;
+}
+.mw-link-expense-row:last-child { border-bottom: none; }
+.mw-link-expense-info { flex: 1; min-width: 0; }
+.mw-link-expense-vendor { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mw-link-expense-meta { color: #888; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mw-link-expense-amount { font-weight: 700; color: var(--mw-forest); white-space: nowrap; font-size: 12px; }
+.mw-link-search { margin-bottom: 8px; }
+/* Actual MTD cells in overhead table */
+.mw-actual-mtd {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--mw-green);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.mw-actual-mtd:hover { text-decoration: underline; color: var(--mw-dark); }
+.mw-actual-mtd.over-budget { color: var(--mw-orange); }
+.mw-linked-count { opacity: 0.75; font-weight: 400; }
+.mw-actual-link-btn {
+    font-size: 11px;
+    color: #aaa;
+    text-decoration: none;
+    font-weight: 500;
+}
+.mw-actual-link-btn:hover { color: var(--mw-green); text-decoration: none; }
+.btn-xs { padding: 2px 6px; font-size: 11px; }

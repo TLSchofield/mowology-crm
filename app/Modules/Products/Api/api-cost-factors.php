@@ -95,6 +95,12 @@ try {
         $db->exec("ALTER TABLE cost_factors ADD COLUMN `supplier` varchar(100) DEFAULT NULL AFTER `equipment_type`");
     }
 
+    // Add overhead_item_id to expenses table if expenses table exists and column is missing
+    if ($db->query("SHOW TABLES LIKE 'expenses'")->rowCount() > 0 &&
+        $db->query("SHOW COLUMNS FROM expenses LIKE 'overhead_item_id'")->rowCount() === 0) {
+        $db->exec("ALTER TABLE expenses ADD COLUMN `overhead_item_id` int DEFAULT NULL AFTER `gbp_category`");
+    }
+
     // ── List all cost factors ──────────────────────────────────
     if ($action === 'list') {
         $type = $_GET['type'] ?? null;
@@ -325,12 +331,30 @@ try {
     // ── List overhead items ────────────────────────────────────
     } elseif ($action === 'list-overhead-items') {
         $includeInactive = isset($_GET['inactive']) && $_GET['inactive'] === '1';
-        $sql = "SELECT * FROM overhead_items";
-        if (!$includeInactive) {
-            $sql .= " WHERE is_active = 1";
+        $hasExpenseLink = $db->query("SHOW TABLES LIKE 'expenses'")->rowCount() > 0 &&
+                          $db->query("SHOW COLUMNS FROM expenses LIKE 'overhead_item_id'")->rowCount() > 0;
+
+        if ($hasExpenseLink) {
+            $monthStart = date('Y-m-01');
+            $where = $includeInactive ? '' : 'WHERE oi.is_active = 1';
+            $sql = "SELECT oi.*,
+                        COALESCE((SELECT SUM(e.total) FROM expenses e
+                            WHERE e.overhead_item_id = oi.id AND e.expense_date >= ?
+                            AND e.status NOT IN ('deleted','rejected')), 0) AS actual_mtd,
+                        COALESCE((SELECT COUNT(*) FROM expenses e
+                            WHERE e.overhead_item_id = oi.id AND e.expense_date >= ?
+                            AND e.status NOT IN ('deleted','rejected')), 0) AS linked_count_mtd
+                    FROM overhead_items oi
+                    $where
+                    ORDER BY oi.category, oi.sort_order, oi.item_name";
+            $stmt = $db->prepare($sql);
+            $stmt->execute([$monthStart, $monthStart]);
+        } else {
+            $sql = "SELECT * FROM overhead_items";
+            if (!$includeInactive) { $sql .= " WHERE is_active = 1"; }
+            $sql .= " ORDER BY category, sort_order, item_name";
+            $stmt = $db->query($sql);
         }
-        $sql .= " ORDER BY category, sort_order, item_name";
-        $stmt = $db->query($sql);
         echo json_encode(['success' => true, 'items' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
 
     // ── Save overhead item ──────────────────────────────────────
@@ -452,6 +476,75 @@ try {
         }
 
         echo json_encode(['success' => true, 'message' => 'Default overhead items seeded', 'count' => count($defaults)]);
+
+    // ── Get expenses linked to an overhead item ────────────────
+    } elseif ($action === 'get-overhead-item-expenses') {
+        $itemId = intval($_GET['id'] ?? 0);
+        if (!$itemId) throw new Exception('Item ID required');
+
+        if ($db->query("SHOW TABLES LIKE 'expenses'")->rowCount() === 0 ||
+            $db->query("SHOW COLUMNS FROM expenses LIKE 'overhead_item_id'")->rowCount() === 0) {
+            echo json_encode(['success' => true, 'linked' => [], 'available' => []]);
+            exit;
+        }
+
+        $monthStart = date('Y-m-01');
+
+        $stmt = $db->prepare("
+            SELECT id, expense_date, vendor_name_raw, description, amount, total, accounting_category, status
+            FROM expenses
+            WHERE overhead_item_id = ?
+            ORDER BY expense_date DESC
+            LIMIT 100
+        ");
+        $stmt->execute([$itemId]);
+        $linked = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $stmt = $db->prepare("
+            SELECT id, expense_date, vendor_name_raw, description, amount, total, accounting_category, status
+            FROM expenses
+            WHERE overhead_item_id IS NULL
+              AND status NOT IN ('deleted','rejected')
+            ORDER BY expense_date DESC
+            LIMIT 60
+        ");
+        $stmt->execute();
+        $available = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Also get item budget for comparison
+        $item = $db->prepare("SELECT item_name, amount, frequency FROM overhead_items WHERE id = ?");
+        $item->execute([$itemId]);
+        $itemRow = $item->fetch(PDO::FETCH_ASSOC);
+
+        $actualMtd = array_sum(array_column(array_filter($linked, function($e) use ($monthStart) {
+            return $e['expense_date'] >= $monthStart && !in_array($e['status'], ['deleted','rejected']);
+        }), 'total'));
+
+        echo json_encode([
+            'success'    => true,
+            'item'       => $itemRow,
+            'linked'     => $linked,
+            'available'  => $available,
+            'actual_mtd' => round($actualMtd, 2),
+        ]);
+
+    // ── Link / unlink an expense to an overhead item ───────────
+    } elseif ($action === 'link-expense-to-overhead') {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (empty($data['expense_id'])) throw new Exception('Expense ID required');
+
+        if ($db->query("SHOW TABLES LIKE 'expenses'")->rowCount() === 0 ||
+            $db->query("SHOW COLUMNS FROM expenses LIKE 'overhead_item_id'")->rowCount() === 0) {
+            throw new Exception('Expenses table not ready');
+        }
+
+        $expenseId     = intval($data['expense_id']);
+        $overheadItemId = !empty($data['overhead_item_id']) ? intval($data['overhead_item_id']) : null;
+
+        $stmt = $db->prepare("UPDATE expenses SET overhead_item_id = ? WHERE id = ?");
+        $stmt->execute([$overheadItemId, $expenseId]);
+
+        echo json_encode(['success' => true, 'message' => $overheadItemId ? 'Expense linked' : 'Expense unlinked']);
 
     } else {
         throw new Exception('Invalid action: ' . htmlspecialchars($action ?? ''));

@@ -222,13 +222,14 @@ $csrfToken = generateCSRFToken();
                               <th>Item</th>
                               <th>Amount</th>
                               <th>Frequency</th>
-                              <th>Monthly</th>
+                              <th>Budget/mo</th>
+                              <th>Actual MTD</th>
                               <th>Status</th>
                               <th>Actions</th>
                             </tr>
                           </thead>
                           <tbody id="overheadItemsBody">
-                            <tr><td colspan="6" class="text-center text-muted py-4">Loading...</td></tr>
+                            <tr><td colspan="7" class="text-center text-muted py-4">Loading...</td></tr>
                           </tbody>
                         </table>
                       </div>
@@ -472,6 +473,21 @@ $csrfToken = generateCSRFToken();
             </div>
 
           </div><!-- /.tab-content -->
+
+          <!-- Expense Link Panel -->
+          <div class="mw-link-panel" id="expenseLinkPanel">
+            <div class="mw-link-panel-header">
+              <h5 class="mb-0" id="linkPanelTitle">Linked Expenses</h5>
+              <button type="button" class="btn btn-sm btn-outline-light" onclick="closeLinkedExpenses()">
+                <i data-feather="x" style="width:14px;height:14px;"></i>
+              </button>
+            </div>
+            <div class="mw-link-panel-budget" id="linkPanelBudget"></div>
+            <div class="mw-link-panel-body" id="linkPanelBody">
+              <div class="text-center py-4 text-muted">Loading...</div>
+            </div>
+          </div>
+          <div class="mw-link-panel-backdrop" id="linkPanelBackdrop" onclick="closeLinkedExpenses()"></div>
 
           <!-- Add/Edit Modal -->
           <div class="modal fade" id="factorModal" tabindex="-1" role="dialog" aria-labelledby="factorModalLabel" aria-hidden="true">
@@ -1149,7 +1165,7 @@ function renderOverheadItemsTable() {
         }, 0);
 
         html += '<tr class="mw-oh-category-header mw-oh-cat-' + cat + '">' +
-            '<td colspan="4"><strong>' + esc(CAT_LABELS[cat]) + '</strong></td>' +
+            '<td colspan="5"><strong>' + esc(CAT_LABELS[cat]) + '</strong></td>' +
             '<td class="text-right"><strong>$' + Math.round(catTotal).toLocaleString() + '/mo</strong></td>' +
             '<td></td></tr>';
 
@@ -1157,12 +1173,25 @@ function renderOverheadItemsTable() {
             var monthly = normalizeToMonthly(parseFloat(item.amount) || 0, item.frequency);
             var freqLabel = item.frequency.charAt(0).toUpperCase() + item.frequency.slice(1);
             var active = item.is_active === '1' || item.is_active === 1;
+            var actualMtd = parseFloat(item.actual_mtd || 0);
+            var linkedCount = parseInt(item.linked_count_mtd || 0);
+            var overBudget = actualMtd > monthly && monthly > 0;
+
+            var actualCell;
+            if (linkedCount > 0) {
+                actualCell = '<a href="javascript:void(0)" onclick="openLinkedExpenses(' + item.id + ')" class="mw-actual-mtd' + (overBudget ? ' over-budget' : '') + '" title="' + linkedCount + ' expense(s) linked — click to manage">' +
+                    '$' + actualMtd.toFixed(0) + ' <span class="mw-linked-count">(' + linkedCount + ')</span>' +
+                    '</a>';
+            } else {
+                actualCell = '<a href="javascript:void(0)" onclick="openLinkedExpenses(' + item.id + ')" class="mw-actual-link-btn" title="Link expenses to this overhead item">+ Link</a>';
+            }
 
             html += '<tr' + (!active ? ' class="text-muted"' : '') + '>' +
                 '<td>' + esc(item.item_name) + (item.notes ? '<br><small class="text-muted">' + esc(item.notes) + '</small>' : '') + '</td>' +
                 '<td>$' + parseFloat(item.amount).toFixed(2) + '</td>' +
                 '<td>' + freqLabel + '</td>' +
                 '<td>$' + monthly.toFixed(2) + '</td>' +
+                '<td>' + actualCell + '</td>' +
                 '<td>' + (active ? '<span class="badge mw-badge-active">Active</span>' : '<span class="badge badge-secondary">Inactive</span>') + '</td>' +
                 '<td><button class="btn btn-secondary btn-sm" onclick="editOhItem(' + item.id + ')">Edit</button></td>' +
                 '</tr>';
@@ -1170,7 +1199,7 @@ function renderOverheadItemsTable() {
     });
 
     if (html === '') {
-        html = '<tr><td colspan="6" class="text-center text-muted py-4">No overhead items. Click "+ Add Expense" to get started.</td></tr>';
+        html = '<tr><td colspan="7" class="text-center text-muted py-4">No overhead items. Click "+ Add Expense" to get started.</td></tr>';
     }
     tbody.innerHTML = html;
 }
@@ -1370,6 +1399,157 @@ function runCalculator() {
 
     document.getElementById('calcProfitPerJob').textContent = '$' + profit.toFixed(2);
     document.getElementById('calcProfitMarginDisplay').textContent = pm + '% margin';
+}
+
+// ── Expense Link Panel ────────────────────────────────────
+
+var _linkPanelItemId = null;
+var _linkPanelData   = null;
+
+function openLinkedExpenses(itemId) {
+    _linkPanelItemId = itemId;
+    var item = overheadItems.find(function(i) { return parseInt(i.id) === parseInt(itemId); });
+    document.getElementById('linkPanelTitle').textContent = item ? item.item_name : 'Linked Expenses';
+    document.getElementById('linkPanelBody').innerHTML = '<div class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm" role="status"></div> Loading…</div>';
+    document.getElementById('linkPanelBudget').innerHTML = '';
+    document.getElementById('expenseLinkPanel').classList.add('is-open');
+    document.getElementById('linkPanelBackdrop').classList.add('is-open');
+
+    fetch(API + '?action=get-overhead-item-expenses&id=' + itemId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) { throw new Error(data.error || 'Error'); }
+            _linkPanelData = data;
+            renderLinkPanel(data);
+        })
+        .catch(function(err) {
+            document.getElementById('linkPanelBody').innerHTML = '<div class="text-danger p-3">' + esc(err.message) + '</div>';
+        });
+}
+
+function closeLinkedExpenses() {
+    document.getElementById('expenseLinkPanel').classList.remove('is-open');
+    document.getElementById('linkPanelBackdrop').classList.remove('is-open');
+    _linkPanelItemId = null;
+    _linkPanelData = null;
+}
+
+function renderLinkPanel(data) {
+    var item = overheadItems.find(function(i) { return parseInt(i.id) === parseInt(_linkPanelItemId); });
+    var budgetEl = document.getElementById('linkPanelBudget');
+    if (item) {
+        var monthly = normalizeToMonthly(parseFloat(item.amount) || 0, item.frequency);
+        var actual = parseFloat(data.actual_mtd || 0);
+        var diff = actual - monthly;
+        var diffClass = diff > 0 ? 'text-danger' : 'text-success';
+        budgetEl.innerHTML =
+            '<span><strong>Budget:</strong> $' + monthly.toFixed(2) + '/mo</span>' +
+            '<span><strong>Actual MTD:</strong> $' + actual.toFixed(2) + '</span>' +
+            '<span class="' + diffClass + '"><strong>' + (diff > 0 ? '▲ Over' : '▼ Under') + ':</strong> $' + Math.abs(diff).toFixed(2) + '</span>';
+    }
+
+    var body = document.getElementById('linkPanelBody');
+    var html = '';
+
+    // Linked expenses
+    html += '<div class="mw-link-section-title">Linked Expenses (' + data.linked.length + ')</div>';
+    if (data.linked.length === 0) {
+        html += '<p class="text-muted" style="font-size:13px">No expenses linked yet. Use the section below to link existing expense records.</p>';
+    } else {
+        data.linked.forEach(function(e) {
+            var d = e.expense_date ? e.expense_date.substr(0, 10) : '';
+            html += '<div class="mw-link-expense-row">' +
+                '<div class="mw-link-expense-info">' +
+                    '<div class="mw-link-expense-vendor">' + esc(e.vendor_name_raw || 'Unknown vendor') + '</div>' +
+                    '<div class="mw-link-expense-meta">' + esc(d) + (e.description ? ' · ' + esc(e.description.substring(0,40)) : '') + '</div>' +
+                '</div>' +
+                '<div class="mw-link-expense-amount">$' + parseFloat(e.total || e.amount || 0).toFixed(2) + '</div>' +
+                '<button class="btn btn-xs btn-outline-danger" onclick="unlinkExpense(' + e.id + ')" title="Remove link">✕</button>' +
+            '</div>';
+        });
+    }
+
+    // Available to link
+    html += '<div class="mw-link-section-title" style="margin-top:20px">Link an Expense</div>';
+    html += '<input type="text" class="form-control form-control-sm mw-link-search" id="linkSearchInput" placeholder="Search by vendor or description…" oninput="filterLinkPanel(this.value)">';
+
+    if (data.available.length === 0) {
+        html += '<p class="text-muted" style="font-size:13px">All recent unlinked expenses have been assigned.</p>';
+    } else {
+        html += '<div id="linkAvailableList">';
+        data.available.forEach(function(e) {
+            html += buildAvailableRow(e);
+        });
+        html += '</div>';
+    }
+
+    body.innerHTML = html;
+}
+
+function buildAvailableRow(e) {
+    var d = e.expense_date ? e.expense_date.substr(0, 10) : '';
+    return '<div class="mw-link-expense-row" data-vendor="' + esc((e.vendor_name_raw || '').toLowerCase()) + '" data-desc="' + esc((e.description || '').toLowerCase()) + '">' +
+        '<div class="mw-link-expense-info">' +
+            '<div class="mw-link-expense-vendor">' + esc(e.vendor_name_raw || 'Unknown vendor') + '</div>' +
+            '<div class="mw-link-expense-meta">' + esc(d) + (e.description ? ' · ' + esc(e.description.substring(0,40)) : '') + (e.accounting_category ? ' · ' + esc(e.accounting_category) : '') + '</div>' +
+        '</div>' +
+        '<div class="mw-link-expense-amount">$' + parseFloat(e.total || e.amount || 0).toFixed(2) + '</div>' +
+        '<button class="btn btn-xs btn-outline-success" onclick="doLinkExpense(' + e.id + ')" title="Link to this overhead item">Link</button>' +
+    '</div>';
+}
+
+function filterLinkPanel(query) {
+    var q = query.toLowerCase();
+    var rows = document.querySelectorAll('#linkAvailableList .mw-link-expense-row');
+    rows.forEach(function(row) {
+        var vendor = (row.getAttribute('data-vendor') || '');
+        var desc   = (row.getAttribute('data-desc') || '');
+        row.style.display = (!q || vendor.indexOf(q) >= 0 || desc.indexOf(q) >= 0) ? '' : 'none';
+    });
+}
+
+function unlinkExpense(expenseId) {
+    fetch(API + '?action=link-expense-to-overhead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csrf_token: CSRF, expense_id: expenseId, overhead_item_id: null })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success) { alert(data.error || 'Error'); return; }
+        refreshLinkPanel();
+    });
+}
+
+function doLinkExpense(expenseId) {
+    fetch(API + '?action=link-expense-to-overhead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csrf_token: CSRF, expense_id: expenseId, overhead_item_id: _linkPanelItemId })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.success) { alert(data.error || 'Error'); return; }
+        refreshLinkPanel();
+    });
+}
+
+function refreshLinkPanel() {
+    // Reload overhead items (to update MTD counts) and re-render the panel
+    Promise.all([
+        fetch(API + '?action=list-overhead-items&inactive=1').then(function(r) { return r.json(); }),
+        fetch(API + '?action=get-overhead-item-expenses&id=' + _linkPanelItemId).then(function(r) { return r.json(); })
+    ]).then(function(results) {
+        if (results[0].success) {
+            overheadItems = results[0].items;
+            renderOverheadItemsTable();
+            recalcOverhead();
+        }
+        if (results[1].success) {
+            _linkPanelData = results[1];
+            renderLinkPanel(results[1]);
+        }
+    });
 }
 
 // ── Helpers ───────────────────────────────────────────────
