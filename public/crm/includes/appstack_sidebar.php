@@ -10,7 +10,7 @@
  *                   'invoices', 'schedule', 'timeclock', 'expenses',
  *                   'profitability', 'cost-factors', 'marketing', 'social', 'cms', 'media',
  *                   'team', 'leaderboard', 'quiz', 'map', 'products', 'portfolio',
- *                   'users', 'settings'
+ *                   'work-zones', 'users', 'settings'
  *
  * Nav items support two types:
  *   - Section headers: ['type' => 'header', 'label' => 'Section Name']
@@ -42,8 +42,9 @@ $navItems = [
 
     // ── Schedule ──────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Schedule'],
-    ['key' => 'schedule',  'label' => 'Schedule',   'icon' => 'calendar', 'href' => '/crm/jobs/schedule.php',          'perm' => 'schedule.view'],
-    ['key' => 'timeclock', 'label' => 'Time Clock', 'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
+    ['key' => 'schedule',    'label' => 'Schedule',    'icon' => 'calendar', 'href' => '/crm/jobs/schedule.php',          'perm' => 'schedule.view'],
+    ['key' => 'timeclock',   'label' => 'Time Clock',  'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
+    ['key' => 'work-zones',  'label' => 'Work Zones',  'icon' => 'map-pin',  'href' => '/crm/zone-report_appstack.php',   'perm' => 'jobs.view'],
 
     // ── Financials ────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Financials'],

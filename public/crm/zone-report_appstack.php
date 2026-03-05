@@ -1,8 +1,7 @@
 <?php
 /**
- * Zone Time Report — time spent per named work zone across visits.
- * Shows: zone name, plan, quoted vs actual time, crew, transit time.
- * Transit time highlighted in amber for crew leaders.
+ * Work Zones — time spent per named work zone across visits.
+ * Grouped by property, with avg time/visit, transit breakdown, and zone color palette.
  */
 require_once __DIR__ . '/../loginAuth/auth.php';
 require_once __DIR__ . '/includes/functions.php';
@@ -13,21 +12,23 @@ $db   = getDB();
 require_once __DIR__ . '/../../app/Modules/Geofence/Models/GeofenceModel.php';
 
 // Filters
-$dateFrom   = $_GET['date_from']   ?? date('Y-m-01');        // default: first of current month
-$dateTo     = $_GET['date_to']     ?? date('Y-m-d');          // default: today
+$dateFrom   = $_GET['date_from']   ?? date('Y-m-01');
+$dateTo     = $_GET['date_to']     ?? date('Y-m-d');
 $propertyId = isset($_GET['property_id']) ? (int)$_GET['property_id'] : null;
-
-// Clamp dates
 if ($dateFrom > $dateTo) $dateFrom = $dateTo;
 
-// Load properties for filter dropdown
-$propertiesStmt = $db->query("SELECT id, address FROM properties WHERE id IN (SELECT DISTINCT property_id FROM job_plans) ORDER BY address ASC");
-$properties     = $propertiesStmt->fetchAll(PDO::FETCH_ASSOC);
+// Properties for filter dropdown
+$propertiesStmt = $db->query("
+    SELECT id, address FROM properties
+    WHERE id IN (SELECT DISTINCT property_id FROM job_plans)
+    ORDER BY address ASC
+");
+$properties = $propertiesStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Run report
+// Zone rows (grouped by property in PHP)
 $rows = geofenceGetZoneReport($db, $dateFrom, $dateTo, $propertyId ?: null);
 
-// Also get per-visit transit totals for the period
+// Transit totals for same period
 $transitWhere  = 'WHERE jv.scheduled_date BETWEEN ? AND ? AND jv.transit_seconds IS NOT NULL';
 $transitParams = [$dateFrom, $dateTo];
 if ($propertyId) {
@@ -35,13 +36,19 @@ if ($propertyId) {
     $transitParams[] = $propertyId;
 }
 $transitStmt = $db->prepare("
-    SELECT SUM(jv.transit_seconds) AS total_transit, COUNT(DISTINCT jv.id) AS visit_count
+    SELECT jp.property_id,
+           SUM(jv.transit_seconds)    AS total_transit,
+           COUNT(DISTINCT jv.id)      AS visit_count
     FROM job_visits jv
     JOIN job_plans jp ON jp.id = jv.plan_id
     $transitWhere
+    GROUP BY jp.property_id
 ");
 $transitStmt->execute($transitParams);
-$transitTotals = $transitStmt->fetch(PDO::FETCH_ASSOC);
+$transitByProperty = [];
+foreach ($transitStmt->fetchAll(PDO::FETCH_ASSOC) as $t) {
+    $transitByProperty[(int)$t['property_id']] = $t;
+}
 
 // Helper: format seconds as h:mm
 function fmtSec(int $sec): string {
@@ -50,19 +57,38 @@ function fmtSec(int $sec): string {
     return $h . 'h ' . str_pad((string)$m, 2, '0', STR_PAD_LEFT) . 'm';
 }
 
-// Compute totals
-$totalInSec      = array_sum(array_column($rows, 'total_in_seconds'));
-$totalTransitSec = (int)($transitTotals['total_transit'] ?? 0);
+// Zone color palette — same order as zone-editor-manager.js
+$ZONE_COLORS = ['#2D8659','#e85d04','#0d6efd','#6f42c1','#20c997','#fd7e14','#dc3545','#0dcaf0'];
 
-$pageTitle  = 'Zone Time Report';
-$activePage = 'jobs';
+// Group rows by property
+$byProperty = [];
+foreach ($rows as $r) {
+    $pid = (int)$r['property_id'];
+    if (!isset($byProperty[$pid])) {
+        $byProperty[$pid] = [
+            'address' => $r['property_address'],
+            'zones'   => [],
+            'total_seconds' => 0,
+        ];
+    }
+    $byProperty[$pid]['zones'][]      = $r;
+    $byProperty[$pid]['total_seconds'] += (int)$r['total_in_seconds'];
+}
+
+// Grand totals
+$grandTotalZoneSec    = array_sum(array_column($rows, 'total_in_seconds'));
+$grandTotalTransitSec = array_sum(array_column($transitByProperty, 'total_transit'));
+$totalZoneCount       = count($rows);
+
+$pageTitle  = 'Work Zones';
+$activePage = 'work-zones';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
 <!-- Header -->
 <div class="row mb-3">
     <div class="col-12">
-        <h3 class="mb-1"><i data-feather="layers" class="me-2"></i>Zone Time Report</h3>
+        <h3 class="mb-1"><i data-feather="map-pin" class="me-2"></i>Work Zones</h3>
         <p class="text-muted mb-0">GPS-derived time attribution per named work zone</p>
     </div>
 </div>
@@ -106,21 +132,22 @@ $activePage = 'jobs';
     <div class="col-sm-4 mb-2">
         <div class="card mw-stat-card h-100">
             <div class="card-body text-center">
-                <div class="mw-stat-value"><?= fmtSec($totalInSec) ?></div>
+                <div class="mw-stat-value"><?= fmtSec((int)$grandTotalZoneSec) ?></div>
                 <div class="mw-stat-label">Total Zone Time</div>
             </div>
         </div>
     </div>
     <div class="col-sm-4 mb-2">
-        <div class="card h-100 <?= $totalTransitSec > $totalInSec * 0.2 ? 'mw-transit-warning' : 'mw-stat-card' ?>">
+        <?php $transitHigh = $grandTotalZoneSec > 0 && $grandTotalTransitSec > $grandTotalZoneSec * 0.2; ?>
+        <div class="card h-100 <?= $transitHigh ? 'mw-transit-warning' : 'mw-stat-card' ?>">
             <div class="card-body text-center">
-                <div class="mw-stat-value <?= $totalTransitSec > $totalInSec * 0.2 ? 'text-warning' : '' ?>">
-                    <?= fmtSec($totalTransitSec) ?>
+                <div class="mw-stat-value <?= $transitHigh ? 'text-warning' : '' ?>">
+                    <?= fmtSec((int)$grandTotalTransitSec) ?>
                 </div>
                 <div class="mw-stat-label">
-                    Transit Time
-                    <?php if ($totalTransitSec > $totalInSec * 0.2): ?>
-                    <span class="badge bg-warning text-dark ms-1" title="Transit >20% of zone time">High</span>
+                    Transit (on-site, between zones)
+                    <?php if ($transitHigh): ?>
+                    <span class="badge bg-warning text-dark ms-1">High</span>
                     <?php endif; ?>
                 </div>
             </div>
@@ -129,7 +156,7 @@ $activePage = 'jobs';
     <div class="col-sm-4 mb-2">
         <div class="card mw-stat-card h-100">
             <div class="card-body text-center">
-                <div class="mw-stat-value"><?= count($rows) ?></div>
+                <div class="mw-stat-value"><?= $totalZoneCount ?></div>
                 <div class="mw-stat-label">Zones Tracked</div>
             </div>
         </div>
@@ -137,14 +164,15 @@ $activePage = 'jobs';
 </div>
 
 <?php if (empty($rows)): ?>
+
 <div class="card">
     <div class="card-body text-center py-5">
         <i data-feather="map-pin" style="width:48px;height:48px;stroke:#ccc;"></i>
-        <p class="text-muted mt-3 mb-0">
-            No zone time data for this period.<br>
-            <small>Zone sessions are computed when visits are completed and work zones have been drawn.</small>
+        <p class="text-muted mt-3 mb-1">No zone time data for this period.</p>
+        <p class="text-muted small mb-3">
+            Zone sessions are computed when visits are completed and work zones have been drawn for the property.
         </p>
-        <a href="/crm/jobs/zone-editor.php" class="btn btn-sm btn-success mt-3">
+        <a href="/crm/jobs/zone-editor.php" class="btn btn-sm btn-success">
             <i data-feather="layers" class="me-1"></i> Draw Work Zones
         </a>
     </div>
@@ -152,95 +180,126 @@ $activePage = 'jobs';
 
 <?php else: ?>
 
-<!-- Zone Breakdown Table -->
-<div class="card">
+<?php foreach ($byProperty as $pid => $propData):
+    $propTransit    = (int)($transitByProperty[$pid]['total_transit'] ?? 0);
+    $propZoneSec    = (int)$propData['total_seconds'];
+    $propOnSite     = $propZoneSec + $propTransit;
+    $propTransitHigh = $propZoneSec > 0 && $propTransit > $propZoneSec * 0.2;
+    $colorIdx       = 0;  // reset color counter per property
+?>
+
+<div class="card mb-4">
+    <!-- Property header -->
     <div class="card-header d-flex align-items-center justify-content-between">
-        <strong>Zone Breakdown</strong>
-        <span class="badge bg-secondary"><?= count($rows) ?> zones</span>
+        <div>
+            <i data-feather="home" style="width:14px;height:14px;" class="me-1 text-muted"></i>
+            <strong><?= htmlspecialchars($propData['address']) ?></strong>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <?php if ($propTransit > 0): ?>
+            <span class="small text-muted">
+                <i data-feather="navigation" style="width:12px;height:12px;" class="me-1"></i>
+                <?= fmtSec($propTransit) ?> transit
+                <?php if ($propTransitHigh): ?>
+                <span class="badge bg-warning text-dark ms-1" style="font-size:10px;">High</span>
+                <?php endif; ?>
+            </span>
+            <?php endif; ?>
+            <span class="badge bg-secondary"><?= count($propData['zones']) ?> zone<?= count($propData['zones']) !== 1 ? 's' : '' ?></span>
+            <span class="small fw-semibold"><?= fmtSec($propZoneSec) ?> zone time</span>
+        </div>
     </div>
+
     <div class="table-responsive">
         <table class="table table-hover mb-0">
             <thead class="table-light">
                 <tr>
                     <th>Zone</th>
                     <th>Plan / Service</th>
-                    <th>Property</th>
-                    <th class="text-end">Time</th>
+                    <th class="text-end">Total Time</th>
+                    <th class="text-end">Avg / Visit</th>
                     <th class="text-center">Visits</th>
                     <th class="text-center">Crew</th>
                 </tr>
             </thead>
             <tbody>
-                <?php
-                $currentProperty = null;
-                foreach ($rows as $r):
-                    $inSec = (int)$r['total_in_seconds'];
-                    $pct   = $totalInSec > 0 ? round($inSec / $totalInSec * 100) : 0;
+                <?php foreach ($propData['zones'] as $r):
+                    $inSec   = (int)$r['total_in_seconds'];
+                    $visits  = max(1, (int)$r['visit_count']);
+                    $avgSec  = intdiv($inSec, $visits);
+                    $pct     = $propZoneSec > 0 ? round($inSec / $propZoneSec * 100) : 0;
+                    $color   = $ZONE_COLORS[$colorIdx++ % count($ZONE_COLORS)];
                 ?>
                 <tr>
                     <td>
                         <div class="d-flex align-items-center gap-2">
-                            <span class="mw-zone-dot-sm" style="background:var(--mw-green);"></span>
+                            <span class="mw-zone-dot-sm flex-shrink-0" style="background:<?= $color ?>;"></span>
                             <div>
                                 <div class="fw-semibold small"><?= htmlspecialchars($r['zone_label'] ?? 'Unnamed Zone') ?></div>
                                 <div class="mw-zone-bar mt-1">
-                                    <div class="mw-zone-bar-fill" style="width:<?= $pct ?>%;"></div>
+                                    <div class="mw-zone-bar-fill" style="width:<?= $pct ?>%;background:<?= $color ?>;"></div>
                                 </div>
                             </div>
                         </div>
                     </td>
                     <td>
                         <div class="small"><?= htmlspecialchars($r['plan_title'] ?? '—') ?></div>
-                        <?php if ($r['plan_service_type']): ?>
+                        <?php if (!empty($r['plan_service_type'])): ?>
                         <span class="badge bg-light text-dark" style="font-size:10px;"><?= htmlspecialchars($r['plan_service_type']) ?></span>
                         <?php endif; ?>
                     </td>
-                    <td>
-                        <div class="small text-muted"><?= htmlspecialchars($r['property_address'] ?? '—') ?></div>
-                    </td>
                     <td class="text-end">
                         <span class="fw-semibold"><?= fmtSec($inSec) ?></span>
-                        <div class="text-muted" style="font-size:11px;"><?= $pct ?>% of total</div>
+                        <div class="text-muted" style="font-size:11px;"><?= $pct ?>% of property</div>
                     </td>
-                    <td class="text-center"><?= (int)$r['visit_count'] ?></td>
-                    <td class="text-center"><?= (int)$r['max_crew'] ?></td>
+                    <td class="text-end">
+                        <span class="small"><?= fmtSec($avgSec) ?></span>
+                    </td>
+                    <td class="text-center small"><?= $visits ?></td>
+                    <td class="text-center small"><?= (int)$r['max_crew'] ?></td>
                 </tr>
                 <?php endforeach; ?>
+
+                <?php if ($propTransit > 0): ?>
+                <tr class="<?= $propTransitHigh ? 'table-warning' : '' ?> text-muted">
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="mw-zone-dot-sm flex-shrink-0" style="background:#adb5bd;"></span>
+                            <div>
+                                <div class="small fst-italic">Transit (between zones)</div>
+                                <?php if ($propTransitHigh): ?>
+                                <div class="text-warning" style="font-size:10px;">Review zone layout or crew routing</div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </td>
+                    <td colspan="2" class="text-end">
+                        <span class="<?= $propTransitHigh ? 'text-warning fw-semibold' : '' ?>"><?= fmtSec($propTransit) ?></span>
+                    </td>
+                    <td colspan="3"></td>
+                </tr>
+                <?php endif; ?>
             </tbody>
             <tfoot class="table-light fw-semibold">
                 <tr>
-                    <td colspan="3">Totals</td>
-                    <td class="text-end"><?= fmtSec($totalInSec) ?></td>
-                    <td colspan="2"></td>
+                    <td colspan="2">On-site total</td>
+                    <td class="text-end"><?= fmtSec($propOnSite) ?></td>
+                    <td colspan="3"></td>
                 </tr>
-                <?php if ($totalTransitSec > 0): ?>
-                <tr class="<?= $totalTransitSec > $totalInSec * 0.2 ? 'table-warning' : '' ?>">
-                    <td colspan="3">
-                        <i data-feather="navigation" class="me-1" style="width:14px;height:14px;"></i>
-                        Transit (on-site, between zones)
-                    </td>
-                    <td class="text-end <?= $totalTransitSec > $totalInSec * 0.2 ? 'text-warning' : '' ?>">
-                        <?= fmtSec($totalTransitSec) ?>
-                    </td>
-                    <td colspan="2">
-                        <?php if ($totalTransitSec > $totalInSec * 0.2): ?>
-                        <small class="text-warning">Review routing</small>
-                        <?php endif; ?>
-                    </td>
-                </tr>
-                <?php endif; ?>
             </tfoot>
         </table>
     </div>
 </div>
 
-<?php if ($totalTransitSec > $totalInSec * 0.2): ?>
-<div class="alert alert-warning mt-3 mb-0 small">
+<?php endforeach; ?>
+
+<?php if ($transitHigh): ?>
+<div class="alert alert-warning mt-2 mb-0 small">
     <i data-feather="alert-triangle" class="me-1" style="width:14px;"></i>
-    <strong>High transit time detected</strong> —
-    crew spent <?= fmtSec($totalTransitSec) ?> moving between zones
-    (<?= $totalInSec > 0 ? round($totalTransitSec / $totalInSec * 100) : 0 ?>% of zone time).
-    Consider adjusting the zone layout or reviewing crew routing.
+    <strong>High transit time</strong> —
+    crew spent <?= fmtSec((int)$grandTotalTransitSec) ?> moving between zones
+    (<?= $grandTotalZoneSec > 0 ? round($grandTotalTransitSec / $grandTotalZoneSec * 100) : 0 ?>% of zone time).
+    Consider adjusting zone layout or reviewing crew routing.
 </div>
 <?php endif; ?>
 
