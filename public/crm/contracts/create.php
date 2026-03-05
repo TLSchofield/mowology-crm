@@ -505,7 +505,7 @@ $activePage = 'contracts';
         // Load properties
         cardHeader.textContent = 'Step 2 — Select Property';
         propertyRow.style.display = '';
-        propertySelect.innerHTML = '<option value="">Loading…</option>';
+        propertyList.innerHTML = '<div class="mw-property-loading">Loading…</div>';
         document.getElementById('contactHint').textContent = '';
 
         fetch('../api/client-search.php?action=properties&contact_id=' + contactId)
@@ -592,6 +592,9 @@ $activePage = 'contracts';
         showSelectionSummary(selectedContactName, propLabel);
     })();
     <?php endif; ?>
+
+    // Expose for use by add-property modal script
+    window._selectPropertyCard = selectPropertyCard;
 })();
 </script>
 <?php endif; ?>
@@ -713,17 +716,24 @@ $activePage = 'contracts';
                 return;
             }
 
-            // The main page script exposes loadedProperties and propertySelect via the outer IIFE.
-            // We need to add the new property to the select and auto-select it.
+            // Add the new property card and auto-select it
             const p = data.property;
-            const label = p.address + ', ' + p.city + (p.property_type ? ' (' + p.property_type + ')' : '');
-            const opt = document.createElement('option');
-            opt.value = p.id;
-            opt.textContent = label;
-            const sel = document.getElementById('propertySelect');
-            sel.appendChild(opt);
-            sel.value = p.id;
-            sel.dispatchEvent(new Event('change'));
+            const typeLabel = (p.property_type || '').replace('_', ' ');
+            const ICON_PIN = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
+            const pl = document.getElementById('propertyList');
+            const card = document.createElement('div');
+            card.className = 'mw-property-card';
+            card.dataset.propertyId = p.id;
+            card.innerHTML = ICON_PIN
+                + '<div class="mw-property-card-info">'
+                + '<span class="mw-property-card-addr">' + p.address + ', ' + p.city + '</span>'
+                + (typeLabel ? '<span class="mw-property-card-type">' + typeLabel + '</span>' : '')
+                + '</div>';
+            pl.appendChild(card);
+            card.addEventListener('click', function () {
+                if (window._selectPropertyCard) window._selectPropertyCard(this);
+            });
+            if (window._selectPropertyCard) window._selectPropertyCard(card);
 
             $('#addPropertyModal').modal('hide');
         })
