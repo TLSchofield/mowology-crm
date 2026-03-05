@@ -292,7 +292,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                         (?, ?, ?, ?, TIMESTAMPDIFF(MINUTE, ?, ?), 'edited', ?, 0)
                 ");
                 $dur->execute([$visitId, $userId, $startTime, $endTime, $startTime, $endTime, $teNotes ?: null]);
-                header("Location: view.php?id={$planId}&time_added=1");
+                header("Location: view.php?id={$planId}&time_added=1#timeLogCard");
                 exit;
             }
         }
@@ -1301,7 +1301,7 @@ if ($hasPropCoords) {
                                                 <?php echo htmlspecialchars($visit['crew_name'] ?? 'Unassigned'); ?>
                                             </td>
                                             <td>
-                                                <?php if ($visit['status'] === 'completed' && empty($visit['invoice_id'])): ?>
+                                                <?php if ($visit['status'] === 'completed' && empty($visit['invoice_id']) && empty($plan['contract_id'])): ?>
                                                     <a href="/crm/invoices/create.php?visit_id=<?php echo (int)$visit['id']; ?>"
                                                        class="mw-unbilled-pulse" title="Invoice not raised — click to fix">
                                                         <span class="mw-unbilled-dot"></span>
@@ -1367,6 +1367,11 @@ if ($hasPropCoords) {
                                                     <span class="text-muted small mr-2">
                                                         <?php echo $visit['completed_at'] ? formatDateTime($visit['completed_at']) : ''; ?>
                                                     </span>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>', '<?php echo $visit['assigned_crew_id'] ?? ''; ?>')"
+                                                            title="Edit visit">
+                                                        <i data-feather="edit-2" style="width: 12px; height: 12px;"></i>
+                                                    </button>
                                                     <?php if (!empty($visit['invoice_id'])): ?>
                                                         <a href="/crm/invoices/view.php?id=<?php echo (int)$visit['invoice_id']; ?>"
                                                            class="btn btn-sm btn-outline-success" title="View invoice">
