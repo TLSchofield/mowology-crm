@@ -2759,36 +2759,7 @@ function getServiceLabel(type) {
         })
         .then(function(data) {
             $('#crewAssignModal').modal('hide');
-            // Update the card's crew display without full reload
-            var card = document.querySelector('.mw-stop-card[data-stop-id="' + stopId + '"], .mw-dv-card[data-stop-id="' + stopId + '"]');
-            if (card) {
-                var returnedIds = data.crew_ids || [];
-                var returnedNames = data.crew_names || [];
-                card.dataset.crewId = returnedIds.length > 0 ? returnedIds[0] : '0';
-                card.dataset.crewIds = returnedIds.join(',');
-
-                var crewEl = card.querySelector('.mw-stop-crew, .mw-dv-card-crew');
-                if (returnedNames.length > 0) {
-                    var displayText = returnedNames.join(', ');
-                    if (crewEl) {
-                        crewEl.textContent = displayText;
-                        crewEl.style.color = '';
-                    } else {
-                        var newCrew = document.createElement('div');
-                        newCrew.className = card.classList.contains('mw-dv-card') ? 'mw-dv-card-crew' : 'mw-stop-crew';
-                        newCrew.textContent = displayText;
-                        var body = card.querySelector('.mw-dv-card-body') || card;
-                        body.appendChild(newCrew);
-                    }
-                } else {
-                    if (crewEl) {
-                        crewEl.textContent = 'Unassigned';
-                        crewEl.style.color = '#adb5bd';
-                    }
-                }
-            }
-            btn.disabled = false;
-            btn.textContent = 'Save';
+            window.location.reload();
         })
         .catch(function(err) {
             alert('Error: ' + err.message);
