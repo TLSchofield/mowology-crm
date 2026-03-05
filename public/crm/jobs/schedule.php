@@ -1945,6 +1945,16 @@ if ($apiKey) {
                                   <div class="mw-dv-card-crew"><?php echo htmlspecialchars(implode(', ', $crewNames)); ?></div>
                               <?php endif; ?>
                               <?php
+                              // Visit revenue
+                              $dvRevenue = 0.0;
+                              foreach (($stop['visits'] ?? []) as $_dv) { $dvRevenue += (float)($_dv['price_per_visit'] ?? 0); }
+                              if ($dvRevenue > 0): ?>
+                              <div class="mw-stop-revenue-strip">
+                                  <span class="mw-stop-rev-icon">$</span>
+                                  <span class="mw-stop-rev-amount"><?php echo number_format($dvRevenue, 0); ?></span>
+                              </div>
+                              <?php endif; ?>
+                              <?php
                               // Profitability bar
                               $margins = [];
                               foreach (($stop['visits'] ?? []) as $v) {
@@ -2018,6 +2028,15 @@ if ($apiKey) {
                                           <?php echo htmlspecialchars(getServiceLabelLocal($visit['service_type'] ?? '')); ?>
                                       </span>
                                   <?php endforeach; ?>
+                              </div>
+                              <?php endif; ?>
+                              <?php
+                              $dvRevenue = 0.0;
+                              foreach (($stop['visits'] ?? []) as $_dv) { $dvRevenue += (float)($_dv['price_per_visit'] ?? 0); }
+                              if ($dvRevenue > 0): ?>
+                              <div class="mw-stop-revenue-strip">
+                                  <span class="mw-stop-rev-icon">$</span>
+                                  <span class="mw-stop-rev-amount"><?php echo number_format($dvRevenue, 0); ?></span>
                               </div>
                               <?php endif; ?>
                               <div class="mw-dv-card-crew" style="color: #adb5bd;">Unassigned</div>
