@@ -153,6 +153,65 @@ switch ($action) {
         echo json_encode(['success' => true, 'results' => $formatted]);
         break;
 
+    case 'create-property':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['success' => false, 'error' => 'POST required']);
+            exit;
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+
+        if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+
+        $contactId    = intval($input['contact_id'] ?? 0);
+        $address      = trim($input['address'] ?? '');
+        $city         = trim($input['city'] ?? '');
+        $province     = strtoupper(trim($input['province'] ?? 'BC')) ?: 'BC';
+        $postalCode   = trim($input['postal_code'] ?? '');
+        $propertyType = trim($input['property_type'] ?? '');
+
+        if (!$contactId || !$address || !$city) {
+            echo json_encode(['success' => false, 'error' => 'Contact, address, and city are required']);
+            exit;
+        }
+
+        // Verify contact exists
+        $chk = $db->prepare("SELECT first_name, last_name FROM contacts WHERE id = ? AND is_active = 1");
+        $chk->execute([$contactId]);
+        $ct = $chk->fetch(PDO::FETCH_ASSOC);
+        if (!$ct) {
+            echo json_encode(['success' => false, 'error' => 'Contact not found']);
+            exit;
+        }
+
+        $propertyName = trim($ct['first_name'] . ' ' . $ct['last_name']) . ' Property';
+
+        $stmt = $db->prepare("
+            INSERT INTO properties (property_name, address, city, province, postal_code, property_type, site_contact_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
+        ");
+        $stmt->execute([$propertyName, $address, $city, $province, $postalCode, $propertyType ?: null, $contactId]);
+        $newId = (int)$db->lastInsertId();
+
+        echo json_encode([
+            'success'  => true,
+            'property' => [
+                'id'            => $newId,
+                'address'       => $address,
+                'city'          => $city,
+                'province'      => $province,
+                'postal_code'   => $postalCode,
+                'property_type' => $propertyType,
+                'status'        => 'active',
+            ],
+        ]);
+        break;
+
     default:
         echo json_encode(['success' => false, 'error' => 'Unknown action']);
         break;

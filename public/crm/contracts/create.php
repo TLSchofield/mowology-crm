@@ -85,6 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         'title'          => trim($_POST['title'] ?? ''),
         'billing_cycle'  => $_POST['billing_cycle'] ?? 'monthly',
         'billing_amount' => $_POST['billing_amount'] ?? '',
+        'invoice_timing' => in_array($_POST['invoice_timing'] ?? '', ['after_visit','end_of_month','upfront'], true) ? $_POST['invoice_timing'] : 'after_visit',
         'start_date'     => $_POST['start_date'] ?? '',
         'end_date'       => $_POST['end_date'] ?? '',
         'renewal_date'   => $_POST['renewal_date'] ?? '',
@@ -200,9 +201,12 @@ $activePage = 'contracts';
                                               </option>
                                           <?php endforeach; ?>
                                       </select>
-                                      <small class="form-text text-muted" id="propertyHint">
-                                          <?php echo $prefilledContactId ? '' : ''; ?>
-                                      </small>
+                                      <div id="addPropertyBtnRow" class="mt-2" style="display:none;">
+                                          <button type="button" class="btn btn-sm btn-outline-secondary" id="addPropertyBtn">
+                                              <i data-feather="plus" style="width:13px;height:13px;"></i> Add new property
+                                          </button>
+                                      </div>
+                                      <small class="form-text text-muted" id="propertyHint"></small>
                                   </div>
 
                                   <!-- Selection summary chip (shows after both chosen) -->
@@ -298,6 +302,30 @@ $activePage = 'contracts';
                                   <small class="form-text text-muted">What the client pays per billing cycle.</small>
                               </div>
 
+                              <div class="mw-form-row">
+                                  <label class="mw-form-label">Invoice Timing</label>
+                                  <div class="mw-invoice-timing-selector mw-invoice-timing-compact">
+                                      <?php
+                                      $timingOptions = [
+                                          'after_visit'  => ['label' => 'After Each Visit',  'desc' => 'Invoice per completed visit', 'icon' => 'check-circle'],
+                                          'end_of_month' => ['label' => 'End of Month',       'desc' => 'Group visits, invoice monthly', 'icon' => 'calendar'],
+                                          'upfront'      => ['label' => 'Upfront / Prepay',   'desc' => 'Invoice before service begins', 'icon' => 'credit-card'],
+                                      ];
+                                      foreach ($timingOptions as $val => $opt): ?>
+                                      <label class="mw-timing-option <?php echo $val === 'after_visit' ? 'mw-timing-active' : ''; ?>">
+                                          <input type="radio" name="invoice_timing" value="<?php echo $val; ?>"
+                                                 <?php echo $val === 'after_visit' ? 'checked' : ''; ?>
+                                                 onchange="document.querySelectorAll('[name=invoice_timing]').forEach(function(el){el.closest('.mw-timing-option').classList.remove('mw-timing-active')});this.closest('.mw-timing-option').classList.add('mw-timing-active')">
+                                          <span class="mw-timing-icon"><i data-feather="<?php echo $opt['icon']; ?>"></i></span>
+                                          <span class="mw-timing-text">
+                                              <strong><?php echo $opt['label']; ?></strong>
+                                              <small><?php echo $opt['desc']; ?></small>
+                                          </span>
+                                      </label>
+                                      <?php endforeach; ?>
+                                  </div>
+                              </div>
+
                           </div>
                       </div>
 
@@ -376,6 +404,7 @@ $activePage = 'contracts';
         selectionSummary.style.display = 'none';
         contactInput.parentElement.parentElement.style.display = ''; // show contact row
         cardHeader.textContent = 'Step 1 — Select Client';
+        if (window._hideAddPropertyBtn) window._hideAddPropertyBtn();
         hideDetailsSection();
         contactInput.focus();
     }
@@ -475,18 +504,19 @@ $activePage = 'contracts';
                 loadedProperties = data.properties || [];
                 if (!loadedProperties.length) {
                     propertySelect.innerHTML = '<option value="">No active properties for this contact</option>';
-                    return;
-                }
-                propertySelect.innerHTML = '<option value="">— select a property —</option>' +
-                    loadedProperties.map(p =>
-                        `<option value="${p.id}">${escHtml(p.address + ', ' + p.city)}${p.property_type ? ' (' + escHtml(p.property_type) + ')' : ''}</option>`
-                    ).join('');
+                } else {
+                    propertySelect.innerHTML = '<option value="">— select a property —</option>' +
+                        loadedProperties.map(p =>
+                            `<option value="${p.id}">${escHtml(p.address + ', ' + p.city)}${p.property_type ? ' (' + escHtml(p.property_type) + ')' : ''}</option>`
+                        ).join('');
 
-                // Auto-select if only one property
-                if (loadedProperties.length === 1) {
-                    propertySelect.value = loadedProperties[0].id;
-                    propertySelect.dispatchEvent(new Event('change'));
+                    // Auto-select if only one property
+                    if (loadedProperties.length === 1) {
+                        propertySelect.value = loadedProperties[0].id;
+                        propertySelect.dispatchEvent(new Event('change'));
+                    }
                 }
+                if (window._showAddPropertyBtn) window._showAddPropertyBtn();
             });
     }
 
@@ -532,6 +562,7 @@ $activePage = 'contracts';
         propertyRow.style.display = '';
         // properties already rendered server-side
         loadedProperties = <?php echo json_encode(array_values($prefilledProperties)); ?>;
+        if (window._showAddPropertyBtn) window._showAddPropertyBtn();
     })();
     <?php elseif ($prefilledContactId && $directPropertyId): ?>
     // Both pre-filled — show summary immediately
@@ -545,5 +576,156 @@ $activePage = 'contracts';
 })();
 </script>
 <?php endif; ?>
+
+<!-- Add Property Modal -->
+<div class="modal fade" id="addPropertyModal" tabindex="-1" role="dialog" aria-labelledby="addPropertyModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addPropertyModalLabel">Add New Property</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="addPropertyError" class="alert alert-danger d-none mb-3"></div>
+                <div class="form-group">
+                    <label>Street Address <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="newPropAddress" placeholder="e.g. 123 Main St" autocomplete="off">
+                </div>
+                <div class="row">
+                    <div class="col-sm-8">
+                        <div class="form-group">
+                            <label>City <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="newPropCity" placeholder="e.g. Vancouver" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="form-group">
+                            <label>Province</label>
+                            <input type="text" class="form-control" id="newPropProvince" value="BC" maxlength="2" autocomplete="off">
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-sm-6">
+                        <div class="form-group mb-0">
+                            <label>Postal Code</label>
+                            <input type="text" class="form-control" id="newPropPostal" placeholder="V1A 1A1" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="col-sm-6">
+                        <div class="form-group mb-0">
+                            <label>Property Type</label>
+                            <select class="form-control" id="newPropType">
+                                <option value="">— select —</option>
+                                <option value="residential">Residential</option>
+                                <option value="commercial">Commercial</option>
+                                <option value="strata">Strata</option>
+                                <option value="acreage">Acreage</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveNewPropertyBtn">
+                    <i data-feather="save" style="width:14px;height:14px;"></i> Save Property
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    const addPropertyBtnRow = document.getElementById('addPropertyBtnRow');
+    const addPropertyBtn    = document.getElementById('addPropertyBtn');
+    const saveBtn           = document.getElementById('saveNewPropertyBtn');
+    const errEl             = document.getElementById('addPropertyError');
+
+    if (!addPropertyBtn) return; // quote-originated page — no button
+
+    addPropertyBtn.addEventListener('click', function () {
+        errEl.classList.add('d-none');
+        document.getElementById('newPropAddress').value  = '';
+        document.getElementById('newPropCity').value     = '';
+        document.getElementById('newPropProvince').value = 'BC';
+        document.getElementById('newPropPostal').value   = '';
+        document.getElementById('newPropType').value     = '';
+        $('#addPropertyModal').modal('show');
+        setTimeout(function () { document.getElementById('newPropAddress').focus(); }, 400);
+    });
+
+    saveBtn.addEventListener('click', function () {
+        const address  = document.getElementById('newPropAddress').value.trim();
+        const city     = document.getElementById('newPropCity').value.trim();
+        const province = document.getElementById('newPropProvince').value.trim() || 'BC';
+        const postal   = document.getElementById('newPropPostal').value.trim();
+        const type     = document.getElementById('newPropType').value;
+        const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+        const contactId = parseInt(document.getElementById('hiddenContactId').value, 10);
+
+        errEl.classList.add('d-none');
+
+        if (!address || !city) {
+            errEl.textContent = 'Street address and city are required.';
+            errEl.classList.remove('d-none');
+            return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = 'Saving…';
+
+        fetch('../api/client-search.php?action=create-property', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ csrf_token: csrfToken, contact_id: contactId, address, city, province, postal_code: postal, property_type: type })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i data-feather="save" style="width:14px;height:14px;"></i> Save Property';
+            feather.replace();
+
+            if (!data.success) {
+                errEl.textContent = data.error || 'Failed to save property.';
+                errEl.classList.remove('d-none');
+                return;
+            }
+
+            // The main page script exposes loadedProperties and propertySelect via the outer IIFE.
+            // We need to add the new property to the select and auto-select it.
+            const p = data.property;
+            const label = p.address + ', ' + p.city + (p.property_type ? ' (' + p.property_type + ')' : '');
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = label;
+            const sel = document.getElementById('propertySelect');
+            sel.appendChild(opt);
+            sel.value = p.id;
+            sel.dispatchEvent(new Event('change'));
+
+            $('#addPropertyModal').modal('hide');
+        })
+        .catch(function () {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i data-feather="save" style="width:14px;height:14px;"></i> Save Property';
+            feather.replace();
+            errEl.textContent = 'Network error. Please try again.';
+            errEl.classList.remove('d-none');
+        });
+    });
+
+    // Expose show-button function so the main wizard JS can call it
+    window._showAddPropertyBtn = function () {
+        addPropertyBtnRow.style.display = '';
+        feather.replace();
+    };
+    window._hideAddPropertyBtn = function () {
+        addPropertyBtnRow.style.display = 'none';
+    };
+})();
+</script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
