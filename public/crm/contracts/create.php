@@ -188,19 +188,23 @@ $activePage = 'contracts';
                                       </small>
                                   </div>
 
-                                  <!-- Property dropdown (step 2, revealed after contact chosen) -->
+                                  <!-- Property cards (step 2, revealed after contact chosen) -->
                                   <div class="mw-form-row" id="propertyRow" style="<?php echo $prefilledContactId ? '' : 'display:none'; ?>">
-                                      <label class="mw-form-label" for="propertySelect">Property <span class="text-danger">*</span></label>
-                                      <select id="propertySelect" class="form-control">
-                                          <option value="">— select a property —</option>
+                                      <label class="mw-form-label">Property <span class="text-danger">*</span></label>
+                                      <div id="propertyList" class="mw-property-list">
                                           <?php foreach ($prefilledProperties as $prop): ?>
-                                              <option value="<?php echo (int)$prop['id']; ?>"
-                                                  <?php echo ($defaultPropertyId == $prop['id']) ? 'selected' : ''; ?>>
-                                                  <?php echo htmlspecialchars($prop['address'] . ', ' . $prop['city']); ?>
-                                                  <?php echo $prop['property_type'] ? ' (' . htmlspecialchars($prop['property_type']) . ')' : ''; ?>
-                                              </option>
+                                              <div class="mw-property-card<?php echo ($defaultPropertyId == $prop['id']) ? ' selected' : ''; ?>"
+                                                   data-property-id="<?php echo (int)$prop['id']; ?>">
+                                                  <i data-feather="map-pin"></i>
+                                                  <div class="mw-property-card-info">
+                                                      <span class="mw-property-card-addr"><?php echo htmlspecialchars($prop['address'] . ', ' . $prop['city']); ?></span>
+                                                      <?php if ($prop['property_type']): ?>
+                                                          <span class="mw-property-card-type"><?php echo htmlspecialchars($prop['property_type']); ?></span>
+                                                      <?php endif; ?>
+                                                  </div>
+                                              </div>
                                           <?php endforeach; ?>
-                                      </select>
+                                      </div>
                                       <div id="addPropertyBtnRow" class="mt-2" style="display:none;">
                                           <button type="button" class="btn btn-sm btn-outline-secondary" id="addPropertyBtn">
                                               <i data-feather="plus" style="width:13px;height:13px;"></i> Add new property
@@ -357,7 +361,7 @@ $activePage = 'contracts';
     const hiddenContactId = document.getElementById('hiddenContactId');
     const hiddenPropertyId= document.getElementById('hiddenPropertyId');
     const propertyRow     = document.getElementById('propertyRow');
-    const propertySelect  = document.getElementById('propertySelect');
+    const propertyList    = document.getElementById('propertyList');
     const detailsCard     = document.getElementById('detailsCard');
     const billingCard     = document.getElementById('billingCard');
     const submitCard      = document.getElementById('submitCard');
@@ -393,13 +397,33 @@ $activePage = 'contracts';
         showDetailsSection();
     }
 
+    // ── Property card helpers ─────────────────────────────────────────────
+    const ICON_MAP_PIN = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
+
+    function selectPropertyCard(card) {
+        propertyList.querySelectorAll('.mw-property-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        const val = parseInt(card.dataset.propertyId, 10);
+        hiddenPropertyId.value = val;
+        const prop = loadedProperties.find(p => p.id === val);
+        const addrEl = card.querySelector('.mw-property-card-addr');
+        const propLabel = prop ? (prop.address + ', ' + prop.city) : (addrEl ? addrEl.textContent : 'Property #' + val);
+        showSelectionSummary(selectedContactName, propLabel);
+    }
+
+    function attachPropertyCardHandlers() {
+        propertyList.querySelectorAll('.mw-property-card').forEach(card => {
+            card.addEventListener('click', function () { selectPropertyCard(this); });
+        });
+    }
+
     function resetWizard() {
         contactInput.value = '';
         hiddenContactId.value  = '';
         hiddenPropertyId.value = '';
         selectedContactName    = '';
         loadedProperties       = [];
-        propertySelect.innerHTML = '<option value="">— select a property —</option>';
+        propertyList.innerHTML = '';
         propertyRow.style.display      = 'none';
         selectionSummary.style.display = 'none';
         contactInput.parentElement.parentElement.style.display = ''; // show contact row
@@ -410,20 +434,6 @@ $activePage = 'contracts';
     }
 
     clearBtn.addEventListener('click', resetWizard);
-
-    // ── Property select change ────────────────────────────────────────────
-    propertySelect.addEventListener('change', function () {
-        const val = parseInt(this.value, 10);
-        if (!val) {
-            hiddenPropertyId.value = '';
-            hideDetailsSection();
-            return;
-        }
-        hiddenPropertyId.value = val;
-        const prop = loadedProperties.find(p => p.id === val);
-        const propLabel = prop ? (prop.address + ', ' + prop.city) : 'Property #' + val;
-        showSelectionSummary(selectedContactName, propLabel);
-    });
 
     // ── Contact search ────────────────────────────────────────────────────
     function escHtml(s) {
@@ -503,17 +513,22 @@ $activePage = 'contracts';
             .then(data => {
                 loadedProperties = data.properties || [];
                 if (!loadedProperties.length) {
-                    propertySelect.innerHTML = '<option value="">No active properties for this contact</option>';
+                    propertyList.innerHTML = '<div class="mw-no-properties">No active properties for this contact.</div>';
                 } else {
-                    propertySelect.innerHTML = '<option value="">— select a property —</option>' +
-                        loadedProperties.map(p =>
-                            `<option value="${p.id}">${escHtml(p.address + ', ' + p.city)}${p.property_type ? ' (' + escHtml(p.property_type) + ')' : ''}</option>`
-                        ).join('');
+                    propertyList.innerHTML = loadedProperties.map(p => {
+                        const typeLabel = (p.property_type || '').replace('_', ' ');
+                        return `<div class="mw-property-card" data-property-id="${p.id}">`
+                            + ICON_MAP_PIN
+                            + `<div class="mw-property-card-info">`
+                            + `<span class="mw-property-card-addr">${escHtml(p.address + ', ' + p.city)}</span>`
+                            + (typeLabel ? `<span class="mw-property-card-type">${escHtml(typeLabel)}</span>` : '')
+                            + `</div></div>`;
+                    }).join('');
+                    attachPropertyCardHandlers();
 
                     // Auto-select if only one property
                     if (loadedProperties.length === 1) {
-                        propertySelect.value = loadedProperties[0].id;
-                        propertySelect.dispatchEvent(new Event('change'));
+                        selectPropertyCard(propertyList.querySelector('.mw-property-card'));
                     }
                 }
                 if (window._showAddPropertyBtn) window._showAddPropertyBtn();
@@ -560,8 +575,12 @@ $activePage = 'contracts';
     (function () {
         cardHeader.textContent = 'Step 2 — Select Property';
         propertyRow.style.display = '';
-        // properties already rendered server-side
+        // properties already rendered server-side — attach click handlers
         loadedProperties = <?php echo json_encode(array_values($prefilledProperties)); ?>;
+        attachPropertyCardHandlers();
+        if (loadedProperties.length === 1) {
+            selectPropertyCard(propertyList.querySelector('.mw-property-card'));
+        }
         if (window._showAddPropertyBtn) window._showAddPropertyBtn();
     })();
     <?php elseif ($prefilledContactId && $directPropertyId): ?>
