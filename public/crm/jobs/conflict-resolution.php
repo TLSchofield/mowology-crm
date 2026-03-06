@@ -346,6 +346,17 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             </div>
         </div>
 
+        <!-- Dwell Analysis -->
+        <div class="card mb-3 mw-cr-card mw-cr-card--resolve">
+            <div class="card-body">
+                <h6 class="card-title mb-2">
+                    <i data-feather="flag" class="mr-1" style="width:16px;height:16px;"></i>
+                    Dwell Stops
+                </h6>
+                <div id="dwellAnalysis" class="small text-muted">Analyzing clusters...</div>
+            </div>
+        </div>
+
         <!-- Photo Evidence -->
         <div class="card mb-3">
             <div class="card-body">
@@ -526,6 +537,58 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
     var crewPings  = <?= json_encode(array_values($crewPings)) ?>;
     var arrivalBorder = <?= $arrivalBorder && !empty($arrivalBorder['polygon']) ? json_encode($arrivalBorder['polygon']) : 'null' ?>;
 
+    // --- Haversine (JS) for cluster detection ---
+    function jsHaversine(lat1, lng1, lat2, lng2) {
+        var R = 6371000, toRad = Math.PI / 180;
+        var dLat = (lat2 - lat1) * toRad, dLng = (lng2 - lng1) * toRad;
+        var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+                Math.cos(lat1*toRad)*Math.cos(lat2*toRad)*Math.sin(dLng/2)*Math.sin(dLng/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    // --- Dwell cluster detection ---
+    // Groups consecutive pings within clusterRadius into stationary "dwell" clusters.
+    // Returns clusters with centroid, time range, duration, ping count.
+    function detectDwellClusters(pings, clusterRadius) {
+        var clusters = [];
+        var cur = null;
+        for (var i = 0; i < pings.length; i++) {
+            var p = pings[i];
+            if (!cur) {
+                cur = { pings: [p], cLat: p.lat, cLng: p.lng };
+            } else {
+                var d = jsHaversine(cur.cLat, cur.cLng, p.lat, p.lng);
+                if (d <= clusterRadius) {
+                    cur.pings.push(p);
+                    var n = cur.pings.length;
+                    cur.cLat = ((cur.cLat * (n-1)) + p.lat) / n;
+                    cur.cLng = ((cur.cLng * (n-1)) + p.lng) / n;
+                } else {
+                    if (cur.pings.length >= 3) clusters.push(cur);
+                    cur = { pings: [p], cLat: p.lat, cLng: p.lng };
+                }
+            }
+        }
+        if (cur && cur.pings.length >= 3) clusters.push(cur);
+
+        // Enrich each cluster with timing
+        return clusters.map(function(c) {
+            var epochs = c.pings.map(function(p) { return p.epoch; });
+            var first = Math.min.apply(null, epochs);
+            var last  = Math.max.apply(null, epochs);
+            var durSec = last - first;
+            return {
+                lat: c.cLat, lng: c.cLng,
+                count: c.pings.length,
+                firstEpoch: first, lastEpoch: last,
+                firstTime: c.pings[0].time,
+                lastTime: c.pings[c.pings.length - 1].time,
+                durMin: Math.round(durSec / 60),
+                distM: Math.round(jsHaversine(propLat, propLng, c.cLat, c.cLng))
+            };
+        }).filter(function(c) { return c.durMin >= 3; }); // Min 3 min dwell
+    }
+
     // --- Map ---
     if (propLat && propLng) {
         var map = L.map('crMap', { scrollWheelZoom: true }).setView([propLat, propLng], 17);
@@ -631,6 +694,56 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             }
             if (typeof bounds !== 'undefined') map.fitBounds(bounds.pad(0.3));
         }
+
+        // --- Dwell cluster flags ---
+        var nearbyTruckPings = truckPings.filter(function(p) { return p.nearby; });
+        var dwellClusters = detectDwellClusters(nearbyTruckPings, 30);
+
+        // Sort by duration descending — longest dwell first
+        dwellClusters.sort(function(a, b) { return b.durMin - a.durMin; });
+
+        for (var ci = 0; ci < dwellClusters.length; ci++) {
+            var dc = dwellClusters[ci];
+            var isLongest = (ci === 0);
+            var flagColor = isLongest ? '#ef4444' : '#f59e0b';
+
+            // Flag marker
+            L.marker([dc.lat, dc.lng], {
+                icon: L.divIcon({
+                    className: 'mw-cr-dwell-flag',
+                    html: '<div style="background:' + flagColor + ';color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4);border:1px solid #fff;">'
+                        + dc.durMin + ' min'
+                        + '</div>',
+                    iconSize: [60, 22],
+                    iconAnchor: [30, 30]
+                })
+            }).addTo(map).bindPopup(
+                '<strong>Dwell Stop' + (isLongest ? ' (longest)' : '') + '</strong><br>'
+                + dc.firstTime + ' — ' + dc.lastTime + '<br>'
+                + dc.durMin + ' min, ' + dc.count + ' pings<br>'
+                + dc.distM + 'm from property'
+            );
+        }
+
+        // Populate dwell analysis section
+        var dwellEl = document.getElementById('dwellAnalysis');
+        if (dwellEl && dwellClusters.length > 0) {
+            var html = '';
+            for (var di = 0; di < dwellClusters.length; di++) {
+                var d = dwellClusters[di];
+                var badge = di === 0 ? 'badge-danger' : 'badge-warning';
+                html += '<div class="small mb-1">'
+                    + '<span class="badge ' + badge + ' mr-1">' + d.durMin + ' min</span> '
+                    + d.firstTime + ' — ' + d.lastTime
+                    + ' <span class="text-muted">(' + d.count + ' pings, ' + d.distM + 'm)</span>'
+                    + (di === 0 ? ' <strong>&#9668; likely service</strong>' : '')
+                    + '</div>';
+            }
+            dwellEl.innerHTML = html;
+        } else if (dwellEl) {
+            dwellEl.innerHTML = '<div class="small text-muted">No stationary dwell clusters detected</div>';
+        }
+
     } else {
         document.getElementById('crMap').innerHTML = '<div class="text-center text-muted p-5">No property coordinates available</div>';
     }
