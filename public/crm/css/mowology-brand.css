@@ -7575,7 +7575,7 @@ textarea.font-monospace {
   min-height: 200px;
   min-width: 0;
   overflow-y: auto;
-  max-height: 600px;
+  max-height: calc(100vh - 340px);
   transition: background 0.15s ease;
   box-sizing: border-box;
   /* Force column to fill its grid track — width:100% beats justify-self:stretch
@@ -7583,6 +7583,11 @@ textarea.font-monospace {
   width: 100%;
   align-self: stretch;
   justify-self: stretch;
+}
+
+/* Prevent flex children from shrinking — forces scroll instead of squish */
+.mw-day-column > * {
+  flex-shrink: 0;
 }
 
 .mw-day-column:last-child {
@@ -7895,6 +7900,16 @@ textarea.font-monospace {
 .mw-cam-link svg {
   flex-shrink: 0;
   opacity: 0.8;
+}
+.mw-cam-link-conflict {
+  color: #DC2626;
+  border-color: #FECACA;
+  background: #FEF2F2;
+}
+.mw-cam-link-conflict:hover {
+  background: #FEE2E2;
+  border-color: #DC2626;
+  color: #991B1B;
 }
 
 /* Crew section */

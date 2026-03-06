@@ -1710,6 +1710,7 @@ if ($apiKey) {
                                       if (!empty($stop['visits'])) {
                                           foreach ($stop['visits'] as $v) {
                                               $visitsJson[] = [
+                                                  'visit_id' => (int)($v['visit_id'] ?? 0),
                                                   'plan_id' => (int)($v['plan_id'] ?? 0),
                                                   'plan_number' => $v['plan_number'] ?? '',
                                                   'service_type' => $v['service_type'] ?? '',
@@ -2790,6 +2791,23 @@ function getServiceLabel(type) {
                     '<span>View Client</span>';
                 a.target = '_blank';
                 linksEl.appendChild(a);
+            }
+
+            // Conflict resolution link — show if this stop card has a conflict highlight
+            if (card.classList.contains('mw-rr-conflict-border') && visits.length > 0) {
+                var firstVisitId = visits[0].visit_id || 0;
+                var truckId = crewIds.length > 0 ? crewIds[0] : '';
+                if (firstVisitId > 0) {
+                    var crUrl = '/crm/jobs/conflict-resolution.php?visit_id=' + firstVisitId + '&date=' + stopDate;
+                    if (truckId) crUrl += '&truck_id=' + truckId;
+                    var ca = document.createElement('a');
+                    ca.href = crUrl;
+                    ca.className = 'mw-cam-link mw-cam-link-conflict';
+                    ca.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
+                        '<span>Resolve Conflict</span>';
+                    ca.target = '_blank';
+                    linksEl.appendChild(ca);
+                }
             }
 
             // Check the right checkboxes
