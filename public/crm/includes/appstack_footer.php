@@ -38,6 +38,7 @@
 
   <script src="/crm/js/feather-helper.js"></script>
   <script src="/crm/js/app.js"></script>
+  <script src="/crm/js/mw-toast.js?v=20260306"></script>
   <script src="/crm/js/time-clock-widget.js?v=20260214h"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20260214"></script>
 
