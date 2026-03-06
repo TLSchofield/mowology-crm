@@ -32,6 +32,23 @@ $todayVisitsCount = 0;
 $weekVisitsCount = 0;
 $completedVisitsCount = 0;
 
+// Financial KPI variables
+$todayRevenue = 0;
+$todayCompletedCount = 0;
+$weekRevenue = 0;
+$weekVisitCount = 0;
+$monthRevenue = 0;
+$monthCompletedCount = 0;
+$totalOutstanding = 0;
+$outstandingCount = 0;
+$overdueCount = 0;
+$planProfitability = [];
+
+// Date ranges for financial queries
+$weekStart = date('Y-m-d', strtotime('monday this week'));
+$weekEnd = date('Y-m-d', strtotime('sunday this week'));
+$monthStart = date('Y-m-01');
+
 try {
     $params = [];
     $whereConditions = ['1=1'];
@@ -123,6 +140,79 @@ try {
         SELECT COUNT(*) FROM job_visits WHERE status = 'completed'
     ")->fetchColumn();
 
+    // Financial KPIs: single conditional-aggregate query for visit-based revenue
+    $finStmt = $db->prepare("
+        SELECT
+            COALESCE(SUM(
+                CASE WHEN jv.scheduled_date = CURDATE() AND jv.status = 'completed'
+                     THEN COALESCE(jv.actual_amount, jp.price_per_visit, jp.monthly_flat_price, jp.seasonal_price, 0)
+                     ELSE 0 END
+            ), 0) AS today_revenue,
+            SUM(CASE WHEN jv.scheduled_date = CURDATE() AND jv.status = 'completed'
+                 THEN 1 ELSE 0 END) AS today_completed_count,
+
+            COALESCE(SUM(
+                CASE WHEN jv.scheduled_date BETWEEN ? AND ?
+                          AND jv.status IN ('scheduled', 'in_progress', 'completed')
+                     THEN COALESCE(jv.actual_amount, jp.price_per_visit, jp.monthly_flat_price, jp.seasonal_price, 0)
+                     ELSE 0 END
+            ), 0) AS week_revenue,
+            SUM(CASE WHEN jv.scheduled_date BETWEEN ? AND ?
+                          AND jv.status IN ('scheduled', 'in_progress', 'completed')
+                 THEN 1 ELSE 0 END) AS week_visit_count,
+
+            COALESCE(SUM(
+                CASE WHEN jv.scheduled_date BETWEEN ? AND LAST_DAY(?)
+                          AND jv.status = 'completed'
+                     THEN COALESCE(jv.actual_amount, jp.price_per_visit, jp.monthly_flat_price, jp.seasonal_price, 0)
+                     ELSE 0 END
+            ), 0) AS month_revenue,
+            SUM(CASE WHEN jv.scheduled_date BETWEEN ? AND LAST_DAY(?)
+                          AND jv.status = 'completed'
+                 THEN 1 ELSE 0 END) AS month_completed_count
+
+        FROM job_visits jv
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        WHERE jv.scheduled_date BETWEEN ? AND LAST_DAY(?)
+    ");
+    $finStmt->execute([
+        $weekStart, $weekEnd,
+        $weekStart, $weekEnd,
+        $monthStart, $monthStart,
+        $monthStart, $monthStart,
+        $monthStart, $monthStart,
+    ]);
+    $fin = $finStmt->fetch(PDO::FETCH_ASSOC);
+    if ($fin) {
+        $todayRevenue = (float)$fin['today_revenue'];
+        $todayCompletedCount = (int)$fin['today_completed_count'];
+        $weekRevenue = (float)$fin['week_revenue'];
+        $weekVisitCount = (int)$fin['week_visit_count'];
+        $monthRevenue = (float)$fin['month_revenue'];
+        $monthCompletedCount = (int)$fin['month_completed_count'];
+    }
+
+    // Accounts receivable
+    $arStmt = $db->query("
+        SELECT
+            COALESCE(SUM(balance_due), 0) AS total_outstanding,
+            COUNT(*) AS outstanding_count,
+            SUM(CASE WHEN status = 'overdue' THEN 1 ELSE 0 END) AS overdue_count
+        FROM invoices
+        WHERE status IN ('sent', 'viewed', 'partial', 'overdue')
+          AND balance_due > 0
+    ");
+    $ar = $arStmt->fetch(PDO::FETCH_ASSOC);
+    if ($ar) {
+        $totalOutstanding = (float)$ar['total_outstanding'];
+        $outstandingCount = (int)$ar['outstanding_count'];
+        $overdueCount = (int)$ar['overdue_count'];
+    }
+
+    // Per-row profitability (batch query for margin %)
+    $planIds = array_map('intval', array_column($plans, 'id'));
+    $planProfitability = !empty($planIds) ? getStopProfitabilityBatch($planIds) : [];
+
     // Get staff for crew filter
     $staff = getStaffMembers();
 
@@ -185,8 +275,37 @@ $activePage = 'jobs';
               </div>
           </div>
 
-          <!-- Stats -->
-          <div class="mw-stats-row">
+          <!-- Financial KPIs -->
+          <div class="mw-stats-row mw-stats-financial">
+              <div class="mw-stat-card revenue">
+                  <h4>Today's Revenue</h4>
+                  <div class="value currency"><?php echo formatCurrency($todayRevenue); ?></div>
+                  <div class="mw-stat-sub"><?php echo $todayCompletedCount; ?> visit<?php echo $todayCompletedCount !== 1 ? 's' : ''; ?> completed</div>
+              </div>
+              <div class="mw-stat-card week-revenue">
+                  <h4>This Week</h4>
+                  <div class="value currency"><?php echo formatCurrency($weekRevenue); ?></div>
+                  <div class="mw-stat-sub"><?php echo $weekVisitCount; ?> visit<?php echo $weekVisitCount !== 1 ? 's' : ''; ?> scheduled</div>
+              </div>
+              <div class="mw-stat-card monthly">
+                  <h4>Month to Date</h4>
+                  <div class="value currency"><?php echo formatCurrency($monthRevenue); ?></div>
+                  <div class="mw-stat-sub"><?php echo $monthCompletedCount; ?> completed in <?php echo date('F'); ?></div>
+              </div>
+              <div class="mw-stat-card ar <?php echo $overdueCount > 0 ? 'has-overdue' : ''; ?>">
+                  <h4>Outstanding</h4>
+                  <div class="value currency"><?php echo formatCurrency($totalOutstanding); ?></div>
+                  <div class="mw-stat-sub">
+                      <?php echo $outstandingCount; ?> invoice<?php echo $outstandingCount !== 1 ? 's' : ''; ?>
+                      <?php if ($overdueCount > 0): ?>
+                          <span class="mw-stat-overdue-badge"><?php echo $overdueCount; ?> overdue</span>
+                      <?php endif; ?>
+                  </div>
+              </div>
+          </div>
+
+          <!-- Activity KPIs -->
+          <div class="mw-stats-row mw-stats-activity">
               <div class="mw-stat-card today">
                   <h4>Active Plans</h4>
                   <div class="value"><?php echo $activePlansCount; ?></div>
@@ -339,6 +458,19 @@ $activePage = 'jobs';
                                       ?>
                                       <div><?php echo htmlspecialchars($priceDisplay); ?></div>
                                       <div class="text-muted small"><?php echo htmlspecialchars(ucwords(str_replace('_', ' ', $pricingModel))); ?></div>
+                                      <?php
+                                          $planProfit = $planProfitability[(int)$plan['id']] ?? null;
+                                          if ($planProfit && $planProfit['has_data']):
+                                              $margin = (int)$planProfit['margin_pct'];
+                                              $marginClass = $margin >= 40 ? 'mw-margin-green' : ($margin >= 20 ? 'mw-margin-amber' : 'mw-margin-red');
+                                      ?>
+                                          <div class="mw-row-margin <?php echo $marginClass; ?>" title="Profit margin: <?php echo $margin; ?>%">
+                                              <div class="mw-row-margin-bar">
+                                                  <div class="mw-row-margin-fill" style="width: <?php echo max(0, min(100, $margin)); ?>%"></div>
+                                              </div>
+                                              <span class="mw-row-margin-pct"><?php echo $margin; ?>%</span>
+                                          </div>
+                                      <?php endif; ?>
                                   </td>
                                   <td>
                                       <?php echo getStatusBadge($plan['status'], 'plan'); ?>
