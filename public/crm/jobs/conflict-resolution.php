@@ -121,6 +121,37 @@ if ($truckId && $propLat && $propLng) {
     }
 }
 
+// --- Load crew GPS pings for the date ---
+$crewPings = [];
+$crewPingUserId = $visit['assigned_crew_id'] ? (int)$visit['assigned_crew_id'] : 0;
+if ($crewPingUserId && $propLat && $propLng) {
+    if (!isset($dayStart)) {
+        $dayStart = (new DateTime($date . ' 00:00:00', $tz))->getTimestamp();
+        $dayEnd   = (new DateTime($date . ' 23:59:59', $tz))->getTimestamp();
+    }
+    $crewPingStmt = $db->prepare("
+        SELECT clh.latitude AS lat, clh.longitude AS lng, UNIX_TIMESTAMP(clh.timestamp) AS epoch
+        FROM crew_location_history clh
+        WHERE clh.crew_id = ?
+          AND UNIX_TIMESTAMP(clh.timestamp) >= ?
+          AND UNIX_TIMESTAMP(clh.timestamp) <= ?
+        ORDER BY clh.timestamp ASC
+    ");
+    $crewPingStmt->execute([$crewPingUserId, $dayStart, $dayEnd]);
+    foreach ($crewPingStmt->fetchAll(PDO::FETCH_ASSOC) as $cp) {
+        $dist = haversineDistance($propLat, $propLng, (float)$cp['lat'], (float)$cp['lng']);
+        $crewPings[] = [
+            'lat'    => (float)$cp['lat'],
+            'lng'    => (float)$cp['lng'],
+            'epoch'  => (int)$cp['epoch'],
+            'time'   => (new DateTime('@' . $cp['epoch']))->setTimezone($tz)->format('g:i a'),
+            'dist_m' => (int)round($dist),
+            'nearby' => $dist <= 150,
+        ];
+    }
+}
+$crewNearbyCount = count(array_filter($crewPings, fn($p) => $p['nearby']));
+
 // --- Compute dwell stats from nearby pings ---
 $nearbyPings = array_filter($truckPings, fn($p) => $p['nearby']);
 $dwellMinutes = 0;
@@ -263,12 +294,13 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                 <div id="crMap" class="mw-cr-map" style="height:450px;"></div>
             </div>
             <div class="card-footer small text-muted">
-                <span class="mr-3"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--mw-green);"></span> On-site (&le;150m)</span>
-                <span class="mr-3"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#94a3b8;"></span> Traveling</span>
+                <span class="mr-3"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--mw-green);"></span> Truck on-site</span>
+                <span class="mr-3"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#94a3b8;"></span> Truck traveling</span>
+                <span class="mr-3"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#8b5cf6;"></span> Crew (<?= count($crewPings) ?> pings, <?= $crewNearbyCount ?> on-site)</span>
                 <?php if ($arrivalBorder): ?>
-                    <span><span style="display:inline-block;width:10px;height:10px;border:2px solid #3b82f6;"></span> Geofence boundary</span>
+                    <span><span style="display:inline-block;width:10px;height:10px;border:2px solid #3b82f6;"></span> Geofence</span>
                 <?php endif; ?>
-                <span class="float-right"><?= count($truckPings) ?> pings total, <?= count(array_filter($truckPings, fn($p) => $p['nearby'])) ?> on-site</span>
+                <div class="mt-1">Truck: <?= count($truckPings) ?> pings, <?= count(array_filter($truckPings, fn($p) => $p['nearby'])) ?> on-site</div>
             </div>
         </div>
     </div>
@@ -303,6 +335,13 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                 <div class="small text-muted mt-1">
                     Crew: <?= htmlspecialchars($visit['crew_name'] ?? 'Unassigned') ?>
                     &middot; Service: <?= htmlspecialchars(ucwords(str_replace('_', ' ', $visit['service_type'] ?? 'N/A'))) ?>
+                </div>
+                <div class="small mt-1">
+                    <span style="color:#8b5cf6;">&#9679;</span>
+                    Crew pings: <?= count($crewPings) ?> total, <?= $crewNearbyCount ?> on-site
+                    <?php if (count($crewPings) === 0): ?>
+                        <span class="text-danger">(no GPS tracking)</span>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -484,6 +523,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
     var propLat   = <?= $propLat ?: 'null' ?>;
     var propLng   = <?= $propLng ?: 'null' ?>;
     var truckPings = <?= json_encode(array_values($truckPings)) ?>;
+    var crewPings  = <?= json_encode(array_values($crewPings)) ?>;
     var arrivalBorder = <?= $arrivalBorder && !empty($arrivalBorder['polygon']) ? json_encode($arrivalBorder['polygon']) : 'null' ?>;
 
     // --- Map ---
@@ -566,6 +606,30 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             }
 
             map.fitBounds(bounds.pad(0.3));
+        }
+
+        // Crew GPS pings (purple)
+        if (crewPings.length > 0) {
+            for (var j = 0; j < crewPings.length; j++) {
+                var cp = crewPings[j];
+                var cll = L.latLng(cp.lat, cp.lng);
+                if (cp.nearby) bounds.extend(cll);
+
+                L.circleMarker(cll, {
+                    radius: cp.nearby ? 5 : 3,
+                    fillColor: '#8b5cf6',
+                    fillOpacity: cp.nearby ? 0.9 : 0.5,
+                    stroke: true,
+                    color: '#fff',
+                    weight: 1,
+                    opacity: 0.8
+                }).addTo(map).bindPopup(
+                    '<strong>Crew ' + cp.time + '</strong><br>' +
+                    cp.dist_m + 'm from property' +
+                    (cp.nearby ? ' (on-site)' : '')
+                );
+            }
+            if (typeof bounds !== 'undefined') map.fitBounds(bounds.pad(0.3));
         }
     } else {
         document.getElementById('crMap').innerHTML = '<div class="text-center text-muted p-5">No property coordinates available</div>';
