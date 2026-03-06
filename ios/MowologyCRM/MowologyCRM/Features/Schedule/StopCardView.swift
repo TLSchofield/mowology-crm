@@ -152,9 +152,10 @@ private struct ServiceBadge: View {
 #Preview {
     let sampleVisit = Visit(
         visitId: 1001,
-        visitNumber: 1,
+        visitNumber: "PLN-2026-0001-V001",
         serviceType: "lawn_care",
         planTitle: "Weekly Lawn Mowing",
+        planNumber: "PLN-2026-0001",
         visitStatus: "scheduled",
         estimatedDuration: 45,
         pricePerVisit: 75.00,
@@ -167,12 +168,16 @@ private struct ServiceBadge: View {
         stopStatus: "scheduled",
         routeOrder: 1,
         estimatedArrival: "09:00",
+        propertyId: 1,
         propertyAddress: "123 Oak Street",
         propertyCity: "Vancouver",
+        propertyName: "Bob Jones Property",
         latitude: 49.2827,
         longitude: -123.1207,
+        contactId: 1,
         contactName: "Bob Jones",
         companyName: nil,
+        lawnSqft: nil,
         crewNames: ["John Doe"],
         visitCount: 1,
         visits: [sampleVisit]

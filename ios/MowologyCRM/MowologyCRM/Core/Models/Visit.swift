@@ -9,9 +9,10 @@ import SwiftUI
 
 struct Visit: Codable, Identifiable, Hashable {
     let visitId: Int
-    let visitNumber: Int?
+    let visitNumber: String?
     let serviceType: String
     let planTitle: String?
+    let planNumber: String?
     let visitStatus: String
     let estimatedDuration: Int?
     let pricePerVisit: Double?
@@ -24,6 +25,7 @@ struct Visit: Codable, Identifiable, Hashable {
         case visitNumber       = "visit_number"
         case serviceType       = "service_type"
         case planTitle         = "plan_title"
+        case planNumber        = "plan_number"
         case visitStatus       = "visit_status"
         case estimatedDuration = "estimated_duration"
         case pricePerVisit     = "price_per_visit"

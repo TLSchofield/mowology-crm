@@ -13,12 +13,16 @@ struct Stop: Codable, Identifiable, Hashable {
     let stopStatus: String
     let routeOrder: Int
     let estimatedArrival: String?
+    let propertyId: Int?
     let propertyAddress: String
     let propertyCity: String
+    let propertyName: String?
     let latitude: Double?
     let longitude: Double?
+    let contactId: Int?
     let contactName: String?
     let companyName: String?
+    let lawnSqft: Int?
     let crewNames: [String]
     let visitCount: Int
     let visits: [Visit]
@@ -31,12 +35,16 @@ struct Stop: Codable, Identifiable, Hashable {
         case stopStatus       = "stop_status"
         case routeOrder       = "route_order"
         case estimatedArrival = "estimated_arrival"
+        case propertyId       = "property_id"
         case propertyAddress  = "property_address"
         case propertyCity     = "property_city"
+        case propertyName     = "property_name"
         case latitude
         case longitude
+        case contactId        = "contact_id"
         case contactName      = "contact_name"
         case companyName      = "company_name"
+        case lawnSqft         = "lawn_sqft"
         case crewNames        = "crew_names"
         case visitCount       = "visit_count"
         case visits
