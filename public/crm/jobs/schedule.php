@@ -1322,6 +1322,29 @@ if ($apiKey) {
 
           </div><!-- /.mw-mission-control -->
 
+          <!-- ═══════════════════════════════════════════════
+               Route Reconciliation — Truck GPS vs Clock-In
+               Admin-only, desktop-only live conflict panel
+               ═══════════════════════════════════════════════ -->
+          <?php if (in_array($user['role'], ['admin', 'manager'])): ?>
+          <div class="mw-rr-panel d-none d-lg-block" id="mwRrPanel" style="display:none !important;">
+              <div class="mw-rr-header" id="mwRrToggle">
+                  <div class="mw-rr-header-left">
+                      <i data-feather="truck" class="mw-rr-icon"></i>
+                      <span class="mw-rr-title">Route Reconciliation</span>
+                      <span class="mw-rr-badge" id="mwRrBadge" style="display:none;">0</span>
+                  </div>
+                  <div class="mw-rr-header-right">
+                      <span class="mw-rr-status" id="mwRrStatus">Checking...</span>
+                      <i data-feather="chevron-down" class="mw-rr-chevron" id="mwRrChevron"></i>
+                  </div>
+              </div>
+              <div class="mw-rr-body" id="mwRrBody">
+                  <!-- Populated by JS -->
+              </div>
+          </div>
+          <?php endif; ?>
+
           <?php if ($view === 'week'): ?>
           <!-- ═══════════════════════════════════════════════
                DESKTOP: Calendar container (hidden on mobile)
@@ -3988,5 +4011,147 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
     });
 })();
 </script>
+
+<?php if (in_array($user['role'], ['admin', 'manager'])): ?>
+<script>
+/**
+ * Route Reconciliation — Truck GPS vs Clock-In Conflict Detection
+ * Fetches conflicts from the API and renders them in the admin panel.
+ */
+(function() {
+    var panel   = document.getElementById('mwRrPanel');
+    var body    = document.getElementById('mwRrBody');
+    var badge   = document.getElementById('mwRrBadge');
+    var status  = document.getElementById('mwRrStatus');
+    var toggle  = document.getElementById('mwRrToggle');
+    var chevron = document.getElementById('mwRrChevron');
+
+    if (!panel || !body) return;
+
+    var expanded = false;
+
+    toggle.addEventListener('click', function() {
+        expanded = !expanded;
+        body.style.display = expanded ? 'block' : 'none';
+        chevron.style.transform = expanded ? 'rotate(180deg)' : '';
+    });
+
+    // Get the current schedule date from the URL or default to today
+    var urlParams = new URLSearchParams(window.location.search);
+    var schedDate = urlParams.get('week') || '<?php echo (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d'); ?>';
+
+    function fetchConflicts() {
+        status.textContent = 'Checking...';
+        fetch('/crm/api/route-reconciliation.php?date=' + encodeURIComponent(schedDate))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) {
+                    status.textContent = 'Error';
+                    return;
+                }
+                renderConflicts(data.conflicts, data.summary);
+            })
+            .catch(function() {
+                status.textContent = 'Offline';
+            });
+    }
+
+    function renderConflicts(conflicts, summary) {
+        var warnings = summary.warnings || 0;
+        var infos    = summary.info || 0;
+        var total    = conflicts.length;
+
+        // Update badge
+        if (warnings > 0) {
+            badge.textContent = warnings;
+            badge.className = 'mw-rr-badge mw-rr-badge--warning';
+            badge.style.display = '';
+            panel.className = panel.className.replace(/ mw-rr-panel--clean| mw-rr-panel--warning/g, '') + ' mw-rr-panel--warning';
+            status.textContent = warnings + ' conflict' + (warnings !== 1 ? 's' : '');
+            // Auto-show the panel when there are warnings
+            panel.style.display = '';
+            panel.classList.remove('d-none');
+            panel.classList.add('d-lg-block');
+        } else if (infos > 0) {
+            badge.textContent = infos;
+            badge.className = 'mw-rr-badge mw-rr-badge--info';
+            badge.style.display = '';
+            panel.className = panel.className.replace(/ mw-rr-panel--clean| mw-rr-panel--warning/g, '') + ' mw-rr-panel--clean';
+            status.textContent = 'All clear (' + infos + ' note' + (infos !== 1 ? 's' : '') + ')';
+            panel.style.display = '';
+            panel.classList.remove('d-none');
+            panel.classList.add('d-lg-block');
+        } else if (summary.visits_checked > 0 && summary.trucks_checked > 0) {
+            badge.style.display = 'none';
+            panel.className = panel.className.replace(/ mw-rr-panel--clean| mw-rr-panel--warning/g, '') + ' mw-rr-panel--clean';
+            status.textContent = 'All clear';
+            panel.style.display = '';
+            panel.classList.remove('d-none');
+            panel.classList.add('d-lg-block');
+        } else {
+            // No visits or no trucks — hide panel entirely
+            status.textContent = 'No data';
+            return;
+        }
+
+        if (total === 0) {
+            body.innerHTML = '<div class="mw-rr-empty">All visits match truck GPS data. No conflicts detected.</div>';
+            return;
+        }
+
+        var html = '';
+        for (var i = 0; i < conflicts.length; i++) {
+            var c = conflicts[i];
+            var icon, typeLabel, typeCls;
+
+            if (c.type === 'truck_at_site_no_clockin') {
+                icon = 'alert-triangle';
+                typeLabel = 'No Clock-In';
+                typeCls = 'mw-rr-conflict--warning';
+            } else {
+                icon = 'info';
+                typeLabel = 'No Truck GPS';
+                typeCls = 'mw-rr-conflict--info';
+            }
+
+            html += '<div class="mw-rr-conflict ' + typeCls + '" data-visit-id="' + c.visit_id + '">'
+                  +   '<div class="mw-rr-conflict-icon"><i data-feather="' + icon + '"></i></div>'
+                  +   '<div class="mw-rr-conflict-body">'
+                  +     '<div class="mw-rr-conflict-title">' + esc(c.property_address || 'Unknown') + '</div>'
+                  +     '<div class="mw-rr-conflict-meta">'
+                  +       '<span class="mw-rr-type-badge mw-rr-type-badge--' + c.severity + '">' + typeLabel + '</span>';
+
+            if (c.type === 'truck_at_site_no_clockin') {
+                html += ' <span class="mw-rr-detail">' + esc(c.truck_name) + ' on-site ' + esc(c.first_seen) + '–' + esc(c.last_seen) + ' (' + c.dwell_minutes + ' min)</span>';
+            }
+
+            if (c.crew_name) {
+                html += ' <span class="mw-rr-detail mw-rr-detail--crew">Crew: ' + esc(c.crew_name) + '</span>';
+            }
+
+            html +=     '</div>'
+                  +   '</div>'
+                  + '</div>';
+        }
+
+        body.innerHTML = html;
+
+        // Re-render feather icons in the new DOM
+        if (typeof feather !== 'undefined') feather.replace();
+    }
+
+    function esc(s) {
+        if (!s) return '';
+        var el = document.createElement('span');
+        el.textContent = s;
+        return el.innerHTML;
+    }
+
+    // Initial fetch + refresh every 60s
+    fetchConflicts();
+    setInterval(fetchConflicts, 60000);
+})();
+</script>
+<?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

@@ -1126,8 +1126,7 @@ a:hover {
 }
 
 /* Clickable table rows */
-.mw-clickable-row { cursor: pointer; }
-.mw-clickable-row a { position: relative; z-index: 1; }
+tr[data-href] { cursor: pointer; }
 
 /* Empty state */
 .mw-empty-state {
@@ -7863,6 +7862,193 @@ textarea.font-monospace {
 .mw-mc-prog-stops   { background: linear-gradient(90deg, #7FD858, #2D8659); }
 .mw-mc-prog-revenue { background: linear-gradient(90deg, #F59E0B, #D97706); }
 .mw-mc-prog-eff     { background: linear-gradient(90deg, #3B82F6, #1D4ED8); }
+
+/* ============================================
+   ROUTE RECONCILIATION — Truck GPS Conflicts
+   ============================================ */
+.mw-rr-panel {
+    margin: 0 0 12px 0;
+    border: 1px solid rgba(245,158,11,0.2);
+    border-radius: 6px;
+    background: #fff;
+    overflow: hidden;
+    transition: border-color 0.3s;
+}
+.mw-rr-panel--warning {
+    border-color: rgba(245,158,11,0.5);
+}
+.mw-rr-panel--clean {
+    border-color: rgba(45,134,89,0.25);
+}
+
+.mw-rr-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    cursor: pointer;
+    user-select: none;
+    background: rgba(245,158,11,0.04);
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+    transition: background 0.2s;
+}
+.mw-rr-panel--clean .mw-rr-header {
+    background: rgba(45,134,89,0.04);
+}
+.mw-rr-header:hover {
+    background: rgba(245,158,11,0.08);
+}
+.mw-rr-panel--clean .mw-rr-header:hover {
+    background: rgba(45,134,89,0.08);
+}
+
+.mw-rr-header-left,
+.mw-rr-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mw-rr-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--mw-dark);
+}
+
+.mw-rr-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1a1a2e;
+    letter-spacing: -0.01em;
+}
+
+.mw-rr-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+}
+.mw-rr-badge--warning {
+    background: #FEF3C7;
+    color: #92400E;
+}
+.mw-rr-badge--info {
+    background: #DBEAFE;
+    color: #1E40AF;
+}
+
+.mw-rr-status {
+    font-size: 11px;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.mw-rr-chevron {
+    width: 14px;
+    height: 14px;
+    color: #9ca3af;
+    transition: transform 0.2s;
+}
+
+.mw-rr-body {
+    display: none;
+    padding: 8px 10px;
+}
+
+.mw-rr-empty {
+    font-size: 12px;
+    color: var(--mw-green);
+    text-align: center;
+    padding: 8px;
+    font-weight: 500;
+}
+
+.mw-rr-conflict {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 5px;
+    margin-bottom: 4px;
+    transition: background 0.15s;
+}
+.mw-rr-conflict:last-child { margin-bottom: 0; }
+.mw-rr-conflict:hover { background: rgba(0,0,0,0.02); }
+
+.mw-rr-conflict--warning {
+    background: rgba(245,158,11,0.04);
+}
+.mw-rr-conflict--info {
+    background: rgba(59,130,246,0.03);
+}
+
+.mw-rr-conflict-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+}
+.mw-rr-conflict--warning .mw-rr-conflict-icon { color: #D97706; }
+.mw-rr-conflict--info .mw-rr-conflict-icon    { color: #3B82F6; }
+.mw-rr-conflict-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.mw-rr-conflict-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.mw-rr-conflict-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1a1a2e;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mw-rr-conflict-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+}
+
+.mw-rr-type-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+.mw-rr-type-badge--warning {
+    background: #FEF3C7;
+    color: #92400E;
+}
+.mw-rr-type-badge--info {
+    background: #DBEAFE;
+    color: #1E40AF;
+}
+
+.mw-rr-detail {
+    font-size: 11px;
+    color: #6b7280;
+}
+.mw-rr-detail--crew {
+    color: #4b5563;
+    font-weight: 500;
+}
+
 
 /* ============================================
    BATTLE CARDS — Day Column Upgrade
