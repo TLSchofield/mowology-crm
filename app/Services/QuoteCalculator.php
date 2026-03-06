@@ -72,11 +72,11 @@ function calculateLineItemFromRule(array $rule, float $totalUnits, array $produc
     // Actual per-unit rate and total units are preserved in snapshot columns.
     $lineTotal = round($lineTotal, 2);
 
-    // Build description: use product description if available, fall back to area names
+    // Build area description for snapshot only (not shown as line item description)
     $areaDesc = !empty($measurementNames)
         ? implode(', ', $measurementNames) . ' (' . number_format($totalUnits) . ' ' . $unitLabel . ')'
         : number_format($totalUnits) . ' ' . $unitLabel;
-    $description = !empty($product['description']) ? $product['description'] : $areaDesc;
+    $description = $product['description'] ?? '';
 
     // Build pricing snapshot (immutable record of how price was calculated)
     $snapshot = json_encode([
