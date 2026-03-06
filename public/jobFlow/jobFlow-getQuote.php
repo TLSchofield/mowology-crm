@@ -258,7 +258,8 @@ $serviceOptions = [
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Get Your Free Quote — Mowology</title>
     <meta name="description" content="Get a free landscaping or snow removal quote from Mowology. Vancouver's trusted property care company. Fast response guaranteed.">
-    <link rel="stylesheet" href="/assets/css/master.css?v=20260305">
+    <link rel="stylesheet" href="/assets/css/master.css">
+    <link rel="stylesheet" href="/assets/css/pages/jobflow-quote.css?v=20260305">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script async src="https://maps.googleapis.com/maps/api/js?key=<?php echo h(GOOGLE_MAPS_API_KEY); ?>&libraries=places"></script>
 <?php if ($useV3): ?>
