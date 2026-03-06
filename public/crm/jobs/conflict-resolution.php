@@ -277,14 +277,12 @@ if (empty($assignedIds) && $visit['assigned_crew_id']) {
     $assignedIds[] = (int)$visit['assigned_crew_id'];
 }
 
-// --- Load ALL active non-truck crew members (for multi-select) ---
+// --- Load ALL non-truck crew members (for multi-select — includes inactive so admin can select anyone) ---
 $allCrewStmt = $db->query("
-    SELECT id, full_name, hourly_rate
+    SELECT id, full_name, hourly_rate, is_active
     FROM users
-    WHERE is_active = 1
-      AND (device_type IS NULL OR device_type != 'truck')
-      AND role IN ('admin', 'manager', 'crew', 'employee')
-    ORDER BY full_name ASC
+    WHERE (device_type IS NULL OR device_type != 'truck')
+    ORDER BY is_active DESC, full_name ASC
 ");
 $allCrew = $allCrewStmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -574,15 +572,17 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                         <div id="crewCheckboxes" style="max-height:160px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
                             <?php foreach ($allCrew as $c):
                                 $isAssigned = in_array((int)$c['id'], $assignedIds);
+                                $isActive = (int)$c['is_active'];
                                 $rate = $c['hourly_rate'] ? '$' . number_format((float)$c['hourly_rate'], 0) . '/hr' : '';
                             ?>
                                 <div class="custom-control custom-checkbox mb-1">
                                     <input type="checkbox" class="custom-control-input crew-cb" id="crew_<?= (int)$c['id'] ?>"
                                            value="<?= (int)$c['id'] ?>" <?= $isAssigned ? 'checked' : '' ?>>
-                                    <label class="custom-control-label small" for="crew_<?= (int)$c['id'] ?>">
+                                    <label class="custom-control-label small<?= !$isActive ? ' text-muted' : '' ?>" for="crew_<?= (int)$c['id'] ?>">
                                         <?= htmlspecialchars($c['full_name']) ?>
                                         <?php if ($rate): ?><span class="text-muted">(<?= $rate ?>)</span><?php endif; ?>
                                         <?php if ($isAssigned): ?><span class="badge badge-info ml-1" style="font-size:0.65em;">assigned</span><?php endif; ?>
+                                        <?php if (!$isActive): ?><span class="badge badge-secondary ml-1" style="font-size:0.65em;">inactive</span><?php endif; ?>
                                     </label>
                                 </div>
                             <?php endforeach; ?>
