@@ -143,7 +143,7 @@ $activePage = 'quotes';
                           </thead>
                           <tbody>
                               <?php foreach ($quotes as $quote): ?>
-                                  <tr>
+                                  <tr data-href="view.php?id=<?php echo (int)$quote['id']; ?>">
                                       <td>
                                           <strong><?php echo htmlspecialchars($quote['quote_number']); ?></strong>
                                       </td>

@@ -4675,7 +4675,7 @@ $unconvertedRequests = $db->query("
                         </thead>
                         <tbody>
                           <?php foreach ($clients as $c): ?>
-                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($c['primary_contact_name'] ?? '') . ' ' . $c['company_name'] . ' ' . ($c['billing_email'] ?? '') . ' ' . ($c['primary_contact_phone'] ?? '')))); ?>" <?php echo $c['source_type'] === 'prospect' ? 'style="background: #fef3c7; opacity: 0.9;"' : ''; ?>>
+                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($c['primary_contact_name'] ?? '') . ' ' . $c['company_name'] . ' ' . ($c['billing_email'] ?? '') . ' ' . ($c['primary_contact_phone'] ?? '')))); ?>" data-href="?action=view_company&id=<?php echo (int)$c['id']; ?>" <?php echo $c['source_type'] === 'prospect' ? 'style="background: #fef3c7; opacity: 0.9;"' : ''; ?>>
                             <td class="mw-bulk-checkbox-cell">
                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$c['id']; ?>">
                             </td>
@@ -4750,7 +4750,7 @@ $unconvertedRequests = $db->query("
                         </thead>
                         <tbody>
                           <?php foreach ($standaloneContacts as $ct): ?>
-                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? '') . ' ' . ($ct['email'] ?? '') . ' ' . ($ct['phone'] ?? '')))); ?>">
+                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($ct['first_name'] ?? '') . ' ' . ($ct['last_name'] ?? '') . ' ' . ($ct['email'] ?? '') . ' ' . ($ct['phone'] ?? '')))); ?>" data-href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>">
                             <td>
                               <a href="?action=view_contact&id=<?php echo (int)$ct['id']; ?>" class="mw-client-name-link">
                                 <strong><?php echo h(trim($ct['first_name'] . ' ' . ($ct['last_name'] ?? ''))); ?></strong>

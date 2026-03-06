@@ -283,7 +283,7 @@ $activePage = 'jobs';
                       </thead>
                       <tbody>
                           <?php foreach ($plans as $plan): ?>
-                              <tr>
+                              <tr data-href="view.php?id=<?php echo (int)$plan['id']; ?>">
                                   <td class="mw-bulk-checkbox-cell">
                                       <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$plan['id']; ?>">
                                   </td>

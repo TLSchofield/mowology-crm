@@ -233,6 +233,18 @@
   }
   </script>
 
+  <!-- Clickable table rows: any <tr data-href="..."> navigates on click -->
+  <script>
+  (function(){
+    document.querySelectorAll('tr[data-href]').forEach(function(row){
+      row.addEventListener('click', function(e){
+        if (e.target.closest('a,button,input,select,textarea,label')) return;
+        window.location.href = row.dataset.href;
+      });
+    });
+  })();
+  </script>
+
   <!-- Debug Panel (development tool) -->
   <?php include __DIR__ . '/debug-panel.php'; ?>
 </body>

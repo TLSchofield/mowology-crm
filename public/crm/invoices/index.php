@@ -189,6 +189,7 @@ $activePage = 'invoices';
                                 $client    = htmlspecialchars($invoice['display_client'] ?? $invoice['company_name'] ?? 'N/A');
                                 ?>
                                 <tr class="<?php echo $isPayable ? 'mw-payable-row' : ''; ?>"
+                                    data-href="view.php?id=<?php echo (int)$invoice['id']; ?>"
                                     data-invoice-id="<?php echo $invoice['id']; ?>"
                                     data-balance="<?php echo number_format($balance, 2, '.', ''); ?>"
                                     data-invoice-number="<?php echo htmlspecialchars($invoice['invoice_number']); ?>"
