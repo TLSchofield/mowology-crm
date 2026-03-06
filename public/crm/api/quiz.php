@@ -163,6 +163,158 @@ function updateMastery(PDO $db, int $userId, int $questionId, bool $correct, int
     ];
 }
 
+/**
+ * Returns rank tier info based on total mastered questions (mastery_level >= 4).
+ */
+function rankTierInfo(int $totalMastered): array
+{
+    if ($totalMastered >= 100) return ['tier' => 5, 'name' => 'Master Groundskeeper', 'icon' => '🏆', 'next_at' => null,  'next_name' => null];
+    if ($totalMastered >= 50)  return ['tier' => 4, 'name' => 'Landscape Expert',     'icon' => '🏅', 'next_at' => 100, 'next_name' => 'Master Groundskeeper'];
+    if ($totalMastered >= 25)  return ['tier' => 3, 'name' => 'Plant Specialist',      'icon' => '🌳', 'next_at' => 50,  'next_name' => 'Landscape Expert'];
+    if ($totalMastered >= 10)  return ['tier' => 2, 'name' => 'Turf Technician',       'icon' => '🌿', 'next_at' => 25,  'next_name' => 'Plant Specialist'];
+    return                            ['tier' => 1, 'name' => 'Lawn Apprentice',        'icon' => '🌱', 'next_at' => 10,  'next_name' => 'Turf Technician'];
+}
+
+/**
+ * Update the daily study streak for a user (call after completing a session).
+ * Returns current_streak, longest_streak, new_best.
+ */
+function updateDailyStreak(PDO $db, int $userId): array
+{
+    $today = date('Y-m-d');
+    $stmt  = $db->prepare("SELECT * FROM quiz_daily_streaks WHERE user_id = ?");
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row) {
+        $db->prepare(
+            "INSERT INTO quiz_daily_streaks (user_id, current_streak, longest_streak, last_active_date)
+             VALUES (?,1,1,?)"
+        )->execute([$userId, $today]);
+        return ['current_streak' => 1, 'longest_streak' => 1, 'new_best' => true];
+    }
+
+    $lastDate = $row['last_active_date'];
+    $current  = (int)$row['current_streak'];
+    $longest  = (int)$row['longest_streak'];
+
+    if ($lastDate === $today) {
+        // Already counted today
+        return ['current_streak' => $current, 'longest_streak' => $longest, 'new_best' => false];
+    }
+
+    $yesterday = date('Y-m-d', strtotime('-1 day'));
+    $current   = ($lastDate === $yesterday) ? $current + 1 : 1;
+    $longest   = max($longest, $current);
+    $newBest   = $current > (int)$row['longest_streak'];
+
+    $db->prepare(
+        "UPDATE quiz_daily_streaks
+         SET current_streak=?, longest_streak=?, last_active_date=?, updated_at=NOW()
+         WHERE user_id=?"
+    )->execute([$current, $longest, $today, $userId]);
+
+    return ['current_streak' => $current, 'longest_streak' => $longest, 'new_best' => $newBest];
+}
+
+/**
+ * Check all badge conditions for a user and award any newly earned badges.
+ * Returns array of newly earned badges (empty if none).
+ */
+function checkAndAwardBadges(PDO $db, int $userId): array
+{
+    // Load badge definitions
+    $allBadges = $db->query("SELECT * FROM quiz_badges ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
+    if (!$allBadges) return [];
+
+    // Already earned
+    $earnedStmt = $db->prepare("SELECT badge_key FROM quiz_user_badges WHERE user_id = ?");
+    $earnedStmt->execute([$userId]);
+    $earnedKeys = $earnedStmt->fetchAll(PDO::FETCH_COLUMN);
+
+    $newlyEarned = [];
+    $insertStmt  = $db->prepare("INSERT IGNORE INTO quiz_user_badges (user_id, badge_key) VALUES (?,?)");
+
+    foreach ($allBadges as $badge) {
+        $key     = $badge['badge_key'];
+        $reqType = $badge['requirement_type'];
+        $reqVal  = (int)$badge['requirement_value'];
+        $catName = $badge['requirement_category_name'];
+
+        if (in_array($key, $earnedKeys, true)) continue;
+
+        $earned = false;
+        switch ($reqType) {
+            case 'category_correct':
+                if ($catName) {
+                    $cidStmt = $db->prepare(
+                        "SELECT id FROM quiz_categories WHERE name LIKE ? AND is_active=1 LIMIT 1"
+                    );
+                    $cidStmt->execute(['%' . $catName . '%']);
+                    $cid = $cidStmt->fetchColumn();
+                    if ($cid) {
+                        $cnt = $db->prepare(
+                            "SELECT COUNT(*) FROM quiz_answers a
+                             JOIN quiz_sessions s ON s.id = a.session_id
+                             JOIN quiz_questions q ON q.id = a.question_id
+                             WHERE s.user_id = ? AND q.category_id = ? AND a.is_correct = 1"
+                        );
+                        $cnt->execute([$userId, $cid]);
+                        $earned = (int)$cnt->fetchColumn() >= $reqVal;
+                    }
+                }
+                break;
+
+            case 'total_mastered':
+                $cnt = $db->prepare(
+                    "SELECT COUNT(*) FROM quiz_user_mastery WHERE user_id=? AND mastery_level >= 4"
+                );
+                $cnt->execute([$userId]);
+                $earned = (int)$cnt->fetchColumn() >= $reqVal;
+                break;
+
+            case 'streak_days':
+                $s = $db->prepare(
+                    "SELECT current_streak FROM quiz_daily_streaks WHERE user_id=?"
+                );
+                $s->execute([$userId]);
+                $earned = (int)$s->fetchColumn() >= $reqVal;
+                break;
+
+            case 'speed_correct':
+                $cnt = $db->prepare(
+                    "SELECT COUNT(*) FROM quiz_answers a
+                     JOIN quiz_sessions s ON s.id = a.session_id
+                     WHERE s.user_id = ? AND a.is_correct = 1 AND a.time_taken_seconds <= 5"
+                );
+                $cnt->execute([$userId]);
+                $earned = (int)$cnt->fetchColumn() >= $reqVal;
+                break;
+
+            case 'perfect_session':
+                $cnt = $db->prepare(
+                    "SELECT COUNT(*) FROM quiz_sessions
+                     WHERE user_id = ? AND completed_at IS NOT NULL
+                       AND questions_count > 0 AND correct_count = questions_count"
+                );
+                $cnt->execute([$userId]);
+                $earned = (int)$cnt->fetchColumn() >= 1;
+                break;
+        }
+
+        if ($earned) {
+            $insertStmt->execute([$userId, $key]);
+            $newlyEarned[] = [
+                'key'  => $key,
+                'name' => $badge['name'],
+                'icon' => $badge['icon'],
+            ];
+        }
+    }
+
+    return $newlyEarned;
+}
+
 // ── Routing ───────────────────────────────────────────────────────────────────
 
 switch ($action) {
@@ -313,9 +465,11 @@ switch ($action) {
     case 'start':
         $input      = postInput();
         verifyCsrf($input);
-        $categoryId = isset($input['category_id']) && $input['category_id'] !== '' && $input['category_id'] !== null
-                        ? (int)$input['category_id'] : null;
-        $mode = $input['mode'] ?? 'random'; // 'random' | 'test' (priority: due/weak first)
+        $categoryId    = isset($input['category_id']) && $input['category_id'] !== '' && $input['category_id'] !== null
+                           ? (int)$input['category_id'] : null;
+        $mode          = $input['mode'] ?? 'random'; // 'random' | 'test'
+        $sessionLength = (int)($input['session_length'] ?? 10);
+        if (!in_array($sessionLength, [3, 5, 10], true)) $sessionLength = 10;
 
         if ($mode === 'test') {
             // Priority order: due for review → lowest mastery → random
@@ -328,7 +482,7 @@ switch ($action) {
                      LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
                      WHERE q.category_id = ? AND q.is_active = 1
                      ORDER BY not_due ASC, mlvl ASC, RAND()
-                     LIMIT 10"
+                     LIMIT {$sessionLength}"
                 );
                 $stmt->execute([$userId, $categoryId]);
             } else {
@@ -340,17 +494,17 @@ switch ($action) {
                      LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
                      WHERE q.is_active = 1
                      ORDER BY not_due ASC, mlvl ASC, RAND()
-                     LIMIT 10"
+                     LIMIT {$sessionLength}"
                 );
                 $stmt->execute([$userId]);
             }
         } else {
             // Random mode (original behaviour)
             if ($categoryId !== null) {
-                $stmt = $db->prepare("SELECT id FROM quiz_questions WHERE category_id=? AND is_active=1 ORDER BY RAND() LIMIT 10");
+                $stmt = $db->prepare("SELECT id FROM quiz_questions WHERE category_id=? AND is_active=1 ORDER BY RAND() LIMIT {$sessionLength}");
                 $stmt->execute([$categoryId]);
             } else {
-                $stmt = $db->query("SELECT id FROM quiz_questions WHERE is_active=1 ORDER BY RAND() LIMIT 10");
+                $stmt = $db->query("SELECT id FROM quiz_questions WHERE is_active=1 ORDER BY RAND() LIMIT {$sessionLength}");
             }
         }
 
@@ -521,12 +675,18 @@ switch ($action) {
             }
         }
 
+        // Update daily streak and check badges
+        $streakResult = updateDailyStreak($db, $userId);
+        $newBadges    = checkAndAwardBadges($db, $userId);
+
         qOk([
-            'correct'       => $correctCount,
-            'total'         => (int)$session['questions_count'],
-            'points'        => $totalPoints,
-            'monthly_rank'  => $myRank,
-            'monthly_total' => $myMonthlyTotal,
+            'correct'        => $correctCount,
+            'total'          => (int)$session['questions_count'],
+            'points'         => $totalPoints,
+            'monthly_rank'   => $myRank,
+            'monthly_total'  => $myMonthlyTotal,
+            'streak'         => $streakResult,
+            'new_badges'     => $newBadges,
         ]);
 
     // ── GET: monthly leaderboard ───────────────────────────────────────────────
@@ -599,15 +759,65 @@ switch ($action) {
         $myRank    = array_search($userId, array_map('intval', $rankedIds));
         $myRank    = $myRank !== false ? $myRank + 1 : null;
 
+        // Streak
+        $streakRow     = $db->prepare("SELECT current_streak, longest_streak FROM quiz_daily_streaks WHERE user_id=?");
+        $streakRow->execute([$userId]);
+        $streakData    = $streakRow->fetch(PDO::FETCH_ASSOC);
+        $currentStreak = (int)($streakData['current_streak'] ?? 0);
+        $longestStreak = (int)($streakData['longest_streak'] ?? 0);
+
+        // Badges
+        $badgesEarned = $db->prepare("SELECT COUNT(*) FROM quiz_user_badges WHERE user_id=?");
+        $badgesEarned->execute([$userId]);
+        $badgeCount = (int)$badgesEarned->fetchColumn();
+
+        $totalBadges = (int)$db->query("SELECT COUNT(*) FROM quiz_badges")->fetchColumn();
+
+        // Rank tier
+        $tier = rankTierInfo($totalMastered);
+
+        // Category accuracy breakdown
+        $catAccStmt = $db->prepare(
+            "SELECT c.name, c.colour,
+                    COUNT(a.id)    AS total_answers,
+                    SUM(a.is_correct) AS correct_answers
+             FROM quiz_answers a
+             JOIN quiz_sessions s ON s.id = a.session_id
+             JOIN quiz_questions q ON q.id = a.question_id
+             JOIN quiz_categories c ON c.id = q.category_id
+             WHERE s.user_id = ?
+             GROUP BY c.id, c.name, c.colour
+             ORDER BY c.sort_order"
+        );
+        $catAccStmt->execute([$userId]);
+        $categoryAccuracy = [];
+        foreach ($catAccStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $total   = (int)$row['total_answers'];
+            $correct = (int)$row['correct_answers'];
+            $categoryAccuracy[] = [
+                'name'    => $row['name'],
+                'colour'  => $row['colour'],
+                'total'   => $total,
+                'correct' => $correct,
+                'pct'     => $total > 0 ? round(($correct / $total) * 100) : 0,
+            ];
+        }
+
         qOk([
-            'games_played'    => (int)($stats['games_played'] ?? 0),
-            'monthly_points'  => (int)($stats['monthly_points'] ?? 0),
-            'best_game'       => (int)($stats['best_game'] ?? 0),
-            'accuracy_pct'    => $stats['total_questions'] > 0
-                                   ? round(($stats['total_correct'] / $stats['total_questions']) * 100)
-                                   : 0,
-            'monthly_rank'    => $myRank,
-            'total_mastered'  => $totalMastered,
+            'games_played'       => (int)($stats['games_played'] ?? 0),
+            'monthly_points'     => (int)($stats['monthly_points'] ?? 0),
+            'best_game'          => (int)($stats['best_game'] ?? 0),
+            'accuracy_pct'       => $stats['total_questions'] > 0
+                                      ? round(($stats['total_correct'] / $stats['total_questions']) * 100)
+                                      : 0,
+            'monthly_rank'       => $myRank,
+            'total_mastered'     => $totalMastered,
+            'current_streak'     => $currentStreak,
+            'longest_streak'     => $longestStreak,
+            'badge_count'        => $badgeCount,
+            'total_badges'       => $totalBadges,
+            'rank_tier'          => $tier,
+            'category_accuracy'  => $categoryAccuracy,
         ]);
 
     // ── Admin: list questions ──────────────────────────────────────────────────
@@ -618,7 +828,8 @@ switch ($action) {
         $params      = $catFilter !== null ? [$catFilter] : [];
 
         $stmt = $db->prepare(
-            "SELECT q.id, q.question_text, q.learn_notes, q.image_path, q.difficulty, q.is_active,
+            "SELECT q.id, q.question_text, q.learn_notes, q.image_path, q.difficulty,
+                    q.question_type, q.learning_level, q.is_active,
                     c.name AS category_name, c.colour AS category_colour,
                     (SELECT COUNT(*) FROM quiz_options o WHERE o.question_id=q.id) AS option_count
              FROM quiz_questions q
@@ -681,6 +892,9 @@ switch ($action) {
         $learnNotes   = trim($input['learn_notes'] ?? '') ?: null;
         $imagePath    = trim($input['image_path'] ?? '') ?: null;
         $difficulty   = in_array($input['difficulty'] ?? '', ['easy','medium','hard']) ? $input['difficulty'] : 'medium';
+        $validTypes   = ['multiple_choice','photo_id','scenario','sequence','reverse_recall','customer_explanation','quality_judgement'];
+        $questionType = in_array($input['question_type'] ?? '', $validTypes) ? $input['question_type'] : 'multiple_choice';
+        $learningLevel= max(1, min(6, (int)($input['learning_level'] ?? 1)));
         $options      = $input['options'] ?? [];
         $isActive     = isset($input['is_active']) ? (int)$input['is_active'] : 1;
 
@@ -693,13 +907,20 @@ switch ($action) {
 
         if ($id) {
             $db->prepare(
-                "UPDATE quiz_questions SET category_id=?,question_text=?,learn_notes=?,image_path=?,difficulty=?,is_active=?,updated_at=NOW() WHERE id=?"
-            )->execute([$categoryId,$questionText,$learnNotes,$imagePath,$difficulty,$isActive,$id]);
+                "UPDATE quiz_questions
+                 SET category_id=?,question_text=?,learn_notes=?,image_path=?,difficulty=?,
+                     question_type=?,learning_level=?,is_active=?,updated_at=NOW()
+                 WHERE id=?"
+            )->execute([$categoryId,$questionText,$learnNotes,$imagePath,$difficulty,
+                        $questionType,$learningLevel,$isActive,$id]);
             $db->prepare("DELETE FROM quiz_options WHERE question_id=?")->execute([$id]);
         } else {
             $db->prepare(
-                "INSERT INTO quiz_questions (category_id,question_text,learn_notes,image_path,difficulty,is_active,created_by) VALUES (?,?,?,?,?,?,?)"
-            )->execute([$categoryId,$questionText,$learnNotes,$imagePath,$difficulty,$isActive,$userId]);
+                "INSERT INTO quiz_questions
+                 (category_id,question_text,learn_notes,image_path,difficulty,question_type,learning_level,is_active,created_by)
+                 VALUES (?,?,?,?,?,?,?,?,?)"
+            )->execute([$categoryId,$questionText,$learnNotes,$imagePath,$difficulty,
+                        $questionType,$learningLevel,$isActive,$userId]);
             $id = (int)$db->lastInsertId();
         }
 
@@ -764,6 +985,33 @@ switch ($action) {
              ORDER BY p.month_year DESC, p.created_at DESC"
         );
         qOk(['prizes' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+
+    // ── GET: all badges with earned status for current user ────────────────────
+    case 'user_badges':
+        $allBadges = $db->query("SELECT * FROM quiz_badges ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
+
+        $earnedStmt = $db->prepare(
+            "SELECT badge_key, earned_at FROM quiz_user_badges WHERE user_id = ?"
+        );
+        $earnedStmt->execute([$userId]);
+        $earnedMap = [];
+        foreach ($earnedStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $earnedMap[$row['badge_key']] = $row['earned_at'];
+        }
+
+        $result = [];
+        foreach ($allBadges as $b) {
+            $earned   = isset($earnedMap[$b['badge_key']]);
+            $result[] = [
+                'key'         => $b['badge_key'],
+                'name'        => $b['name'],
+                'description' => $b['description'],
+                'icon'        => $b['icon'],
+                'earned'      => $earned,
+                'earned_at'   => $earned ? $earnedMap[$b['badge_key']] : null,
+            ];
+        }
+        qOk(['badges' => $result, 'earned_count' => count($earnedMap), 'total' => count($allBadges)]);
 
     default:
         qErr('Unknown action', 404);

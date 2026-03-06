@@ -188,6 +188,29 @@ $activePage = 'quiz';
                             <option value="hard">Hard</option>
                         </select>
                     </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Question Type</label>
+                        <select id="qmType" class="form-select form-select-sm">
+                            <option value="multiple_choice" selected>Multiple Choice</option>
+                            <option value="photo_id">Photo ID</option>
+                            <option value="scenario">Scenario</option>
+                            <option value="sequence">Sequence (Next Step)</option>
+                            <option value="reverse_recall">Reverse Recall (Cause from Symptom)</option>
+                            <option value="customer_explanation">Customer Explanation</option>
+                            <option value="quality_judgement">Quality Judgement</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Learning Level</label>
+                        <select id="qmLevel" class="form-select form-select-sm">
+                            <option value="1" selected>1 — Recognition</option>
+                            <option value="2">2 — Diagnosis</option>
+                            <option value="3">3 — Treatment</option>
+                            <option value="4">4 — Timing</option>
+                            <option value="5">5 — Customer Explanation</option>
+                            <option value="6">6 — Field Decision</option>
+                        </select>
+                    </div>
                     <div class="col-12">
                         <label class="form-label small fw-bold">Question Text <span class="text-danger">*</span></label>
                         <textarea id="qmText" class="form-control form-control-sm" rows="2"
@@ -329,8 +352,14 @@ async function loadQuestions() {
                 ${q.image_path ? `<img src="${escHtml(q.image_path)}" class="mw-quiz-admin-thumb me-2" alt="">` : ''}
                 <span>${escHtml(q.question_text)}</span>
             </td>
-            <td class="py-2"><span class="badge" style="background:${escHtml(q.category_colour)}">${escHtml(q.category_name)}</span></td>
-            <td class="py-2 text-muted small">${q.difficulty}</td>
+            <td class="py-2">
+                <span class="badge" style="background:${escHtml(q.category_colour)}">${escHtml(q.category_name)}</span>
+                ${q.question_type && q.question_type !== 'multiple_choice' ? `<span class="badge bg-info text-dark ms-1">${escHtml(q.question_type.replace(/_/g,' '))}</span>` : ''}
+            </td>
+            <td class="py-2 text-muted small">
+                ${q.difficulty}
+                ${q.learning_level > 1 ? `<span class="text-primary ms-1">L${q.learning_level}</span>` : ''}
+            </td>
             <td class="py-2 text-center">
                 ${parseInt(q.is_active) ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Off</span>'}
             </td>
@@ -362,6 +391,8 @@ function openQuestionModal(id) {
     document.getElementById('qmImagePath').value   = '';
     document.getElementById('qmImagePreview').innerHTML = '';
     document.getElementById('qmDifficulty').value  = 'medium';
+    document.getElementById('qmType').value        = 'multiple_choice';
+    document.getElementById('qmLevel').value       = '1';
     document.getElementById('qmCategory').value    = '';
     document.getElementById('questionModalTitle').textContent = id ? 'Edit Question' : 'Add Question';
 
@@ -381,6 +412,8 @@ function openQuestionModal(id) {
                 document.getElementById('qmLearnNotes').value = q.learn_notes || '';
                 document.getElementById('qmCategory').value   = q.category_id;
                 document.getElementById('qmDifficulty').value = q.difficulty;
+                document.getElementById('qmType').value       = q.question_type || 'multiple_choice';
+                document.getElementById('qmLevel').value      = q.learning_level || '1';
                 document.getElementById('qmImagePath').value  = q.image_path || '';
                 if (q.image_path) previewImage();
 
@@ -453,13 +486,15 @@ async function saveQuestion() {
     if (!hasCorrect)      { alert('Mark one option as correct'); return; }
 
     const payload = {
-        csrf_token:    CSRF,
-        category_id:  document.getElementById('qmCategory').value,
-        question_text: document.getElementById('qmText').value.trim(),
-        learn_notes:  document.getElementById('qmLearnNotes').value.trim() || null,
-        image_path:   document.getElementById('qmImagePath').value.trim() || null,
-        difficulty:   document.getElementById('qmDifficulty').value,
-        options:      opts,
+        csrf_token:     CSRF,
+        category_id:   document.getElementById('qmCategory').value,
+        question_text:  document.getElementById('qmText').value.trim(),
+        learn_notes:   document.getElementById('qmLearnNotes').value.trim() || null,
+        image_path:    document.getElementById('qmImagePath').value.trim() || null,
+        difficulty:    document.getElementById('qmDifficulty').value,
+        question_type: document.getElementById('qmType').value,
+        learning_level: parseInt(document.getElementById('qmLevel').value) || 1,
+        options:       opts,
     };
     if (id) payload.id = parseInt(id);
 

@@ -23293,3 +23293,86 @@ textarea.font-monospace {
 }
 .mw-actual-link-btn:hover { color: var(--mw-green); text-decoration: none; }
 .btn-xs { padding: 2px 6px; font-size: 11px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Quiz Hub — Rank Banner, Streak, Badges Strip
+═══════════════════════════════════════════════════════════════════════════ */
+.mw-rank-banner {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; background: var(--mw-light);
+    border: 1px solid #d4e9df; border-radius: 10px;
+}
+.mw-rank-tier {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 14px; font-weight: 700; padding: 4px 12px;
+    border-radius: 20px; white-space: nowrap;
+}
+.mw-rank-tier-1 { background: #f0fdf4; color: #166534; border: 1.5px solid #86efac; }
+.mw-rank-tier-2 { background: #f0fdf4; color: #14532d; border: 1.5px solid var(--mw-lime); }
+.mw-rank-tier-3 { background: #fefce8; color: #713f12; border: 1.5px solid #fde047; }
+.mw-rank-tier-4 { background: #fff7ed; color: #9a3412; border: 1.5px solid #fb923c; }
+.mw-rank-tier-5 { background: var(--mw-green); color: #fff; border: 1.5px solid var(--mw-dark); }
+.mw-rank-progress { font-size: 12px; color: #6b7280; }
+.mw-rank-meta { flex: 1; min-width: 0; }
+.mw-rank-streak { margin-left: auto; }
+.mw-streak-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 13px; font-weight: 700; padding: 4px 10px;
+    background: #fff7ed; border: 1.5px solid #fb923c;
+    border-radius: 20px; color: #9a3412; white-space: nowrap;
+}
+.mw-badges-strip {
+    display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+    background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; flex-wrap: wrap;
+}
+.mw-badges-strip-label {
+    font-size: 12px; font-weight: 700; color: #6b7280;
+    text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
+}
+.mw-badges-strip-icons { display: flex; gap: 6px; flex-wrap: wrap; }
+.mw-badge-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; font-size: 18px;
+    background: var(--mw-light); border-radius: 8px; cursor: default;
+}
+.mw-badges-strip-all { font-size: 12px; color: var(--mw-green); text-decoration: none; margin-left: auto; white-space: nowrap; }
+.mw-badges-strip-all:hover { text-decoration: underline; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Quiz Progress Page
+═══════════════════════════════════════════════════════════════════════════ */
+.mw-prog-rank-icon { font-size: 52px; line-height: 1; margin-bottom: 8px; }
+.mw-prog-rank-name { font-size: 20px; font-weight: 800; color: var(--mw-forest); margin-bottom: 2px; }
+.mw-prog-rank-progress { font-size: 13px; }
+.mw-prog-rank-bar-wrap { height: 8px; background: #e5e7eb; border-radius: 8px; overflow: hidden; }
+.mw-prog-rank-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--mw-green), var(--mw-lime));
+    border-radius: 8px; transition: width 0.8s ease;
+}
+.mw-prog-mini-stat { padding: 8px 4px; background: var(--mw-light); border-radius: 8px; }
+.mw-prog-mini-num { font-size: 22px; font-weight: 800; color: var(--mw-green); }
+.mw-prog-mini-label { font-size: 11px; color: #6b7280; }
+.mw-prog-streak-num { font-size: 32px; font-weight: 800; color: var(--mw-orange); line-height: 1; margin-bottom: 2px; }
+.mw-prog-ladder .list-group-item { font-size: 13px; padding: 8px 16px; }
+.mw-prog-ladder-current { background: var(--mw-light) !important; font-weight: 700; color: var(--mw-forest); border-left: 3px solid var(--mw-green); }
+.mw-badge-card {
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    padding: 16px 12px; border-radius: 12px; border: 2px solid #e5e7eb; height: 100%;
+}
+.mw-badge-earned { border-color: var(--mw-lime); background: #f0fdf4; }
+.mw-badge-locked { opacity: 0.45; background: #fafafa; filter: grayscale(40%); }
+.mw-badge-card-icon { font-size: 34px; line-height: 1; margin-bottom: 8px; }
+.mw-badge-card-name { font-size: 13px; font-weight: 700; color: var(--mw-forest); margin-bottom: 4px; }
+.mw-badge-card-desc { font-size: 11px; color: #6b7280; margin-bottom: 6px; flex: 1; }
+.mw-badge-card-earned-label {
+    font-size: 10px; font-weight: 700; color: var(--mw-green);
+    background: #d1fae5; padding: 2px 8px; border-radius: 10px; margin-top: auto;
+}
+.mw-badge-card-locked-label { font-size: 10px; color: #9ca3af; margin-top: auto; }
+.mw-prog-cat-row { margin-bottom: 16px; }
+.mw-prog-cat-label { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.mw-prog-cat-pct { font-weight: 700; }
+.mw-prog-acc-bar-wrap { height: 8px; background: #f3f4f6; border-radius: 8px; overflow: hidden; margin-bottom: 4px; }
+.mw-prog-acc-bar { height: 100%; border-radius: 8px; transition: width 0.7s ease; }
+.mw-prog-cat-sub { font-size: 11px; }

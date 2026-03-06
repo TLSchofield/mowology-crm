@@ -17,16 +17,28 @@ $monthLabel = date('F Y');
 ?>
 <?php include __DIR__ . '/includes/appstack_head.php'; ?>
 
-<div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <div>
         <h1 class="h3 mb-0 fw-bold">Knowledge Quiz</h1>
         <p class="text-muted mb-0 small"><?php echo htmlspecialchars($monthLabel); ?> Monthly Challenge</p>
     </div>
-    <?php if ($isAdmin): ?>
-    <a href="/crm/quiz-admin_appstack.php" class="btn btn-sm btn-outline-secondary">
-        <i data-feather="settings" style="width:14px;height:14px;"></i> Manage Quiz
-    </a>
-    <?php endif; ?>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <a href="/crm/quiz-progress_appstack.php" class="btn btn-sm btn-outline-secondary">
+            <i data-feather="bar-chart-2" style="width:14px;height:14px;"></i> My Progress
+        </a>
+        <?php if ($isAdmin): ?>
+        <a href="/crm/quiz-admin_appstack.php" class="btn btn-sm btn-outline-secondary">
+            <i data-feather="settings" style="width:14px;height:14px;"></i> Manage Quiz
+        </a>
+        <?php endif; ?>
+    </div>
+</div>
+
+<!-- ── Rank Tier + Streak Banner ──────────────────────────────────────────────── -->
+<div class="mw-rank-banner mb-4" id="rankBanner" style="display:none">
+    <div class="mw-rank-tier-badge" id="rankTierBadge"></div>
+    <div class="mw-rank-meta" id="rankMeta"></div>
+    <div class="mw-rank-streak" id="rankStreak" style="display:none"></div>
 </div>
 
 <!-- ── Personal Stats Bar ─────────────────────────────────────────────────── -->
@@ -65,6 +77,13 @@ $monthLabel = date('F Y');
     </div>
 </div>
 
+<!-- ── Badges Strip ───────────────────────────────────────────────────────── -->
+<div class="mw-badges-strip mb-4" id="badgesStrip" style="display:none">
+    <div class="mw-badges-strip-label">Badges</div>
+    <div class="mw-badges-strip-icons" id="badgesIcons"></div>
+    <a href="/crm/quiz-progress_appstack.php" class="mw-badges-strip-all">View all →</a>
+</div>
+
 <!-- ── Category Grid ─────────────────────────────────────────────────────── -->
 <h5 class="fw-bold mb-3">Choose a Category</h5>
 <div class="row g-3 mb-4" id="categoryGrid">
@@ -73,13 +92,19 @@ $monthLabel = date('F Y');
     </div>
 </div>
 
-<!-- Review All Due -->
+<!-- Review All Due + Quick 5 -->
 <div class="text-center mb-5">
-    <button class="btn mw-btn-green btn-lg px-5 mw-quiz-mix-btn" onclick="startTest(null)" id="reviewAllBtn" disabled>
-        <i data-feather="refresh-cw" style="width:18px;height:18px;"></i>
-        &nbsp;Review All Due
-    </button>
-    <div class="text-muted small mt-2">Questions due for review across all categories</div>
+    <div class="d-flex justify-content-center gap-3 flex-wrap">
+        <button class="btn mw-btn-green btn-lg px-4 mw-quiz-mix-btn" onclick="startTest(null, 10)" id="reviewAllBtn" disabled>
+            <i data-feather="refresh-cw" style="width:18px;height:18px;"></i>
+            &nbsp;Review All Due
+        </button>
+        <button class="btn btn-outline-secondary btn-lg px-4" onclick="startTest(null, 5)" title="Quick 5-question session">
+            <i data-feather="zap" style="width:18px;height:18px;"></i>
+            &nbsp;Quick 5
+        </button>
+    </div>
+    <div class="text-muted small mt-2">Review All Due · 10 questions &nbsp;|&nbsp; Quick 5 · 5 questions</div>
 </div>
 
 <!-- ── Mini Leaderboard ───────────────────────────────────────────────────── -->
@@ -110,10 +135,46 @@ async function loadStats() {
         const r = await fetch('/crm/api/quiz.php?action=my_stats');
         const d = await r.json();
         if (!d.success) return;
+
         document.getElementById('statGames').textContent    = d.games_played;
         document.getElementById('statPoints').textContent   = d.monthly_points;
         document.getElementById('statMastered').textContent = d.total_mastered;
         document.getElementById('statRank').textContent     = d.monthly_rank ? '#' + d.monthly_rank : '–';
+
+        // Rank tier banner
+        if (d.rank_tier) {
+            const t = d.rank_tier;
+            document.getElementById('rankTierBadge').innerHTML =
+                `<span class="mw-rank-tier mw-rank-tier-${t.tier}">${t.icon} ${escHtml(t.name)}</span>`;
+            const progress = t.next_at
+                ? `<span class="mw-rank-progress">${d.total_mastered}/${t.next_at} mastered to ${escHtml(t.next_name)}</span>`
+                : `<span class="mw-rank-progress text-success">Maximum rank achieved!</span>`;
+            document.getElementById('rankMeta').innerHTML = progress;
+            document.getElementById('rankBanner').style.display = '';
+        }
+
+        // Streak
+        if (d.current_streak > 0) {
+            const streakEl = document.getElementById('rankStreak');
+            streakEl.innerHTML = `<span class="mw-streak-badge">🔥 ${d.current_streak}-day streak</span>`;
+            streakEl.style.display = '';
+        }
+
+        // Badges strip
+        if (d.badge_count > 0) {
+            fetch('/crm/api/quiz.php?action=user_badges')
+                .then(r => r.json())
+                .then(bd => {
+                    if (!bd.success) return;
+                    const earned = bd.badges.filter(b => b.earned).slice(0, 8);
+                    if (!earned.length) return;
+                    document.getElementById('badgesIcons').innerHTML =
+                        earned.map(b => `<span class="mw-badge-icon" title="${escHtml(b.name)}">${b.icon}</span>`).join('');
+                    document.getElementById('badgesStrip').style.display = '';
+                })
+                .catch(() => {});
+        }
+
     } catch(e) {}
 }
 
@@ -196,12 +257,13 @@ async function loadCategories() {
 }
 
 // ── Start test session ────────────────────────────────────────────────────────
-async function startTest(categoryId) {
+async function startTest(categoryId, sessionLength) {
+    const len = sessionLength || 10;
     try {
         const r = await fetch('/crm/api/quiz.php?action=start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ category_id: categoryId, mode: 'test', csrf_token: CSRF }),
+            body: JSON.stringify({ category_id: categoryId, mode: 'test', session_length: len, csrf_token: CSRF }),
         });
         const d = await r.json();
         if (!d.success) { alert(d.error || 'Could not start quiz'); return; }
