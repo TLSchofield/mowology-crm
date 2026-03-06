@@ -505,7 +505,7 @@ function handleCategories(): void
     $accounting = [
         'Materials', 'Fuel', 'Tools/Equipment', 'Repairs/Maintenance',
         'Disposal/Dump', 'Subcontractors', 'Marketing', 'Office/Admin',
-        'Licenses/Permits', 'Meals', 'Vehicle', 'Other',
+        'Overhead', 'Licenses/Permits', 'Meals', 'Vehicle', 'Other',
     ];
 
     $gbp = [
