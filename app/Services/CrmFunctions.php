@@ -2317,7 +2317,7 @@ function getWorkQueueItems() {
                 'title' => $dupeCount . ' Potential Duplicate' . ($dupeCount > 1 ? 's' : ''),
                 'description' => 'Contacts that may be duplicates based on name, email, or phone',
                 'count' => $dupeCount,
-                'link' => 'clients_appstack.php',
+                'link' => 'clients_appstack.php?view=duplicates',
                 'priority' => 13,
             ];
         }

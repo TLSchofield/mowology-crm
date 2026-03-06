@@ -2484,7 +2484,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:middle">' +
                       '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>' +
                       '<line x1="6" y1="20" x2="6" y2="14"/><polyline points="3 7 6 4 9 7"/><polyline points="15 7 18 4 21 7"/>' +
-                      '</svg>Merge — keep newest</button> '
+                      '</svg>Review &amp; Merge</button> '
                     : '') +
                 '<button class="btn btn-sm mw-dup-dismiss-btn" onclick="dismissDuplicate([' + ids.join(',') + '])">' +
                 '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;vertical-align:middle">' +
@@ -2578,19 +2578,156 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         }
         return { groups: groups, inGroupIds: inGroupIds };
     }
+    // ── Expense Merge Modal ──────────────────────────────────────
+    var expMergeA = null, expMergeB = null;
+    var expMergeKeepId = null, expMergeDiscardId = null;
+
     window.mergeDuplicate = async function(keepId, discardId) {
-        if (!confirm('Keep expense #' + keepId + ' and permanently delete #' + discardId + '?\n\nIf the deleted one has a receipt and the kept one doesn\'t, the receipt will be transferred.')) return;
+        expMergeKeepId = keepId;
+        expMergeDiscardId = discardId;
+
+        var modal = document.getElementById('expenseMergeModal');
+        var body = document.getElementById('expMergeModalBody');
+        var footer = document.getElementById('expMergeModalFooter');
+        body.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p class="mt-2 text-muted">Loading expenses...</p></div>';
+        footer.style.display = 'none';
+        $(modal).modal('show');
+
+        try {
+            var [rA, rB] = await Promise.all([
+                fetch('/crm/api/expenses.php?action=get&id=' + keepId).then(function(r) { return r.json(); }),
+                fetch('/crm/api/expenses.php?action=get&id=' + discardId).then(function(r) { return r.json(); })
+            ]);
+            if (!rA.success || !rB.success) throw new Error('Failed to load expense details');
+            expMergeA = rA.expense;
+            expMergeB = rB.expense;
+            renderExpenseMergeComparison();
+            footer.style.display = '';
+            if (window.feather) feather.replace();
+        } catch(e) {
+            body.innerHTML = '<div class="alert alert-danger">Failed to load expenses: ' + esc(e.message) + '</div>';
+        }
+    };
+
+    function renderExpenseMergeComparison() {
+        var a = expMergeA, b = expMergeB;
+        var fields = [
+            { key: 'vendor', label: 'Vendor', valA: a.vendor_name || a.vendor_name_raw || '', valB: b.vendor_name || b.vendor_name_raw || '' },
+            { key: 'expense_date', label: 'Date', valA: a.expense_date || '', valB: b.expense_date || '' },
+            { key: 'total', label: 'Total', valA: a.total ? '$' + parseFloat(a.total).toFixed(2) : '', valB: b.total ? '$' + parseFloat(b.total).toFixed(2) : '' },
+            { key: 'amount', label: 'Subtotal', valA: a.amount ? '$' + parseFloat(a.amount).toFixed(2) : '', valB: b.amount ? '$' + parseFloat(b.amount).toFixed(2) : '' },
+            { key: 'gst', label: 'GST', valA: a.gst_amount ? '$' + parseFloat(a.gst_amount).toFixed(2) : '$0.00', valB: b.gst_amount ? '$' + parseFloat(b.gst_amount).toFixed(2) : '$0.00' },
+            { key: 'pst', label: 'PST', valA: a.pst_amount ? '$' + parseFloat(a.pst_amount).toFixed(2) : '$0.00', valB: b.pst_amount ? '$' + parseFloat(b.pst_amount).toFixed(2) : '$0.00' },
+            { key: 'accounting_category', label: 'Category', valA: a.accounting_category || '', valB: b.accounting_category || '' },
+            { key: 'payment_method', label: 'Payment', valA: a.payment_method || '', valB: b.payment_method || '' },
+            { key: 'job_id', label: 'Job', valA: a.job_id ? '#' + a.job_id + (a.job_contact_name ? ' (' + a.job_contact_name + ')' : '') : '', valB: b.job_id ? '#' + b.job_id + (b.job_contact_name ? ' (' + b.job_contact_name + ')' : '') : '' },
+            { key: 'description', label: 'Description', valA: a.description || '', valB: b.description || '' },
+            { key: 'notes', label: 'Notes', valA: a.notes || '', valB: b.notes || '' },
+        ];
+
+        var html = '<div class="mb-3">';
+        html += '<div class="d-flex justify-content-between align-items-center mb-3">';
+        html += '<small class="text-muted">Select which value to keep for each field. The other expense will be deleted.</small>';
+        html += '<button type="button" class="btn btn-sm mw-merge-swap-btn" onclick="swapExpenseMergeSides()">';
+        html += '<i data-feather="refresh-cw" style="width:14px;height:14px;"></i> Swap Sides</button>';
+        html += '</div>';
+
+        html += '<table class="mw-merge-table">';
+        html += '<thead><tr>';
+        html += '<th class="mw-merge-field-label">Field</th>';
+        html += '<th class="mw-merge-radio-cell" style="background:#d4edda;">Keep — #' + a.id + '</th>';
+        html += '<th class="mw-merge-radio-cell" style="background:#f8d7da;">Discard — #' + b.id + '</th>';
+        html += '</tr></thead><tbody>';
+
+        fields.forEach(function(f) {
+            var defaultChoice = 'keep';
+            if (!f.valA && f.valB) defaultChoice = 'discard';
+
+            html += '<tr>';
+            html += '<td class="mw-merge-field-label">' + f.label + '</td>';
+            html += '<td class="mw-merge-radio-cell"><label>';
+            html += '<input type="radio" name="exp_merge_' + f.key + '" value="keep"' + (defaultChoice === 'keep' ? ' checked' : '') + '> ';
+            html += f.valA ? esc(f.valA) : '<span class="mw-merge-value-empty">empty</span>';
+            html += '</label></td>';
+            html += '<td class="mw-merge-radio-cell"><label>';
+            html += '<input type="radio" name="exp_merge_' + f.key + '" value="discard"' + (defaultChoice === 'discard' ? ' checked' : '') + '> ';
+            html += f.valB ? esc(f.valB) : '<span class="mw-merge-value-empty">empty</span>';
+            html += '</label></td>';
+            html += '</tr>';
+        });
+
+        // Receipt row — show thumbnails
+        var receiptA = a.receipt_path ? '<img src="' + esc(a.receipt_path) + '" style="max-height:60px;border-radius:4px;">' : '<span class="mw-merge-value-empty">no receipt</span>';
+        var receiptB = b.receipt_path ? '<img src="' + esc(b.receipt_path) + '" style="max-height:60px;border-radius:4px;">' : '<span class="mw-merge-value-empty">no receipt</span>';
+        var receiptDefault = 'keep';
+        if (!a.receipt_path && b.receipt_path) receiptDefault = 'discard';
+
+        html += '<tr>';
+        html += '<td class="mw-merge-field-label">Receipt</td>';
+        html += '<td class="mw-merge-radio-cell"><label>';
+        html += '<input type="radio" name="exp_merge_receipt" value="keep"' + (receiptDefault === 'keep' ? ' checked' : '') + '> ' + receiptA;
+        html += '</label></td>';
+        html += '<td class="mw-merge-radio-cell"><label>';
+        html += '<input type="radio" name="exp_merge_receipt" value="discard"' + (receiptDefault === 'discard' ? ' checked' : '') + '> ' + receiptB;
+        html += '</label></td>';
+        html += '</tr>';
+
+        html += '</tbody></table>';
+        html += '</div>';
+
+        document.getElementById('expMergeModalBody').innerHTML = html;
+    }
+
+    window.swapExpenseMergeSides = function() {
+        var tmp = expMergeA;
+        expMergeA = expMergeB;
+        expMergeB = tmp;
+        expMergeKeepId = parseInt(expMergeA.id);
+        expMergeDiscardId = parseInt(expMergeB.id);
+        renderExpenseMergeComparison();
+        if (window.feather) feather.replace();
+    };
+
+    window.executeExpenseMerge = async function() {
+        if (!expMergeKeepId || !expMergeDiscardId) return;
+
+        var fields = {};
+        var fieldKeys = ['vendor', 'expense_date', 'total', 'amount', 'gst', 'pst',
+            'accounting_category', 'payment_method', 'job_id', 'description', 'notes', 'receipt'];
+        fieldKeys.forEach(function(key) {
+            var radios = document.querySelectorAll('input[name="exp_merge_' + key + '"]');
+            radios.forEach(function(r) { if (r.checked) fields[key] = r.value; });
+        });
+
+        if (!confirm('Merge expense #' + expMergeDiscardId + ' into #' + expMergeKeepId + '? The discarded expense will be permanently deleted.')) return;
+
+        var btn = document.getElementById('expMergeConfirmBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Merging...';
+
         try {
             var r = await fetch('/crm/api/expenses.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'merge', csrf_token: CSRF, keep_id: keepId, discard_id: discardId }),
+                body: JSON.stringify({
+                    action: 'merge',
+                    csrf_token: CSRF,
+                    keep_id: expMergeKeepId,
+                    discard_id: expMergeDiscardId,
+                    fields: fields
+                }),
             });
             var d = await r.json();
             if (!d.success) throw new Error(d.error);
+            $('#expenseMergeModal').modal('hide');
             loadExpenses(currentPage);
             loadStats();
-        } catch(e) { alert('Merge failed: ' + e.message); }
+        } catch(e) {
+            alert('Merge failed: ' + e.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="git-merge" style="width:14px;height:14px;"></i> Merge Expenses';
+            if (window.feather) feather.replace();
+        }
     };
     window.dismissDuplicate = function(ids) {
         for (var i = 0; i < ids.length; i++) {
@@ -5347,5 +5484,31 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     }
 })();
 </script>
+
+<!-- Expense Merge Modal -->
+<div class="modal fade" id="expenseMergeModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-xl" role="document">
+    <div class="modal-content">
+      <div class="modal-header" style="background: var(--mw-orange); color: #fff;">
+        <h5 class="modal-title"><i data-feather="git-merge" style="width:18px;height:18px;"></i> Merge Duplicate Expenses</h5>
+        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body" id="expMergeModalBody">
+        <div class="text-center py-4">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p class="mt-2 text-muted">Loading expense details...</p>
+        </div>
+      </div>
+      <div class="modal-footer" id="expMergeModalFooter" style="display: none;">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning" id="expMergeConfirmBtn" onclick="executeExpenseMerge()">
+          <i data-feather="git-merge" style="width:14px;height:14px;"></i> Merge Expenses
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <?php include 'includes/appstack_footer.php'; ?>

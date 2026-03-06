@@ -1587,6 +1587,101 @@ try {
     // Non-blocking — duplicate detection is a nice-to-have
 }
 
+// Prepare grouped duplicate data for the duplicates review view
+$duplicateGroups = [];
+$dupeContactDetails = [];
+$dupeMatchReasons = [];
+if (($_GET['view'] ?? '') === 'duplicates' && !empty($duplicateMap)) {
+    // Group duplicates into clusters using BFS
+    $visited = [];
+    foreach ($duplicateMap as $id => $dupeIds) {
+        if (isset($visited[$id])) continue;
+        $group = [];
+        $queue = [(int)$id];
+        while (!empty($queue)) {
+            $current = array_shift($queue);
+            if (isset($visited[$current])) continue;
+            $visited[$current] = true;
+            $group[] = $current;
+            foreach ($duplicateMap[$current] ?? [] as $dupeId) {
+                if (!isset($visited[(int)$dupeId])) $queue[] = (int)$dupeId;
+            }
+        }
+        if (count($group) > 1) {
+            sort($group);
+            $duplicateGroups[] = $group;
+        }
+    }
+
+    // Fetch full details for all contacts in groups
+    if (!empty($duplicateGroups)) {
+        $allGroupIds = array_unique(array_merge(...$duplicateGroups));
+        $ph = implode(',', array_fill(0, count($allGroupIds), '?'));
+        $stmt = $db->prepare("
+            SELECT c.id, c.first_name, c.last_name, c.email, c.phone, c.mobile,
+                   c.preferred_contact_method, c.notes, c.created_at,
+                   GROUP_CONCAT(DISTINCT p.address SEPARATOR ', ') as property_addresses,
+                   COUNT(DISTINCT qr.id) as quote_request_count
+            FROM contacts c
+            LEFT JOIN properties p ON c.id = p.site_contact_id
+            LEFT JOIN quote_requests qr ON c.id = qr.contact_id
+            WHERE c.id IN ({$ph})
+            GROUP BY c.id
+        ");
+        $stmt->execute(array_values($allGroupIds));
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $dupeContactDetails[(int)$row['id']] = $row;
+        }
+
+        // Build address map for match reason detection
+        $dupeAddressMap = [];
+        $stmt2 = $db->prepare("
+            SELECT site_contact_id, LOWER(TRIM(address)) as addr
+            FROM properties
+            WHERE site_contact_id IN ({$ph})
+            AND address IS NOT NULL AND address != ''
+        ");
+        $stmt2->execute(array_values($allGroupIds));
+        foreach ($stmt2->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            $dupeAddressMap[(int)$p['site_contact_id']][] = $p['addr'];
+        }
+
+        // Compute match reasons for each group
+        foreach ($duplicateGroups as $gi => $groupIds) {
+            $reasons = [];
+            for ($ii = 0; $ii < count($groupIds); $ii++) {
+                for ($jj = $ii + 1; $jj < count($groupIds); $jj++) {
+                    $a = $dupeContactDetails[$groupIds[$ii]] ?? [];
+                    $b = $dupeContactDetails[$groupIds[$jj]] ?? [];
+                    if (empty($a) || empty($b)) continue;
+                    if (!empty($a['email']) && !empty($b['email'])
+                        && strtolower(trim($a['email'])) === strtolower(trim($b['email']))) {
+                        $reasons['email'] = h($a['email']);
+                    }
+                    $phonesA = array_filter([preg_replace('/\D/', '', $a['phone'] ?? ''), preg_replace('/\D/', '', $a['mobile'] ?? '')], function($v) { return $v !== ''; });
+                    $phonesB = array_filter([preg_replace('/\D/', '', $b['phone'] ?? ''), preg_replace('/\D/', '', $b['mobile'] ?? '')], function($v) { return $v !== ''; });
+                    foreach ($phonesA as $pa) {
+                        foreach ($phonesB as $pb) {
+                            if ($pa === $pb) { $reasons['phone'] = h($a['phone'] ?: $a['mobile']); break 2; }
+                        }
+                    }
+                    $addrsA = $dupeAddressMap[$groupIds[$ii]] ?? [];
+                    $addrsB = $dupeAddressMap[$groupIds[$jj]] ?? [];
+                    foreach ($addrsA as $addrA) {
+                        if (in_array($addrA, $addrsB)) { $reasons['address'] = h($addrA); break; }
+                    }
+                    if (trim($a['last_name'] ?? '') !== '' && trim($b['last_name'] ?? '') !== ''
+                        && strtolower(trim($a['first_name'])) === strtolower(trim($b['first_name']))
+                        && strtolower(trim($a['last_name'])) === strtolower(trim($b['last_name']))) {
+                        $reasons['name'] = h(trim($a['first_name'] . ' ' . $a['last_name']));
+                    }
+                }
+            }
+            $dupeMatchReasons[$gi] = $reasons;
+        }
+    }
+}
+
 // Also get quote_requests without companies (not yet converted to prospects)
 $unconvertedRequests = $db->query("
     SELECT
@@ -1629,8 +1724,8 @@ $unconvertedRequests = $db->query("
           <?php endif; ?>
 
           <div class="d-flex justify-content-between align-items-center mb-3">
-            <h1 class="h3 mb-0">Client Management</h1>
-            <?php if (!in_array($action, ['edit', 'new', 'view_contact', 'edit_contact', 'view_company', 'edit_company'])): ?>
+            <h1 class="h3 mb-0"><?php echo (($_GET['view'] ?? '') === 'duplicates') ? 'Review Duplicate Contacts' : 'Client Management'; ?></h1>
+            <?php if (!in_array($action, ['edit', 'new', 'view_contact', 'edit_contact', 'view_company', 'edit_company']) && ($_GET['view'] ?? '') !== 'duplicates'): ?>
               <button class="btn btn-primary" onclick="location.href='?action=new'">
                 <i data-feather="plus"></i> Add New Client
               </button>
@@ -4726,6 +4821,107 @@ $unconvertedRequests = $db->query("
             </script>
 
           <?php else: ?>
+
+          <?php if (($_GET['view'] ?? '') === 'duplicates'): ?>
+            <!-- ── Duplicates Review View ─────────────────────────────────── -->
+            <div class="mb-3">
+              <a href="clients_appstack.php" class="btn btn-outline-secondary btn-sm">
+                <i data-feather="arrow-left" style="width:14px;height:14px;"></i> Back to Client List
+              </a>
+            </div>
+
+            <?php if (empty($duplicateGroups)): ?>
+              <div class="card">
+                <div class="card-body text-center py-5">
+                  <i data-feather="check-circle" style="width:48px;height:48px;color:var(--mw-green);"></i>
+                  <h5 class="mt-3">No Duplicates Found</h5>
+                  <p class="text-muted">All contacts look clean. No potential duplicates detected.</p>
+                </div>
+              </div>
+            <?php else: ?>
+              <div class="alert alert-info d-flex align-items-center mb-3">
+                <i data-feather="info" style="width:18px;height:18px;margin-right:8px;flex-shrink:0;"></i>
+                <span><?php echo count($duplicateGroups); ?> group<?php echo count($duplicateGroups) > 1 ? 's' : ''; ?> of potential duplicates found. Review each group and merge where appropriate.</span>
+              </div>
+
+              <?php foreach ($duplicateGroups as $groupIdx => $groupIds): ?>
+                <?php
+                  $reasons = $dupeMatchReasons[$groupIdx] ?? [];
+                  $reasonLabels = [];
+                  if (isset($reasons['email'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="mail" style="width:12px;height:12px;"></i> Email: ' . $reasons['email'] . '</span>';
+                  if (isset($reasons['phone'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="phone" style="width:12px;height:12px;"></i> Phone: ' . $reasons['phone'] . '</span>';
+                  if (isset($reasons['address'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="map-pin" style="width:12px;height:12px;"></i> Address</span>';
+                  if (isset($reasons['name'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="user" style="width:12px;height:12px;"></i> Name: ' . $reasons['name'] . '</span>';
+                ?>
+                <div class="card mb-3 mw-dupe-group-card">
+                  <div class="card-header d-flex justify-content-between align-items-center" style="background:var(--mw-light);">
+                    <div>
+                      <strong>Group <?php echo $groupIdx + 1; ?></strong>
+                      <span class="text-muted ml-2"><?php echo count($groupIds); ?> contacts</span>
+                    </div>
+                    <div>Match: <?php echo !empty($reasonLabels) ? implode(' ', $reasonLabels) : '<span class="text-muted">unknown</span>'; ?></div>
+                  </div>
+                  <div class="card-body p-0">
+                    <div class="row no-gutters">
+                      <?php foreach ($groupIds as $ci => $cId):
+                        $c = $dupeContactDetails[$cId] ?? null;
+                        if (!$c) continue;
+                      ?>
+                        <div class="col-md<?php echo count($groupIds) === 2 ? '-6' : ''; ?> mw-dupe-contact-col <?php echo $ci > 0 ? 'mw-dupe-contact-border' : ''; ?>">
+                          <div class="p-3">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                              <div>
+                                <h6 class="mb-0">
+                                  <a href="?action=view_contact&id=<?php echo (int)$c['id']; ?>" class="text-dark">
+                                    <?php echo h($c['first_name'] . ' ' . $c['last_name']); ?>
+                                  </a>
+                                </h6>
+                                <small class="text-muted">ID #<?php echo (int)$c['id']; ?> &middot; Created <?php echo date('M j, Y', strtotime($c['created_at'])); ?></small>
+                              </div>
+                            </div>
+                            <table class="table table-sm table-borderless mb-0 mw-dupe-fields">
+                              <tr>
+                                <td class="text-muted" style="width:100px;">Email</td>
+                                <td><?php echo $c['email'] ? h($c['email']) : '<span class="text-muted">—</span>'; ?></td>
+                              </tr>
+                              <tr>
+                                <td class="text-muted">Phone</td>
+                                <td><?php echo $c['phone'] ? h($c['phone']) : '<span class="text-muted">—</span>'; ?></td>
+                              </tr>
+                              <tr>
+                                <td class="text-muted">Mobile</td>
+                                <td><?php echo $c['mobile'] ? h($c['mobile']) : '<span class="text-muted">—</span>'; ?></td>
+                              </tr>
+                              <tr>
+                                <td class="text-muted">Properties</td>
+                                <td><?php echo $c['property_addresses'] ? h($c['property_addresses']) : '<span class="text-muted">none</span>'; ?></td>
+                              </tr>
+                              <tr>
+                                <td class="text-muted">Quotes</td>
+                                <td><?php echo (int)$c['quote_request_count']; ?> request<?php echo $c['quote_request_count'] != 1 ? 's' : ''; ?></td>
+                              </tr>
+                              <?php if (!empty($c['notes'])): ?>
+                              <tr>
+                                <td class="text-muted">Notes</td>
+                                <td><small><?php echo h(mb_substr($c['notes'], 0, 80)); ?><?php echo mb_strlen($c['notes']) > 80 ? '...' : ''; ?></small></td>
+                              </tr>
+                              <?php endif; ?>
+                            </table>
+                          </div>
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+                  </div>
+                  <div class="card-footer text-center">
+                    <button class="btn btn-warning" onclick="showMergeModal(<?php echo (int)$groupIds[0]; ?>)">
+                      <i data-feather="git-merge" style="width:16px;height:16px;"></i> Review &amp; Merge
+                    </button>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            <?php endif; ?>
+
+          <?php else: ?>
             <!-- Search Bar -->
             <div class="mb-3">
               <div class="input-group" style="max-width: 400px;">
@@ -5104,7 +5300,8 @@ $unconvertedRequests = $db->query("
               </div>
             </div>
             </div><!-- end list-view -->
-          <?php endif; ?>
+          <?php endif; ?><!-- end duplicates vs normal view -->
+          <?php endif; ?><!-- end action chain -->
 
           <!-- Bulk Action Bar -->
           <div class="mw-bulk-action-bar" id="mw-clients-bulk-bar">

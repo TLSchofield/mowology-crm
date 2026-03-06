@@ -5606,6 +5606,32 @@ tr[data-href] { cursor: pointer; }
   color: #fff;
 }
 
+/* Duplicate Groups Review View */
+.mw-dupe-group-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mw-dupe-contact-col {
+  min-width: 0;
+}
+
+.mw-dupe-contact-border {
+  border-left: 2px solid var(--mw-orange);
+}
+
+.mw-dupe-fields td {
+  padding: 3px 6px;
+  font-size: 13px;
+}
+
+.mw-dupe-group-card .card-footer {
+  background: #f8f9fa;
+  border-top: 1px solid #e2e8f0;
+  padding: 12px;
+}
+
 /* View Mode Toggle */
 .btn-group {
   margin-bottom: 16px;

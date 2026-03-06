@@ -865,8 +865,8 @@ function handleMergeExpenses(PDO $db, ?array $input): void
     if (!$keepId || !$discardId) throw new Exception('keep_id and discard_id are required');
     if ($keepId === $discardId) throw new Exception('Cannot merge an expense with itself');
 
-    // Fetch both expenses
-    $stmt = $db->prepare("SELECT id, receipt_media_id FROM expenses WHERE id IN (?, ?)");
+    // Fetch both expenses (full rows for per-field merge)
+    $stmt = $db->prepare("SELECT * FROM expenses WHERE id IN (?, ?)");
     $stmt->execute([$keepId, $discardId]);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -879,10 +879,49 @@ function handleMergeExpenses(PDO $db, ?array $input): void
     if (!$keep)    throw new Exception('Expense to keep (#' . $keepId . ') not found');
     if (!$discard) throw new Exception('Expense to delete (#' . $discardId . ') not found');
 
-    // Transfer receipt if kept expense has none and discarded has one
-    if (empty($keep['receipt_media_id']) && !empty($discard['receipt_media_id'])) {
-        $db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?")
-           ->execute([$discard['receipt_media_id'], $keepId]);
+    $fields = $input['fields'] ?? [];
+
+    // Per-field merge: apply selected values from the discard to the keep expense
+    if (!empty($fields)) {
+        $updates = [];
+        $params  = [];
+
+        // Map field keys to DB columns (some fields group multiple columns)
+        $fieldMap = [
+            'vendor'             => ['vendor_id', 'vendor_name_raw'],
+            'expense_date'       => ['expense_date'],
+            'total'              => ['total'],
+            'amount'             => ['amount'],
+            'gst'                => ['gst_amount'],
+            'pst'                => ['pst_amount'],
+            'accounting_category'=> ['accounting_category'],
+            'payment_method'     => ['payment_method'],
+            'job_id'             => ['job_id'],
+            'description'        => ['description'],
+            'notes'              => ['notes'],
+            'receipt'            => ['receipt_media_id'],
+        ];
+
+        foreach ($fields as $key => $choice) {
+            if ($choice !== 'discard' || !isset($fieldMap[$key])) continue;
+
+            foreach ($fieldMap[$key] as $col) {
+                $updates[] = "{$col} = ?";
+                $params[]  = $discard[$col] ?? null;
+            }
+        }
+
+        if (!empty($updates)) {
+            $params[] = $keepId;
+            $db->prepare("UPDATE expenses SET " . implode(', ', $updates) . " WHERE id = ?")
+               ->execute($params);
+        }
+    } else {
+        // Legacy behavior: transfer receipt if kept has none and discarded has one
+        if (empty($keep['receipt_media_id']) && !empty($discard['receipt_media_id'])) {
+            $db->prepare("UPDATE expenses SET receipt_media_id = ? WHERE id = ?")
+               ->execute([$discard['receipt_media_id'], $keepId]);
+        }
     }
 
     // Delete the duplicate
