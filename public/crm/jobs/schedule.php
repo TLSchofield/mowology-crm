@@ -714,6 +714,7 @@ if ($view === 'day') {
             'duration'    => !empty($stop['visits']) ? (int)($stop['visits'][0]['estimated_duration'] ?? 0) : 0,
             'assigned'    => $isAssigned,
             'crewNames'   => !empty($stop['crew_names']) ? $stop['crew_names'] : ($stop['crew_name'] ? [$stop['crew_name']] : []),
+            'status'      => $stop['stop_status'] ?? 'scheduled',
         ];
     }
 }

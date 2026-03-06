@@ -521,7 +521,7 @@ var MwDayViewMap = (function() {
     //  MARKERS (teardrop pin style — consistent with crew map)
     // ═══════════════════════════════════════════════════
 
-    function createPinIcon(color, label, size) {
+    function createPinIcon(color, label, size, isCompleted) {
         // Teardrop pin SVG matching crew map style
         var w = size || 36;
         var h = Math.round(w * 44 / 36);
@@ -531,10 +531,22 @@ var MwDayViewMap = (function() {
         var fontSize = Math.round(w * 13 / 36);
         var textY = cy + Math.round(fontSize * 0.38);
 
+        // For completed stops: pale green with a checkmark
+        var innerContent;
+        if (isCompleted) {
+            var tickSize = Math.round(w * 0.3);
+            var tx = cx - Math.round(tickSize * 0.5);
+            var ty = cy - Math.round(tickSize * 0.15);
+            innerContent = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="white" opacity="0.35"/>' +
+                '<polyline points="' + tx + ',' + ty + ' ' + (tx + Math.round(tickSize * 0.35)) + ',' + (ty + Math.round(tickSize * 0.4)) + ' ' + (tx + tickSize) + ',' + (ty - Math.round(tickSize * 0.3)) + '" fill="none" stroke="white" stroke-width="' + Math.max(2, Math.round(w / 12)) + '" stroke-linecap="round" stroke-linejoin="round"/>';
+        } else {
+            innerContent = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="white" opacity="0.3"/>' +
+                '<text x="' + cx + '" y="' + textY + '" text-anchor="middle" font-size="' + fontSize + '" font-weight="bold" fill="white" font-family="Arial">' + label + '</text>';
+        }
+
         var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
             '<path d="M' + cx + ' 0C' + Math.round(w * 8.06 / 36) + ' 0 0 ' + Math.round(w * 8.06 / 36) + ' 0 ' + cx + 'c0 ' + Math.round(w * 11.25 / 36) + ' ' + cx + ' ' + Math.round(w * 26 / 36) + ' ' + cx + ' ' + Math.round(w * 26 / 36) + 's' + cx + '-' + Math.round(w * 14.75 / 36) + ' ' + cx + '-' + Math.round(w * 26 / 36) + 'C' + w + ' ' + Math.round(w * 8.06 / 36) + ' ' + Math.round(w * 27.94 / 36) + ' 0 ' + cx + ' 0z" fill="' + color + '" stroke="white" stroke-width="2"/>' +
-            '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="white" opacity="0.3"/>' +
-            '<text x="' + cx + '" y="' + textY + '" text-anchor="middle" font-size="' + fontSize + '" font-weight="bold" fill="white" font-family="Arial">' + label + '</text>' +
+            innerContent +
             '</svg>';
 
         return {
@@ -545,9 +557,13 @@ var MwDayViewMap = (function() {
     }
 
     function placeMarker(position, stop, index, isActive, isUnassigned) {
-        var color, size;
+        var color, size, completed = false;
 
-        if (isUnassigned) {
+        if (stop.status === 'completed') {
+            color = '#86EFAC';  // pale green
+            size = 34;
+            completed = true;
+        } else if (isUnassigned) {
             color = '#9CA3AF';
             size = 30;
         } else if (stop.stopId === pinnedStopId) {
@@ -559,7 +575,7 @@ var MwDayViewMap = (function() {
         }
 
         var label = index !== null ? String(index + 1) : '\u2022';
-        var icon = createPinIcon(color, label, size);
+        var icon = createPinIcon(color, label, size, completed);
 
         var marker = new google.maps.Marker({
             position: position,
@@ -579,7 +595,8 @@ var MwDayViewMap = (function() {
             stopId: stop.stopId,
             serviceType: stop.serviceType || '',
             label: label,
-            isUnassigned: !!isUnassigned
+            isUnassigned: !!isUnassigned,
+            isCompleted: completed
         });
     }
 
@@ -723,13 +740,13 @@ var MwDayViewMap = (function() {
         stopMarkers.forEach(function(sm) {
             if (sm.stopId === stopId) {
                 // Enlarge the highlighted marker
-                var color = sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659');
-                sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', 44));
+                var color = sm.isCompleted ? '#86EFAC' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659'));
+                sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', 44, sm.isCompleted));
                 sm.marker.setZIndex(200);
             } else {
                 // Dim others slightly via smaller size
-                var c = sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659'));
-                sm.marker.setIcon(createPinIcon(c, sm.label || '\u2022', sm.isUnassigned ? 26 : 30));
+                var c = sm.isCompleted ? '#86EFAC' : (sm.isUnassigned ? '#9CA3AF' : (sm.stopId === pinnedStopId ? '#e85d04' : (serviceColors[sm.serviceType] || '#2D8659')));
+                sm.marker.setIcon(createPinIcon(c, sm.label || '\u2022', sm.isUnassigned ? 26 : 30, sm.isCompleted));
                 sm.marker.setZIndex(10);
             }
         });
@@ -738,7 +755,9 @@ var MwDayViewMap = (function() {
     function unhighlightMarkers() {
         stopMarkers.forEach(function(sm) {
             var color, size;
-            if (sm.isUnassigned) {
+            if (sm.isCompleted) {
+                color = '#86EFAC'; size = 34;
+            } else if (sm.isUnassigned) {
                 color = '#9CA3AF'; size = 30;
             } else if (sm.stopId === pinnedStopId) {
                 color = '#e85d04'; size = 40;
@@ -746,7 +765,7 @@ var MwDayViewMap = (function() {
                 color = serviceColors[sm.serviceType] || '#2D8659';
                 size = 36;
             }
-            sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', size));
+            sm.marker.setIcon(createPinIcon(color, sm.label || '\u2022', size, sm.isCompleted));
             sm.marker.setZIndex(10);
         });
     }
