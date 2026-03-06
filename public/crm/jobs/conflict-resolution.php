@@ -615,8 +615,8 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
     var truckPings = <?= json_encode(array_values($truckPings)) ?>;
     var crewPings  = <?= json_encode(array_values($crewPings)) ?>;
     var arrivalBorder = <?= $arrivalBorder && !empty($arrivalBorder['polygon']) ? json_encode($arrivalBorder['polygon']) : 'null' ?>;
-    var allTruckDwellPings = <?= json_encode($allTruckDwellPings, JSON_FORCE_OBJECT) ?>;
-    var truckNameMap = <?= json_encode($truckNameMap, JSON_FORCE_OBJECT) ?>;
+    var allTruckDwellPings = <?= json_encode((object)$allTruckDwellPings) ?>;
+    var truckNameMap = <?= json_encode((object)$truckNameMap) ?>;
 
     // --- Haversine (JS) for cluster detection ---
     function jsHaversine(lat1, lng1, lat2, lng2) {
