@@ -671,6 +671,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                                             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addLine()">
                                                 + Add Custom Line
                                             </button>
+                                            <button type="button" class="btn btn-sm btn-outline-primary" id="addBundleBtn" onclick="openBundlePicker()">
+                                                <i data-feather="package" style="width:13px;height:13px;vertical-align:middle;margin-right:3px;"></i>+ Add Bundle
+                                            </button>
                                         </div>
 
                                         <div class="mw-totals">
@@ -1648,6 +1651,183 @@ Work to be completed weather permitting.</textarea>
 
     // Fetch measurements on page load
     wfFetchMeasurements();
+
+    // ── Bundle Picker ─────────────────────────────────────────────────────────
+    var bundleNames = {};
+
+    async function openBundlePicker() {
+        $('#addBundleModal').modal('show');
+        var grid = document.getElementById('bundlePickerGrid');
+        grid.innerHTML = '<p class="text-muted text-center py-3">Loading bundles…</p>';
+
+        try {
+            var res  = await fetch('products/api-products.php?action=get-bundles');
+            var data = await res.json();
+
+            if (!data.success || !data.bundles || data.bundles.length === 0) {
+                grid.innerHTML = '<p class="text-muted text-center">No bundles available. Create one in <a href="products/bundles.php" target="_blank">Service Bundles</a>.</p>';
+                return;
+            }
+
+            var hasProperty = !!propertyId;
+            var html = '';
+
+            if (!hasProperty) {
+                html += '<div class="alert alert-info py-2 mb-3" style="font-size:13px;">'
+                      + 'No property selected — prices shown are base rates.'
+                      + '</div>';
+            }
+
+            data.bundles.forEach(function(b) {
+                var tierColors = { good: '#16a34a', better: '#2563eb', best: '#9333ea', custom: '#64748b' };
+                var tierColor  = tierColors[b.tier] || '#64748b';
+
+                var listTotal = 0;
+                var itemHtml  = '';
+                if (b.items && b.items.length) {
+                    b.items.forEach(function(it) {
+                        var price = parseFloat(it.override_price || it.base_price || 0);
+                        listTotal += price;
+                        itemHtml += '<div class="mw-bp-item">'
+                            + '<span>' + escapeHtml(it.product_name) + '</span>'
+                            + '<span>' + formatCurrencyJS(price) + '</span>'
+                            + '</div>';
+                    });
+                }
+
+                var discountDisplay = '';
+                if (parseFloat(b.discount_value) > 0) {
+                    discountDisplay = b.discount_type === 'percentage'
+                        ? '−' + parseFloat(b.discount_value).toFixed(0) + '%'
+                        : '−$' + parseFloat(b.discount_value).toFixed(2);
+                }
+
+                html += '<div class="mw-bp-card">'
+                    + '<div class="mw-bp-header">'
+                        + '<div>'
+                            + '<span class="mw-bp-tier" style="background:' + tierColor + '">' + escapeHtml(b.tier.charAt(0).toUpperCase() + b.tier.slice(1)) + '</span>'
+                            + '<strong class="ml-2">' + escapeHtml(b.bundle_name) + '</strong>'
+                        + '</div>'
+                        + (discountDisplay ? '<span class="mw-bp-discount">' + discountDisplay + ' off</span>' : '')
+                    + '</div>'
+                    + (b.description ? '<div class="mw-bp-desc">' + escapeHtml(b.description) + '</div>' : '')
+                    + '<div class="mw-bp-items">' + itemHtml + '</div>'
+                    + (hasProperty
+                        ? '<button type="button" class="btn btn-sm btn-primary btn-block mt-2" onclick="addBundleToQuote(' + b.id + ', \'' + escapeHtml(b.bundle_name).replace(/'/g,"&#39;") + '\')" data-bundle-id="' + b.id + '">'
+                          + 'Add to Quote (calculating…)'
+                          + '</button>'
+                        : '<button type="button" class="btn btn-sm btn-primary btn-block mt-2" onclick="addBundleToQuote(' + b.id + ', \'' + escapeHtml(b.bundle_name).replace(/'/g,"&#39;") + '\')">'
+                          + 'Add to Quote (base prices)'
+                          + '</button>')
+                    + '</div>';
+            });
+
+            grid.innerHTML = html;
+            if (typeof feather !== 'undefined') feather.replace();
+
+            if (hasProperty) {
+                data.bundles.forEach(function(b) {
+                    previewBundlePrice(b.id, propertyId);
+                });
+            }
+
+        } catch (err) {
+            grid.innerHTML = '<p class="text-danger">Error loading bundles. Please try again.</p>';
+            console.error('[Bundle Picker]', err);
+        }
+    }
+
+    async function previewBundlePrice(bundleId, propId) {
+        try {
+            var params = new URLSearchParams({ action: 'preview-bundle', bundle_id: bundleId, property_id: propId });
+            var res  = await fetch('api/quote-autofill.php', { method: 'POST', body: params });
+            var data = await res.json();
+            if (!data.success) return;
+
+            var total = 0;
+            data.items.forEach(function(it) { total += parseFloat(it.line_total || 0); });
+
+            var btn = document.querySelector('#bundlePickerGrid button[data-bundle-id="' + bundleId + '"]');
+            if (btn) btn.textContent = 'Add to Quote — ' + formatCurrencyJS(total);
+        } catch (e) { /* silent */ }
+    }
+
+    async function addBundleToQuote(bundleId, bundleName) {
+        var btn = document.querySelector('#bundlePickerGrid button[data-bundle-id="' + bundleId + '"], #bundlePickerGrid button[onclick*="addBundleToQuote(' + bundleId + '"]');
+        if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+
+        try {
+            var params = new URLSearchParams({ action: 'preview-bundle', bundle_id: bundleId, property_id: propertyId || 0 });
+            var res  = await fetch('api/quote-autofill.php', { method: 'POST', body: params });
+            var data = await res.json();
+
+            if (!data.success) {
+                alert('Could not load bundle: ' + (data.error || 'Unknown error'));
+                if (btn) { btn.disabled = false; btn.textContent = 'Add to Quote'; }
+                return;
+            }
+
+            bundleNames[bundleId] = bundleName;
+
+            data.items.forEach(function(item) {
+                lineItems.push({
+                    id:                    ++itemIdCounter,
+                    product_id:            item.product_id             || null,
+                    pricing_rule_id:       item.pricing_rule_id        || null,
+                    measurement_group_key: item.measurement_group_key  || null,
+                    service_type:          item.service_type           || '',
+                    description:           item.description            || '',
+                    quantity:              parseFloat(item.quantity    || 1),
+                    unit_type:             item.unit_type              || 'each',
+                    unit_price:            parseFloat(item.unit_price  || 0),
+                    line_total:            parseFloat(item.line_total  || 0),
+                    is_optional:           item.is_optional            || false,
+                    units_used:            item.units_used             || null,
+                    price_per_unit:        item.price_per_unit         || null,
+                    minimum_applied:       item.minimum_applied        || 0,
+                    included_units:        item.included_units         || null,
+                    pricing_snapshot:      item.pricing_snapshot       || null,
+                    bundle_id:             parseInt(bundleId),
+                    is_upsell:             item.is_upsell              || 0,
+                    fromMeasurement:       true
+                });
+            });
+
+            $('#addBundleModal').modal('hide');
+            renderLineItems();
+
+            if (data.warnings && data.warnings.length) {
+                alert('Bundle added with warnings:\n' + data.warnings.join('\n'));
+            }
+        } catch (err) {
+            alert('Error adding bundle: ' + err.message);
+            console.error('[addBundleToQuote]', err);
+            if (btn) { btn.disabled = false; btn.textContent = 'Add to Quote'; }
+        }
+    }
     </script>
+
+<!-- Bundle Picker Modal -->
+<div class="modal fade" id="addBundleModal" tabindex="-1" role="dialog">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title"><i data-feather="package" style="width:16px;height:16px;vertical-align:middle;margin-right:6px;"></i>Add Service Bundle</h5>
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="bundlePickerGrid" class="mw-bp-grid">
+          <p class="text-muted text-center py-3">Loading…</p>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <a href="products/bundles.php" target="_blank" class="mr-auto" style="font-size:13px;">
+          Manage Bundles <i data-feather="external-link" style="width:11px;height:11px;vertical-align:middle;"></i>
+        </a>
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <?php include 'includes/appstack_footer.php'; ?>
