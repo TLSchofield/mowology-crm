@@ -225,9 +225,19 @@ $activePage = 'team';
                     <input type="hidden" name="id" id="empId" value="">
                     <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars(generateCSRFToken()); ?>">
 
-                    <div class="form-group">
-                        <label>Full Name <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="full_name" id="empName" required>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label>First Name <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="first_name" id="empFirstName" required>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label>Last Name <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="last_name" id="empLastName" required>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="form-group">
@@ -535,7 +545,8 @@ $activePage = 'team';
                 var emp = data.employee;
                 document.getElementById('modalTitle').textContent = 'Edit Employee';
                 document.getElementById('empId').value = emp.id;
-                document.getElementById('empName').value = emp.full_name || '';
+                document.getElementById('empFirstName').value = emp.first_name || '';
+                document.getElementById('empLastName').value = emp.last_name || '';
                 document.getElementById('empEmail').value = emp.email || '';
                 document.getElementById('empPhone').value = emp.phone || '';
                 document.getElementById('empRole').value = emp.role || 'user';

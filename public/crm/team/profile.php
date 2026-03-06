@@ -125,8 +125,21 @@ if ($canAccountTab) {
     }
 }
 
-$pageTitle = h($emp['full_name'] ?? 'Employee') . ' — HR Profile';
+// Build display name from first/last (fall back to full_name)
+$empFirstName = $emp['first_name'] ?? '';
+$empLastName  = $emp['last_name'] ?? '';
+$empDisplayName = trim($empFirstName . ' ' . $empLastName) ?: ($emp['full_name'] ?? 'Employee');
+
+$pageTitle = h($empDisplayName) . ' — HR Profile';
 $activePage = 'team';
+
+// Load Google Maps Places API for address autocomplete
+$apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
+if ($apiKey) {
+    $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key='
+        . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8')
+        . '&libraries=places" defer></script>';
+}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -136,7 +149,7 @@ $activePage = 'team';
         <i data-feather="arrow-left" style="width:14px;height:14px;"></i> Team
     </a>
     <div>
-        <h1 class="h3 mb-0"><?php echo h($emp['full_name'] ?? 'Employee'); ?></h1>
+        <h1 class="h3 mb-0"><?php echo h($empDisplayName); ?></h1>
         <span class="badge badge-<?php echo $roleBadge; ?> mr-1"><?php echo ucfirst(h($emp['role'])); ?></span>
         <?php if ($emp['is_active']): ?>
             <span class="badge badge-success">Active</span>
@@ -203,9 +216,9 @@ $activePage = 'team';
             <div class="card">
                 <div class="card-body text-center py-4">
                     <div class="mw-hr-avatar mx-auto mb-3">
-                        <?php echo strtoupper(substr($emp['full_name'] ?? 'U', 0, 1)); ?>
+                        <?php echo strtoupper(substr($empDisplayName, 0, 1)); ?>
                     </div>
-                    <h4 class="mb-1"><?php echo h($emp['full_name'] ?? ''); ?></h4>
+                    <h4 class="mb-1"><?php echo h($empDisplayName); ?></h4>
                     <p class="text-muted mb-2"><?php echo h($emp['email']); ?></p>
                     <?php if (!empty($emp['phone'])): ?>
                     <p class="text-muted mb-2"><?php echo h($emp['phone']); ?></p>
@@ -263,9 +276,13 @@ $activePage = 'team';
                     <!-- View mode -->
                     <div id="overview-view-panel">
                         <div class="row">
-                            <div class="col-sm-6 mb-3">
-                                <label class="mw-hr-label">Full Name</label>
-                                <p class="mw-hr-value"><?php echo h($emp['full_name'] ?? '—'); ?></p>
+                            <div class="col-sm-3 mb-3">
+                                <label class="mw-hr-label">First Name</label>
+                                <p class="mw-hr-value"><?php echo h($empFirstName ?: '—'); ?></p>
+                            </div>
+                            <div class="col-sm-3 mb-3">
+                                <label class="mw-hr-label">Last Name</label>
+                                <p class="mw-hr-value"><?php echo h($empLastName ?: '—'); ?></p>
                             </div>
                             <div class="col-sm-6 mb-3">
                                 <label class="mw-hr-label">Email</label>
@@ -326,10 +343,16 @@ $activePage = 'team';
                             <input type="hidden" name="action" value="update">
 
                             <div class="row">
-                                <div class="col-sm-6">
+                                <div class="col-sm-3">
                                     <div class="form-group">
-                                        <label>Full Name <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" name="full_name" value="<?php echo h($emp['full_name'] ?? ''); ?>" required>
+                                        <label>First Name <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="first_name" value="<?php echo h($empFirstName); ?>" required>
+                                    </div>
+                                </div>
+                                <div class="col-sm-3">
+                                    <div class="form-group">
+                                        <label>Last Name <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" name="last_name" value="<?php echo h($empLastName); ?>" required>
                                     </div>
                                 </div>
                                 <div class="col-sm-6">
@@ -509,22 +532,22 @@ $activePage = 'team';
                                 <div class="col-sm-12">
                                     <div class="form-group">
                                         <label>Street Address</label>
-                                        <input type="text" class="form-control" name="address"
+                                        <input type="text" class="form-control" id="hrAddress" name="address"
                                                value="<?php echo h($emp['address'] ?? ''); ?>"
-                                               placeholder="123 Main Street">
+                                               placeholder="Start typing an address..." autocomplete="off">
                                     </div>
                                 </div>
                                 <div class="col-sm-5">
                                     <div class="form-group">
                                         <label>City</label>
-                                        <input type="text" class="form-control" name="city"
+                                        <input type="text" class="form-control" id="hrCity" name="city"
                                                value="<?php echo h($emp['city'] ?? ''); ?>">
                                     </div>
                                 </div>
                                 <div class="col-sm-3">
                                     <div class="form-group">
                                         <label>Province</label>
-                                        <select class="form-control" name="province">
+                                        <select class="form-control" id="hrProvince" name="province">
                                             <option value="">—</option>
                                             <?php foreach (['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT'] as $prov): ?>
                                             <option value="<?php echo $prov; ?>" <?php echo ($emp['province'] ?? '') === $prov ? 'selected' : ''; ?>><?php echo $prov; ?></option>
@@ -535,7 +558,7 @@ $activePage = 'team';
                                 <div class="col-sm-4">
                                     <div class="form-group">
                                         <label>Postal Code</label>
-                                        <input type="text" class="form-control" name="postal_code"
+                                        <input type="text" class="form-control" id="hrPostalCode" name="postal_code"
                                                value="<?php echo h($emp['postal_code'] ?? ''); ?>"
                                                placeholder="V6B 2W9" maxlength="7">
                                     </div>
@@ -759,7 +782,7 @@ $activePage = 'team';
                     <h6 class="mb-0">Send App Install Link</h6>
                 </div>
                 <div class="card-body">
-                    <p class="text-muted">Send <?php echo h($emp['full_name'] ?? 'this employee'); ?> a link to install the Mowology field app on their device.</p>
+                    <p class="text-muted">Send <?php echo h($empDisplayName ?: 'this employee'); ?> a link to install the Mowology field app on their device.</p>
 
                     <?php if (!empty($emp['install_link_sent_at'])): ?>
                     <div class="alert alert-info py-2">
@@ -812,7 +835,7 @@ $activePage = 'team';
                         <div class="form-group">
                             <label>Custom Message <span class="text-muted">(optional)</span></label>
                             <textarea class="form-control" name="custom_message" rows="3"
-                                      placeholder="Hi [name], please install the Mowology app at the link below..."><?php echo 'Hi ' . h($emp['full_name'] ?? 'there') . ', please install the Mowology field app using the link below. Contact us if you need help.'; ?></textarea>
+                                      placeholder="Hi [name], please install the Mowology app at the link below..."><?php echo 'Hi ' . h($empFirstName ?: 'there') . ', please install the Mowology field app using the link below. Contact us if you need help.'; ?></textarea>
                         </div>
 
                         <div id="install-result" class="d-none"></div>
@@ -1220,6 +1243,50 @@ function revealSin(btn) {
             }
         });
 }
+
+// ── Google Places address autocomplete ───────────────────────────────────
+function initAddressAutocomplete(inputId, cityId, postalId, provinceId) {
+    var input = document.getElementById(inputId);
+    if (!input) return;
+
+    if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+        setTimeout(function() { initAddressAutocomplete(inputId, cityId, postalId, provinceId); }, 200);
+        return;
+    }
+
+    var ac = new google.maps.places.Autocomplete(input, {
+        types: ['address'],
+        componentRestrictions: { country: ['ca'] },
+        fields: ['address_components', 'geometry']
+    });
+
+    ac.addListener('place_changed', function() {
+        var place = ac.getPlace();
+        if (!place || !place.address_components) return;
+
+        var street = '', city = '', postal = '', province = '';
+        for (var i = 0; i < place.address_components.length; i++) {
+            var c = place.address_components[i];
+            if (c.types.indexOf('street_number') !== -1) street = c.long_name + ' ';
+            if (c.types.indexOf('route') !== -1) street += c.long_name;
+            if (c.types.indexOf('locality') !== -1) city = c.long_name;
+            if (c.types.indexOf('postal_code') !== -1) postal = c.long_name;
+            if (c.types.indexOf('administrative_area_level_1') !== -1) province = c.short_name;
+        }
+
+        if (street.trim()) input.value = street.trim();
+        var cityEl = document.getElementById(cityId);
+        if (cityEl && city) cityEl.value = city;
+        var postalEl = document.getElementById(postalId);
+        if (postalEl && postal) postalEl.value = postal;
+        if (provinceId) {
+            var provEl = document.getElementById(provinceId);
+            if (provEl && province) provEl.value = province;
+        }
+    });
+}
+
+initAddressAutocomplete('hrAddress', 'hrCity', 'hrPostalCode', 'hrProvince');
 </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
