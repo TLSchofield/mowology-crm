@@ -5730,6 +5730,162 @@ tr[data-href] { cursor: pointer; }
   padding: 1rem;
 }
 
+/* ── Map Legend ── */
+.mw-map-legend {
+  display: flex;
+  gap: 16px;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.78rem;
+  color: #6B7280;
+}
+.mw-map-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mw-map-legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+}
+
+/* ── Route Intelligence Card ── */
+.mw-route-intel-summary {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.mw-route-intel-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  text-align: center;
+}
+.mw-route-intel-stat {
+  display: flex;
+  flex-direction: column;
+}
+.mw-route-intel-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1F2937;
+  line-height: 1.2;
+}
+.mw-route-intel-stat-value small {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #9CA3AF;
+}
+.mw-route-intel-stat-label {
+  font-size: 0.7rem;
+  color: #9CA3AF;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-weight: 500;
+}
+
+/* ── Route Intel List ── */
+.mw-route-intel-list {
+  max-height: 420px;
+  overflow-y: auto;
+}
+.mw-route-intel-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+.mw-route-intel-item:hover {
+  background: #f8fafc;
+  text-decoration: none;
+  color: inherit;
+}
+.mw-route-intel-distance {
+  min-width: 52px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.2;
+}
+.mw-route-intel-distance small {
+  font-size: 0.65rem;
+  font-weight: 500;
+  opacity: 0.7;
+}
+.mw-route-intel-info {
+  flex: 1;
+  min-width: 0;
+}
+.mw-route-intel-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: #1F2937;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mw-route-intel-plans {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--mw-green);
+  background: var(--mw-light);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.mw-route-intel-address {
+  font-size: 0.78rem;
+  color: #6B7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mw-route-intel-services {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+}
+.mw-route-intel-svc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #6B7280;
+}
+.mw-route-intel-svc svg {
+  width: 12px;
+  height: 12px;
+}
+.mw-route-intel-visits {
+  font-size: 0.7rem;
+  color: #9CA3AF;
+  margin-left: 4px;
+}
+.mw-route-intel-revenue {
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--mw-green);
+  white-space: nowrap;
+}
+.mw-route-intel-revenue small {
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: #9CA3AF;
+}
+
 .mw-contact-property-item {
   display: flex;
   align-items: center;

@@ -1226,6 +1226,66 @@ if ($action === 'view_contact' && $clientId) {
         if (empty($contactNotes)) $dataHealth[] = ['level' => 'info', 'icon' => 'message-circle', 'text' => 'No client notes'];
         if ($totalOutstanding > 0) $dataHealth[] = ['level' => 'warn', 'icon' => 'alert-circle', 'text' => formatCurrency($totalOutstanding) . ' outstanding'];
 
+        // ── Nearby Clients (properties with active job plans, within ~10 km) ──
+        $nearbyClients = [];
+        try {
+            // Get centroid of this contact's geocoded properties
+            $centroidLat = 0; $centroidLng = 0; $geoCount = 0;
+            foreach ($contactProperties as $cp) {
+                $lat = floatval($cp['latitude'] ?? 0);
+                $lng = floatval($cp['longitude'] ?? 0);
+                if ($lat != 0 && $lng != 0) { $centroidLat += $lat; $centroidLng += $lng; $geoCount++; }
+            }
+            if ($geoCount > 0) {
+                $centroidLat /= $geoCount;
+                $centroidLng /= $geoCount;
+                // Bounding box ~10 km (approx 0.09 degrees lat, adjusted for longitude)
+                $latDelta = 0.09;
+                $lngDelta = 0.09 / cos(deg2rad($centroidLat));
+
+                $stmt = $db->prepare("
+                    SELECT p.id AS property_id, p.address, p.city, p.latitude, p.longitude,
+                           c.id AS contact_id, c.first_name, c.last_name,
+                           c.prospect_status,
+                           GROUP_CONCAT(DISTINCT jp.service_type SEPARATOR ', ') AS service_types,
+                           COUNT(DISTINCT jp.id) AS active_plan_count,
+                           SUM(jp.price_per_visit) AS total_per_visit,
+                           MAX(jv.scheduled_date) AS last_visit_date,
+                           (SELECT COUNT(*) FROM job_visits jv2 WHERE jv2.plan_id IN (
+                               SELECT jp2.id FROM job_plans jp2 WHERE jp2.property_id = p.id AND jp2.status = 'active'
+                           ) AND jv2.status = 'completed') AS completed_visits
+                    FROM properties p
+                    JOIN contacts c ON p.site_contact_id = c.id
+                    JOIN job_plans jp ON jp.property_id = p.id AND jp.status = 'active'
+                    LEFT JOIN job_visits jv ON jv.plan_id = jp.id AND jv.status = 'completed'
+                    WHERE p.latitude BETWEEN ? AND ?
+                      AND p.longitude BETWEEN ? AND ?
+                      AND p.latitude != 0 AND p.longitude != 0
+                      AND c.id != ?
+                    GROUP BY p.id
+                    ORDER BY p.latitude ASC
+                    LIMIT 50
+                ");
+                $stmt->execute([
+                    $centroidLat - $latDelta, $centroidLat + $latDelta,
+                    $centroidLng - $lngDelta, $centroidLng + $lngDelta,
+                    $clientId
+                ]);
+                $rawNearby = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Calculate haversine distance and sort by distance
+                foreach ($rawNearby as &$nb) {
+                    $dLat = deg2rad(floatval($nb['latitude']) - $centroidLat);
+                    $dLng = deg2rad(floatval($nb['longitude']) - $centroidLng);
+                    $a = sin($dLat/2)**2 + cos(deg2rad($centroidLat)) * cos(deg2rad(floatval($nb['latitude']))) * sin($dLng/2)**2;
+                    $nb['distance_km'] = round(6371.0 * 2 * atan2(sqrt($a), sqrt(1-$a)), 2);
+                }
+                unset($nb);
+                usort($rawNearby, function($a, $b) { return $a['distance_km'] <=> $b['distance_km']; });
+                $nearbyClients = array_slice($rawNearby, 0, 15);
+            }
+        } catch (Exception $e) { $nearbyClients = []; }
+
         // Load Google Maps API (geometry for map display, places for address autocomplete)
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
         if ($apiKey) {
@@ -2617,15 +2677,24 @@ $unconvertedRequests = $db->query("
 
               </div><!-- end left col -->
 
-              <!-- Right Column: Map -->
+              <!-- Right Column: Map + Route Intelligence -->
               <div class="col-lg-5">
                 <div class="card mb-3">
-                  <div class="card-header">
-                    <h5 class="card-title mb-0"><i data-feather="map"></i> Property Map</h5>
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0"><i data-feather="map"></i> Neighbourhood Map</h5>
+                    <?php if (!empty($nearbyClients)): ?>
+                      <span class="badge badge-pill" style="background: var(--mw-light); color: var(--mw-green); font-weight: 600;"><?php echo count($nearbyClients); ?> nearby</span>
+                    <?php endif; ?>
                   </div>
                   <div class="card-body p-0">
                     <?php if (!empty($contactProperties) && $geocodedCount > 0): ?>
-                      <div id="contactMapContainer" class="mw-contact-map-container"></div>
+                      <div id="contactMapContainer" class="mw-contact-map-container" style="min-height: 340px;"></div>
+                      <?php if (!empty($nearbyClients)): ?>
+                        <div class="mw-map-legend">
+                          <span class="mw-map-legend-item"><span class="mw-map-legend-dot" style="background: #E53E3E;"></span>This client</span>
+                          <span class="mw-map-legend-item"><span class="mw-map-legend-dot" style="background: var(--mw-green);"></span>Active client</span>
+                        </div>
+                      <?php endif; ?>
                       <?php if ($ungeocodedCount > 0): ?>
                         <div class="p-2 text-center">
                           <small class="text-muted"><?php echo $ungeocodedCount; ?> propert<?php echo $ungeocodedCount === 1 ? 'y needs' : 'ies need'; ?> geocoding</small>
@@ -2646,6 +2715,88 @@ $unconvertedRequests = $db->query("
                     <?php endif; ?>
                   </div>
                 </div>
+
+                <!-- Route Intelligence Card -->
+                <?php if (!empty($nearbyClients)): ?>
+                <div class="card mb-3">
+                  <div class="card-header">
+                    <h5 class="card-title mb-0"><i data-feather="navigation"></i> Route Intelligence</h5>
+                  </div>
+                  <div class="card-body p-0">
+                    <div class="mw-route-intel-summary">
+                      <?php
+                        $closestClient = $nearbyClients[0] ?? null;
+                        $within2km = count(array_filter($nearbyClients, function($n) { return $n['distance_km'] <= 2; }));
+                        $within5km = count(array_filter($nearbyClients, function($n) { return $n['distance_km'] <= 5; }));
+                        $avgDistance = count($nearbyClients) > 0 ? round(array_sum(array_column($nearbyClients, 'distance_km')) / count($nearbyClients), 1) : 0;
+                        // Route density score: higher = better for routing
+                        $densityScore = $within2km >= 5 ? 'High' : ($within2km >= 2 ? 'Medium' : 'Low');
+                        $densityColor = $within2km >= 5 ? 'var(--mw-green)' : ($within2km >= 2 ? '#F59E0B' : '#DC2626');
+                      ?>
+                      <div class="mw-route-intel-stats">
+                        <div class="mw-route-intel-stat">
+                          <span class="mw-route-intel-stat-value"><?php echo $within2km; ?></span>
+                          <span class="mw-route-intel-stat-label">Within 2 km</span>
+                        </div>
+                        <div class="mw-route-intel-stat">
+                          <span class="mw-route-intel-stat-value"><?php echo $within5km; ?></span>
+                          <span class="mw-route-intel-stat-label">Within 5 km</span>
+                        </div>
+                        <div class="mw-route-intel-stat">
+                          <span class="mw-route-intel-stat-value"><?php echo $avgDistance; ?><small>km</small></span>
+                          <span class="mw-route-intel-stat-label">Avg distance</span>
+                        </div>
+                        <div class="mw-route-intel-stat">
+                          <span class="mw-route-intel-stat-value" style="color: <?php echo $densityColor; ?>;"><?php echo $densityScore; ?></span>
+                          <span class="mw-route-intel-stat-label">Route density</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="mw-route-intel-list">
+                      <?php foreach ($nearbyClients as $i => $nc):
+                        $distColor = $nc['distance_km'] <= 1 ? 'var(--mw-green)' : ($nc['distance_km'] <= 3 ? '#F59E0B' : '#9CA3AF');
+                        $serviceIcons = [];
+                        $svcTypes = array_map('trim', explode(',', $nc['service_types'] ?? ''));
+                        foreach ($svcTypes as $svc) {
+                            switch ($svc) {
+                                case 'lawn_care': $serviceIcons[] = ['icon' => 'scissors', 'label' => 'Lawn']; break;
+                                case 'hedge_trimming': $serviceIcons[] = ['icon' => 'git-branch', 'label' => 'Hedge']; break;
+                                case 'garden_care': $serviceIcons[] = ['icon' => 'sun', 'label' => 'Garden']; break;
+                                case 'snow_removal': $serviceIcons[] = ['icon' => 'cloud-snow', 'label' => 'Snow']; break;
+                                case 'pressure_washing': $serviceIcons[] = ['icon' => 'droplet', 'label' => 'Pressure']; break;
+                                case 'junk_removal': $serviceIcons[] = ['icon' => 'trash-2', 'label' => 'Junk']; break;
+                                default: if ($svc) $serviceIcons[] = ['icon' => 'tool', 'label' => ucfirst(str_replace('_', ' ', $svc))]; break;
+                            }
+                        }
+                      ?>
+                        <a href="?action=view_contact&id=<?php echo (int)$nc['contact_id']; ?>" class="mw-route-intel-item" data-nearby-idx="<?php echo $i; ?>">
+                          <div class="mw-route-intel-distance" style="color: <?php echo $distColor; ?>;">
+                            <?php echo $nc['distance_km']; ?><small>km</small>
+                          </div>
+                          <div class="mw-route-intel-info">
+                            <div class="mw-route-intel-name">
+                              <?php echo h($nc['first_name'] . ' ' . $nc['last_name']); ?>
+                              <span class="mw-route-intel-plans"><?php echo (int)$nc['active_plan_count']; ?> plan<?php echo (int)$nc['active_plan_count'] !== 1 ? 's' : ''; ?></span>
+                            </div>
+                            <div class="mw-route-intel-address"><?php echo h($nc['address'] . ', ' . $nc['city']); ?></div>
+                            <div class="mw-route-intel-services">
+                              <?php foreach ($serviceIcons as $si): ?>
+                                <span class="mw-route-intel-svc" title="<?php echo h($si['label']); ?>"><i data-feather="<?php echo h($si['icon']); ?>"></i></span>
+                              <?php endforeach; ?>
+                              <?php if ($nc['completed_visits'] > 0): ?>
+                                <span class="mw-route-intel-visits"><?php echo (int)$nc['completed_visits']; ?> visits done</span>
+                              <?php endif; ?>
+                            </div>
+                          </div>
+                          <div class="mw-route-intel-revenue">
+                            <?php echo formatCurrency(floatval($nc['total_per_visit'] ?? 0)); ?><small>/visit</small>
+                          </div>
+                        </a>
+                      <?php endforeach; ?>
+                    </div>
+                  </div>
+                </div>
+                <?php endif; ?>
 
                 <!-- Measurements Card -->
                 <div class="card mb-3">
@@ -2940,11 +3091,14 @@ $unconvertedRequests = $db->query("
               var CONTACT_ID = <?php echo (int)$viewContact['id']; ?>;
               var CSRF_TOKEN = '<?php echo csrf_token(); ?>';
               var propertiesData = <?php echo json_encode($contactProperties); ?>;
+              var nearbyClientsData = <?php echo json_encode($nearbyClients); ?>;
               var availableTags = <?php echo json_encode($availableTags); ?>;
               var gmap = null;
               var markers = {};
+              var nearbyMarkers = [];
+              var openInfoWindow = null;
 
-              // ── Google Map ──────────────────────────────────────
+              // ── Google Map with Nearby Clients ────────────────────
               function initContactMap() {
                 var mapEl = document.getElementById('contactMapContainer');
                 if (!mapEl) return;
@@ -2958,9 +3112,14 @@ $unconvertedRequests = $db->query("
                   center: { lat: 49.2827, lng: -123.1207 },
                   mapTypeId: google.maps.MapTypeId.ROADMAP,
                   mapTypeControl: false,
-                  streetViewControl: false
+                  streetViewControl: false,
+                  styles: [
+                    { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+                    { featureType: 'transit', stylers: [{ visibility: 'simplified' }] }
+                  ]
                 });
 
+                // ── This client's properties (red markers) ──
                 propertiesData.forEach(function(prop) {
                   var lat = parseFloat(prop.latitude);
                   var lng = parseFloat(prop.longitude);
@@ -2970,29 +3129,130 @@ $unconvertedRequests = $db->query("
                   var marker = new google.maps.Marker({
                     position: pos,
                     map: gmap,
-                    title: prop.address
+                    title: prop.address,
+                    icon: {
+                      path: google.maps.SymbolPath.CIRCLE,
+                      scale: 10,
+                      fillColor: '#E53E3E',
+                      fillOpacity: 1,
+                      strokeColor: '#fff',
+                      strokeWeight: 2.5
+                    },
+                    zIndex: 1000
                   });
 
-                  var infoContent = '<div style="max-width: 250px;">' +
+                  var infoContent = '<div style="max-width:260px;font-family:system-ui,sans-serif;">' +
+                    '<div style="font-weight:700;color:#E53E3E;margin-bottom:2px;">This Client</div>' +
                     '<strong>' + escHtml(prop.address) + '</strong><br>' +
-                    '<small>' + escHtml((prop.city || '') + (prop.province ? ', ' + prop.province : '') + ' ' + (prop.postal_code || '')) + '</small>' +
+                    '<small style="color:#6B7280;">' + escHtml((prop.city || '') + (prop.province ? ', ' + prop.province : '') + ' ' + (prop.postal_code || '')) + '</small>' +
                     '</div>';
                   var infoWindow = new google.maps.InfoWindow({ content: infoContent });
-                  marker.addListener('click', function() { infoWindow.open(gmap, marker); });
+                  marker.addListener('click', function() {
+                    if (openInfoWindow) openInfoWindow.close();
+                    infoWindow.open(gmap, marker);
+                    openInfoWindow = infoWindow;
+                  });
 
                   markers[prop.id] = marker;
                   bounds.extend(pos);
                   hasMarkers = true;
                 });
 
+                // ── Nearby active clients (green markers) ──
+                nearbyClientsData.forEach(function(nc, idx) {
+                  var lat = parseFloat(nc.latitude);
+                  var lng = parseFloat(nc.longitude);
+                  if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
+
+                  var pos = { lat: lat, lng: lng };
+                  var distKm = parseFloat(nc.distance_km);
+                  var scaleSize = distKm <= 1 ? 8 : (distKm <= 3 ? 7 : 6);
+                  var opacity = distKm <= 2 ? 0.9 : (distKm <= 5 ? 0.7 : 0.5);
+
+                  var marker = new google.maps.Marker({
+                    position: pos,
+                    map: gmap,
+                    title: nc.first_name + ' ' + nc.last_name + ' (' + nc.distance_km + ' km)',
+                    icon: {
+                      path: google.maps.SymbolPath.CIRCLE,
+                      scale: scaleSize,
+                      fillColor: '#2D8659',
+                      fillOpacity: opacity,
+                      strokeColor: '#fff',
+                      strokeWeight: 1.5
+                    },
+                    zIndex: 500 - idx
+                  });
+
+                  var services = (nc.service_types || '').split(',').map(function(s) {
+                    return s.trim().replace(/_/g, ' ');
+                  }).filter(Boolean).map(function(s) {
+                    return '<span style="display:inline-block;background:#E8F3F0;color:#2D8659;padding:1px 6px;border-radius:3px;font-size:11px;margin:1px 2px 1px 0;">' + escHtml(s) + '</span>';
+                  }).join('');
+
+                  var infoContent = '<div style="max-width:280px;font-family:system-ui,sans-serif;">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">' +
+                      '<strong style="color:#2D8659;">' + escHtml(nc.first_name + ' ' + nc.last_name) + '</strong>' +
+                      '<span style="background:#2D8659;color:#fff;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;">' + nc.distance_km + ' km</span>' +
+                    '</div>' +
+                    '<div style="font-size:13px;color:#374151;">' + escHtml(nc.address) + '</div>' +
+                    '<div style="font-size:12px;color:#6B7280;margin-bottom:4px;">' + escHtml(nc.city || '') + '</div>' +
+                    (services ? '<div style="margin-top:4px;">' + services + '</div>' : '') +
+                    '<div style="margin-top:6px;font-size:12px;color:#6B7280;">' +
+                      nc.active_plan_count + ' active plan' + (nc.active_plan_count != 1 ? 's' : '') +
+                      (nc.total_per_visit ? ' &middot; $' + parseFloat(nc.total_per_visit).toFixed(0) + '/visit' : '') +
+                    '</div>' +
+                    '<a href="?action=view_contact&id=' + nc.contact_id + '" style="display:inline-block;margin-top:6px;font-size:12px;color:#2D8659;font-weight:600;text-decoration:none;">View Client &rarr;</a>' +
+                    '</div>';
+                  var infoWindow = new google.maps.InfoWindow({ content: infoContent });
+                  marker.addListener('click', function() {
+                    if (openInfoWindow) openInfoWindow.close();
+                    infoWindow.open(gmap, marker);
+                    openInfoWindow = infoWindow;
+                  });
+
+                  nearbyMarkers.push({ marker: marker, infoWindow: infoWindow, data: nc });
+                  bounds.extend(pos);
+                  hasMarkers = true;
+                });
+
                 if (hasMarkers) {
                   gmap.fitBounds(bounds);
-                  if (Object.keys(markers).length === 1) {
-                    google.maps.event.addListenerOnce(gmap, 'bounds_changed', function() {
-                      gmap.setZoom(15);
-                    });
-                  }
+                  // Ensure we don't zoom in too much if only 1 property + few nearby
+                  google.maps.event.addListenerOnce(gmap, 'bounds_changed', function() {
+                    if (gmap.getZoom() > 15) gmap.setZoom(15);
+                  });
                 }
+
+                // ── Hover highlight from route intel list ──
+                document.querySelectorAll('.mw-route-intel-item').forEach(function(item) {
+                  var idx = parseInt(item.getAttribute('data-nearby-idx'));
+                  if (isNaN(idx) || !nearbyMarkers[idx]) return;
+                  item.addEventListener('mouseenter', function() {
+                    nearbyMarkers[idx].marker.setIcon({
+                      path: google.maps.SymbolPath.CIRCLE,
+                      scale: 12,
+                      fillColor: '#F59E0B',
+                      fillOpacity: 1,
+                      strokeColor: '#fff',
+                      strokeWeight: 2.5
+                    });
+                    nearbyMarkers[idx].marker.setZIndex(2000);
+                  });
+                  item.addEventListener('mouseleave', function() {
+                    var nc = nearbyMarkers[idx].data;
+                    var distKm = parseFloat(nc.distance_km);
+                    nearbyMarkers[idx].marker.setIcon({
+                      path: google.maps.SymbolPath.CIRCLE,
+                      scale: distKm <= 1 ? 8 : (distKm <= 3 ? 7 : 6),
+                      fillColor: '#2D8659',
+                      fillOpacity: distKm <= 2 ? 0.9 : (distKm <= 5 ? 0.7 : 0.5),
+                      strokeColor: '#fff',
+                      strokeWeight: 1.5
+                    });
+                    nearbyMarkers[idx].marker.setZIndex(500 - idx);
+                  });
+                });
               }
 
               // ── Focus Property on Map ──────────────────────────
