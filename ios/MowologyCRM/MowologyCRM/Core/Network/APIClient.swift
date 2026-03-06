@@ -48,8 +48,8 @@ final class APIClient: ObservableObject {
         self.session = URLSession(configuration: config)
 
         self.decoder = JSONDecoder()
-        // The API uses snake_case keys — map them automatically.
-        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
+        // Models define explicit CodingKeys for snake_case mapping —
+        // do NOT also set .convertFromSnakeCase (they conflict).
     }
 
     // MARK: - Generic Request

@@ -15,6 +15,14 @@ private struct DayResponse: Decodable {
     let role: String
     let stopCount: Int
     let stops: [Stop]
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case date
+        case role
+        case stopCount = "stop_count"
+        case stops
+    }
 }
 
 private struct WeekResponse: Decodable {
