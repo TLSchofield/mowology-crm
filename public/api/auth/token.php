@@ -116,11 +116,16 @@ try {
     $stmt = $db->prepare("
         SELECT id, email, password_hash, full_name, role, is_active
         FROM users
-        WHERE LOWER(email) = ? AND is_active = 1
+        WHERE LOWER(email) = ?
         LIMIT 1
     ");
     $stmt->execute([$email]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // Check active — treat NULL/missing is_active as active (matches web login behaviour)
+    if ($user && isset($user['is_active']) && (int)$user['is_active'] === 0) {
+        $user = false; // explicitly deactivated
+    }
 
 } catch (Throwable $e) {
     error_log('[BlueMoon/token] DB error: ' . $e->getMessage());
