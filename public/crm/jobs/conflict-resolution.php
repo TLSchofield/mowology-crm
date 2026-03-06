@@ -121,6 +121,57 @@ if ($truckId && $propLat && $propLng) {
     }
 }
 
+// --- Load GPS pings from ALL trucks for dwell detection (not just the specified truck) ---
+$allTruckDwellPings = []; // keyed by truck_id => [ pings within 500m ]
+$truckNameMap = [];       // truck_id => name
+if ($propLat && $propLng) {
+    if (!isset($dayStart)) {
+        $dayStart = (new DateTime($date . ' 00:00:00', $tz))->getTimestamp();
+        $dayEnd   = (new DateTime($date . ' 23:59:59', $tz))->getTimestamp();
+    }
+
+    $truckUsersStmt = $db->query("SELECT id, full_name FROM users WHERE device_type = 'truck' AND is_active = 1");
+    $truckUsers = $truckUsersStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($truckUsers as $tu) {
+        $tid = (int)$tu['id'];
+        $truckNameMap[$tid] = $tu['full_name'];
+
+        // For the already-loaded truck, reuse existing data
+        if ($tid === $truckId) {
+            $allTruckDwellPings[$tid] = array_values(array_filter($truckPings, fn($p) => $p['dist_m'] <= 500));
+            continue;
+        }
+
+        $otherPingStmt = $db->prepare("
+            SELECT clh.latitude AS lat, clh.longitude AS lng, UNIX_TIMESTAMP(clh.timestamp) AS epoch
+            FROM crew_location_history clh
+            WHERE clh.crew_id = ?
+              AND UNIX_TIMESTAMP(clh.timestamp) >= ?
+              AND UNIX_TIMESTAMP(clh.timestamp) <= ?
+            ORDER BY clh.timestamp ASC
+        ");
+        $otherPingStmt->execute([$tid, $dayStart, $dayEnd]);
+        $otherPings = [];
+        foreach ($otherPingStmt->fetchAll(PDO::FETCH_ASSOC) as $op) {
+            $dist = haversineDistance($propLat, $propLng, (float)$op['lat'], (float)$op['lng']);
+            if ($dist <= 500) {
+                $otherPings[] = [
+                    'lat'    => (float)$op['lat'],
+                    'lng'    => (float)$op['lng'],
+                    'epoch'  => (int)$op['epoch'],
+                    'time'   => (new DateTime('@' . $op['epoch']))->setTimezone($tz)->format('g:i a'),
+                    'dist_m' => (int)round($dist),
+                    'nearby' => $dist <= 150,
+                ];
+            }
+        }
+        if (!empty($otherPings)) {
+            $allTruckDwellPings[$tid] = $otherPings;
+        }
+    }
+}
+
 // --- Load crew GPS pings for the date ---
 $crewPings = [];
 $crewPingUserId = $visit['assigned_crew_id'] ? (int)$visit['assigned_crew_id'] : 0;
@@ -564,6 +615,8 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
     var truckPings = <?= json_encode(array_values($truckPings)) ?>;
     var crewPings  = <?= json_encode(array_values($crewPings)) ?>;
     var arrivalBorder = <?= $arrivalBorder && !empty($arrivalBorder['polygon']) ? json_encode($arrivalBorder['polygon']) : 'null' ?>;
+    var allTruckDwellPings = <?= json_encode($allTruckDwellPings, JSON_FORCE_OBJECT) ?>;
+    var truckNameMap = <?= json_encode($truckNameMap, JSON_FORCE_OBJECT) ?>;
 
     // --- Haversine (JS) for cluster detection ---
     function jsHaversine(lat1, lng1, lat2, lng2) {
@@ -723,9 +776,19 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             if (typeof bounds !== 'undefined') map.fitBounds(bounds.pad(0.3));
         }
 
-        // --- Dwell cluster detection (pings within 500m of property) ---
-        var localPings = truckPings.filter(function(p) { return p.dist_m <= 500; });
-        var allDwellClusters = detectDwellClusters(localPings, 50);
+        // --- Dwell cluster detection from ALL trucks near property ---
+        var allDwellClusters = [];
+        var truckIds = Object.keys(allTruckDwellPings);
+        for (var ti = 0; ti < truckIds.length; ti++) {
+            var tid = truckIds[ti];
+            var tPings = allTruckDwellPings[tid];
+            var clusters = detectDwellClusters(tPings, 50);
+            for (var ci2 = 0; ci2 < clusters.length; ci2++) {
+                clusters[ci2].truckId = parseInt(tid);
+                clusters[ci2].truckName = truckNameMap[tid] || 'Truck #' + tid;
+                allDwellClusters.push(clusters[ci2]);
+            }
+        }
 
         // Sort chronologically for the stop picker
         allDwellClusters.sort(function(a, b) { return a.firstEpoch - b.firstEpoch; });
@@ -753,6 +816,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                 })
             }).addTo(map).bindPopup(
                 '<strong>Stop #' + (ci + 1) + (isNearby ? ' (near property)' : '') + '</strong><br>'
+                + dc.truckName + '<br>'
                 + dc.firstTime + ' — ' + dc.lastTime + '<br>'
                 + dc.durMin + ' min, ' + dc.count + ' pings<br>'
                 + dc.distM + 'm from property'
@@ -769,7 +833,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                 html += '<div class="small mb-1">'
                     + '<span class="badge badge-danger mr-1">' + d.durMin + ' min</span> '
                     + d.firstTime + ' — ' + d.lastTime
-                    + ' <span class="text-muted">(' + d.count + ' pings, ' + d.distM + 'm)</span>'
+                    + ' <span class="text-muted">(' + d.count + ' pings, ' + d.distM + 'm, ' + d.truckName + ')</span>'
                     + (di === 0 ? ' <strong>&#9668; likely service</strong>' : '')
                     + '</div>';
             }
@@ -778,7 +842,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             dwellEl.innerHTML = '<div class="small text-muted">No on-site dwell clusters detected — select from all stops below</div>';
         }
 
-        // --- Stop Picker (selectable cards for ALL dwell clusters) ---
+        // --- Stop Picker (selectable cards from ALL trucks' dwell clusters) ---
         var picker = document.getElementById('dwellStopPicker');
         if (picker && allDwellClusters.length > 0) {
             var pHtml = '';
@@ -796,6 +860,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     + '<span>' + s.durMin + ' min</span>'
                     + '<span>' + s.distM + 'm away</span>'
                     + '<span>' + s.count + ' pings</span>'
+                    + '<span class="mw-cr-stop-truck">' + s.truckName + '</span>'
                     + '</div>'
                     + '</div>'
                     + '</div>';
@@ -815,7 +880,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             // Prefill times from pre-selected (nearby) stops
             updateTimesFromSelectedStops();
         } else if (picker) {
-            picker.innerHTML = '<div class="small text-muted">No GPS dwell stops detected for this truck today</div>';
+            picker.innerHTML = '<div class="small text-muted">No GPS dwell stops detected near this property today</div>';
         }
 
         function updateTimesFromSelectedStops() {

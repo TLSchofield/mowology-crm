@@ -8620,6 +8620,14 @@ textarea.font-monospace {
   font-size: 11px;
   color: #6b7280;
   margin-top: 2px;
+  flex-wrap: wrap;
+}
+.mw-cr-stop-truck {
+  background: #f3f4f6;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  color: #374151;
 }
 
 /* Clickable conflict cards on schedule */
