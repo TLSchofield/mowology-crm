@@ -8570,6 +8570,75 @@ textarea.font-monospace {
     color: #fff;
 }
 
+/* Stop picker (conflict resolution) */
+.mw-cr-stop-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 6px;
+}
+.mw-cr-stop-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: #fff;
+}
+.mw-cr-stop-card:hover {
+  border-color: var(--mw-green);
+  background: #f0fdf4;
+}
+.mw-cr-stop-card.mw-cr-stop-selected {
+  border-color: var(--mw-green);
+  background: #ecfdf5;
+  box-shadow: inset 3px 0 0 var(--mw-green);
+}
+.mw-cr-stop-card.mw-cr-stop-nearby {
+  border-left: 3px solid var(--mw-green);
+}
+.mw-cr-stop-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 2px solid #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--mw-green);
+  flex-shrink: 0;
+}
+.mw-cr-stop-selected .mw-cr-stop-check {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  color: #fff;
+}
+.mw-cr-stop-info {
+  flex: 1;
+  min-width: 0;
+}
+.mw-cr-stop-time {
+  font-size: 13px;
+  font-weight: 600;
+  color: #222;
+}
+.mw-cr-stop-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
 /* Clickable conflict cards on schedule */
 .mw-rr-conflict[style*="cursor"] {
     transition: background 0.15s, transform 0.15s;

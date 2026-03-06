@@ -478,6 +478,12 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                 <!-- Yes: Create Time Entry -->
                 <div id="resolveYes" style="display:none;">
                     <div class="form-group">
+                        <label class="small font-weight-bold">Select Stops <span class="text-muted font-weight-normal">(click to assign to this property)</span></label>
+                        <div id="dwellStopPicker" class="mw-cr-stop-picker">
+                            <div class="small text-muted">Loading GPS clusters...</div>
+                        </div>
+                    </div>
+                    <div class="form-group">
                         <label class="small font-weight-bold">Start Time</label>
                         <input type="time" class="form-control form-control-sm" id="entryStart"
                                value="<?= $firstSeen ? (new DateTime('@' . $firstSeen))->setTimezone($tz)->format('H:i') : '' ?>">
@@ -717,70 +723,123 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             if (typeof bounds !== 'undefined') map.fitBounds(bounds.pad(0.3));
         }
 
-        // --- Dwell cluster flags ---
-        var nearbyTruckPings = truckPings.filter(function(p) { return p.nearby; });
-        var dwellClusters = detectDwellClusters(nearbyTruckPings, 30);
+        // --- Dwell cluster detection (pings within 500m of property) ---
+        var localPings = truckPings.filter(function(p) { return p.dist_m <= 500; });
+        var allDwellClusters = detectDwellClusters(localPings, 50);
 
-        // Sort by duration descending — longest dwell first
-        dwellClusters.sort(function(a, b) { return b.durMin - a.durMin; });
+        // Sort chronologically for the stop picker
+        allDwellClusters.sort(function(a, b) { return a.firstEpoch - b.firstEpoch; });
 
-        for (var ci = 0; ci < dwellClusters.length; ci++) {
-            var dc = dwellClusters[ci];
-            var isLongest = (ci === 0);
-            var flagColor = isLongest ? '#ef4444' : '#f59e0b';
+        // Helper: convert epoch to HH:MM
+        function toHHMM(epoch) {
+            var d = new Date(epoch * 1000);
+            return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+        }
 
-            // Flag marker
+        // Map flag markers for each cluster
+        for (var ci = 0; ci < allDwellClusters.length; ci++) {
+            var dc = allDwellClusters[ci];
+            var isNearby = dc.distM <= 150;
+            var flagColor = isNearby ? '#2D8659' : '#6B7280';
+
             L.marker([dc.lat, dc.lng], {
                 icon: L.divIcon({
                     className: 'mw-cr-dwell-flag',
                     html: '<div style="background:' + flagColor + ';color:#fff;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,0.4);border:1px solid #fff;">'
-                        + dc.durMin + ' min'
+                        + dc.durMin + 'm · ' + dc.firstTime.replace(/ (am|pm)/, '$1')
                         + '</div>',
-                    iconSize: [60, 22],
-                    iconAnchor: [30, 30]
+                    iconSize: [90, 22],
+                    iconAnchor: [45, 30]
                 })
             }).addTo(map).bindPopup(
-                '<strong>Dwell Stop' + (isLongest ? ' (longest)' : '') + '</strong><br>'
+                '<strong>Stop #' + (ci + 1) + (isNearby ? ' (near property)' : '') + '</strong><br>'
                 + dc.firstTime + ' — ' + dc.lastTime + '<br>'
                 + dc.durMin + ' min, ' + dc.count + ' pings<br>'
                 + dc.distM + 'm from property'
             );
         }
 
-        // Populate dwell analysis section
+        // --- Populate sidebar Dwell Stops section ---
         var dwellEl = document.getElementById('dwellAnalysis');
-        if (dwellEl && dwellClusters.length > 0) {
+        var nearbyDwells = allDwellClusters.filter(function(c) { return c.distM <= 150; });
+        if (dwellEl && nearbyDwells.length > 0) {
             var html = '';
-            for (var di = 0; di < dwellClusters.length; di++) {
-                var d = dwellClusters[di];
-                var badge = di === 0 ? 'badge-danger' : 'badge-warning';
+            for (var di = 0; di < nearbyDwells.length; di++) {
+                var d = nearbyDwells[di];
                 html += '<div class="small mb-1">'
-                    + '<span class="badge ' + badge + ' mr-1">' + d.durMin + ' min</span> '
+                    + '<span class="badge badge-danger mr-1">' + d.durMin + ' min</span> '
                     + d.firstTime + ' — ' + d.lastTime
                     + ' <span class="text-muted">(' + d.count + ' pings, ' + d.distM + 'm)</span>'
                     + (di === 0 ? ' <strong>&#9668; likely service</strong>' : '')
                     + '</div>';
             }
             dwellEl.innerHTML = html;
-
-            // Use the longest dwell cluster (index 0, sorted by duration desc)
-            // to prefill start/end times — more accurate than raw first/last nearby ping
-            var bestCluster = dwellClusters[0];
-            if (bestCluster) {
-                var startInput = document.getElementById('entryStart');
-                var endInput   = document.getElementById('entryEnd');
-                if (startInput && endInput) {
-                    // Convert epoch to HH:MM in local timezone
-                    var toHHMM = function(epoch) {
-                        var d = new Date(epoch * 1000);
-                        return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
-                    };
-                    startInput.value = toHHMM(bestCluster.firstEpoch);
-                    endInput.value   = toHHMM(bestCluster.lastEpoch);
-                }
-            }
         } else if (dwellEl) {
-            dwellEl.innerHTML = '<div class="small text-muted">No stationary dwell clusters detected</div>';
+            dwellEl.innerHTML = '<div class="small text-muted">No on-site dwell clusters detected — select from all stops below</div>';
+        }
+
+        // --- Stop Picker (selectable cards for ALL dwell clusters) ---
+        var picker = document.getElementById('dwellStopPicker');
+        if (picker && allDwellClusters.length > 0) {
+            var pHtml = '';
+            for (var si = 0; si < allDwellClusters.length; si++) {
+                var s = allDwellClusters[si];
+                var isNear = s.distM <= 150;
+                var nearClass = isNear ? ' mw-cr-stop-nearby' : '';
+                var preSelect = isNear ? ' mw-cr-stop-selected' : '';
+                pHtml += '<div class="mw-cr-stop-card' + nearClass + preSelect + '" data-idx="' + si + '"'
+                    + ' data-first="' + s.firstEpoch + '" data-last="' + s.lastEpoch + '">'
+                    + '<div class="mw-cr-stop-check">' + (isNear ? '&#10003;' : '') + '</div>'
+                    + '<div class="mw-cr-stop-info">'
+                    + '<div class="mw-cr-stop-time">' + s.firstTime + ' — ' + s.lastTime + '</div>'
+                    + '<div class="mw-cr-stop-meta">'
+                    + '<span>' + s.durMin + ' min</span>'
+                    + '<span>' + s.distM + 'm away</span>'
+                    + '<span>' + s.count + ' pings</span>'
+                    + '</div>'
+                    + '</div>'
+                    + '</div>';
+            }
+            picker.innerHTML = pHtml;
+
+            // Toggle selection on click
+            picker.querySelectorAll('.mw-cr-stop-card').forEach(function(card) {
+                card.addEventListener('click', function() {
+                    card.classList.toggle('mw-cr-stop-selected');
+                    var check = card.querySelector('.mw-cr-stop-check');
+                    check.innerHTML = card.classList.contains('mw-cr-stop-selected') ? '&#10003;' : '';
+                    updateTimesFromSelectedStops();
+                });
+            });
+
+            // Prefill times from pre-selected (nearby) stops
+            updateTimesFromSelectedStops();
+        } else if (picker) {
+            picker.innerHTML = '<div class="small text-muted">No GPS dwell stops detected for this truck today</div>';
+        }
+
+        function updateTimesFromSelectedStops() {
+            var selected = document.querySelectorAll('#dwellStopPicker .mw-cr-stop-selected');
+            var startInput = document.getElementById('entryStart');
+            var endInput   = document.getElementById('entryEnd');
+            if (!startInput || !endInput) return;
+
+            if (selected.length === 0) {
+                startInput.value = '';
+                endInput.value = '';
+                return;
+            }
+
+            var minEpoch = Infinity, maxEpoch = -Infinity;
+            selected.forEach(function(card) {
+                var first = parseInt(card.dataset.first);
+                var last  = parseInt(card.dataset.last);
+                if (first < minEpoch) minEpoch = first;
+                if (last > maxEpoch)  maxEpoch = last;
+            });
+
+            startInput.value = toHHMM(minEpoch);
+            endInput.value   = toHHMM(maxEpoch);
         }
 
     } else {
