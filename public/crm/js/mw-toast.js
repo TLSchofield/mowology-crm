@@ -69,9 +69,10 @@
     container.appendChild(toast);
 
     // Trigger entrance animation on next frame
-    requestAnimationFrame(function () {
+    // (setTimeout used instead of rAF — Chrome throttles rAF in background tabs)
+    setTimeout(function () {
       toast.classList.add('mw-toast--visible');
-    });
+    }, 16);
 
     // Auto-dismiss
     var timer = setTimeout(function () { dismiss(toast); }, duration);
