@@ -19,10 +19,11 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v26';
+var CACHE_VERSION = 'mw-v27';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
+var TILE_CACHE   = 'mw-tiles-v1'; // satellite tiles — long-lived, NOT versioned with CACHE_VERSION
 
 /**
  * App shell — pre-cached on SW install for instant load.
@@ -100,7 +101,8 @@ self.addEventListener('activate', function(event) {
           return name.startsWith('mw-') &&
                  name !== SHELL_CACHE &&
                  name !== PAGE_CACHE &&
-                 name !== IMG_CACHE;
+                 name !== IMG_CACHE &&
+                 name !== TILE_CACHE;
         }).map(function(name) {
           return caches.delete(name);
         })
@@ -116,10 +118,18 @@ self.addEventListener('fetch', function(event) {
   var request = event.request;
   var url = new URL(request.url);
 
-  // Only handle same-origin GET requests
+  // Only handle GET requests
   if (request.method !== 'GET') return;
-  if (url.origin !== self.location.origin) return;
   if (!url.protocol.startsWith('http')) return;
+
+  // ── Satellite map tiles (cross-origin) → cache-first for offline use ──
+  if (isMapTile(url.hostname)) {
+    event.respondWith(tileCacheFirst(request));
+    return;
+  }
+
+  // Only handle same-origin requests from here on
+  if (url.origin !== self.location.origin) return;
 
   // ── Navigation requests → bypass SW entirely ──
   // Android Chrome/WebView enforces a hard ~5s timeout on SW navigation responses.
@@ -163,6 +173,134 @@ self.addEventListener('fetch', function(event) {
   // ── Other PHP/CRM pages → network-first with cache fallback ──
   event.respondWith(networkFirst(request, PAGE_CACHE));
 });
+
+// ── Message: tile pre-warming + cache stats ──
+self.addEventListener('message', function(event) {
+  if (!event.data) return;
+
+  if (event.data.type === 'prewarm-tiles') {
+    event.waitUntil(prewarmTiles(event.data, event.source));
+  }
+
+  if (event.data.type === 'tile-cache-stats') {
+    caches.open(TILE_CACHE).then(function(cache) {
+      return cache.keys();
+    }).then(function(keys) {
+      if (event.source) {
+        event.source.postMessage({ type: 'tile-cache-stats', count: keys.length });
+      }
+    });
+  }
+
+  if (event.data.type === 'clear-tile-cache') {
+    caches.delete(TILE_CACHE).then(function() {
+      if (event.source) {
+        event.source.postMessage({ type: 'tile-cache-cleared' });
+      }
+    });
+  }
+});
+
+/**
+ * Pre-warm satellite tiles around a coordinate for offline use.
+ * Fetches tiles at specified zoom levels in a grid around the center point.
+ *
+ * Message shape:
+ *   { type: 'prewarm-tiles', lat, lng, zooms: [17,18,19,20], tileUrl, radius }
+ *
+ * radius: how many tiles around center to fetch per zoom level (default 2).
+ * At z20 with radius=2, that's a (2*2+1)^2 = 25 tile grid ≈ 250m square.
+ */
+function prewarmTiles(data, client) {
+  var lat = data.lat;
+  var lng = data.lng;
+  var zooms = data.zooms || [17, 18, 19, 20];
+  var tileUrl = data.tileUrl || 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  var labelsUrl = data.labelsUrl || 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+  var radius = data.radius || 2;
+
+  var urls = [];
+  zooms.forEach(function(z) {
+    var center = latLngToTile(lat, lng, z);
+    for (var dx = -radius; dx <= radius; dx++) {
+      for (var dy = -radius; dy <= radius; dy++) {
+        var x = center.x + dx;
+        var y = center.y + dy;
+        if (x < 0 || y < 0) continue;
+
+        urls.push(tileUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y));
+        if (labelsUrl) {
+          urls.push(labelsUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y));
+        }
+      }
+    }
+  });
+
+  return caches.open(TILE_CACHE).then(function(cache) {
+    var fetched = 0;
+    var skipped = 0;
+    var failed = 0;
+
+    // Fetch tiles sequentially in small batches to avoid hammering the server
+    function fetchBatch(startIdx) {
+      var batch = urls.slice(startIdx, startIdx + 6);
+      if (batch.length === 0) {
+        // Done — notify the client
+        if (client) {
+          client.postMessage({
+            type: 'prewarm-complete',
+            total: urls.length,
+            fetched: fetched,
+            skipped: skipped,
+            failed: failed,
+          });
+        }
+        return Promise.resolve();
+      }
+
+      return Promise.all(batch.map(function(url) {
+        var req = new Request(url, { mode: 'cors' });
+        return cache.match(req).then(function(existing) {
+          if (existing) { skipped++; return; }
+
+          return fetch(req).then(function(response) {
+            if (response.status === 0 || response.ok) {
+              fetched++;
+              return cache.put(req, response);
+            }
+            failed++;
+          }).catch(function() { failed++; });
+        });
+      })).then(function() {
+        // Send progress updates
+        if (client && (startIdx % 30 === 0 || startIdx + 6 >= urls.length)) {
+          client.postMessage({
+            type: 'prewarm-progress',
+            total: urls.length,
+            done: fetched + skipped + failed,
+            fetched: fetched,
+            skipped: skipped,
+          });
+        }
+        return fetchBatch(startIdx + 6);
+      });
+    }
+
+    return fetchBatch(0);
+  });
+}
+
+/**
+ * Convert lat/lng to tile coordinates at a given zoom level.
+ * Standard slippy map tile calculation.
+ */
+function latLngToTile(lat, lng, zoom) {
+  var n = Math.pow(2, zoom);
+  var x = Math.floor((lng + 180) / 360 * n);
+  var latRad = lat * Math.PI / 180;
+  var y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+  return { x: x, y: y };
+}
 
 // ── Background Sync: retry failed receipt uploads ──
 self.addEventListener('sync', function(event) {
@@ -345,6 +483,71 @@ function isImage(path) {
 function isSchedulePage(path) {
   return path === '/crm/jobs/schedule.php' ||
          path === '/crm/timeclock/my-schedule.php';
+}
+
+/**
+ * Detect Esri / OpenStreetMap map tile hosts for offline caching.
+ * These are the tile sources used by the Zone Editor (Leaflet).
+ */
+function isMapTile(hostname) {
+  return hostname === 'server.arcgisonline.com' ||
+         hostname.endsWith('.arcgisonline.com') ||
+         hostname.endsWith('.tile.openstreetmap.org');
+}
+
+/**
+ * Cache-first for map tiles with opaque response support.
+ * Tiles are cross-origin so responses are opaque (status 0).
+ * We cache them anyway — a tile URL is immutable (same z/x/y = same image).
+ */
+function tileCacheFirst(request) {
+  return caches.open(TILE_CACHE).then(function(cache) {
+    return cache.match(request).then(function(cached) {
+      if (cached) return cached;
+
+      return fetch(request).then(function(response) {
+        // Opaque responses have status 0 but are still valid tiles
+        if (response.status === 0 || response.ok) {
+          cache.put(request, response.clone());
+          trimTileCache(cache);
+        }
+        return response;
+      });
+    });
+  }).catch(function() {
+    // Fully offline and not in cache — return transparent 1x1 PNG
+    return new Response(
+      Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualzQAAAABJRU5ErkJggg=='), function(c) { return c.charCodeAt(0); }),
+      { status: 200, headers: { 'Content-Type': 'image/png' } }
+    );
+  });
+}
+
+/**
+ * Keep tile cache under MAX_TILES entries.
+ * Evicts oldest tiles when the limit is exceeded.
+ * Runs asynchronously — doesn't block the response.
+ */
+var MAX_TILES = 2000; // ~2000 tiles ≈ 40-60 MB (enough for ~10 properties at z17-21)
+var _trimRunning = false;
+
+function trimTileCache(cache) {
+  if (_trimRunning) return;
+  _trimRunning = true;
+
+  cache.keys().then(function(keys) {
+    if (keys.length <= MAX_TILES) { _trimRunning = false; return; }
+    // Delete oldest 10% of tiles
+    var deleteCount = Math.ceil(keys.length * 0.1);
+    var deletes = keys.slice(0, deleteCount).map(function(key) {
+      return cache.delete(key);
+    });
+    return Promise.all(deletes);
+  }).then(function() {
+    _trimRunning = false;
+  }).catch(function() {
+    _trimRunning = false;
+  });
 }
 
 function offlinePage() {

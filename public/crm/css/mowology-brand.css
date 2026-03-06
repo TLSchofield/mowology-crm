@@ -22783,6 +22783,20 @@ textarea.font-monospace {
 .mw-transit-warning { border: 1px solid #ffc107; border-radius: 8px; }
 .mw-transit-warning .card-body { background: #fffdf0; border-radius: 8px; }
 
+/* Tile cache status indicator */
+.mw-tile-status {
+    display: flex;
+    align-items: center;
+    font-size: 0.75rem;
+    padding: 3px 10px;
+    border-radius: 12px;
+    white-space: nowrap;
+    transition: opacity 0.3s;
+}
+.mw-tile-status--caching { background: #dbeafe; color: #1e40af; }
+.mw-tile-status--ready   { background: #d1fae5; color: #065f46; }
+.mw-tile-status--info    { background: var(--mw-light); color: var(--mw-dark); }
+
 /* ═══════════════════════════════════════════════════════════════
    Schedule Context Sheet — Route Map (Phase 3a)
    Slides up from the bottom of #mwMapView when a route pin is tapped.

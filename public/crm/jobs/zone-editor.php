@@ -190,10 +190,13 @@ $extraHead  = '
                 <div id="zone-map" style="height:600px; border-radius: 0 0 8px 8px;"></div>
             </div>
         </div>
-        <p class="text-muted small mt-2 mb-0">
-            <i data-feather="info" class="me-1"></i>
-            Yellow dashed = arrival border. Coloured = work zones. Hover a zone to see its name.
-        </p>
+        <div class="d-flex align-items-center justify-content-between mt-2">
+            <p class="text-muted small mb-0">
+                <i data-feather="info" class="me-1"></i>
+                Yellow dashed = arrival border. Coloured = work zones. Hover a zone to see its name.
+            </p>
+            <div id="tileCacheStatus" class="mw-tile-status" style="display:none;"></div>
+        </div>
     </div>
 
 </div>

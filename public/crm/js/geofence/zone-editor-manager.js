@@ -71,6 +71,7 @@ class ZoneEditorManager {
         if (this._opts.propertyId) {
             this._loadZones();
         }
+        this._listenForTileMessages();
         return this;
     }
 
@@ -118,6 +119,8 @@ class ZoneEditorManager {
                     this._fitAllZones();
                     this._notifyChanged();
                 }
+                // Pre-warm satellite tiles around the property for offline use
+                this._triggerPrewarm();
             })
             .catch(err => console.warn('[ZoneEditorManager] Load zones failed:', err));
     }
@@ -164,6 +167,27 @@ class ZoneEditorManager {
         if (allLatLngs.length) {
             try { this._map.fitBounds(L.latLngBounds(allLatLngs).pad(0.1)); } catch {}
         }
+    }
+
+    _triggerPrewarm() {
+        // Determine the best center — use zone centroid if zones exist, else map center
+        let lat, lng;
+        if (this._zones.length > 0) {
+            const allLats = [];
+            const allLngs = [];
+            this._zones.forEach(z => z.ring.forEach(p => { allLats.push(p[0]); allLngs.push(p[1]); }));
+            lat = allLats.reduce((a, b) => a + b, 0) / allLats.length;
+            lng = allLngs.reduce((a, b) => a + b, 0) / allLngs.length;
+        } else if (this._map) {
+            const c = this._map.getCenter();
+            lat = c.lat;
+            lng = c.lng;
+        } else {
+            lat = this._opts.center[0];
+            lng = this._opts.center[1];
+        }
+
+        this.prewarmTiles(lat, lng, [17, 18, 19, 20]);
     }
 
     // ── Draw Mode ─────────────────────────────────────────────────────────────
@@ -326,6 +350,77 @@ class ZoneEditorManager {
         if (window.showToast)  window.showToast(msg, type);
         else if (window.mowToast) window.mowToast(msg, type);
         else console.log(`[ZoneEditorManager][${type}] ${msg}`);
+    }
+
+    // ── Offline Tile Pre-warming ────────────────────────────────────────────
+
+    /**
+     * Request the service worker to pre-cache satellite tiles around a point.
+     * Called automatically after zones load (centers on property).
+     */
+    prewarmTiles(lat, lng, zooms) {
+        if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return;
+
+        navigator.serviceWorker.controller.postMessage({
+            type:      'prewarm-tiles',
+            lat:       lat,
+            lng:       lng,
+            zooms:     zooms || [17, 18, 19, 20],
+            tileUrl:   this._opts.tileUrl,
+            labelsUrl: this._opts.labelsUrl || null,
+            radius:    2,
+        });
+
+        this._updateTileStatus('caching', 'Caching tiles for offline...');
+    }
+
+    /**
+     * Listen for progress/completion messages from the service worker.
+     */
+    _listenForTileMessages() {
+        if (!('serviceWorker' in navigator)) return;
+
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (!event.data) return;
+
+            if (event.data.type === 'prewarm-progress') {
+                const pct = Math.round(event.data.done / event.data.total * 100);
+                this._updateTileStatus('caching', 'Caching tiles... ' + pct + '%');
+            }
+
+            if (event.data.type === 'prewarm-complete') {
+                const msg = event.data.fetched > 0
+                    ? event.data.fetched + ' tiles cached for offline use'
+                    : 'All tiles already cached';
+                this._updateTileStatus('ready', msg);
+
+                // Fade out after 4 seconds
+                setTimeout(() => this._updateTileStatus('hidden'), 4000);
+            }
+
+            if (event.data.type === 'tile-cache-stats') {
+                this._updateTileStatus('info', event.data.count + ' tiles in offline cache');
+            }
+        });
+    }
+
+    /**
+     * Update the tile cache status indicator in the UI (if present).
+     * Looks for an element with id="tileCacheStatus".
+     */
+    _updateTileStatus(state, text) {
+        const el = document.getElementById('tileCacheStatus');
+        if (!el) return;
+
+        if (state === 'hidden') {
+            el.style.display = 'none';
+            return;
+        }
+
+        el.style.display = 'flex';
+        const icon = state === 'caching' ? '&#9683;' : (state === 'ready' ? '&#10003;' : '&#9432;');
+        el.innerHTML = '<span style="margin-right:6px;">' + icon + '</span> ' + (text || '');
+        el.className = 'mw-tile-status mw-tile-status--' + state;
     }
 
     get zones()      { return this._zones; }
