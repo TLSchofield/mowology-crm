@@ -260,7 +260,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                 </h5>
             </div>
             <div class="card-body p-0">
-                <div id="crMap" class="mw-cr-map"></div>
+                <div id="crMap" class="mw-cr-map" style="height:450px;"></div>
             </div>
             <div class="card-footer small text-muted">
                 <span class="mr-3"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--mw-green);"></span> On-site (&le;150m)</span>
