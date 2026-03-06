@@ -762,6 +762,23 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     + '</div>';
             }
             dwellEl.innerHTML = html;
+
+            // Use the longest dwell cluster (index 0, sorted by duration desc)
+            // to prefill start/end times — more accurate than raw first/last nearby ping
+            var bestCluster = dwellClusters[0];
+            if (bestCluster) {
+                var startInput = document.getElementById('entryStart');
+                var endInput   = document.getElementById('entryEnd');
+                if (startInput && endInput) {
+                    // Convert epoch to HH:MM in local timezone
+                    var toHHMM = function(epoch) {
+                        var d = new Date(epoch * 1000);
+                        return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+                    };
+                    startInput.value = toHHMM(bestCluster.firstEpoch);
+                    endInput.value   = toHHMM(bestCluster.lastEpoch);
+                }
+            }
         } else if (dwellEl) {
             dwellEl.innerHTML = '<div class="small text-muted">No stationary dwell clusters detected</div>';
         }
