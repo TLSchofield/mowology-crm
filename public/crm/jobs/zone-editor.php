@@ -212,10 +212,22 @@ document.addEventListener('DOMContentLoaded', () => {
         csrfToken:      CSRF_TOKEN,
         propertyId:     PROPERTY_ID,
         center:         MAP_CENTER,
-        zoom:           17,
+        zoom:           20,
         onZonesChanged: renderZoneList,
     });
     zm.init();
+
+    // Large green dot to indicate the property location
+    if (typeof L !== 'undefined' && zm._map) {
+        L.circleMarker(MAP_CENTER, {
+            radius: 14,
+            color: '#0D3B2E',
+            weight: 3,
+            fillColor: '#2D8659',
+            fillOpacity: 0.9,
+        }).addTo(zm._map).bindTooltip('Property Location', { permanent: false, direction: 'top' });
+    }
+
     if (typeof feather !== 'undefined') feather.replace();
 });
 
