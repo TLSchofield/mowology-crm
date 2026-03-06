@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct Stop: Codable, Identifiable {
+struct Stop: Codable, Identifiable, Hashable {
     let stopId: Int
     let stopDate: String?
     let stopStatus: String

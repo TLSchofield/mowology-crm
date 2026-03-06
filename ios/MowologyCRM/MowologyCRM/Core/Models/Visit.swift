@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct Visit: Codable, Identifiable {
+struct Visit: Codable, Identifiable, Hashable {
     let visitId: Int
     let visitNumber: Int?
     let serviceType: String
