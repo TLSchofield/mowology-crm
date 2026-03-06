@@ -4036,13 +4036,13 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
         chevron.style.transform = expanded ? 'rotate(180deg)' : '';
     });
 
-    // Get the current schedule date from the URL or default to today
-    var urlParams = new URLSearchParams(window.location.search);
-    var schedDate = urlParams.get('week') || '<?php echo (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d'); ?>';
+    // Use the schedule page's computed date range (week or single day)
+    var rrStartDate = '<?php echo $startDate; ?>';
+    var rrEndDate   = '<?php echo $endDate; ?>';
 
     function fetchConflicts() {
         status.textContent = 'Checking...';
-        fetch('/crm/api/route-reconciliation.php?date=' + encodeURIComponent(schedDate))
+        fetch('/crm/api/route-reconciliation.php?start=' + rrStartDate + '&end=' + rrEndDate)
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (!data.success) {
@@ -4114,15 +4114,25 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                 typeCls = 'mw-rr-conflict--info';
             }
 
+            // Format date as short day name (Mon, Tue, etc.)
+            var dayLabel = '';
+            if (c.visit_date) {
+                var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                var d = new Date(c.visit_date + 'T12:00:00');
+                dayLabel = days[d.getDay()];
+            }
+
             html += '<div class="mw-rr-conflict ' + typeCls + '" data-visit-id="' + c.visit_id + '">'
                   +   '<div class="mw-rr-conflict-icon"><i data-feather="' + icon + '"></i></div>'
                   +   '<div class="mw-rr-conflict-body">'
-                  +     '<div class="mw-rr-conflict-title">' + esc(c.property_address || 'Unknown') + '</div>'
+                  +     '<div class="mw-rr-conflict-title">' + esc(c.property_address || 'Unknown')
+                  +       (dayLabel ? ' <span class="mw-rr-day-badge">' + dayLabel + '</span>' : '')
+                  +     '</div>'
                   +     '<div class="mw-rr-conflict-meta">'
                   +       '<span class="mw-rr-type-badge mw-rr-type-badge--' + c.severity + '">' + typeLabel + '</span>';
 
             if (c.type === 'truck_at_site_no_clockin') {
-                html += ' <span class="mw-rr-detail">' + esc(c.truck_name) + ' on-site ' + esc(c.first_seen) + '–' + esc(c.last_seen) + ' (' + c.dwell_minutes + ' min)</span>';
+                html += ' <span class="mw-rr-detail">' + esc(c.truck_name) + ' on-site ' + esc(c.first_seen) + '\u2013' + esc(c.last_seen) + ' (' + c.dwell_minutes + ' min)</span>';
             }
 
             if (c.crew_name) {

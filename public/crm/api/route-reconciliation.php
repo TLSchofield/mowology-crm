@@ -32,14 +32,25 @@ try {
     $db = getDB();
     $tz = new DateTimeZone('America/Vancouver');
 
-    // --- Parse date ---
-    $date = $_GET['date'] ?? (new DateTime('now', $tz))->format('Y-m-d');
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+    // --- Parse date range ---
+    // Accepts ?date=YYYY-MM-DD (single day) or ?start=YYYY-MM-DD&end=YYYY-MM-DD (range)
+    $startDate = $_GET['start'] ?? $_GET['date'] ?? (new DateTime('now', $tz))->format('Y-m-d');
+    $endDate   = $_GET['end'] ?? $startDate;
+
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $startDate) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $endDate)) {
         throw new Exception('Invalid date format. Use YYYY-MM-DD');
     }
 
-    $dayStart = (new DateTime($date . ' 00:00:00', $tz))->getTimestamp();
-    $dayEnd   = (new DateTime($date . ' 23:59:59', $tz))->getTimestamp();
+    // Cap range to 7 days max to avoid expensive queries
+    $startDt = new DateTime($startDate, $tz);
+    $endDt   = new DateTime($endDate, $tz);
+    if ($endDt->diff($startDt)->days > 7) {
+        $endDt = (clone $startDt)->modify('+6 days');
+        $endDate = $endDt->format('Y-m-d');
+    }
+
+    $dayStart = (new DateTime($startDate . ' 00:00:00', $tz))->getTimestamp();
+    $dayEnd   = (new DateTime($endDate . ' 23:59:59', $tz))->getTimestamp();
 
     // --- Config ---
     $proximityMeters = 150;  // Match auto-arrival radius
@@ -56,18 +67,19 @@ try {
     $trucks = $truckStmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($trucks)) {
-        echo json_encode(['success' => true, 'date' => $date, 'conflicts' => [], 'trucks' => 0]);
+        echo json_encode(['success' => true, 'start_date' => $startDate, 'end_date' => $endDate, 'conflicts' => [], 'trucks' => 0]);
         exit;
     }
 
     $truckIds   = array_column($trucks, 'id');
     $truckNames = array_column($trucks, 'full_name', 'id');
 
-    // --- 2. Get all scheduled/completed visits for the date with property coords ---
+    // --- 2. Get all scheduled/completed visits for the date range with property coords ---
     $visitStmt = $db->prepare("
         SELECT
             jv.id AS visit_id,
             jv.visit_number,
+            jv.scheduled_date,
             jv.status,
             jv.assigned_crew_id,
             u.full_name AS crew_name,
@@ -82,17 +94,17 @@ try {
         JOIN job_plans jp ON jv.plan_id = jp.id
         LEFT JOIN properties p ON jp.property_id = p.id
         LEFT JOIN users u ON jv.assigned_crew_id = u.id
-        WHERE jv.scheduled_date = ?
+        WHERE jv.scheduled_date BETWEEN ? AND ?
           AND jv.status IN ('scheduled', 'in_progress', 'completed')
           AND p.latitude IS NOT NULL
           AND p.longitude IS NOT NULL
         ORDER BY jv.scheduled_time_start ASC
     ");
-    $visitStmt->execute([$date]);
+    $visitStmt->execute([$startDate, $endDate]);
     $visits = $visitStmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($visits)) {
-        echo json_encode(['success' => true, 'date' => $date, 'conflicts' => [], 'visits' => 0]);
+        echo json_encode(['success' => true, 'start_date' => $startDate, 'end_date' => $endDate, 'conflicts' => [], 'visits' => 0]);
         exit;
     }
 
@@ -113,32 +125,38 @@ try {
     $pingStmt->execute(array_merge($truckIds, [$dayStart, $dayEnd]));
     $allPings = $pingStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Group pings by truck
-    $truckPings = [];
+    // Group pings by truck, then by date (Pacific)
+    $truckPingsByDay = [];  // truckId => dateStr => [pings]
     foreach ($allPings as $p) {
-        $truckPings[(int)$p['truck_id']][] = $p;
+        $tid = (int)$p['truck_id'];
+        $pingDate = (new DateTime('@' . $p['epoch']))->setTimezone($tz)->format('Y-m-d');
+        $truckPingsByDay[$tid][$pingDate][] = $p;
     }
 
-    // --- 4. For each visit, check truck dwell ---
+    // --- 4. For each visit, check truck dwell on that visit's date ---
     $conflicts = [];
 
-    // Deduplicate by property_id — multiple visits at same property share one dwell check
-    $propertyVisits = [];
+    // Group visits by property_id + scheduled_date
+    $visitGroups = [];
     foreach ($visits as $v) {
-        $pid = (int)$v['property_id'];
-        $propertyVisits[$pid][] = $v;
+        $key = (int)$v['property_id'] . '_' . $v['scheduled_date'];
+        $visitGroups[$key][] = $v;
     }
 
-    foreach ($propertyVisits as $propertyId => $propVisits) {
-        $propLat = (float)$propVisits[0]['prop_lat'];
-        $propLng = (float)$propVisits[0]['prop_lng'];
+    foreach ($visitGroups as $groupKey => $groupVisits) {
+        $propLat   = (float)$groupVisits[0]['prop_lat'];
+        $propLng   = (float)$groupVisits[0]['prop_lng'];
+        $visitDate = $groupVisits[0]['scheduled_date'];
 
-        // Check each truck for dwell at this property
-        $truckDwells = [];  // truckId => ['duration_seconds' => N, 'first_seen' => epoch, 'last_seen' => epoch]
+        // Check each truck for dwell at this property on this date
+        $truckDwells = [];
 
-        foreach ($truckPings as $truckId => $pings) {
+        foreach ($truckPingsByDay as $truckId => $dayPings) {
+            $pingsForDate = $dayPings[$visitDate] ?? [];
+            if (empty($pingsForDate)) continue;
+
             $nearbyPings = [];
-            foreach ($pings as $ping) {
+            foreach ($pingsForDate as $ping) {
                 $dist = haversineDistance($propLat, $propLng, (float)$ping['lat'], (float)$ping['lng']);
                 if ($dist <= $proximityMeters) {
                     $nearbyPings[] = (int)$ping['epoch'];
@@ -163,8 +181,8 @@ try {
 
         $hasTruckPresence = !empty($truckDwells);
 
-        // Check each visit at this property
-        foreach ($propVisits as $v) {
+        // Check each visit at this property on this date
+        foreach ($groupVisits as $v) {
             $visitStatus = $v['status'];
 
             if ($hasTruckPresence && $visitStatus === 'scheduled') {
@@ -184,6 +202,7 @@ try {
                     'severity'         => 'warning',
                     'visit_id'         => (int)$v['visit_id'],
                     'visit_number'     => $v['visit_number'],
+                    'visit_date'       => $v['scheduled_date'],
                     'property_address' => $v['property_address'],
                     'property_city'    => $v['property_city'],
                     'plan_title'       => $v['plan_title'],
@@ -204,6 +223,7 @@ try {
                     'severity'         => 'info',
                     'visit_id'         => (int)$v['visit_id'],
                     'visit_number'     => $v['visit_number'],
+                    'visit_date'       => $v['scheduled_date'],
                     'property_address' => $v['property_address'],
                     'property_city'    => $v['property_city'],
                     'plan_title'       => $v['plan_title'],
@@ -228,9 +248,10 @@ try {
     });
 
     echo json_encode([
-        'success'   => true,
-        'date'      => $date,
-        'conflicts' => $conflicts,
+        'success'    => true,
+        'start_date' => $startDate,
+        'end_date'   => $endDate,
+        'conflicts'  => $conflicts,
         'summary'   => [
             'total'              => count($conflicts),
             'warnings'           => count(array_filter($conflicts, fn($c) => $c['severity'] === 'warning')),
