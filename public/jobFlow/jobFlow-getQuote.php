@@ -526,7 +526,8 @@ $serviceOptions = [
                 <p class="consent-intro">How you'd like to hear from us:</p>
 
                 <div class="consent-item required <?php echo isset($errors['consent_quote']) ? 'error' : ''; ?>">
-                    <input type="checkbox" id="consent_quote" name="consent_quote" required>
+                    <input type="checkbox" id="consent_quote" name="consent_quote" required
+                           <?php echo (empty($errors) || !empty($formData['consent_quote']) || $_SERVER['REQUEST_METHOD'] === 'GET') ? 'checked' : ''; ?>>
                     <div class="consent-label">
                         <strong>Quote Follow-up (Required)</strong>
                         I agree to be contacted about this quote request via email, phone, or text message.
@@ -548,7 +549,7 @@ $serviceOptions = [
 
                 <div class="consent-item">
                     <input type="checkbox" id="consent_sms" name="consent_sms"
-                           <?php echo !empty($formData['consent_sms']) ? 'checked' : ''; ?>>
+                           <?php echo (!empty($formData['consent_sms']) || (empty($errors) && $_SERVER['REQUEST_METHOD'] === 'GET')) ? 'checked' : ''; ?>>
                     <div class="consent-label">
                         <strong>Optional: Text Updates</strong>
                         I agree to receive SMS updates about scheduling and quote progress.
@@ -729,6 +730,32 @@ function onV2Completed(token) {
     var field = document.getElementById('recaptcha_v2_token');
     if (field) field.value = token;
 }
+<?php endif; ?>
+
+// ── Scroll to first error on page load ───────────────────────────────────
+<?php if (!empty($errors)): ?>
+document.addEventListener('DOMContentLoaded', function() {
+    var firstError = document.querySelector('.form-group.error, .consent-item.error');
+    if (firstError) {
+        // Scroll the error field into view with some top offset
+        var rect = firstError.getBoundingClientRect();
+        var scrollTarget = window.pageYOffset + rect.top - 120;
+        window.scrollTo({ top: Math.max(0, scrollTarget), behavior: 'smooth' });
+
+        // Add shake class to all error fields, then remove after animation
+        var errorGroups = document.querySelectorAll('.form-group.error');
+        errorGroups.forEach(function(g) { g.classList.add('shake'); });
+        setTimeout(function() {
+            errorGroups.forEach(function(g) { g.classList.remove('shake'); });
+        }, 600);
+
+        // Focus the first error input
+        var firstInput = firstError.querySelector('input, select, textarea');
+        if (firstInput) {
+            setTimeout(function() { firstInput.focus(); }, 400);
+        }
+    }
+});
 <?php endif; ?>
 </script>
 </body>

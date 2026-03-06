@@ -279,10 +279,58 @@
 .jobflow-page .form-group.error select,
 .jobflow-page .form-group.error textarea {
     border-color: #EF4444;
+    background: #FEF2F2;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.jobflow-page .form-group.error input:focus,
+.jobflow-page .form-group.error select:focus,
+.jobflow-page .form-group.error textarea:focus {
+    border-color: #EF4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+    background: #FFF;
+}
+
+.jobflow-page .form-group.error label,
+.jobflow-page .consent-item.error .consent-label strong {
+    color: #DC2626;
 }
 
 .jobflow-page .form-group.error .error-message {
     display: block;
+}
+
+/* Service grid error state */
+.jobflow-page .form-group.error .service-grid {
+    border: 2px solid #EF4444;
+    border-radius: 16px;
+    padding: 8px;
+    background: #FEF2F2;
+}
+
+/* Consent item error state */
+.jobflow-page .consent-item.error {
+    background: #FEF2F2;
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid #FECACA;
+}
+
+/* Shake animation on first load with errors */
+@keyframes shake-field {
+    0%, 100% { transform: translateX(0); }
+    15%      { transform: translateX(-6px); }
+    30%      { transform: translateX(5px); }
+    45%      { transform: translateX(-4px); }
+    60%      { transform: translateX(3px); }
+    75%      { transform: translateX(-2px); }
+}
+
+.jobflow-page .form-group.error.shake input,
+.jobflow-page .form-group.error.shake select,
+.jobflow-page .form-group.error.shake textarea,
+.jobflow-page .form-group.error.shake .service-grid {
+    animation: shake-field 0.5s ease-in-out;
 }
 
 /* Address options (existing customer) */
