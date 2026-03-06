@@ -243,6 +243,28 @@ try {
         }
     }
 
+    // --- 5. Filter out resolved conflicts ---
+    try {
+        $resStmt = $db->prepare("
+            SELECT DISTINCT visit_id, visit_date
+            FROM conflict_resolutions
+            WHERE visit_date BETWEEN ? AND ?
+        ");
+        $resStmt->execute([$startDate, $endDate]);
+        $resolved = [];
+        while ($r = $resStmt->fetch(PDO::FETCH_ASSOC)) {
+            $resolved[$r['visit_id'] . '_' . $r['visit_date']] = true;
+        }
+        if (!empty($resolved)) {
+            $conflicts = array_values(array_filter($conflicts, function ($c) use ($resolved) {
+                return !isset($resolved[$c['visit_id'] . '_' . $c['visit_date']]);
+            }));
+        }
+    } catch (PDOException $e) {
+        // Table may not exist yet — skip filtering
+        error_log('[route-reconciliation] conflict_resolutions query failed: ' . $e->getMessage());
+    }
+
     // Sort: warnings first, then info
     usort($conflicts, function ($a, $b) {
         $sevOrder = ['warning' => 0, 'info' => 1];

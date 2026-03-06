@@ -8353,6 +8353,69 @@ textarea.font-monospace {
 
 
 /* ============================================
+   CONFLICT RESOLUTION PAGE (mw-cr-*)
+   ============================================ */
+
+/* Map container */
+.mw-cr-map {
+    height: 450px;
+    width: 100%;
+    border-radius: 0 0 0.25rem 0.25rem;
+    background: #1a1a2e;
+}
+
+/* Conflict summary cards */
+.mw-cr-card {
+    border-left: 4px solid #94a3b8;
+}
+.mw-cr-card--warning {
+    border-left-color: #f59e0b;
+    background: #fffbeb;
+}
+.mw-cr-card--info {
+    border-left-color: #3b82f6;
+    background: #eff6ff;
+}
+.mw-cr-card--resolve {
+    border-left-color: var(--mw-green);
+}
+
+/* Photo thumbnails */
+.mw-cr-thumb {
+    width: 56px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 2px solid #e2e8f0;
+    transition: border-color 0.15s;
+}
+.mw-cr-thumb-link:hover .mw-cr-thumb {
+    border-color: var(--mw-green);
+}
+
+/* Crew presence toggle active states */
+#crewPresenceToggle .btn.active.btn-outline-success {
+    background: var(--mw-green);
+    border-color: var(--mw-green);
+    color: #fff;
+}
+#crewPresenceToggle .btn.active.btn-outline-secondary {
+    background: #64748b;
+    border-color: #64748b;
+    color: #fff;
+}
+
+/* Clickable conflict cards on schedule */
+.mw-rr-conflict[style*="cursor"] {
+    transition: background 0.15s, transform 0.15s;
+}
+.mw-rr-conflict[style*="cursor"]:hover {
+    background: #f8fafc;
+    transform: translateX(2px);
+}
+
+
+/* ============================================
    BATTLE CARDS — Day Column Upgrade
    ============================================ */
 

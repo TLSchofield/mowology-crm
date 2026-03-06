@@ -259,6 +259,17 @@ try {
             session_write_close(); // Queued pings — no session writes needed
         }
 
+        // --- Truck departure SMS failsafe ---
+        // When a truck leaves a property where a visit is still 'scheduled',
+        // alert the assigned crew. Duplicate SMS prevented by conflict_resolutions table.
+        if ($isTruck && !$isQueued) {
+            try {
+                checkTruckDepartureAlert($db, (int)$user['id'], $lat, $lng);
+            } catch (Throwable $e) {
+                error_log('[crew-location] truck departure check error: ' . $e->getMessage());
+            }
+        }
+
         echo json_encode([
             'success' => true,
             'id' => $insertId,
@@ -277,4 +288,129 @@ try {
 } catch (Exception $e) {
     http_response_code(400);
     echo json_encode(['error' => $e->getMessage()]);
+}
+
+/**
+ * Check if this truck has departed a property where a visit is still 'scheduled'.
+ * If so, SMS the assigned crew member as a reminder.
+ *
+ * @param PDO $db
+ * @param int $truckId  The truck user ID
+ * @param float $lat    Current truck latitude
+ * @param float $lng    Current truck longitude
+ */
+function checkTruckDepartureAlert(PDO $db, int $truckId, float $lat, float $lng): void
+{
+    $tz = new DateTimeZone('America/Vancouver');
+    $today = (new DateTime('now', $tz))->format('Y-m-d');
+
+    // Only run during work hours (6am–6pm Pacific)
+    $hour = (int)(new DateTime('now', $tz))->format('G');
+    if ($hour < 6 || $hour >= 18) return;
+
+    // Get today's scheduled visits with property coords
+    $stmt = $db->prepare("
+        SELECT
+            jv.id AS visit_id,
+            jv.visit_number,
+            jv.assigned_crew_id,
+            jp.property_id,
+            p.address AS property_address,
+            p.latitude AS prop_lat,
+            p.longitude AS prop_lng,
+            u.phone AS crew_phone,
+            u.full_name AS crew_name
+        FROM job_visits jv
+        JOIN job_plans jp ON jv.plan_id = jp.id
+        LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN users u ON jv.assigned_crew_id = u.id
+        WHERE jv.scheduled_date = ?
+          AND jv.status = 'scheduled'
+          AND p.latitude IS NOT NULL
+          AND p.longitude IS NOT NULL
+    ");
+    $stmt->execute([$today]);
+    $visits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    if (empty($visits)) return;
+
+    // Get truck's recent pings (last 20 minutes) to check if it was recently on-site
+    $recentStart = time() - 1200; // 20 minutes ago
+    $recentStmt = $db->prepare("
+        SELECT latitude AS lat, longitude AS lng, UNIX_TIMESTAMP(timestamp) AS epoch
+        FROM crew_location_history
+        WHERE crew_id = ?
+          AND UNIX_TIMESTAMP(timestamp) >= ?
+        ORDER BY timestamp DESC
+        LIMIT 40
+    ");
+    $recentStmt->execute([$truckId, $recentStart]);
+    $recentPings = $recentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($visits as $v) {
+        $propLat = (float)$v['prop_lat'];
+        $propLng = (float)$v['prop_lng'];
+
+        // Is the truck currently far from this property? (>500m)
+        $currentDist = haversineDistance($propLat, $propLng, $lat, $lng);
+        if ($currentDist <= 500) continue; // Still near — no alert
+
+        // Was the truck recently on-site? (any recent ping within 150m)
+        $wasOnSite = false;
+        foreach ($recentPings as $rp) {
+            $d = haversineDistance($propLat, $propLng, (float)$rp['lat'], (float)$rp['lng']);
+            if ($d <= 150) {
+                $wasOnSite = true;
+                break;
+            }
+        }
+
+        if (!$wasOnSite) continue; // Truck wasn't recently here
+
+        // Check if we already sent an SMS for this visit today
+        try {
+            $resCheck = $db->prepare("
+                SELECT id FROM conflict_resolutions
+                WHERE visit_id = ? AND visit_date = ? AND resolution_type = 'sms_sent'
+                LIMIT 1
+            ");
+            $resCheck->execute([(int)$v['visit_id'], $today]);
+            if ($resCheck->fetch()) continue; // Already sent
+        } catch (PDOException $e) {
+            // Table may not exist yet — skip
+            continue;
+        }
+
+        // Send SMS to assigned crew
+        $phone = $v['crew_phone'] ?? '';
+        if (!$phone) continue;
+
+        // Build message (≤160 chars, no URLs, plain text)
+        $addr = $v['property_address'] ?? 'a property';
+        if (strlen($addr) > 40) $addr = substr($addr, 0, 37) . '...';
+        $msg = "Mowology: {$addr} not clocked in. Did you complete it? (778) 846-9273";
+
+        try {
+            $msgService = APP_ROOT . '/Services/Messaging/MessagingService.php';
+            if (is_file($msgService)) {
+                require_once $msgService;
+                if (function_exists('sendSms')) {
+                    sendSms($phone, $msg);
+                }
+            }
+
+            // Record that we sent this SMS
+            $db->prepare("
+                INSERT INTO conflict_resolutions (visit_id, visit_date, resolution_type, resolved_by, notes)
+                VALUES (?, ?, 'sms_sent', ?, ?)
+            ")->execute([
+                (int)$v['visit_id'], $today, $truckId,
+                'Auto SMS: truck departed, visit still scheduled'
+            ]);
+
+            error_log("[crew-location] Truck departure SMS sent to {$v['crew_name']} for visit {$v['visit_number']} at {$addr}");
+        } catch (Throwable $e) {
+            error_log('[crew-location] SMS send error: ' . $e->getMessage());
+        }
+    }
 }

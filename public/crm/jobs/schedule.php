@@ -4123,7 +4123,7 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
                 dayLabel = days[d.getDay()];
             }
 
-            html += '<div class="mw-rr-conflict ' + typeCls + '" data-visit-id="' + c.visit_id + '">'
+            html += '<div class="mw-rr-conflict ' + typeCls + '" data-visit-id="' + c.visit_id + '" data-date="' + (c.visit_date || '') + '" data-truck-id="' + (c.truck_id || '') + '" style="cursor:pointer;" title="Click to investigate &amp; resolve">'
                   +   '<div class="mw-rr-conflict-icon"><i data-feather="' + icon + '"></i></div>'
                   +   '<div class="mw-rr-conflict-body">'
                   +     '<div class="mw-rr-conflict-title">' + esc(c.property_address || 'Unknown')
@@ -4149,6 +4149,18 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 
         // Re-render feather icons in the new DOM
         if (typeof feather !== 'undefined') feather.replace();
+
+        // Click handler: open conflict resolution page
+        body.querySelectorAll('.mw-rr-conflict').forEach(function(card) {
+            card.addEventListener('click', function() {
+                var vid = card.getAttribute('data-visit-id');
+                var dt  = card.getAttribute('data-date');
+                var tid = card.getAttribute('data-truck-id');
+                var url = '/crm/jobs/conflict-resolution.php?visit_id=' + vid + '&date=' + dt;
+                if (tid) url += '&truck_id=' + tid;
+                window.open(url, '_blank');
+            });
+        });
 
         // Highlight stop cards in the calendar that have conflicts
         highlightConflictCards(conflicts);
