@@ -2816,6 +2816,13 @@ function getServiceLabel(type) {
                 cb.checked = crewIds.indexOf(cb.value) !== -1;
             });
 
+            // Float checked (assigned) items to the top
+            var crewItems = Array.from(checklist.querySelectorAll('label.mw-crew-check-item'));
+            crewItems.sort(function(a, b) {
+                return (a.querySelector('input').checked ? 0 : 1) - (b.querySelector('input').checked ? 0 : 1);
+            });
+            crewItems.forEach(function(item) { checklist.appendChild(item); });
+
             $('#crewAssignModal').modal('show');
             // Re-render feather icons in modal
             if (typeof feather !== 'undefined') feather.replace();
