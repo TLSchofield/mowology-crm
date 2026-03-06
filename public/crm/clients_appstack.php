@@ -1286,6 +1286,109 @@ if ($action === 'view_contact' && $clientId) {
             }
         } catch (Exception $e) { $nearbyClients = []; }
 
+        // ── Smartest Service Day — which day has the most nearby visits scheduled ──
+        $smartestDay = null;
+        $dayBreakdown = [];
+        try {
+            $nearbyPropIds = array_column($nearbyClients, 'property_id');
+            if (!empty($nearbyPropIds)) {
+                $npPlaceholders = implode(',', array_fill(0, count($nearbyPropIds), '?'));
+
+                // Query 1: Future scheduled visits grouped by day of week (next 6 weeks)
+                $stmt = $db->prepare("
+                    SELECT
+                        DAYOFWEEK(jv.scheduled_date) AS dow,
+                        DAYNAME(jv.scheduled_date) AS day_name,
+                        COUNT(DISTINCT jv.id) AS visit_count,
+                        COUNT(DISTINCT jp.property_id) AS property_count,
+                        GROUP_CONCAT(DISTINCT jv.scheduled_date ORDER BY jv.scheduled_date SEPARATOR ',') AS upcoming_dates
+                    FROM job_visits jv
+                    JOIN job_plans jp ON jv.plan_id = jp.id
+                    WHERE jp.property_id IN ({$npPlaceholders})
+                      AND jv.scheduled_date >= CURDATE()
+                      AND jv.scheduled_date < DATE_ADD(CURDATE(), INTERVAL 42 DAY)
+                      AND jp.status = 'active'
+                      AND jv.status NOT IN ('cancelled', 'skipped', 'completed')
+                    GROUP BY DAYOFWEEK(jv.scheduled_date)
+                    ORDER BY visit_count DESC
+                ");
+                $stmt->execute(array_values($nearbyPropIds));
+                $dayBreakdown = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Also check recurrence_day_of_week from active plans (covers future beyond generated visits)
+                $stmt2 = $db->prepare("
+                    SELECT jp.recurrence_day_of_week, COUNT(*) AS plan_count
+                    FROM job_plans jp
+                    WHERE jp.property_id IN ({$npPlaceholders})
+                      AND jp.status = 'active'
+                      AND jp.is_recurring = 1
+                      AND jp.recurrence_day_of_week IS NOT NULL
+                    GROUP BY jp.recurrence_day_of_week
+                ");
+                $stmt2->execute(array_values($nearbyPropIds));
+                $recurDays = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+
+                // Merge recurrence data into day breakdown
+                $dayNames = [1 => 'Sunday', 2 => 'Monday', 3 => 'Tuesday', 4 => 'Wednesday', 5 => 'Thursday', 6 => 'Friday', 7 => 'Saturday'];
+                $dayScores = [];
+                foreach ($dayBreakdown as $d) {
+                    $dayScores[(int)$d['dow']] = [
+                        'day_name' => $d['day_name'],
+                        'visit_count' => (int)$d['visit_count'],
+                        'property_count' => (int)$d['property_count'],
+                        'recur_plans' => 0,
+                        'upcoming_dates' => $d['upcoming_dates'] ?? '',
+                    ];
+                }
+                // Add recurrence data (recurrence_day_of_week can be CSV like "1,3")
+                foreach ($recurDays as $rd) {
+                    $rdDays = array_map('intval', explode(',', $rd['recurrence_day_of_week']));
+                    foreach ($rdDays as $rdDay) {
+                        $dow = $rdDay + 1; // Convert 0-6 to 1-7 (DAYOFWEEK format)
+                        if ($dow > 7) $dow = 1;
+                        if (!isset($dayScores[$dow])) {
+                            $dayScores[$dow] = [
+                                'day_name' => $dayNames[$dow] ?? 'Unknown',
+                                'visit_count' => 0,
+                                'property_count' => 0,
+                                'recur_plans' => 0,
+                                'upcoming_dates' => '',
+                            ];
+                        }
+                        $dayScores[$dow]['recur_plans'] += (int)$rd['plan_count'];
+                    }
+                }
+
+                // Score each day: visits + recurrence weight
+                foreach ($dayScores as $dow => &$ds) {
+                    $ds['score'] = $ds['visit_count'] * 2 + $ds['recur_plans'] * 3 + $ds['property_count'];
+                    $ds['dow'] = $dow;
+                }
+                unset($ds);
+                usort($dayScores, function($a, $b) { return $b['score'] <=> $a['score']; });
+                $dayBreakdown = $dayScores;
+
+                if (!empty($dayBreakdown)) {
+                    $best = $dayBreakdown[0];
+                    // Find next occurrence of this day
+                    $todayDow = (int)date('w') + 1; // 1=Sunday
+                    $bestDow = $best['dow'];
+                    $daysUntil = ($bestDow - $todayDow + 7) % 7;
+                    if ($daysUntil === 0) $daysUntil = 7; // Next week if today
+                    $nextDate = date('Y-m-d', strtotime("+{$daysUntil} days"));
+
+                    $smartestDay = [
+                        'day_name' => $best['day_name'],
+                        'next_date' => $nextDate,
+                        'visit_count' => $best['visit_count'],
+                        'property_count' => $best['property_count'],
+                        'recur_plans' => $best['recur_plans'],
+                        'score' => $best['score'],
+                    ];
+                }
+            }
+        } catch (Exception $e) { $smartestDay = null; $dayBreakdown = []; }
+
         // Load Google Maps API (geometry for map display, places for address autocomplete)
         $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
         if ($apiKey) {
@@ -2818,13 +2921,47 @@ $unconvertedRequests = $db->query("
                     <h5 class="card-title mb-0"><i data-feather="navigation"></i> Route Intelligence</h5>
                   </div>
                   <div class="card-body p-0">
+                    <?php if ($smartestDay): ?>
+                    <div class="mw-smartest-day">
+                      <div class="mw-smartest-day-icon">
+                        <i data-feather="calendar"></i>
+                      </div>
+                      <div class="mw-smartest-day-info">
+                        <div class="mw-smartest-day-label">Best day to service</div>
+                        <div class="mw-smartest-day-value"><?php echo h($smartestDay['day_name']); ?></div>
+                        <div class="mw-smartest-day-detail">
+                          Next: <?php echo date('M j', strtotime($smartestDay['next_date'])); ?>
+                          &middot; <?php echo $smartestDay['visit_count']; ?> nearby visit<?php echo $smartestDay['visit_count'] !== 1 ? 's' : ''; ?> scheduled
+                          <?php if ($smartestDay['recur_plans'] > 0): ?>
+                            &middot; <?php echo $smartestDay['recur_plans']; ?> recurring plan<?php echo $smartestDay['recur_plans'] !== 1 ? 's' : ''; ?>
+                          <?php endif; ?>
+                        </div>
+                      </div>
+                    </div>
+                    <?php if (count($dayBreakdown) > 1): ?>
+                    <div class="mw-day-breakdown">
+                      <?php foreach (array_slice($dayBreakdown, 0, 5) as $di => $day):
+                        $barWidth = $dayBreakdown[0]['score'] > 0 ? round(($day['score'] / $dayBreakdown[0]['score']) * 100) : 0;
+                        $isTop = ($di === 0);
+                      ?>
+                        <div class="mw-day-breakdown-row<?php echo $isTop ? ' mw-day-top' : ''; ?>">
+                          <span class="mw-day-breakdown-name"><?php echo substr($day['day_name'], 0, 3); ?></span>
+                          <div class="mw-day-breakdown-bar-bg">
+                            <div class="mw-day-breakdown-bar" style="width: <?php echo $barWidth; ?>%;<?php echo $isTop ? ' background: var(--mw-green);' : ''; ?>"></div>
+                          </div>
+                          <span class="mw-day-breakdown-count"><?php echo $day['visit_count']; ?> visit<?php echo $day['visit_count'] !== 1 ? 's' : ''; ?></span>
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+                    <?php endif; ?>
+                    <?php endif; ?>
+
                     <div class="mw-route-intel-summary">
                       <?php
                         $closestClient = $nearbyClients[0] ?? null;
                         $within2km = count(array_filter($nearbyClients, function($n) { return $n['distance_km'] <= 2; }));
                         $within5km = count(array_filter($nearbyClients, function($n) { return $n['distance_km'] <= 5; }));
                         $avgDistance = count($nearbyClients) > 0 ? round(array_sum(array_column($nearbyClients, 'distance_km')) / count($nearbyClients), 1) : 0;
-                        // Route density score: higher = better for routing
                         $densityScore = $within2km >= 5 ? 'High' : ($within2km >= 2 ? 'Medium' : 'Low');
                         $densityColor = $within2km >= 5 ? 'var(--mw-green)' : ($within2km >= 2 ? '#F59E0B' : '#DC2626');
                       ?>
