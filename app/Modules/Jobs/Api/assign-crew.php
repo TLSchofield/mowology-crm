@@ -36,7 +36,9 @@ try {
         throw new Exception('Missing required field: stop_id');
     }
 
-    $stopId = (int)$input['stop_id'];
+    $stopId   = (int)$input['stop_id'];
+    $scope    = ($input['scope'] ?? 'this_visit') === 'all_future' ? 'all_future' : 'this_visit';
+    $planId   = isset($input['plan_id']) ? (int)$input['plan_id'] : 0;
 
     // Accept crew_ids array (new) or crew_id (legacy)
     $crewIds = [];
@@ -129,23 +131,73 @@ try {
 
     $db->commit();
 
+    // ── "All future visits" scope: propagate to plan + all future stops ──────
+    $futureStopsUpdated = 0;
+    if ($scope === 'all_future' && $planId > 0) {
+        require_once APP_ROOT . '/Modules/Jobs/Services/PlanFunctions.php';
+
+        // Update plan-level crew assignments
+        setPlanCrewAssignments($planId, $crewIds, $leadCrewId);
+
+        // Sync calendar_stop_crew for every future scheduled stop of this plan
+        $futureStmt = $db->prepare("
+            SELECT DISTINCT jv.stop_id
+            FROM job_visits jv
+            WHERE jv.plan_id = ?
+              AND jv.status = 'scheduled'
+              AND jv.scheduled_date >= CURDATE()
+              AND jv.stop_id IS NOT NULL
+              AND jv.stop_id != ?
+        ");
+        $futureStmt->execute([$planId, $stopId]);
+        $futureStopIds = $futureStmt->fetchAll(PDO::FETCH_COLUMN);
+
+        if (!empty($futureStopIds)) {
+            $delFutureStmt = $db->prepare("DELETE FROM calendar_stop_crew WHERE stop_id = ?");
+            $insFutureStmt = $db->prepare("INSERT INTO calendar_stop_crew (stop_id, user_id) VALUES (?, ?)");
+            $updFutureStmt = $db->prepare("UPDATE calendar_stops SET crew_id = ?, updated_at = NOW() WHERE id = ?");
+            $clrFutureStmt = $db->prepare("UPDATE calendar_stops SET crew_id = NULL, updated_at = NOW() WHERE id = ?");
+
+            foreach ($futureStopIds as $fid) {
+                $delFutureStmt->execute([$fid]);
+                if (!empty($crewIds)) {
+                    foreach ($crewIds as $cid) {
+                        $insFutureStmt->execute([$fid, $cid]);
+                    }
+                    $updFutureStmt->execute([$leadCrewId, $fid]);
+                } else {
+                    $clrFutureStmt->execute([$fid]);
+                }
+                $futureStopsUpdated++;
+            }
+        }
+    }
+
     // Log activity
+    $logDetail = "Stop #{$stopId} crew changed to {$crewDisplay}";
+    if ($scope === 'all_future' && $planId > 0) {
+        $logDetail .= " (+ {$futureStopsUpdated} future stops for plan #{$planId})";
+    }
     logActivityExtended(
         $user['id'],
         'Crew reassigned',
-        "Stop #{$stopId} crew changed to {$crewDisplay}",
+        $logDetail,
         null, null, null, null, null, null
     );
 
     http_response_code(200);
     echo json_encode([
-        'success'    => true,
-        'message'    => 'Crew updated successfully',
-        'stop_id'    => $stopId,
-        'crew_ids'   => $crewIds,
-        'crew_names' => $crewNames,
-        'crew_id'    => $leadCrewId,
-        'crew_name'  => $crewDisplay
+        'success'              => true,
+        'message'              => $scope === 'all_future'
+                                    ? "Crew updated for this stop and {$futureStopsUpdated} future stops"
+                                    : 'Crew updated successfully',
+        'stop_id'              => $stopId,
+        'crew_ids'             => $crewIds,
+        'crew_names'           => $crewNames,
+        'crew_id'              => $leadCrewId,
+        'crew_name'            => $crewDisplay,
+        'scope'                => $scope,
+        'future_stops_updated' => $futureStopsUpdated,
     ]);
 
 } catch (Exception $e) {

@@ -7534,6 +7534,63 @@ textarea.font-monospace {
 }
 
 /* Footer */
+/* Scope: this visit / all future */
+.mw-cam-scope {
+  margin: 0 24px 4px;
+  padding: 12px 14px;
+  background: var(--mw-light);
+  border: 1px solid #cde3d9;
+  border-radius: 8px;
+}
+.mw-cam-scope-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--mw-dark);
+  margin-bottom: 8px;
+}
+.mw-cam-scope-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mw-cam-scope-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1.5px solid transparent;
+  transition: border-color .15s, background .15s;
+}
+.mw-cam-scope-option:has(input:checked) {
+  border-color: var(--mw-green);
+  background: #fff;
+}
+.mw-cam-scope-option input[type="radio"] {
+  margin-top: 3px;
+  accent-color: var(--mw-green);
+  flex-shrink: 0;
+}
+.mw-cam-scope-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.mw-cam-scope-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2d3748;
+}
+.mw-cam-scope-text em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: #6b7280;
+}
+
 .mw-cam-footer {
   display: flex;
   justify-content: flex-end;

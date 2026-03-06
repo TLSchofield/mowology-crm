@@ -2085,6 +2085,7 @@ if ($apiKey) {
                           </button>
                       </div>
                       <input type="hidden" id="crewAssignStopId">
+                      <input type="hidden" id="crewAssignPlanId">
 
                       <div class="mw-cam-body">
                           <!-- Service pills -->
@@ -2104,6 +2105,27 @@ if ($apiKey) {
                                           <span class="mw-crew-check-name"><?php echo htmlspecialchars($member['full_name']); ?></span>
                                       </label>
                                   <?php endforeach; ?>
+                              </div>
+                          </div>
+
+                          <!-- Scope: just this visit or all future -->
+                          <div class="mw-cam-scope" id="crewAssignScope" style="display:none;">
+                              <div class="mw-cam-scope-label">Apply to</div>
+                              <div class="mw-cam-scope-options">
+                                  <label class="mw-cam-scope-option">
+                                      <input type="radio" name="crewScope" value="this_visit" checked>
+                                      <span class="mw-cam-scope-text">
+                                          <strong>This visit only</strong>
+                                          <em>Just Mar 5 — other visits unchanged</em>
+                                      </span>
+                                  </label>
+                                  <label class="mw-cam-scope-option">
+                                      <input type="radio" name="crewScope" value="all_future">
+                                      <span class="mw-cam-scope-text">
+                                          <strong>This &amp; all future visits</strong>
+                                          <em>Updates the plan default crew going forward</em>
+                                      </span>
+                                  </label>
                               </div>
                           </div>
                       </div>
@@ -2691,6 +2713,18 @@ function getServiceLabel(type) {
             document.getElementById('crewAssignProperty').textContent = address;
             document.getElementById('crewAssignDate').textContent = dateDisplay;
 
+            // Store plan_id from the first visit (used for "all future" scope)
+            var planId = visits.length > 0 ? (visits[0].plan_id || 0) : 0;
+            document.getElementById('crewAssignPlanId').value = planId;
+
+            // Show scope section only when a plan is linked; update the date label; reset to default
+            var scopeSection = document.getElementById('crewAssignScope');
+            scopeSection.style.display = planId > 0 ? '' : 'none';
+            scopeSection.querySelector('input[value="this_visit"]').checked = true;
+            // Update the "just this date" label dynamically
+            var thisVisitEm = scopeSection.querySelector('input[value="this_visit"]').closest('label').querySelector('em');
+            if (thisVisitEm) thisVisitEm.textContent = 'Just ' + dateDisplay + ' — other visits unchanged';
+
             // Render service pills
             var servicesEl = document.getElementById('crewAssignServices');
             servicesEl.innerHTML = '';
@@ -2750,6 +2784,7 @@ function getServiceLabel(type) {
     document.getElementById('crewAssignSave').addEventListener('click', function() {
         var btn = this;
         var stopId = document.getElementById('crewAssignStopId').value;
+        var planId = parseInt(document.getElementById('crewAssignPlanId').value || '0', 10);
 
         // Gather checked crew IDs
         var crewIds = [];
@@ -2757,16 +2792,24 @@ function getServiceLabel(type) {
             crewIds.push(parseInt(cb.value, 10));
         });
 
+        // Read scope (only present when plan is linked)
+        var scopeEl = document.querySelector('#crewAssignScope input[name="crewScope"]:checked');
+        var scope = scopeEl ? scopeEl.value : 'this_visit';
+
         btn.disabled = true;
         btn.textContent = 'Saving...';
+
+        var payload = {
+            stop_id: parseInt(stopId, 10),
+            crew_ids: crewIds,
+            scope: scope
+        };
+        if (planId > 0) payload.plan_id = planId;
 
         fetch('/crm/api/assign-crew.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                stop_id: parseInt(stopId, 10),
-                crew_ids: crewIds
-            })
+            body: JSON.stringify(payload)
         })
         .then(function(resp) {
             if (!resp.ok) {
