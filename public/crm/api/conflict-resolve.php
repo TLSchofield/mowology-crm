@@ -63,13 +63,21 @@ try {
 
         case 'create_time_entry':
             $visitId   = (int)($input['visit_id'] ?? 0);
-            $userId    = (int)($input['user_id'] ?? 0);
             $dateStr   = $input['date'] ?? '';
             $startTime = $input['start_time'] ?? '';
             $endTime   = $input['end_time'] ?? '';
             $notes     = trim($input['notes'] ?? '');
 
-            if (!$visitId || !$userId || !$dateStr || !$startTime || !$endTime) {
+            // Accept user_ids (array) or user_id (single, backward compat)
+            $userIds = [];
+            if (!empty($input['user_ids']) && is_array($input['user_ids'])) {
+                $userIds = array_map('intval', $input['user_ids']);
+                $userIds = array_filter($userIds, fn($id) => $id > 0);
+            } elseif (!empty($input['user_id'])) {
+                $userIds = [(int)$input['user_id']];
+            }
+
+            if (!$visitId || empty($userIds) || !$dateStr || !$startTime || !$endTime) {
                 throw new Exception('Missing required fields');
             }
 
@@ -95,14 +103,17 @@ try {
 
             $db->beginTransaction();
 
-            // Insert completed time entry
+            // Insert one time entry per crew member
             $entryStmt = $db->prepare("
                 INSERT INTO job_time_entries
                     (visit_id, user_id, start_time, end_time, duration_minutes, auto_started, status, notes)
                 VALUES (?, ?, ?, ?, ?, 0, 'completed', ?)
             ");
-            $entryStmt->execute([$visitId, $userId, $startDt, $endDt, $durationMinutes, $notes ?: 'Created via conflict resolution']);
-            $entryId = (int)$db->lastInsertId();
+            $entryIds = [];
+            foreach ($userIds as $uid) {
+                $entryStmt->execute([$visitId, $uid, $startDt, $endDt, $durationMinutes, $notes ?: 'Created via conflict resolution']);
+                $entryIds[] = (int)$db->lastInsertId();
+            }
 
             // Update visit status to completed if still scheduled
             if ($visit['status'] === 'scheduled' || $visit['status'] === 'in_progress') {
@@ -112,19 +123,21 @@ try {
             }
 
             // Record resolution
+            $crewCount = count($userIds);
             $db->prepare("
                 INSERT INTO conflict_resolutions (visit_id, visit_date, resolution_type, resolved_by, notes)
                 VALUES (?, ?, 'time_entry_created', ?, ?)
-            ")->execute([$visitId, $dateStr, (int)$user['id'], $notes ?: null]);
+            ")->execute([$visitId, $dateStr, (int)$user['id'], ($notes ?: '') . ($crewCount > 1 ? " ({$crewCount} crew members)" : '')]);
 
             $db->commit();
 
             // Capture labor costs (non-critical — outside transaction)
+            // Use the first crew member as the "completing user" for the rate snapshot
             try {
                 $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
                 if (is_file($vcService)) {
                     require_once $vcService;
-                    VisitCompletionService::capture($visitId, $userId);
+                    VisitCompletionService::capture($visitId, $userIds[0]);
                 }
             } catch (Throwable $e) {
                 error_log('[conflict-resolve] VisitCompletionService error: ' . $e->getMessage());
@@ -137,7 +150,13 @@ try {
                     VALUES (?, ?, 'conflict_resolved', ?, ?)
                 ")->execute([
                     $visitId, (int)$user['id'],
-                    json_encode(['type' => 'time_entry_created', 'entry_id' => $entryId, 'duration' => $durationMinutes]),
+                    json_encode([
+                        'type' => 'time_entry_created',
+                        'entry_ids' => $entryIds,
+                        'user_ids' => $userIds,
+                        'duration_per_person' => $durationMinutes,
+                        'total_crew_minutes' => $durationMinutes * $crewCount,
+                    ]),
                     $ip ? substr($ip, 0, 45) : null,
                 ]);
             } catch (Throwable $e) {
@@ -145,9 +164,11 @@ try {
             }
 
             echo json_encode([
-                'success'          => true,
-                'entry_id'         => $entryId,
-                'duration_minutes' => $durationMinutes,
+                'success'            => true,
+                'entry_ids'          => $entryIds,
+                'crew_count'         => $crewCount,
+                'duration_minutes'   => $durationMinutes,
+                'total_crew_minutes' => $durationMinutes * $crewCount,
             ]);
             break;
 

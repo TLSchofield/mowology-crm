@@ -209,22 +209,33 @@ $photoStmt = $db->prepare("
 $photoStmt->execute([$visitId]);
 $photos = $photoStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// --- Load crew members assigned to stop on this date ---
-$crewStmt = $db->prepare("
-    SELECT DISTINCT u.id, u.full_name
+// --- Load assigned crew IDs for this stop on this date ---
+$assignedIds = [];
+$assignedStmt = $db->prepare("
+    SELECT DISTINCT csc.user_id
     FROM calendar_stops cs
     JOIN calendar_stop_crew csc ON csc.stop_id = cs.id
-    JOIN users u ON u.id = csc.user_id
-    WHERE cs.stop_date = ?
-      AND cs.property_id = ?
-      AND u.device_type IS NULL OR u.device_type != 'truck'
+    WHERE cs.stop_date = ? AND cs.property_id = ?
 ");
-$crewStmt->execute([$date, $propertyId]);
-$assignedCrew = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
-// Fallback: if no crew from stops, use the visit's assigned crew
-if (empty($assignedCrew) && $visit['assigned_crew_id']) {
-    $assignedCrew = [['id' => (int)$visit['assigned_crew_id'], 'full_name' => $visit['crew_name']]];
+$assignedStmt->execute([$date, $propertyId]);
+while ($row = $assignedStmt->fetch(PDO::FETCH_ASSOC)) {
+    $assignedIds[] = (int)$row['user_id'];
 }
+// Fallback: use the visit's assigned_crew_id
+if (empty($assignedIds) && $visit['assigned_crew_id']) {
+    $assignedIds[] = (int)$visit['assigned_crew_id'];
+}
+
+// --- Load ALL active non-truck crew members (for multi-select) ---
+$allCrewStmt = $db->query("
+    SELECT id, full_name, hourly_rate
+    FROM users
+    WHERE is_active = 1
+      AND (device_type IS NULL OR device_type != 'truck')
+      AND role IN ('admin', 'manager', 'crew', 'employee')
+    ORDER BY full_name ASC
+");
+$allCrew = $allCrewStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // --- Check for existing resolution ---
 $resStmt = $db->prepare("
@@ -477,12 +488,23 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                                value="<?= $lastSeen ? (new DateTime('@' . $lastSeen))->setTimezone($tz)->format('H:i') : '' ?>">
                     </div>
                     <div class="form-group">
-                        <label class="small font-weight-bold">Crew Member</label>
-                        <select class="form-control form-control-sm" id="entryCrewId">
-                            <?php foreach ($assignedCrew as $c): ?>
-                                <option value="<?= (int)$c['id'] ?>"><?= htmlspecialchars($c['full_name']) ?></option>
+                        <label class="small font-weight-bold">Crew Present <span class="text-muted font-weight-normal">(select all who were on-site)</span></label>
+                        <div id="crewCheckboxes" style="max-height:160px; overflow-y:auto; border:1px solid #dee2e6; border-radius:4px; padding:6px;">
+                            <?php foreach ($allCrew as $c):
+                                $isAssigned = in_array((int)$c['id'], $assignedIds);
+                                $rate = $c['hourly_rate'] ? '$' . number_format((float)$c['hourly_rate'], 0) . '/hr' : '';
+                            ?>
+                                <div class="custom-control custom-checkbox mb-1">
+                                    <input type="checkbox" class="custom-control-input crew-cb" id="crew_<?= (int)$c['id'] ?>"
+                                           value="<?= (int)$c['id'] ?>" <?= $isAssigned ? 'checked' : '' ?>>
+                                    <label class="custom-control-label small" for="crew_<?= (int)$c['id'] ?>">
+                                        <?= htmlspecialchars($c['full_name']) ?>
+                                        <?php if ($rate): ?><span class="text-muted">(<?= $rate ?>)</span><?php endif; ?>
+                                        <?php if ($isAssigned): ?><span class="badge badge-info ml-1" style="font-size:0.65em;">assigned</span><?php endif; ?>
+                                    </label>
+                                </div>
                             <?php endforeach; ?>
-                        </select>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label class="small font-weight-bold">Notes (optional)</label>
@@ -766,16 +788,25 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
         btnCreate.addEventListener('click', function() {
             var startTime = document.getElementById('entryStart').value;
             var endTime   = document.getElementById('entryEnd').value;
-            var crewId    = document.getElementById('entryCrewId').value;
             var notes     = document.getElementById('entryNotes').value;
+
+            // Collect checked crew IDs
+            var userIds = [];
+            document.querySelectorAll('.crew-cb:checked').forEach(function(cb) {
+                userIds.push(parseInt(cb.value));
+            });
 
             if (!startTime || !endTime) {
                 alert('Please enter start and end times.');
                 return;
             }
+            if (userIds.length === 0) {
+                alert('Please select at least one crew member.');
+                return;
+            }
 
             btnCreate.disabled = true;
-            btnCreate.textContent = 'Creating...';
+            btnCreate.textContent = 'Creating ' + userIds.length + ' entries...';
 
             fetch('/crm/api/conflict-resolve.php', {
                 method: 'POST',
@@ -784,7 +815,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     csrf_token: csrfToken,
                     action: 'create_time_entry',
                     visit_id: visitId,
-                    user_id: parseInt(crewId),
+                    user_ids: userIds,
                     date: visitDate,
                     start_time: startTime,
                     end_time: endTime,
