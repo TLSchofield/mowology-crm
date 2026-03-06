@@ -191,6 +191,16 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                               <button class="btn btn-outline-secondary btn-sm" onclick="clearCurrentDrawing()">Clear Drawing</button>
                               <button class="btn btn-outline-danger btn-sm" onclick="clearAllAreas()">Clear All</button>
                           </div>
+                          <div class="d-flex mt-2" style="gap: 0.5rem;">
+                              <button class="btn btn-outline-secondary btn-sm flex-fill" id="undoBtn" onclick="undo()" disabled title="Nothing to undo">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px;"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                                  Undo
+                              </button>
+                              <button class="btn btn-outline-secondary btn-sm flex-fill" id="redoBtn" onclick="redo()" disabled title="Nothing to redo">
+                                  Redo
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px;"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"></path></svg>
+                              </button>
+                          </div>
                       </div>
                   </div>
 
@@ -389,6 +399,154 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         let currentShape = null;
         let savedAreas = [];
         let areaCounter = 0;
+
+        // ─── Undo / Redo Stack ───────────────────────────────
+        const undoStack = [];
+        const redoStack = [];
+
+        function pushUndo(action) {
+            undoStack.push(action);
+            redoStack.length = 0; // new action clears redo
+            updateUndoRedoButtons();
+        }
+
+        function undo() {
+            if (undoStack.length === 0) return;
+            const action = undoStack.pop();
+
+            switch (action.type) {
+                case 'save': {
+                    // reverse: remove the area from savedAreas and map
+                    const idx = savedAreas.findIndex(a => a.id === action.area.id);
+                    if (idx !== -1) {
+                        const removed = savedAreas.splice(idx, 1)[0];
+                        if (removed.shape) removed.shape.setMap(null);
+                        redoStack.push({ type: 'save', area: removed });
+                    }
+                    break;
+                }
+                case 'delete': {
+                    // reverse: re-add the area
+                    const area = action.area;
+                    if (area.shape) area.shape.setMap(map);
+                    savedAreas.splice(action.index, 0, area);
+                    redoStack.push({ type: 'delete', area: area, index: action.index });
+                    break;
+                }
+                case 'clearAll': {
+                    // reverse: restore all areas
+                    action.areas.forEach(a => {
+                        if (a.shape) a.shape.setMap(map);
+                        savedAreas.push(a);
+                    });
+                    redoStack.push({ type: 'clearAll', areas: action.areas });
+                    break;
+                }
+                case 'typeChange': {
+                    // reverse: restore previous type
+                    const a = savedAreas.find(x => x.id === action.areaId);
+                    if (a) {
+                        const currentType = a.type;
+                        a.type = action.oldType;
+                        redoStack.push({ type: 'typeChange', areaId: action.areaId, oldType: currentType, newType: action.oldType });
+                    }
+                    break;
+                }
+            }
+
+            updateAreasList();
+            calculatePricing();
+            updateUndoRedoButtons();
+        }
+
+        function redo() {
+            if (redoStack.length === 0) return;
+            const action = redoStack.pop();
+
+            switch (action.type) {
+                case 'save': {
+                    // re-apply: add area back
+                    const area = action.area;
+                    if (area.shape) area.shape.setMap(map);
+                    savedAreas.push(area);
+                    undoStack.push({ type: 'save', area: area });
+                    break;
+                }
+                case 'delete': {
+                    // re-apply: remove area again
+                    const idx = savedAreas.findIndex(a => a.id === action.area.id);
+                    if (idx !== -1) {
+                        const removed = savedAreas.splice(idx, 1)[0];
+                        if (removed.shape) removed.shape.setMap(null);
+                        undoStack.push({ type: 'delete', area: removed, index: idx });
+                    }
+                    break;
+                }
+                case 'clearAll': {
+                    // re-apply: clear all again
+                    const copy = savedAreas.slice();
+                    copy.forEach(a => { if (a.shape) a.shape.setMap(null); });
+                    savedAreas.length = 0;
+                    undoStack.push({ type: 'clearAll', areas: copy });
+                    break;
+                }
+                case 'typeChange': {
+                    const a = savedAreas.find(x => x.id === action.areaId);
+                    if (a) {
+                        const currentType = a.type;
+                        a.type = action.newType;
+                        undoStack.push({ type: 'typeChange', areaId: action.areaId, oldType: currentType, newType: action.newType });
+                    }
+                    break;
+                }
+            }
+
+            updateAreasList();
+            calculatePricing();
+            updateUndoRedoButtons();
+        }
+
+        function updateUndoRedoButtons() {
+            const undoBtn = document.getElementById('undoBtn');
+            const redoBtn = document.getElementById('redoBtn');
+            if (undoBtn) {
+                undoBtn.disabled = undoStack.length === 0;
+                undoBtn.title = undoStack.length ? 'Undo ' + describeAction(undoStack[undoStack.length - 1]) : 'Nothing to undo';
+            }
+            if (redoBtn) {
+                redoBtn.disabled = redoStack.length === 0;
+                redoBtn.title = redoStack.length ? 'Redo ' + describeAction(redoStack[redoStack.length - 1]) : 'Nothing to redo';
+            }
+        }
+
+        function describeAction(action) {
+            if (!action) return '';
+            switch (action.type) {
+                case 'save': return '"' + (action.area.name || 'area') + '"';
+                case 'delete': return 'delete "' + (action.area.name || 'area') + '"';
+                case 'clearAll': return 'clear all (' + action.areas.length + ' areas)';
+                case 'typeChange': return 'type change';
+                default: return action.type;
+            }
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Ctrl+Z / Cmd+Z = undo, Ctrl+Shift+Z / Cmd+Shift+Z = redo, Ctrl+Y / Cmd+Y = redo
+            const mod = e.ctrlKey || e.metaKey;
+            if (!mod) return;
+            // Don't intercept if user is typing in an input/textarea/select
+            const tag = (e.target.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+            if (e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                undo();
+            } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+                e.preventDefault();
+                redo();
+            }
+        });
 
         // Service pricing rates (per sq ft)
         const servicePrices = {
@@ -707,6 +865,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             }
 
             savedAreas.push(area);
+            pushUndo({ type: 'save', area: area });
             updateAreasList();
 
             // Clear current drawing
@@ -737,7 +896,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
         function changeAreaType(areaId, newType) {
             var area = savedAreas.find(function(a) { return a.id === areaId; });
-            if (area) area.type = newType;
+            if (area && area.type !== newType) {
+                pushUndo({ type: 'typeChange', areaId: areaId, oldType: area.type, newType: newType });
+                area.type = newType;
+            }
         }
 
         function updateAreasList() {
@@ -773,10 +935,12 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         }
 
         function deleteArea(id) {
-            const area = savedAreas.find(a => a.id === id);
-            if (area) {
+            const idx = savedAreas.findIndex(a => a.id === id);
+            if (idx !== -1) {
+                const area = savedAreas[idx];
                 if (area.shape) area.shape.setMap(null);
-                savedAreas = savedAreas.filter(a => a.id !== id);
+                savedAreas.splice(idx, 1);
+                pushUndo({ type: 'delete', area: area, index: idx });
                 updateAreasList();
                 calculatePricing();
             }
@@ -798,9 +962,12 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         }
 
         function clearAllAreas() {
+            if (savedAreas.length === 0) return;
             if (confirm('Clear all measured areas?')) {
-                savedAreas.forEach(area => { if (area.shape) area.shape.setMap(null); });
+                const copy = savedAreas.slice();
+                copy.forEach(area => { if (area.shape) area.shape.setMap(null); });
                 savedAreas = [];
+                pushUndo({ type: 'clearAll', areas: copy });
                 clearCurrentDrawing();
                 updateAreasList();
                 document.getElementById('pricingDisplay').style.display = 'none';
