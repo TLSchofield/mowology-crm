@@ -602,6 +602,22 @@ function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
         $stmt->execute($params);
         $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        // Batch-fetch crew assignments for all plans so we can sync calendar_stop_crew
+        $planCrewMap = []; // plan_id => [user_id, ...]
+        if (!empty($plans)) {
+            $planIds = array_column($plans, 'id');
+            $ph = implode(',', array_fill(0, count($planIds), '?'));
+            $pcStmt = $db->prepare("
+                SELECT plan_id, user_id FROM plan_crew_assignments
+                WHERE plan_id IN ({$ph})
+                ORDER BY FIELD(role, 'lead', 'crew'), user_id
+            ");
+            $pcStmt->execute($planIds);
+            foreach ($pcStmt->fetchAll(PDO::FETCH_ASSOC) as $pcr) {
+                $planCrewMap[(int)$pcr['plan_id']][] = (int)$pcr['user_id'];
+            }
+        }
+
         // Fetch global holidays once for the full horizon window
         $maxHorizon = $horizonDays ?? 42;
         $holidayFrom = date('Y-m-d');
@@ -686,6 +702,18 @@ function generateVisits(?int $planId = null, ?int $horizonDays = null): array {
                         $estArrival,
                         $estDeparture
                     );
+
+                    // Sync junction table: insert all plan crew into calendar_stop_crew (INSERT IGNORE
+                    // so we don't overwrite crew manually set via the assign-crew modal)
+                    if ($stopId > 0) {
+                        $planCrew = $planCrewMap[(int)$plan['id']] ?? ($plan['default_crew_id'] ? [(int)$plan['default_crew_id']] : []);
+                        if (!empty($planCrew)) {
+                            $jInsStmt = $db->prepare("INSERT IGNORE INTO calendar_stop_crew (stop_id, user_id) VALUES (?, ?)");
+                            foreach ($planCrew as $crewUserId) {
+                                $jInsStmt->execute([$stopId, $crewUserId]);
+                            }
+                        }
+                    }
 
                     $visitNumber = generateVisitNumber($plan['plan_number'], $nextSeq);
 
@@ -1523,11 +1551,21 @@ function propagatePlanChanges(int $planId, array $changes, int $userId): void {
     ");
     $stmt->execute($params);
 
-    // If crew changed, also update calendar stops
+    // If crew changed, update calendar_stops.crew_id for future stops tied only to this plan
     if (array_key_exists('default_crew_id', $changes)) {
-        // This is trickier — we need to handle the UNIQUE constraint on stops
-        // For now, update stops that only have visits from this plan
-        // A more sophisticated approach would merge stops
+        $newLeadCrewId = $changes['default_crew_id'] ? (int)$changes['default_crew_id'] : null;
+        // Only update stops where all visits belong to this plan (safe to remap crew)
+        $db->prepare("
+            UPDATE calendar_stops cs
+            INNER JOIN (
+                SELECT stop_id
+                FROM job_visits
+                WHERE status = 'scheduled' AND scheduled_date >= CURDATE() AND stop_id IS NOT NULL
+                GROUP BY stop_id
+                HAVING SUM(plan_id != ?) = 0
+            ) AS solo ON solo.stop_id = cs.id
+            SET cs.crew_id = ?, cs.updated_at = NOW()
+        ")->execute([$planId, $newLeadCrewId]);
     }
 }
 
@@ -2270,6 +2308,43 @@ function updateJobPlan(int $planId, array $data, int $userId): array {
         if (array_key_exists('crew_ids', $data) && is_array($data['crew_ids'])) {
             $leadId = !empty($data['default_crew_id']) ? (int)$data['default_crew_id'] : null;
             setPlanCrewAssignments($planId, $data['crew_ids'], $leadId);
+
+            // Sync calendar_stop_crew for all future scheduled stops of this plan so
+            // the assign-crew modal pre-checks the correct crew members on the schedule page.
+            $filteredCrewIds = array_values(array_unique(
+                array_filter(array_map('intval', $data['crew_ids']), function($id) { return $id > 0; })
+            ));
+
+            $stopStmt = $db->prepare("
+                SELECT DISTINCT jv.stop_id
+                FROM job_visits jv
+                WHERE jv.plan_id = ?
+                  AND jv.status = 'scheduled'
+                  AND jv.scheduled_date >= CURDATE()
+                  AND jv.stop_id IS NOT NULL
+            ");
+            $stopStmt->execute([$planId]);
+            $futureStopIds = $stopStmt->fetchAll(PDO::FETCH_COLUMN);
+
+            if (!empty($futureStopIds)) {
+                $delCrewStmt = $db->prepare("DELETE FROM calendar_stop_crew WHERE stop_id = ?");
+                $insCrewStmt = $db->prepare("INSERT INTO calendar_stop_crew (stop_id, user_id) VALUES (?, ?)");
+                $updStopStmt = $db->prepare("UPDATE calendar_stops SET crew_id = ?, updated_at = NOW() WHERE id = ?");
+                $clrStopStmt = $db->prepare("UPDATE calendar_stops SET crew_id = NULL, updated_at = NOW() WHERE id = ?");
+
+                foreach ($futureStopIds as $sid) {
+                    $delCrewStmt->execute([$sid]);
+                    if (!empty($filteredCrewIds)) {
+                        foreach ($filteredCrewIds as $cid) {
+                            $insCrewStmt->execute([$sid, $cid]);
+                        }
+                        // Keep calendar_stops.crew_id in sync with the lead (first) crew
+                        $updStopStmt->execute([$filteredCrewIds[0], $sid]);
+                    } else {
+                        $clrStopStmt->execute([$sid]);
+                    }
+                }
+            }
         }
 
         // Determine if we need to regenerate visits or just propagate
