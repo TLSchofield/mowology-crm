@@ -630,6 +630,26 @@ a:hover {
 
 /* ── Quote Workflow Page ────────────────────────────── */
 
+/* Quote Workflow — Arrival Border Warning */
+.mw-wf-border-alert {
+  background: #fffbeb;
+  border: 1px solid #f59e0b;
+  border-left: 4px solid #f59e0b;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  color: #92400e;
+}
+.mw-wf-border-link {
+  color: var(--mw-dark);
+  font-weight: 600;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+.mw-wf-border-link:hover {
+  color: var(--mw-green);
+}
+
 .mw-workflow-header {
   display: flex;
   justify-content: space-between;
@@ -6088,6 +6108,42 @@ tr[data-href] { cursor: pointer; }
 .mw-measurement-date {
   color: #999;
   font-size: 0.7rem;
+}
+
+/* Property Arrival Border Status */
+.mw-property-geofence-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 20px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+}
+.mw-geofence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.mw-geofence-set {
+  background: #e6f4ea;
+  color: #1a7f37;
+}
+.mw-geofence-missing {
+  background: #fff3e0;
+  color: #b45309;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mw-geofence-missing:hover {
+  background: #fed7aa;
+  color: #92400e;
+  text-decoration: none;
 }
 
 /* Property Quick Actions */

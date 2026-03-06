@@ -282,6 +282,16 @@ if ($request['property_id']) {
     $measurements = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+// Check arrival border status for this property
+$hasArrivalBorder = false;
+if ($request['property_id']) {
+    try {
+        $abStmt = $db->prepare("SELECT COUNT(*) FROM job_geofences WHERE property_id = ? AND zone_type = 'arrival_border'");
+        $abStmt->execute([(int)$request['property_id']]);
+        $hasArrivalBorder = (int)$abStmt->fetchColumn() > 0;
+    } catch (Exception $e) { /* table may not exist yet */ }
+}
+
 // Load products from catalog for "From Template" dropdown
 $products = [];
 try {
@@ -434,6 +444,27 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
                     <?php if ($error): ?>
                         <div class="alert alert-danger"><?php echo h($error); ?></div>
+                    <?php endif; ?>
+
+                    <?php if (!$hasArrivalBorder && $request['property_id'] && floatval($request['latitude'] ?? 0) != 0): ?>
+                    <div class="alert mw-wf-border-alert mb-2" id="borderAlert">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center">
+                                <i data-feather="alert-triangle" style="width:16px;height:16px;" class="mr-2 text-warning"></i>
+                                <span>
+                                    <strong>No arrival border drawn.</strong>
+                                    Draw one for accurate auto-clock-in on dense routes.
+                                    <a href="jobs/zone-editor.php?property_id=<?php echo (int)$request['property_id']; ?>&return_to=<?php echo urlencode('quote-workflow.php?request_id=' . $requestId); ?>"
+                                       target="_blank" class="mw-wf-border-link">
+                                        Draw arrival border <i data-feather="external-link" style="width:11px;height:11px;"></i>
+                                    </a>
+                                </span>
+                            </div>
+                            <button type="button" class="close ml-2" onclick="document.getElementById('borderAlert').style.display='none'" aria-label="Dismiss">
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </div>
+                    </div>
                     <?php endif; ?>
 
                     <div class="row" id="workflowContainer">

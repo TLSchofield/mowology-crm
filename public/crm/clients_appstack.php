@@ -856,7 +856,8 @@ if ($action === 'view_contact' && $clientId) {
                    COALESCE(p.total_hedge_linear_ft, 0) AS total_hedge_linear_ft,
                    COALESCE(p.total_other_sqft, 0) AS total_other_sqft,
                    p.measurements_updated_at,
-                   (SELECT COUNT(*) FROM property_measurements pm WHERE pm.property_id = p.id) AS measurement_count
+                   (SELECT COUNT(*) FROM property_measurements pm WHERE pm.property_id = p.id) AS measurement_count,
+                   (SELECT COUNT(*) FROM job_geofences jg WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
             FROM properties p
             WHERE p.site_contact_id = ?
             ORDER BY p.address ASC
@@ -1223,6 +1224,11 @@ if ($action === 'view_contact' && $clientId) {
         if (empty($contactQuotes)) $dataHealth[] = ['level' => 'info', 'icon' => 'file-text', 'text' => 'No quotes created yet'];
         if ($activePlanCount === 0) $dataHealth[] = ['level' => 'info', 'icon' => 'clipboard', 'text' => 'No active job plans'];
         if ($ungeocodedCount > 0) $dataHealth[] = ['level' => 'warn', 'icon' => 'crosshair', 'text' => $ungeocodedCount . ' propert' . ($ungeocodedCount === 1 ? 'y' : 'ies') . ' not geocoded'];
+        $missingBorderCount = 0;
+        foreach ($contactProperties as $cp) {
+            if (floatval($cp['latitude'] ?? 0) != 0 && (int)($cp['has_arrival_border'] ?? 0) === 0) $missingBorderCount++;
+        }
+        if ($missingBorderCount > 0) $dataHealth[] = ['level' => 'warn', 'icon' => 'shield-off', 'text' => $missingBorderCount . ' propert' . ($missingBorderCount === 1 ? 'y' : 'ies') . ' missing arrival border'];
         if (empty($contactNotes)) $dataHealth[] = ['level' => 'info', 'icon' => 'message-circle', 'text' => 'No client notes'];
         if ($totalOutstanding > 0) $dataHealth[] = ['level' => 'warn', 'icon' => 'alert-circle', 'text' => formatCurrency($totalOutstanding) . ' outstanding'];
 
@@ -1458,7 +1464,8 @@ if ($action === 'view_company' && $clientId) {
             $stmt = $db->prepare("
                 SELECT p.id, p.property_name, p.address, p.city, p.province,
                        p.postal_code, p.latitude, p.longitude, p.property_type,
-                       p.lot_size_sqft, p.status, p.site_contact_id
+                       p.lot_size_sqft, p.status, p.site_contact_id,
+                       (SELECT COUNT(*) FROM job_geofences jg WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
                 FROM properties p
                 WHERE p.site_contact_id IN ({$cPlaceholders})
                 ORDER BY p.address ASC
@@ -2480,6 +2487,21 @@ $unconvertedRequests = $db->query("
                                 </span>
                               <?php endif; ?>
                             </div>
+                            <!-- Arrival Border Status -->
+                            <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0): ?>
+                            <div class="mw-property-geofence-status" onclick="event.stopPropagation();">
+                              <?php if ((int)($prop['has_arrival_border'] ?? 0) > 0): ?>
+                                <span class="mw-geofence-badge mw-geofence-set">
+                                  <i data-feather="shield" style="width: 11px; height: 11px;"></i> Arrival Border Set
+                                </span>
+                              <?php else: ?>
+                                <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_contact&id=' . (int)$clientId); ?>"
+                                   class="mw-geofence-badge mw-geofence-missing" title="Draw arrival border for accurate auto-clock-in">
+                                  <i data-feather="alert-triangle" style="width: 11px; height: 11px;"></i> No Arrival Border
+                                </a>
+                              <?php endif; ?>
+                            </div>
+                            <?php endif; ?>
                             <!-- Quick Actions -->
                             <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
                               <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Measure, quote & auto-fill pricing">
@@ -2488,7 +2510,7 @@ $unconvertedRequests = $db->query("
                               <a href="jobs/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn" title="Create job plan for this property">
                                 <i data-feather="clipboard" style="width: 11px; height: 11px;"></i> Create Plan
                               </a>
-                              <button type="button" class="mw-prop-action-btn mw-prop-action-geofence" title="Draw work zone for auto clock-in" onclick="openWorkZoneModal(<?php echo (int)$prop['id']; ?>, <?php echo floatval($prop['latitude'] ?? 0); ?>, <?php echo floatval($prop['longitude'] ?? 0); ?>)">
+                              <button type="button" class="mw-prop-action-btn mw-prop-action-geofence" title="Draw work zones for time tracking" onclick="openWorkZoneModal(<?php echo (int)$prop['id']; ?>, <?php echo floatval($prop['latitude'] ?? 0); ?>, <?php echo floatval($prop['longitude'] ?? 0); ?>)">
                                 <i data-feather="map-pin" style="width: 11px; height: 11px;"></i> Work Zone
                               </button>
                             </div>
@@ -3275,6 +3297,26 @@ $unconvertedRequests = $db->query("
               </div>
             </div>
 
+            <!-- Arrival Border Prompt Modal -->
+            <div class="modal fade" id="arrivalBorderPromptModal" tabindex="-1" role="dialog">
+              <div class="modal-dialog modal-sm" role="document">
+                <div class="modal-content">
+                  <div class="modal-header" style="background: #f59e0b; color: #fff;">
+                    <h5 class="modal-title"><i data-feather="shield" style="width: 18px; height: 18px;"></i> Draw Arrival Border?</h5>
+                    <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                  </div>
+                  <div class="modal-body">
+                    <p class="mb-2">Property added and geocoded successfully.</p>
+                    <p class="mb-0 small text-muted">Drawing an arrival border prevents wrong auto-clock-ins on dense routes. You can always draw one later from the property card.</p>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="skipArrivalBorder()">Skip for Now</button>
+                    <a href="#" id="drawBorderNowBtn" class="btn btn-warning btn-sm"><i data-feather="edit-3" style="width:14px;height:14px;"></i> Draw Border Now</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Unlink/Reassign Property Modal -->
             <div class="modal fade" id="unlinkPropertyModal" tabindex="-1" role="dialog">
               <div class="modal-dialog" role="document">
@@ -3585,8 +3627,18 @@ $unconvertedRequests = $db->query("
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                   if (data.success) {
-                    // Geocode the new property asynchronously then reload
-                    geocodePropertyAjax(data.property_id).finally(function() {
+                    // Geocode the new property, then prompt for arrival border
+                    var newPropId = data.property_id;
+                    geocodePropertyAjax(newPropId).then(function() {
+                      // Geocode succeeded — prompt to draw arrival border
+                      $('#addPropertyModal').modal('hide');
+                      var returnTo = 'clients_appstack.php?action=view_contact&id=' + CONTACT_ID;
+                      var zoneUrl = 'jobs/zone-editor.php?property_id=' + newPropId + '&return_to=' + encodeURIComponent(returnTo);
+                      document.getElementById('drawBorderNowBtn').href = zoneUrl;
+                      $('#arrivalBorderPromptModal').modal('show');
+                      feather.replace();
+                    }).catch(function() {
+                      // Geocode failed — just reload (can't draw border without coords)
                       location.reload();
                     });
                   } else {
@@ -3602,6 +3654,11 @@ $unconvertedRequests = $db->query("
                   btn.innerHTML = '<i data-feather="plus"></i> Add Property';
                   feather.replace();
                 });
+              };
+
+              window.skipArrivalBorder = function() {
+                $('#arrivalBorderPromptModal').modal('hide');
+                location.reload();
               };
 
               // ── Link Company ────────────────────────────────────
@@ -4218,6 +4275,21 @@ $unconvertedRequests = $db->query("
                                 </span>
                               <?php endif; ?>
                             </div>
+                            <!-- Arrival Border Status -->
+                            <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0): ?>
+                            <div class="mw-property-geofence-status" onclick="event.stopPropagation();">
+                              <?php if ((int)($prop['has_arrival_border'] ?? 0) > 0): ?>
+                                <span class="mw-geofence-badge mw-geofence-set">
+                                  <i data-feather="shield" style="width: 11px; height: 11px;"></i> Arrival Border Set
+                                </span>
+                              <?php else: ?>
+                                <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_company&id=' . (int)$companyId); ?>"
+                                   class="mw-geofence-badge mw-geofence-missing" title="Draw arrival border for accurate auto-clock-in">
+                                  <i data-feather="alert-triangle" style="width: 11px; height: 11px;"></i> No Arrival Border
+                                </a>
+                              <?php endif; ?>
+                            </div>
+                            <?php endif; ?>
                             <!-- Quick Actions -->
                             <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
                               <a href="quote-workflow.php?contact_id=<?php echo (int)($prop['site_contact_id'] ?? 0); ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Measure, quote & auto-fill pricing">

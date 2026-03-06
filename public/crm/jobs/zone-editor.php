@@ -50,6 +50,15 @@ $plans = $plansStmt->fetchAll(PDO::FETCH_ASSOC);
 $lat = $property['latitude']  ?? $property['lat'] ?? 49.2827;
 $lng = $property['longitude'] ?? $property['lng'] ?? -123.1207;
 
+// Support return_to parameter for back navigation (prevent open redirect)
+$returnTo = '';
+if (!empty($_GET['return_to'])) {
+    $raw = $_GET['return_to'];
+    if (preg_match('#^(clients_appstack|quote-workflow|dashboard_appstack|jobs/)#', $raw)) {
+        $returnTo = $raw;
+    }
+}
+
 $pageTitle  = 'Zone Editor — ' . htmlspecialchars($property['address'] ?? 'Property');
 $activePage = 'jobs';
 $extraHead  = '
@@ -72,9 +81,15 @@ $extraHead  = '
                     <?= htmlspecialchars($property['address'] ?? 'Property #' . $propertyId) ?>
                 </p>
             </div>
+            <?php if ($returnTo): ?>
+            <a href="/crm/<?php echo htmlspecialchars($returnTo); ?>" class="btn btn-outline-secondary btn-sm">
+                <i data-feather="arrow-left" class="me-1"></i> Back
+            </a>
+            <?php else: ?>
             <a href="javascript:history.back()" class="btn btn-outline-secondary btn-sm">
                 <i data-feather="arrow-left" class="me-1"></i> Back
             </a>
+            <?php endif; ?>
         </div>
     </div>
 </div>
