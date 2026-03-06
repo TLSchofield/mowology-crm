@@ -346,13 +346,19 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     <i data-feather="settings" class="mr-1" style="width:16px;height:16px;"></i>
                     Property Configuration
                 </h6>
-                <div class="mb-2">
-                    <span class="small font-weight-bold">Geofence Boundary:</span>
-                    <?php if ($arrivalBorder): ?>
-                        <span class="badge badge-success">Drawn</span>
-                    <?php else: ?>
-                        <span class="badge badge-secondary">Not drawn</span>
-                    <?php endif; ?>
+                <div class="mb-2 d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="small font-weight-bold">Geofence Boundary:</span>
+                        <?php if ($arrivalBorder): ?>
+                            <span class="badge badge-success">Drawn</span>
+                        <?php else: ?>
+                            <span class="badge badge-secondary">Not drawn</span>
+                        <?php endif; ?>
+                    </div>
+                    <a href="zone-editor.php?property_id=<?= $propertyId ?>&return_to=<?= urlencode('jobs/conflict-resolution.php?visit_id=' . $visitId . '&date=' . $date . ($truckId ? '&truck_id=' . $truckId : '')) ?>"
+                       class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:0.75rem;">
+                        <i data-feather="edit-2" style="width:12px;height:12px;"></i> Edit
+                    </a>
                 </div>
                 <div class="mb-2">
                     <span class="small font-weight-bold">Auto Clock-In:</span>
