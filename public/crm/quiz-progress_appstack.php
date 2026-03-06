@@ -63,7 +63,7 @@ $csrfToken  = function_exists('generateCSRFToken') ? generateCSRFToken() : '';
                 <h6 class="card-title mb-0">🔥 Study Streak</h6>
             </div>
             <div class="card-body">
-                <div class="row g-3 text-center">
+                <div class="row text-center">
                     <div class="col-6">
                         <div class="mw-prog-streak-num" id="currentStreak">0</div>
                         <div class="text-muted small">Current Streak</div>
@@ -84,11 +84,11 @@ $csrfToken  = function_exists('generateCSRFToken') ? generateCSRFToken() : '';
             </div>
             <div class="card-body p-0">
                 <ul class="list-group list-group-flush mw-prog-ladder" id="rankLadder">
-                    <li class="list-group-item d-flex align-items-center gap-2">🌱 <span>Lawn Apprentice</span> <span class="ms-auto text-muted small">0 mastered</span></li>
-                    <li class="list-group-item d-flex align-items-center gap-2">🌿 <span>Turf Technician</span> <span class="ms-auto text-muted small">10 mastered</span></li>
-                    <li class="list-group-item d-flex align-items-center gap-2">🌳 <span>Plant Specialist</span> <span class="ms-auto text-muted small">25 mastered</span></li>
-                    <li class="list-group-item d-flex align-items-center gap-2">🏅 <span>Landscape Expert</span> <span class="ms-auto text-muted small">50 mastered</span></li>
-                    <li class="list-group-item d-flex align-items-center gap-2">🏆 <span>Master Groundskeeper</span> <span class="ms-auto text-muted small">100 mastered</span></li>
+                    <li class="list-group-item d-flex align-items-center">🌱 &nbsp;<span>Lawn Apprentice</span> <span class="ml-auto text-muted small">0 mastered</span></li>
+                    <li class="list-group-item d-flex align-items-center">🌿 &nbsp;<span>Turf Technician</span> <span class="ml-auto text-muted small">10 mastered</span></li>
+                    <li class="list-group-item d-flex align-items-center">🌳 &nbsp;<span>Plant Specialist</span> <span class="ml-auto text-muted small">25 mastered</span></li>
+                    <li class="list-group-item d-flex align-items-center">🏅 &nbsp;<span>Landscape Expert</span> <span class="ml-auto text-muted small">50 mastered</span></li>
+                    <li class="list-group-item d-flex align-items-center">🏆 &nbsp;<span>Master Groundskeeper</span> <span class="ml-auto text-muted small">100 mastered</span></li>
                 </ul>
             </div>
         </div>
