@@ -14,11 +14,10 @@ struct RootView: View {
     var body: some View {
         Group {
             if authSession.isAuthenticated {
-                ScheduleView()
+                ScheduleView(authSession: authSession)
                     .environmentObject(authSession)
             } else {
-                LoginView()
-                    .environmentObject(authSession)
+                LoginView(authSession: authSession)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: authSession.isAuthenticated)
