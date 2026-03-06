@@ -4148,6 +4148,35 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 
         // Re-render feather icons in the new DOM
         if (typeof feather !== 'undefined') feather.replace();
+
+        // Highlight stop cards in the calendar that have conflicts
+        highlightConflictCards(conflicts);
+    }
+
+    function highlightConflictCards(conflicts) {
+        // Clear previous highlights
+        document.querySelectorAll('.mw-rr-conflict-border').forEach(function(el) {
+            el.classList.remove('mw-rr-conflict-border');
+        });
+
+        if (!conflicts.length) return;
+
+        // Build a lookup: "propertyId_date" => true (warnings only)
+        var conflictKeys = {};
+        for (var i = 0; i < conflicts.length; i++) {
+            if (conflicts[i].severity === 'warning' && conflicts[i].property_id) {
+                conflictKeys[conflicts[i].property_id + '_' + conflicts[i].visit_date] = true;
+            }
+        }
+
+        // Match against stop cards (week view) and day-view cards
+        document.querySelectorAll('.mw-stop-card, .mw-dv-card').forEach(function(card) {
+            var pid  = card.getAttribute('data-property-id');
+            var date = card.getAttribute('data-stop-date');
+            if (pid && date && conflictKeys[pid + '_' + date]) {
+                card.classList.add('mw-rr-conflict-border');
+            }
+        });
     }
 
     function esc(s) {

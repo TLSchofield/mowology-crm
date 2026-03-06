@@ -8061,6 +8061,25 @@ textarea.font-monospace {
     vertical-align: middle;
 }
 
+/* Red border on stop cards with reconciliation conflicts */
+.mw-stop-card.mw-rr-conflict-border,
+.mw-dv-card.mw-rr-conflict-border {
+    border: 2px solid #EF4444 !important;
+    box-shadow: 0 0 0 1px rgba(239,68,68,0.2);
+    position: relative;
+}
+.mw-stop-card.mw-rr-conflict-border::after,
+.mw-dv-card.mw-rr-conflict-border::after {
+    content: '\26A0';
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    font-size: 12px;
+    line-height: 1;
+    color: #EF4444;
+    z-index: 2;
+}
+
 
 /* ============================================
    BATTLE CARDS — Day Column Upgrade
