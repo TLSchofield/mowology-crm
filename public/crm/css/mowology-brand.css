@@ -8706,6 +8706,22 @@ textarea.font-monospace {
   font-weight: 600;
   color: #374151;
 }
+.mw-cr-stop-card.mw-cr-stop-claimed {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f9fafb;
+  border-color: #d1d5db;
+  border-left: 3px solid #9ca3af;
+}
+.mw-cr-stop-card.mw-cr-stop-claimed .mw-cr-stop-check {
+  background: #9ca3af;
+  border-color: #9ca3af;
+  color: #fff;
+}
+.mw-cr-stop-card.mw-cr-stop-claimed:hover {
+  background: #f9fafb;
+  transform: none;
+}
 
 /* Clickable conflict cards on schedule */
 .mw-rr-conflict[style*="cursor"] {

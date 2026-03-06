@@ -128,6 +128,32 @@ try {
                 INSERT INTO conflict_resolutions (visit_id, visit_date, resolution_type, resolved_by, notes)
                 VALUES (?, ?, 'time_entry_created', ?, ?)
             ")->execute([$visitId, $dateStr, (int)$user['id'], ($notes ?: '') . ($crewCount > 1 ? " ({$crewCount} crew members)" : '')]);
+            $resolutionId = (int)$db->lastInsertId();
+
+            // Record claimed GPS stops (so they don't show on other visits)
+            $claimedStops = $input['claimed_stops'] ?? [];
+            if (!empty($claimedStops) && is_array($claimedStops)) {
+                try {
+                    $stopStmt = $db->prepare("
+                        INSERT INTO conflict_resolution_stops
+                            (resolution_id, truck_id, stop_start_epoch, stop_end_epoch, stop_date, property_lat, property_lng)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $propLat = isset($input['property_lat']) ? (float)$input['property_lat'] : null;
+                    $propLng = isset($input['property_lng']) ? (float)$input['property_lng'] : null;
+                    foreach ($claimedStops as $stop) {
+                        $stopTruckId = (int)($stop['truck_id'] ?? 0);
+                        $stopStart   = (int)($stop['start_epoch'] ?? 0);
+                        $stopEnd     = (int)($stop['end_epoch'] ?? 0);
+                        if ($stopTruckId && $stopStart && $stopEnd) {
+                            $stopStmt->execute([$resolutionId, $stopTruckId, $stopStart, $stopEnd, $dateStr, $propLat, $propLng]);
+                        }
+                    }
+                } catch (PDOException $e) {
+                    // Table may not exist yet — non-critical
+                    error_log('[conflict-resolve] claimed_stops insert error: ' . $e->getMessage());
+                }
+            }
 
             $db->commit();
 
@@ -181,10 +207,39 @@ try {
                 throw new Exception('Missing required fields');
             }
 
+            $db->beginTransaction();
+
             $db->prepare("
                 INSERT INTO conflict_resolutions (visit_id, visit_date, resolution_type, resolved_by, notes)
                 VALUES (?, ?, 'dismissed', ?, ?)
             ")->execute([$visitId, $dateStr, (int)$user['id'], $notes ?: null]);
+            $resolutionId = (int)$db->lastInsertId();
+
+            // Record claimed GPS stops (so they don't show on other visits)
+            $claimedStops = $input['claimed_stops'] ?? [];
+            if (!empty($claimedStops) && is_array($claimedStops)) {
+                try {
+                    $stopStmt = $db->prepare("
+                        INSERT INTO conflict_resolution_stops
+                            (resolution_id, truck_id, stop_start_epoch, stop_end_epoch, stop_date, property_lat, property_lng)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    $propLat = isset($input['property_lat']) ? (float)$input['property_lat'] : null;
+                    $propLng = isset($input['property_lng']) ? (float)$input['property_lng'] : null;
+                    foreach ($claimedStops as $stop) {
+                        $stopTruckId = (int)($stop['truck_id'] ?? 0);
+                        $stopStart   = (int)($stop['start_epoch'] ?? 0);
+                        $stopEnd     = (int)($stop['end_epoch'] ?? 0);
+                        if ($stopTruckId && $stopStart && $stopEnd) {
+                            $stopStmt->execute([$resolutionId, $stopTruckId, $stopStart, $stopEnd, $dateStr, $propLat, $propLng]);
+                        }
+                    }
+                } catch (PDOException $e) {
+                    error_log('[conflict-resolve] dismiss claimed_stops error: ' . $e->getMessage());
+                }
+            }
+
+            $db->commit();
 
             // Audit log
             try {
@@ -193,7 +248,7 @@ try {
                     VALUES (?, ?, 'conflict_dismissed', ?, ?)
                 ")->execute([
                     $visitId, (int)$user['id'],
-                    json_encode(['notes' => $notes]),
+                    json_encode(['notes' => $notes, 'claimed_stops' => count($claimedStops)]),
                     $ip ? substr($ip, 0, 45) : null,
                 ]);
             } catch (Throwable $e) {

@@ -298,6 +298,31 @@ $resStmt = $db->prepare("
 $resStmt->execute([$visitId, $date]);
 $existingResolution = $resStmt->fetch(PDO::FETCH_ASSOC);
 
+// --- Load already-claimed GPS stops for this date (from ALL resolutions) ---
+// These stops were assigned to other visits and should be filtered out of the stop picker
+$claimedStops = [];
+try {
+    $claimedStmt = $db->prepare("
+        SELECT crs.truck_id, crs.stop_start_epoch, crs.stop_end_epoch,
+               cr.visit_id AS claimed_visit_id
+        FROM conflict_resolution_stops crs
+        JOIN conflict_resolutions cr ON crs.resolution_id = cr.id
+        WHERE crs.stop_date = ?
+    ");
+    $claimedStmt->execute([$date]);
+    while ($cs = $claimedStmt->fetch(PDO::FETCH_ASSOC)) {
+        $claimedStops[] = [
+            'truck_id'    => (int)$cs['truck_id'],
+            'start_epoch' => (int)$cs['stop_start_epoch'],
+            'end_epoch'   => (int)$cs['stop_end_epoch'],
+            'visit_id'    => (int)$cs['claimed_visit_id'],
+        ];
+    }
+} catch (PDOException $e) {
+    // Table may not exist yet — skip
+    error_log('[conflict-resolution] claimed stops query failed: ' . $e->getMessage());
+}
+
 // --- Determine conflict type ---
 $conflictType = 'unknown';
 if ($visit['status'] === 'scheduled' && count($nearbyPings) >= 2 && $dwellMinutes >= 3) {
@@ -617,6 +642,8 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
     var arrivalBorder = <?= $arrivalBorder && !empty($arrivalBorder['polygon']) ? json_encode($arrivalBorder['polygon']) : 'null' ?>;
     var allTruckDwellPings = <?= json_encode((object)$allTruckDwellPings) ?>;
     var truckNameMap = <?= json_encode((object)$truckNameMap) ?>;
+    var claimedStops = <?= json_encode($claimedStops) ?>;
+    var currentVisitId = <?= (int)$visitId ?>;
 
     // --- Haversine (JS) for cluster detection ---
     function jsHaversine(lat1, lng1, lat2, lng2) {
@@ -645,12 +672,12 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     cur.cLat = ((cur.cLat * (n-1)) + p.lat) / n;
                     cur.cLng = ((cur.cLng * (n-1)) + p.lng) / n;
                 } else {
-                    if (cur.pings.length >= 3) clusters.push(cur);
+                    if (cur.pings.length >= 2) clusters.push(cur);
                     cur = { pings: [p], cLat: p.lat, cLng: p.lng };
                 }
             }
         }
-        if (cur && cur.pings.length >= 3) clusters.push(cur);
+        if (cur && cur.pings.length >= 2) clusters.push(cur);
 
         // Enrich each cluster with timing
         return clusters.map(function(c) {
@@ -776,6 +803,30 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             if (typeof bounds !== 'undefined') map.fitBounds(bounds.pad(0.3));
         }
 
+        // --- Check if a dwell cluster overlaps with an already-claimed stop ---
+        // A stop is "claimed" if same truck and time ranges overlap by >50%
+        function isStopClaimed(cluster) {
+            for (var ci = 0; ci < claimedStops.length; ci++) {
+                var cs = claimedStops[ci];
+                // Must be same truck
+                if (cs.truck_id !== cluster.truckId) continue;
+                // Skip if claimed by THIS visit (allow re-viewing own claimed stops)
+                if (cs.visit_id === currentVisitId) continue;
+                // Check time overlap: claimed range overlaps cluster range
+                var overlapStart = Math.max(cs.start_epoch, cluster.firstEpoch);
+                var overlapEnd   = Math.min(cs.end_epoch, cluster.lastEpoch);
+                if (overlapEnd > overlapStart) {
+                    var overlapDur = overlapEnd - overlapStart;
+                    var clusterDur = cluster.lastEpoch - cluster.firstEpoch;
+                    // If >50% of cluster is covered by claimed range, it's taken
+                    if (clusterDur > 0 && (overlapDur / clusterDur) > 0.5) {
+                        return cs; // Return the claiming info
+                    }
+                }
+            }
+            return false;
+        }
+
         // --- Dwell cluster detection from ALL trucks near property ---
         var allDwellClusters = [];
         var truckIds = Object.keys(allTruckDwellPings);
@@ -786,6 +837,10 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             for (var ci2 = 0; ci2 < clusters.length; ci2++) {
                 clusters[ci2].truckId = parseInt(tid);
                 clusters[ci2].truckName = truckNameMap[tid] || 'Truck #' + tid;
+                // Check if this stop is already claimed by another visit
+                var claimed = isStopClaimed(clusters[ci2]);
+                clusters[ci2].claimed = claimed ? true : false;
+                clusters[ci2].claimedVisitId = claimed ? claimed.visit_id : null;
                 allDwellClusters.push(clusters[ci2]);
             }
         }
@@ -844,18 +899,25 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
 
         // --- Stop Picker (selectable cards from ALL trucks' dwell clusters) ---
         var picker = document.getElementById('dwellStopPicker');
+        var availableClusters = allDwellClusters.filter(function(s) { return !s.claimed; });
         if (picker && allDwellClusters.length > 0) {
             var pHtml = '';
             for (var si = 0; si < allDwellClusters.length; si++) {
                 var s = allDwellClusters[si];
                 var isNear = s.distM <= 150;
-                var nearClass = isNear ? ' mw-cr-stop-nearby' : '';
-                var preSelect = isNear ? ' mw-cr-stop-selected' : '';
-                pHtml += '<div class="mw-cr-stop-card' + nearClass + preSelect + '" data-idx="' + si + '"'
-                    + ' data-first="' + s.firstEpoch + '" data-last="' + s.lastEpoch + '">'
-                    + '<div class="mw-cr-stop-check">' + (isNear ? '&#10003;' : '') + '</div>'
+                var isClaimed = s.claimed;
+                var nearClass = isNear && !isClaimed ? ' mw-cr-stop-nearby' : '';
+                var preSelect = isNear && !isClaimed ? ' mw-cr-stop-selected' : '';
+                var claimedClass = isClaimed ? ' mw-cr-stop-claimed' : '';
+                pHtml += '<div class="mw-cr-stop-card' + nearClass + preSelect + claimedClass + '" data-idx="' + si + '"'
+                    + ' data-first="' + s.firstEpoch + '" data-last="' + s.lastEpoch + '"'
+                    + ' data-truck-id="' + s.truckId + '"'
+                    + (isClaimed ? ' data-claimed="1"' : '') + '>'
+                    + '<div class="mw-cr-stop-check">' + (isNear && !isClaimed ? '&#10003;' : (isClaimed ? '&#10007;' : '')) + '</div>'
                     + '<div class="mw-cr-stop-info">'
-                    + '<div class="mw-cr-stop-time">' + s.firstTime + ' — ' + s.lastTime + '</div>'
+                    + '<div class="mw-cr-stop-time">' + s.firstTime + ' — ' + s.lastTime
+                    + (isClaimed ? ' <span class="badge badge-secondary" style="font-size:0.7em;">Assigned to V-' + s.claimedVisitId + '</span>' : '')
+                    + '</div>'
                     + '<div class="mw-cr-stop-meta">'
                     + '<span>' + s.durMin + ' min</span>'
                     + '<span>&middot;</span>'
@@ -870,9 +932,10 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             }
             picker.innerHTML = pHtml;
 
-            // Toggle selection on click
+            // Toggle selection on click (only for non-claimed stops)
             picker.querySelectorAll('.mw-cr-stop-card').forEach(function(card) {
                 card.addEventListener('click', function() {
+                    if (card.dataset.claimed === '1') return; // Can't select claimed stops
                     card.classList.toggle('mw-cr-stop-selected');
                     var check = card.querySelector('.mw-cr-stop-check');
                     check.innerHTML = card.classList.contains('mw-cr-stop-selected') ? '&#10003;' : '';
@@ -952,6 +1015,19 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             btnCreate.disabled = true;
             btnCreate.textContent = 'Creating ' + userIds.length + ' entries...';
 
+            // Collect selected stops to record as claimed
+            var selectedStops = [];
+            document.querySelectorAll('#dwellStopPicker .mw-cr-stop-selected').forEach(function(card) {
+                var idx = parseInt(card.dataset.idx);
+                if (allDwellClusters[idx]) {
+                    selectedStops.push({
+                        truck_id: allDwellClusters[idx].truckId,
+                        start_epoch: allDwellClusters[idx].firstEpoch,
+                        end_epoch: allDwellClusters[idx].lastEpoch
+                    });
+                }
+            });
+
             fetch('/crm/api/conflict-resolve.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -963,7 +1039,10 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     date: visitDate,
                     start_time: startTime,
                     end_time: endTime,
-                    notes: notes
+                    notes: notes,
+                    claimed_stops: selectedStops,
+                    property_lat: propLat,
+                    property_lng: propLng
                 })
             })
             .then(function(r) { return r.json(); })
@@ -992,6 +1071,19 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             btnDismiss.disabled = true;
             btnDismiss.textContent = 'Dismissing...';
 
+            // Collect any selected stops to record as claimed on dismiss too
+            var dismissStops = [];
+            document.querySelectorAll('#dwellStopPicker .mw-cr-stop-selected').forEach(function(card) {
+                var idx = parseInt(card.dataset.idx);
+                if (allDwellClusters[idx]) {
+                    dismissStops.push({
+                        truck_id: allDwellClusters[idx].truckId,
+                        start_epoch: allDwellClusters[idx].firstEpoch,
+                        end_epoch: allDwellClusters[idx].lastEpoch
+                    });
+                }
+            });
+
             fetch('/crm/api/conflict-resolve.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1000,7 +1092,10 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     action: 'dismiss',
                     visit_id: visitId,
                     date: visitDate,
-                    notes: notes
+                    notes: notes,
+                    claimed_stops: dismissStops,
+                    property_lat: propLat,
+                    property_lng: propLng
                 })
             })
             .then(function(r) { return r.json(); })
