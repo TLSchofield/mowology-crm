@@ -2794,12 +2794,12 @@ function getServiceLabel(type) {
             }
 
             // Conflict resolution link — show if this stop card has a conflict highlight
-            if (card.classList.contains('mw-rr-conflict-border') && visits.length > 0) {
-                var firstVisitId = visits[0].visit_id || 0;
-                var truckId = crewIds.length > 0 ? crewIds[0] : '';
-                if (firstVisitId > 0) {
-                    var crUrl = '/crm/jobs/conflict-resolution.php?visit_id=' + firstVisitId + '&date=' + stopDate;
-                    if (truckId) crUrl += '&truck_id=' + truckId;
+            if (card.classList.contains('mw-rr-conflict-border')) {
+                var cVisitId = card.dataset.conflictVisitId || '';
+                var cTruckId = card.dataset.conflictTruckId || '';
+                if (cVisitId) {
+                    var crUrl = '/crm/jobs/conflict-resolution.php?visit_id=' + cVisitId + '&date=' + stopDate;
+                    if (cTruckId) crUrl += '&truck_id=' + cTruckId;
                     var ca = document.createElement('a');
                     ca.href = crUrl;
                     ca.className = 'mw-cam-link mw-cam-link-conflict';
@@ -4192,11 +4192,11 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 
         if (!conflicts.length) return;
 
-        // Build a lookup: "propertyId_date" => true (warnings only)
+        // Build a lookup: "propertyId_date" => conflict data (warnings only)
         var conflictKeys = {};
         for (var i = 0; i < conflicts.length; i++) {
             if (conflicts[i].severity === 'warning' && conflicts[i].property_id) {
-                conflictKeys[conflicts[i].property_id + '_' + conflicts[i].visit_date] = true;
+                conflictKeys[conflicts[i].property_id + '_' + conflicts[i].visit_date] = conflicts[i];
             }
         }
 
@@ -4204,8 +4204,11 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
         document.querySelectorAll('.mw-stop-card, .mw-dv-card').forEach(function(card) {
             var pid  = card.getAttribute('data-property-id');
             var date = card.getAttribute('data-stop-date');
-            if (pid && date && conflictKeys[pid + '_' + date]) {
+            var key = pid + '_' + date;
+            if (pid && date && conflictKeys[key]) {
                 card.classList.add('mw-rr-conflict-border');
+                card.dataset.conflictVisitId = conflictKeys[key].visit_id || '';
+                card.dataset.conflictTruckId = conflictKeys[key].truck_id || '';
             }
         });
     }
