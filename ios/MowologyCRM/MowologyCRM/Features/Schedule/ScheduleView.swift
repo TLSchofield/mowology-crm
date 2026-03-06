@@ -110,27 +110,7 @@ struct ScheduleView: View {
             .disabled(viewModel.isLoading)
         }
 
-        // Sign-out button.
-        ToolbarItem(placement: .navigationBarTrailing) {
-            Menu {
-                if let user = authSession.user {
-                    Text(user.name)
-                        .font(.caption)
-                    Text(user.email)
-                        .font(.caption)
-                    Divider()
-                }
-
-                Button(role: .destructive) {
-                    authSession.logout()
-                } label: {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-            } label: {
-                Image(systemName: "person.circle")
-                    .foregroundStyle(mwGreen)
-            }
-        }
+        // Account moved to bottom tab bar — no need for sign-out here.
     }
 }
 

@@ -16,6 +16,7 @@
 		2FBD157C6E8D45ACE46C8079 /* AuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11B9496B9E804E3CD0342C49 /* AuthSession.swift */; };
 		42FE3CC920D2D08E173E259C /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2318C0D8CC141570D7D494B /* APIError.swift */; };
 		4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D4D6F730154942832B001A /* WeekStripView.swift */; };
+		4F1A2B3C4D5E6F7A8B9C0D1E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */; };
 		50553DCBC50019B902081947 /* MowologyCRMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */; };
 		559940D1EF1EF0CFE5B02CCF /* APIEndpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */; };
 		8DA04E42442B3D09E704A1CA /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7C92CC6796BADE174216F5 /* APIClient.swift */; };
@@ -39,6 +40,7 @@
 		6BC0B66BE87B94B74DD29C05 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		73D67877BC393CECB2E02474 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		816872EBC5C2A53815D7E212 /* ScheduleDay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleDay.swift; sourceTree = "<group>"; };
+		1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginViewModel.swift; sourceTree = "<group>"; };
 		84917CCF5BF871EC2B745DC4 /* Stop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stop.swift; sourceTree = "<group>"; };
 		9DD091BEACD0F5E731BE8B0E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -85,6 +87,7 @@
 		54688D29E559F2DD07C235D7 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */,
 				A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */,
 				44859802708EFA50B0DE7353 /* RootView.swift */,
 			);
@@ -231,6 +234,7 @@
 				040D77CC7FC7DDF02E82AD32 /* KeychainStore.swift in Sources */,
 				97A54DA2AA9F9A04CA89CD15 /* LoginView.swift in Sources */,
 				CA4E4AC42424C3DDC72267B8 /* LoginViewModel.swift in Sources */,
+				4F1A2B3C4D5E6F7A8B9C0D1E /* MainTabView.swift in Sources */,
 				50553DCBC50019B902081947 /* MowologyCRMApp.swift in Sources */,
 				14EB12BAF8F5CB77D7A4DF95 /* RootView.swift in Sources */,
 				16136063FF479A7B6236094C /* ScheduleDay.swift in Sources */,

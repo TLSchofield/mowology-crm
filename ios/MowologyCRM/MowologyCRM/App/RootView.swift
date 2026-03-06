@@ -14,7 +14,7 @@ struct RootView: View {
     var body: some View {
         Group {
             if authSession.isAuthenticated {
-                ScheduleView(authSession: authSession)
+                MainTabView()
                     .environmentObject(authSession)
             } else {
                 LoginView(authSession: authSession)

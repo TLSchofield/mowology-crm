@@ -69,10 +69,7 @@ struct VisitDetailView: View {
                     detailRow(label: "Est. Arrival", value: arrival)
                 }
 
-                if let lat = stop.latitude, let lon = stop.longitude {
-                    Divider().padding(.leading, 16)
-                    detailRow(label: "Coordinates", value: String(format: "%.4f, %.4f", lat, lon))
-                }
+                // Coordinates intentionally omitted — takes up space, not useful to crew.
             }
             .background(Color(.systemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
