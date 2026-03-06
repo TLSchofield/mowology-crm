@@ -23539,3 +23539,111 @@ textarea.font-monospace {
 .mw-prog-acc-bar-wrap { height: 8px; background: #f3f4f6; border-radius: 8px; overflow: hidden; margin-bottom: 4px; }
 .mw-prog-acc-bar { height: 100%; border-radius: 8px; transition: width 0.7s ease; }
 .mw-prog-cat-sub { font-size: 11px; }
+
+/* ── Card Layout Manager (drag-to-reorder grid builder) ────────── */
+
+/* Floating edit toggle button */
+.mw-layout-toggle {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1040;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--mw-forest);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.25);
+  transition: background 0.15s, transform 0.1s;
+  font-family: inherit;
+}
+.mw-layout-toggle:hover { background: var(--mw-dark); transform: translateY(-1px); }
+.mw-layout-toggle-active { background: var(--mw-green); }
+.mw-layout-toggle-active:hover { background: var(--mw-dark); }
+
+/* Toolbar (save / reset / cancel) */
+.mw-layout-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  background: var(--mw-light);
+  border: 2px dashed var(--mw-green);
+  border-radius: 8px;
+}
+
+/* Edit UI bar on each card */
+.mw-card-edit-ui {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--mw-light);
+  border-bottom: 1px solid #dee2e6;
+  border-radius: 0.25rem 0.25rem 0 0;
+}
+
+/* Drag handle */
+.mw-card-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  cursor: grab;
+  padding: 4px 6px;
+  color: #9ca3af;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.mw-card-drag-handle:hover { color: var(--mw-green); background: rgba(45,134,89,0.08); }
+.mw-card-drag-handle:active { cursor: grabbing; }
+
+/* Width control buttons */
+.mw-card-width-controls {
+  display: flex;
+  gap: 3px;
+}
+.mw-card-width-btn {
+  min-width: 28px;
+  height: 24px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #6b7280;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: all 0.12s;
+  font-family: inherit;
+  line-height: 1;
+}
+.mw-card-width-btn:hover { border-color: var(--mw-green); color: var(--mw-green); }
+.mw-card-width-btn.active {
+  background: var(--mw-green);
+  color: #fff;
+  border-color: var(--mw-green);
+}
+
+/* Card in editable state */
+.mw-card-editable { outline: 2px dashed transparent; transition: outline-color 0.15s; }
+.mw-layout-editing .mw-card-editable { outline-color: rgba(45,134,89,0.25); }
+.mw-layout-editing .mw-card-editable:hover { outline-color: var(--mw-green); }
+
+/* Card being dragged */
+.mw-card-dragging {
+  opacity: 0.3 !important;
+  transform: scale(0.97);
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+/* Drop indicators */
+.mw-card-drop-before { border-top: 3px solid var(--mw-green) !important; }
+.mw-card-drop-after { border-bottom: 3px solid var(--mw-green) !important; }
+.mw-card-drop-target { box-shadow: 0 0 0 2px rgba(45,134,89,0.15) !important; }
