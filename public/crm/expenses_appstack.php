@@ -1263,7 +1263,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 (function() {
     'use strict';
 
-    const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    let CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const QUICK_MODE = <?php echo $quickMode ? 'true' : 'false'; ?>;
     const RETURN_TO = '<?php echo htmlspecialchars($returnTo); ?>';
     var lastJobSuggestions = []; // Stored from receipt-intake response
@@ -1271,6 +1271,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     const CAN_EDIT = <?php echo $canEdit ? 'true' : 'false'; ?>;
     const CAN_SEND = <?php echo $canSend ? 'true' : 'false'; ?>;
     const CAN_APPROVE = <?php echo $canApprove ? 'true' : 'false'; ?>;
+
+    // Auto-refresh CSRF token when session has rotated (e.g. re-login on another tab)
+    async function refreshCSRF() {
+        try {
+            var r = await fetch('/crm/api/csrf-token.php');
+            var d = await r.json();
+            if (d.csrf_token) { CSRF = d.csrf_token; return true; }
+        } catch(e) {}
+        return false;
+    }
+
+    // Wrapper: run an async save fn; if it fails with CSRF error, refresh token and retry once
+    async function withCSRFRetry(fn) {
+        try {
+            return await fn();
+        } catch(e) {
+            if (e.message && e.message.indexOf('security token') !== -1) {
+                var refreshed = await refreshCSRF();
+                if (refreshed) return await fn();
+            }
+            throw e;
+        }
+    }
 
     let categories = { accounting_categories: [], gbp_categories: [], payment_methods: [] };
     let currentPage = 1;
@@ -2145,31 +2168,34 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             };
         });
 
-        var data = {
-            action: 'create',
-            csrf_token: CSRF,
-            expense_date: document.getElementById('rvDate').value,
-            vendor_id: document.getElementById('rvVendorId').value || null,
-            vendor_name_raw: document.getElementById('rvVendorSearch').value,
-            payment_method: document.getElementById('rvPayment').value,
-            amount: document.getElementById('rvAmount').value,
-            gst_amount: document.getElementById('rvGst').value,
-            pst_amount: document.getElementById('rvPst')?.value || '0',
-            total: document.getElementById('rvTotal').value,
-            accounting_category: document.getElementById('rvAcctCategory').value,
-            gbp_category: document.getElementById('rvGbpCategory').value,
-            job_id: document.getElementById('rvJobId').value || null,
-            description: document.getElementById('rvDescription').value,
-            notes: document.getElementById('rvNotes').value,
-            receipt_media_id: document.getElementById('intakeMediaId').value || null,
-            receipt_lat: currentGpsLat,
-            receipt_lng: currentGpsLng,
-            raw_ocr_json: document.getElementById('intakeOcrText').value || null,
-            ocr_parsed: document.getElementById('intakeOcrParsed').value || null,
-            status: 'draft',
-            line_items: liPayload,
-        };
+        function buildData() {
+            return {
+                action: 'create',
+                csrf_token: CSRF,
+                expense_date: document.getElementById('rvDate').value,
+                vendor_id: document.getElementById('rvVendorId').value || null,
+                vendor_name_raw: document.getElementById('rvVendorSearch').value,
+                payment_method: document.getElementById('rvPayment').value,
+                amount: document.getElementById('rvAmount').value,
+                gst_amount: document.getElementById('rvGst').value,
+                pst_amount: document.getElementById('rvPst')?.value || '0',
+                total: document.getElementById('rvTotal').value,
+                accounting_category: document.getElementById('rvAcctCategory').value,
+                gbp_category: document.getElementById('rvGbpCategory').value,
+                job_id: document.getElementById('rvJobId').value || null,
+                description: document.getElementById('rvDescription').value,
+                notes: document.getElementById('rvNotes').value,
+                receipt_media_id: document.getElementById('intakeMediaId').value || null,
+                receipt_lat: currentGpsLat,
+                receipt_lng: currentGpsLng,
+                raw_ocr_json: document.getElementById('intakeOcrText').value || null,
+                ocr_parsed: document.getElementById('intakeOcrParsed').value || null,
+                status: 'draft',
+                line_items: liPayload,
+            };
+        }
 
+        var data = buildData();
         if (!data.total || parseFloat(data.total) <= 0) {
             alert('Please enter a total amount');
             return;
@@ -2182,13 +2208,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (!okToSave) return;
 
         try {
-            var r = await fetch('/crm/api/expenses.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
+            var d = await withCSRFRetry(async function() {
+                var r = await fetch('/crm/api/expenses.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildData()),
+                });
+                var result = await r.json();
+                if (!result.success) throw new Error(result.error);
+                return result;
             });
-            var d = await r.json();
-            if (!d.success) throw new Error(d.error);
 
             // Capture context for impact card before resetting
             var savedVendor = document.getElementById('rvVendorSearch').value;
@@ -3073,39 +3102,44 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     window.saveExpense = async function() {
         var id = document.getElementById('expenseId').value;
-        var data = {
-            action: id ? 'update' : 'create',
-            csrf_token: CSRF,
-            expense_date: document.getElementById('expDate').value,
-            vendor_id: document.getElementById('expVendorId').value || null,
-            vendor_name_raw: document.getElementById('expVendorSearch').value,
-            receipt_media_id: document.getElementById('expReceiptMediaId').value || null,
-            payment_method: document.getElementById('expPayment').value,
-            amount: document.getElementById('expAmount').value,
-            gst_amount: document.getElementById('expGst').value,
-            pst_amount: document.getElementById('expPst')?.value || '0',
-            total: document.getElementById('expTotal').value,
-            accounting_category: document.getElementById('expAcctCategory').value,
-            gbp_category: document.getElementById('expGbpCategory').value,
-            job_id: document.getElementById('expJobId').value || null,
-            status: document.getElementById('expStatus').value,
-            description: document.getElementById('expDescription').value,
-            notes: document.getElementById('expNotes').value,
-            odometer_start: document.getElementById('expOdometerStart')?.value || null,
-            odometer_end: document.getElementById('expOdometerEnd')?.value || null,
-            fuel_litres: document.getElementById('expFuelLitres')?.value || null,
-            fuel_price_per_litre: document.getElementById('expFuelPrice')?.value || null,
-        };
-        if (id) data.id = parseInt(id);
+        function buildData() {
+            var d = {
+                action: id ? 'update' : 'create',
+                csrf_token: CSRF,
+                expense_date: document.getElementById('expDate').value,
+                vendor_id: document.getElementById('expVendorId').value || null,
+                vendor_name_raw: document.getElementById('expVendorSearch').value,
+                receipt_media_id: document.getElementById('expReceiptMediaId').value || null,
+                payment_method: document.getElementById('expPayment').value,
+                amount: document.getElementById('expAmount').value,
+                gst_amount: document.getElementById('expGst').value,
+                pst_amount: document.getElementById('expPst')?.value || '0',
+                total: document.getElementById('expTotal').value,
+                accounting_category: document.getElementById('expAcctCategory').value,
+                gbp_category: document.getElementById('expGbpCategory').value,
+                job_id: document.getElementById('expJobId').value || null,
+                status: document.getElementById('expStatus').value,
+                description: document.getElementById('expDescription').value,
+                notes: document.getElementById('expNotes').value,
+                odometer_start: document.getElementById('expOdometerStart')?.value || null,
+                odometer_end: document.getElementById('expOdometerEnd')?.value || null,
+                fuel_litres: document.getElementById('expFuelLitres')?.value || null,
+                fuel_price_per_litre: document.getElementById('expFuelPrice')?.value || null,
+            };
+            if (id) d.id = parseInt(id);
+            return d;
+        }
 
         try {
-            var r = await fetch('/crm/api/expenses.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
+            await withCSRFRetry(async function() {
+                var r = await fetch('/crm/api/expenses.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildData()),
+                });
+                var d = await r.json();
+                if (!d.success) throw new Error(d.error);
             });
-            var d = await r.json();
-            if (!d.success) throw new Error(d.error);
             $('#expenseModal').modal('hide');
             loadExpenses(currentPage);
             loadStats();
