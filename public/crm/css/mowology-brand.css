@@ -23647,3 +23647,79 @@ textarea.font-monospace {
 .mw-card-drop-before { border-top: 3px solid var(--mw-green) !important; }
 .mw-card-drop-after { border-bottom: 3px solid var(--mw-green) !important; }
 .mw-card-drop-target { box-shadow: 0 0 0 2px rgba(45,134,89,0.15) !important; }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MARKETING INTEL
+   ═════════════════════════════════════════════════════════════════════════════ */
+
+/* KPI Cards */
+.mw-intel-kpi { border-radius: 4px; }
+.mw-intel-kpi-label {
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: #6c757d;
+  margin-bottom: .25rem;
+}
+.mw-intel-kpi-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* Inline percentage bars */
+.mw-intel-bar-track {
+  flex: 1;
+  height: 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+  min-width: 50px;
+  max-width: 120px;
+}
+.mw-intel-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width .4s ease;
+}
+
+/* Funnel rows */
+.mw-intel-funnel-row {
+  display: flex;
+  align-items: center;
+  padding: .5rem 0;
+}
+.mw-intel-funnel-row + .mw-intel-funnel-row {
+  border-top: 1px solid #f0f0f0;
+}
+.mw-intel-funnel-label {
+  width: 140px;
+  font-weight: 600;
+  font-size: .85rem;
+  flex-shrink: 0;
+}
+.mw-intel-funnel-track {
+  flex: 1;
+  height: 24px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.mw-intel-funnel-bar {
+  height: 100%;
+  background: var(--mw-green);
+  border-radius: 4px;
+  transition: width .5s ease;
+  min-width: 2px;
+}
+
+/* Aging row highlights */
+.mw-intel-aging-warn { background: #fff8e1 !important; }
+.mw-intel-aging-crit { background: #ffebee !important; }
+
+/* Responsive */
+@media (max-width: 767.98px) {
+  .mw-intel-funnel-label { width: 90px; font-size: .78rem; }
+  .mw-intel-kpi-value { font-size: 1.1rem; }
+  .mw-intel-bar-track { max-width: 80px; }
+}

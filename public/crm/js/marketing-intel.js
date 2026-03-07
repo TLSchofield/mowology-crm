@@ -1,0 +1,404 @@
+/**
+ * Marketing Intel — Charts & Tab Switching
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Canvas charts for Pricing Intel and Trends tabs.
+ * Data injected by PHP as: window.INTEL_DATA = { brackets, trendQuotes, trendMargins }
+ *
+ * v1 — 2026-03-06
+ */
+(function () {
+  'use strict';
+
+  var D = window.INTEL_DATA || { brackets: [], trendQuotes: [], trendMargins: [] };
+
+  var MW_GREEN  = '#2D8659';
+  var MW_LIME   = '#7FD858';
+  var MW_ORANGE = '#e85d04';
+  var MW_LIGHT  = '#E8F3F0';
+  var GRAY      = '#ccc';
+  var FONT      = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  var FONT_BOLD = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  function setupCanvas(id) {
+    var canvas = document.getElementById(id);
+    if (!canvas) return null;
+    var dpr = window.devicePixelRatio || 1;
+    var W   = canvas.offsetWidth;
+    var H   = parseInt(canvas.getAttribute('height'), 10) || 260;
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
+    var ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    return { canvas: canvas, ctx: ctx, W: W, H: H };
+  }
+
+  function fmt(v) {
+    if (Math.abs(v) >= 1000) return '$' + (v / 1000).toFixed(1) + 'k';
+    return '$' + Math.round(v);
+  }
+
+  function showEmpty(canvasId, msg) {
+    var s = setupCanvas(canvasId);
+    if (!s) return;
+    s.ctx.fillStyle = '#999';
+    s.ctx.font      = FONT;
+    s.ctx.textAlign = 'center';
+    s.ctx.fillText(msg, s.W / 2, s.H / 2 - 6);
+    s.ctx.fillStyle = '#bbb';
+    s.ctx.fillText('Data builds as quotes are created', s.W / 2, s.H / 2 + 14);
+  }
+
+  // ── Tab Switching ──────────────────────────────────────────────────────────
+  window.switchIntelTab = function (name) {
+    var sections = ['pricing', 'pipeline', 'channels', 'trends'];
+    for (var i = 0; i < sections.length; i++) {
+      var el = document.getElementById('section-' + sections[i]);
+      if (el) el.style.display = sections[i] === name ? '' : 'none';
+    }
+    var tabs = document.querySelectorAll('#intelTabs .nav-link');
+    for (var j = 0; j < tabs.length; j++) {
+      var t = tabs[j];
+      if (t.getAttribute('data-section') === name) {
+        t.classList.add('active');
+      } else {
+        t.classList.remove('active');
+      }
+    }
+    // Render charts when their tab becomes visible
+    if (name === 'pricing') renderBracketChart();
+    if (name === 'trends')  { renderTrendQuotes(); renderTrendMargins(); }
+  };
+
+  // ── VIZ: Price Bracket Win Rates ───────────────────────────────────────────
+  var bracketDrawn = false;
+  function renderBracketChart() {
+    if (bracketDrawn) return;
+    var data = D.brackets;
+    if (!data || !data.length) { showEmpty('intel-c-brackets', 'No quote data yet'); return; }
+    bracketDrawn = true;
+
+    var s = setupCanvas('intel-c-brackets');
+    if (!s) return;
+    var ctx = s.ctx, W = s.W, H = s.H;
+
+    var pad = { top: 30, right: 20, bottom: 40, left: 50 };
+    var chartW = W - pad.left - pad.right;
+    var chartH = H - pad.top - pad.bottom;
+    var barW = Math.min(60, chartW / data.length - 12);
+
+    // Find max count for Y axis
+    var maxCount = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (data[i].total > maxCount) maxCount = data[i].total;
+    }
+    if (maxCount === 0) maxCount = 1;
+
+    // Draw axes
+    ctx.strokeStyle = '#ddd';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, pad.top);
+    ctx.lineTo(pad.left, H - pad.bottom);
+    ctx.lineTo(W - pad.right, H - pad.bottom);
+    ctx.stroke();
+
+    // Y axis labels
+    ctx.fillStyle = '#888';
+    ctx.font = FONT;
+    ctx.textAlign = 'right';
+    for (var g = 0; g <= 4; g++) {
+      var yVal = Math.round(maxCount * g / 4);
+      var yPos = H - pad.bottom - (chartH * g / 4);
+      ctx.fillText(yVal.toString(), pad.left - 8, yPos + 4);
+      if (g > 0) {
+        ctx.save();
+        ctx.strokeStyle = '#eee';
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, yPos);
+        ctx.lineTo(W - pad.right, yPos);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    // Draw bars (stacked: green=won, red=lost, gray=other)
+    var groupW = chartW / data.length;
+    for (var b = 0; b < data.length; b++) {
+      var d = data[b];
+      var cx = pad.left + groupW * b + groupW / 2;
+      var other = d.total - d.won - d.lost;
+
+      // Stacked bars from bottom
+      var y0 = H - pad.bottom;
+      var segments = [
+        { count: d.won,  color: MW_GREEN },
+        { count: d.lost, color: MW_ORANGE },
+        { count: other,  color: '#ddd' }
+      ];
+
+      for (var si = 0; si < segments.length; si++) {
+        var seg = segments[si];
+        if (seg.count <= 0) continue;
+        var segH = (seg.count / maxCount) * chartH;
+        ctx.fillStyle = seg.color;
+        ctx.fillRect(cx - barW / 2, y0 - segH, barW, segH);
+        y0 -= segH;
+      }
+
+      // Win rate label above bar
+      var winRate = d.total > 0 ? Math.round(d.won / d.total * 100) : 0;
+      ctx.fillStyle = winRate >= 50 ? MW_GREEN : (winRate >= 30 ? MW_ORANGE : '#dc3545');
+      ctx.font = FONT_BOLD;
+      ctx.textAlign = 'center';
+      ctx.fillText(winRate + '%', cx, y0 - 6);
+
+      // Bracket label
+      ctx.fillStyle = '#666';
+      ctx.font = FONT;
+      ctx.fillText(d.bracket, cx, H - pad.bottom + 16);
+    }
+
+    // Legend
+    var legendY = 10;
+    var items = [
+      { label: 'Won', color: MW_GREEN },
+      { label: 'Lost', color: MW_ORANGE },
+      { label: 'Other', color: '#ddd' }
+    ];
+    var lx = pad.left;
+    ctx.font = FONT;
+    for (var li = 0; li < items.length; li++) {
+      ctx.fillStyle = items[li].color;
+      ctx.fillRect(lx, legendY, 10, 10);
+      ctx.fillStyle = '#666';
+      ctx.fillText(items[li].label, lx + 14, legendY + 9);
+      lx += ctx.measureText(items[li].label).width + 28;
+    }
+  }
+
+  // ── VIZ: Monthly Quote Volume & Win Rate (Trends) ─────────────────────────
+  var trendQDrawn = false;
+  function renderTrendQuotes() {
+    if (trendQDrawn) return;
+    var data = D.trendQuotes;
+    if (!data || !data.length) { showEmpty('intel-c-trend-quotes', 'No monthly data yet'); return; }
+    trendQDrawn = true;
+
+    var s = setupCanvas('intel-c-trend-quotes');
+    if (!s) return;
+    var ctx = s.ctx, W = s.W, H = s.H;
+
+    var pad = { top: 30, right: 50, bottom: 40, left: 50 };
+    var chartW = W - pad.left - pad.right;
+    var chartH = H - pad.top - pad.bottom;
+
+    // Find maxes
+    var maxCount = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (data[i].total > maxCount) maxCount = data[i].total;
+    }
+    if (maxCount === 0) maxCount = 1;
+
+    var barW = Math.min(30, chartW / data.length - 8);
+    var groupW = chartW / data.length;
+
+    // Grid lines
+    ctx.strokeStyle = '#eee';
+    ctx.lineWidth = 1;
+    for (var g = 1; g <= 4; g++) {
+      var yPos = H - pad.bottom - (chartH * g / 4);
+      ctx.beginPath();
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(pad.left, yPos);
+      ctx.lineTo(W - pad.right, yPos);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Y axis (left) — quote count
+    ctx.fillStyle = '#888';
+    ctx.font = FONT;
+    ctx.textAlign = 'right';
+    for (var g2 = 0; g2 <= 4; g2++) {
+      var yVal = Math.round(maxCount * g2 / 4);
+      var yP2  = H - pad.bottom - (chartH * g2 / 4);
+      ctx.fillText(yVal.toString(), pad.left - 8, yP2 + 4);
+    }
+
+    // Y axis (right) — win rate
+    ctx.textAlign = 'left';
+    for (var g3 = 0; g3 <= 4; g3++) {
+      var pct = g3 * 25;
+      var yP3 = H - pad.bottom - (chartH * g3 / 4);
+      ctx.fillText(pct + '%', W - pad.right + 8, yP3 + 4);
+    }
+
+    // Bars (quote count)
+    for (var b = 0; b < data.length; b++) {
+      var d = data[b];
+      var cx = pad.left + groupW * b + groupW / 2;
+      var barH = (d.total / maxCount) * chartH;
+      ctx.fillStyle = MW_LIGHT;
+      ctx.fillRect(cx - barW / 2, H - pad.bottom - barH, barW, barH);
+
+      // Month label
+      ctx.fillStyle = '#888';
+      ctx.font = FONT;
+      ctx.textAlign = 'center';
+      ctx.save();
+      ctx.translate(cx, H - pad.bottom + 14);
+      ctx.fillText(d.month_label, 0, 0);
+      ctx.restore();
+    }
+
+    // Line (win rate)
+    ctx.beginPath();
+    ctx.strokeStyle = MW_GREEN;
+    ctx.lineWidth = 2.5;
+    for (var l = 0; l < data.length; l++) {
+      var d2 = data[l];
+      var lx = pad.left + groupW * l + groupW / 2;
+      var ly = H - pad.bottom - (Math.min(d2.win_rate, 100) / 100 * chartH);
+      if (l === 0) ctx.moveTo(lx, ly);
+      else ctx.lineTo(lx, ly);
+    }
+    ctx.stroke();
+
+    // Dots on line
+    for (var p = 0; p < data.length; p++) {
+      var d3 = data[p];
+      var px = pad.left + groupW * p + groupW / 2;
+      var py = H - pad.bottom - (Math.min(d3.win_rate, 100) / 100 * chartH);
+      ctx.beginPath();
+      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = MW_GREEN;
+      ctx.fill();
+    }
+
+    // Legend
+    ctx.font = FONT;
+    ctx.fillStyle = MW_LIGHT;
+    ctx.fillRect(pad.left, 8, 10, 10);
+    ctx.fillStyle = '#666';
+    ctx.textAlign = 'left';
+    ctx.fillText('Quotes', pad.left + 14, 17);
+    ctx.fillStyle = MW_GREEN;
+    ctx.fillRect(pad.left + 70, 8, 10, 10);
+    ctx.fillStyle = '#666';
+    ctx.fillText('Win Rate', pad.left + 84, 17);
+  }
+
+  // ── VIZ: Monthly Revenue & Margins (Trends) ───────────────────────────────
+  var trendMDrawn = false;
+  function renderTrendMargins() {
+    if (trendMDrawn) return;
+    var data = D.trendMargins;
+    if (!data || !data.length) { showEmpty('intel-c-trend-margins', 'No margin data yet'); return; }
+    trendMDrawn = true;
+
+    var s = setupCanvas('intel-c-trend-margins');
+    if (!s) return;
+    var ctx = s.ctx, W = s.W, H = s.H;
+
+    var pad = { top: 30, right: 50, bottom: 40, left: 60 };
+    var chartW = W - pad.left - pad.right;
+    var chartH = H - pad.top - pad.bottom;
+
+    var maxRev = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (data[i].revenue > maxRev) maxRev = data[i].revenue;
+    }
+    if (maxRev === 0) maxRev = 1;
+
+    var barW = Math.min(30, chartW / data.length - 8);
+    var groupW = chartW / data.length;
+
+    // Grid
+    ctx.strokeStyle = '#eee';
+    ctx.setLineDash([3, 3]);
+    for (var g = 1; g <= 4; g++) {
+      var yPos = H - pad.bottom - (chartH * g / 4);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, yPos);
+      ctx.lineTo(W - pad.right, yPos);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Y left — revenue
+    ctx.fillStyle = '#888';
+    ctx.font = FONT;
+    ctx.textAlign = 'right';
+    for (var g2 = 0; g2 <= 4; g2++) {
+      var yVal = maxRev * g2 / 4;
+      var yP   = H - pad.bottom - (chartH * g2 / 4);
+      ctx.fillText(fmt(yVal), pad.left - 8, yP + 4);
+    }
+
+    // Y right — margin %
+    ctx.textAlign = 'left';
+    for (var g3 = 0; g3 <= 4; g3++) {
+      var pct = g3 * 25;
+      var yP3 = H - pad.bottom - (chartH * g3 / 4);
+      ctx.fillText(pct + '%', W - pad.right + 8, yP3 + 4);
+    }
+
+    // Bars (revenue)
+    for (var b = 0; b < data.length; b++) {
+      var d = data[b];
+      var cx = pad.left + groupW * b + groupW / 2;
+      var barH = (d.revenue / maxRev) * chartH;
+      ctx.fillStyle = MW_LIGHT;
+      ctx.fillRect(cx - barW / 2, H - pad.bottom - barH, barW, barH);
+
+      ctx.fillStyle = '#888';
+      ctx.font = FONT;
+      ctx.textAlign = 'center';
+      ctx.fillText(d.month_label, cx, H - pad.bottom + 14);
+    }
+
+    // Line (margin %)
+    ctx.beginPath();
+    ctx.strokeStyle = MW_GREEN;
+    ctx.lineWidth = 2.5;
+    for (var l = 0; l < data.length; l++) {
+      var d2 = data[l];
+      var lx = pad.left + groupW * l + groupW / 2;
+      var ly = H - pad.bottom - (Math.min(Math.max(d2.margin_pct, 0), 100) / 100 * chartH);
+      if (l === 0) ctx.moveTo(lx, ly);
+      else ctx.lineTo(lx, ly);
+    }
+    ctx.stroke();
+
+    // Dots
+    for (var p = 0; p < data.length; p++) {
+      var d3 = data[p];
+      var px = pad.left + groupW * p + groupW / 2;
+      var py = H - pad.bottom - (Math.min(Math.max(d3.margin_pct, 0), 100) / 100 * chartH);
+      ctx.beginPath();
+      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = d3.margin_pct < 20 ? MW_ORANGE : MW_GREEN;
+      ctx.fill();
+    }
+
+    // Legend
+    ctx.font = FONT;
+    ctx.fillStyle = MW_LIGHT;
+    ctx.fillRect(pad.left, 8, 10, 10);
+    ctx.fillStyle = '#666';
+    ctx.textAlign = 'left';
+    ctx.fillText('Revenue', pad.left + 14, 17);
+    ctx.fillStyle = MW_GREEN;
+    ctx.fillRect(pad.left + 80, 8, 10, 10);
+    ctx.fillStyle = '#666';
+    ctx.fillText('Margin %', pad.left + 94, 17);
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', function () {
+    renderBracketChart();
+  });
+
+})();

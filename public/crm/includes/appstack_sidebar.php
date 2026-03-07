@@ -8,7 +8,7 @@
  *
  * Active page keys: 'dashboard', 'clients', 'companies', 'quotes', 'jobs',
  *                   'invoices', 'schedule', 'timeclock', 'expenses',
- *                   'profitability', 'cost-factors', 'marketing', 'social', 'cms', 'media',
+ *                   'profitability', 'cost-factors', 'intel', 'marketing', 'social', 'cms', 'media',
  *                   'team', 'leaderboard', 'quiz', 'map', 'products', 'portfolio',
  *                   'work-zones', 'users', 'settings'
  *
@@ -54,6 +54,7 @@ $navItems = [
 
     // ── Growth ────────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Growth'],
+    ['key' => 'intel',     'label' => 'Marketing Intel',  'icon' => 'target',   'href' => '/crm/marketing/intel.php',      'perm' => 'marketing.view'],
     ['key' => 'marketing', 'label' => 'Email Campaigns', 'icon' => 'zap',      'href' => '/crm/marketing/campaigns.php', 'perm' => 'marketing.view'],
     ['key' => 'social',    'label' => 'Social Posts',    'icon' => 'share-2',  'href' => '/crm/marketing/social.php',   'perm' => 'marketing.view'],
     ['key' => 'cms',       'label' => 'Website CMS',     'icon' => 'edit-3',   'href' => '/crm/cms-pages_appstack.php', 'perm' => 'marketing.edit'],
