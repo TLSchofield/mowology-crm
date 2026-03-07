@@ -379,6 +379,21 @@ try {
             // ── Generate image variants ──────────────────────────────────
             $variants = generatePhotoVariants($fullPath, $visitId, $base, $realMime);
 
+            // Look up property + service type for denormalization
+            $propStmt = $db->prepare("
+                SELECT jp.property_id, jp.service_type
+                FROM job_visits jv
+                JOIN job_plans jp ON jp.id = jv.plan_id
+                WHERE jv.id = ? LIMIT 1
+            ");
+            $propStmt->execute([$visitId]);
+            $propRow = $propStmt->fetch(PDO::FETCH_ASSOC);
+            $photoPropertyId = $propRow ? (int)$propRow['property_id'] : null;
+            $photoServiceType = $propRow['service_type'] ?? null;
+
+            // Compute file hash for duplicate detection
+            $photoSha256 = hash_file('sha256', $fullPath);
+
             // Auto-tag photo to the work zone the crew is currently in (if any)
             $photoWorkZoneId = null;
             if (isset($input['lat']) && isset($input['lng'])) {
@@ -387,16 +402,8 @@ try {
                 $geoModel = APP_ROOT . '/Modules/Geofence/Models/GeofenceModel.php';
                 if (is_file($geoModel)) {
                     require_once $geoModel;
-                    // Look up property for this visit
-                    $propStmt = $db->prepare("
-                        SELECT jp.property_id FROM job_visits jv
-                        JOIN job_plans jp ON jp.id = jv.plan_id
-                        WHERE jv.id = ? LIMIT 1
-                    ");
-                    $propStmt->execute([$visitId]);
-                    $propRow = $propStmt->fetch(PDO::FETCH_ASSOC);
                     if ($propRow && function_exists('geofenceGetWorkZones')) {
-                        $zones = geofenceGetWorkZones((int)$propRow['property_id']);
+                        $zones = geofenceGetWorkZones($photoPropertyId);
                         if (!empty($zones) && function_exists('geofenceClassifyPingAgainstWorkZones')) {
                             $photoWorkZoneId = geofenceClassifyPingAgainstWorkZones($photoLat, $photoLng, $zones);
                         }
@@ -408,13 +415,16 @@ try {
                 INSERT INTO visit_photos
                     (visit_id, photo_type, filename, original_filename, file_size,
                      mime_type, caption, sort_order, thumb_path, grid_path, view_path,
-                     uploaded_by, work_zone_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     uploaded_by, work_zone_id,
+                     property_id, uploaded_by_name, service_type, sha256)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ")->execute([
                 $visitId, $photoType, $filename, $file['name'],
                 $file['size'], $realMime, $caption, $sortOrder,
                 $variants['thumb_path'], $variants['grid_path'], $variants['view_path'],
                 $user['id'], $photoWorkZoneId,
+                $photoPropertyId, $user['full_name'] ?? $user['name'] ?? null,
+                $photoServiceType, $photoSha256,
             ]);
             $photoId = (int)$db->lastInsertId();
 

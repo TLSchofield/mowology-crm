@@ -1208,6 +1208,25 @@ if ($action === 'view_contact' && $clientId) {
             $contactActivity = $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) { $contactActivity = []; }
 
+        // ── Recent Photos (last 6 across all properties) ──
+        $recentPhotos = [];
+        try {
+            if (!empty($propIds)) {
+                $phPlaceholders = implode(',', array_fill(0, count($propIds), '?'));
+                $stmt = $db->prepare("
+                    SELECT vp.id, vp.filename, vp.photo_type, vp.thumb_path, vp.grid_path,
+                           vp.view_path, vp.uploaded_at, vp.property_id
+                    FROM visit_photos vp
+                    WHERE vp.property_id IN ({$phPlaceholders})
+                      AND vp.deleted_at IS NULL
+                    ORDER BY vp.uploaded_at DESC
+                    LIMIT 6
+                ");
+                $stmt->execute($propIds);
+                $recentPhotos = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+        } catch (Exception $e) { $recentPhotos = []; }
+
         // ── Client Notes ──
         $contactNotes = [];
         try {
@@ -2894,6 +2913,40 @@ $unconvertedRequests = $db->query("
                     <?php endif; ?>
                   </div>
                 </div>
+
+                <!-- Recent Photos Card -->
+                <?php if (!empty($recentPhotos)): ?>
+                <div class="card mb-3">
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                      <i data-feather="camera"></i> Recent Photos
+                      <span class="badge badge-primary ml-1"><?php echo count($recentPhotos); ?></span>
+                    </h5>
+                    <?php
+                    $timelineLink = '/crm/photos_appstack.php?contact_id=' . (int)$clientId;
+                    if (count($propIds) === 1) {
+                        $timelineLink = '/crm/photos_appstack.php?property_id=' . (int)$propIds[0];
+                    }
+                    ?>
+                    <a href="<?php echo $timelineLink; ?>" class="btn btn-sm btn-outline-success">
+                      View All <i data-feather="arrow-right" style="width:14px;height:14px;"></i>
+                    </a>
+                  </div>
+                  <div class="card-body p-2">
+                    <div class="mw-recent-photos-grid">
+                      <?php foreach ($recentPhotos as $rp):
+                          $origUrl = '/uploads/photos/' . $rp['filename'];
+                          $thumbUrl = $rp['thumb_path'] ?? $rp['grid_path'] ?? $origUrl;
+                          $viewUrl = $rp['view_path'] ?? $origUrl;
+                      ?>
+                        <a href="<?php echo htmlspecialchars($viewUrl); ?>" target="_blank" class="mw-recent-photo" title="<?php echo htmlspecialchars(ucfirst($rp['photo_type']) . ' — ' . date('M j, Y', strtotime($rp['uploaded_at']))); ?>">
+                          <img src="<?php echo htmlspecialchars($thumbUrl); ?>" alt="<?php echo htmlspecialchars($rp['photo_type']); ?> photo" loading="lazy">
+                        </a>
+                      <?php endforeach; ?>
+                    </div>
+                  </div>
+                </div>
+                <?php endif; ?>
 
               </div><!-- end left col -->
 

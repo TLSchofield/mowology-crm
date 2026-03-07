@@ -9,7 +9,7 @@
  * Active page keys: 'dashboard', 'clients', 'companies', 'quotes', 'jobs',
  *                   'invoices', 'schedule', 'timeclock', 'expenses',
  *                   'profitability', 'cost-factors', 'intel', 'marketing', 'social', 'cms', 'media',
- *                   'team', 'leaderboard', 'quiz', 'map', 'products', 'portfolio',
+ *                   'team', 'leaderboard', 'quiz', 'map', 'photos', 'products', 'portfolio',
  *                   'work-zones', 'users', 'settings'
  *
  * Nav items support two types:
@@ -73,6 +73,7 @@ $navItems = [
 
     // ── Library ───────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Library'],
+    ['key' => 'photos',    'label' => 'Photo Timeline', 'icon' => 'camera',  'href' => '/crm/photos_appstack.php',        'perm' => 'jobs.view'],
     ['key' => 'products',  'label' => 'Products',      'icon' => 'package',  'href' => '/crm/products/index.php',         'perm' => 'products.view'],
     ['key' => 'portfolio', 'label' => 'Portfolio',     'icon' => 'image',    'href' => '/crm/portfolio/index.php',        'perm' => 'portfolio.view'],
     ['key' => 'media',     'label' => 'Media Library', 'icon' => 'folder',   'href' => '/cms/cms-media_appstack.php',     'perm' => 'photos.upload'],
