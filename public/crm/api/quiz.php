@@ -69,6 +69,151 @@ function verifyCsrf(array $input): void
 }
 
 /**
+ * Return current season context based on month (Vancouver-specific).
+ */
+function getSeasonContext(int $month = 0): array
+{
+    if ($month === 0) $month = (int)date('n');
+
+    // Upcoming months (next 2)
+    $u1 = ($month % 12) + 1;
+    $u2 = (($month + 1) % 12) + 1;
+
+    $seasons = [
+        // [start, end, label, icon, tagline, focus_tags, tip]
+        [2,  4,  'Late Winter / Early Spring', '🌱', 'Prep season — moss, drainage, pre-emergent, early fertilizer',
+         ['moss-management','early-spring-lawn','pre-emergent','crabgrass-prevention','chafer-awareness','spring-fertilizer','drainage'],
+         'Check every lawn for moss and drainage. Pre-emergent crabgrass control must go down before soil hits 10°C. Early fertilizer gets roots moving.'],
+        [4,  6,  'Spring Growth Push', '🌿', 'Prune after flowering, ramp up mowing, apply grub prevention',
+         ['spring-flowering-shrub','prune-after-flowering','hedge-timing','grub-prevention','lawn-growth','spring-lawn'],
+         'Rhododendrons and azaleas are finishing bloom — prune lightly now, not in late summer. Apply Acelepryn for chafer before eggs hatch (June).'],
+        [6,  8,  'Early Summer Peak', '☀️', 'Heat stress, irrigation, hedges, summer annuals',
+         ['summer-heat','heat-stress','irrigation-awareness','hedge-timing','summer-annuals','summer-lawn'],
+         'Raise mowing height in heat. Watch for heat stress wilting and chafer grub spongy patches. Hedges need trimming every 6–8 weeks.'],
+        [8,  11, 'Fall Cleanup & Overseeding', '🍂', 'Best window: overseed, aerate, chafer check, fall fertilizer',
+         ['fall-overseeding','fall-aeration','fall-fertilizer','chafer-grub-damage','spongy-turf','fall-bulbs','moss-prep'],
+         'Late August to October — best overseeding window. Aerate before seeding. Check spongy turf for chafer grubs. Apply fall fertilizer Sept–Oct.'],
+        [11, 2,  'Winter & Planning', '❄️', 'Dormant season — protect, plan, and train',
+         ['winter-lawn','frost-protection','winter-planning','client-education','root-rot','wet-season'],
+         'Avoid traffic on frozen or waterlogged turf. Watch for root rot on rhododendrons in heavy clay. Great time for team training and spring program planning.'],
+    ];
+
+    $matched = null;
+    foreach ($seasons as $s) {
+        [$start, $end] = $s;
+        // Wrap-around season (e.g. winter: 11–2)
+        if ($start > $end) {
+            if ($month >= $start || $month <= $end) { $matched = $s; break; }
+        } else {
+            if ($month >= $start && $month <= $end) { $matched = $s; break; }
+        }
+    }
+    if (!$matched) $matched = $seasons[0]; // default
+
+    return [
+        'month'          => $month,
+        'upcoming_months'=> [$u1, $u2],
+        'season_label'   => $matched[2],
+        'season_icon'    => $matched[3],
+        'season_tagline' => $matched[4],
+        'focus_tags'     => $matched[5],
+        'tip'            => $matched[6],
+    ];
+}
+
+/**
+ * Select questions using seasonal blending (40/30/20/10).
+ * Pool 1 (40%): current season questions not fully mastered
+ * Pool 2 (30%): upcoming season questions not fully mastered
+ * Pool 3 (20%): spaced-rep review (due questions with mastery >= 1)
+ * Pool 4 (10%): weak/unlearned fill
+ * Falls back gracefully when pools are undersized.
+ */
+function selectSeasonalQuestions(PDO $db, int $userId, ?int $categoryId, int $sessionLength): array
+{
+    $ctx   = getSeasonContext();
+    $curM  = (string)$ctx['month'];
+    $upM1  = (string)$ctx['upcoming_months'][0];
+    $upM2  = (string)$ctx['upcoming_months'][1];
+
+    $catWhere = $categoryId !== null ? "AND q.category_id = " . (int)$categoryId : "";
+
+    $targets = [
+        'current'  => max(1, (int)round($sessionLength * 0.40)),
+        'upcoming' => max(1, (int)round($sessionLength * 0.30)),
+        'review'   => max(1, (int)round($sessionLength * 0.20)),
+    ];
+    $targets['weak'] = $sessionLength - $targets['current'] - $targets['upcoming'] - $targets['review'];
+    if ($targets['weak'] < 0) $targets['weak'] = 0;
+
+    $selected = [];
+
+    // ── Pool 1: Current season ────────────────────────────────────────────────
+    $stmt = $db->prepare(
+        "SELECT q.id FROM quiz_questions q
+         LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
+         WHERE q.is_active = 1 $catWhere
+           AND FIND_IN_SET(?, IFNULL(q.relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0
+           AND COALESCE(m.mastery_level, 0) < 5
+         ORDER BY COALESCE(q.seasonal_priority, 5) DESC, COALESCE(m.mastery_level, 0) ASC, RAND()
+         LIMIT {$targets['current']}"
+    );
+    $stmt->execute([$userId, $curM]);
+    $selected = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    // ── Pool 2: Upcoming season ───────────────────────────────────────────────
+    $excl = implode(',', array_map('intval', $selected ?: [0]));
+    $stmt = $db->prepare(
+        "SELECT q.id FROM quiz_questions q
+         LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
+         WHERE q.is_active = 1 $catWhere
+           AND q.id NOT IN ($excl)
+           AND (FIND_IN_SET(?, IFNULL(q.relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0
+                OR FIND_IN_SET(?, IFNULL(q.relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0)
+           AND COALESCE(m.mastery_level, 0) < 5
+         ORDER BY COALESCE(q.seasonal_priority, 5) DESC, RAND()
+         LIMIT {$targets['upcoming']}"
+    );
+    $stmt->execute([$userId, $upM1, $upM2]);
+    $selected = array_merge($selected, $stmt->fetchAll(PDO::FETCH_COLUMN));
+
+    // ── Pool 3: Spaced rep review ─────────────────────────────────────────────
+    $excl = implode(',', array_map('intval', $selected ?: [0]));
+    $stmt = $db->prepare(
+        "SELECT q.id FROM quiz_questions q
+         JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
+         WHERE q.is_active = 1 $catWhere
+           AND q.id NOT IN ($excl)
+           AND m.next_review_at <= NOW()
+           AND m.mastery_level >= 1
+         ORDER BY m.next_review_at ASC
+         LIMIT {$targets['review']}"
+    );
+    $stmt->execute([$userId]);
+    $selected = array_merge($selected, $stmt->fetchAll(PDO::FETCH_COLUMN));
+
+    // ── Pool 4: Weak / fill ───────────────────────────────────────────────────
+    $needed = $sessionLength - count($selected);
+    if ($needed > 0) {
+        $excl = implode(',', array_map('intval', $selected ?: [0]));
+        $stmt = $db->prepare(
+            "SELECT q.id FROM quiz_questions q
+             LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
+             WHERE q.is_active = 1 $catWhere
+               AND q.id NOT IN ($excl)
+             ORDER BY COALESCE(m.mastery_level, 0) ASC, RAND()
+             LIMIT $needed"
+        );
+        $stmt->execute([$userId]);
+        $selected = array_merge($selected, $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    // Shuffle so seasonal questions don't always appear in the same order
+    shuffle($selected);
+    return array_slice($selected, 0, $sessionLength);
+}
+
+/**
  * Mastery level names and review intervals in hours.
  */
 function masteryMeta(): array
@@ -319,6 +464,38 @@ function checkAndAwardBadges(PDO $db, int $userId): array
 
 switch ($action) {
 
+    // ── GET: season_context ───────────────────────────────────────────────────
+    case 'season_context':
+        $ctx = getSeasonContext();
+        // Get active campaign for this month
+        $camp = $db->prepare(
+            "SELECT name, description, tip_text, tip_image_path, focus_tags
+             FROM quiz_seasonal_campaigns
+             WHERE is_active = 1
+               AND (
+                 (start_month <= end_month AND ? BETWEEN start_month AND end_month)
+                 OR (start_month > end_month AND (? >= start_month OR ? <= end_month))
+               )
+             ORDER BY sort_order ASC LIMIT 1"
+        );
+        $m = $ctx['month'];
+        $camp->execute([$m, $m, $m]);
+        $campaign = $camp->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        // Count questions relevant to current season
+        $seasonQ = $db->prepare(
+            "SELECT COUNT(*) FROM quiz_questions
+             WHERE is_active = 1
+               AND FIND_IN_SET(?, IFNULL(relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0"
+        );
+        $seasonQ->execute([(string)$m]);
+        $seasonQCount = (int)$seasonQ->fetchColumn();
+
+        qOk(array_merge($ctx, [
+            'campaign'           => $campaign,
+            'seasonal_q_count'   => $seasonQCount,
+        ]));
+
     // ── GET: categories (with mastery breakdown per user) ─────────────────────
     case 'categories':
         $rows = $db->prepare(
@@ -467,12 +644,12 @@ switch ($action) {
         verifyCsrf($input);
         $categoryId    = isset($input['category_id']) && $input['category_id'] !== '' && $input['category_id'] !== null
                            ? (int)$input['category_id'] : null;
-        $mode          = $input['mode'] ?? 'random'; // 'random' | 'test'
+        $mode          = $input['mode'] ?? 'seasonal'; // 'seasonal' | 'random' | 'test'
         $sessionLength = (int)($input['session_length'] ?? 10);
         if (!in_array($sessionLength, [3, 5, 10], true)) $sessionLength = 10;
 
         if ($mode === 'test') {
-            // Priority order: due for review → lowest mastery → random
+            // Legacy: priority order — due for review → lowest mastery → random
             if ($categoryId !== null) {
                 $stmt = $db->prepare(
                     "SELECT q.id,
@@ -485,6 +662,7 @@ switch ($action) {
                      LIMIT {$sessionLength}"
                 );
                 $stmt->execute([$userId, $categoryId]);
+                $qids = $stmt->fetchAll(PDO::FETCH_COLUMN);
             } else {
                 $stmt = $db->prepare(
                     "SELECT q.id,
@@ -497,24 +675,29 @@ switch ($action) {
                      LIMIT {$sessionLength}"
                 );
                 $stmt->execute([$userId]);
+                $qids = $stmt->fetchAll(PDO::FETCH_COLUMN);
             }
-        } else {
-            // Random mode (original behaviour)
+        } elseif ($mode === 'random') {
+            // Pure random mode
             if ($categoryId !== null) {
                 $stmt = $db->prepare("SELECT id FROM quiz_questions WHERE category_id=? AND is_active=1 ORDER BY RAND() LIMIT {$sessionLength}");
                 $stmt->execute([$categoryId]);
             } else {
                 $stmt = $db->query("SELECT id FROM quiz_questions WHERE is_active=1 ORDER BY RAND() LIMIT {$sessionLength}");
             }
+            $qids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        } else {
+            // 🌱 Seasonal mode (default) — 40% current season / 30% upcoming / 20% review / 10% weak
+            $qids = selectSeasonalQuestions($db, $userId, $categoryId, $sessionLength);
         }
 
-        $qids = $stmt->fetchAll(PDO::FETCH_COLUMN);
         if (count($qids) < 1) {
             qErr('No questions available for this category yet. Ask an admin to add some!');
         }
 
         $questionCount = count($qids);
         $questionIds   = implode(',', $qids);
+        $seasonCtx     = getSeasonContext();
 
         $ins = $db->prepare(
             "INSERT INTO quiz_sessions (user_id, category_id, question_ids, questions_count, month_year)
@@ -523,7 +706,13 @@ switch ($action) {
         $ins->execute([$userId, $categoryId, $questionIds, $questionCount, $monthYear]);
         $sessionId = (int)$db->lastInsertId();
 
-        qOk(['session_id' => $sessionId, 'total' => $questionCount]);
+        qOk([
+            'session_id'     => $sessionId,
+            'total'          => $questionCount,
+            'season_label'   => $seasonCtx['season_label'],
+            'season_icon'    => $seasonCtx['season_icon'],
+            'season_tagline' => $seasonCtx['season_tagline'],
+        ]);
 
     // ── GET: single question ───────────────────────────────────────────────────
     case 'question':
@@ -803,21 +992,56 @@ switch ($action) {
             ];
         }
 
+        // Season context + readiness score
+        $seasonCtx = getSeasonContext();
+        $seasonM   = $seasonCtx['month'];
+
+        // Count seasonal questions user has mastered (level >= 3) vs total in season
+        $seasonTotal = (int)$db->prepare(
+            "SELECT COUNT(*) FROM quiz_questions WHERE is_active=1
+             AND FIND_IN_SET(?, IFNULL(relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0"
+        )->execute([(string)$seasonM]) ? $db->query(
+            "SELECT COUNT(*) FROM quiz_questions WHERE is_active=1
+             AND FIND_IN_SET('{$seasonM}', IFNULL(relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0"
+        )->fetchColumn() : 0;
+
+        $seasonMastered = $db->prepare(
+            "SELECT COUNT(*) FROM quiz_user_mastery m
+             JOIN quiz_questions q ON q.id = m.question_id
+             WHERE m.user_id = ? AND m.mastery_level >= 3
+               AND FIND_IN_SET(?, IFNULL(q.relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0
+               AND q.is_active = 1"
+        );
+        $seasonMastered->execute([$userId, (string)$seasonM]);
+        $seasonMasteredCount = (int)$seasonMastered->fetchColumn();
+
+        $seasonReadinessPct = $seasonTotal > 0
+            ? min(100, round(($seasonMasteredCount / $seasonTotal) * 100))
+            : 0;
+
         qOk([
-            'games_played'       => (int)($stats['games_played'] ?? 0),
-            'monthly_points'     => (int)($stats['monthly_points'] ?? 0),
-            'best_game'          => (int)($stats['best_game'] ?? 0),
-            'accuracy_pct'       => $stats['total_questions'] > 0
-                                      ? round(($stats['total_correct'] / $stats['total_questions']) * 100)
-                                      : 0,
-            'monthly_rank'       => $myRank,
-            'total_mastered'     => $totalMastered,
-            'current_streak'     => $currentStreak,
-            'longest_streak'     => $longestStreak,
-            'badge_count'        => $badgeCount,
-            'total_badges'       => $totalBadges,
-            'rank_tier'          => $tier,
-            'category_accuracy'  => $categoryAccuracy,
+            'games_played'          => (int)($stats['games_played'] ?? 0),
+            'monthly_points'        => (int)($stats['monthly_points'] ?? 0),
+            'best_game'             => (int)($stats['best_game'] ?? 0),
+            'accuracy_pct'          => $stats['total_questions'] > 0
+                                         ? round(($stats['total_correct'] / $stats['total_questions']) * 100)
+                                         : 0,
+            'monthly_rank'          => $myRank,
+            'total_mastered'        => $totalMastered,
+            'current_streak'        => $currentStreak,
+            'longest_streak'        => $longestStreak,
+            'badge_count'           => $badgeCount,
+            'total_badges'          => $totalBadges,
+            'rank_tier'             => $tier,
+            'category_accuracy'     => $categoryAccuracy,
+            'season_label'          => $seasonCtx['season_label'],
+            'season_icon'           => $seasonCtx['season_icon'],
+            'season_tagline'        => $seasonCtx['season_tagline'],
+            'season_tip'            => $seasonCtx['tip'],
+            'season_focus_tags'     => $seasonCtx['focus_tags'],
+            'season_readiness_pct'  => $seasonReadinessPct,
+            'season_mastered'       => $seasonMasteredCount,
+            'season_total_q'        => (int)$seasonTotal,
         ]);
 
     // ── Admin: list questions ──────────────────────────────────────────────────
@@ -895,8 +1119,11 @@ switch ($action) {
         $validTypes   = ['multiple_choice','photo_id','scenario','sequence','reverse_recall','customer_explanation','quality_judgement'];
         $questionType = in_array($input['question_type'] ?? '', $validTypes) ? $input['question_type'] : 'multiple_choice';
         $learningLevel= max(1, min(6, (int)($input['learning_level'] ?? 1)));
-        $options      = $input['options'] ?? [];
-        $isActive     = isset($input['is_active']) ? (int)$input['is_active'] : 1;
+        $options          = $input['options'] ?? [];
+        $isActive         = isset($input['is_active']) ? (int)$input['is_active'] : 1;
+        $relevantMonths   = trim($input['relevant_months'] ?? '') ?: '1,2,3,4,5,6,7,8,9,10,11,12';
+        $seasonalTags     = trim($input['seasonal_tags'] ?? '') ?: null;
+        $seasonalPriority = max(1, min(10, (int)($input['seasonal_priority'] ?? 5)));
 
         if ($categoryId <= 0) qErr('Category is required');
         if ($questionText === '') qErr('Question text is required');
@@ -909,18 +1136,22 @@ switch ($action) {
             $db->prepare(
                 "UPDATE quiz_questions
                  SET category_id=?,question_text=?,learn_notes=?,image_path=?,difficulty=?,
-                     question_type=?,learning_level=?,is_active=?,updated_at=NOW()
+                     question_type=?,learning_level=?,is_active=?,
+                     relevant_months=?,seasonal_tags=?,seasonal_priority=?,updated_at=NOW()
                  WHERE id=?"
             )->execute([$categoryId,$questionText,$learnNotes,$imagePath,$difficulty,
-                        $questionType,$learningLevel,$isActive,$id]);
+                        $questionType,$learningLevel,$isActive,
+                        $relevantMonths,$seasonalTags,$seasonalPriority,$id]);
             $db->prepare("DELETE FROM quiz_options WHERE question_id=?")->execute([$id]);
         } else {
             $db->prepare(
                 "INSERT INTO quiz_questions
-                 (category_id,question_text,learn_notes,image_path,difficulty,question_type,learning_level,is_active,created_by)
-                 VALUES (?,?,?,?,?,?,?,?,?)"
+                 (category_id,question_text,learn_notes,image_path,difficulty,question_type,learning_level,is_active,
+                  relevant_months,seasonal_tags,seasonal_priority,created_by)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
             )->execute([$categoryId,$questionText,$learnNotes,$imagePath,$difficulty,
-                        $questionType,$learningLevel,$isActive,$userId]);
+                        $questionType,$learningLevel,$isActive,
+                        $relevantMonths,$seasonalTags,$seasonalPriority,$userId]);
             $id = (int)$db->lastInsertId();
         }
 
@@ -1012,6 +1243,59 @@ switch ($action) {
             ];
         }
         qOk(['badges' => $result, 'earned_count' => count($earnedMap), 'total' => count($allBadges)]);
+
+    // ── Admin: list seasonal campaigns ─────────────────────────────────────────
+    case 'list_campaigns':
+        requireAdminQ($isAdmin);
+        $rows = $db->query(
+            "SELECT * FROM quiz_seasonal_campaigns ORDER BY sort_order ASC, start_month ASC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+        qOk(['campaigns' => $rows]);
+
+    // ── Admin: save (create/update) seasonal campaign ───────────────────────────
+    case 'save_campaign':
+        requireAdminQ($isAdmin);
+        $input       = postInput(); verifyCsrf($input);
+        $cid         = isset($input['id']) ? (int)$input['id'] : null;
+        $name        = trim($input['name'] ?? '');
+        $description = trim($input['description'] ?? '');
+        $seasonLabel = trim($input['season_label'] ?? '');
+        $startMonth  = max(1, min(12, (int)($input['start_month'] ?? 1)));
+        $endMonth    = max(1, min(12, (int)($input['end_month'] ?? 12)));
+        $priBoost    = max(1, min(10, (int)($input['priority_boost'] ?? 3)));
+        $focusTags   = trim($input['focus_tags'] ?? '') ?: null;
+        $tipText     = trim($input['tip_text'] ?? '') ?: null;
+        $sortOrder   = (int)($input['sort_order'] ?? 5);
+        $isActive    = isset($input['is_active']) ? (int)$input['is_active'] : 1;
+        if ($name === '') qErr('Campaign name required');
+        if ($seasonLabel === '') qErr('Season label required');
+        if ($cid) {
+            $db->prepare(
+                "UPDATE quiz_seasonal_campaigns
+                 SET name=?,description=?,season_label=?,start_month=?,end_month=?,
+                     priority_boost=?,focus_tags=?,tip_text=?,sort_order=?,is_active=?
+                 WHERE id=?"
+            )->execute([$name,$description,$seasonLabel,$startMonth,$endMonth,
+                        $priBoost,$focusTags,$tipText,$sortOrder,$isActive,$cid]);
+            qOk(['message' => 'Campaign updated', 'id' => $cid]);
+        } else {
+            $db->prepare(
+                "INSERT INTO quiz_seasonal_campaigns
+                 (name,description,season_label,start_month,end_month,priority_boost,focus_tags,tip_text,sort_order,is_active)
+                 VALUES (?,?,?,?,?,?,?,?,?,?)"
+            )->execute([$name,$description,$seasonLabel,$startMonth,$endMonth,
+                        $priBoost,$focusTags,$tipText,$sortOrder,$isActive]);
+            qOk(['message' => 'Campaign created', 'id' => (int)$db->lastInsertId()]);
+        }
+
+    // ── Admin: delete (deactivate) seasonal campaign ────────────────────────────
+    case 'delete_campaign':
+        requireAdminQ($isAdmin);
+        $input = postInput(); verifyCsrf($input);
+        $cid   = (int)($input['id'] ?? 0);
+        if ($cid <= 0) qErr('Invalid id');
+        $db->prepare("DELETE FROM quiz_seasonal_campaigns WHERE id=?")->execute([$cid]);
+        qOk(['message' => 'Campaign deleted']);
 
     default:
         qErr('Unknown action', 404);

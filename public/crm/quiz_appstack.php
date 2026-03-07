@@ -41,6 +41,34 @@ $monthLabel = date('F Y');
     <div class="mw-rank-streak" id="rankStreak" style="display:none"></div>
 </div>
 
+<!-- ── Seasonal Knowledge Banner ──────────────────────────────────────────────── -->
+<div class="mw-season-banner mb-4" id="seasonBanner" style="display:none">
+    <div class="mw-season-banner-left">
+        <div class="mw-season-icon" id="seasonIcon"></div>
+        <div class="mw-season-info">
+            <div class="mw-season-label" id="seasonLabel"></div>
+            <div class="mw-season-tagline" id="seasonTagline"></div>
+        </div>
+    </div>
+    <div class="mw-season-readiness" id="seasonReadiness" style="display:none">
+        <div class="mw-season-readiness-label">Season Readiness</div>
+        <div class="mw-season-readiness-bar-wrap">
+            <div class="mw-season-readiness-bar" id="seasonReadinessBar"></div>
+        </div>
+        <div class="mw-season-readiness-pct" id="seasonReadinessPct"></div>
+    </div>
+</div>
+
+<!-- ── Seasonal Tip Card ──────────────────────────────────────────────────────── -->
+<div class="mw-season-tip mb-4" id="seasonTip" style="display:none">
+    <div class="mw-season-tip-icon">💡</div>
+    <div class="mw-season-tip-body">
+        <div class="mw-season-tip-heading">What to focus on now</div>
+        <div class="mw-season-tip-text" id="seasonTipText"></div>
+    </div>
+    <button class="mw-season-tip-dismiss" onclick="document.getElementById('seasonTip').style.display='none'" title="Dismiss">&times;</button>
+</div>
+
 <!-- ── Personal Stats Bar ─────────────────────────────────────────────────── -->
 <div class="row g-3 mb-4">
     <div class="col-6 col-md-3">
@@ -95,16 +123,20 @@ $monthLabel = date('F Y');
 <!-- Review All Due + Quick 5 -->
 <div class="text-center mb-5">
     <div class="d-flex justify-content-center gap-3 flex-wrap">
-        <button class="btn mw-btn-green btn-lg px-4 mw-quiz-mix-btn" onclick="startTest(null, 10)" id="reviewAllBtn" disabled>
+        <button class="btn mw-btn-green btn-lg px-4 mw-quiz-mix-btn" onclick="startTest(null, 10, 'seasonal')" id="reviewAllBtn" disabled>
             <i data-feather="refresh-cw" style="width:18px;height:18px;"></i>
-            &nbsp;Review All Due
+            &nbsp;Seasonal Mix · 10
         </button>
-        <button class="btn btn-outline-secondary btn-lg px-4" onclick="startTest(null, 5)" title="Quick 5-question session">
+        <button class="btn btn-outline-secondary btn-lg px-4" onclick="startTest(null, 5, 'seasonal')" title="Quick 5-question seasonal session">
             <i data-feather="zap" style="width:18px;height:18px;"></i>
             &nbsp;Quick 5
         </button>
+        <button class="btn btn-outline-secondary btn-lg px-4" onclick="startTest(null, 3, 'seasonal')" title="3-question micro session">
+            <i data-feather="clock" style="width:18px;height:18px;"></i>
+            &nbsp;Micro 3
+        </button>
     </div>
-    <div class="text-muted small mt-2">Review All Due · 10 questions &nbsp;|&nbsp; Quick 5 · 5 questions</div>
+    <div class="text-muted small mt-2">Seasonal Mix · 10 &nbsp;|&nbsp; Quick 5 &nbsp;|&nbsp; Micro 3 · ~90 seconds</div>
 </div>
 
 <!-- ── Mini Leaderboard ───────────────────────────────────────────────────── -->
@@ -173,6 +205,31 @@ async function loadStats() {
                     document.getElementById('badgesStrip').style.display = '';
                 })
                 .catch(() => {});
+        }
+
+        // Seasonal banner
+        if (d.season_label) {
+            document.getElementById('seasonIcon').textContent    = d.season_icon || '🌱';
+            document.getElementById('seasonLabel').textContent   = d.season_label;
+            document.getElementById('seasonTagline').textContent = d.season_tagline || '';
+            document.getElementById('seasonBanner').style.display = '';
+
+            if (d.season_total_q > 0) {
+                const pct = d.season_readiness_pct || 0;
+                document.getElementById('seasonReadinessPct').textContent = pct + '%';
+                document.getElementById('seasonReadinessBar').style.width = pct + '%';
+                document.getElementById('seasonReadinessBar').className =
+                    'mw-season-readiness-bar ' + (pct >= 70 ? 'mw-season-ready' : pct >= 40 ? 'mw-season-progressing' : 'mw-season-starting');
+                document.getElementById('seasonReadiness').style.display = '';
+            }
+
+            if (d.season_tip) {
+                const tipEl = document.getElementById('seasonTipText');
+                if (tipEl) {
+                    tipEl.textContent = d.season_tip;
+                    document.getElementById('seasonTip').style.display = '';
+                }
+            }
         }
 
     } catch(e) {}
@@ -257,13 +314,15 @@ async function loadCategories() {
 }
 
 // ── Start test session ────────────────────────────────────────────────────────
-async function startTest(categoryId, sessionLength) {
-    const len = sessionLength || 10;
+// mode: 'seasonal' (default, uses 40/30/20/10 blend) | 'test' | 'random'
+async function startTest(categoryId, sessionLength, mode) {
+    const len  = sessionLength || 10;
+    const qMode = mode || (categoryId ? 'test' : 'seasonal');
     try {
         const r = await fetch('/crm/api/quiz.php?action=start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ category_id: categoryId, mode: 'test', session_length: len, csrf_token: CSRF }),
+            body: JSON.stringify({ category_id: categoryId, mode: qMode, session_length: len, csrf_token: CSRF }),
         });
         const d = await r.json();
         if (!d.success) { alert(d.error || 'Could not start quiz'); return; }

@@ -22920,3 +22920,457 @@ textarea.font-monospace {
     width: calc(100% - 32px);
   }
 }
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   SALESFORCE-GAP FEATURES
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Field Changes / Audit Trail ──────────────────────────────────────────── */
+.mw-field-change-old {
+  text-decoration: line-through;
+  color: #dc3545;
+}
+.mw-field-change-new {
+  color: var(--mw-green);
+  font-weight: 600;
+}
+.mw-field-change-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f3f5;
+  font-size: 13px;
+}
+.mw-field-change-item:last-child {
+  border-bottom: none;
+}
+.mw-field-change-meta {
+  font-size: 12px;
+  color: #6c757d;
+}
+
+/* ── Tasks ────────────────────────────────────────────────────────────────── */
+.mw-task-list {
+  padding: 0;
+}
+.mw-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f3f5;
+  border-left: 3px solid transparent;
+  transition: background 0.15s;
+}
+.mw-task-item:hover {
+  background: #f8f9fa;
+}
+.mw-task-item:last-child {
+  border-bottom: none;
+}
+.mw-task-item.mw-task-done {
+  opacity: 0.6;
+}
+.mw-task-priority-high {
+  border-left-color: #DC2626;
+}
+.mw-task-priority-normal {
+  border-left-color: var(--mw-green);
+}
+.mw-task-priority-low {
+  border-left-color: #9CA3AF;
+}
+.mw-task-check {
+  padding-top: 2px;
+}
+.mw-task-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--mw-green);
+}
+.mw-task-body {
+  flex: 1;
+  min-width: 0;
+}
+.mw-task-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+.mw-task-title.completed {
+  text-decoration: line-through;
+  color: #9CA3AF;
+}
+.mw-task-desc {
+  margin-top: 2px;
+}
+.mw-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: #6c757d;
+}
+.mw-task-meta a {
+  color: var(--mw-green);
+  text-decoration: none;
+}
+.mw-task-meta a:hover {
+  text-decoration: underline;
+}
+.mw-task-overdue {
+  color: #DC2626;
+  font-weight: 600;
+}
+.mw-task-entity-links {
+  font-size: 11px;
+}
+.mw-task-actions {
+  flex-shrink: 0;
+}
+
+/* ── Activity Timeline (Enhanced) ─────────────────────────────────────────── */
+.mw-timeline {
+  position: relative;
+  padding-left: 28px;
+}
+.mw-timeline::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #e5e7eb;
+}
+.mw-timeline-event {
+  position: relative;
+  padding: 6px 0 14px 0;
+}
+.mw-timeline-event:last-child {
+  padding-bottom: 0;
+}
+.mw-timeline-icon {
+  position: absolute;
+  left: -28px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 2px solid;
+  z-index: 1;
+}
+.mw-timeline-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1a1a1a;
+}
+.mw-timeline-detail {
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 1px;
+}
+.mw-timeline-meta {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+.mw-timeline-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.mw-timeline-filter-btn {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid #dee2e6;
+  background: #fff;
+  color: #6c757d;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.mw-timeline-filter-btn:hover {
+  border-color: var(--mw-green);
+  color: var(--mw-green);
+}
+.mw-timeline-filter-btn.active {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  color: #fff;
+}
+
+/* ── Pipeline Summary Bar ─────────────────────────────────────────────────── */
+.mw-pipeline-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.mw-pipeline-stat {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.mw-pipeline-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--mw-green);
+}
+.mw-pipeline-stat-label {
+  font-size: 12px;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+@media (max-width: 767.98px) {
+  .mw-pipeline-summary {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .mw-pipeline-stat-value {
+    font-size: 1.2rem;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Quiz Seasonal Layer
+   ─────────────────────────────────────────────────────────────────────────
+   Used on quiz_appstack.php (hub) and quiz-admin_appstack.php (campaigns tab)
+═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Season Banner (quiz hub) ─────────────────────────────────────────────── */
+.mw-season-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: linear-gradient(135deg, var(--mw-forest) 0%, var(--mw-dark) 100%);
+  color: #fff;
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: 0 2px 8px rgba(13,59,46,.25);
+  flex-wrap: wrap;
+}
+.mw-season-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.mw-season-icon {
+  font-size: 2.2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.mw-season-label {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.mw-season-tagline {
+  font-size: 0.8rem;
+  opacity: 0.82;
+  margin-top: 2px;
+}
+
+/* ── Season Readiness Bar (inside banner) ─────────────────────────────────── */
+.mw-season-readiness {
+  text-align: right;
+  min-width: 130px;
+}
+.mw-season-readiness-label {
+  font-size: 11px;
+  opacity: 0.75;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.mw-season-readiness-bar-wrap {
+  background: rgba(255,255,255,0.18);
+  border-radius: 6px;
+  height: 8px;
+  overflow: hidden;
+}
+.mw-season-readiness-bar {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.6s ease;
+  background: var(--mw-lime);
+}
+.mw-season-readiness-bar.mw-season-ready {
+  background: #7FD858;  /* lime — 70%+ */
+}
+.mw-season-readiness-bar.mw-season-progressing {
+  background: #f0c040;  /* amber — 30–69% */
+}
+.mw-season-readiness-bar.mw-season-starting {
+  background: var(--mw-orange); /* orange — 0–29% */
+}
+.mw-season-readiness-pct {
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+/* ── Season Tip Card ─────────────────────────────────────────────────────── */
+.mw-season-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--mw-light);
+  border: 1px solid rgba(45,134,89,.25);
+  border-left: 4px solid var(--mw-green);
+  border-radius: 8px;
+  padding: 14px 16px;
+  position: relative;
+}
+.mw-season-tip-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+.mw-season-tip-heading {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--mw-dark);
+  margin-bottom: 3px;
+}
+.mw-season-tip-text {
+  font-size: 0.87rem;
+  color: #333;
+  line-height: 1.5;
+}
+.mw-season-tip-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.mw-season-tip-dismiss:hover { color: #333; }
+
+/* ── Month Checkboxes (question modal) ───────────────────────────────────── */
+.mw-month-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+.mw-month-cb {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  background: #f5f5f5;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s, border-color 0.1s;
+}
+.mw-month-cb:has(input:checked) {
+  background: var(--mw-light);
+  border-color: var(--mw-green);
+  color: var(--mw-dark);
+  font-weight: 600;
+}
+.mw-month-cb input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--mw-green);
+  cursor: pointer;
+}
+
+/* ── Campaign badge (Campaigns tab) ──────────────────────────────────────── */
+.mw-season-campaign-badge {
+  background: var(--mw-dark);
+  color: #fff;
+  font-size: 11px;
+  text-transform: capitalize;
+  letter-spacing: 0.3px;
+}
+
+@media (max-width: 575.98px) {
+  .mw-season-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .mw-season-readiness {
+    text-align: left;
+    width: 100%;
+    min-width: 0;
+  }
+  .mw-month-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* ── Data Import ──────────────────────────────────────────────────────────── */
+.mw-import-steps {
+  display: flex;
+  gap: 8px;
+}
+.mw-import-step {
+  flex: 1;
+  padding: 10px 16px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: #9ca3af;
+}
+.mw-import-step.active {
+  background: var(--mw-light);
+  border: 2px solid var(--mw-green);
+  color: var(--mw-green);
+}
+.mw-import-step.complete {
+  background: var(--mw-green);
+  color: #fff;
+}
+.mw-import-dropzone {
+  border: 2px dashed #dee2e6;
+  border-radius: 8px;
+  padding: 40px 20px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.mw-import-dropzone.dragover {
+  border-color: var(--mw-green);
+  background: var(--mw-light);
+}
+.mw-import-mapping-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f3f5;
+}
+.mw-import-mapping-csv {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+}
+.mw-import-mapping-arrow {
+  color: #9ca3af;
+  font-size: 18px;
+}
+.mw-import-mapping-field {
+  flex: 1;
+}

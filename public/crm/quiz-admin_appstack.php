@@ -15,7 +15,7 @@ if (($user['role'] ?? '') !== 'admin') {
     exit;
 }
 
-$activeTab  = in_array($_GET['tab'] ?? '', ['categories','questions','leaderboard']) ? $_GET['tab'] : 'questions';
+$activeTab  = in_array($_GET['tab'] ?? '', ['categories','questions','leaderboard','campaigns']) ? $_GET['tab'] : 'questions';
 $csrfToken  = function_exists('generateCSRFToken') ? generateCSRFToken() : '';
 $pageTitle  = 'Quiz Admin';
 $activePage = 'quiz';
@@ -42,6 +42,9 @@ $activePage = 'quiz';
     </li>
     <li class="nav-item">
         <a class="nav-link <?php echo $activeTab === 'leaderboard' ? 'active' : ''; ?>" href="?tab=leaderboard">Leaderboard &amp; Prizes</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link <?php echo $activeTab === 'campaigns' ? 'active' : ''; ?>" href="?tab=campaigns">🌱 Seasonal Campaigns</a>
     </li>
 </ul>
 
@@ -162,6 +165,107 @@ $activePage = 'quiz';
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════
+     TAB: SEASONAL CAMPAIGNS
+═══════════════════════════════════════════════════════════════════════════ -->
+<div id="tabCampaigns" <?php echo $activeTab !== 'campaigns' ? 'style="display:none"' : ''; ?>>
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <p class="text-muted small mb-0">Seasonal campaigns control tip text and priority boosts during specific months.</p>
+        <button class="btn mw-btn-green btn-sm" onclick="openCampaignModal(null)">
+            <i data-feather="plus" style="width:14px;height:14px;"></i> Add Campaign
+        </button>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <div id="campaignsList">
+                <div class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL: Add / Edit Seasonal Campaign
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="campaignModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="campaignModalTitle">Add Seasonal Campaign</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="campId">
+                <div class="row g-3">
+                    <div class="col-md-7">
+                        <label class="form-label small fw-bold">Campaign Name <span class="text-danger">*</span></label>
+                        <input type="text" id="campName" class="form-control form-control-sm" placeholder="e.g. Spring Growth Push">
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small fw-bold">Season Label <span class="text-danger">*</span></label>
+                        <input type="text" id="campLabel" class="form-control form-control-sm" placeholder="e.g. spring, fall, winter">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Description</label>
+                        <input type="text" id="campDesc" class="form-control form-control-sm" placeholder="Short description of what this campaign covers">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Start Month</label>
+                        <select id="campStart" class="form-select form-select-sm">
+                            <?php for($m=1;$m<=12;$m++): ?>
+                            <option value="<?php echo $m; ?>"><?php echo date('F', mktime(0,0,0,$m,1)); ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">End Month</label>
+                        <select id="campEnd" class="form-select form-select-sm">
+                            <?php for($m=1;$m<=12;$m++): ?>
+                            <option value="<?php echo $m; ?>"><?php echo date('F', mktime(0,0,0,$m,1)); ?></option>
+                            <?php endfor; ?>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold d-flex justify-content-between">
+                            Priority Boost
+                            <span class="text-muted fw-normal" id="campBoostVal">3</span>
+                        </label>
+                        <input type="range" id="campBoost" class="form-range" min="1" max="10" step="1" value="3"
+                               oninput="document.getElementById('campBoostVal').textContent = this.value">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Sort Order</label>
+                        <input type="number" id="campSort" class="form-control form-control-sm" value="5" min="1" max="99">
+                    </div>
+                    <div class="col-md-9">
+                        <label class="form-label small fw-bold">Focus Tags <span class="text-muted fw-normal">(comma-separated)</span></label>
+                        <input type="text" id="campTags" class="form-control form-control-sm"
+                               placeholder="e.g. spring-lawn,pre-emergent,chafer-prevention">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Status</label>
+                        <select id="campActive" class="form-select form-select-sm">
+                            <option value="1">Active</option>
+                            <option value="0">Inactive</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Tip Text <span class="text-muted fw-normal">(shown on quiz hub seasonal tip card)</span></label>
+                        <textarea id="campTip" class="form-control form-control-sm" rows="2"
+                                  placeholder="e.g. Check lawns for moss. This is the window for pre-emergent crabgrass control."></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn mw-btn-green" onclick="saveCampaign()">Save Campaign</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
      MODAL: Add / Edit Question
 ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="modal fade" id="questionModal" tabindex="-1">
@@ -220,6 +324,36 @@ $activePage = 'quiz';
                         <label class="form-label small fw-bold">Learn Notes <span class="text-muted fw-normal">(shown on flashcard back)</span></label>
                         <textarea id="qmLearnNotes" class="form-control form-control-sm" rows="2"
                                   placeholder="e.g. Scientific name: Taraxacum officinale. Key ID: hollow stem with milky sap, deep taproot, jagged basal rosette leaves."></textarea>
+                    </div>
+                    <!-- Seasonal fields -->
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Active Months <span class="text-muted fw-normal">(when this question is most relevant)</span></label>
+                        <div class="mw-month-grid" id="qmMonthGrid">
+                            <?php
+                            $months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                            foreach ($months as $i => $m): $n = $i + 1; ?>
+                            <label class="mw-month-cb">
+                                <input type="checkbox" name="qmMonths" value="<?php echo $n; ?>" checked>
+                                <?php echo $m; ?>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label small fw-bold">Seasonal Tags <span class="text-muted fw-normal">(comma-separated)</span></label>
+                        <input type="text" id="qmSeasonalTags" class="form-control form-control-sm"
+                               placeholder="e.g. pre-emergent,spring-lawn,crabgrass-prevention">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold d-flex justify-content-between">
+                            Seasonal Priority
+                            <span class="text-muted fw-normal" id="qmPriorityVal">5</span>
+                        </label>
+                        <input type="range" id="qmSeasonalPriority" class="form-range" min="1" max="10" step="1" value="5"
+                               oninput="document.getElementById('qmPriorityVal').textContent = this.value">
+                        <div class="d-flex justify-content-between" style="font-size:10px;color:#999;margin-top:2px;">
+                            <span>Low</span><span>High</span>
+                        </div>
                     </div>
                     <div class="col-12">
                         <label class="form-label small fw-bold">Question Image (optional)</label>
@@ -384,6 +518,22 @@ async function loadQuestions() {
     </table>`;
 }
 
+function setMonthCheckboxes(monthsStr) {
+    // monthsStr: "3,4,9,10" or "1,2,3,4,5,6,7,8,9,10,11,12" or ""
+    const active = monthsStr ? monthsStr.split(',').map(s => s.trim()) : [];
+    const allMonths = !monthsStr || monthsStr === '1,2,3,4,5,6,7,8,9,10,11,12';
+    document.querySelectorAll('#qmMonthGrid input[type="checkbox"]').forEach(cb => {
+        cb.checked = allMonths || active.includes(cb.value);
+    });
+}
+
+function getMonthsFromCheckboxes() {
+    const checked = [];
+    document.querySelectorAll('#qmMonthGrid input[type="checkbox"]:checked').forEach(cb => checked.push(cb.value));
+    if (checked.length === 12) return '1,2,3,4,5,6,7,8,9,10,11,12';
+    return checked.join(',') || '1,2,3,4,5,6,7,8,9,10,11,12';
+}
+
 function openQuestionModal(id) {
     document.getElementById('qmId').value          = id || '';
     document.getElementById('qmText').value        = '';
@@ -394,6 +544,10 @@ function openQuestionModal(id) {
     document.getElementById('qmType').value        = 'multiple_choice';
     document.getElementById('qmLevel').value       = '1';
     document.getElementById('qmCategory').value    = '';
+    document.getElementById('qmSeasonalTags').value    = '';
+    document.getElementById('qmSeasonalPriority').value = '5';
+    document.getElementById('qmPriorityVal').textContent = '5';
+    setMonthCheckboxes('');  // defaults to all checked
     document.getElementById('questionModalTitle').textContent = id ? 'Edit Question' : 'Add Question';
 
     // Default 4 option rows
@@ -415,6 +569,11 @@ function openQuestionModal(id) {
                 document.getElementById('qmType').value       = q.question_type || 'multiple_choice';
                 document.getElementById('qmLevel').value      = q.learning_level || '1';
                 document.getElementById('qmImagePath').value  = q.image_path || '';
+                document.getElementById('qmSeasonalTags').value = q.seasonal_tags || '';
+                const pri = q.seasonal_priority || 5;
+                document.getElementById('qmSeasonalPriority').value = pri;
+                document.getElementById('qmPriorityVal').textContent = pri;
+                setMonthCheckboxes(q.relevant_months || '');
                 if (q.image_path) previewImage();
 
                 // Re-render options
@@ -486,15 +645,18 @@ async function saveQuestion() {
     if (!hasCorrect)      { alert('Mark one option as correct'); return; }
 
     const payload = {
-        csrf_token:     CSRF,
-        category_id:   document.getElementById('qmCategory').value,
-        question_text:  document.getElementById('qmText').value.trim(),
-        learn_notes:   document.getElementById('qmLearnNotes').value.trim() || null,
-        image_path:    document.getElementById('qmImagePath').value.trim() || null,
-        difficulty:    document.getElementById('qmDifficulty').value,
-        question_type: document.getElementById('qmType').value,
-        learning_level: parseInt(document.getElementById('qmLevel').value) || 1,
-        options:       opts,
+        csrf_token:        CSRF,
+        category_id:      document.getElementById('qmCategory').value,
+        question_text:     document.getElementById('qmText').value.trim(),
+        learn_notes:      document.getElementById('qmLearnNotes').value.trim() || null,
+        image_path:       document.getElementById('qmImagePath').value.trim() || null,
+        difficulty:       document.getElementById('qmDifficulty').value,
+        question_type:    document.getElementById('qmType').value,
+        learning_level:   parseInt(document.getElementById('qmLevel').value) || 1,
+        relevant_months:  getMonthsFromCheckboxes(),
+        seasonal_tags:    document.getElementById('qmSeasonalTags').value.trim() || null,
+        seasonal_priority: parseInt(document.getElementById('qmSeasonalPriority').value) || 5,
+        options:          opts,
     };
     if (id) payload.id = parseInt(id);
 
@@ -700,6 +862,140 @@ async function awardPrize() {
     }
 }
 
+// ══ Seasonal Campaigns ════════════════════════════════════════════════════════
+
+const MONTH_NAMES = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+async function loadCampaignsList() {
+    const r = await fetch('/crm/api/quiz.php?action=list_campaigns');
+    const d = await r.json();
+    const list = document.getElementById('campaignsList');
+    if (!list) return;
+    if (!d.success || !d.campaigns.length) {
+        list.innerHTML = '<div class="text-center py-5 text-muted">No campaigns yet. Click "Add Campaign" to create one.</div>';
+        return;
+    }
+    const rows = d.campaigns.map(c => {
+        const startName = MONTH_NAMES[c.start_month] || c.start_month;
+        const endName   = MONTH_NAMES[c.end_month]   || c.end_month;
+        const statusBadge = parseInt(c.is_active)
+            ? '<span class="badge bg-success">Active</span>'
+            : '<span class="badge bg-secondary">Inactive</span>';
+        return `<tr>
+            <td class="ps-3 py-2">
+                <strong>${escHtml(c.name)}</strong>
+                ${c.description ? `<div class="text-muted small">${escHtml(c.description)}</div>` : ''}
+            </td>
+            <td class="py-2">
+                <span class="badge mw-season-campaign-badge">${escHtml(c.season_label)}</span>
+            </td>
+            <td class="py-2 text-muted small">${startName} → ${endName}</td>
+            <td class="py-2 text-muted small">${parseInt(c.priority_boost)}×</td>
+            <td class="py-2">${statusBadge}</td>
+            <td class="py-2 text-end pe-3">
+                <button class="btn btn-xs btn-outline-secondary me-1" onclick="openCampaignModal(${c.id})">Edit</button>
+                <button class="btn btn-xs btn-outline-danger" onclick="deleteCampaign(${c.id})">Delete</button>
+            </td>
+        </tr>`;
+    });
+    list.innerHTML = `<table class="table table-hover mb-0">
+        <thead class="table-light">
+            <tr>
+                <th class="ps-3">Campaign</th>
+                <th>Season</th>
+                <th>Months</th>
+                <th>Boost</th>
+                <th>Status</th>
+                <th class="pe-3"></th>
+            </tr>
+        </thead>
+        <tbody>${rows.join('')}</tbody>
+    </table>`;
+}
+
+let allCampaignsCache = [];
+
+function openCampaignModal(id) {
+    document.getElementById('campId').value     = id || '';
+    document.getElementById('campName').value   = '';
+    document.getElementById('campLabel').value  = '';
+    document.getElementById('campDesc').value   = '';
+    document.getElementById('campTags').value   = '';
+    document.getElementById('campTip').value    = '';
+    document.getElementById('campBoost').value  = '3';
+    document.getElementById('campBoostVal').textContent = '3';
+    document.getElementById('campSort').value   = '5';
+    document.getElementById('campActive').value = '1';
+    document.getElementById('campStart').value  = '2';
+    document.getElementById('campEnd').value    = '4';
+    document.getElementById('campaignModalTitle').textContent = id ? 'Edit Campaign' : 'Add Campaign';
+
+    if (id) {
+        fetch('/crm/api/quiz.php?action=list_campaigns')
+            .then(r => r.json())
+            .then(d => {
+                const c = d.campaigns?.find(x => parseInt(x.id) === id);
+                if (!c) return;
+                document.getElementById('campName').value   = c.name;
+                document.getElementById('campLabel').value  = c.season_label;
+                document.getElementById('campDesc').value   = c.description || '';
+                document.getElementById('campTags').value   = c.focus_tags || '';
+                document.getElementById('campTip').value    = c.tip_text || '';
+                document.getElementById('campBoost').value  = c.priority_boost;
+                document.getElementById('campBoostVal').textContent = c.priority_boost;
+                document.getElementById('campSort').value   = c.sort_order;
+                document.getElementById('campActive').value = c.is_active;
+                document.getElementById('campStart').value  = c.start_month;
+                document.getElementById('campEnd').value    = c.end_month;
+            });
+    }
+
+    $('#campaignModal').modal('show');
+}
+
+async function saveCampaign() {
+    const id = document.getElementById('campId').value;
+    const payload = {
+        csrf_token:     CSRF,
+        name:           document.getElementById('campName').value.trim(),
+        season_label:   document.getElementById('campLabel').value.trim(),
+        description:    document.getElementById('campDesc').value.trim(),
+        start_month:    parseInt(document.getElementById('campStart').value),
+        end_month:      parseInt(document.getElementById('campEnd').value),
+        priority_boost: parseInt(document.getElementById('campBoost').value),
+        sort_order:     parseInt(document.getElementById('campSort').value) || 5,
+        focus_tags:     document.getElementById('campTags').value.trim() || null,
+        tip_text:       document.getElementById('campTip').value.trim() || null,
+        is_active:      parseInt(document.getElementById('campActive').value),
+    };
+    if (id) payload.id = parseInt(id);
+
+    const r = await fetch('/crm/api/quiz.php?action=save_campaign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.success) {
+        $('#campaignModal').modal('hide');
+        loadCampaignsList();
+    } else {
+        alert(d.error || 'Save failed');
+    }
+}
+
+async function deleteCampaign(id) {
+    if (!confirm('Delete this campaign? This cannot be undone.')) return;
+    const r = await fetch('/crm/api/quiz.php?action=delete_campaign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, csrf_token: CSRF }),
+    });
+    const d = await r.json();
+    if (d.success) loadCampaignsList();
+    else alert(d.error || 'Failed');
+}
+
 function escHtml(s) {
     if (!s) return '';
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -712,6 +1008,8 @@ loadCategories().then(() => {
     <?php elseif ($activeTab === 'leaderboard'): ?>
     loadLeaderboard();
     loadPrizeHistory();
+    <?php elseif ($activeTab === 'campaigns'): ?>
+    loadCampaignsList();
     <?php endif; ?>
 });
 
@@ -721,6 +1019,10 @@ loadCategories().then(() => {
 setTimeout(() => {
     if (document.getElementById('adminLeaderboard')) loadLeaderboard();
 }, 500);
+<?php endif; ?>
+
+<?php if ($activeTab !== 'campaigns'): ?>
+// Load campaigns silently for the campaigns tab when navigating to it
 <?php endif; ?>
 </script>
 
