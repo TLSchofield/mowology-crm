@@ -9,12 +9,19 @@
  */
 
 $sid = (int)($_GET['sid'] ?? 0);
-$url = $_GET['url'] ?? '';
+$raw = $_GET['url'] ?? '';
 
-// Validate URL — must be http(s)
-if (!preg_match('#^https?://#i', $url)) {
-    $url = 'https://mowology.ca'; // Fallback
+// Decode base64url if it doesn't look like a plain URL
+// (campaign_sender encodes URLs as base64url to avoid double-encoding)
+if ($raw !== '' && !preg_match('#^https?://#i', $raw)) {
+    $decoded = base64_decode(strtr($raw, '-_', '+/') . str_repeat('=', 3 - (strlen($raw) + 3) % 4));
+    $raw = ($decoded !== false) ? $decoded : '';
 }
+
+// Validate — must be http(s), must point to mowology.ca or known trusted origin
+$url = (preg_match('#^https?://[a-z0-9\-\.]+#i', $raw) && !preg_match('#[\r\n]#', $raw))
+    ? $raw
+    : 'https://mowology.ca';
 
 if ($sid > 0) {
     try {

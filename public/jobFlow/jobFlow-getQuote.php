@@ -39,7 +39,8 @@ if (empty($_SESSION['csrf_token'])) {
 // ── Campaign & Source Tracking ─────────────────────────────────────────────
 // Capture inbound query params on first GET load; persist via session.
 $trackableParams = ['service', 'property_type', 'src', 'promo',
-                    'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+                    'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
+                    'referral_code'];
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     foreach ($trackableParams as $param) {
         $val = isset($_GET[$param]) ? trim((string)$_GET[$param]) : '';

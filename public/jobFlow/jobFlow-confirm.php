@@ -296,6 +296,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                     catch (Throwable $t) { error_log('[jobFlow-confirm] updateContactLifecycle failed: ' . $t->getMessage()); }
                 }
 
+                // ── 5b. Non-blocking: record inbound referral ─────────────
+                $referralCode = trim($_SESSION['jf_track']['referral_code'] ?? '');
+                if ($referralCode !== '') {
+                    try {
+                        $__refSvc = dirname(__DIR__, 2) . '/app/Modules/Referrals/Services/ReferralRewardService.php';
+                        if (file_exists($__refSvc)) {
+                            require_once $__refSvc;
+                            ReferralRewardService::recordInboundReferral(
+                                $referralCode,
+                                [
+                                    'name'  => trim(($data['first_name'] ?? '') . ' ' . ($data['last_name'] ?? '')),
+                                    'email' => $data['email'] ?? '',
+                                    'phone' => $data['phone'] ?? '',
+                                    'qr_id' => $quoteRequestId,
+                                ],
+                                $db
+                            );
+                        }
+                    } catch (Throwable $__t) {
+                        error_log('[jobFlow-confirm] referral recording failed: ' . $__t->getMessage());
+                    }
+                }
+
                 // ── 6. Log consent ────────────────────────────────────────
                 $consentEntries = [
                     'quote_followup'  => [$data['consent_quote'],    'I agree to be contacted about this quote request via email, phone, or text message.'],

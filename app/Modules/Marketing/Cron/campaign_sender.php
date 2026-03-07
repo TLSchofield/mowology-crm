@@ -169,6 +169,17 @@ try {
                 $fullEmail
             );
 
+            // Rewrite external links for click tracking (exclude unsubscribe link)
+            $sendId = $send['id'];
+            $fullEmail = preg_replace_callback(
+                '/href="(https?:\/\/(?!mowology\.ca\/crm\/api\/)[^"]+)"/',
+                static function (array $m) use ($sendId): string {
+                    $encoded = rtrim(strtr(base64_encode($m[1]), '+/', '-_'), '=');
+                    return 'href="https://mowology.ca/crm/api/track-click.php?sid=' . $sendId . '&url=' . $encoded . '"';
+                },
+                $fullEmail
+            ) ?? $fullEmail;
+
             // Send
             $result = sendEmail($email, $renderedSubject, $fullEmail);
 

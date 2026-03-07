@@ -231,9 +231,22 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Visit cannot be ended from current status']);
                 break;
             }
-            $lat   = isset($input['lat'])   ? (float)$input['lat']   : null;
-            $lng   = isset($input['lng'])   ? (float)$input['lng']   : null;
-            $notes = trim($input['notes'] ?? '');
+            $lat          = isset($input['lat'])   ? (float)$input['lat']   : null;
+            $lng          = isset($input['lng'])   ? (float)$input['lng']   : null;
+            $notes        = trim($input['notes'] ?? '');
+            $extrasMins   = max(0, (int)($input['extras_minutes'] ?? 0));
+            $extrasNote   = substr(trim($input['extras_note'] ?? ''), 0, 500);
+
+            // Calculate extras amount from ops_settings rate
+            $extrasAmount = 0.00;
+            if ($extrasMins > 0) {
+                try {
+                    $rateRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'extras_rate_per_5min' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+                    $ratePerBlock = floatval($rateRow['setting_value'] ?? 5.00);
+                    $blocks = (int)ceil($extrasMins / 5); // always round up to 5-min block
+                    $extrasAmount = round($blocks * $ratePerBlock, 2);
+                } catch (Exception $e) { /* use 0 if setting unavailable */ }
+            }
 
             $db->prepare("
                 UPDATE job_visits SET
@@ -242,9 +255,12 @@ try {
                     gps_departure_lat = ?,
                     gps_departure_lng = ?,
                     gps_confirmed_at = NOW(),
-                    completion_notes = CASE WHEN ? != '' THEN ? ELSE completion_notes END
+                    completion_notes = CASE WHEN ? != '' THEN ? ELSE completion_notes END,
+                    extras_minutes = ?,
+                    extras_amount  = ?,
+                    extras_note    = CASE WHEN ? != '' THEN ? ELSE extras_note END
                 WHERE id = ?
-            ")->execute([$lat, $lng, $notes, $notes, $visitId]);
+            ")->execute([$lat, $lng, $notes, $notes, $extrasMins, $extrasAmount, $extrasNote, $extrasNote, $visitId]);
 
             addAuditLog($db, $visitId, (int)$user['id'], 'complete', null, $ip);
 
@@ -262,7 +278,19 @@ try {
                 ReviewRequestService::maybeSend($visitId, $db);
             }
 
-            echo json_encode(['success' => true, 'completed_at' => date('c')]);
+            // Award referral reward if this is a referred client's first completed visit
+            $refService = APP_ROOT . '/Modules/Referrals/Services/ReferralRewardService.php';
+            if (file_exists($refService)) {
+                require_once $refService;
+                ReferralRewardService::maybeAwardCompletion($visitId, $db, (int)$user['id']);
+            }
+
+            echo json_encode([
+                'success'       => true,
+                'completed_at'  => date('c'),
+                'extras_minutes'=> $extrasMins,
+                'extras_amount' => $extrasAmount,
+            ]);
             break;
 
         // ── Generate PDF ───────────────────────────────────────────────────
