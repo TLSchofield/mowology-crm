@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v27';
+var CACHE_VERSION = 'mw-v28';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -259,12 +259,12 @@ function prewarmTiles(data, client) {
       }
 
       return Promise.all(batch.map(function(url) {
-        var req = new Request(url, { mode: 'cors' });
+        var req = new Request(url, { mode: 'no-cors' });
         return cache.match(req).then(function(existing) {
           if (existing) { skipped++; return; }
 
           return fetch(req).then(function(response) {
-            if (response.status === 0 || response.ok) {
+            if (response.ok || response.type === 'opaque') {
               fetched++;
               return cache.put(req, response);
             }
@@ -505,9 +505,10 @@ function tileCacheFirst(request) {
     return cache.match(request).then(function(cached) {
       if (cached) return cached;
 
-      return fetch(request).then(function(response) {
-        // Opaque responses have status 0 but are still valid tiles
-        if (response.status === 0 || response.ok) {
+      // Cross-origin tiles need no-cors; opaque responses are cacheable
+      var fetchReq = new Request(request.url, { mode: 'no-cors' });
+      return fetch(fetchReq).then(function(response) {
+        if (response.ok || response.type === 'opaque') {
           cache.put(request, response.clone());
           trimTileCache(cache);
         }
