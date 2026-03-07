@@ -149,6 +149,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Please add at least one line item.';
         } else {
             try {
+                // Ensure section_name column exists (migration 930)
+                try {
+                    $db->exec("ALTER TABLE `quote_line_items` ADD COLUMN `section_name` VARCHAR(100) NULL DEFAULT NULL AFTER `sort_order`");
+                } catch (\Throwable $ignore) {
+                    // Column already exists — safe to ignore
+                }
+
                 $db->beginTransaction();
 
                 // Calculate totals
