@@ -149,11 +149,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Please add at least one line item.';
         } else {
             try {
-                // Ensure section_name column exists (migration 930)
-                try {
-                    $db->exec("ALTER TABLE `quote_line_items` ADD COLUMN `section_name` VARCHAR(100) NULL DEFAULT NULL AFTER `sort_order`");
-                } catch (\Throwable $ignore) {
-                    // Column already exists — safe to ignore
+                // Ensure required columns exist (migrations 930, contract)
+                $schemaPatch = [
+                    "ALTER TABLE `quote_line_items` ADD COLUMN `section_name` VARCHAR(100) NULL DEFAULT NULL AFTER `sort_order`",
+                    "ALTER TABLE `quotes` ADD COLUMN `is_contract` TINYINT(1) NOT NULL DEFAULT 0 AFTER `status`",
+                ];
+                foreach ($schemaPatch as $ddl) {
+                    try { $db->exec($ddl); } catch (\Throwable $ignore) {}
                 }
 
                 $db->beginTransaction();
@@ -296,10 +298,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: view.php?id={$quoteId}&saved=1");
                 exit;
 
-            } catch (Exception $e) {
-                $db->rollBack();
+            } catch (\Throwable $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
                 $errorHandler->logError('Error saving quote', $e, ['quote_id' => $quoteId, 'property_id' => $propertyId]);
-                $error = 'Error saving quote. Please try again.';
+                $error = 'Error saving quote: ' . htmlspecialchars($e->getMessage());
             }
         }
     }
