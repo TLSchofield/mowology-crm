@@ -97,11 +97,20 @@ a:hover { text-decoration: underline; }
   object-fit: contain;
 }
 .or-icon-full img { /* unmodified — show real logo */ }
+.portal-or-row {
+  background: var(--p-forest, #0D3B2E);
+}
+.portal-or-row td {
+  color: #fff;
+  border-color: rgba(255,255,255,0.1);
+}
+.portal-or-row td strong { color: #fff; }
 .portal-or-row td:first-child {
   text-align: center;
   vertical-align: middle;
   padding: 8px 4px;
 }
+.portal-or-row .right { color: #7FD858; font-weight: 700; }
 .portal-header-divider {
   width: 1px;
   height: 18px;
