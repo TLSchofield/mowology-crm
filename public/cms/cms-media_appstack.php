@@ -452,7 +452,7 @@ if ($hasIconSetsTable) {
                 </div>
             </div>
             <small class="form-text text-muted mt-2">
-                Generates 14 sizes (32–1024 px) in two variants: <strong>Sold</strong> (full colour) &amp; <strong>Unsold</strong> (greyscale). Assign to any product in the Products Manager.
+                Generates 7 sizes (32–1024 px) in two variants: <strong>Default</strong> (greyscale) &amp; <strong>Active</strong> (full colour — shown when purchased). Use on products, website, stop cards, quotes &amp; more.
             </small>
         </div>
     </div>
@@ -481,15 +481,11 @@ if ($hasIconSetsTable) {
             ?>
             <div class="mw-icon-set-card" data-id="<?php echo $setId; ?>" id="icon-set-card-<?php echo $setId; ?>">
                 <div class="mw-icon-set-previews">
-                    <div class="mw-icon-set-preview-item">
+                    <img src="<?php echo $basePath; ?>icon_128_unsold.png<?php echo $cb; ?>"
+                         alt="<?php echo $setName; ?>" class="mw-icon-set-hero" loading="lazy">
+                    <div class="mw-icon-set-color-badge" title="Colored when purchased">
                         <img src="<?php echo $basePath; ?>icon_64_sold.png<?php echo $cb; ?>"
-                             alt="Sold variant" loading="lazy">
-                        <span class="mw-icon-set-preview-label mw-icon-set-preview-label--sold">Sold</span>
-                    </div>
-                    <div class="mw-icon-set-preview-item">
-                        <img src="<?php echo $basePath; ?>icon_64_unsold.png<?php echo $cb; ?>"
-                             alt="Unsold variant" loading="lazy">
-                        <span class="mw-icon-set-preview-label mw-icon-set-preview-label--unsold">Unsold</span>
+                             alt="Active variant" loading="lazy">
                     </div>
                 </div>
                 <div class="mw-icon-set-card-body">
