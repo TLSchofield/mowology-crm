@@ -66,13 +66,8 @@
       dismiss(toast);
     });
 
+    // Append — CSS @keyframes handles the entrance animation automatically
     container.appendChild(toast);
-
-    // Trigger entrance animation on next frame
-    // (setTimeout used instead of rAF — Chrome throttles rAF in background tabs)
-    setTimeout(function () {
-      toast.classList.add('mw-toast--visible');
-    }, 16);
 
     // Auto-dismiss
     var timer = setTimeout(function () { dismiss(toast); }, duration);
@@ -83,7 +78,6 @@
     if (toast._dismissed) return;
     toast._dismissed = true;
     clearTimeout(toast._timer);
-    toast.classList.remove('mw-toast--visible');
     toast.classList.add('mw-toast--exit');
     setTimeout(function () {
       if (toast.parentNode) toast.parentNode.removeChild(toast);
