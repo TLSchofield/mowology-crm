@@ -23723,3 +23723,36 @@ textarea.font-monospace {
   .mw-intel-kpi-value { font-size: 1.1rem; }
   .mw-intel-bar-track { max-width: 80px; }
 }
+
+
+/* ── Jobber Re-Consent Campaign ──────────────────────────────────── */
+
+.mw-reconsent-fsa-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.mw-reconsent-fsa-card {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-left: 4px solid #dee2e6;
+  border-radius: 8px;
+  padding: 16px;
+  transition: border-color 0.2s;
+}
+.mw-reconsent-fsa-card:hover { border-left-color: var(--mw-green); }
+.mw-reconsent-fsa-card.approved { border-left-color: var(--mw-green); background: var(--mw-light); }
+.mw-reconsent-fsa-card.skipped  { border-left-color: #adb5bd; opacity: 0.7; }
+
+.mw-reconsent-fsa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--mw-light);
+  border-radius: 20px;
+  font-size: 13px;
+  margin: 3px;
+}
+.mw-reconsent-fsa-chip span { color: var(--mw-dark); font-weight: 600; }
