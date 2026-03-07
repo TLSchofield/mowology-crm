@@ -216,9 +216,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $quoteNumber = generateQuoteNumber();
                     $accessToken = generateAccessToken();
 
-                    // Look up company_id for the selected property (same as edit path)
+                    // Look up company_id and site_contact_id for the selected property
                     $propertyStmt = $db->prepare("
-                        SELECT c.id as company_id
+                        SELECT c.id as company_id, p.site_contact_id
                         FROM properties p
                         LEFT JOIN company_properties cp ON p.id = cp.property_id AND cp.is_primary = 1
                         LEFT JOIN companies c ON cp.company_id = c.id
@@ -228,17 +228,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $propertyStmt->execute([$propertyId]);
                     $propertyData = $propertyStmt->fetch(PDO::FETCH_ASSOC);
                     $companyId = $propertyData['company_id'] ?? null;
+                    $quoteContactId = $propertyData['site_contact_id'] ?? null;
 
                     $stmt = $db->prepare("
                         INSERT INTO quotes (
-                            quote_number, property_id, company_id, title, service_type, amount,
+                            quote_number, property_id, company_id, contact_id, title, service_type, amount,
                             subtotal, tax_rate, tax_amount, valid_until, terms,
                             notes_customer, notes_internal, description, access_token,
                             token_expires_at, created_by, status, is_contract
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), ?, 'draft', ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), ?, 'draft', ?)
                     ");
                     $stmt->execute([
-                        $quoteNumber, $propertyId, $companyId, $title, $serviceType, $totals['total'],
+                        $quoteNumber, $propertyId, $companyId, $quoteContactId, $title, $serviceType, $totals['total'],
                         $totals['subtotal'], $totals['tax_rate'], $totals['tax_amount'],
                         $validUntil ?: null, $terms, $notesCustomer, $notesInternal,
                         $description, $accessToken, $user['id'], $isContract

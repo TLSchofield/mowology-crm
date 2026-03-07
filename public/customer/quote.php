@@ -111,18 +111,19 @@ if (empty($token)) {
         $quote = null;
         $error = 'This quote link has expired or is invalid. Please contact us for a new quote.';
     } else {
-        // Update view count (wrapped in try/catch — column may not exist on all environments)
+        // Update view tracking — first-view timestamp + rolling last_viewed_at + count
         try {
             $stmt = $db->prepare("
                 UPDATE quotes
-                SET viewed_at = COALESCE(viewed_at, NOW()),
-                    view_count = view_count + 1
+                SET viewed_at      = COALESCE(viewed_at, NOW()),
+                    last_viewed_at = NOW(),
+                    view_count     = view_count + 1
                 WHERE id = ?
             ");
             $stmt->execute([$quote['id']]);
         } catch (Exception $e) {
             // Non-critical — silently skip if column missing
-            error_log("Quote view_count update failed: " . $e->getMessage());
+            error_log("Quote view tracking update failed: " . $e->getMessage());
         }
 
         // Get line items

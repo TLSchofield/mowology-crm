@@ -22,6 +22,16 @@
 if (!isset($activePage)) $activePage = '';
 if (!isset($user))       $user = ['name' => 'Admin'];
 
+// Unread message count for badge (silent fail if messages table not yet created)
+$_mwUnreadMessages = 0;
+try {
+    if (isset($user['id'])) {
+        $__msgStmt = getDB()->prepare("SELECT COUNT(*) FROM messages WHERE to_user_id = ? AND is_read = 0");
+        $__msgStmt->execute([(int)$user['id']]);
+        $_mwUnreadMessages = (int)$__msgStmt->fetchColumn();
+    }
+} catch (Throwable $__e) { /* table may not exist yet */ }
+
 $navItems = [
 
     // ── Overview ──────────────────────────────────────────────────────────────
@@ -64,6 +74,10 @@ $navItems = [
     ['key' => 'driver',       'label' => 'Driver Portal',   'icon' => 'truck',       'href' => '/crm/driver-portal.php'],
     ['key' => 'trip-reports', 'label' => 'Trip Reports',    'icon' => 'clipboard',   'href' => '/crm/trip-reports_appstack.php', 'perm' => 'team.view'],
 
+    // ── Communications ────────────────────────────────────────────────────────
+    ['type' => 'header', 'label' => 'Communications'],
+    ['key' => 'messages', 'label' => 'Messages', 'icon' => 'message-circle', 'href' => '/crm/messages_appstack.php', 'badge' => $_mwUnreadMessages],
+
     // ── Team ──────────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Team'],
     ['key' => 'team',        'label' => 'Team',           'icon' => 'user-check',  'href' => '/crm/team/index.php',            'perm' => 'team.view'],
@@ -102,6 +116,9 @@ $navItems = [
                 <a class="sidebar-link" href="<?php echo $item['href']; ?>">
                     <i class="align-middle" data-feather="<?php echo $item['icon']; ?>"></i>
                     <span class="align-middle"><?php echo $item['label']; ?></span>
+                    <?php if (!empty($item['badge']) && (int)$item['badge'] > 0): ?>
+                    <span class="mw-sidebar-badge mw-msg-sidebar-badge"><?php echo (int)$item['badge']; ?></span>
+                    <?php endif; ?>
                 </a>
             </li>
             <?php endforeach; ?>
