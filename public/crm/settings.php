@@ -139,7 +139,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <div class="card-body">
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label for="gst_registration" class="form-label">GST # (e.g., R123456789)</label>
+                            <label for="gst_registration" class="form-label">GST # (e.g., R123456789) <span class="mw-help-tooltip" data-help="Your CRA GST/HST registration number. Displayed on invoices and quotes for tax compliance.">?</span></label>
                             <input type="text" class="form-control" id="gst_registration" maxlength="50">
                         </div>
                         <div class="col-md-6">
@@ -169,7 +169,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                             <small class="form-text text-muted">Provincial Sales Tax — 7% in BC, 0 if not registered</small>
                         </div>
                         <div class="col-md-4">
-                            <label for="show_tax_on_invoices" class="form-label">Show Tax on Invoices &amp; Quotes</label>
+                            <label for="show_tax_on_invoices" class="form-label">Show Tax on Invoices &amp; Quotes <span class="mw-help-tooltip" data-help="When enabled, invoices and quotes display GST/PST as separate line items. When disabled, prices are shown as all-inclusive.">?</span></label>
                             <select class="form-control" id="show_tax_on_invoices">
                                 <option value="1">Yes — show tax line</option>
                                 <option value="0">No — hide tax breakdown</option>
@@ -323,7 +323,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <textarea class="form-control" id="invoice_terms_text" rows="4" maxlength="2000"></textarea>
                     </div>
                     <div class="mb-3">
-                        <label for="invoice_payment_instructions" class="form-label">Payment Instructions</label>
+                        <label for="invoice_payment_instructions" class="form-label">Payment Instructions <span class="mw-help-tooltip" data-help="Shown on every invoice. Include your e-transfer email, cheque payee name, or online payment link.">?</span></label>
                         <textarea class="form-control" id="invoice_payment_instructions" rows="4" maxlength="2000"></textarea>
                     </div>
                     <div class="mb-3">

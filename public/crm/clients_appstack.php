@@ -5367,6 +5367,16 @@ $unconvertedRequests = $db->query("
                 </h5>
               </div>
               <div class="card-body">
+                <?php if (!empty($duplicateGroups) && ($_GET['view'] ?? '') !== 'duplicates'): ?>
+                  <div class="alert alert-warning d-flex align-items-center mb-3" role="alert">
+                    <i data-feather="alert-triangle" class="mr-2 flex-shrink-0" style="width:20px;height:20px;"></i>
+                    <div class="flex-grow-1">
+                      <strong><?php echo count($duplicateGroups); ?> potential duplicate<?php echo count($duplicateGroups) > 1 ? 's' : ''; ?> found</strong>
+                      — merge duplicates to keep your client list clean.
+                    </div>
+                    <a href="?view=duplicates" class="btn btn-sm btn-outline-warning ml-3 flex-shrink-0">Review</a>
+                  </div>
+                <?php endif; ?>
                 <?php if (empty($clients) && empty($standaloneContacts) && empty($unconvertedRequests)): ?>
                   <div class="text-center text-muted py-5">
                     <i data-feather="inbox" style="width: 48px; height: 48px;"></i>

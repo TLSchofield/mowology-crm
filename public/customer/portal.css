@@ -478,6 +478,32 @@ a:hover { text-decoration: underline; }
 }
 .portal-visit-stat { font-size: 0.73rem; color: var(--p-text-muted); }
 
+/* Upcoming visit card variant */
+.portal-visit-card.upcoming {
+  border-left: 3px solid var(--p-orange, #e85d04);
+}
+.portal-visit-upcoming {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--p-green);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.portal-visit-today {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--p-orange, #e85d04);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.portal-visit-progress {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--p-lime, #7FD858);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* ─── Photo Grid & Lightbox ──────────────────────────────────────────────── */
 .portal-photo-grid {
   display: flex;

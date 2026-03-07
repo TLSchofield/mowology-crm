@@ -55,8 +55,8 @@ $csrfToken = generateCSRFToken();
                       <thead>
                         <tr>
                           <th>Position</th>
-                          <th>Hourly Rate</th>
-                          <th>With Benefits</th>
+                          <th>Hourly Rate <span class="mw-help-tooltip" data-help="The base wage you pay this role before taxes, benefits, or burden.">?</span></th>
+                          <th>With Benefits <span class="mw-help-tooltip" data-help="Burdened rate: base wage + employer taxes, WCB, benefits. This is your true cost per hour for this role.">?</span></th>
                           <th>Description</th>
                           <th>Status</th>
                           <th>Actions</th>
@@ -87,7 +87,7 @@ $csrfToken = generateCSRFToken();
                       <thead>
                         <tr>
                           <th>Equipment</th>
-                          <th>Cost Per Hour</th>
+                          <th>Cost Per Hour <span class="mw-help-tooltip" data-help="Total hourly cost including fuel, maintenance, and depreciation for this equipment.">?</span></th>
                           <th>Type</th>
                           <th>Description</th>
                           <th>Status</th>
@@ -164,7 +164,7 @@ $csrfToken = generateCSRFToken();
                         <div class="row">
                           <div class="col-md-3">
                             <div class="form-group">
-                              <label>Est. Monthly Revenue</label>
+                              <label>Est. Monthly Revenue <span class="mw-help-tooltip" data-help="Your estimated total billable revenue per month. Used to calculate what percentage of revenue goes to overhead.">?</span></label>
                               <div class="input-group">
                                 <div class="input-group-prepend"><span class="input-group-text">$</span></div>
                                 <input type="number" class="form-control oh-setting-input" id="estRevenue" value="18000" step="500" min="0">
@@ -173,7 +173,7 @@ $csrfToken = generateCSRFToken();
                           </div>
                           <div class="col-md-2">
                             <div class="form-group">
-                              <label>Est. Jobs / Month</label>
+                              <label>Est. Jobs / Month <span class="mw-help-tooltip" data-help="Average number of jobs you complete per month. Used to calculate overhead cost per individual job.">?</span></label>
                               <input type="number" class="form-control oh-setting-input" id="estJobs" value="40" step="1" min="1">
                             </div>
                           </div>
@@ -192,7 +192,7 @@ $csrfToken = generateCSRFToken();
                           </div>
                           <div class="col-md-2">
                             <div class="form-group">
-                              <label>Profit Margin %</label>
+                              <label>Profit Margin % <span class="mw-help-tooltip" data-help="Your target profit margin. This is the percentage of selling price that should be profit after all costs and overhead.">?</span></label>
                               <input type="number" class="form-control oh-setting-input" id="profitMargin" value="35" step="0.5" min="0" max="100">
                             </div>
                           </div>

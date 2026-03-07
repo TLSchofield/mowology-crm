@@ -488,8 +488,16 @@ if ($apiKey) {
                                 </div>
                                 <div class="mw-form-group">
                                     <label class="form-label">Province</label>
-                                    <input type="text" name="service_province" id="serviceProvince" class="form-control" placeholder="BC" maxlength="2"
-                                           value="<?php echo htmlspecialchars($prefill['service_province'] ?? ''); ?>">
+                                    <select name="service_province" id="serviceProvince" class="form-control">
+                                        <?php
+                                        $provinces = [''=>'—','AB'=>'AB','BC'=>'BC','MB'=>'MB','NB'=>'NB','NL'=>'NL','NS'=>'NS','NT'=>'NT','NU'=>'NU','ON'=>'ON','PE'=>'PE','QC'=>'QC','SK'=>'SK','YT'=>'YT'];
+                                        $selProv = $prefill['service_province'] ?? '';
+                                        foreach ($provinces as $code => $label) {
+                                            $sel = ($code === $selProv) ? ' selected' : '';
+                                            echo "<option value=\"{$code}\"{$sel}>{$label}</option>";
+                                        }
+                                        ?>
+                                    </select>
                                 </div>
                                 <div class="mw-form-group">
                                     <label class="form-label">Postal Code</label>
@@ -523,7 +531,16 @@ if ($apiKey) {
                                     </div>
                                     <div class="mw-form-group">
                                         <label class="form-label">Province</label>
-                                        <input type="text" name="billing_province" id="invBillingProvince" class="form-control" placeholder="BC" maxlength="2">
+                                        <select name="billing_province" id="invBillingProvince" class="form-control">
+                                            <option value="">—</option>
+                                            <option value="AB">AB</option><option value="BC">BC</option>
+                                            <option value="MB">MB</option><option value="NB">NB</option>
+                                            <option value="NL">NL</option><option value="NS">NS</option>
+                                            <option value="NT">NT</option><option value="NU">NU</option>
+                                            <option value="ON">ON</option><option value="PE">PE</option>
+                                            <option value="QC">QC</option><option value="SK">SK</option>
+                                            <option value="YT">YT</option>
+                                        </select>
                                     </div>
                                     <div class="mw-form-group">
                                         <label class="form-label">Postal Code</label>

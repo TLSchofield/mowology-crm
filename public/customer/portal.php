@@ -125,6 +125,29 @@ if ($contact && !$error) {
         }
     }
 
+    // Upcoming visits: scheduled or in-progress, today onwards
+    $upcomingVisits = [];
+    try {
+        $stmt = $db->prepare("
+            SELECT jv.id, jv.visit_number, jv.scheduled_date,
+                   jv.scheduled_time_start, jv.scheduled_time_end, jv.status,
+                   jp.title AS service_name, jp.service_type,
+                   p.address AS property_address
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            JOIN properties p ON jp.property_id = p.id
+            WHERE p.site_contact_id = ?
+              AND jv.scheduled_date >= CURDATE()
+              AND jv.status IN ('scheduled', 'in_progress')
+            ORDER BY jv.scheduled_date ASC, jv.scheduled_time_start ASC
+            LIMIT 10
+        ");
+        $stmt->execute([$contactId]);
+        $upcomingVisits = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $upcomingVisits = [];
+    }
+
     // Completed visits: contact → properties → job_plans → job_visits
     $completedVisits = [];
     try {
@@ -404,6 +427,50 @@ function statusBadge(string $status, bool $overdue = false): string {
               <div class="portal-doc-actions">
                 <button class="portal-btn-outline" onclick="copyLink('<?php echo htmlspecialchars($url, ENT_QUOTES); ?>', this)">Copy</button>
                 <a href="<?php echo htmlspecialchars($url); ?>" class="portal-btn">View</a>
+              </div>
+            </li>
+          <?php endforeach; ?>
+        </ul>
+      <?php endif; ?>
+
+      <?php if (!empty($upcomingVisits)): ?>
+        <p class="portal-section-label">Upcoming Visits</p>
+        <ul class="portal-visit-list">
+          <?php foreach ($upcomingVisits as $uv): ?>
+            <?php
+              $uts     = strtotime($uv['scheduled_date']);
+              $uDay    = date('j', $uts);
+              $uMon    = date('M', $uts);
+              $uLabel  = htmlspecialchars($uv['service_name'] ?: ucwords(str_replace('_', ' ', $uv['service_type'])));
+              $uAddr   = htmlspecialchars($uv['property_address'] ?? '');
+              $uTime   = '';
+              if (!empty($uv['scheduled_time_start'])) {
+                  $uTime = date('g:ia', strtotime($uv['scheduled_time_start']));
+                  if (!empty($uv['scheduled_time_end'])) {
+                      $uTime .= ' – ' . date('g:ia', strtotime($uv['scheduled_time_end']));
+                  }
+              }
+              $uIsToday = (date('Y-m-d') === $uv['scheduled_date']);
+              $uStatusLabel = $uv['status'] === 'in_progress' ? 'In Progress' : ($uIsToday ? 'Today' : 'Scheduled');
+              $uStatusClass = $uv['status'] === 'in_progress' ? 'portal-visit-progress' : ($uIsToday ? 'portal-visit-today' : 'portal-visit-upcoming');
+            ?>
+            <li class="portal-visit-card upcoming">
+              <div class="portal-visit-date">
+                <div class="portal-visit-day"><?php echo $uDay; ?></div>
+                <div class="portal-visit-mon"><?php echo $uMon; ?></div>
+              </div>
+              <div class="portal-visit-divider"></div>
+              <div class="portal-visit-info">
+                <div class="portal-visit-service"><?php echo $uLabel; ?></div>
+                <?php if ($uAddr): ?>
+                  <div class="portal-visit-address"><?php echo $uAddr; ?></div>
+                <?php endif; ?>
+                <div class="portal-visit-meta">
+                  <span class="<?php echo $uStatusClass; ?>"><?php echo $uStatusLabel; ?></span>
+                  <?php if ($uTime): ?>
+                    <span class="portal-visit-stat"><?php echo htmlspecialchars($uTime); ?></span>
+                  <?php endif; ?>
+                </div>
               </div>
             </li>
           <?php endforeach; ?>
