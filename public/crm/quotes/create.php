@@ -609,9 +609,32 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                 </div>
 
                                 <div class="mw-form-actions">
-                                    <button type="submit" name="action" value="save" class="btn btn-primary" style="flex: 1;">
+                                    <button type="button" id="saveQuoteBtn" class="btn btn-primary" style="flex: 1;">
                                         Save Quote
                                     </button>
+                                    <input type="hidden" name="action" value="save">
+                                    <script>
+                                    document.getElementById('saveQuoteBtn').addEventListener('click', function() {
+                                        try {
+                                            if (typeof updateFormInput === 'function') updateFormInput();
+                                        } catch(e) { console.error('updateFormInput error:', e); }
+                                        // Fallback: if hidden input is still empty, serialize lineItems directly
+                                        var inp = document.getElementById('lineItemsInput');
+                                        if (!inp.value || inp.value === '[]') {
+                                            try {
+                                                if (typeof lineItems !== 'undefined' && lineItems.length) {
+                                                    var out = lineItems.filter(function(i){ return !i._type; });
+                                                    inp.value = JSON.stringify(out);
+                                                }
+                                            } catch(e2) { console.error('lineItems fallback error:', e2); }
+                                        }
+                                        if (!inp.value || inp.value === '[]') {
+                                            alert('Error: Line items could not be serialized. Please reload the page and try again.');
+                                            return;
+                                        }
+                                        document.getElementById('quoteForm').submit();
+                                    });
+                                    </script>
                                 </div>
 
                                 <?php if ($quoteId): ?>
