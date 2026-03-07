@@ -324,6 +324,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 );
             }
 
+            // Auto-attribution: job_booked
+            if (defined('APP_ROOT')) {
+                $__attrSvc = APP_ROOT . '/Modules/Marketing/Services/AttributionService.php';
+                if (file_exists($__attrSvc)) {
+                    require_once $__attrSvc;
+                    try {
+                        AttributionService::onJobBooked($db, (int)$result['plan_id'], (int)$quote['property_id'], (float)($quote['amount'] ?? 0));
+                    } catch (\Throwable $__e) {
+                        error_log('[create-from-quote] attribution error: ' . $__e->getMessage());
+                    }
+                }
+            }
+
             // Reload line items to check if any remain
             $lineItems = getQuoteLineItemsWithStatus($quoteId);
             $remaining = 0;

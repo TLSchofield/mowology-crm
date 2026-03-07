@@ -295,6 +295,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $db->commit();
 
+                // Auto-attribution: record quote_created for new quotes only
+                if (!intval($_GET['id'] ?? 0) && defined('APP_ROOT')) {
+                    $__attrSvc = APP_ROOT . '/Modules/Marketing/Services/AttributionService.php';
+                    if (file_exists($__attrSvc)) {
+                        require_once $__attrSvc;
+                        try {
+                            AttributionService::onQuoteCreated($db, (int)$quoteId, $propertyId);
+                        } catch (\Throwable $__e) {
+                            error_log('[quotes/create] attribution error: ' . $__e->getMessage());
+                        }
+                    }
+                }
+
                 header("Location: view.php?id={$quoteId}&saved=1");
                 exit;
 

@@ -164,6 +164,19 @@ foreach ($invoices as $inv) {
         $db->commit();
         $recorded[] = $id;
 
+        // Auto-attribution: record invoice_paid when fully paid
+        if ($newStatus === 'paid' && defined('APP_ROOT')) {
+            $__attrSvc = APP_ROOT . '/Modules/Marketing/Services/AttributionService.php';
+            if (file_exists($__attrSvc)) {
+                require_once $__attrSvc;
+                try {
+                    AttributionService::onInvoicePaid($db, $id, $payAmount);
+                } catch (\Throwable $__e) {
+                    error_log('[record-payment] attribution error: ' . $__e->getMessage());
+                }
+            }
+        }
+
     } catch (PDOException $e) {
         if ($db->inTransaction()) $db->rollBack();
         error_log("record-payment.php PDO error invoice {$id}: " . $e->getMessage());
