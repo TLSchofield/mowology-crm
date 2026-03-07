@@ -9,7 +9,14 @@ requireLogin();
 $user = getCurrentUser();
 $db   = getDB();
 
-require_once __DIR__ . '/../../app/Modules/Geofence/Models/GeofenceModel.php';
+// Try server path first (app/ inside public_html), then local dev path (app/ at repo root)
+$__geoModelPaths = [
+    dirname(__DIR__) . '/app/Modules/Geofence/Models/GeofenceModel.php',
+    __DIR__ . '/../../app/Modules/Geofence/Models/GeofenceModel.php',
+];
+foreach ($__geoModelPaths as $__p) {
+    if (is_file($__p)) { require_once $__p; break; }
+}
 
 // Filters
 $dateFrom   = $_GET['date_from']   ?? date('Y-m-01');
