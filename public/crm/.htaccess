@@ -2,7 +2,7 @@
 Options -Indexes
 
 # Serve dashboard_appstack.php as default for /crm/ directory
-DirectoryIndex dashboard_appstack.php
+DirectoryIndex dashboard_appstack.php index.php
 
 # Protect sensitive files
 <FilesMatch "^(config\.php|auth\.php)$">
