@@ -23374,3 +23374,82 @@ textarea.font-monospace {
 .mw-import-mapping-field {
   flex: 1;
 }
+
+/* ─── Reports Hub ──────────────────────────────────────────────────────────── */
+
+.mw-report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+.mw-report-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.mw-report-card:hover {
+  border-color: var(--mw-green);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  text-decoration: none;
+  color: inherit;
+}
+.mw-report-card h5 {
+  margin-bottom: 4px;
+  font-size: 15px;
+}
+.mw-report-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+}
+.mw-report-card-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Report Summary Cards */
+.mw-report-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.mw-report-summary-card {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 16px 24px;
+  text-align: center;
+  min-width: 160px;
+}
+.mw-report-summary-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.mw-report-summary-label {
+  font-size: 12px;
+  color: #6c757d;
+  margin-top: 4px;
+}
+
+@media (max-width: 576px) {
+  .mw-report-grid {
+    grid-template-columns: 1fr;
+  }
+  .mw-report-summary {
+    flex-direction: column;
+  }
+}

@@ -32,6 +32,16 @@ try {
     }
 } catch (Throwable $__e) { /* table may not exist yet */ }
 
+// Overdue task count for badge (silent fail if tasks table not yet created)
+$_mwOverdueTasks = 0;
+try {
+    if (isset($user['id'])) {
+        $__taskStmt = getDB()->prepare("SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status != 'completed' AND due_date IS NOT NULL AND due_date < CURDATE()");
+        $__taskStmt->execute([(int)$user['id']]);
+        $_mwOverdueTasks = (int)$__taskStmt->fetchColumn();
+    }
+} catch (Throwable $__e) { /* table may not exist yet */ }
+
 $navItems = [
 
     // ── Overview ──────────────────────────────────────────────────────────────
@@ -45,6 +55,7 @@ $navItems = [
 
     // ── Pipeline ──────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Pipeline'],
+    ['key' => 'tasks',     'label' => 'Tasks',     'icon' => 'check-square', 'href' => '/crm/tasks_appstack.php', 'badge' => $_mwOverdueTasks],
     ['key' => 'quotes',    'label' => 'Quotes',    'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',    'perm' => 'billing.view'],
     ['key' => 'contracts', 'label' => 'Contracts', 'icon' => 'pen-tool', 'href' => '/crm/contracts_appstack.php', 'perm' => 'jobs.view'],
     ['key' => 'jobs',      'label' => 'Jobs',      'icon' => 'briefcase',  'href' => '/crm/jobs/index.php',         'perm' => 'jobs.view'],
@@ -61,6 +72,7 @@ $navItems = [
     ['key' => 'expenses',      'label' => 'Expenses',      'icon' => 'credit-card', 'href' => '/crm/expenses_appstack.php',          'perm' => 'expenses.view'],
     ['key' => 'profitability', 'label' => 'Profitability', 'icon' => 'trending-up', 'href' => '/crm/profitability_appstack.php',     'perm' => 'expenses.view'],
     ['key' => 'cost-factors',  'label' => 'Cost Factors',  'icon' => 'sliders',     'href' => '/crm/products/cost-factors.php',      'perm' => 'expenses.view'],
+    ['key' => 'reports',      'label' => 'Reports',       'icon' => 'bar-chart-2', 'href' => '/crm/reports_appstack.php',           'perm' => 'expenses.view'],
 
     // ── Growth ────────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Growth'],
@@ -124,6 +136,21 @@ $navItems = [
             <?php endforeach; ?>
 
             <li class="sidebar-header">Admin</li>
+
+            <?php if (!function_exists('userHasPermission') || userHasPermission('settings.edit')): ?>
+            <li class="sidebar-item<?php echo ($activePage === 'audit-trail') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/audit-trail_appstack.php">
+                    <i class="align-middle" data-feather="shield"></i>
+                    <span class="align-middle">Audit Trail</span>
+                </a>
+            </li>
+            <li class="sidebar-item<?php echo ($activePage === 'import') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/import_appstack.php">
+                    <i class="align-middle" data-feather="upload"></i>
+                    <span class="align-middle">Import Data</span>
+                </a>
+            </li>
+            <?php endif; ?>
 
             <?php if (!function_exists('userHasPermission') || userHasPermission('users.manage')): ?>
             <li class="sidebar-item<?php echo ($activePage === 'users') ? ' active' : ''; ?>">

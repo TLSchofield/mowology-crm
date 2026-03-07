@@ -222,8 +222,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
             // --- UPDATE QUOTE STATUS ---
             if ($emailSent || $smsSent) {
+                $oldStatus = $quote['status'];
                 $stmt = $db->prepare("UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?");
                 $stmt->execute([implode(',', $sentVia), $quoteId]);
+                trackFieldChange('quote', $quoteId, 'status', $oldStatus, 'sent', $user['id']);
 
                 logQuoteSentEvent($quoteId);
 
@@ -263,6 +265,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
 
         try {
+            $oldStatus = $quote['status'];
             $stmt = $db->prepare("
                 UPDATE quotes SET
                     status = 'accepted',
@@ -276,6 +279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $_SERVER['REMOTE_ADDR'],
                 $quoteId
             ]);
+            trackFieldChange('quote', $quoteId, 'status', $oldStatus, 'accepted', $user['id']);
 
             logActivityExtended($user['id'], 'Quote approved (verbal)', "Approved on behalf of {$approverName} by {$user['name']}", null, null, $quoteId);
 

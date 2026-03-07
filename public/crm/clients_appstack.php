@@ -719,6 +719,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $clientId = $contactId;
                 } else {
                     try {
+                        // Fetch old values for field change tracking
+                        $oldStmt = $db->prepare("SELECT first_name, last_name, email, phone, mobile, preferred_contact_method, receive_sms, receive_marketing, consent_quote_followup, notes FROM contacts WHERE id = ?");
+                        $oldStmt->execute([$contactId]);
+                        $oldContact = $oldStmt->fetch(PDO::FETCH_ASSOC);
+
                         $stmt = $db->prepare("
                             UPDATE contacts SET
                                 first_name = ?, last_name = ?, email = ?, phone = ?, mobile = ?,
@@ -731,6 +736,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $preferredContact, $receiveSms, $receiveMarketing,
                             $consentQuoteFollowup, $notes, $contactId
                         ]);
+
+                        // Track field changes
+                        if ($oldContact) {
+                            trackFieldChanges('contact', $contactId, $oldContact, [
+                                'first_name' => $firstName, 'last_name' => $lastName,
+                                'email' => $email, 'phone' => $phone, 'mobile' => $mobile,
+                                'preferred_contact_method' => $preferredContact,
+                                'receive_sms' => (string)$receiveSms, 'receive_marketing' => (string)$receiveMarketing,
+                                'consent_quote_followup' => (string)$consentQuoteFollowup, 'notes' => $notes,
+                            ], $user['id']);
+                        }
+
                         $message = 'Contact updated successfully!';
                         $messageType = 'success';
                         $action = null;
@@ -1855,9 +1872,10 @@ $unconvertedRequests = $db->query("
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h1 class="h3 mb-0"><?php echo (($_GET['view'] ?? '') === 'duplicates') ? 'Review Duplicate Contacts' : 'Client Management'; ?></h1>
             <?php if (!in_array($action, ['edit', 'new', 'view_contact', 'edit_contact', 'view_company', 'edit_company']) && ($_GET['view'] ?? '') !== 'duplicates'): ?>
-              <button class="btn btn-primary" onclick="location.href='?action=new'">
-                <i data-feather="plus"></i> Add New Client
-              </button>
+              <div>
+                <a href="/crm/api/export-contacts.php" class="btn btn-outline-secondary mr-1" title="Export CSV"><i data-feather="download" style="width:16px;height:16px;"></i> Export</a>
+                <button class="btn btn-primary" onclick="location.href='?action=new'"><i data-feather="plus"></i> Add New Client</button>
+              </div>
             <?php endif; ?>
           </div>
 
@@ -3274,31 +3292,31 @@ $unconvertedRequests = $db->query("
                 </div>
                 <?php endif; ?>
 
-                <!-- Activity Timeline Card -->
+                <!-- Activity Timeline Card (Enhanced) -->
                 <div class="card mb-3">
-                  <div class="card-header">
-                    <h5 class="card-title mb-0"><i data-feather="clock"></i> Activity</h5>
+                  <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0"><i data-feather="clock"></i> Activity Timeline</h5>
                   </div>
                   <div class="card-body py-2">
-                    <?php if (empty($contactActivity)): ?>
-                      <p class="text-muted small mb-0 text-center py-3">No activity recorded yet.</p>
-                    <?php else: ?>
-                      <ul class="mw-activity-list">
-                        <?php foreach ($contactActivity as $act): ?>
-                          <li class="mw-activity-item">
-                            <div><?php echo h($act['action']); ?></div>
-                            <?php if (!empty($act['details'])): ?>
-                              <div class="small text-muted"><?php echo h($act['details']); ?></div>
-                            <?php endif; ?>
-                            <div class="mw-activity-time">
-                              <?php echo h($act['full_name'] ?? 'System'); ?> &mdash; <?php echo timeAgo($act['created_at']); ?>
-                            </div>
-                          </li>
-                        <?php endforeach; ?>
-                      </ul>
-                    <?php endif; ?>
+                    <div class="mw-timeline-filters mb-2">
+                      <?php foreach (['all'=>'All','quotes'=>'Quotes','jobs'=>'Jobs','invoices'=>'Invoices','tasks'=>'Tasks','changes'=>'Changes'] as $fk => $fl): ?>
+                      <button class="mw-timeline-filter-btn <?= $fk === 'all' ? 'active' : '' ?>" onclick="mwFilterTimeline('<?= $fk ?>',this)"><?= $fl ?></button>
+                      <?php endforeach; ?>
+                    </div>
+                    <div class="mw-timeline" id="mwTimeline"></div>
+                    <div class="text-center py-2" id="mwTimelineLoading"><span class="text-muted small">Loading...</span></div>
+                    <div class="text-center mt-2" id="mwTimelineMore" style="display:none;">
+                      <button class="btn btn-sm btn-outline-secondary" onclick="mwLoadTimeline(true)">Load More</button>
+                    </div>
                   </div>
                 </div>
+                <script>
+                var _mwTlPage=1, _mwTlType='all', _mwTlCid=<?= (int)$clientId ?>;
+                var _mwTlIcons={activity:{i:'activity',c:'#6c757d'},quote_created:{i:'file-plus',c:'#3B82F6'},quote_sent:{i:'send',c:'#F59E0B'},quote_accepted:{i:'check-circle',c:'#2D8659'},visit_completed:{i:'check-square',c:'#2D8659'},invoice_created:{i:'file-text',c:'#3B82F6'},invoice_paid:{i:'dollar-sign',c:'#2D8659'},task_created:{i:'plus-square',c:'#6366F1'},task_completed:{i:'check-square',c:'#2D8659'},field_changed:{i:'edit-3',c:'#6B7280'}};
+                function mwFilterTimeline(t,btn){_mwTlType=t;_mwTlPage=1;document.querySelectorAll('.mw-timeline-filter-btn').forEach(function(b){b.classList.remove('active')});btn.classList.add('active');document.getElementById('mwTimeline').innerHTML='';mwLoadTimeline(false)}
+                function mwLoadTimeline(append){if(!append)_mwTlPage=1;document.getElementById('mwTimelineLoading').style.display='';fetch('/crm/api/contact-timeline.php?contact_id='+_mwTlCid+'&type='+_mwTlType+'&page='+_mwTlPage).then(function(r){return r.json()}).then(function(data){document.getElementById('mwTimelineLoading').style.display='none';var c=document.getElementById('mwTimeline');if(!append)c.innerHTML='';var ev=data.events||[];if(!ev.length&&!append){c.innerHTML='<p class="text-muted small text-center py-3 mb-0">No activity yet.</p>';document.getElementById('mwTimelineMore').style.display='none';return}ev.forEach(function(e){var cfg=_mwTlIcons[e.event_type]||_mwTlIcons.activity;var d=document.createElement('div');d.className='mw-timeline-event';var ts=e.event_time?new Date(e.event_time).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';d.innerHTML='<div class="mw-timeline-icon" style="border-color:'+cfg.c+';color:'+cfg.c+'"><i data-feather="'+cfg.i+'" style="width:12px;height:12px"></i></div><div class="mw-timeline-title">'+(e.title||'')+'</div>'+(e.detail?'<div class="mw-timeline-detail">'+e.detail+'</div>':'')+'<div class="mw-timeline-meta">'+(e.user_name||'System')+' &middot; '+ts+'</div>';c.appendChild(d)});if(window.feather)feather.replace();document.getElementById('mwTimelineMore').style.display=ev.length>=20?'':'none';_mwTlPage++}).catch(function(){document.getElementById('mwTimelineLoading').style.display='none'})}
+                document.addEventListener('DOMContentLoaded',function(){mwLoadTimeline(false)});
+                </script>
 
               </div><!-- end right col -->
             </div><!-- end row -->

@@ -269,6 +269,7 @@ $activePage = 'jobs';
                   <p class="text-muted mb-0">Manage service agreements, schedules, and visit tracking</p>
               </div>
               <div class="d-flex" style="gap: 12px;">
+                  <a href="/crm/api/export-jobs.php" class="btn btn-outline-secondary btn-sm" style="align-self:center;"><i data-feather="download" class="mr-1"></i> Export CSV</a>
                   <a href="schedule.php" class="btn btn-secondary"><i data-feather="calendar" class="mr-1"></i> Calendar View</a>
                   <a href="new-contract.php" class="btn btn-outline-success"><i data-feather="file-plus" class="mr-1"></i> New Contract</a>
                   <a href="create.php" class="btn btn-primary"><i data-feather="plus" class="mr-1"></i> Create Plan</a>

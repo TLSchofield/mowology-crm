@@ -83,10 +83,13 @@ $activePage = 'invoices';
                     <h1 class="h3 mb-1">Invoices</h1>
                     <p class="text-muted mb-0">Track payments and manage billing</p>
                 </div>
-                <a href="create.php" class="btn btn-primary">
-                    <i data-feather="plus" style="width:16px;height:16px;margin-right:4px;vertical-align:middle;"></i>
-                    Create Invoice
-                </a>
+                <div class="d-flex" style="gap: 12px;">
+                    <a href="/crm/api/export-invoices.php" class="btn btn-outline-secondary btn-sm" style="align-self:center;"><i data-feather="download" class="mr-1"></i> Export CSV</a>
+                    <a href="create.php" class="btn btn-primary">
+                        <i data-feather="plus" style="width:16px;height:16px;margin-right:4px;vertical-align:middle;"></i>
+                        Create Invoice
+                    </a>
+                </div>
             </div>
 
             <!-- Stats -->

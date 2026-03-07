@@ -2643,3 +2643,50 @@ function recordCronRun(
     }
 }
 
+// ── Field Change Tracking (Audit Trail) ─────────────────────────────────────
+
+/**
+ * Track a single field change.
+ */
+function trackFieldChange(string $entityType, int $entityId, string $fieldName, $oldValue, $newValue, int $userId): void {
+    if ((string)$oldValue === (string)$newValue) return;
+    $db = getDB();
+    try {
+        $stmt = $db->prepare("
+            INSERT INTO field_changes (entity_type, entity_id, field_name, old_value, new_value, changed_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ");
+        $stmt->execute([$entityType, $entityId, $fieldName, $oldValue, $newValue, $userId]);
+    } catch (Throwable $e) {
+        error_log("trackFieldChange error [{$entityType}#{$entityId}.{$fieldName}]: " . $e->getMessage());
+    }
+}
+
+/**
+ * Track multiple field changes by comparing old and new value arrays.
+ * Only fields present in $newValues are compared.
+ */
+function trackFieldChanges(string $entityType, int $entityId, array $oldValues, array $newValues, int $userId): void {
+    foreach ($newValues as $field => $newVal) {
+        $oldVal = $oldValues[$field] ?? null;
+        trackFieldChange($entityType, $entityId, $field, $oldVal, $newVal, $userId);
+    }
+}
+
+/**
+ * Get field change history for an entity.
+ */
+function getFieldChanges(string $entityType, int $entityId, int $limit = 50): array {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT fc.*, u.full_name AS changed_by_name
+        FROM field_changes fc
+        LEFT JOIN users u ON fc.changed_by = u.id
+        WHERE fc.entity_type = ? AND fc.entity_id = ?
+        ORDER BY fc.changed_at DESC
+        LIMIT ?
+    ");
+    $stmt->execute([$entityType, $entityId, $limit]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+

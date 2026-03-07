@@ -188,10 +188,49 @@ $activePage = 'quotes';
                   <h1 class="h3 mb-0">Quotes</h1>
                   <p class="text-muted mb-0">Incoming requests &amp; quote management</p>
               </div>
-              <a href="quotes/create.php" class="btn btn-primary">
-                  <i data-feather="plus"></i> Create Quote
-              </a>
+              <div>
+                  <a href="/crm/api/export-quotes.php" class="btn btn-outline-secondary mr-1" title="Export CSV">
+                      <i data-feather="download" style="width:16px;height:16px;"></i> Export
+                  </a>
+                  <a href="quotes/create.php" class="btn btn-primary">
+                      <i data-feather="plus"></i> Create Quote
+                  </a>
+              </div>
           </div>
+
+          <!-- Pipeline Summary Bar -->
+          <div class="mw-pipeline-summary mb-4" id="mwPipelineSummary">
+              <div class="mw-pipeline-stat">
+                  <div class="mw-pipeline-stat-value" id="mwPipeTotal">--</div>
+                  <div class="mw-pipeline-stat-label">Pipeline Value</div>
+              </div>
+              <div class="mw-pipeline-stat">
+                  <div class="mw-pipeline-stat-value" id="mwPipeWeighted">--</div>
+                  <div class="mw-pipeline-stat-label">Weighted Forecast</div>
+              </div>
+              <div class="mw-pipeline-stat">
+                  <div class="mw-pipeline-stat-value" id="mwPipeWinRate">--</div>
+                  <div class="mw-pipeline-stat-label">Win Rate</div>
+              </div>
+              <div class="mw-pipeline-stat">
+                  <div class="mw-pipeline-stat-value" id="mwPipeAvgDays">--</div>
+                  <div class="mw-pipeline-stat-label">Avg Days in Stage</div>
+              </div>
+          </div>
+          <script>
+          (function(){
+              fetch('/crm/api/pipeline.php?action=stats')
+              .then(function(r){return r.json()})
+              .then(function(d){
+                  if(!d.success)return;
+                  var s=d.data;
+                  document.getElementById('mwPipeTotal').textContent='$'+Number(s.total_value).toLocaleString('en',{maximumFractionDigits:0});
+                  document.getElementById('mwPipeWeighted').textContent='$'+Number(s.weighted_forecast).toLocaleString('en',{maximumFractionDigits:0});
+                  document.getElementById('mwPipeWinRate').textContent=s.win_rate+'%';
+                  document.getElementById('mwPipeAvgDays').textContent=s.avg_days_in_stage+' days';
+              }).catch(function(){});
+          })();
+          </script>
 
           <!-- Incoming Quote Requests -->
           <?php if (!empty($quoteRequests)): ?>

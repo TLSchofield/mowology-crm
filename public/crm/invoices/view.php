@@ -110,8 +110,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 
     if ($action === 'send') {
         // Update status to sent
+        $oldStatus = $invoice['status'] ?? 'draft';
         $stmt = $db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ? AND status IN ('draft', 'sent')");
         $stmt->execute([$invoiceId]);
+        trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
 
         // Phase 2-3: Get all recipients from invoice_contacts table
         $stmt = $db->prepare("
@@ -312,6 +314,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             WHERE id = ?
         ");
         $stmt->execute($params);
+
+        // Track field changes for payment
+        trackFieldChange('invoice', $invoiceId, 'status', $invoice['status'], $newStatus, $user['id']);
+        trackFieldChange('invoice', $invoiceId, 'amount_paid', $invoice['amount_paid'], (string)($invoice['amount_paid'] + $paymentAmount), $user['id']);
+        trackFieldChange('invoice', $invoiceId, 'balance_due', $invoice['balance_due'], (string)$newBalance, $user['id']);
 
         $methodLabel = ['e_transfer'=>'e-Transfer','cash'=>'Cash','cheque'=>'Cheque','credit_card'=>'Credit Card','other'=>'Other'][$paymentMethod] ?? ucfirst($paymentMethod);
         $detail = "Payment of " . formatCurrency($paymentAmount) . " via {$methodLabel}";
