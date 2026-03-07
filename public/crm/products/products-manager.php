@@ -1,5 +1,6 @@
 <?php
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -7,6 +8,45 @@ requirePermission('products.edit');
 
 $pageTitle = 'Products Catalog';
 $activePage = 'products';
+
+// ── Fetch cost factors from DB for the Cost Factor Calculator section ────
+$costFactorsByType = ['labor' => [], 'equipment' => [], 'other' => []];
+$overheadPercent = 20; // fallback default
+try {
+    $db = getDB();
+
+    // Check if cost_factors table exists
+    $tableCheck = $db->query("SHOW TABLES LIKE 'cost_factors'")->rowCount();
+    if ($tableCheck > 0) {
+        $cfStmt = $db->query("SELECT id, factor_name, factor_type, rate, unit, active FROM cost_factors WHERE active = 1 ORDER BY factor_type, factor_name");
+        foreach ($cfStmt->fetchAll(PDO::FETCH_ASSOC) as $cf) {
+            $type = $cf['factor_type'];
+            // Group into labor / equipment / other
+            if ($type === 'labor') {
+                $costFactorsByType['labor'][] = $cf;
+            } elseif (in_array($type, ['equipment', 'fuel'])) {
+                $costFactorsByType['equipment'][] = $cf;
+            } else {
+                $costFactorsByType['other'][] = $cf;
+            }
+        }
+    }
+
+    // Fetch overhead percentage from overhead_settings
+    $ohCheck = $db->query("SHOW TABLES LIKE 'overhead_settings'")->rowCount();
+    if ($ohCheck > 0) {
+        $ohStmt = $db->prepare("SELECT setting_value FROM overhead_settings WHERE setting_key = 'overhead_percent'");
+        $ohStmt->execute();
+        $ohVal = $ohStmt->fetchColumn();
+        if ($ohVal !== false) {
+            $overheadPercent = floatval($ohVal);
+        }
+    }
+} catch (Exception $e) {
+    // Silently fall back to empty arrays — the hardcoded fallback renders below
+}
+
+$hasCostFactors = !empty($costFactorsByType['labor']) || !empty($costFactorsByType['equipment']) || !empty($costFactorsByType['other']);
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -327,63 +367,72 @@ $activePage = 'products';
                         <h5 class="mb-3">Select Cost Factors:</h5>
 
                         <div class="mw-product-factor-grid">
+                          <?php if ($hasCostFactors): ?>
+
+                          <?php if (!empty($costFactorsByType['labor'])): ?>
                           <div>
                             <strong>Labor</strong>
                             <div class="mw-product-checkbox-group">
+                              <?php foreach ($costFactorsByType['labor'] as $cf): ?>
                               <label class="mw-product-checkbox-label">
-                                <input type="checkbox" name="cost_factor[]" value="1">
-                                Owner/Manager ($45/hr)
+                                <input type="checkbox" name="cost_factor[]" value="<?php echo (int)$cf['id']; ?>">
+                                <?php echo h($cf['factor_name']); ?> ($<?php echo number_format((float)$cf['rate'], 2); ?>/<?php echo h(str_replace('per ', '', $cf['unit'])); ?>)
                               </label>
-                              <label class="mw-product-checkbox-label">
-                                <input type="checkbox" name="cost_factor[]" value="2">
-                                Foreman ($35/hr)
-                              </label>
-                              <label class="mw-product-checkbox-label">
-                                <input type="checkbox" name="cost_factor[]" value="3">
-                                Laborer ($25/hr)
-                              </label>
+                              <?php endforeach; ?>
                             </div>
                             <div class="form-group mt-2">
                               <label>Hours per unit</label>
                               <input type="number" class="form-control" step="0.25" placeholder="e.g., 1.5">
                             </div>
                           </div>
+                          <?php endif; ?>
 
+                          <?php if (!empty($costFactorsByType['equipment'])): ?>
                           <div>
                             <strong>Equipment</strong>
                             <div class="mw-product-checkbox-group">
+                              <?php foreach ($costFactorsByType['equipment'] as $cf): ?>
                               <label class="mw-product-checkbox-label">
-                                <input type="checkbox" name="cost_factor[]" value="4">
-                                Riding Mower ($15/hr)
+                                <input type="checkbox" name="cost_factor[]" value="<?php echo (int)$cf['id']; ?>">
+                                <?php echo h($cf['factor_name']); ?> ($<?php echo number_format((float)$cf['rate'], 2); ?>/<?php echo h(str_replace('per ', '', $cf['unit'])); ?>)
                               </label>
-                              <label class="mw-product-checkbox-label">
-                                <input type="checkbox" name="cost_factor[]" value="5">
-                                Walk Mower ($8/hr)
-                              </label>
-                              <label class="mw-product-checkbox-label">
-                                <input type="checkbox" name="cost_factor[]" value="6">
-                                Pickup Truck ($12/hr)
-                              </label>
-                              <label class="mw-product-checkbox-label">
-                                <input type="checkbox" name="cost_factor[]" value="7">
-                                Dump Truck ($25/hr)
-                              </label>
+                              <?php endforeach; ?>
                             </div>
                           </div>
+                          <?php endif; ?>
 
                           <div>
-                            <strong>Other</strong>
+                            <strong>Overhead</strong>
                             <div class="mw-product-checkbox-group">
+                              <?php if (!empty($costFactorsByType['other'])): ?>
+                                <?php foreach ($costFactorsByType['other'] as $cf): ?>
+                                <label class="mw-product-checkbox-label">
+                                  <input type="checkbox" name="cost_factor[]" value="<?php echo (int)$cf['id']; ?>">
+                                  <?php echo h($cf['factor_name']); ?> ($<?php echo number_format((float)$cf['rate'], 2); ?>/<?php echo h(str_replace('per ', '', $cf['unit'])); ?>)
+                                </label>
+                                <?php endforeach; ?>
+                              <?php endif; ?>
                               <label class="mw-product-checkbox-label">
-                                <input type="checkbox" name="cost_factor[]" value="10">
-                                Fuel ($3.50/job)
-                              </label>
-                              <label class="mw-product-checkbox-label">
-                                <input type="checkbox" name="cost_factor[]" value="11" checked>
-                                Overhead (20%)
+                                <input type="checkbox" name="cost_factor_overhead" value="1" checked>
+                                General Overhead (<?php echo number_format($overheadPercent, 0); ?>%)
                               </label>
                             </div>
+                            <small class="form-text text-muted">
+                              Overhead rate managed in <a href="cost-factors.php" target="_blank">Cost Factors</a>
+                            </small>
                           </div>
+
+                          <?php else: ?>
+                          <!-- No cost factors configured yet -->
+                          <div class="col-12">
+                            <div class="alert alert-warning mb-0">
+                              <strong>No cost factors configured.</strong>
+                              Set up your labor rates, equipment costs, and overhead in
+                              <a href="cost-factors.php"><strong>Cost Factors</strong></a> first.
+                              The calculator will then use your actual rates here.
+                            </div>
+                          </div>
+                          <?php endif; ?>
                         </div>
                       </div>
 
