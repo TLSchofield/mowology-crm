@@ -276,7 +276,7 @@ if (!empty($quote)) {
 <body>
 
 <header class="portal-header">
-    <div class="portal-logo-text">Mowo<span>logy</span></div>
+    <img src="/assets/img/logo/mowology-logo.jpg" alt="Mowology" class="portal-logo-img">
     <div class="portal-header-divider"></div>
     <span class="portal-header-label">Quote</span>
     <?php if ($clientNameForHeader): ?>
@@ -411,8 +411,14 @@ if (!empty($quote)) {
 
                             $currentSectionSum += floatval($item['line_total']);
                         ?>
-                            <tr>
-                                <td><strong><?php echo htmlspecialchars($item['service_type']); ?></strong></td>
+                            <?php $isObsidian = stripos($item['service_type'] ?? '', 'obsidian') !== false; ?>
+                            <tr<?php echo $isObsidian ? ' class="portal-or-row"' : ''; ?>>
+                                <td>
+                                    <?php if ($isObsidian): ?>
+                                        <img src="/assets/images/programs/obsidian-root-logo.png" alt="" class="portal-or-icon">
+                                    <?php endif; ?>
+                                    <strong><?php echo htmlspecialchars($item['service_type']); ?></strong>
+                                </td>
                                 <td><?php echo htmlspecialchars($item['description'] ?: '—'); ?></td>
                                 <td class="right portal-table-num"><?php echo formatCurrency($item['line_total']); ?></td>
                             </tr>
