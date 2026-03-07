@@ -80,15 +80,16 @@ switch ($period) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // KPI stats
+// Note: quotes may store totals in total_amount OR amount column
 $decidedStatuses = "'sent','viewed','accepted','declined','expired'";
 $pricingKpi = $db->prepare("
     SELECT
         COUNT(*)                                                           AS total_decided,
         SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)              AS won,
         SUM(CASE WHEN status IN ('declined','expired') THEN 1 ELSE 0 END) AS lost,
-        AVG(CASE WHEN status = 'accepted' THEN total_amount END)           AS avg_won,
-        AVG(CASE WHEN status IN ('declined','expired') THEN total_amount END) AS avg_lost,
-        AVG(total_amount)                                                   AS avg_all
+        AVG(CASE WHEN status = 'accepted' THEN COALESCE(NULLIF(total_amount,0), amount, 0) END)           AS avg_won,
+        AVG(CASE WHEN status IN ('declined','expired') THEN COALESCE(NULLIF(total_amount,0), amount, 0) END) AS avg_lost,
+        AVG(COALESCE(NULLIF(total_amount,0), amount, 0))                    AS avg_all
     FROM quotes
     WHERE status IN ($decidedStatuses)
     AND created_at BETWEEN ? AND ?
@@ -102,17 +103,17 @@ $priceGap  = ($pk['avg_lost'] && $pk['avg_won']) ? (float)$pk['avg_lost'] - (flo
 $brackets = $db->prepare("
     SELECT
         CASE
-            WHEN total_amount <= 200  THEN '\$0–200'
-            WHEN total_amount <= 500  THEN '\$201–500'
-            WHEN total_amount <= 1000 THEN '\$501–1K'
-            WHEN total_amount <= 2500 THEN '\$1K–2.5K'
+            WHEN COALESCE(NULLIF(total_amount,0), amount, 0) <= 200  THEN '\$0–200'
+            WHEN COALESCE(NULLIF(total_amount,0), amount, 0) <= 500  THEN '\$201–500'
+            WHEN COALESCE(NULLIF(total_amount,0), amount, 0) <= 1000 THEN '\$501–1K'
+            WHEN COALESCE(NULLIF(total_amount,0), amount, 0) <= 2500 THEN '\$1K–2.5K'
             ELSE '\$2.5K+'
         END AS bracket,
-        MIN(total_amount)                                                 AS sort_key,
-        COUNT(*)                                                          AS total,
-        SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)             AS won,
+        MIN(COALESCE(NULLIF(total_amount,0), amount, 0))                   AS sort_key,
+        COUNT(*)                                                           AS total,
+        SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)              AS won,
         SUM(CASE WHEN status IN ('declined','expired') THEN 1 ELSE 0 END) AS lost,
-        AVG(total_amount)                                                  AS avg_amount
+        AVG(COALESCE(NULLIF(total_amount,0), amount, 0))                   AS avg_amount
     FROM quotes
     WHERE status IN ($decidedStatuses)
     AND created_at BETWEEN ? AND ?
@@ -128,9 +129,9 @@ $byService = $db->prepare("
         COALESCE(service_type, 'other')                                     AS service_type,
         COUNT(*)                                                            AS total,
         SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END)               AS won,
-        AVG(total_amount)                                                    AS avg_amount,
-        AVG(CASE WHEN status = 'accepted' THEN total_amount END)             AS avg_won,
-        AVG(CASE WHEN status IN ('declined','expired') THEN total_amount END) AS avg_lost
+        AVG(COALESCE(NULLIF(total_amount,0), amount, 0))                    AS avg_amount,
+        AVG(CASE WHEN status = 'accepted' THEN COALESCE(NULLIF(total_amount,0), amount, 0) END)             AS avg_won,
+        AVG(CASE WHEN status IN ('declined','expired') THEN COALESCE(NULLIF(total_amount,0), amount, 0) END) AS avg_lost
     FROM quotes
     WHERE status IN ($decidedStatuses)
     AND created_at BETWEEN ? AND ?
@@ -148,7 +149,7 @@ $serviceRows = $byService->fetchAll(PDO::FETCH_ASSOC);
 $pipeKpi = $db->query("
     SELECT
         COUNT(*)                                                     AS open_count,
-        COALESCE(SUM(total_amount), 0)                               AS pipeline_value,
+        COALESCE(SUM(COALESCE(NULLIF(total_amount,0), amount, 0)), 0) AS pipeline_value,
         SUM(CASE WHEN status = 'sent' AND sent_at < DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS stale_count
     FROM quotes
     WHERE status IN ('draft','sent','viewed')
@@ -176,7 +177,7 @@ $fn = $funnel->fetch(PDO::FETCH_ASSOC);
 
 // Aging list (open quotes)
 $aging = $db->query("
-    SELECT q.id, q.quote_number, q.total_amount, q.status, q.sent_at, q.viewed_at,
+    SELECT q.id, q.quote_number, COALESCE(NULLIF(q.total_amount,0), q.amount, 0) AS total_amount, q.status, q.sent_at, q.viewed_at,
            q.service_type, DATEDIFF(NOW(), COALESCE(q.sent_at, q.created_at)) AS days_open,
            c.first_name, c.last_name, p.address, p.city
     FROM quotes q
@@ -268,7 +269,7 @@ $trendQuotes = $db->query("
         CASE WHEN COUNT(*) > 0
             THEN ROUND(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) / COUNT(*) * 100)
             ELSE 0 END                                                   AS win_rate,
-        AVG(total_amount)                                                AS avg_amount
+        AVG(COALESCE(NULLIF(total_amount,0), amount, 0))                   AS avg_amount
     FROM quotes
     WHERE status IN ('sent','viewed','accepted','declined','expired')
     AND created_at >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
@@ -302,7 +303,7 @@ $seasonal = $db->query("
         CASE WHEN COUNT(*) > 0
             THEN ROUND(SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) / COUNT(*) * 100)
             ELSE 0 END                                                      AS win_rate,
-        AVG(total_amount)                                                    AS avg_amount
+        AVG(COALESCE(NULLIF(total_amount,0), amount, 0))                       AS avg_amount
     FROM quotes
     WHERE status IN ('sent','viewed','accepted','declined','expired')
     AND created_at >= DATE_SUB(CURDATE(), INTERVAL 24 MONTH)
