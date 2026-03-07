@@ -84,20 +84,15 @@ a:hover { text-decoration: underline; }
 .portal-logo-text span { color: var(--p-green); }
 /* ─── Obsidian Root™ icon on line items ─────────────────────────────────── */
 .portal-or-icon {
-  width: 48px !important;
-  height: 48px !important;
-  max-width: 48px;
-  max-height: 48px;
+  height: 80px;
+  width: auto;
   object-fit: contain;
   vertical-align: middle;
-  margin-right: 8px;
-  border-radius: 4px;
   flex-shrink: 0;
 }
 .portal-or-row td:first-child {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  text-align: center;
+  padding: 8px 4px;
 }
 .portal-header-divider {
   width: 1px;

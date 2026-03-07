@@ -648,11 +648,11 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
     ?>
     <script>
         // Line items management
-        let lineItems = <?php echo json_encode($jsLineItems ?: []); ?>;
+        let lineItems = <?php echo json_encode($jsLineItems ?: [], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR) ?: '[]'; ?>;
         let itemIdCounter = lineItems.filter(i => !i._type).length;
 
         const container = document.getElementById('lineItemsContainer');
-        const templates = <?php echo json_encode($templates); ?>;
+        const templates = <?php echo json_encode($templates, JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR) ?: '[]'; ?>;
 
         // Bundle names for group headers: bundle_id → name (populated as bundles are added)
         const bundleNames = {};

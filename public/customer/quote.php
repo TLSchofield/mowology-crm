@@ -415,9 +415,10 @@ if (!empty($quote)) {
                             <tr<?php echo $isObsidian ? ' class="portal-or-row"' : ''; ?>>
                                 <td>
                                     <?php if ($isObsidian): ?>
-                                        <img src="/assets/images/programs/obsidian-root-logo.png" alt="Obsidian Root™" class="portal-or-icon" width="48" height="48">
+                                        <img src="/assets/images/programs/obsidian-root-logo.png" alt="Obsidian Root™ Program" class="portal-or-icon">
+                                    <?php else: ?>
+                                        <strong><?php echo htmlspecialchars($item['service_type']); ?></strong>
                                     <?php endif; ?>
-                                    <strong><?php echo htmlspecialchars($item['service_type']); ?></strong>
                                 </td>
                                 <td><?php echo htmlspecialchars($item['description'] ?: '—'); ?></td>
                                 <td class="right portal-table-num"><?php echo formatCurrency($item['line_total']); ?></td>
