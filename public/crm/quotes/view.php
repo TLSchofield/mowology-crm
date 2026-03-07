@@ -176,6 +176,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                     $companyInfo
                 );
 
+                // Inject email open tracking pixel (1x1 transparent PNG)
+                $pixelUrl = "https://" . $_SERVER['HTTP_HOST'] . "/crm/api/track-quote-open.php?t=" . urlencode($quote['access_token']);
+                $emailBody = str_replace('</body>', '<img src="' . htmlspecialchars($pixelUrl) . '" width="1" height="1" alt="" style="display:none;border:none;" /></body>', $emailBody);
+
                 $emailResult = sendEmail($customerEmail, $emailSubject, $emailBody);
 
                 if ($emailResult['success']) {
@@ -892,6 +896,12 @@ $activePage = 'quotes';
                               <div class="mw-detail-row">
                                   <span class="mw-detail-label">Sent</span>
                                   <span class="mw-detail-value"><?php echo formatDateTime($quote['sent_at']); ?></span>
+                              </div>
+                          <?php endif; ?>
+                          <?php if (!empty($quote['email_opened_at'])): ?>
+                              <div class="mw-detail-row">
+                                  <span class="mw-detail-label">Email Opened</span>
+                                  <span class="mw-detail-value"><?php echo formatDateTime($quote['email_opened_at']); ?></span>
                               </div>
                           <?php endif; ?>
                           <?php if ($quote['viewed_at']): ?>
