@@ -572,6 +572,31 @@ a:hover {
 .stat-card.won     { border-left-color: var(--mw-lime); }
 .stat-card.active  { border-left-color: var(--mw-green); }
 
+/* Clickable stat card links (dashboard) */
+.mw-stat-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.mw-stat-link:hover,
+.mw-stat-link:focus {
+  text-decoration: none;
+  color: inherit;
+}
+.mw-stat-link:hover .stat-card {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+.mw-stat-link:active .stat-card {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.mw-stat-link .stat-card {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
 /* ── Text Utilities ──────────────────────────────────── */
 
 .text-mowology {

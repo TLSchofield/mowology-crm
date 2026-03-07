@@ -382,7 +382,7 @@ $activePage = 'dashboard';
           </script>
 
           <!-- Incoming Quote Requests -->
-          <div class="row mb-4">
+          <div class="row mb-4" id="incoming-requests">
             <div class="col-12">
               <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
@@ -442,44 +442,52 @@ $activePage = 'dashboard';
               <div class="w-100">
                 <div class="row">
                   <div class="col-sm-6">
-                    <div class="card stat-card new">
-                      <div class="card-body">
-                        <h5 class="card-title mb-4">New Inquiries</h5>
-                        <h1 class="mt-1 mb-3"><?php echo $newInquiries; ?></h1>
-                        <div class="mb-1">
-                          <span class="text-muted">Leads waiting for quotes</span>
+                    <a href="#incoming-requests" class="mw-stat-link">
+                      <div class="card stat-card new">
+                        <div class="card-body">
+                          <h5 class="card-title mb-4">New Inquiries</h5>
+                          <h1 class="mt-1 mb-3"><?php echo $newInquiries; ?></h1>
+                          <div class="mb-1">
+                            <span class="text-muted">Leads waiting for quotes</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div class="card stat-card won">
-                      <div class="card-body">
-                        <h5 class="card-title mb-4">Jobs Accepted</h5>
-                        <h1 class="mt-1 mb-3"><?php echo $jobsAccepted; ?></h1>
-                        <div class="mb-1">
-                          <span class="text-muted">Converted quotes</span>
+                    </a>
+                    <a href="/crm/quotes/?status=accepted" class="mw-stat-link">
+                      <div class="card stat-card won">
+                        <div class="card-body">
+                          <h5 class="card-title mb-4">Jobs Accepted</h5>
+                          <h1 class="mt-1 mb-3"><?php echo $jobsAccepted; ?></h1>
+                          <div class="mb-1">
+                            <span class="text-muted">Converted quotes</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </a>
                   </div>
                   <div class="col-sm-6">
-                    <div class="card stat-card quoted">
-                      <div class="card-body">
-                        <h5 class="card-title mb-4">Quotes Sent</h5>
-                        <h1 class="mt-1 mb-3"><?php echo $quotesSent; ?></h1>
-                        <div class="mb-1">
-                          <span class="text-muted">Pending responses</span>
+                    <a href="/crm/quotes/?status=sent" class="mw-stat-link">
+                      <div class="card stat-card quoted">
+                        <div class="card-body">
+                          <h5 class="card-title mb-4">Quotes Sent</h5>
+                          <h1 class="mt-1 mb-3"><?php echo $quotesSent; ?></h1>
+                          <div class="mb-1">
+                            <span class="text-muted">Pending responses</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div class="card stat-card active">
-                      <div class="card-body">
-                        <h5 class="card-title mb-4">Active Jobs</h5>
-                        <h1 class="mt-1 mb-3"><?php echo $jobsActive; ?></h1>
-                        <div class="mb-1">
-                          <span class="text-muted">In progress or scheduled</span>
+                    </a>
+                    <a href="/crm/jobs/?status=active" class="mw-stat-link">
+                      <div class="card stat-card active">
+                        <div class="card-body">
+                          <h5 class="card-title mb-4">Active Jobs</h5>
+                          <h1 class="mt-1 mb-3"><?php echo $jobsActive; ?></h1>
+                          <div class="mb-1">
+                            <span class="text-muted">In progress or scheduled</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </a>
                   </div>
                 </div>
               </div>
