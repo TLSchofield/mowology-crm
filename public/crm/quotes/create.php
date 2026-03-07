@@ -136,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $notesCustomer = trim($_POST['notes_customer'] ?? '');
         $notesInternal = trim($_POST['notes_internal'] ?? '');
         $description = trim($_POST['description'] ?? '');
-        $isContract = isset($_POST['is_contract']) ? 1 : 0;
+        $isContract = !empty($_POST['is_contract']) ? 1 : 0;
 
         // Parse line items from JSON
         $lineItemsJson = $_POST['line_items'] ?? '[]';
@@ -226,7 +226,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             subtotal, tax_rate, tax_amount, valid_until, terms,
                             notes_customer, notes_internal, description, access_token,
                             token_expires_at, created_by, status, is_contract
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), ?, 'draft', ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 30 DAY), ?, 'draft', ?)
                     ");
                     $stmt->execute([
                         $quoteNumber, $propertyId, $companyId, $title, $serviceType, $totals['total'],
