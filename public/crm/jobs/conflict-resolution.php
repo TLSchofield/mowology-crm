@@ -656,6 +656,7 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
 
     // --- Dwell cluster detection ---
     // Groups consecutive pings within clusterRadius into stationary "dwell" clusters.
+    // Then merges nearby clusters separated by GPS sleep gaps (no pings between them).
     // Returns clusters with centroid, time range, duration, ping count.
     function detectDwellClusters(pings, clusterRadius) {
         var clusters = [];
@@ -678,6 +679,41 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
             }
         }
         if (cur && cur.pings.length >= 2) clusters.push(cur);
+
+        // --- Merge clusters separated by GPS sleep gaps ---
+        // If two clusters are <100m apart and no pings exist between them in the
+        // full dataset (GPS tracker went to sleep while parked), merge them.
+        var merged = true;
+        while (merged) {
+            merged = false;
+            for (var mi = 0; mi < clusters.length - 1; mi++) {
+                var cA = clusters[mi];
+                var cB = clusters[mi + 1];
+                var interDist = jsHaversine(cA.cLat, cA.cLng, cB.cLat, cB.cLng);
+                if (interDist > 100) continue; // too far apart
+
+                // Check if there are pings between the two clusters' time ranges
+                var lastA = cA.pings[cA.pings.length - 1].epoch;
+                var firstB = cB.pings[0].epoch;
+                var pingsBetween = 0;
+                for (var pi = 0; pi < pings.length; pi++) {
+                    if (pings[pi].epoch > lastA && pings[pi].epoch < firstB) {
+                        pingsBetween++;
+                        if (pingsBetween > 2) break; // enough to know it's not a GPS gap
+                    }
+                }
+                // If 0-2 stray pings between them, it's likely a GPS sleep gap — merge
+                if (pingsBetween <= 2) {
+                    cA.pings = cA.pings.concat(cB.pings);
+                    var totalN = cA.pings.length;
+                    cA.cLat = cA.pings.reduce(function(s, p) { return s + p.lat; }, 0) / totalN;
+                    cA.cLng = cA.pings.reduce(function(s, p) { return s + p.lng; }, 0) / totalN;
+                    clusters.splice(mi + 1, 1);
+                    merged = true;
+                    break; // restart scan
+                }
+            }
+        }
 
         // Enrich each cluster with timing
         return clusters.map(function(c) {
