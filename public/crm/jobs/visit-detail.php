@@ -76,7 +76,7 @@ $gpsPoints = $stmtPts->fetchAll(PDO::FETCH_ASSOC);
 // Load photos (with variant paths, exclude soft-deleted)
 $stmtPhotos = $db->prepare("
     SELECT vp.id, vp.photo_type, vp.filename, vp.caption, vp.sort_order,
-           vp.thumb_path, vp.grid_path, vp.view_path,
+           vp.thumb_path, vp.grid_path, vp.view_path, vp.tags,
            vp.uploaded_at, u.full_name AS uploader
     FROM visit_photos vp
     LEFT JOIN users u ON vp.uploaded_by = u.id
@@ -347,16 +347,23 @@ $activePage = 'jobs';
             </div>
             <div class="mw-photo-grid" id="grid-detail-<?= $baType ?>">
               <?php foreach ($photoGroups[$baType] as $ph): ?>
+              <?php $phTags = $ph['tags'] ? (json_decode($ph['tags'], true) ?: []) : []; ?>
               <div class="mw-photo-tile"
                    data-photo-id="<?= $ph['id'] ?>"
                    data-view-url="<?= htmlspecialchars($ph['_view_url']) ?>"
                    data-type="<?= htmlspecialchars($ph['photo_type']) ?>"
-                   data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>">
+                   data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>"
+                   data-tags="<?= htmlspecialchars($ph['tags'] ?? '[]') ?>">
                 <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
                      loading="lazy"
                      alt="<?= htmlspecialchars($ph['photo_type']) ?>"
                      onerror="this.src='/crm/img/img-error.svg'">
                 <div class="mw-photo-tile-overlay">
+                  <?php if (!empty($phTags)): ?>
+                  <span class="mw-timeline-tag-count" title="<?= htmlspecialchars(implode(', ', $phTags)) ?>">
+                    <i data-feather="tag" style="width:10px;height:10px;"></i> <?= count($phTags) ?>
+                  </span>
+                  <?php endif; ?>
                   <?php if ($isAdmin): ?>
                   <button class="mw-photo-delete-btn" data-photo-id="<?= $ph['id'] ?>"
                           title="Delete photo" aria-label="Delete">✕</button>
@@ -381,16 +388,23 @@ $activePage = 'jobs';
           </div>
           <div class="mw-photo-grid" id="grid-detail-additional">
             <?php foreach ($photoGroups['additional'] as $ph): ?>
+            <?php $phTags = $ph['tags'] ? (json_decode($ph['tags'], true) ?: []) : []; ?>
             <div class="mw-photo-tile"
                  data-photo-id="<?= $ph['id'] ?>"
                  data-view-url="<?= htmlspecialchars($ph['_view_url']) ?>"
                  data-type="<?= htmlspecialchars($ph['photo_type']) ?>"
-                 data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>">
+                 data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>"
+                 data-tags="<?= htmlspecialchars($ph['tags'] ?? '[]') ?>">
               <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
                    loading="lazy"
                    alt="additional"
                    onerror="this.src='/crm/img/img-error.svg'">
               <div class="mw-photo-tile-overlay">
+                <?php if (!empty($phTags)): ?>
+                <span class="mw-timeline-tag-count" title="<?= htmlspecialchars(implode(', ', $phTags)) ?>">
+                  <i data-feather="tag" style="width:10px;height:10px;"></i> <?= count($phTags) ?>
+                </span>
+                <?php endif; ?>
                 <?php if ($isAdmin): ?>
                 <button class="mw-photo-delete-btn" data-photo-id="<?= $ph['id'] ?>"
                         title="Delete photo" aria-label="Delete">✕</button>
@@ -408,16 +422,23 @@ $activePage = 'jobs';
           <div class="mw-ba-header mw-ba-header--other">Other</div>
           <div class="mw-photo-grid" id="grid-detail-other">
             <?php foreach ($photoGroups['other'] as $ph): ?>
+            <?php $phTags = $ph['tags'] ? (json_decode($ph['tags'], true) ?: []) : []; ?>
             <div class="mw-photo-tile"
                  data-photo-id="<?= $ph['id'] ?>"
                  data-view-url="<?= htmlspecialchars($ph['_view_url']) ?>"
                  data-type="<?= htmlspecialchars($ph['photo_type']) ?>"
-                 data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>">
+                 data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>"
+                 data-tags="<?= htmlspecialchars($ph['tags'] ?? '[]') ?>">
               <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
                    loading="lazy"
                    alt="<?= htmlspecialchars($ph['photo_type']) ?>"
                    onerror="this.src='/crm/img/img-error.svg'">
               <div class="mw-photo-tile-overlay">
+                <?php if (!empty($phTags)): ?>
+                <span class="mw-timeline-tag-count" title="<?= htmlspecialchars(implode(', ', $phTags)) ?>">
+                  <i data-feather="tag" style="width:10px;height:10px;"></i> <?= count($phTags) ?>
+                </span>
+                <?php endif; ?>
                 <span class="badge badge-secondary" style="font-size:9px;"><?= htmlspecialchars($ph['photo_type']) ?></span>
                 <?php if ($isAdmin): ?>
                 <button class="mw-photo-delete-btn" data-photo-id="<?= $ph['id'] ?>"
@@ -656,13 +677,35 @@ $activePage = 'jobs';
     <div class="mw-lightbox-type-label" id="lb-type"></div>
     <img class="mw-lightbox-img" id="lb-img" src="" alt="">
     <div class="mw-lightbox-caption" id="lb-caption"></div>
-    <?php if ($isAdmin): ?>
+
+    <!-- Tags section -->
+    <div class="mw-lightbox-tags-section" id="lb-tags-section">
+      <div id="lb-tag-chips" class="mw-lightbox-tag-chips"></div>
+      <div class="mw-tag-editor" id="lb-tag-editor" style="display:none">
+        <input type="text" id="lb-tag-input" class="form-control form-control-sm mw-tag-input"
+               placeholder="Type a tag and press Enter…" list="lb-tag-suggestions" autocomplete="off">
+        <datalist id="lb-tag-suggestions">
+          <option value="drainage issue"><option value="pest damage">
+          <option value="upsell opportunity"><option value="property access issue">
+          <option value="equipment damage"><option value="hazard">
+          <option value="before treatment"><option value="after treatment">
+          <option value="seasonal change"><option value="client request">
+        </datalist>
+        <button class="btn btn-sm btn-primary" id="lb-add-tag-btn">Add</button>
+        <button class="btn btn-sm btn-outline-secondary" id="lb-save-tags-btn">Save</button>
+      </div>
+    </div>
+
     <div class="mw-lightbox-actions">
-      <button class="btn btn-sm btn-outline-danger" id="lb-delete-btn" data-photo-id="">
+      <button class="btn btn-sm btn-outline-light mw-lb-action-btn" id="lb-tags-btn">
+        <i data-feather="tag" style="width:13px;height:13px;"></i> Tags
+      </button>
+      <?php if ($isAdmin): ?>
+      <button class="btn btn-sm btn-outline-danger mw-lb-action-btn" id="lb-delete-btn" data-photo-id="">
         <i data-feather="trash-2" style="width:14px;height:14px;"></i> Delete
       </button>
+      <?php endif; ?>
     </div>
-    <?php endif; ?>
   </div>
 </div>
 
@@ -762,32 +805,122 @@ $activePage = 'jobs';
   var lbType    = document.getElementById('lb-type');
   var lbCaption = document.getElementById('lb-caption');
   var lbDelete  = document.getElementById('lb-delete-btn');
+  var lbTagsBtn = document.getElementById('lb-tags-btn');
+
+  // Tag state for currently open photo
+  var lbCurrentPhotoId = 0;
+  var lbCurrentTags    = [];
+  var lbTagsDirty      = false;
 
   function openLightbox(tile) {
     var viewUrl = tile.dataset.viewUrl;
     var type    = tile.dataset.type || '';
     var caption = tile.dataset.caption || '';
     var photoId = tile.dataset.photoId || '';
+    var tagsRaw = tile.dataset.tags || '[]';
     if (!viewUrl) return;
 
     lbImg.src = viewUrl;
     lbType.textContent = type.charAt(0).toUpperCase() + type.slice(1);
     lbCaption.textContent = caption;
     if (lbDelete) lbDelete.dataset.photoId = photoId;
+
+    // Tags
+    lbCurrentPhotoId = parseInt(photoId, 10) || 0;
+    try { lbCurrentTags = JSON.parse(tagsRaw) || []; } catch(e) { lbCurrentTags = []; }
+    lbTagsDirty = false;
+    lbRenderTagChips();
+    document.getElementById('lb-tag-editor').style.display = 'none';
+    if (lbTagsBtn) lbTagsBtn.classList.remove('active');
+
     lb.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+    if (typeof feather !== 'undefined') feather.replace();
   }
 
   function closeLightbox() {
+    if (lbTagsDirty) lbSaveTags();
     lb.style.display = 'none';
     lbImg.src = '';
     document.body.style.overflow = '';
   }
 
+  // Tags
+  function lbRenderTagChips() {
+    var chips = document.getElementById('lb-tag-chips');
+    if (!chips) return;
+    if (!lbCurrentTags.length) {
+      chips.innerHTML = '<span class="text-white-50 small">No tags</span>';
+    } else {
+      chips.innerHTML = lbCurrentTags.map(function(t, i) {
+        return '<span class="mw-tag-chip mw-tag-chip--editable">' + lbEsc(t)
+             + '<button type="button" class="mw-tag-remove" onclick="lbRemoveTag(' + i + ')">&times;</button></span>';
+      }).join(' ');
+    }
+  }
+
+  function lbRemoveTag(i) { lbCurrentTags.splice(i, 1); lbTagsDirty = true; lbRenderTagChips(); }
+
+  function lbAddTag() {
+    var inp = document.getElementById('lb-tag-input');
+    var val = (inp.value || '').trim().toLowerCase().substring(0, 50);
+    if (!val || lbCurrentTags.indexOf(val) !== -1) { inp.value = ''; return; }
+    if (lbCurrentTags.length >= 10) { alert('Maximum 10 tags'); return; }
+    lbCurrentTags.push(val); lbTagsDirty = true; inp.value = ''; lbRenderTagChips();
+  }
+
+  function lbSaveTags() {
+    lbTagsDirty = false;
+    fetch(API_PHOTO, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update_tags', photo_id: lbCurrentPhotoId, tags: lbCurrentTags, csrf_token: CSRF })
+    }).then(function() {
+      // Update the tile's data-tags attribute so it reflects new state
+      var tile = document.querySelector('.mw-photo-tile[data-photo-id="' + lbCurrentPhotoId + '"]');
+      if (tile) {
+        tile.dataset.tags = JSON.stringify(lbCurrentTags);
+        var badge = tile.querySelector('.mw-timeline-tag-count');
+        if (lbCurrentTags.length) {
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'mw-timeline-tag-count';
+            tile.querySelector('.mw-photo-tile-overlay').prepend(badge);
+          }
+          badge.innerHTML = '<i data-feather="tag" style="width:10px;height:10px;"></i> ' + lbCurrentTags.length;
+          badge.title = lbCurrentTags.join(', ');
+          if (typeof feather !== 'undefined') feather.replace();
+        } else if (badge) {
+          badge.remove();
+        }
+      }
+    }).catch(function() {});
+  }
+
+  if (lbTagsBtn) {
+    lbTagsBtn.addEventListener('click', function() {
+      var editor = document.getElementById('lb-tag-editor');
+      var showing = editor.style.display !== 'none';
+      editor.style.display = showing ? 'none' : 'flex';
+      lbTagsBtn.classList.toggle('active', !showing);
+    });
+  }
+
+  var lbAddTagBtn = document.getElementById('lb-add-tag-btn');
+  if (lbAddTagBtn) lbAddTagBtn.addEventListener('click', lbAddTag);
+
+  var lbSaveTagsBtn = document.getElementById('lb-save-tags-btn');
+  if (lbSaveTagsBtn) lbSaveTagsBtn.addEventListener('click', function() { lbSaveTags(); lbTagsDirty = false; });
+
+  var lbTagInput = document.getElementById('lb-tag-input');
+  if (lbTagInput) lbTagInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); lbAddTag(); } });
+
+  function lbEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
   if (lb) {
     document.getElementById('lb-backdrop').addEventListener('click', closeLightbox);
     document.getElementById('lb-close').addEventListener('click', closeLightbox);
-    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLightbox(); });
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && lb.style.display === 'flex') closeLightbox(); });
   }
 
   // Delete from lightbox
