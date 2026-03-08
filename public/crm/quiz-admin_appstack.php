@@ -546,8 +546,6 @@ function openQuestionModal(id) {
     document.getElementById('qmId').value          = id || '';
     document.getElementById('qmText').value        = '';
     document.getElementById('qmLearnNotes').value  = '';
-    document.getElementById('qmImagePath').value   = '';
-    document.getElementById('qmImagePreview').innerHTML = '';
     document.getElementById('qmDifficulty').value  = 'medium';
     document.getElementById('qmType').value        = 'multiple_choice';
     document.getElementById('qmLevel').value       = '1';
@@ -578,7 +576,6 @@ function openQuestionModal(id) {
                 document.getElementById('qmDifficulty').value = q.difficulty;
                 document.getElementById('qmType').value       = q.question_type || 'multiple_choice';
                 document.getElementById('qmLevel').value      = q.learning_level || '1';
-                document.getElementById('qmImagePath').value  = q.image_path || '';
                 document.getElementById('qmSeasonalTags').value = q.seasonal_tags || '';
                 const pri = q.seasonal_priority || 5;
                 document.getElementById('qmSeasonalPriority').value = pri;
