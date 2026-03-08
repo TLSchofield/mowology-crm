@@ -29,8 +29,10 @@
  */
 'use strict';
 
-var CACHE_NAME  = 'mwcrm-assets-v5';
+var CACHE_NAME  = 'mwcrm-assets-v6';
 var OFFLINE_URL = '/crm/offline.html';
+var TILE_CACHE  = 'mw-tiles-v1'; // satellite tiles — long-lived, separate from asset cache
+var MAX_TILES   = 2000;          // evict oldest when exceeded
 
 // Must match constants in offline-queue.js
 var IDB_NAME  = 'mowology-actions';
@@ -55,7 +57,7 @@ self.addEventListener('activate', function (e) {
         caches.keys().then(function (keys) {
             return Promise.all(
                 keys
-                    .filter(function (k) { return k !== CACHE_NAME; })
+                    .filter(function (k) { return k !== CACHE_NAME && k !== TILE_CACHE; })
                     .map(function (k) { return caches.delete(k); })
             );
         }).then(function () {
@@ -69,9 +71,18 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('fetch', function (e) {
     var req = e.request;
 
-    // Only handle same-origin GET requests
     if (req.method !== 'GET') return;
-    if (new URL(req.url).origin !== self.location.origin) return;
+
+    var url = new URL(req.url);
+
+    // ── Satellite map tiles (cross-origin) → cache-first for offline use ──
+    if (isMapTile(url.hostname)) {
+        e.respondWith(tileCacheFirst(req));
+        return;
+    }
+
+    // Only handle same-origin requests from here on
+    if (url.origin !== self.location.origin) return;
 
     // Navigation requests: network-first, serve offline page on failure
     if (req.mode === 'navigate') {
@@ -106,6 +117,37 @@ self.addEventListener('fetch', function (e) {
     }
 
     // PHP pages / API endpoints — pass through; offline-queue.js handles mutations
+});
+
+/* ── Tile Pre-warming & Cache Management (postMessage API) ─────────────── */
+
+self.addEventListener('message', function (event) {
+    if (!event.data) return;
+
+    if (event.data.type === 'prewarm-tiles') {
+        event.waitUntil(prewarmTiles(event.data, event.source));
+        return;
+    }
+
+    if (event.data.type === 'tile-cache-stats') {
+        caches.open(TILE_CACHE).then(function (cache) {
+            return cache.keys();
+        }).then(function (keys) {
+            if (event.source) {
+                event.source.postMessage({ type: 'tile-cache-stats', count: keys.length });
+            }
+        });
+        return;
+    }
+
+    if (event.data.type === 'clear-tile-cache') {
+        caches.delete(TILE_CACHE).then(function () {
+            if (event.source) {
+                event.source.postMessage({ type: 'tile-cache-cleared' });
+            }
+        });
+        return;
+    }
 });
 
 /* ── Background Sync: replay queued actions ─────────────────────────────── */
@@ -220,4 +262,149 @@ function swDelete(db, id) {
         tx.oncomplete = function () { resolve(); };
         tx.onerror    = function () { resolve(); };
     });
+}
+
+/* ── Satellite Tile Caching Helpers ────────────────────────────────────── */
+
+/**
+ * Detect Esri / OSM tile hostnames for cache-first interception.
+ */
+function isMapTile(hostname) {
+    return hostname.indexOf('arcgisonline.com') !== -1 ||
+           hostname.indexOf('tile.openstreetmap.org') !== -1 ||
+           hostname.indexOf('services.arcgisonline.com') !== -1;
+}
+
+/**
+ * Cache-first strategy for satellite tiles.
+ * Tiles are cross-origin so responses are opaque (status 0).
+ * We cache them anyway — a tile URL is immutable (same z/x/y = same image).
+ */
+function tileCacheFirst(request) {
+    return caches.open(TILE_CACHE).then(function (cache) {
+        return cache.match(request).then(function (cached) {
+            if (cached) return cached;
+
+            // Cross-origin tiles need no-cors; opaque responses are cacheable
+            var fetchReq = new Request(request.url, { mode: 'no-cors' });
+            return fetch(fetchReq).then(function (response) {
+                if (response.ok || response.type === 'opaque') {
+                    cache.put(request, response.clone());
+                    trimTileCache(cache);
+                }
+                return response;
+            });
+        });
+    }).catch(function () {
+        // Fully offline and not in cache — return transparent 1x1 PNG
+        return new Response(
+            Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualzQAAAABJRU5ErkJggg=='), function (c) { return c.charCodeAt(0); }),
+            { status: 200, headers: { 'Content-Type': 'image/png' } }
+        );
+    });
+}
+
+/**
+ * Keep tile cache under MAX_TILES entries.
+ * Evicts oldest 10% when the limit is exceeded.
+ */
+function trimTileCache(cache) {
+    cache.keys().then(function (keys) {
+        if (keys.length <= MAX_TILES) return;
+        var evictCount = Math.ceil(keys.length * 0.1);
+        for (var i = 0; i < evictCount; i++) {
+            cache.delete(keys[i]);
+        }
+    });
+}
+
+/**
+ * Pre-warm satellite tiles around a lat/lng for offline use.
+ * Called via postMessage from ZoneEditorManager.
+ */
+function prewarmTiles(data, client) {
+    var lat    = data.lat;
+    var lng    = data.lng;
+    var zooms  = data.zooms || [17, 18, 19, 20];
+    var radius = data.radius || 2;
+    var tileUrl   = data.tileUrl || 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+    var labelsUrl = data.labelsUrl || null;
+
+    // Build list of tile URLs to pre-cache
+    var urls = [];
+    zooms.forEach(function (z) {
+        var center = latLngToTile(lat, lng, z);
+        for (var dx = -radius; dx <= radius; dx++) {
+            for (var dy = -radius; dy <= radius; dy++) {
+                var x = center.x + dx;
+                var y = center.y + dy;
+                if (x < 0 || y < 0) continue;
+                urls.push(tileUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y));
+                if (labelsUrl) {
+                    urls.push(labelsUrl.replace('{z}', z).replace('{x}', x).replace('{y}', y));
+                }
+            }
+        }
+    });
+
+    return caches.open(TILE_CACHE).then(function (cache) {
+        var fetched = 0;
+        var skipped = 0;
+        var failed  = 0;
+
+        function fetchBatch(startIdx) {
+            var batch = urls.slice(startIdx, startIdx + 6);
+            if (batch.length === 0) {
+                if (client) {
+                    client.postMessage({
+                        type: 'prewarm-complete',
+                        total: urls.length,
+                        fetched: fetched,
+                        skipped: skipped,
+                        failed: failed,
+                    });
+                }
+                return Promise.resolve();
+            }
+
+            return Promise.all(batch.map(function (url) {
+                var req = new Request(url, { mode: 'no-cors' });
+                return cache.match(req).then(function (existing) {
+                    if (existing) { skipped++; return; }
+
+                    return fetch(req).then(function (response) {
+                        if (response.ok || response.type === 'opaque') {
+                            fetched++;
+                            return cache.put(req, response);
+                        }
+                        failed++;
+                    }).catch(function () { failed++; });
+                });
+            })).then(function () {
+                if (client && (startIdx % 30 === 0 || startIdx + 6 >= urls.length)) {
+                    client.postMessage({
+                        type: 'prewarm-progress',
+                        total: urls.length,
+                        done: startIdx + batch.length,
+                    });
+                }
+                return fetchBatch(startIdx + 6);
+            });
+        }
+
+        return fetchBatch(0).then(function () {
+            trimTileCache(cache);
+        });
+    });
+}
+
+/**
+ * Convert lat/lng to slippy-map tile coordinates at a given zoom level.
+ */
+function latLngToTile(lat, lng, zoom) {
+    var n = Math.pow(2, zoom);
+    var x = Math.floor((lng + 180) / 360 * n);
+    var latRad = lat * Math.PI / 180;
+    var y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+    return { x: x, y: y };
 }
