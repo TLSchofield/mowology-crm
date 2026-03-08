@@ -777,6 +777,10 @@ if (!function_exists('loadEmailTemplate')) {
                 'subject'  => 'Your quote {{quote_number}} from Mowology is ready',
                 'body'     => "Hi {{customer_first_name}},\n\nThank you for reaching out! Your quote {{quote_number}} for {{quote_amount}} is ready to review.\n\nPlease click the button below to view and accept your quote.\n\nWe look forward to working with you!\n\n{{company_name}}\n{{company_phone}}",
             ],
+            'quote_followup' => [
+                'subject'  => 'Following up on your Mowology quote ({{quote_number}})',
+                'body'     => "Hi {{customer_first_name}},\n\nJust following up on quote {{quote_number}} for {{quote_amount}} we sent over. We want to make sure it reached you — sometimes these land in junk mail!\n\nYour quote is valid until {{quote_valid_until}}. Click the button below to review and accept it — it only takes a moment.\n\nIf you have any questions or want to adjust anything, don't hesitate to reach out. We'd love to earn your business!\n\n{{company_name}}\n{{company_phone}}",
+            ],
             'invoice_sent' => [
                 'subject'  => 'Invoice {{invoice_number}} from Mowology — {{amount_due}} due',
                 'body'     => "Hi {{customer_first_name}},\n\nYour invoice {{invoice_number}} for {{amount_due}} is due on {{due_date}}.\n\nPlease click the button below to view and pay your invoice online.\n\nThank you for your business!\n\n{{company_name}}\n{{company_phone}}",

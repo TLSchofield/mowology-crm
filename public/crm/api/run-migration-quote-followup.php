@@ -61,44 +61,19 @@ try {
 }
 
 // ── Step 4: Seed quote_followup email template ────────────────────────────
-$followupTemplateBody = <<<'HTML'
-<p>Hi {{customer_first_name}},</p>
-
-<p>Just following up on quote <strong>{{quote_number}}</strong> we sent over. We haven't heard back and wanted to make sure it reached you — sometimes these land in junk!</p>
-
-<p>Here's a quick summary of what we put together for you:</p>
-
-<ul>
-    <li><strong>Quote:</strong> {{quote_number}}</li>
-    <li><strong>Amount:</strong> {{quote_amount}}</li>
-    <li><strong>Valid Until:</strong> {{quote_valid_until}}</li>
-</ul>
-
-<p>Click the button below to review and accept your quote — it only takes a moment. If you have any questions or want to adjust anything, don't hesitate to reach out.</p>
-
-<p>We'd love to earn your business!</p>
-
-<p>
-    — The Mowology Team<br>
-    <strong>{{company_phone}}</strong>
-</p>
-HTML;
+// email_templates uses template_key + body_text (loadEmailTemplate reads these columns)
+$followupTemplateBody = "Hi {{customer_first_name}},\n\nJust following up on quote {{quote_number}} for {{quote_amount}} we sent over. We want to make sure it reached you — sometimes these land in junk mail!\n\nYour quote is valid until {{quote_valid_until}}. Click the button below to review and accept it — it only takes a moment.\n\nIf you have any questions or want to adjust anything, don't hesitate to reach out. We'd love to earn your business!\n\n{{company_name}}\n{{company_phone}}";
 
 try {
-    $check = $db->prepare("SELECT id FROM email_templates WHERE category = 'quote_followup' LIMIT 1");
+    $check = $db->prepare("SELECT id FROM email_templates WHERE template_key = 'quote_followup' LIMIT 1");
     $check->execute();
     if ($check->fetchColumn()) {
         $steps[] = ['skip', 'email_templates: quote_followup already exists'];
     } else {
         $db->prepare("
-            INSERT INTO email_templates (name, category, subject, body_html, variables, created_at)
-            VALUES (?, 'quote_followup', ?, ?, ?, NOW())
-        ")->execute([
-            'Quote Follow-Up',
-            'Following up on your Mowology quote ({{quote_number}})',
-            $followupTemplateBody,
-            json_encode(['customer_first_name','quote_number','quote_amount','quote_valid_until','company_name','company_phone']),
-        ]);
+            INSERT INTO email_templates (template_key, name, subject, body_text, is_active, created_at)
+            VALUES ('quote_followup', 'Quote Follow-Up', 'Following up on your Mowology quote ({{quote_number}})', ?, 1, NOW())
+        ")->execute([$followupTemplateBody]);
         $steps[] = ['ok', 'email_templates: quote_followup seeded'];
     }
 } catch (PDOException $e) {
