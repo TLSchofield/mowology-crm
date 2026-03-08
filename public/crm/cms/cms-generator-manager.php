@@ -148,7 +148,7 @@ $generators = pg_getGeneratorConfigs(false);
                   <div class="col-12">
                       <div style="display: flex; justify-content: space-between; align-items: center;">
                           <h2>Page Generator Templates</h2>
-                          <button class="new-generator-btn" data-bs-toggle="modal" data-bs-target="#generatorModal">
+                          <button class="new-generator-btn" data-toggle="modal" data-target="#generatorModal">
                               <i data-feather="plus"></i>
                               New Template
                           </button>

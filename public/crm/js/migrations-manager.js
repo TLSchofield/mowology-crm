@@ -326,7 +326,7 @@ function showAlert(type, message) {
     alert.className = `alert alert-${type} alert-dismissible fade show`;
     alert.innerHTML = `
         ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        <button type="button" class="btn-close" data-dismiss="alert"></button>
     `;
 
     // Find the settings error/success divs and replace

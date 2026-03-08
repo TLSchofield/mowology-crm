@@ -345,7 +345,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             ?>
                 <div class="alert <?php echo $alertClass; ?> alert-dismissible fade show" role="alert">
                     <strong><?php echo ucfirst($alert['type']); ?>:</strong> <?php echo h($alert['message']); ?>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-dismiss="alert" aria-label="Close"></button>
                 </div>
                 <?php unset($_SESSION['alert']); ?>
             <?php endif; ?>

@@ -119,7 +119,7 @@ if (isset($_SESSION['alert'])):
                 <?php endforeach; ?>
             </div>
         <?php endif; ?>
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        <button type="button" class="btn-close" data-dismiss="alert"></button>
     </div>
     <?php unset($_SESSION['alert']); ?>
 <?php endif; ?>
