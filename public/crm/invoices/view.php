@@ -69,7 +69,7 @@ $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
 // Phase 2-3: Get invoice recipients
 $stmt = $db->prepare("
     SELECT ic.id, ic.contact_id, ic.email_address, ic.contact_role,
-           ic.invoice_sent_at, ic.bounced,
+           ic.invoice_sent_at, ic.invoice_opened_at, ic.bounced,
            c.first_name, c.last_name, c.receive_sms
     FROM invoice_contacts ic
     LEFT JOIN contacts c ON ic.contact_id = c.id
@@ -216,6 +216,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 'View &amp; Pay Invoice Online',
                 $invoiceViewUrl ?: null,
                 $companyInfo
+            );
+
+            // Append email open tracking pixel (per-recipient)
+            $trackPixelUrl = 'https://mowology.ca/crm/api/track-invoice-open.php?rid=' . (int)$recipient['id'];
+            $emailBody = str_replace(
+                '</body>',
+                '<img src="' . $trackPixelUrl . '" width="1" height="1" alt="" style="display:block;height:1px;width:1px;border:0;" /></body>',
+                $emailBody
             );
 
             // Send email
@@ -379,11 +387,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 $csrfToken = generateCSRFToken();
 
 // Check for success messages
-if (isset($_GET['created'])) {
+if (!$message && isset($_GET['created'])) {
     $message = 'Invoice created successfully!';
     $messageType = 'success';
 }
-if (isset($_GET['pdf_generated'])) {
+if (!$message && isset($_GET['pdf_generated'])) {
     $message = 'PDF generated successfully.';
     $messageType = 'success';
 }
@@ -512,7 +520,7 @@ $extraHead = $isPayable
                       </div>
                   </div>
 
-                  <!-- Phase 2-3: Invoice Recipients -->
+                  <!-- Invoice Recipients with Tracking -->
                   <?php if (!empty($invoiceRecipients)): ?>
                       <div class="card">
                           <div class="card-header">
@@ -522,11 +530,12 @@ $extraHead = $isPayable
                               <table class="table table-sm table-bordered mb-0">
                                   <thead class="table-light">
                                       <tr>
-                                          <th style="width: 25%;">Contact</th>
-                                          <th style="width: 20%;">Role</th>
-                                          <th style="width: 30%;">Email</th>
-                                          <th style="width: 10%;">SMS</th>
+                                          <th style="width: 22%;">Contact</th>
+                                          <th style="width: 15%;">Role</th>
+                                          <th style="width: 25%;">Email</th>
+                                          <th style="width: 8%;">SMS</th>
                                           <th style="width: 15%;">Sent</th>
+                                          <th style="width: 15%;">Opened</th>
                                       </tr>
                                   </thead>
                                   <tbody>
@@ -565,10 +574,20 @@ $extraHead = $isPayable
                                                   <?php endif; ?>
                                               </td>
                                               <td>
-                                                  <?php if ($recipient['invoice_sent_at']): ?>
+                                                  <?php if (!empty($recipient['invoice_sent_at'])): ?>
                                                       <small><?php echo formatDateTime($recipient['invoice_sent_at'], 'M j, g:i A'); ?></small>
                                                   <?php else: ?>
                                                       <span class="text-muted">Pending</span>
+                                                  <?php endif; ?>
+                                              </td>
+                                              <td>
+                                                  <?php if (!empty($recipient['invoice_opened_at'])): ?>
+                                                      <span class="mw-tracking-badge mw-tracking-opened">Opened</span>
+                                                      <br><small class="text-muted"><?php echo formatDateTime($recipient['invoice_opened_at'], 'M j, g:i A'); ?></small>
+                                                  <?php elseif (!empty($recipient['invoice_sent_at'])): ?>
+                                                      <span class="text-muted">Not opened</span>
+                                                  <?php else: ?>
+                                                      <span class="text-muted">—</span>
                                                   <?php endif; ?>
                                               </td>
                                           </tr>
@@ -744,6 +763,104 @@ $extraHead = $isPayable
                           <?php endif; ?>
                       </div>
                   </div>
+
+                  <!-- Engagement Tracking -->
+                  <?php if ($invoice['status'] !== 'draft'): ?>
+                  <div class="card">
+                      <div class="card-header">
+                          <h5 class="card-title mb-0"><i data-feather="activity" style="width:16px;height:16px;margin-right:4px;vertical-align:middle;"></i> Engagement</h5>
+                      </div>
+                      <div class="card-body">
+                          <div class="mw-tracking-stats">
+                              <div class="mw-tracking-stat">
+                                  <div class="mw-tracking-stat-value"><?php echo (int)($invoice['view_count'] ?? 0); ?></div>
+                                  <div class="mw-tracking-stat-label">Portal Views</div>
+                              </div>
+                              <div class="mw-tracking-stat">
+                                  <div class="mw-tracking-stat-value">
+                                      <?php if (!empty($invoice['email_opened_at'])): ?>
+                                          <span style="color: var(--mw-green);">Yes</span>
+                                      <?php else: ?>
+                                          <span class="text-muted">No</span>
+                                      <?php endif; ?>
+                                  </div>
+                                  <div class="mw-tracking-stat-label">Email Opened</div>
+                              </div>
+                              <div class="mw-tracking-stat">
+                                  <div class="mw-tracking-stat-value"><?php echo (int)($invoice['reminder_count'] ?? 0); ?></div>
+                                  <div class="mw-tracking-stat-label">Reminders</div>
+                              </div>
+                          </div>
+
+                          <div class="mw-tracking-timeline">
+                              <?php if (!empty($invoice['created_at'])): ?>
+                              <div class="mw-timeline-item">
+                                  <div class="mw-timeline-dot mw-dot-created"></div>
+                                  <div class="mw-timeline-content">
+                                      <div class="mw-timeline-label">Invoice created</div>
+                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['created_at'], 'M j, Y g:i A'); ?></div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
+                              <?php if (!empty($invoice['sent_at'])): ?>
+                              <div class="mw-timeline-item">
+                                  <div class="mw-timeline-dot mw-dot-sent"></div>
+                                  <div class="mw-timeline-content">
+                                      <div class="mw-timeline-label">Sent to customer</div>
+                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['sent_at'], 'M j, Y g:i A'); ?></div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
+                              <?php if (!empty($invoice['email_opened_at'])): ?>
+                              <div class="mw-timeline-item">
+                                  <div class="mw-timeline-dot mw-dot-opened"></div>
+                                  <div class="mw-timeline-content">
+                                      <div class="mw-timeline-label">Email opened</div>
+                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['email_opened_at'], 'M j, Y g:i A'); ?></div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
+                              <?php if (!empty($invoice['viewed_at'])): ?>
+                              <div class="mw-timeline-item">
+                                  <div class="mw-timeline-dot mw-dot-viewed"></div>
+                                  <div class="mw-timeline-content">
+                                      <div class="mw-timeline-label">Viewed in portal<?php echo ((int)($invoice['view_count'] ?? 0)) > 1 ? ' (' . $invoice['view_count'] . ' times)' : ''; ?></div>
+                                      <div class="mw-timeline-time">
+                                          First: <?php echo formatDateTime($invoice['viewed_at'], 'M j, Y g:i A'); ?>
+                                          <?php if (!empty($invoice['last_viewed_at']) && $invoice['last_viewed_at'] !== $invoice['viewed_at']): ?>
+                                              <br>Last: <?php echo formatDateTime($invoice['last_viewed_at'], 'M j, Y g:i A'); ?>
+                                          <?php endif; ?>
+                                      </div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
+                              <?php if (!empty($invoice['last_reminder_sent_at'])): ?>
+                              <div class="mw-timeline-item">
+                                  <div class="mw-timeline-dot mw-dot-reminder"></div>
+                                  <div class="mw-timeline-content">
+                                      <div class="mw-timeline-label">Reminder sent (<?php echo (int)$invoice['reminder_count']; ?> total)</div>
+                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['last_reminder_sent_at'], 'M j, Y g:i A'); ?></div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
+                              <?php if (!empty($invoice['paid_at'])): ?>
+                              <div class="mw-timeline-item">
+                                  <div class="mw-timeline-dot mw-dot-paid"></div>
+                                  <div class="mw-timeline-content">
+                                      <div class="mw-timeline-label">Payment received</div>
+                                      <div class="mw-timeline-time"><?php echo formatDateTime($invoice['paid_at'], 'M j, Y g:i A'); ?></div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+                          </div>
+                      </div>
+                  </div>
+                  <?php endif; ?>
 
                   <!-- Activity -->
                   <div class="card">

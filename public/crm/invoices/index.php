@@ -226,6 +226,7 @@ $activePage = 'invoices';
                                 <th class="text-right <?php echo invSortClass('balance', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('balance', $sortCol, $sortDir); ?>">Balance</a></th>
                                 <th class="<?php echo invSortClass('due_date', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('due_date', $sortCol, $sortDir); ?>">Due Date</a></th>
                                 <th class="<?php echo invSortClass('status', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('status', $sortCol, $sortDir); ?>">Status</a></th>
+                                <th>Tracking</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -273,6 +274,26 @@ $activePage = 'invoices';
                                     </td>
                                     <td><?php echo formatDate($invoice['due_date']); ?></td>
                                     <td><?php echo getStatusBadge($invoice['status'], 'invoice'); ?></td>
+                                    <td class="mw-tracking-cell">
+                                        <?php if ($invoice['status'] !== 'draft'): ?>
+                                            <?php
+                                            $viewCount   = (int)($invoice['view_count'] ?? 0);
+                                            $emailOpened = !empty($invoice['email_opened_at']);
+                                            $hasViewed   = !empty($invoice['viewed_at']);
+                                            ?>
+                                            <?php if ($emailOpened): ?>
+                                                <span class="mw-tracking-badge mw-tracking-opened" title="Email opened <?php echo formatDateTime($invoice['email_opened_at'], 'M j, g:i A'); ?>">Opened</span>
+                                            <?php endif; ?>
+                                            <?php if ($viewCount > 0): ?>
+                                                <span class="mw-tracking-badge mw-tracking-viewed" title="<?php echo $viewCount; ?> portal view(s), last: <?php echo formatDateTime($invoice['last_viewed_at'] ?? $invoice['viewed_at'], 'M j, g:i A'); ?>"><?php echo $viewCount; ?> view<?php echo $viewCount !== 1 ? 's' : ''; ?></span>
+                                            <?php endif; ?>
+                                            <?php if (!$emailOpened && !$hasViewed && !empty($invoice['sent_at'])): ?>
+                                                <span class="text-muted" style="font-size:12px;">No engagement</span>
+                                            <?php endif; ?>
+                                        <?php else: ?>
+                                            <span class="text-muted">—</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td class="actions">
                                         <a href="view.php?id=<?php echo $invoice['id']; ?>" class="mw-action-btn mw-action-btn-view">View</a>
                                         <?php if ($isPayable): ?>

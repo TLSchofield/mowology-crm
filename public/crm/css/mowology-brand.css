@@ -24645,3 +24645,126 @@ textarea.font-monospace {
     min-width: unset;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* Invoice Tracking — Engagement UI                                             */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Tracking badges (inline pills) */
+.mw-tracking-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.mw-tracking-opened {
+  background: #dcfce7;
+  color: #166534;
+}
+.mw-tracking-viewed {
+  background: #e0f2fe;
+  color: #0c4a6e;
+}
+.mw-tracking-bounced {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* List view tracking cell */
+.mw-tracking-cell {
+  white-space: nowrap;
+}
+.mw-tracking-cell .mw-tracking-badge {
+  margin-right: 4px;
+  margin-bottom: 2px;
+}
+
+/* ── Engagement card (invoice view sidebar) ──────────────────────────── */
+
+/* Stats row (3 mini stat boxes) */
+.mw-tracking-stats {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.mw-tracking-stat {
+  flex: 1;
+  text-align: center;
+  padding: 10px 6px;
+  background: var(--mw-light);
+  border-radius: 6px;
+}
+.mw-tracking-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--mw-forest);
+  line-height: 1.2;
+}
+.mw-tracking-stat-label {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ── Tracking timeline (vertical line) ───────────────────────────────── */
+.mw-tracking-timeline {
+  position: relative;
+  padding-left: 20px;
+}
+.mw-tracking-timeline::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: #e5e7eb;
+  border-radius: 1px;
+}
+.mw-timeline-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  padding-bottom: 14px;
+}
+.mw-timeline-item:last-child {
+  padding-bottom: 0;
+}
+.mw-timeline-dot {
+  position: absolute;
+  left: -20px;
+  top: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #d1d5db;
+  z-index: 1;
+}
+.mw-dot-created  { background: #9ca3af; }
+.mw-dot-sent     { background: #3b82f6; }
+.mw-dot-opened   { background: #8b5cf6; }
+.mw-dot-viewed   { background: #06b6d4; }
+.mw-dot-reminder { background: #f59e0b; }
+.mw-dot-paid     { background: var(--mw-green); }
+
+.mw-timeline-content {
+  min-width: 0;
+}
+.mw-timeline-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mw-forest);
+  line-height: 1.3;
+}
+.mw-timeline-time {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 1px;
+  line-height: 1.4;
+}

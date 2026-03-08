@@ -51,10 +51,46 @@ if (!$error) {
     if (!$invoice) {
         $error = 'This invoice link is invalid or has expired. Please contact Mowology at (778) 846-9273.';
     } else {
-        // Mark as viewed if it was sent
-        if ($invoice['status'] === 'sent') {
-            $db->prepare("UPDATE invoices SET status = 'viewed' WHERE id = ?")->execute([$invoice['id']]);
-            $invoice['status'] = 'viewed';
+        // ── View tracking ────────────────────────────────────────────────
+        // Update view_count + timestamps on every portal access,
+        // and flip status to 'viewed' on first view after send.
+        try {
+            $db->prepare("
+                UPDATE invoices
+                SET viewed_at      = COALESCE(viewed_at, NOW()),
+                    last_viewed_at = NOW(),
+                    view_count     = view_count + 1,
+                    status         = CASE WHEN status = 'sent' THEN 'viewed' ELSE status END
+                WHERE id = ?
+            ")->execute([$invoice['id']]);
+
+            if ($invoice['status'] === 'sent') {
+                $invoice['status'] = 'viewed';
+            }
+
+            // Update per-recipient open tracking (match by contact_id)
+            if (!empty($invoice['contact_id'])) {
+                $db->prepare("
+                    UPDATE invoice_contacts
+                    SET invoice_opened_at = COALESCE(invoice_opened_at, NOW())
+                    WHERE invoice_id = ? AND contact_id = ?
+                ")->execute([$invoice['id'], $invoice['contact_id']]);
+            }
+
+            // Log portal view to activity_log (first view only)
+            if (empty($invoice['viewed_at'])) {
+                $viewerName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? '')) ?: ($invoice['company_name'] ?: 'Customer');
+                $db->prepare("
+                    INSERT INTO activity_log (user_id, action, details, invoice_id, created_at)
+                    VALUES (NULL, 'Customer viewed invoice', ?, ?, NOW())
+                ")->execute([
+                    "Invoice viewed via customer portal by {$viewerName}",
+                    $invoice['id']
+                ]);
+            }
+        } catch (Exception $e) {
+            // Non-critical — silently skip if columns missing
+            error_log("Invoice view tracking update failed: " . $e->getMessage());
         }
 
         // Get line items
