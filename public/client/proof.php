@@ -6,23 +6,17 @@
  *
  * URL: /client/proof.php?token={64-char hex}&visit={visit_id}
  *
- * Token validation:
- *   stored: SHA-256(rawToken) in visit_share_tokens.token_hash
- *   verify: hash_equals(stored_hash, hash('sha256', incoming_token))
- *
- * Security:
- *   - Token is hashed in DB (raw never stored)
- *   - Revocable and optionally expiring
- *   - Access count tracked
- *   - Cannot browse other visits (visit_id is part of validation)
+ * Phase 4 enhancements:
+ *   - Before/after comparison slider
+ *   - Annotation overlays in lightbox
+ *   - Download all photos button (→ photo-download.php)
  */
 declare(strict_types=1);
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
-header('Cache-Control: no-store');   // Prevent caching of authenticated gallery
+header('Cache-Control: no-store');
 
-// Bootstrap paths
 if (!defined('APP_ROOT')) {
     $__dir = __DIR__;
     for ($__i = 0; $__i < 5; $__i++) {
@@ -35,7 +29,6 @@ if (!defined('APP_ROOT')) {
     unset($__dir, $__i);
 }
 
-// For standalone pages outside CRM: load config directly
 if (!function_exists('getDB')) {
     require_once PUBLIC_ROOT . '/app_config/config.php';
 }
@@ -46,17 +39,15 @@ $error = '';
 $rawToken = trim($_GET['token'] ?? '');
 $visitId  = isset($_GET['visit']) ? (int)$_GET['visit'] : 0;
 
-// ── Validate inputs ─────────────────────────────────────────────────────────
 if (!$rawToken || strlen($rawToken) !== 64 || $visitId < 1) {
     $error = 'Invalid gallery link. Please check the link in your email.';
 }
 
-$visit     = null;
-$shareRow  = null;
-$photos    = [];
+$visit    = null;
+$shareRow = null;
+$photos   = [];
 
 if (!$error) {
-    // Load token record (indexed by visit_id)
     $stmtT = $db->prepare("
         SELECT token_hash, expires_at, revoked_at
         FROM visit_share_tokens
@@ -76,7 +67,6 @@ if (!$error) {
     }
 }
 
-// ── Load visit data ─────────────────────────────────────────────────────────
 if (!$error) {
     $stmtV = $db->prepare("
         SELECT
@@ -103,7 +93,6 @@ if (!$error) {
     }
 }
 
-// ── Load photos ─────────────────────────────────────────────────────────────
 $photoGroups = ['before' => [], 'after' => [], 'additional' => []];
 $photoCount  = 0;
 
@@ -129,6 +118,19 @@ if (!$error && $visit) {
         $photoCount++;
     }
 
+    // Load annotations for all photos
+    $annotationsByPhoto = [];
+    if ($photoCount > 0) {
+        $allIds = array_column($allPhotos, 'id');
+        $phs    = implode(',', array_fill(0, count($allIds), '?'));
+        $stmtA  = $db->prepare("SELECT photo_id, shapes_json FROM visit_photo_annotations WHERE photo_id IN ($phs)");
+        $stmtA->execute($allIds);
+        foreach ($stmtA->fetchAll(PDO::FETCH_ASSOC) as $ann) {
+            $shapes = json_decode($ann['shapes_json'] ?? '[]', true);
+            if ($shapes) $annotationsByPhoto[(int)$ann['photo_id']] = $shapes;
+        }
+    }
+
     // Update access tracking
     $db->prepare("
         UPDATE visit_share_tokens
@@ -138,7 +140,11 @@ if (!$error && $visit) {
     ")->execute([$visitId]);
 }
 
-// ── Computed display values ──────────────────────────────────────────────────
+$hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']);
+$cmpBefore      = $photoGroups['before'][0] ?? null;
+$cmpAfter       = $photoGroups['after'][0]  ?? null;
+$hasCompare     = $cmpBefore && $cmpAfter;
+
 $serviceType  = $visit['service_type'] ?? $visit['plan_service_type'] ?? 'general';
 $serviceLabel = [
     'fertilizer'     => 'Fertilizer / Lawn Treatment',
@@ -151,9 +157,9 @@ $serviceLabel = [
     'general'        => 'Landscaping Service',
 ][$serviceType] ?? 'Landscaping Service';
 
-$visitDate   = $visit && $visit['started_at'] ? date('F j, Y', strtotime($visit['started_at'])) : '';
-$clientName  = $visit ? trim(($visit['contact_first'] ?? '') . ' ' . ($visit['contact_last'] ?? '')) : '';
-$address     = $visit ? implode(', ', array_filter([
+$visitDate  = $visit && $visit['started_at'] ? date('F j, Y', strtotime($visit['started_at'])) : '';
+$clientName = $visit ? trim(($visit['contact_first'] ?? '') . ' ' . ($visit['contact_last'] ?? '')) : '';
+$address    = $visit ? implode(', ', array_filter([
     $visit['property_address'] ?? '',
     $visit['property_city'] ?? '',
     $visit['property_province'] ?? '',
@@ -168,8 +174,8 @@ if ($visit && $visit['started_at'] && $visit['completed_at']) {
 $siteUrl = defined('SITE_URL') ? SITE_URL : 'https://mowology.ca';
 $year    = date('Y');
 
-// Check if we have any before+after pairs for side-by-side
-$hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']);
+// Encode annotations for JS
+$annJson = isset($annotationsByPhoto) ? json_encode($annotationsByPhoto) : '{}';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -233,6 +239,58 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
     }
     .pg-section-title svg { width: 14px; height: 14px; }
 
+    /* ── Comparison slider ───────────────────────────────────── */
+    .cmp-wrap {
+      position: relative; width: 100%; overflow: hidden;
+      border-radius: 10px; box-shadow: 0 3px 12px rgba(0,0,0,0.15);
+      user-select: none; -webkit-user-select: none; touch-action: none;
+      cursor: ew-resize;
+    }
+    .cmp-img-before { display: block; width: 100%; aspect-ratio: 4/3; object-fit: cover; }
+    .cmp-after {
+      position: absolute; inset: 0; clip-path: inset(0 50% 0 0);
+      transition: clip-path 0s;
+    }
+    .cmp-after img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    .cmp-handle {
+      position: absolute; top: 0; bottom: 0; left: 50%;
+      width: 2px; background: #fff; transform: translateX(-50%);
+      pointer-events: none; z-index: 5;
+      box-shadow: 0 0 8px rgba(0,0,0,0.4);
+    }
+    .cmp-handle-circle {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 38px; height: 38px; border-radius: 50%;
+      background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; color: #1A5F4A; font-weight: 700; letter-spacing: -1px;
+    }
+    .cmp-label {
+      position: absolute; bottom: 10px;
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; padding: 3px 9px; border-radius: 4px; pointer-events: none; z-index: 6;
+    }
+    .cmp-label-before { left: 10px; background: rgba(0,86,179,0.75); color: #fff; }
+    .cmp-label-after  { right: 10px; background: rgba(45,134,89,0.75); color: #fff; }
+    .cmp-hint { font-size: 12px; color: #999; text-align: center; margin-top: 8px; }
+
+    /* ── Download bar ────────────────────────────────────────── */
+    .pg-download-bar {
+      padding: 12px 24px; background: #f8fbfa;
+      border-bottom: 1px solid #e8f3f0;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    }
+    .pg-download-info { font-size: 12px; color: #888; }
+    .btn-download {
+      display: inline-flex; align-items: center; gap: 7px;
+      background: #1A5F4A; color: #fff; border: none; border-radius: 6px;
+      padding: 8px 16px; font-size: 13px; font-weight: 600;
+      text-decoration: none; cursor: pointer; transition: background 0.15s;
+    }
+    .btn-download:hover { background: #0D3B2E; color: #fff; text-decoration: none; }
+    .btn-download svg { width: 14px; height: 14px; flex-shrink: 0; }
+
     /* ── Before / After ──────────────────────────────────────── */
     .ba-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .ba-col { }
@@ -256,8 +314,7 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
     .ba-photo:hover { transform: scale(1.01); box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
     .ba-photo img {
       width: 100%; aspect-ratio: 4/3; object-fit: cover;
-      border: 2px solid #e8f3f0;
-      border-radius: 6px;
+      border: 2px solid #e8f3f0; border-radius: 6px;
     }
     .ba-photo-caption {
       position: absolute; bottom: 0; left: 0; right: 0;
@@ -271,6 +328,11 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
       opacity: 0; transition: opacity 0.15s;
     }
     .ba-photo:hover .ba-expand-icon { opacity: 1; }
+    .ba-ann-badge {
+      position: absolute; top: 6px; left: 6px;
+      background: rgba(232,93,4,0.85); color: #fff;
+      font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+    }
 
     /* ── Additionals grid ────────────────────────────────────── */
     .add-grid {
@@ -293,9 +355,7 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
     }
 
     /* ── Empty state ─────────────────────────────────────────── */
-    .pg-empty {
-      text-align: center; padding: 32px 16px; color: #888;
-    }
+    .pg-empty { text-align: center; padding: 32px 16px; color: #888; }
     .pg-empty svg { width: 36px; height: 36px; opacity: 0.3; margin: 0 auto 10px; display: block; }
 
     /* ── Error page ──────────────────────────────────────────── */
@@ -317,18 +377,18 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
       position: relative; max-width: 95vw; max-height: 95vh;
       display: flex; flex-direction: column; align-items: center;
     }
-    .lb-img {
-      max-width: 92vw; max-height: 82vh;
-      object-fit: contain; border-radius: 4px;
+    .lb-img-wrap { position: relative; display: inline-block; line-height: 0; }
+    .lb-img { max-width: 92vw; max-height: 82vh; object-fit: contain; border-radius: 4px; display: block; }
+    .lb-ann-canvas {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      pointer-events: none; display: none;
     }
     .lb-close {
       position: fixed; top: 16px; right: 20px;
       background: none; border: none; color: #fff; font-size: 28px; cursor: pointer;
       line-height: 1; z-index: 10;
     }
-    .lb-nav {
-      display: flex; align-items: center; gap: 16px; margin-top: 12px;
-    }
+    .lb-nav { display: flex; align-items: center; gap: 16px; margin-top: 12px; }
     .lb-nav-btn {
       background: rgba(255,255,255,0.12); border: none; color: #fff;
       font-size: 22px; cursor: pointer; border-radius: 50%;
@@ -344,7 +404,7 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
       font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
       padding: 4px 10px; border-radius: 20px;
     }
-    .lb-caption { color: rgba(255,255,255,0.65); font-size: 13px; margin-top: 8px; text-align: center; }
+    .lb-caption { color: rgba(255,255,255,0.65); font-size: 13px; margin-top: 8px; text-align: center; max-width: 600px; }
 
     /* ── Responsive ──────────────────────────────────────────── */
     @media (max-width: 560px) {
@@ -355,6 +415,7 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
       .ba-grid { grid-template-columns: 1fr; gap: 0; }
       .ba-col:not(:last-child) { margin-bottom: 16px; }
       .add-grid { grid-template-columns: repeat(3, 1fr); }
+      .pg-download-bar { flex-direction: column; align-items: flex-start; gap: 8px; }
     }
     @media (max-width: 380px) {
       .add-grid { grid-template-columns: repeat(2, 1fr); }
@@ -371,7 +432,7 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
     </svg>
     <h2>Gallery Unavailable</h2>
     <p><?= htmlspecialchars($error) ?></p>
-    <p style="margin-top:16px;"><a href="<?= htmlspecialchars($siteUrl) ?>">← Return to Mowology.ca</a></p>
+    <p style="margin-top:16px;"><a href="<?= htmlspecialchars($siteUrl) ?>">&#8592; Return to Mowology.ca</a></p>
   </div>
 <?php else: ?>
 
@@ -379,13 +440,11 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
   <div class="pg-header">
     <div class="pg-header-top">
       <div class="pg-logo">
-        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M17 8C8 10 5.9 16.17 3.82 19.82L5.71 21l1-2.3A4.49 4.49 0 0 0 8 19c9-3 6.17-8 2-10zm0 0a5 5 0 0 1 5 5"/></svg>
       </div>
       <div class="pg-brand">Mowology Landscaping</div>
     </div>
-    <div class="pg-title">
-      <?= htmlspecialchars($serviceLabel) ?>
-    </div>
+    <div class="pg-title"><?= htmlspecialchars($serviceLabel) ?></div>
     <div class="pg-subtitle">
       <?= htmlspecialchars($visitDate) ?>
       <?php if ($address): ?> &middot; <?= htmlspecialchars($address) ?><?php endif; ?>
@@ -393,11 +452,9 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
     <div class="pg-badge">
       <span class="pg-badge-dot"></span> Service Completed
     </div>
-
-    <!-- Stats bar -->
     <div class="pg-stats" style="margin-top:16px; margin-left:-28px; margin-right:-28px;">
       <div class="pg-stat">
-        <span class="pg-stat-val"><?= htmlspecialchars($duration ?: '—') ?></span>
+        <span class="pg-stat-val"><?= htmlspecialchars($duration ?: '&mdash;') ?></span>
         <span class="pg-stat-lbl">Duration</span>
       </div>
       <div class="pg-stat">
@@ -431,6 +488,45 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
     </div>
     <?php endif; ?>
 
+    <!-- ── Comparison Slider ───────────────────────────────────────────── -->
+    <?php if ($hasCompare): ?>
+    <div class="pg-section">
+      <div class="pg-section-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>
+        </svg>
+        Before &amp; After Comparison
+      </div>
+      <div class="cmp-wrap" id="cmpWrap">
+        <img class="cmp-img-before" src="<?= htmlspecialchars($cmpBefore['_view_url']) ?>" alt="Before" loading="lazy">
+        <div class="cmp-after" id="cmpAfter">
+          <img src="<?= htmlspecialchars($cmpAfter['_view_url']) ?>" alt="After" loading="lazy">
+        </div>
+        <div class="cmp-handle" id="cmpHandle">
+          <div class="cmp-handle-circle">&#8644;</div>
+        </div>
+        <span class="cmp-label cmp-label-before">Before</span>
+        <span class="cmp-label cmp-label-after">After</span>
+      </div>
+      <p class="cmp-hint">&#8592; Drag to compare &nbsp; &#8594;</p>
+    </div>
+    <?php endif; ?>
+
+    <!-- ── Download bar ───────────────────────────────────────────────── -->
+    <?php if ($photoCount > 0): ?>
+    <div class="pg-download-bar">
+      <span class="pg-download-info"><?= $photoCount ?> photo<?= $photoCount !== 1 ? 's' : '' ?> from this visit</span>
+      <a href="/client/photo-download.php?token=<?= urlencode($rawToken) ?>&amp;visit=<?= $visitId ?>"
+         class="btn-download" title="Download all photos as ZIP">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download All Photos
+      </a>
+    </div>
+    <?php endif; ?>
+
     <!-- ── Before / After ─────────────────────────────────────────────── -->
     <?php if ($hasBeforeAfter): ?>
     <div class="pg-section">
@@ -438,9 +534,8 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
         </svg>
-        Before &amp; After
+        Before &amp; After Photos
       </div>
-
       <div class="ba-grid">
         <?php foreach (['before' => 'before', 'after' => 'after'] as $baType => $baClass): ?>
         <?php if (!empty($photoGroups[$baType])): ?>
@@ -452,9 +547,12 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
           </div>
           <div class="ba-photo-stack">
             <?php foreach ($photoGroups[$baType] as $ph): ?>
-            <div class="ba-photo" data-view="<?= htmlspecialchars($ph['_view_url']) ?>"
+            <?php $hasAnn = isset($annotationsByPhoto[$ph['id']]) && !empty($annotationsByPhoto[$ph['id']]); ?>
+            <div class="ba-photo"
+                 data-view="<?= htmlspecialchars($ph['_view_url']) ?>"
                  data-type="<?= htmlspecialchars($baType) ?>"
-                 data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>">
+                 data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>"
+                 data-photo-id="<?= (int)$ph['id'] ?>">
               <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
                    loading="lazy"
                    alt="<?= htmlspecialchars($baType) ?> photo"
@@ -465,7 +563,10 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
               <?php if (!empty($ph['caption'])): ?>
               <div class="ba-photo-caption"><?= htmlspecialchars($ph['caption']) ?></div>
               <?php endif; ?>
-              <button class="ba-expand-icon" tabindex="-1" aria-hidden="true">⤢</button>
+              <?php if ($hasAnn): ?>
+              <div class="ba-ann-badge">&#9998; Annotated</div>
+              <?php endif; ?>
+              <button class="ba-expand-icon" tabindex="-1" aria-hidden="true">&#10530;</button>
             </div>
             <?php endforeach; ?>
           </div>
@@ -488,9 +589,12 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
       </div>
       <div class="add-grid">
         <?php foreach ($photoGroups['additional'] as $ph): ?>
-        <div class="add-photo" data-view="<?= htmlspecialchars($ph['_view_url']) ?>"
+        <?php $hasAnn = isset($annotationsByPhoto[$ph['id']]) && !empty($annotationsByPhoto[$ph['id']]); ?>
+        <div class="add-photo"
+             data-view="<?= htmlspecialchars($ph['_view_url']) ?>"
              data-type="additional"
-             data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>">
+             data-caption="<?= htmlspecialchars($ph['caption'] ?? '') ?>"
+             data-photo-id="<?= (int)$ph['id'] ?>">
           <img src="<?= htmlspecialchars($ph['_thumb_url']) ?>"
                loading="lazy"
                alt="additional photo"
@@ -500,6 +604,9 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
                onerror="this.parentElement.style.display='none'">
           <?php if (!empty($ph['caption'])): ?>
           <div class="add-photo-caption"><?= htmlspecialchars($ph['caption']) ?></div>
+          <?php endif; ?>
+          <?php if ($hasAnn): ?>
+          <div class="ba-ann-badge">&#9998;</div>
           <?php endif; ?>
         </div>
         <?php endforeach; ?>
@@ -525,7 +632,7 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
   <div class="pg-footer">
     <a href="<?= htmlspecialchars($siteUrl) ?>">Mowology Landscaping</a>
     &middot; <a href="mailto:office@mowology.ca">office@mowology.ca</a><br>
-    &copy; <?= $year ?> Mowology Landscaping. This link is private — please do not share.
+    &copy; <?= $year ?> Mowology Landscaping. This link is private &mdash; please do not share.
   </div>
 
 </div><!-- /pg-wrap -->
@@ -535,7 +642,10 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
   <button class="lb-close" id="lb-close" aria-label="Close">&times;</button>
   <div class="lb-type-label" id="lb-type"></div>
   <div class="lb-inner">
-    <img class="lb-img" id="lb-img" src="" alt="">
+    <div class="lb-img-wrap">
+      <img class="lb-img" id="lb-img" src="" alt="">
+      <canvas id="lb-ann-canvas" class="lb-ann-canvas"></canvas>
+    </div>
     <div class="lb-caption" id="lb-caption"></div>
     <div class="lb-nav">
       <button class="lb-nav-btn" id="lb-prev" aria-label="Previous">&#8249;</button>
@@ -549,10 +659,66 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
 (function() {
   'use strict';
 
-  // Collect all clickable photo elements in display order
+  // ── Annotation data (from PHP) ──────────────────────────────────────────
+  var annData = <?= $annJson ?>;
+
+  function renderAnnotations(photoId, canvas, img) {
+    var shapes = annData[photoId] || [];
+    if (!shapes.length || !canvas || !img) {
+      if (canvas) canvas.style.display = 'none';
+      return;
+    }
+    // Sync canvas pixel dimensions to displayed image size
+    canvas.width  = img.offsetWidth;
+    canvas.height = img.offsetHeight;
+    canvas.style.display = 'block';
+
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineWidth = 2.5;
+    ctx.lineCap   = 'round';
+    ctx.lineJoin  = 'round';
+
+    shapes.forEach(function(s) {
+      var x1 = s.x1 * canvas.width,  y1 = s.y1 * canvas.height;
+      var x2 = s.x2 * canvas.width,  y2 = s.y2 * canvas.height;
+      ctx.strokeStyle = s.color || '#e85d04';
+      ctx.fillStyle   = s.color || '#e85d04';
+
+      if (s.type === 'rect') {
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+      } else if (s.type === 'circle') {
+        var cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+        var rx = Math.abs(x2 - x1) / 2, ry = Math.abs(y2 - y1) / 2;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx || 4, ry || 4, 0, 0, 2 * Math.PI);
+        ctx.stroke();
+
+      } else if (s.type === 'arrow') {
+        var headlen = 14;
+        var angle   = Math.atan2(y2 - y1, x2 - x1);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x2 - headlen * Math.cos(angle - Math.PI / 6), y2 - headlen * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - headlen * Math.cos(angle + Math.PI / 6), y2 - headlen * Math.sin(angle + Math.PI / 6));
+        ctx.stroke();
+      }
+
+      if (s.label) {
+        ctx.font = 'bold 11px Inter, sans-serif';
+        ctx.fillText(s.label, Math.min(x1, x2) + 3, Math.min(y1, y2) - 4);
+      }
+    });
+  }
+
+  // ── Lightbox ────────────────────────────────────────────────────────────
   var allPhotos = Array.from(document.querySelectorAll('.ba-photo, .add-photo'));
   var lb        = document.getElementById('lightbox');
   var lbImg     = document.getElementById('lb-img');
+  var lbCanvas  = document.getElementById('lb-ann-canvas');
   var lbType    = document.getElementById('lb-type');
   var lbCaption = document.getElementById('lb-caption');
   var lbCounter = document.getElementById('lb-counter');
@@ -563,10 +729,11 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
   function openAt(idx) {
     if (!allPhotos.length) return;
     current = Math.max(0, Math.min(idx, allPhotos.length - 1));
-    var el = allPhotos[current];
+    var el      = allPhotos[current];
+    var photoId = el.dataset.photoId || '';
 
     lbImg.src = el.dataset.view || el.querySelector('img').src;
-    lbType.textContent = (el.dataset.type || '').charAt(0).toUpperCase() + (el.dataset.type || '').slice(1);
+    lbType.textContent    = (el.dataset.type || '').charAt(0).toUpperCase() + (el.dataset.type || '').slice(1);
     lbCaption.textContent = el.dataset.caption || '';
     lbCounter.textContent = (current + 1) + ' / ' + allPhotos.length;
     lbPrev.disabled = (current === 0);
@@ -574,11 +741,22 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
 
     lb.classList.add('is-open');
     document.body.style.overflow = 'hidden';
+
+    // Hide canvas until image loads
+    if (lbCanvas) lbCanvas.style.display = 'none';
+    lbImg.onload = function() {
+      renderAnnotations(photoId, lbCanvas, lbImg);
+    };
+    if (lbImg.complete && lbImg.naturalWidth) {
+      renderAnnotations(photoId, lbCanvas, lbImg);
+    }
   }
 
   function closeLb() {
     lb.classList.remove('is-open');
     lbImg.src = '';
+    lbImg.onload = null;
+    if (lbCanvas) lbCanvas.style.display = 'none';
     document.body.style.overflow = '';
   }
 
@@ -592,7 +770,6 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
   lbPrev.addEventListener('click', function() { if (current > 0) openAt(current - 1); });
   lbNext.addEventListener('click', function() { if (current < allPhotos.length - 1) openAt(current + 1); });
 
-  // Keyboard navigation
   document.addEventListener('keydown', function(e) {
     if (!lb.classList.contains('is-open')) return;
     if (e.key === 'Escape') closeLb();
@@ -600,17 +777,44 @@ $hasBeforeAfter = !empty($photoGroups['before']) || !empty($photoGroups['after']
     if (e.key === 'ArrowRight' && current < allPhotos.length - 1) openAt(current + 1);
   });
 
-  // Touch swipe for mobile
+  // Touch swipe
   var touchStartX = null;
   lb.addEventListener('touchstart', function(e) { touchStartX = e.changedTouches[0].clientX; }, { passive: true });
   lb.addEventListener('touchend', function(e) {
     if (touchStartX === null) return;
     var dx = e.changedTouches[0].clientX - touchStartX;
     touchStartX = null;
-    if (Math.abs(dx) < 50) return; // Too small — ignore
+    if (Math.abs(dx) < 50) return;
     if (dx > 0 && current > 0)                    openAt(current - 1);
     if (dx < 0 && current < allPhotos.length - 1) openAt(current + 1);
   }, { passive: true });
+
+  // ── Comparison slider ───────────────────────────────────────────────────
+  var cmpWrap   = document.getElementById('cmpWrap');
+  var cmpAfterEl = document.getElementById('cmpAfter');
+  var cmpHandle = document.getElementById('cmpHandle');
+
+  if (cmpWrap && cmpAfterEl && cmpHandle) {
+    function setCmp(pct) {
+      var p = Math.max(2, Math.min(98, pct));
+      cmpAfterEl.style.clipPath = 'inset(0 ' + (100 - p) + '% 0 0)';
+      cmpHandle.style.left      = p + '%';
+    }
+
+    function evtPct(e) {
+      var rect = cmpWrap.getBoundingClientRect();
+      var x    = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+      return (x / rect.width) * 100;
+    }
+
+    var dragging = false;
+    cmpWrap.addEventListener('mousedown',  function(e) { dragging = true; setCmp(evtPct(e)); });
+    cmpWrap.addEventListener('touchstart', function(e) { dragging = true; setCmp(evtPct(e)); e.preventDefault(); }, { passive: false });
+    document.addEventListener('mousemove',  function(e) { if (dragging) setCmp(evtPct(e)); });
+    document.addEventListener('touchmove',  function(e) { if (dragging) setCmp(evtPct(e)); }, { passive: true });
+    document.addEventListener('mouseup',   function() { dragging = false; });
+    document.addEventListener('touchend',  function() { dragging = false; });
+  }
 
 })();
 </script>

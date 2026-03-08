@@ -493,6 +493,14 @@ $activePage = 'jobs';
         </p>
         <?php endif; ?>
 
+        <?php if (!empty($visit['contact_email'])): ?>
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" id="chk-notify-client" value="1">
+          <label class="form-check-label small text-muted" for="chk-notify-client">
+            Email gallery link to client (<code><?= htmlspecialchars($visit['contact_email']) ?></code>)
+          </label>
+        </div>
+        <?php endif; ?>
         <div class="d-flex gap-2 flex-wrap">
           <button class="btn btn-sm btn-success" id="btn-generate-token">
             <i data-feather="link" class="mr-1"></i>
@@ -715,6 +723,7 @@ $activePage = 'jobs';
 <input type="hidden" id="pow-locked" value="<?= $isLocked ? '1' : '0' ?>">
 <input type="hidden" id="pow-is-admin" value="<?= $isAdmin ? '1' : '0' ?>">
 <input type="hidden" id="pow-site-url" value="<?= htmlspecialchars($siteUrl) ?>">
+<input type="hidden" id="pow-contact-email" value="<?= htmlspecialchars($visit['contact_email'] ?? '') ?>">
 
 <!-- ── Modals ────────────────────────────────────────────────────────────── -->
 <div class="modal fade" id="unlockModal" tabindex="-1">
@@ -1151,7 +1160,8 @@ $activePage = 'jobs';
       self.disabled = true;
       self.innerHTML = '<span class="spinner-border spinner-border-sm mr-1"></span>Generating…';
 
-      apiPost(API_TOKEN, { action: 'generate' }).then(function(res) {
+      var notifyChk = document.getElementById('chk-notify-client');
+      apiPost(API_TOKEN, { action: 'generate', notify_client: !!(notifyChk && notifyChk.checked) }).then(function(res) {
         if (res.success && res.token) {
           var url = SITE_URL + '/client/proof.php?token=' + res.token + '&visit=' + VISIT_ID;
           // Show the URL in the input and copy group
@@ -1161,7 +1171,11 @@ $activePage = 'jobs';
             inp.value = url;
             grp.style.display = '';
           }
-          showAlert('Share link generated! Copy the link to send to your client.', 'success');
+          if (res.notified) {
+            showAlert('Share link generated and client notified by email!', 'success');
+          } else {
+            showAlert('Share link generated! Copy the link to send to your client.', 'success');
+          }
           setTimeout(function() { location.reload(); }, 3000);
         } else {
           showAlert(res.error || 'Failed to generate token', 'danger');
