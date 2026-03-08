@@ -2473,9 +2473,6 @@ $unconvertedRequests = $db->query("
                             </div>
                             <div class="mw-contact-property-meta">
                               <?php echo h($prop['city'] ?? ''); ?><?php echo !empty($prop['province']) ? ', ' . h($prop['province']) : ''; ?> <?php echo h($prop['postal_code'] ?? ''); ?>
-                              <?php if (!empty($prop['property_type'])): ?>
-                                &middot; <?php echo ucwords(str_replace('_', ' ', $prop['property_type'])); ?>
-                              <?php endif; ?>
                             </div>
                             <!-- Property Tags -->
                             <div class="mw-property-tags-row" id="propTags_<?php echo (int)$prop['id']; ?>" onclick="event.stopPropagation();">
@@ -4291,9 +4288,6 @@ $unconvertedRequests = $db->query("
                             </div>
                             <div class="mw-contact-property-meta">
                               <?php echo h($prop['city'] ?? ''); ?><?php echo !empty($prop['province']) ? ', ' . h($prop['province']) : ''; ?> <?php echo h($prop['postal_code'] ?? ''); ?>
-                              <?php if (!empty($prop['property_type'])): ?>
-                                &middot; <?php echo ucwords(str_replace('_', ' ', $prop['property_type'])); ?>
-                              <?php endif; ?>
                               <?php if ($ownerName): ?>
                                 &middot; <i data-feather="user" style="width: 11px; height: 11px;"></i> <?php echo h($ownerName); ?>
                               <?php endif; ?>
