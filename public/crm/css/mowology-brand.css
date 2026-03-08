@@ -6228,6 +6228,33 @@ tr[data-href] { cursor: pointer; }
   }
 }
 
+/* Client Detail — Variable 3-column grid */
+.mw-client-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.mw-client-detail-grid > .mw-grid-wide {
+  grid-column: span 2;
+}
+.mw-client-detail-grid .mw-client-stats-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+@media (max-width: 991px) {
+  .mw-client-detail-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 575px) {
+  .mw-client-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .mw-client-detail-grid > .mw-grid-wide {
+    grid-column: span 1;
+  }
+}
+
 /* Compact inline tables for quotes/plans/invoices */
 .mw-client-compact-table {
   font-size: 0.85rem;
