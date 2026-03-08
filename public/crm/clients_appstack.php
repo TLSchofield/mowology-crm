@@ -2351,7 +2351,9 @@ $unconvertedRequests = $db->query("
               </div>
             </div>
 
-            <div class="mw-client-detail-grid">
+            <div class="row">
+              <!-- Left Column -->
+              <div class="col-lg-7">
 
                 <!-- Contact Details Card -->
                 <div class="card mb-3">
@@ -2950,7 +2952,10 @@ $unconvertedRequests = $db->query("
                 </div>
                 <?php endif; ?>
 
-              <!-- Map + Route Intelligence + Analytics -->
+              </div><!-- end left col -->
+
+              <!-- Right Column: Map + Route Intelligence -->
+              <div class="col-lg-5">
                 <div class="card mb-3">
                   <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0"><i data-feather="map"></i> Neighbourhood Map</h5>
@@ -3299,7 +3304,8 @@ $unconvertedRequests = $db->query("
                 document.addEventListener('DOMContentLoaded',function(){mwLoadTimeline(false)});
                 </script>
 
-            </div><!-- end client detail grid -->
+              </div><!-- end right col -->
+            </div><!-- end row -->
 
             <!-- Add Property Modal -->
             <div class="modal fade" id="addPropertyModal" tabindex="-1" role="dialog">
