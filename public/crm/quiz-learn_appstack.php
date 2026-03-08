@@ -122,6 +122,64 @@ let currentIdx  = 0;
 let gotItCount  = 0;
 let totalSeen   = 0;
 let flipped     = false;
+let stackTimer  = null;     // image rotation timer
+
+// ── Image stack helpers (shared with quiz-play) ──────────────────────────────
+
+function buildImageStackHtml(images) {
+    if (!images || !images.length) return '';
+    if (images.length === 1) {
+        return `<img src="${escHtml(images[0].image_path)}" alt="Question image" class="mw-fc-img">`;
+    }
+    const items = images.map((img, i) =>
+        `<div class="mw-img-stack-item${i === 0 ? ' active' : ''}" data-idx="${i}">
+            <img src="${escHtml(img.image_path)}" alt="Image ${i+1}" class="mw-img-stack-img mw-fc-img">
+        </div>`
+    ).join('');
+    const dots = images.map((_, i) =>
+        `<button class="mw-img-stack-dot${i === 0 ? ' active' : ''}" data-idx="${i}" onclick="stackGoTo(this.closest('.mw-img-stack'),${i});event.stopPropagation()"></button>`
+    ).join('');
+    const shadows = images.length >= 3
+        ? '<div class="mw-img-stack-shadow mw-img-stack-shadow-2"></div><div class="mw-img-stack-shadow mw-img-stack-shadow-1"></div>'
+        : images.length === 2
+        ? '<div class="mw-img-stack-shadow mw-img-stack-shadow-1"></div>'
+        : '';
+    return `<div class="mw-img-stack" data-count="${images.length}" data-current="0">
+        ${shadows}
+        <div class="mw-img-stack-frame">${items}</div>
+        <div class="mw-img-stack-footer">
+            <div class="mw-img-stack-dots">${dots}</div>
+            <div class="mw-img-stack-counter">1 / ${images.length}</div>
+        </div>
+    </div>`;
+}
+
+function stackGoTo(stack, idx) {
+    if (!stack) return;
+    const count   = parseInt(stack.dataset.count);
+    const items   = stack.querySelectorAll('.mw-img-stack-item');
+    const dots    = stack.querySelectorAll('.mw-img-stack-dot');
+    const counter = stack.querySelector('.mw-img-stack-counter');
+    items.forEach((el, i) => el.classList.toggle('active', i === idx));
+    dots.forEach((el, i)  => el.classList.toggle('active', i === idx));
+    if (counter) counter.textContent = `${idx + 1} / ${count}`;
+    stack.dataset.current = idx;
+}
+
+function startStackRotation() {
+    stopStackRotation();
+    const stack = document.querySelector('#fcImgFront .mw-img-stack');
+    if (!stack || parseInt(stack.dataset.count) <= 1) return;
+    stackTimer = setInterval(() => {
+        const count = parseInt(stack.dataset.count);
+        const next  = (parseInt(stack.dataset.current) + 1) % count;
+        stackGoTo(stack, next);
+    }, 2500);
+}
+
+function stopStackRotation() {
+    if (stackTimer) { clearInterval(stackTimer); stackTimer = null; }
+}
 
 // ── Load cards ───────────────────────────────────────────────────────────────
 async function loadCards() {
@@ -169,12 +227,16 @@ function showCard(idx) {
     document.getElementById('fcCatTag').innerHTML =
         `<span style="color:${escHtml(card.category_colour)}">${escHtml(card.category_name)}</span>`;
 
-    // Images
-    const imgHtml = card.image_path
-        ? `<img src="${escHtml(card.image_path)}" alt="" class="mw-fc-img">`
+    // Images — rotating stack on front, static first image on back
+    const images = card.images && card.images.length
+        ? card.images
+        : (card.image_path ? [{ image_path: card.image_path, caption: '' }] : []);
+    stopStackRotation();
+    document.getElementById('fcImgFront').innerHTML = buildImageStackHtml(images);
+    document.getElementById('fcImgBack').innerHTML  = images.length
+        ? `<img src="${escHtml(images[0].image_path)}" alt="" class="mw-fc-img">`
         : '';
-    document.getElementById('fcImgFront').innerHTML = imgHtml;
-    document.getElementById('fcImgBack').innerHTML  = imgHtml;
+    if (images.length > 1) startStackRotation();
 
     // Question text (front)
     document.getElementById('fcQText').textContent = card.question_text;
@@ -210,6 +272,7 @@ async function fetchCorrectAnswer(questionId) {
 function flipCard() {
     if (flipped) return;
     flipped = true;
+    stopStackRotation();
     document.getElementById('fcCard').classList.add('mw-fc-flipped');
     document.getElementById('fcActions').style.display = 'flex';
     document.getElementById('fcHint').style.display = 'none';

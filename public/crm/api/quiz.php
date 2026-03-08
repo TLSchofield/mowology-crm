@@ -122,6 +122,42 @@ function getSeasonContext(int $month = 0): array
 }
 
 /**
+ * Fetch images for a single question from quiz_question_images.
+ * Falls back to question's image_path if table has no rows yet.
+ */
+function getQuestionImages(PDO $db, int $questionId, ?string $fallbackImagePath = null): array {
+    $stmt = $db->prepare(
+        "SELECT image_path, sort_order, COALESCE(caption,'') AS caption
+         FROM quiz_question_images WHERE question_id=? ORDER BY sort_order ASC, id ASC"
+    );
+    $stmt->execute([$questionId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$rows && $fallbackImagePath) {
+        $rows = [['image_path' => $fallbackImagePath, 'sort_order' => 0, 'caption' => '']];
+    }
+    return $rows;
+}
+
+/**
+ * Batch-fetch images for multiple questions (one query, N+1 free).
+ * Returns array keyed by question_id.
+ */
+function getImagesForQuestions(PDO $db, array $questionIds): array {
+    if (!$questionIds) return [];
+    $ids  = implode(',', array_map('intval', $questionIds));
+    $rows = $db->query(
+        "SELECT question_id, image_path, sort_order, COALESCE(caption,'') AS caption
+         FROM quiz_question_images WHERE question_id IN ($ids)
+         ORDER BY question_id, sort_order ASC, id ASC"
+    )->fetchAll(PDO::FETCH_ASSOC);
+    $map = [];
+    foreach ($rows as $r) {
+        $map[$r['question_id']][] = $r;
+    }
+    return $map;
+}
+
+/**
  * Select questions using seasonal blending (40/30/20/10).
  * Pool 1 (40%): current season questions not fully mastered
  * Pool 2 (30%): upcoming season questions not fully mastered
@@ -562,9 +598,16 @@ switch ($action) {
             );
             $stmt->execute([$userId]);
         }
-        $cards = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $cards  = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $qids   = array_column($cards, 'id');
+        $imgMap = getImagesForQuestions($db, $qids);
         foreach ($cards as &$card) {
             $card['mastery_level'] = (int)$card['mastery_level'];
+            $imgs = $imgMap[$card['id']] ?? [];
+            if (!$imgs && ($card['image_path'] ?? '')) {
+                $imgs = [['image_path' => $card['image_path'], 'sort_order' => 0, 'caption' => '']];
+            }
+            $card['images'] = $imgs;
         }
         unset($card);
         qOk(['cards' => $cards, 'total' => count($cards)]);
@@ -754,7 +797,8 @@ switch ($action) {
         $answered->execute([$sessionId, $questionId]);
         $alreadyAnswered = (bool)$answered->fetch();
 
-        $meta = masteryMeta();
+        $meta   = masteryMeta();
+        $images = getQuestionImages($db, (int)$question['id'], $question['image_path'] ?: null);
         qOk([
             'question_num'     => $qNum,
             'total'            => (int)$session['questions_count'],
@@ -762,7 +806,8 @@ switch ($action) {
             'question' => [
                 'id'               => (int)$question['id'],
                 'text'             => $question['question_text'],
-                'image_path'       => $question['image_path'],
+                'image_path'       => $images[0]['image_path'] ?? $question['image_path'], // compat
+                'images'           => $images,
                 'difficulty'       => $question['difficulty'],
                 'category_name'    => $question['category_name'],
                 'category_colour'  => $question['category_colour'],
@@ -1078,6 +1123,7 @@ switch ($action) {
         $ostmt = $db->prepare("SELECT id, option_text, is_correct, sort_order FROM quiz_options WHERE question_id=? ORDER BY sort_order");
         $ostmt->execute([$qid]);
         $question['options'] = $ostmt->fetchAll(PDO::FETCH_ASSOC);
+        $question['images']  = getQuestionImages($db, $qid, $question['image_path'] ?: null);
         qOk(['question' => $question]);
 
     // ── Admin: save category ───────────────────────────────────────────────────
@@ -1124,6 +1170,7 @@ switch ($action) {
         $relevantMonths   = trim($input['relevant_months'] ?? '') ?: '1,2,3,4,5,6,7,8,9,10,11,12';
         $seasonalTags     = trim($input['seasonal_tags'] ?? '') ?: null;
         $seasonalPriority = max(1, min(10, (int)($input['seasonal_priority'] ?? 5)));
+        $imagesInput      = is_array($input['images'] ?? null) ? $input['images'] : [];
 
         if ($categoryId <= 0) qErr('Category is required');
         if ($questionText === '') qErr('Question text is required');
@@ -1159,6 +1206,31 @@ switch ($action) {
         foreach (array_values($options) as $i => $opt) {
             $optStmt->execute([$id, trim($opt['option_text']??''), empty($opt['is_correct'])?0:1, $i]);
         }
+
+        // ── Persist multi-image set ──────────────────────────────────────────
+        $db->prepare("DELETE FROM quiz_question_images WHERE question_id=?")->execute([$id]);
+        $primaryImagePath = null;
+        if ($imagesInput) {
+            $imgStmt = $db->prepare(
+                "INSERT INTO quiz_question_images (question_id, image_path, sort_order, caption)
+                 VALUES (?,?,?,?)"
+            );
+            foreach (array_values($imagesInput) as $i => $img) {
+                $imgPath = trim($img['image_path'] ?? '');
+                if ($imgPath === '') continue;
+                $caption = trim($img['caption'] ?? '');
+                $imgStmt->execute([$id, $imgPath, $i, $caption ?: null]);
+                if ($primaryImagePath === null) $primaryImagePath = $imgPath;
+            }
+        } else {
+            // If images array sent as empty, fall back: keep existing image_path if set
+            $existing = $db->prepare("SELECT image_path FROM quiz_questions WHERE id=?");
+            $existing->execute([$id]);
+            $primaryImagePath = $existing->fetchColumn() ?: null;
+        }
+        // Sync image_path on quiz_questions to first image (for backward compat)
+        $db->prepare("UPDATE quiz_questions SET image_path=? WHERE id=?")->execute([$primaryImagePath, $id]);
+
         qOk(['message' => 'Question saved', 'id' => $id]);
 
     // ── Admin: upload question image ───────────────────────────────────────────

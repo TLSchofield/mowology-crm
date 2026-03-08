@@ -24159,3 +24159,166 @@ textarea.font-monospace {
 .mw-followup-status-card.mw-followup-card-urgent   { border-left: 4px solid #dc3545; }
 .mw-followup-card-warning .card-header { background: #fffbf0; }
 .mw-followup-card-urgent  .card-header { background: #fff5f5; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Quiz Image Stack (multi-image rotating viewer)
+   ─────────────────────────────────────────────────────────────────────────
+   Used on quiz-play_appstack.php and quiz-learn_appstack.php
+   Admin image manager used on quiz-admin_appstack.php
+═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Image stack container ─────────────────────────────────────────────── */
+.mw-img-stack {
+  position: relative;
+  margin: 0 auto 16px;
+  max-width: 440px;
+}
+
+/* Depth shadow layers (visual stack effect behind active image) */
+.mw-img-stack-shadow {
+  position: absolute;
+  left: 0; right: 0;
+  background: rgba(0,0,0,0.08);
+  border-radius: 12px;
+  z-index: 0;
+}
+.mw-img-stack-shadow-1 {
+  top: 6px;
+  bottom: -6px;
+  transform: scaleX(0.95);
+}
+.mw-img-stack-shadow-2 {
+  top: 12px;
+  bottom: -12px;
+  transform: scaleX(0.90);
+}
+
+/* Frame holds the visible images */
+.mw-img-stack-frame {
+  position: relative;
+  z-index: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Individual image items — only .active is shown */
+.mw-img-stack-item {
+  display: none;
+}
+.mw-img-stack-item.active {
+  display: block;
+}
+.mw-img-stack-img {
+  width: 100%;
+  display: block;
+  border-radius: 12px;
+  object-fit: cover;
+  max-height: 260px;
+}
+
+/* Footer: dot navigation + image counter */
+.mw-img-stack-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px 0;
+}
+.mw-img-stack-dots {
+  display: flex;
+  gap: 5px;
+}
+.mw-img-stack-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: none;
+  background: #dee2e6;
+  padding: 0;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+}
+.mw-img-stack-dot.active {
+  background: var(--mw-green);
+  transform: scale(1.35);
+}
+.mw-img-stack-dot:hover:not(.active) {
+  background: #adb5bd;
+}
+.mw-img-stack-counter {
+  font-size: 11px;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+/* ── Admin image manager (question modal) ──────────────────────────────── */
+.mw-img-manager {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 10px;
+  min-height: 56px;
+}
+.mw-img-manager-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mw-img-manager-item {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 2px solid #dee2e6;
+  flex-shrink: 0;
+}
+.mw-img-manager-item.mw-img-manager-primary {
+  border-color: var(--mw-green);
+}
+.mw-img-manager-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.mw-img-manager-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 13px;
+  line-height: 19px;
+  text-align: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s;
+}
+.mw-img-manager-remove:hover {
+  background: #dc3545;
+}
+.mw-img-manager-primary-badge {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--mw-green);
+  color: #fff;
+  font-size: 9px;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 700;
+  padding: 1px 0;
+}
+.mw-img-manager-empty {
+  text-align: center;
+  color: #adb5bd;
+  font-size: 13px;
+  padding: 8px 0;
+}

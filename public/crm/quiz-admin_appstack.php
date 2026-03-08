@@ -356,13 +356,21 @@ $activePage = 'quiz';
                         </div>
                     </div>
                     <div class="col-12">
-                        <label class="form-label small fw-bold">Question Image (optional)</label>
-                        <div class="d-flex gap-2 align-items-center flex-wrap">
-                            <input type="file" id="qmImageFile" class="form-control form-control-sm" accept="image/*" style="max-width:280px;" onchange="uploadImage()">
-                            <span class="text-muted small">or paste URL:</span>
-                            <input type="text" id="qmImagePath" class="form-control form-control-sm" placeholder="/uploads/quiz/..." style="max-width:280px;" oninput="previewImage()">
+                        <label class="form-label small fw-bold">
+                            Question Images
+                            <span class="text-muted fw-normal">(up to 5 — shown as rotating stack for recognition training)</span>
+                        </label>
+                        <div id="qmImageList" class="mw-img-manager mb-2"></div>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <label class="btn btn-sm btn-outline-secondary mb-0" style="cursor:pointer;">
+                                <i data-feather="upload" style="width:13px;height:13px;"></i> Upload Image
+                                <input type="file" id="qmImageFile" accept="image/*" style="display:none;" onchange="uploadAndAddImage(this)">
+                            </label>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addImageByUrl()">
+                                <i data-feather="link" style="width:13px;height:13px;"></i> Add by URL
+                            </button>
                         </div>
-                        <div id="qmImagePreview" class="mt-2"></div>
+                        <div class="text-muted" style="font-size:11px;margin-top:5px;">First image is primary. Crew sees all images as a rotating stack during the quiz and study mode.</div>
                     </div>
                     <div class="col-12">
                         <label class="form-label small fw-bold">Answer Options <span class="text-danger">*</span></label>
@@ -548,6 +556,8 @@ function openQuestionModal(id) {
     document.getElementById('qmSeasonalPriority').value = '5';
     document.getElementById('qmPriorityVal').textContent = '5';
     setMonthCheckboxes('');  // defaults to all checked
+    qmImages = [];
+    renderImageManager();
     document.getElementById('questionModalTitle').textContent = id ? 'Edit Question' : 'Add Question';
 
     // Default 4 option rows
@@ -574,7 +584,12 @@ function openQuestionModal(id) {
                 document.getElementById('qmSeasonalPriority').value = pri;
                 document.getElementById('qmPriorityVal').textContent = pri;
                 setMonthCheckboxes(q.relevant_months || '');
-                if (q.image_path) previewImage();
+                // Load images
+                qmImages = (q.images || []).map(i => ({ image_path: i.image_path, caption: i.caption || '' }));
+                if (!qmImages.length && q.image_path) {
+                    qmImages = [{ image_path: q.image_path, caption: '' }];
+                }
+                renderImageManager();
 
                 // Re-render options
                 optWrap.innerHTML = '';
@@ -601,32 +616,60 @@ function addOptionRow(text = '', isCorrect = false) {
     if (typeof feather !== 'undefined') feather.replace();
 }
 
-async function uploadImage() {
-    const file = document.getElementById('qmImageFile').files[0];
-    if (!file) return;
+// ── Multi-image Manager ───────────────────────────────────────────────────────
 
-    const formData = new FormData();
-    formData.append('image', file);
+let qmImages = []; // [{image_path, caption}]
 
-    const r = await fetch('/crm/api/quiz.php?action=upload_image', {
-        method: 'POST',
-        body: formData,
-    });
-    const d = await r.json();
-    if (d.success) {
-        document.getElementById('qmImagePath').value = d.image_path;
-        previewImage();
-    } else {
-        alert(d.error || 'Upload failed');
+function renderImageManager() {
+    const list = document.getElementById('qmImageList');
+    if (!list) return;
+    if (!qmImages.length) {
+        list.innerHTML = '<div class="mw-img-manager-empty">No images yet — add up to 5 for recognition training</div>';
+        return;
     }
+    list.innerHTML = qmImages.map((img, i) => `
+        <div class="mw-img-manager-item">
+            ${i === 0 ? '<span class="mw-img-manager-primary-badge">Primary</span>' : ''}
+            <img src="${escHtml(img.image_path)}" alt="Image ${i+1}" class="mw-img-manager-thumb"
+                 onerror="this.src='/crm/css/../img/placeholder.png'">
+            <button type="button" class="mw-img-manager-remove" onclick="removeImage(${i})" title="Remove">×</button>
+        </div>
+    `).join('');
 }
 
-function previewImage() {
-    const path    = document.getElementById('qmImagePath').value.trim();
-    const preview = document.getElementById('qmImagePreview');
-    preview.innerHTML = path
-        ? `<img src="${escHtml(path)}" class="mw-quiz-admin-preview" alt="Preview">`
-        : '';
+function removeImage(idx) {
+    qmImages.splice(idx, 1);
+    renderImageManager();
+}
+
+async function uploadAndAddImage(input) {
+    if (qmImages.length >= 5) { alert('Maximum 5 images per question'); input.value = ''; return; }
+    const file = input.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('image', file);
+    try {
+        const r = await fetch('/crm/api/quiz.php?action=upload_image', { method: 'POST', body: formData });
+        const d = await r.json();
+        if (d.success) {
+            qmImages.push({ image_path: d.image_path, caption: '' });
+            renderImageManager();
+        } else {
+            alert(d.error || 'Upload failed');
+        }
+    } catch(e) {
+        alert('Upload error');
+    }
+    input.value = '';
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+function addImageByUrl() {
+    if (qmImages.length >= 5) { alert('Maximum 5 images per question'); return; }
+    const url = prompt('Enter image URL (e.g. /uploads/quiz/filename.jpg):');
+    if (!url || !url.trim()) return;
+    qmImages.push({ image_path: url.trim(), caption: '' });
+    renderImageManager();
 }
 
 async function saveQuestion() {
@@ -649,13 +692,13 @@ async function saveQuestion() {
         category_id:      document.getElementById('qmCategory').value,
         question_text:     document.getElementById('qmText').value.trim(),
         learn_notes:      document.getElementById('qmLearnNotes').value.trim() || null,
-        image_path:       document.getElementById('qmImagePath').value.trim() || null,
         difficulty:       document.getElementById('qmDifficulty').value,
         question_type:    document.getElementById('qmType').value,
         learning_level:   parseInt(document.getElementById('qmLevel').value) || 1,
         relevant_months:  getMonthsFromCheckboxes(),
         seasonal_tags:    document.getElementById('qmSeasonalTags').value.trim() || null,
         seasonal_priority: parseInt(document.getElementById('qmSeasonalPriority').value) || 5,
+        images:           qmImages.filter(i => i.image_path),
         options:          opts,
     };
     if (id) payload.id = parseInt(id);

@@ -80,15 +80,16 @@ $activePage = 'quiz';
 const SESSION_ID = <?php echo $sessionId; ?>;
 const CSRF       = <?php echo json_encode($csrfToken); ?>;
 
-let currentQ    = 1;
-let totalQ      = 0;
-let sessionPts  = 0;
-let timerSecs   = 30;
-let timerHandle = null;
-let answered    = false;
-let startTime   = null;
-const TIMER_MAX = 30;
-const ARC_LEN   = 100; // stroke-dasharray reference
+let currentQ     = 1;
+let totalQ       = 0;
+let sessionPts   = 0;
+let timerSecs    = 30;
+let timerHandle  = null;
+let stackTimer   = null; // image rotation timer
+let answered     = false;
+let startTime    = null;
+const TIMER_MAX  = 30;
+const ARC_LEN    = 100; // stroke-dasharray reference
 
 // ── Fetch and render a question ─────────────────────────────────────────────
 async function loadQuestion(qNum) {
@@ -125,10 +126,72 @@ async function loadQuestion(qNum) {
     }
 }
 
-function renderQuestion(q) {
-    const img = q.image_path
-        ? `<div class="mw-quiz-img-wrap"><img src="${escHtml(q.image_path)}" alt="Question image" class="mw-quiz-img"></div>`
+// ── Image stack helpers ───────────────────────────────────────────────────────
+
+function buildImageStackHtml(images) {
+    if (!images || !images.length) return '';
+    if (images.length === 1) {
+        return `<div class="mw-quiz-img-wrap">
+            <img src="${escHtml(images[0].image_path)}" alt="Question image" class="mw-quiz-img">
+        </div>`;
+    }
+    const items = images.map((img, i) =>
+        `<div class="mw-img-stack-item${i === 0 ? ' active' : ''}" data-idx="${i}">
+            <img src="${escHtml(img.image_path)}" alt="Image ${i+1}" class="mw-img-stack-img">
+        </div>`
+    ).join('');
+    const dots = images.map((_, i) =>
+        `<button class="mw-img-stack-dot${i === 0 ? ' active' : ''}" data-idx="${i}" onclick="stackGoTo(this.closest('.mw-img-stack'),${i});event.stopPropagation()"></button>`
+    ).join('');
+    const shadows = images.length >= 3
+        ? '<div class="mw-img-stack-shadow mw-img-stack-shadow-2"></div><div class="mw-img-stack-shadow mw-img-stack-shadow-1"></div>'
+        : images.length === 2
+        ? '<div class="mw-img-stack-shadow mw-img-stack-shadow-1"></div>'
         : '';
+    return `<div class="mw-img-stack" data-count="${images.length}" data-current="0">
+        ${shadows}
+        <div class="mw-img-stack-frame">${items}</div>
+        <div class="mw-img-stack-footer">
+            <div class="mw-img-stack-dots">${dots}</div>
+            <div class="mw-img-stack-counter">1 / ${images.length}</div>
+        </div>
+    </div>`;
+}
+
+function stackGoTo(stack, idx) {
+    if (!stack) return;
+    const count   = parseInt(stack.dataset.count);
+    const items   = stack.querySelectorAll('.mw-img-stack-item');
+    const dots    = stack.querySelectorAll('.mw-img-stack-dot');
+    const counter = stack.querySelector('.mw-img-stack-counter');
+    items.forEach((el, i) => el.classList.toggle('active', i === idx));
+    dots.forEach((el, i)  => el.classList.toggle('active', i === idx));
+    if (counter) counter.textContent = `${idx + 1} / ${count}`;
+    stack.dataset.current = idx;
+}
+
+function startStackRotation() {
+    stopStackRotation();
+    const stack = document.querySelector('.mw-img-stack');
+    if (!stack || parseInt(stack.dataset.count) <= 1) return;
+    stackTimer = setInterval(() => {
+        const count = parseInt(stack.dataset.count);
+        const next  = (parseInt(stack.dataset.current) + 1) % count;
+        stackGoTo(stack, next);
+    }, 2500);
+}
+
+function stopStackRotation() {
+    if (stackTimer) { clearInterval(stackTimer); stackTimer = null; }
+}
+
+function renderQuestion(q) {
+    // Build images list — use q.images if available, fall back to single image_path
+    const images = q.images && q.images.length
+        ? q.images
+        : (q.image_path ? [{ image_path: q.image_path, caption: '' }] : []);
+
+    const imgHtml = buildImageStackHtml(images);
 
     const diffBadge = q.difficulty === 'easy'   ? '<span class="badge mw-quiz-badge-easy">Easy</span>' :
                       q.difficulty === 'hard'   ? '<span class="badge mw-quiz-badge-hard">Hard</span>' :
@@ -136,10 +199,12 @@ function renderQuestion(q) {
 
     document.getElementById('questionArea').innerHTML = `
         <div class="mw-quiz-cat-tag" style="color:${escHtml(q.category_colour)}">${escHtml(q.category_name)}</div>
-        ${img}
+        ${imgHtml}
         <div class="mw-quiz-q-text">${escHtml(q.text)}</div>
         <div class="mw-quiz-q-meta">${diffBadge}</div>
     `;
+
+    if (images.length > 1) startStackRotation();
 }
 
 function renderOptions(options, questionId) {
@@ -199,6 +264,7 @@ async function submitAnswer(selectedOptionId, questionId) {
 
         // Advance after 1.8s
         setTimeout(() => {
+            stopStackRotation();
             if (currentQ < totalQ) {
                 currentQ++;
                 loadQuestion(currentQ);
