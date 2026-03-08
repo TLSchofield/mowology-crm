@@ -84,6 +84,37 @@ try {
 
     $whereClause = implode(' AND ', $whereConditions);
 
+    // ── Pagination + Sorting params ──────────────────────────────────────
+    $page     = max(1, (int)($_GET['page'] ?? 1));
+    $perPage  = max(10, min(100, (int)($_GET['per_page'] ?? 25)));
+    $sortCol  = $_GET['sort'] ?? 'created_at';
+    $sortDir  = strtoupper($_GET['dir'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
+
+    $allowedSorts = [
+        'plan_number' => 'jp.plan_number',
+        'title'       => 'jp.title',
+        'service'     => 'jp.service_type',
+        'client'      => 'contact_first_name',
+        'status'      => 'jp.status',
+        'created_at'  => 'jp.created_at',
+        'next_visit'  => 'next_visit',
+    ];
+    $orderBy = $allowedSorts[$sortCol] ?? 'jp.created_at';
+
+    // Count total matching rows
+    $cntStmt = $db->prepare("
+        SELECT COUNT(*) FROM job_plans jp
+        LEFT JOIN properties p ON jp.property_id = p.id
+        LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+        LEFT JOIN companies c ON jp.company_id = c.id
+        WHERE {$whereClause}
+    ");
+    $cntStmt->execute($params);
+    $filteredTotal = (int)$cntStmt->fetchColumn();
+    $totalPages = max(1, (int)ceil($filteredTotal / $perPage));
+    $page = min($page, $totalPages);
+    $offset = ($page - 1) * $perPage;
+
     $stmt = $db->prepare("
         SELECT
             jp.*,
@@ -104,8 +135,8 @@ try {
         LEFT JOIN users u ON jp.default_crew_id = u.id
         LEFT JOIN quotes q ON jp.quote_id = q.id
         WHERE {$whereClause}
-        ORDER BY jp.created_at DESC
-        LIMIT 200
+        ORDER BY {$orderBy} {$sortDir}
+        LIMIT {$perPage} OFFSET {$offset}
     ");
     $stmt->execute($params);
     $plans = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -388,16 +419,30 @@ $activePage = 'jobs';
                               <th class="mw-bulk-checkbox-cell">
                                   <input type="checkbox" class="mw-bulk-checkbox" id="mw-plans-select-all" title="Select all">
                               </th>
-                              <th>Plan #</th>
-                              <th>Title</th>
-                              <th>Service</th>
+                              <?php
+                              function jobSortUrl($col, $curSort, $curDir) {
+                                  $p = $_GET; $p['sort'] = $col;
+                                  $p['dir'] = ($curSort === $col && $curDir === 'ASC') ? 'DESC' : 'ASC';
+                                  unset($p['page']); return '?' . http_build_query($p);
+                              }
+                              function jobSortClass($col, $curSort, $curDir) {
+                                  if ($curSort !== $col) return 'mw-sortable';
+                                  return 'mw-sortable mw-sort-' . strtolower($curDir);
+                              }
+                              function jobPageUrl($pageNum) {
+                                  $p = $_GET; $p['page'] = $pageNum; return '?' . http_build_query($p);
+                              }
+                              ?>
+                              <th class="<?php echo jobSortClass('plan_number', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('plan_number', $sortCol, $sortDir); ?>">Plan #</a></th>
+                              <th class="<?php echo jobSortClass('title', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('title', $sortCol, $sortDir); ?>">Title</a></th>
+                              <th class="<?php echo jobSortClass('service', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('service', $sortCol, $sortDir); ?>">Service</a></th>
                               <th>Property</th>
-                              <th>Client</th>
+                              <th class="<?php echo jobSortClass('client', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('client', $sortCol, $sortDir); ?>">Client</a></th>
                               <th>Crew</th>
                               <th>Pricing</th>
-                              <th>Status</th>
+                              <th class="<?php echo jobSortClass('status', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('status', $sortCol, $sortDir); ?>">Status</a></th>
                               <th>Visits</th>
-                              <th>Next Visit</th>
+                              <th class="<?php echo jobSortClass('next_visit', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('next_visit', $sortCol, $sortDir); ?>">Next Visit</a></th>
                               <th>Actions</th>
                           </tr>
                       </thead>
@@ -515,6 +560,50 @@ $activePage = 'jobs';
                           <?php endforeach; ?>
                       </tbody>
                   </table>
+                  <?php if ($totalPages > 1): ?>
+                  <div class="mw-pagination">
+                      <div class="mw-pagination-info">
+                          <span>Showing <?php echo $offset + 1; ?>–<?php echo min($offset + $perPage, $filteredTotal); ?> of <?php echo $filteredTotal; ?> plans</span>
+                          <div class="mw-pagination-per-page">
+                              <span>Show</span>
+                              <select onchange="window.location.href=this.value;">
+                                  <?php foreach ([10, 25, 50, 100] as $pp): ?>
+                                  <option value="<?php $p = $_GET; $p['per_page'] = $pp; $p['page'] = 1; echo '?' . http_build_query($p); ?>" <?php echo $perPage === $pp ? 'selected' : ''; ?>><?php echo $pp; ?></option>
+                                  <?php endforeach; ?>
+                              </select>
+                              <span>per page</span>
+                          </div>
+                      </div>
+                      <div class="mw-pagination-pages">
+                          <?php if ($page > 1): ?>
+                              <a href="<?php echo jobPageUrl($page - 1); ?>">&laquo;</a>
+                          <?php else: ?>
+                              <span class="disabled">&laquo;</span>
+                          <?php endif; ?>
+                          <?php
+                          $startP = max(1, $page - 2);
+                          $endP = min($totalPages, $page + 2);
+                          if ($startP > 1) echo '<a href="' . jobPageUrl(1) . '">1</a>';
+                          if ($startP > 2) echo '<span class="disabled">&hellip;</span>';
+                          for ($i = $startP; $i <= $endP; $i++):
+                          ?>
+                              <?php if ($i === $page): ?>
+                                  <span class="active"><?php echo $i; ?></span>
+                              <?php else: ?>
+                                  <a href="<?php echo jobPageUrl($i); ?>"><?php echo $i; ?></a>
+                              <?php endif; ?>
+                          <?php endfor;
+                          if ($endP < $totalPages - 1) echo '<span class="disabled">&hellip;</span>';
+                          if ($endP < $totalPages) echo '<a href="' . jobPageUrl($totalPages) . '">' . $totalPages . '</a>';
+                          ?>
+                          <?php if ($page < $totalPages): ?>
+                              <a href="<?php echo jobPageUrl($page + 1); ?>">&raquo;</a>
+                          <?php else: ?>
+                              <span class="disabled">&raquo;</span>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+                  <?php endif; ?>
               <?php endif; ?>
           </div>
 

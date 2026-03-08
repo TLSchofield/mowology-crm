@@ -235,6 +235,65 @@
   }
   </script>
 
+  <!-- Universal form submit loading state — prevents double-clicks, shows spinner -->
+  <script>
+  (function(){
+    document.addEventListener('submit', function(e) {
+      var form = e.target;
+      if (!form || form.tagName !== 'FORM') return;
+      // Skip search forms (GET method, single-input forms)
+      if (form.method.toUpperCase() === 'GET' && form.querySelectorAll('input:not([type=hidden])').length <= 1) return;
+      // Find the submit button (clicked or first submit-type)
+      var btn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
+      if (!btn || btn.disabled) return;
+      // Skip if the button has data-no-loading
+      if (btn.hasAttribute('data-no-loading')) return;
+      // Disable and show spinner
+      btn.disabled = true;
+      btn.dataset.mwOrigText = btn.innerHTML;
+      var label = btn.textContent.trim();
+      if (label.toLowerCase().indexOf('save') !== -1) {
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1" role="status"></span> Saving\u2026';
+      } else if (label.toLowerCase().indexOf('send') !== -1) {
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1" role="status"></span> Sending\u2026';
+      } else if (label.toLowerCase().indexOf('creat') !== -1) {
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1" role="status"></span> Creating\u2026';
+      } else if (label.toLowerCase().indexOf('delet') !== -1) {
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1" role="status"></span> Deleting\u2026';
+      } else {
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1" role="status"></span> Submitting\u2026';
+      }
+      // Re-enable after 8s as a safety fallback (in case form submit fails silently)
+      setTimeout(function() {
+        if (btn.disabled && btn.dataset.mwOrigText) {
+          btn.disabled = false;
+          btn.innerHTML = btn.dataset.mwOrigText;
+          delete btn.dataset.mwOrigText;
+        }
+      }, 8000);
+    });
+
+    // Also intercept AJAX-triggered buttons with class .mw-btn-loading
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('.mw-btn-loading');
+      if (!btn || btn.disabled) return;
+      btn.disabled = true;
+      btn.dataset.mwOrigText = btn.innerHTML;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm mr-1" role="status"></span> ' + (btn.dataset.loadingText || 'Working\u2026');
+    });
+
+    // Global helper to restore a loading button
+    window.mwResetBtn = function(btn) {
+      if (btn && btn.dataset.mwOrigText) {
+        btn.disabled = false;
+        btn.innerHTML = btn.dataset.mwOrigText;
+        delete btn.dataset.mwOrigText;
+        if (typeof feather !== 'undefined') feather.replace();
+      }
+    };
+  })();
+  </script>
+
   <!-- Clickable table rows: any <tr data-href="..."> navigates on click -->
   <script>
   (function(){

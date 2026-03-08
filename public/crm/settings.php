@@ -283,8 +283,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <div class="card-header"><h5 class="card-title">Logo</h5></div>
                 <div class="card-body">
                     <div class="mb-3">
-                        <label for="logo_path" class="form-label">Logo Path (e.g., /uploads/logo.png)</label>
-                        <input type="text" class="form-control" id="logo_path" maxlength="255" placeholder="/assets/images/logo.png">
+                        <label class="form-label">Upload Logo</label>
+                        <div class="mw-logo-upload-zone" id="logoUploadZone" onclick="document.getElementById('logoFileInput').click();">
+                            <i data-feather="upload-cloud" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:8px;"></i>
+                            <p class="mb-1"><strong>Click to upload</strong> or drag and drop</p>
+                            <small class="text-muted">PNG, JPG, SVG — max 2 MB</small>
+                        </div>
+                        <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/svg+xml" style="display:none;" onchange="handleLogoUpload(this)">
+                        <input type="hidden" id="logo_path">
                     </div>
                     <div class="mb-3">
                         <label for="logo_alt_text" class="form-label">Alt Text</label>
@@ -1795,6 +1801,248 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 else alert(data.error || 'Failed to remove type');
             });
     };
+})();
+</script>
+
+<!-- Logo Upload Handler -->
+<script>
+function handleLogoUpload(input) {
+    var file = input.files[0];
+    if (!file) return;
+
+    // Validate
+    var validTypes = ['image/png', 'image/jpeg', 'image/svg+xml'];
+    if (validTypes.indexOf(file.type) === -1) {
+        alert('Please select a PNG, JPG, or SVG file.');
+        input.value = '';
+        return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+        alert('File is too large. Maximum size is 2 MB.');
+        input.value = '';
+        return;
+    }
+
+    var zone = document.getElementById('logoUploadZone');
+    zone.innerHTML = '<span class="spinner-border spinner-border-sm mr-2"></span> Uploading…';
+
+    var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    var formData = new FormData();
+    formData.append('file', file);
+    formData.append('csrf_token', csrf);
+    formData.append('type', 'logo');
+
+    fetch('/crm/api/upload-logo.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+        if (data.success && data.path) {
+            document.getElementById('logo_path').value = data.path;
+            // Update preview
+            var preview = document.getElementById('logoPreview');
+            preview.innerHTML = '<img src="' + data.path + '?t=' + Date.now() + '" alt="Logo" style="max-width:200px;max-height:120px;">';
+            zone.innerHTML = '<i data-feather="check-circle" style="width:24px;height:24px;color:var(--mw-green);margin-right:8px;"></i>' +
+                '<span style="color:var(--mw-green);font-weight:600;">Uploaded!</span> ' +
+                '<a href="#" onclick="event.stopPropagation();document.getElementById(\'logoFileInput\').value=\'\';resetLogoZone();return false;" class="ml-2">Change</a>';
+            if (typeof feather !== 'undefined') feather.replace();
+        } else {
+            alert(data.error || 'Upload failed.');
+            resetLogoZone();
+        }
+    })
+    .catch(function (e) {
+        alert('Upload failed: ' + e.message);
+        resetLogoZone();
+    });
+}
+
+function resetLogoZone() {
+    var zone = document.getElementById('logoUploadZone');
+    zone.innerHTML = '<i data-feather="upload-cloud" style="width:32px;height:32px;color:var(--mw-green);margin-bottom:8px;"></i>' +
+        '<p class="mb-1"><strong>Click to upload</strong> or drag and drop</p>' +
+        '<small class="text-muted">PNG, JPG, SVG — max 2 MB</small>';
+    if (typeof feather !== 'undefined') feather.replace();
+}
+
+// Drag and drop support
+document.addEventListener('DOMContentLoaded', function () {
+    var zone = document.getElementById('logoUploadZone');
+    if (!zone) return;
+    ['dragover', 'dragenter'].forEach(function (evt) {
+        zone.addEventListener(evt, function (e) {
+            e.preventDefault();
+            zone.style.borderColor = 'var(--mw-green)';
+            zone.style.background = 'var(--mw-light)';
+        });
+    });
+    ['dragleave', 'drop'].forEach(function (evt) {
+        zone.addEventListener(evt, function (e) {
+            e.preventDefault();
+            zone.style.borderColor = '';
+            zone.style.background = '';
+        });
+    });
+    zone.addEventListener('drop', function (e) {
+        var input = document.getElementById('logoFileInput');
+        if (e.dataTransfer.files.length > 0) {
+            input.files = e.dataTransfer.files;
+            handleLogoUpload(input);
+        }
+    });
+});
+</script>
+
+<!-- Unsaved Changes Warning -->
+<script>
+(function () {
+    var formDirty = false;
+    var formEl = document.getElementById('settingsForm');
+    if (!formEl) return;
+
+    // Track changes on all inputs within the settings form
+    formEl.addEventListener('input', function () { formDirty = true; });
+    formEl.addEventListener('change', function () { formDirty = true; });
+
+    // Clear dirty flag on successful form submit
+    formEl.addEventListener('submit', function () { formDirty = false; });
+
+    // Warn before leaving with unsaved changes
+    window.addEventListener('beforeunload', function (e) {
+        if (formDirty) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+
+    // Clear dirty flag when switching categories (saves are per-category)
+    var origSwitch = window.switchSettingsCategory;
+    window.switchSettingsCategory = function (name) {
+        if (formDirty) {
+            if (!confirm('You have unsaved changes. Switch anyway?')) return;
+            formDirty = false;
+        }
+        origSwitch(name);
+    };
+})();
+</script>
+
+<!-- Email Footer Live Preview -->
+<script>
+(function () {
+    var textarea = document.getElementById('email_footer_html');
+    if (!textarea) return;
+
+    // Create preview pane below the textarea
+    var wrapper = textarea.closest('.mb-3');
+    if (!wrapper) return;
+
+    var previewDiv = document.createElement('div');
+    previewDiv.className = 'mt-2';
+    previewDiv.innerHTML = '<label class="form-label d-flex align-items-center" style="gap:8px;">' +
+        'Preview <small class="text-muted">(live)</small></label>' +
+        '<div id="emailFooterPreview" class="mw-email-footer-preview"></div>';
+    wrapper.appendChild(previewDiv);
+
+    var previewEl = document.getElementById('emailFooterPreview');
+
+    function updatePreview() {
+        var html = textarea.value.trim();
+        if (!html) {
+            previewEl.innerHTML = '<span class="text-muted" style="font-style:italic;">No footer configured</span>';
+        } else {
+            // Sanitize: strip script tags for safety
+            var clean = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+            previewEl.innerHTML = clean;
+        }
+    }
+
+    textarea.addEventListener('input', updatePreview);
+    // Also update when email tab is shown
+    var emailTab = document.getElementById('email-tab');
+    if (emailTab) {
+        emailTab.addEventListener('click', function () { setTimeout(updatePreview, 100); });
+    }
+    // Initial render (delayed so business-settings.js populates the value first)
+    setTimeout(updatePreview, 1500);
+})();
+</script>
+
+<!-- Test Email Button for Email Settings Tab -->
+<script>
+(function () {
+    var emailTabPane = document.getElementById('email');
+    if (!emailTabPane) return;
+
+    // Find the card body and add a Test Email section
+    var card = emailTabPane.querySelector('.card');
+    if (!card) return;
+
+    var testCard = document.createElement('div');
+    testCard.className = 'card mt-3';
+    testCard.innerHTML =
+        '<div class="card-header"><h5 class="card-title mb-0">Test Email</h5></div>' +
+        '<div class="card-body">' +
+            '<p class="text-muted mb-3">Send a test email to verify your signature and footer render correctly.</p>' +
+            '<div class="input-group mb-3" style="max-width:400px;">' +
+                '<input type="email" class="form-control" id="testEmailAddress" placeholder="your@email.com">' +
+                '<div class="input-group-append">' +
+                    '<button type="button" class="btn btn-outline-primary" id="btnSendTestEmail" data-no-loading="true">' +
+                        '<i data-feather="send" style="width:16px;height:16px;"></i> Send Test' +
+                    '</button>' +
+                '</div>' +
+            '</div>' +
+            '<div id="testEmailResult" style="display:none;"></div>' +
+        '</div>';
+    card.after(testCard);
+
+    if (typeof feather !== 'undefined') feather.replace();
+
+    document.getElementById('btnSendTestEmail')?.addEventListener('click', function () {
+        var email = document.getElementById('testEmailAddress').value.trim();
+        if (!email || email.indexOf('@') === -1) {
+            alert('Please enter a valid email address.');
+            return;
+        }
+        var btn = this;
+        var res = document.getElementById('testEmailResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sending…';
+        res.style.display = 'none';
+
+        var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        fetch('/crm/api/settings-actions.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'send_test_email',
+                csrf_token: csrf,
+                to_email: email
+            })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            res.style.display = '';
+            if (data.success) {
+                res.className = 'alert alert-success';
+                res.textContent = 'Test email sent! Check your inbox.';
+            } else {
+                res.className = 'alert alert-danger';
+                res.textContent = data.error || 'Failed to send test email.';
+            }
+        })
+        .catch(function (e) {
+            res.style.display = '';
+            res.className = 'alert alert-danger';
+            res.textContent = 'Network error: ' + e.message;
+        })
+        .finally(function () {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="send" style="width:16px;height:16px;"></i> Send Test';
+            if (typeof feather !== 'undefined') feather.replace();
+        });
+    });
 })();
 </script>
 

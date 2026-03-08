@@ -39,6 +39,23 @@ if ($hasFollowupCols) {
     } catch (PDOException $e) { /* ignore */ }
 }
 
+// ── Pagination + Sorting params ──────────────────────────────────────────
+$page     = max(1, (int)($_GET['page'] ?? 1));
+$perPage  = max(10, min(100, (int)($_GET['per_page'] ?? 25)));
+$sortCol  = $_GET['sort'] ?? 'created_at';
+$sortDir  = strtoupper($_GET['dir'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
+
+// Whitelist allowed sort columns
+$allowedSorts = [
+    'quote_number' => 'q.quote_number',
+    'client'       => 'client_display_name',
+    'amount'       => 'q.amount',
+    'status'       => 'q.status',
+    'created_at'   => 'q.created_at',
+    'valid_until'  => 'q.valid_until',
+];
+$orderBy = $allowedSorts[$sortCol] ?? 'q.created_at';
+
 // ── Build main query ─────────────────────────────────────────────────────
 $params = [];
 $whereConditions = ['1=1'];
@@ -71,6 +88,23 @@ $extraCols = $hasFollowupCols
     ? ', q.follow_up_count, q.follow_up_sent_at, DATEDIFF(NOW(), q.sent_at) AS days_since_sent'
     : ', 0 AS follow_up_count, NULL AS follow_up_sent_at, NULL AS days_since_sent';
 
+// Count total matching rows for pagination
+$countParams = $params;
+$countQuery = $db->prepare("
+    SELECT COUNT(*) FROM quotes q
+    LEFT JOIN properties p ON q.property_id = p.id
+    LEFT JOIN companies c ON q.company_id = c.id
+    LEFT JOIN quote_requests qr ON qr.quote_id = q.id
+    LEFT JOIN contacts qrc ON qr.contact_id = qrc.id
+    LEFT JOIN contacts pc ON p.site_contact_id = pc.id
+    WHERE {$whereClause}
+");
+$countQuery->execute($countParams);
+$filteredTotal = (int)$countQuery->fetchColumn();
+$totalPages = max(1, (int)ceil($filteredTotal / $perPage));
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
 $stmt = $db->prepare("
     SELECT
         q.*,
@@ -96,8 +130,8 @@ $stmt = $db->prepare("
     LEFT JOIN contacts pc ON p.site_contact_id = pc.id
     LEFT JOIN users u ON q.created_by = u.id
     WHERE {$whereClause}
-    ORDER BY q.created_at DESC
-    LIMIT 100
+    ORDER BY {$orderBy} {$sortDir}
+    LIMIT {$perPage} OFFSET {$offset}
 ");
 $stmt->execute($params);
 $quotes = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -109,6 +143,24 @@ while ($row = $countStmt->fetch()) {
     $statusCounts[$row['status']] = $row['count'];
 }
 $totalCount = array_sum($statusCounts);
+
+// Helper: build sort URL preserving current filters
+function quoteSortUrl($col, $curSort, $curDir) {
+    $params = $_GET;
+    $params['sort'] = $col;
+    $params['dir'] = ($curSort === $col && $curDir === 'ASC') ? 'DESC' : 'ASC';
+    unset($params['page']); // reset to page 1 on sort change
+    return '?' . http_build_query($params);
+}
+function quoteSortClass($col, $curSort, $curDir) {
+    if ($curSort !== $col) return 'mw-sortable';
+    return 'mw-sortable mw-sort-' . strtolower($curDir);
+}
+function quotePageUrl($pageNum) {
+    $params = $_GET;
+    $params['page'] = $pageNum;
+    return '?' . http_build_query($params);
+}
 
 $pageTitle = 'Quotes';
 $activePage = 'quotes';
@@ -184,13 +236,13 @@ $activePage = 'quotes';
                       <table class="mw-table">
                           <thead>
                               <tr>
-                                  <th>Quote #</th>
-                                  <th>Client</th>
+                                  <th class="<?php echo quoteSortClass('quote_number', $sortCol, $sortDir); ?>"><a href="<?php echo quoteSortUrl('quote_number', $sortCol, $sortDir); ?>">Quote #</a></th>
+                                  <th class="<?php echo quoteSortClass('client', $sortCol, $sortDir); ?>"><a href="<?php echo quoteSortUrl('client', $sortCol, $sortDir); ?>">Client</a></th>
                                   <th>Service</th>
-                                  <th>Amount</th>
-                                  <th>Status</th>
-                                  <th>Sent</th>
-                                  <th>Valid Until</th>
+                                  <th class="<?php echo quoteSortClass('amount', $sortCol, $sortDir); ?>"><a href="<?php echo quoteSortUrl('amount', $sortCol, $sortDir); ?>">Amount</a></th>
+                                  <th class="<?php echo quoteSortClass('status', $sortCol, $sortDir); ?>"><a href="<?php echo quoteSortUrl('status', $sortCol, $sortDir); ?>">Status</a></th>
+                                  <th class="<?php echo quoteSortClass('created_at', $sortCol, $sortDir); ?>"><a href="<?php echo quoteSortUrl('created_at', $sortCol, $sortDir); ?>">Sent</a></th>
+                                  <th class="<?php echo quoteSortClass('valid_until', $sortCol, $sortDir); ?>"><a href="<?php echo quoteSortUrl('valid_until', $sortCol, $sortDir); ?>">Valid Until</a></th>
                                   <th>Actions</th>
                               </tr>
                           </thead>
@@ -253,6 +305,50 @@ $activePage = 'quotes';
                           </tbody>
                       </table>
                   </div>
+                  <?php if ($totalPages > 1): ?>
+                  <div class="mw-pagination">
+                      <div class="mw-pagination-info">
+                          <span>Showing <?php echo $offset + 1; ?>–<?php echo min($offset + $perPage, $filteredTotal); ?> of <?php echo $filteredTotal; ?> quotes</span>
+                          <div class="mw-pagination-per-page">
+                              <span>Show</span>
+                              <select onchange="window.location.href=this.value;">
+                                  <?php foreach ([10, 25, 50, 100] as $pp): ?>
+                                  <option value="<?php $p = $_GET; $p['per_page'] = $pp; $p['page'] = 1; echo '?' . http_build_query($p); ?>" <?php echo $perPage === $pp ? 'selected' : ''; ?>><?php echo $pp; ?></option>
+                                  <?php endforeach; ?>
+                              </select>
+                              <span>per page</span>
+                          </div>
+                      </div>
+                      <div class="mw-pagination-pages">
+                          <?php if ($page > 1): ?>
+                              <a href="<?php echo quotePageUrl($page - 1); ?>">&laquo;</a>
+                          <?php else: ?>
+                              <span class="disabled">&laquo;</span>
+                          <?php endif; ?>
+                          <?php
+                          $startP = max(1, $page - 2);
+                          $endP = min($totalPages, $page + 2);
+                          if ($startP > 1) echo '<a href="' . quotePageUrl(1) . '">1</a>';
+                          if ($startP > 2) echo '<span class="disabled">&hellip;</span>';
+                          for ($i = $startP; $i <= $endP; $i++):
+                          ?>
+                              <?php if ($i === $page): ?>
+                                  <span class="active"><?php echo $i; ?></span>
+                              <?php else: ?>
+                                  <a href="<?php echo quotePageUrl($i); ?>"><?php echo $i; ?></a>
+                              <?php endif; ?>
+                          <?php endfor;
+                          if ($endP < $totalPages - 1) echo '<span class="disabled">&hellip;</span>';
+                          if ($endP < $totalPages) echo '<a href="' . quotePageUrl($totalPages) . '">' . $totalPages . '</a>';
+                          ?>
+                          <?php if ($page < $totalPages): ?>
+                              <a href="<?php echo quotePageUrl($page + 1); ?>">&raquo;</a>
+                          <?php else: ?>
+                              <span class="disabled">&raquo;</span>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+                  <?php endif; ?>
               <?php endif; ?>
           </div>
 

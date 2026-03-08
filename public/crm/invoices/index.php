@@ -14,6 +14,23 @@ requirePermission('billing.view');
 $statusFilter = $_GET['status'] ?? '';
 $searchQuery  = trim($_GET['search'] ?? '');
 
+// ── Pagination + Sorting params ──────────────────────────────────────────
+$page     = max(1, (int)($_GET['page'] ?? 1));
+$perPage  = max(10, min(100, (int)($_GET['per_page'] ?? 25)));
+$sortCol  = $_GET['sort'] ?? 'created_at';
+$sortDir  = strtoupper($_GET['dir'] ?? 'DESC') === 'ASC' ? 'ASC' : 'DESC';
+
+$allowedSorts = [
+    'invoice_number' => 'i.invoice_number',
+    'client'         => 'display_client',
+    'amount'         => 'i.total',
+    'balance'        => 'i.balance_due',
+    'due_date'       => 'i.due_date',
+    'status'         => 'i.status',
+    'created_at'     => 'i.created_at',
+];
+$orderBy = $allowedSorts[$sortCol] ?? 'i.created_at';
+
 // Build query
 $db     = getDB();
 $params = [];
@@ -34,6 +51,20 @@ if ($searchQuery) {
 
 $whereClause = implode(' AND ', $whereConditions);
 
+// Count total matching rows
+$countParams = $params;
+$cntStmt = $db->prepare("
+    SELECT COUNT(*) FROM invoices i
+    LEFT JOIN companies c ON i.company_id = c.id
+    LEFT JOIN contacts ct ON i.contact_id = ct.id
+    WHERE {$whereClause}
+");
+$cntStmt->execute($countParams);
+$filteredTotal = (int)$cntStmt->fetchColumn();
+$totalPages = max(1, (int)ceil($filteredTotal / $perPage));
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
 $stmt = $db->prepare("
     SELECT
         i.*,
@@ -49,8 +80,8 @@ $stmt = $db->prepare("
     LEFT JOIN job_plans  jp ON i.plan_id    = jp.id
     LEFT JOIN job_visits jv ON i.visit_id   = jv.id
     WHERE {$whereClause}
-    ORDER BY i.created_at DESC
-    LIMIT 200
+    ORDER BY {$orderBy} {$sortDir}
+    LIMIT {$perPage} OFFSET {$offset}
 ");
 $stmt->execute($params);
 $invoices = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -70,6 +101,20 @@ while ($row = $countStmt->fetch()) {
     }
 }
 $totalCount = array_sum($statusCounts);
+
+// Helper functions for sort/pagination URLs
+function invSortUrl($col, $curSort, $curDir) {
+    $p = $_GET; $p['sort'] = $col;
+    $p['dir'] = ($curSort === $col && $curDir === 'ASC') ? 'DESC' : 'ASC';
+    unset($p['page']); return '?' . http_build_query($p);
+}
+function invSortClass($col, $curSort, $curDir) {
+    if ($curSort !== $col) return 'mw-sortable';
+    return 'mw-sortable mw-sort-' . strtolower($curDir);
+}
+function invPageUrl($pageNum) {
+    $p = $_GET; $p['page'] = $pageNum; return '?' . http_build_query($p);
+}
 
 $csrfToken = generateCSRFToken();
 
@@ -174,13 +219,13 @@ $activePage = 'invoices';
                                     <input type="checkbox" id="mw-check-all" class="mw-checkbox"
                                            title="Select all payable invoices" onchange="mwToggleAll(this)">
                                 </th>
-                                <th>Invoice #</th>
-                                <th>Client</th>
+                                <th class="<?php echo invSortClass('invoice_number', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('invoice_number', $sortCol, $sortDir); ?>">Invoice #</a></th>
+                                <th class="<?php echo invSortClass('client', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('client', $sortCol, $sortDir); ?>">Client</a></th>
                                 <th>Plan</th>
-                                <th class="text-right">Amount</th>
-                                <th class="text-right">Balance</th>
-                                <th>Due Date</th>
-                                <th>Status</th>
+                                <th class="text-right <?php echo invSortClass('amount', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('amount', $sortCol, $sortDir); ?>">Amount</a></th>
+                                <th class="text-right <?php echo invSortClass('balance', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('balance', $sortCol, $sortDir); ?>">Balance</a></th>
+                                <th class="<?php echo invSortClass('due_date', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('due_date', $sortCol, $sortDir); ?>">Due Date</a></th>
+                                <th class="<?php echo invSortClass('status', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('status', $sortCol, $sortDir); ?>">Status</a></th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -241,6 +286,50 @@ $activePage = 'invoices';
                             <?php endforeach; ?>
                         </tbody>
                     </table>
+                    <?php if ($totalPages > 1): ?>
+                    <div class="mw-pagination">
+                        <div class="mw-pagination-info">
+                            <span>Showing <?php echo $offset + 1; ?>–<?php echo min($offset + $perPage, $filteredTotal); ?> of <?php echo $filteredTotal; ?> invoices</span>
+                            <div class="mw-pagination-per-page">
+                                <span>Show</span>
+                                <select onchange="window.location.href=this.value;">
+                                    <?php foreach ([10, 25, 50, 100] as $pp): ?>
+                                    <option value="<?php $p = $_GET; $p['per_page'] = $pp; $p['page'] = 1; echo '?' . http_build_query($p); ?>" <?php echo $perPage === $pp ? 'selected' : ''; ?>><?php echo $pp; ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <span>per page</span>
+                            </div>
+                        </div>
+                        <div class="mw-pagination-pages">
+                            <?php if ($page > 1): ?>
+                                <a href="<?php echo invPageUrl($page - 1); ?>">&laquo;</a>
+                            <?php else: ?>
+                                <span class="disabled">&laquo;</span>
+                            <?php endif; ?>
+                            <?php
+                            $startP = max(1, $page - 2);
+                            $endP = min($totalPages, $page + 2);
+                            if ($startP > 1) echo '<a href="' . invPageUrl(1) . '">1</a>';
+                            if ($startP > 2) echo '<span class="disabled">&hellip;</span>';
+                            for ($i = $startP; $i <= $endP; $i++):
+                            ?>
+                                <?php if ($i === $page): ?>
+                                    <span class="active"><?php echo $i; ?></span>
+                                <?php else: ?>
+                                    <a href="<?php echo invPageUrl($i); ?>"><?php echo $i; ?></a>
+                                <?php endif; ?>
+                            <?php endfor;
+                            if ($endP < $totalPages - 1) echo '<span class="disabled">&hellip;</span>';
+                            if ($endP < $totalPages) echo '<a href="' . invPageUrl($totalPages) . '">' . $totalPages . '</a>';
+                            ?>
+                            <?php if ($page < $totalPages): ?>
+                                <a href="<?php echo invPageUrl($page + 1); ?>">&raquo;</a>
+                            <?php else: ?>
+                                <span class="disabled">&raquo;</span>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
 

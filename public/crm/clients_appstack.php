@@ -1869,15 +1869,17 @@ $unconvertedRequests = $db->query("
               <?php unset($_SESSION['alert']); ?>
           <?php endif; ?>
 
+          <?php if (!in_array($action, ['view_contact', 'view_company'])): ?>
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h1 class="h3 mb-0"><?php echo (($_GET['view'] ?? '') === 'duplicates') ? 'Review Duplicate Contacts' : 'Client Management'; ?></h1>
-            <?php if (!in_array($action, ['edit', 'new', 'view_contact', 'edit_contact', 'view_company', 'edit_company']) && ($_GET['view'] ?? '') !== 'duplicates'): ?>
+            <?php if (!in_array($action, ['edit', 'new', 'edit_contact', 'edit_company']) && ($_GET['view'] ?? '') !== 'duplicates'): ?>
               <div>
                 <a href="/crm/api/export-contacts.php" class="btn btn-outline-secondary mr-1" title="Export CSV"><i data-feather="download" style="width:16px;height:16px;"></i> Export</a>
                 <button class="btn btn-primary" onclick="location.href='?action=new'"><i data-feather="plus"></i> Add New Client</button>
               </div>
             <?php endif; ?>
           </div>
+          <?php endif; ?>
 
           <?php if ($message): ?>
             <div class="alert alert-<?php echo $messageType === 'success' ? 'success' : 'danger'; ?> alert-dismissible fade show" role="alert">
@@ -2356,13 +2358,9 @@ $unconvertedRequests = $db->query("
                 <!-- Contact Details Card -->
                 <div class="card mb-3">
                   <div class="card-header">
-                    <h5 class="card-title mb-0"><i data-feather="info"></i> Contact Details</h5>
+                    <h5 class="card-title mb-0"><i data-feather="user"></i> <?php echo $contactName; ?></h5>
                   </div>
                   <div class="card-body">
-                    <div class="row mb-2">
-                      <div class="col-sm-3 text-muted">Name</div>
-                      <div class="col-sm-9"><strong><?php echo $contactName; ?></strong></div>
-                    </div>
                     <?php if (!empty($viewContact['email'])): ?>
                     <div class="row mb-2">
                       <div class="col-sm-3 text-muted">Email</div>
@@ -4379,13 +4377,9 @@ $unconvertedRequests = $db->query("
                 <!-- Company Details Card -->
                 <div class="card mb-3">
                   <div class="card-header">
-                    <h5 class="card-title mb-0"><i data-feather="info"></i> Company Details</h5>
+                    <h5 class="card-title mb-0"><i data-feather="briefcase"></i> <?php echo h($viewCompany['company_name']); ?></h5>
                   </div>
                   <div class="card-body">
-                    <div class="row mb-2">
-                      <div class="col-sm-4 text-muted">Company</div>
-                      <div class="col-sm-8"><strong><?php echo h($viewCompany['company_name']); ?></strong></div>
-                    </div>
                     <div class="row mb-2">
                       <div class="col-sm-4 text-muted">Type</div>
                       <div class="col-sm-8"><?php echo ucwords(str_replace('_', ' ', $viewCompany['company_type'] ?? 'individual')); ?></div>
