@@ -1,0 +1,119 @@
+/* =====================================================
+   CMS Enhanced Modules — Shared Styles
+   Fonts, tokens, and reveal animation used by all
+   --enhanced block variants.
+   ===================================================== */
+
+/* ── Google Fonts (Playfair Display + DM Sans) ─────── */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+/* ── Shared label component ─────────────────────────── */
+.mw-label {
+  display: inline-block;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #2d7a3a;
+  margin-bottom: 0.75rem;
+  position: relative;
+  padding-left: 24px;
+}
+.mw-label::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 2px;
+  background: #2d7a3a;
+}
+
+/* ── Section heading ────────────────────────────────── */
+.mw-section-heading {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(2rem, 3.5vw, 3rem);
+  font-weight: 700;
+  color: #1a2e1e;
+  margin: 0;
+  line-height: 1.2;
+}
+
+/* ── Shared button base ─────────────────────────────── */
+.mw-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 28px;
+  border-radius: 4px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.25s;
+  cursor: pointer;
+  border: none;
+}
+.mw-btn svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.25s;
+}
+.mw-btn:hover svg {
+  transform: translateX(4px);
+}
+.mw-btn--primary {
+  background: #2d7a3a;
+  color: #fff;
+  box-shadow: 0 4px 24px rgba(45, 122, 58, 0.4);
+}
+.mw-btn--primary:hover {
+  background: #236230;
+  box-shadow: 0 6px 32px rgba(45, 122, 58, 0.55);
+  transform: translateY(-2px);
+}
+.mw-btn--ghost {
+  background: transparent;
+  color: #fff;
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+}
+.mw-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.8);
+}
+.mw-btn--white {
+  background: #fff;
+  color: #2d7a3a;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+.mw-btn--white:hover {
+  background: #f0fdf4;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+}
+.mw-btn--outline-white {
+  background: transparent;
+  color: #fff;
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+}
+.mw-btn--outline-white:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: #fff;
+}
+
+/* ── Scroll reveal animation ────────────────────────── */
+.mw-reveal {
+  opacity: 0;
+  transform: translateY(32px);
+}
+.mw-reveal.is-visible {
+  animation: mwRevealUp 0.65s var(--delay, 0s) cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+@keyframes mwRevealUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

@@ -35,8 +35,5 @@
 @import "pages/jobflow-success.css";
 @import "pages/service-landing.css";
 
-/* ---- CMS (future) ----
-    CMS styling will be added in the next phase.
-    Temporarily disabled to prevent 404 errors.
-*/
-/* @import "cms.css"; */
+/* ---- CMS Modules ---- */
+@import "modules/cms-modules.css";

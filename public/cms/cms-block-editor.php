@@ -45,6 +45,7 @@ $blockFieldTemplates = [
     'hero' => [
         'headline'    => ['type' => 'text',     'label' => 'Headline',        'required' => true,  'maxlength' => 80,  'hint' => '5–80 chars. Make it punchy.'],
         'subheadline' => ['type' => 'textarea',  'label' => 'Subheadline',     'rows' => 2,         'maxlength' => 160, 'hint' => 'One sentence. 50–160 chars.'],
+        'badge'       => ['type' => 'text',     'label' => 'Badge Text (Enhanced)', 'maxlength' => 60, 'hint' => 'e.g. "Vancouver\'s Trusted Landscapers" — shown in enhanced variant only.'],
         'cta_text'    => ['type' => 'text',     'label' => 'CTA Button Text',  'maxlength' => 40],
         'cta_url'     => ['type' => 'text',     'label' => 'CTA Button URL'],
         'secondary_cta_text' => ['type' => 'text', 'label' => 'Secondary Button Text', 'maxlength' => 40],
@@ -102,6 +103,7 @@ $blockFieldTemplates = [
             'name'  => ['type' => 'text',     'label' => 'Name',          'required' => true, 'maxlength' => 80],
             'quote' => ['type' => 'textarea', 'label' => 'Quote',         'required' => true, 'rows' => 3, 'maxlength' => 400],
             'role'  => ['type' => 'text',     'label' => 'Role / Company','maxlength' => 80],
+            'stars' => ['type' => 'text',     'label' => 'Stars (Enhanced)', 'maxlength' => 1, 'hint' => '1–5 stars. Enhanced variant only.'],
         ]],
     ],
     'service_cards' => [
@@ -112,6 +114,9 @@ $blockFieldTemplates = [
             'title'       => ['type' => 'text',     'label' => 'Service Title', 'required' => true, 'maxlength' => 60],
             'description' => ['type' => 'textarea', 'label' => 'Description',   'rows' => 2,        'maxlength' => 160],
             'url'         => ['type' => 'text',     'label' => 'Link URL (optional)'],
+            'media_id'    => ['type' => 'media',    'label' => 'Card Image (Enhanced)'],
+            'icon'        => ['type' => 'text',     'label' => 'Icon (Enhanced)', 'maxlength' => 20, 'hint' => 'scissors, building, leaf, sun, home'],
+            'features'    => ['type' => 'text',     'label' => 'Features (Enhanced)', 'maxlength' => 200, 'hint' => 'Comma-separated, e.g. "Weekly Scheduling, Edging, Cleanup"'],
         ]],
     ],
     // ---- New block types ----
@@ -130,6 +135,8 @@ $blockFieldTemplates = [
     'before_after' => [
         'title'       => ['type' => 'text',      'label' => 'Section Title',  'maxlength' => 80],
         'description' => ['type' => 'textarea',  'label' => 'Description',    'rows' => 2, 'maxlength' => 200],
+        'auto_feed'   => ['type' => 'select',    'label' => 'Data Source (Enhanced)', 'options' => ['0' => 'Manual Pairs (below)', '1' => 'Auto-feed from B/A Pairs API'], 'hint' => 'Enhanced variant: auto-feed pulls from the Before & After admin panel.'],
+        'max_pairs'   => ['type' => 'text',      'label' => 'Max Pairs (Enhanced)', 'maxlength' => 3, 'hint' => 'Max pairs to display (default: 6). Enhanced variant only.'],
         'pairs'       => ['type' => 'repeatable','label' => 'Before/After Pairs', 'itemType' => 'pair', 'fields' => [
             'before_media_id' => ['type' => 'media','label' => 'Before Image'],
             'after_media_id'  => ['type' => 'media','label' => 'After Image'],
@@ -142,6 +149,7 @@ $blockFieldTemplates = [
         'stats'       => ['type' => 'repeatable','label' => 'Stats', 'itemType' => 'stat', 'fields' => [
             'number' => ['type' => 'text',     'label' => 'Number / Value', 'required' => true, 'maxlength' => 20, 'hint' => 'e.g. 200+, 98%, $1M'],
             'label'  => ['type' => 'text',     'label' => 'Label',          'required' => true, 'maxlength' => 60],
+            'icon'   => ['type' => 'text',     'label' => 'Icon (Enhanced)', 'maxlength' => 20, 'hint' => 'home, calendar, camera, heart, star, users, check'],
         ]],
     ],
     'portfolio_showcase' => [
@@ -160,7 +168,8 @@ $blockFieldTemplates = [
         'subtitle' => ['type' => 'textarea',  'label' => 'Subtitle',      'rows' => 2, 'maxlength' => 200],
         'areas'    => ['type' => 'repeatable','label' => 'Service Areas', 'itemType' => 'area', 'fields' => [
             'name'           => ['type' => 'text',     'label' => 'Area Name',          'required' => true, 'maxlength' => 80, 'hint' => 'e.g. Vancouver, Burnaby'],
-            'neighborhoods'  => ['type' => 'textarea', 'label' => 'Neighborhoods / Notes', 'rows' => 2,    'maxlength' => 300, 'hint' => 'e.g. Kitsilano, Fairview, Mount Pleasant'],
+            'neighborhoods'  => ['type' => 'textarea', 'label' => 'Neighborhoods / Notes', 'rows' => 2,    'maxlength' => 300, 'hint' => 'Comma-separated. e.g. Kitsilano, Fairview, Mount Pleasant'],
+            'icon'           => ['type' => 'text',     'label' => 'Emoji Icon (Enhanced)', 'maxlength' => 4, 'hint' => 'e.g. 🌆 🏘️ 🌿 ⛰️'],
         ]],
     ],
     'custom' => [
@@ -212,6 +221,21 @@ $fields = $blockFieldTemplates[$block['block_type'] ?? ''] ?? [];
                                 <small class="d-block">To change block type, delete and re-add</small>
                             </div>
                         </div>
+
+                        <?php
+                        // Show variant selector for block types that have enhanced variants
+                        $enhancedTypes = ['hero', 'before_after', 'stats_banner', 'testimonials', 'area_cards', 'service_cards', 'cta'];
+                        if (in_array($block['block_type'] ?? '', $enhancedTypes)):
+                        ?>
+                        <div class="form-group">
+                            <label for="variant">Design Variant</label>
+                            <select class="form-control" id="variant" name="variant">
+                                <option value="default" <?php echo ($block['variant'] ?? 'default') === 'default' ? 'selected' : ''; ?>>Default (Basic)</option>
+                                <option value="enhanced" <?php echo ($block['variant'] ?? '') === 'enhanced' ? 'selected' : ''; ?>>Enhanced (Animated)</option>
+                            </select>
+                            <small class="form-text text-muted">Enhanced variants include animations, parallax, and interactive components.</small>
+                        </div>
+                        <?php endif; ?>
 
                         <div class="form-check mb-3">
                             <input type="checkbox" class="form-check-input" id="is_visible" name="is_visible" value="1"
