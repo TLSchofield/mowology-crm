@@ -19,11 +19,11 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v28';
+var CACHE_VERSION = 'mw-v29';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
-var TILE_CACHE   = 'mw-tiles-v1'; // satellite tiles — long-lived, NOT versioned with CACHE_VERSION
+var TILE_CACHE   = 'mw-tiles-v2'; // satellite tiles — long-lived, NOT versioned with CACHE_VERSION
 
 /**
  * App shell — pre-cached on SW install for instant load.
