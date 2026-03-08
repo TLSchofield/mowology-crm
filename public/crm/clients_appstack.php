@@ -2362,32 +2362,32 @@ $unconvertedRequests = $db->query("
                   </div>
                   <div class="card-body">
                     <?php if (!empty($viewContact['email'])): ?>
-                    <div class="row mb-2">
-                      <div class="col-sm-3 text-muted"><i data-feather="mail" style="width: 14px; height: 14px;"></i> Email</div>
-                      <div class="col-sm-9"><a href="mailto:<?php echo h($viewContact['email']); ?>"><?php echo h($viewContact['email']); ?></a></div>
+                    <div class="row mb-2 align-items-center">
+                      <div class="col-sm-1 text-muted" title="Email"><i data-feather="mail" style="width: 16px; height: 16px;"></i></div>
+                      <div class="col-sm-11"><a href="mailto:<?php echo h($viewContact['email']); ?>"><?php echo h($viewContact['email']); ?></a></div>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($viewContact['phone'])): ?>
-                    <div class="row mb-2">
-                      <div class="col-sm-3 text-muted"><i data-feather="phone" style="width: 14px; height: 14px;"></i> Phone</div>
-                      <div class="col-sm-9"><a href="tel:<?php echo h($viewContact['phone']); ?>"><?php echo h($viewContact['phone']); ?></a></div>
+                    <div class="row mb-2 align-items-center">
+                      <div class="col-sm-1 text-muted" title="Phone"><i data-feather="phone" style="width: 16px; height: 16px;"></i></div>
+                      <div class="col-sm-11"><a href="tel:<?php echo h($viewContact['phone']); ?>"><?php echo h($viewContact['phone']); ?></a></div>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($viewContact['mobile'])): ?>
-                    <div class="row mb-2">
-                      <div class="col-sm-3 text-muted"><i data-feather="smartphone" style="width: 14px; height: 14px;"></i> Mobile</div>
-                      <div class="col-sm-9"><a href="tel:<?php echo h($viewContact['mobile']); ?>"><?php echo h($viewContact['mobile']); ?></a></div>
+                    <div class="row mb-2 align-items-center">
+                      <div class="col-sm-1 text-muted" title="Mobile"><i data-feather="smartphone" style="width: 16px; height: 16px;"></i></div>
+                      <div class="col-sm-11"><a href="tel:<?php echo h($viewContact['mobile']); ?>"><?php echo h($viewContact['mobile']); ?></a></div>
                     </div>
                     <?php endif; ?>
-                    <div class="row mb-2">
-                      <div class="col-sm-3 text-muted"><i data-feather="star" style="width: 14px; height: 14px;"></i> Preferred</div>
-                      <div class="col-sm-9"><?php echo ucfirst(h($viewContact['preferred_contact_method'] ?? 'phone')); ?></div>
+                    <div class="row mb-2 align-items-center">
+                      <div class="col-sm-1 text-muted" title="Preferred contact method"><i data-feather="star" style="width: 16px; height: 16px;"></i></div>
+                      <div class="col-sm-11"><?php echo ucfirst(h($viewContact['preferred_contact_method'] ?? 'phone')); ?></div>
                     </div>
 
                     <!-- Communication Preferences -->
-                    <div class="row mb-2">
-                      <div class="col-sm-3 text-muted">Preferences</div>
-                      <div class="col-sm-9">
+                    <div class="row mb-2 align-items-center">
+                      <div class="col-sm-1 text-muted" title="Preferences"><i data-feather="settings" style="width: 16px; height: 16px;"></i></div>
+                      <div class="col-sm-11">
                         <span class="mw-contact-pref-badge <?php echo !empty($viewContact['receive_sms']) ? 'active' : 'inactive'; ?>">
                           <i data-feather="message-square" style="width: 12px; height: 12px;"></i> SMS
                         </span>
@@ -2401,9 +2401,9 @@ $unconvertedRequests = $db->query("
                     </div>
 
                     <?php if (!empty($viewContact['stripe_card_last4'])): ?>
-                    <div class="row mb-2">
-                      <div class="col-sm-3 text-muted">Card on File</div>
-                      <div class="col-sm-9">
+                    <div class="row mb-2 align-items-center">
+                      <div class="col-sm-1 text-muted" title="Card on File"><i data-feather="credit-card" style="width: 16px; height: 16px;"></i></div>
+                      <div class="col-sm-11">
                         <span class="mw-card-on-file-badge">
                           <i data-feather="credit-card"></i>
                           <?php echo h(ucfirst($viewContact['stripe_card_brand'] ?? 'Card')); ?> ••••<?php echo h($viewContact['stripe_card_last4']); ?>
@@ -2415,9 +2415,9 @@ $unconvertedRequests = $db->query("
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($viewContact['notes'])): ?>
-                    <div class="row mb-0">
-                      <div class="col-sm-3 text-muted">Notes</div>
-                      <div class="col-sm-9"><span class="text-muted"><?php echo nl2br(h($viewContact['notes'])); ?></span></div>
+                    <div class="row mb-0 align-items-center">
+                      <div class="col-sm-1 text-muted" title="Notes"><i data-feather="file-text" style="width: 16px; height: 16px;"></i></div>
+                      <div class="col-sm-11"><span class="text-muted"><?php echo nl2br(h($viewContact['notes'])); ?></span></div>
                     </div>
                     <?php endif; ?>
                   </div>
