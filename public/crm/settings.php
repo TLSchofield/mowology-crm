@@ -1167,18 +1167,27 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var activeSubtabs = document.getElementById('subtabs-' + name);
         if (activeSubtabs) activeSubtabs.style.display = '';
 
-        // Activate the first sub-tab in this category via Bootstrap tab
-        // Use requestAnimationFrame so the browser processes the display change
-        // before Bootstrap tries to transition the fade class on the tab pane
+        // Activate the first sub-tab in this category.
+        // Bootstrap 4 .tab('show') can't deactivate a pane whose nav-link is in
+        // a different <ul>, so we manually deactivate the old pane first,
+        // then directly activate the new one without relying on CSS transitions.
+        var allPanes = document.querySelectorAll('.tab-content .tab-pane');
+        var allNavLinks = document.querySelectorAll('.mw-settings-subtabs .nav-link');
+        for (var p = 0; p < allPanes.length; p++) {
+            allPanes[p].classList.remove('show', 'active');
+        }
+        for (var n = 0; n < allNavLinks.length; n++) {
+            allNavLinks[n].classList.remove('active');
+        }
+
         var firstLink = activeSubtabs ? activeSubtabs.querySelector('.nav-link') : null;
         if (firstLink) {
-            requestAnimationFrame(function () {
-                if (typeof $ !== 'undefined' && $.fn.tab) {
-                    $(firstLink).tab('show');
-                } else {
-                    firstLink.click();
-                }
-            });
+            var targetId = firstLink.getAttribute('href');
+            var targetPane = targetId ? document.querySelector(targetId) : null;
+            firstLink.classList.add('active');
+            if (targetPane) {
+                targetPane.classList.add('active', 'show');
+            }
         }
 
         // Show/hide main save button (only for business & documents)
