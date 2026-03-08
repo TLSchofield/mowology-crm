@@ -46,9 +46,11 @@ class ZoneEditorManager {
             plans:           [],
             center:          [49.2827, -123.1207],
             zoom:            17,
-            tileUrl:         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            tileAttrib:      'Tiles &copy; Esri &mdash; Esri, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP',
-            labelsUrl:       'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+            tileUrl:         'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            tileAttrib:      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            labelsUrl:       null,
+            satelliteUrl:    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            satelliteAttrib: 'Tiles &copy; Esri &mdash; Esri, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP',
             onZonesChanged:  null,
         }, opts);
 
@@ -90,10 +92,29 @@ class ZoneEditorManager {
 
         this._map = L.map(container, { center: this._opts.center, zoom: this._opts.zoom });
 
-        L.tileLayer(this._opts.tileUrl, {
+        // Street map (default — always available)
+        const street = L.tileLayer(this._opts.tileUrl, {
             attribution: this._opts.tileAttrib,
             maxNativeZoom: 19, maxZoom: 21,
-        }).addTo(this._map);
+        });
+
+        // Satellite layer (optional — may be unavailable)
+        let satellite = null;
+        if (this._opts.satelliteUrl) {
+            satellite = L.tileLayer(this._opts.satelliteUrl, {
+                attribution: this._opts.satelliteAttrib || '',
+                maxNativeZoom: 19, maxZoom: 21,
+            });
+        }
+
+        street.addTo(this._map);
+
+        // Layer control for switching views
+        const baseMaps = { 'Street': street };
+        if (satellite) baseMaps['Satellite'] = satellite;
+        if (Object.keys(baseMaps).length > 1) {
+            L.control.layers(baseMaps, null, { position: 'topright' }).addTo(this._map);
+        }
 
         if (this._opts.labelsUrl) {
             L.tileLayer(this._opts.labelsUrl, {
