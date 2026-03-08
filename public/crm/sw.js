@@ -29,9 +29,9 @@
  */
 'use strict';
 
-var CACHE_NAME  = 'mwcrm-assets-v7';
+var CACHE_NAME  = 'mwcrm-assets-v8';
 var OFFLINE_URL = '/crm/offline.html';
-var TILE_CACHE  = 'mw-tiles-v1'; // satellite tiles — long-lived, separate from asset cache
+var TILE_CACHE  = 'mw-tiles-v2'; // satellite tiles — long-lived, separate from asset cache
 var MAX_TILES   = 2000;          // evict oldest when exceeded
 
 // Must match constants in offline-queue.js
@@ -277,22 +277,31 @@ function isMapTile(hostname) {
 
 /**
  * Cache-first strategy for satellite tiles.
- * Tiles are cross-origin so responses are opaque (status 0).
- * We cache them anyway — a tile URL is immutable (same z/x/y = same image).
+ * OSM tiles support CORS, Esri tiles don't — try cors first, fall back to no-cors.
+ * Only cache responses that look valid (correct content-type for cors, or opaque).
  */
 function tileCacheFirst(request) {
     return caches.open(TILE_CACHE).then(function (cache) {
         return cache.match(request).then(function (cached) {
             if (cached) return cached;
 
-            // Cross-origin tiles need no-cors; opaque responses are cacheable
-            var fetchReq = new Request(request.url, { mode: 'no-cors' });
-            return fetch(fetchReq).then(function (response) {
-                if (response.ok || response.type === 'opaque') {
+            // Try cors first (OSM supports it) — lets us validate the response
+            return fetch(new Request(request.url, { mode: 'cors' })).then(function (response) {
+                if (response.ok) {
                     cache.put(request, response.clone());
                     trimTileCache(cache);
                 }
                 return response;
+            }).catch(function () {
+                // CORS failed (e.g. Esri) — fall back to no-cors opaque
+                var fetchReq = new Request(request.url, { mode: 'no-cors' });
+                return fetch(fetchReq).then(function (response) {
+                    if (response.type === 'opaque') {
+                        cache.put(request, response.clone());
+                        trimTileCache(cache);
+                    }
+                    return response;
+                });
             });
         });
     }).catch(function () {
@@ -368,17 +377,31 @@ function prewarmTiles(data, client) {
             }
 
             return Promise.all(batch.map(function (url) {
-                var req = new Request(url, { mode: 'no-cors' });
-                return cache.match(req).then(function (existing) {
+                var corsReq = new Request(url, { mode: 'cors' });
+                var noCorsReq = new Request(url, { mode: 'no-cors' });
+                return cache.match(corsReq).then(function (existing) {
+                    if (existing) { skipped++; return; }
+                    // Also check no-cors key
+                    return cache.match(noCorsReq);
+                }).then(function (existing) {
                     if (existing) { skipped++; return; }
 
-                    return fetch(req).then(function (response) {
-                        if (response.ok || response.type === 'opaque') {
+                    // Try cors first to validate response, fall back to no-cors
+                    return fetch(corsReq).then(function (response) {
+                        if (response.ok) {
                             fetched++;
-                            return cache.put(req, response);
+                            return cache.put(corsReq, response);
                         }
                         failed++;
-                    }).catch(function () { failed++; });
+                    }).catch(function () {
+                        return fetch(noCorsReq).then(function (response) {
+                            if (response.type === 'opaque') {
+                                fetched++;
+                                return cache.put(noCorsReq, response);
+                            }
+                            failed++;
+                        }).catch(function () { failed++; });
+                    });
                 });
             })).then(function () {
                 if (client && (startIdx % 30 === 0 || startIdx + 6 >= urls.length)) {
