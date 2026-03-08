@@ -1168,14 +1168,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (activeSubtabs) activeSubtabs.style.display = '';
 
         // Activate the first sub-tab in this category via Bootstrap tab
+        // Use requestAnimationFrame so the browser processes the display change
+        // before Bootstrap tries to transition the fade class on the tab pane
         var firstLink = activeSubtabs ? activeSubtabs.querySelector('.nav-link') : null;
         if (firstLink) {
-            // Use jQuery .tab() if available (Bootstrap 4), else click
-            if (typeof $ !== 'undefined' && $.fn.tab) {
-                $(firstLink).tab('show');
-            } else {
-                firstLink.click();
-            }
+            requestAnimationFrame(function () {
+                if (typeof $ !== 'undefined' && $.fn.tab) {
+                    $(firstLink).tab('show');
+                } else {
+                    firstLink.click();
+                }
+            });
         }
 
         // Show/hide main save button (only for business & documents)
