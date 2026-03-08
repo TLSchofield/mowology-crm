@@ -6021,6 +6021,19 @@ tr[data-href] { cursor: pointer; }
   color: #fff;
 }
 
+.mw-prop-action-border-missing {
+  border-color: #e8a838;
+  color: #b45309;
+  background: #fff8ee;
+}
+
+.mw-prop-action-border-missing:hover {
+  border-color: #b45309;
+  color: #92400e;
+  background: #fed7aa;
+  text-decoration: none;
+}
+
 /* Measurements Card (right column) */
 .mw-measurements-property {
   padding: 10px 0;

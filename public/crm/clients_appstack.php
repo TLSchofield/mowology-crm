@@ -2524,21 +2524,6 @@ $unconvertedRequests = $db->query("
                                 </span>
                               <?php endif; ?>
                             </div>
-                            <!-- Arrival Border Status -->
-                            <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0): ?>
-                            <div class="mw-property-geofence-status" onclick="event.stopPropagation();">
-                              <?php if ((int)($prop['has_arrival_border'] ?? 0) > 0): ?>
-                                <span class="mw-geofence-badge mw-geofence-set">
-                                  <i data-feather="shield" style="width: 11px; height: 11px;"></i> Arrival Border Set
-                                </span>
-                              <?php else: ?>
-                                <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_contact&id=' . (int)$clientId); ?>"
-                                   class="mw-geofence-badge mw-geofence-missing" title="Draw arrival border for accurate auto-clock-in">
-                                  <i data-feather="alert-triangle" style="width: 11px; height: 11px;"></i> No Arrival Border
-                                </a>
-                              <?php endif; ?>
-                            </div>
-                            <?php endif; ?>
                             <!-- Quick Actions -->
                             <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
                               <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Measure, quote & auto-fill pricing">
@@ -2550,6 +2535,12 @@ $unconvertedRequests = $db->query("
                               <button type="button" class="mw-prop-action-btn mw-prop-action-geofence" title="Draw work zones for time tracking" onclick="openWorkZoneModal(<?php echo (int)$prop['id']; ?>, <?php echo floatval($prop['latitude'] ?? 0); ?>, <?php echo floatval($prop['longitude'] ?? 0); ?>)">
                                 <i data-feather="map-pin" style="width: 11px; height: 11px;"></i> Work Zone
                               </button>
+                              <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0 && (int)($prop['has_arrival_border'] ?? 0) === 0): ?>
+                              <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_contact&id=' . (int)$clientId); ?>"
+                                 class="mw-prop-action-btn mw-prop-action-border-missing" title="Draw arrival border for accurate auto-clock-in">
+                                <i data-feather="alert-triangle" style="width: 11px; height: 11px;"></i> No Arrival Border
+                              </a>
+                              <?php endif; ?>
                             </div>
                           </div>
                           <div class="d-flex align-items-center" onclick="event.stopPropagation();">
@@ -4346,21 +4337,6 @@ $unconvertedRequests = $db->query("
                                 </span>
                               <?php endif; ?>
                             </div>
-                            <!-- Arrival Border Status -->
-                            <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0): ?>
-                            <div class="mw-property-geofence-status" onclick="event.stopPropagation();">
-                              <?php if ((int)($prop['has_arrival_border'] ?? 0) > 0): ?>
-                                <span class="mw-geofence-badge mw-geofence-set">
-                                  <i data-feather="shield" style="width: 11px; height: 11px;"></i> Arrival Border Set
-                                </span>
-                              <?php else: ?>
-                                <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_company&id=' . (int)$companyId); ?>"
-                                   class="mw-geofence-badge mw-geofence-missing" title="Draw arrival border for accurate auto-clock-in">
-                                  <i data-feather="alert-triangle" style="width: 11px; height: 11px;"></i> No Arrival Border
-                                </a>
-                              <?php endif; ?>
-                            </div>
-                            <?php endif; ?>
                             <!-- Quick Actions -->
                             <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
                               <a href="quote-workflow.php?contact_id=<?php echo (int)($prop['site_contact_id'] ?? 0); ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Measure, quote & auto-fill pricing">
@@ -4369,6 +4345,12 @@ $unconvertedRequests = $db->query("
                               <a href="jobs/create.php?contact_id=<?php echo (int)($prop['site_contact_id'] ?? 0); ?>&property_id=<?php echo (int)$prop['id']; ?>" class="mw-prop-action-btn" title="Create job plan for this property">
                                 <i data-feather="clipboard" style="width: 11px; height: 11px;"></i> Create Plan
                               </a>
+                              <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0 && (int)($prop['has_arrival_border'] ?? 0) === 0): ?>
+                              <a href="jobs/zone-editor.php?property_id=<?php echo (int)$prop['id']; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_company&id=' . (int)$companyId); ?>"
+                                 class="mw-prop-action-btn mw-prop-action-border-missing" title="Draw arrival border for accurate auto-clock-in">
+                                <i data-feather="alert-triangle" style="width: 11px; height: 11px;"></i> No Arrival Border
+                              </a>
+                              <?php endif; ?>
                             </div>
                           </div>
                           <div class="d-flex align-items-center" onclick="event.stopPropagation();">
