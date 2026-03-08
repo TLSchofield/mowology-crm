@@ -293,6 +293,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
     }
 
+    if ($action === 'send_followup') {
+        // Manual follow-up — uses the quote_followup template
+        $customerEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['prop_contact_email'] ?? $quote['billing_email'] ?? null;
+        $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['prop_contact_phone'] ?? $quote['billing_phone'] ?? null;
+        $customerConsentsToSms = false;
+
+        if (!empty($quote['qr_contact_id'])) {
+            $customerConsentsToSms = hasSmConsent((int)$quote['qr_contact_id']);
+        } elseif (!empty($quote['contact_id'])) {
+            $customerConsentsToSms = hasSmConsent((int)$quote['contact_id']);
+        } elseif (!empty($quote['prop_contact_id'])) {
+            $customerConsentsToSms = hasSmConsent((int)$quote['prop_contact_id']);
+        }
+
+        if (!$customerEmail) {
+            $message = 'Error: No email address found for this quote contact.';
+            $messageType = 'error';
+        } else {
+            require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+
+            // Ensure access token exists
+            if (empty($quote['access_token'])) {
+                $quote['access_token'] = generateAccessToken();
+                $db->prepare("UPDATE quotes SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?")
+                   ->execute([$quote['access_token'], $quoteId]);
+            } else {
+                $db->prepare("UPDATE quotes SET token_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?")
+                   ->execute([$quoteId]);
+            }
+
+            $customerName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? $quote['prop_contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? $quote['prop_contact_last'] ?? '')) ?: ($quote['company_name'] ?? 'Valued Customer');
+            $firstName    = explode(' ', $customerName)[0] ?: 'there';
+            $quoteUrl     = "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token'];
+            $companyInfo  = EmailWrapper::getCompanyInfo();
+
+            $tplVars = [
+                '{{customer_first_name}}' => $firstName,
+                '{{customer_name}}'       => $customerName,
+                '{{quote_number}}'        => $quote['quote_number'],
+                '{{quote_amount}}'        => formatCurrency($quote['amount']),
+                '{{quote_valid_until}}'   => formatDate($quote['valid_until']),
+                '{{company_name}}'        => $companyInfo['company_name'],
+                '{{company_phone}}'       => $companyInfo['company_phone'],
+            ];
+
+            $tpl     = loadEmailTemplate('quote_followup', $tplVars);
+            $subject = $tpl['subject'] ?? 'Following up on your Mowology quote (' . $quote['quote_number'] . ')';
+            $body    = EmailWrapper::wrap($tpl['body_html'] ?? '', 'View Your Quote', $quoteUrl, $companyInfo);
+
+            $pixelUrl = "https://" . $_SERVER['HTTP_HOST'] . "/crm/api/track-quote-open.php?t=" . urlencode($quote['access_token']);
+            $body = str_replace('</body>', '<img src="' . htmlspecialchars($pixelUrl) . '" width="1" height="1" alt="" style="display:none;border:none;" /></body>', $body);
+
+            $emailResult = sendEmail($customerEmail, $subject, $body);
+
+            if ($emailResult['success']) {
+                // Update follow-up tracking (graceful — columns may not exist pre-migration)
+                try {
+                    $db->prepare("UPDATE quotes SET follow_up_sent_at = NOW(), follow_up_count = COALESCE(follow_up_count, 0) + 1 WHERE id = ?")
+                       ->execute([$quoteId]);
+                } catch (PDOException $fuEx) {
+                    error_log("follow_up column update skipped (pre-migration?): " . $fuEx->getMessage());
+                }
+
+                // SMS notification (if consented) — no URL, just a nudge
+                if ($customerPhone && $customerConsentsToSms) {
+                    $smsMsg = "Hi {$firstName}, following up on Mowology quote #{$quote['quote_number']}. Check your email for the link. Questions? Call (778) 846-9273.";
+                    sendSms($customerPhone, $smsMsg);
+                }
+
+                logActivityExtended($user['id'], 'Follow-up sent', "Quote follow-up email sent to {$customerEmail}", null, null, $quoteId);
+
+                $message = 'Follow-up sent successfully to ' . $customerEmail . '.';
+                $messageType = 'success';
+
+                // Reload quote to show updated follow_up_count
+                $stmt->execute([$quoteId]);
+                $quote = $stmt->fetch(PDO::FETCH_ASSOC) ?: $quote;
+            } else {
+                $message = 'Error sending follow-up. Please check the email address and try again.';
+                $messageType = 'error';
+            }
+        }
+    }
+
     if ($action === 'update_contact') {
         // Update contact details from quote view (AJAX or form)
         $contactId = intval($_POST['contact_id'] ?? 0);
@@ -648,6 +732,24 @@ $activePage = 'quotes';
                               <i data-feather="send" class="mr-1"></i> Resend
                           </button>
                       </form>
+                      <?php
+                          // Show "Send Follow-Up" when quote is 2+ days old and hasn't been accepted
+                          $daysSent = $quote['sent_at'] ? (int)floor((time() - strtotime($quote['sent_at'])) / 86400) : 0;
+                          if ($daysSent >= 2):
+                      ?>
+                      <form method="POST" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                          <button type="submit" name="action" value="send_followup"
+                                  class="btn btn-warning"
+                                  onclick="return confirm('Send a follow-up email to this customer about quote <?php echo htmlspecialchars($quote['quote_number']); ?>?')">
+                              <i data-feather="bell" class="mr-1"></i> Send Follow-Up
+                              <?php
+                                  $fuCount = (int)($quote['follow_up_count'] ?? 0);
+                                  if ($fuCount > 0): ?><small>(#<?php echo $fuCount + 1; ?>)</small><?php endif;
+                              ?>
+                          </button>
+                      </form>
+                      <?php endif; ?>
                       <button type="button" class="btn btn-outline-success" onclick="showApproveModal()">
                           <i data-feather="check-circle" class="mr-1"></i> Approve (Verbal)
                       </button>
@@ -946,6 +1048,104 @@ $activePage = 'quotes';
                           <?php endif; ?>
                       </div>
                   </div>
+
+                  <!-- Follow-Up Status Card (shown for sent/declined quotes) -->
+                  <?php if (in_array($quote['status'], ['sent', 'declined', 'expired'])): ?>
+                  <?php
+                      $fuDaysSent    = $quote['sent_at'] ? (int)floor((time() - strtotime($quote['sent_at'])) / 86400) : null;
+                      $fuEmailOpened = !empty($quote['email_opened_at']);
+                      $fuViewed      = !empty($quote['viewed_at']) || !empty($quote['last_viewed_at']);
+                      $fuCount       = (int)($quote['follow_up_count'] ?? 0);
+                      $fuLastSent    = $quote['follow_up_sent_at'] ?? null;
+
+                      // Urgency colour
+                      $fuCardClass = '';
+                      if ($quote['status'] === 'sent' && $fuDaysSent !== null) {
+                          if ($fuDaysSent >= 7)     $fuCardClass = 'mw-followup-card-urgent';
+                          elseif ($fuDaysSent >= 3) $fuCardClass = 'mw-followup-card-warning';
+                          else                      $fuCardClass = 'mw-followup-card-ok';
+                      }
+                  ?>
+                  <div class="card mw-followup-status-card <?php echo $fuCardClass; ?>">
+                      <div class="card-header d-flex justify-content-between align-items-center">
+                          <h5 class="card-title mb-0">
+                              <i data-feather="activity" style="width:15px;height:15px;vertical-align:-2px;" class="mr-1"></i>
+                              Follow-Up Status
+                          </h5>
+                          <?php if ($quote['status'] === 'sent'): ?>
+                          <?php if ($fuDaysSent !== null && $fuDaysSent >= 7): ?>
+                              <span class="badge badge-danger">Urgent</span>
+                          <?php elseif ($fuDaysSent !== null && $fuDaysSent >= 3): ?>
+                              <span class="badge badge-warning">Needs Follow-Up</span>
+                          <?php else: ?>
+                              <span class="badge badge-success">On Track</span>
+                          <?php endif; ?>
+                          <?php endif; ?>
+                      </div>
+                      <div class="card-body">
+                          <?php if ($fuDaysSent !== null): ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Days Since Sent</span>
+                              <span class="mw-detail-value">
+                                  <strong><?php echo $fuDaysSent; ?></strong> day<?php echo $fuDaysSent === 1 ? '' : 's'; ?>
+                              </span>
+                          </div>
+                          <?php endif; ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Email Opened</span>
+                              <span class="mw-detail-value">
+                                  <?php if ($fuEmailOpened): ?>
+                                      <span style="color: var(--mw-green);">✓ Yes</span>
+                                      <small class="text-muted d-block"><?php echo formatDateTime($quote['email_opened_at']); ?></small>
+                                  <?php else: ?>
+                                      <span class="text-muted">Not yet</span>
+                                  <?php endif; ?>
+                              </span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Quote Viewed</span>
+                              <span class="mw-detail-value">
+                                  <?php if ($fuViewed): ?>
+                                      <span style="color: var(--mw-green);">✓ <?php echo (int)($quote['view_count'] ?? 0); ?>x</span>
+                                      <small class="text-muted d-block">Last: <?php echo formatDateTime($quote['last_viewed_at'] ?? $quote['viewed_at']); ?></small>
+                                  <?php else: ?>
+                                      <span class="text-muted">Not yet</span>
+                                  <?php endif; ?>
+                              </span>
+                          </div>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Follow-Ups Sent</span>
+                              <span class="mw-detail-value">
+                                  <?php if ($fuCount > 0): ?>
+                                      <strong><?php echo $fuCount; ?></strong>
+                                      <?php if ($fuLastSent): ?>
+                                          <small class="text-muted d-block">Last: <?php echo formatDateTime($fuLastSent); ?></small>
+                                      <?php endif; ?>
+                                  <?php else: ?>
+                                      <span class="text-muted">None yet</span>
+                                  <?php endif; ?>
+                              </span>
+                          </div>
+                          <?php if ($quote['status'] === 'sent' && $fuDaysSent !== null && $fuDaysSent >= 2): ?>
+                          <div class="mt-3">
+                              <form method="POST" class="d-inline">
+                                  <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
+                                  <button type="submit" name="action" value="send_followup"
+                                          class="btn btn-sm btn-warning btn-block"
+                                          onclick="return confirm('Send a follow-up email for quote <?php echo htmlspecialchars($quote['quote_number']); ?>?')">
+                                      <i data-feather="bell" style="width:13px;height:13px;"></i>
+                                      Send Follow-Up<?php echo $fuCount > 0 ? ' #' . ($fuCount + 1) : ''; ?>
+                                  </button>
+                              </form>
+                          </div>
+                          <?php elseif ($quote['status'] === 'sent'): ?>
+                          <p class="text-muted mt-2 mb-0" style="font-size: 12px;">
+                              Follow-up available after 2 days.
+                          </p>
+                          <?php endif; ?>
+                      </div>
+                  </div>
+                  <?php endif; ?>
 
                   <!-- Internal Notes -->
                   <?php if ($quote['notes_internal']): ?>

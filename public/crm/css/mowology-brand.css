@@ -23736,3 +23736,413 @@ textarea.font-monospace {
 }
 .mw-compliance-bar-fill--warn { background: #f59e0b; }
 .mw-compliance-bar-fill--danger { background: #ef4444; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 3 — Tags, Comments, Annotations, Batch Select
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Tag Chips (editable variant) ──────────────────────────────────────────── */
+.mw-tag-chip--editable {
+  padding-right: 4px;
+}
+.mw-tag-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 0 0 4px;
+  cursor: pointer;
+  opacity: .6;
+}
+.mw-tag-remove:hover { opacity: 1; }
+
+/* ── Tag Input row ────────────────────────────────────────────────────────── */
+.mw-tag-editor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.mw-tag-input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+/* ── Lightbox v2 (photos_appstack.php) ─────────────────────────────────────── */
+.mw-lightbox-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  max-width: 98vw;
+  max-height: 95vh;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.mw-lightbox-photo-side {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 90vw;
+}
+
+.mw-lightbox-img-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* ── Lightbox tags row ──────────────────────────────────────────────────────── */
+.mw-lightbox-tags-row {
+  width: 100%;
+  padding: 8px 12px 4px;
+}
+.mw-lightbox-tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 24px;
+}
+
+/* ── Lightbox action bar ────────────────────────────────────────────────────── */
+.mw-lightbox-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.mw-lb-action-btn {
+  font-size: 12px !important;
+  padding: 3px 10px !important;
+  border-color: rgba(255,255,255,.35) !important;
+  color: #fff !important;
+}
+.mw-lb-action-btn:hover,
+.mw-lb-action-btn.active {
+  background: rgba(255,255,255,.2) !important;
+  border-color: rgba(255,255,255,.7) !important;
+}
+
+/* ── Annotation Canvas ──────────────────────────────────────────────────────── */
+.mw-annotation-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 4px;
+}
+.mw-annotation-canvas[style*="crosshair"] {
+  pointer-events: all;
+}
+
+/* ── Annotation Toolbar ─────────────────────────────────────────────────────── */
+.mw-annotation-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.mw-ann-tool {
+  background: rgba(255,255,255,.12);
+  border: 1px solid rgba(255,255,255,.3);
+  color: #fff;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.mw-ann-tool:hover   { background: rgba(255,255,255,.22); }
+.mw-ann-tool.active  { background: var(--mw-orange); border-color: var(--mw-orange); }
+.mw-ann-color {
+  width: 30px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid rgba(255,255,255,.3);
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+}
+
+/* ── Comment Panel ──────────────────────────────────────────────────────────── */
+.mw-comment-panel {
+  width: 0;
+  overflow: hidden;
+  transition: width .25s ease;
+  background: #1e1e1e;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid rgba(255,255,255,.08);
+  flex-shrink: 0;
+}
+.mw-comment-panel.is-open {
+  width: 300px;
+}
+@media (max-width: 767px) {
+  .mw-comment-panel.is-open { width: 100vw; }
+}
+
+.mw-comment-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  color: #fff;
+  flex-shrink: 0;
+}
+.mw-comment-panel-close {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.6);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.mw-comment-panel-close:hover { color: #fff; }
+
+.mw-comment-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.mw-comment-item {
+  display: flex;
+  gap: 8px;
+  padding: 8px 6px;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  position: relative;
+}
+.mw-comment-item:last-child { border-bottom: none; }
+
+.mw-comment-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--mw-green);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.mw-comment-body { flex: 1 1 auto; min-width: 0; }
+.mw-comment-author {
+  font-size: 11px;
+  font-weight: 600;
+  color: #ddd;
+  margin-bottom: 2px;
+}
+.mw-comment-text {
+  font-size: 13px;
+  color: #ccc;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.mw-comment-time {
+  font-size: 10px;
+  color: rgba(255,255,255,.35);
+  margin-top: 3px;
+}
+.mw-comment-delete {
+  background: none;
+  border: none;
+  color: rgba(255,255,255,.3);
+  cursor: pointer;
+  padding: 2px 4px;
+  position: absolute;
+  top: 6px;
+  right: 0;
+  transition: color .12s;
+}
+.mw-comment-delete:hover { color: #ef4444; }
+
+.mw-comment-form {
+  padding: 10px;
+  border-top: 1px solid rgba(255,255,255,.1);
+  flex-shrink: 0;
+}
+.mw-comment-form .form-control {
+  background: rgba(255,255,255,.08);
+  border-color: rgba(255,255,255,.15);
+  color: #eee;
+  font-size: 13px;
+  resize: none;
+}
+.mw-comment-form .form-control::placeholder { color: rgba(255,255,255,.35); }
+.mw-comment-form .form-control:focus {
+  background: rgba(255,255,255,.12);
+  border-color: var(--mw-green);
+  color: #fff;
+  box-shadow: none;
+}
+
+/* ── Lightbox tags section (visit-detail.php) ──────────────────────────────── */
+.mw-lightbox-tags-section {
+  margin-top: 10px;
+  text-align: center;
+}
+.mw-lightbox-tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+
+/* ── Batch Select Mode ──────────────────────────────────────────────────────── */
+.mw-select-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: none;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 6px;
+  background: rgba(0,0,0,.0);
+  cursor: pointer;
+  transition: background .12s;
+}
+.is-select-mode .mw-select-overlay {
+  display: flex;
+}
+.mw-select-check {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.8);
+  background: rgba(0,0,0,.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+  transition: all .12s;
+}
+.mw-timeline-photo.is-selected .mw-select-check {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  color: #fff;
+}
+.mw-timeline-photo.is-selected {
+  outline: 3px solid var(--mw-green);
+  outline-offset: 1px;
+}
+.is-select-mode .mw-timeline-photo {
+  cursor: default;
+}
+.is-select-mode .mw-timeline-photo:hover { transform: none; }
+
+/* ── Floating Batch Action Bar ──────────────────────────────────────────────── */
+.mw-batch-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--mw-forest);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 50px;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 9000;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  animation: mwBatchBarIn .2s ease;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100vw - 40px);
+}
+@keyframes mwBatchBarIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.mw-batch-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+
+/* ── #btnSelectMode active state ────────────────────────────────────────────── */
+#btnSelectMode.active {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  color: #fff;
+}
+
+/* ── Quote Follow-Up System ─────────────────────────────────────────────────── */
+
+/* Quotes list — "Needs Follow-Up" filter tab */
+.mw-filter-tab-alert {
+  border-color: #e09900 !important;
+  color: #856404 !important;
+}
+.mw-filter-tab-alert.active,
+.mw-filter-tab-alert:hover {
+  background: #fff3cd !important;
+  border-color: #e09900 !important;
+  color: #664d03 !important;
+}
+.mw-filter-tab-alert .mw-filter-icon {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+
+/* Days-since-sent badge (shows in Sent column) */
+.mw-days-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+}
+.mw-days-ok      { background: var(--mw-light); color: var(--mw-dark); }
+.mw-days-warning { background: #fff3cd; color: #664d03; }
+.mw-days-urgent  { background: #f8d7da; color: #721c24; }
+
+/* Follow-up count badge (shown below status badge in list) */
+.mw-followup-badge {
+  display: inline-block;
+  margin-top: 3px;
+  color: #6c757d;
+  font-size: 11px;
+}
+
+/* Quotes list row highlight — aging quotes */
+.mw-row-warning td { background: #fffbf0 !important; }
+.mw-row-urgent  td { background: #fff8f8 !important; }
+
+/* Follow-Up notice banner on filtered view */
+.mw-followup-notice {
+  font-size: 13px;
+  border-left: 4px solid #e09900;
+  background: #fffbf0;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+/* Follow-Up Status sidebar card */
+.mw-followup-status-card { margin-bottom: 16px; }
+.mw-followup-status-card.mw-followup-card-ok      { border-left: 4px solid var(--mw-green); }
+.mw-followup-status-card.mw-followup-card-warning  { border-left: 4px solid #e09900; }
+.mw-followup-status-card.mw-followup-card-urgent   { border-left: 4px solid #dc3545; }
+.mw-followup-card-warning .card-header { background: #fffbf0; }
+.mw-followup-card-urgent  .card-header { background: #fff5f5; }

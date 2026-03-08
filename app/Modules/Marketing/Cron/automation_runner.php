@@ -201,6 +201,35 @@ function getContactsForTrigger(PDO $db, string $type, array $config, array $rule
             $stmt->execute([$hours + 1]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        case 'quote_followup':
+            // Fires for sent quotes with no acceptance after N days.
+            // Returns contact + quote data so send_email can personalise the message.
+            $days = (int)($config['days_since_sent'] ?? 3);
+            $stmt = $db->prepare("
+                SELECT
+                    c.id, c.first_name, c.last_name, c.email, c.receive_marketing,
+                    q.id          AS quote_id,
+                    q.quote_number,
+                    q.amount      AS quote_amount,
+                    q.valid_until AS quote_valid_until,
+                    q.access_token AS quote_token,
+                    q.sent_at,
+                    q.follow_up_count,
+                    q.follow_up_sent_at
+                FROM contacts c
+                INNER JOIN quotes q ON q.contact_id = c.id
+                WHERE $mktFilter
+                  AND q.status = 'sent'
+                  AND q.sent_at IS NOT NULL
+                  AND q.sent_at < DATE_SUB(NOW(), INTERVAL ? DAY)
+                  AND q.follow_up_count < 3
+                  AND (q.follow_up_sent_at IS NULL
+                       OR q.follow_up_sent_at < DATE_SUB(NOW(), INTERVAL 6 DAY))
+                ORDER BY q.sent_at ASC
+            ");
+            $stmt->execute([$days]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
         case 'quote_accepted':
             $stmt = $db->prepare("$base
                 INNER JOIN quotes q ON q.contact_id = c.id
@@ -417,15 +446,78 @@ function executeQueuedAction(PDO $db, string $type, array $data, int $contactId)
             $stmt->execute([$contactId]);
             $contact = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($contact && !empty($contact['email'])) {
-                $subject = renderTemplate($data['subject'] ?? 'Message from Mowology', [
-                    'first_name' => $contact['first_name'],
-                    'last_name'  => $contact['last_name'],
-                ]);
-                $body = renderTemplate($data['body'] ?? '', [
-                    'first_name' => $contact['first_name'],
-                    'last_name'  => $contact['last_name'],
-                ]);
-                sendCrmEmail($contact['email'], $subject, $body, trim($contact['first_name'] . ' ' . $contact['last_name']));
+                // Build template vars — include quote data if this action came from a quote trigger
+                $quoteData   = $data['contact'] ?? [];
+                $quoteNumber = $quoteData['quote_number'] ?? '';
+                $quoteAmount = isset($quoteData['quote_amount'])
+                    ? '$' . number_format((float)$quoteData['quote_amount'], 2)
+                    : '';
+                $quoteValidUntil = !empty($quoteData['quote_valid_until'])
+                    ? date('F j, Y', strtotime($quoteData['quote_valid_until']))
+                    : '';
+                $quoteUrl = !empty($quoteData['quote_token'])
+                    ? 'https://mowology.ca/customer/quote.php?token=' . urlencode($quoteData['quote_token'])
+                    : '';
+
+                $vars = [
+                    'first_name'        => $contact['first_name'],
+                    'last_name'         => $contact['last_name'],
+                    'quote_number'      => $quoteNumber,
+                    'quote_amount'      => $quoteAmount,
+                    'quote_valid_until' => $quoteValidUntil,
+                    'quote_url'         => $quoteUrl,
+                ];
+
+                // Prefer loading from the named template (use_template key) for HTML wrapper
+                $emailBody    = '';
+                $emailSubject = '';
+                if (!empty($data['use_template'])) {
+                    try {
+                        require_once PUBLIC_ROOT . '/app/Services/Messaging/EmailWrapper.php';
+                        $tplVars = [
+                            '{{customer_first_name}}' => $contact['first_name'],
+                            '{{customer_name}}'       => trim($contact['first_name'] . ' ' . $contact['last_name']),
+                            '{{quote_number}}'        => $quoteNumber,
+                            '{{quote_amount}}'        => $quoteAmount,
+                            '{{quote_valid_until}}'   => $quoteValidUntil,
+                            '{{company_name}}'        => 'Mowology Landscaping',
+                            '{{company_phone}}'       => '(778) 846-9273',
+                        ];
+                        $tpl = loadEmailTemplate($data['use_template'], $tplVars);
+                        if ($tpl && !empty($tpl['subject'])) {
+                            $emailSubject = $tpl['subject'];
+                            $emailBody = $quoteUrl
+                                ? EmailWrapper::wrap($tpl['body_html'], 'View Your Quote', $quoteUrl, EmailWrapper::getCompanyInfo())
+                                : $tpl['body_html'];
+                        }
+                    } catch (Throwable $tplEx) {
+                        error_log("automation send_email template load failed: " . $tplEx->getMessage());
+                    }
+                }
+
+                // Fallback to inline subject/body from action config
+                if (empty($emailBody)) {
+                    $emailSubject = renderTemplate($data['subject'] ?? 'Message from Mowology', $vars);
+                    $emailBody    = renderTemplate($data['body'] ?? '', $vars);
+                }
+
+                if ($emailSubject && $emailBody) {
+                    sendCrmEmail($contact['email'], $emailSubject, $emailBody, trim($contact['first_name'] . ' ' . $contact['last_name']));
+
+                    // If this was a quote follow-up, record the send
+                    if (!empty($quoteData['quote_id'])) {
+                        try {
+                            $db->prepare("
+                                UPDATE quotes
+                                SET follow_up_sent_at = NOW(),
+                                    follow_up_count   = follow_up_count + 1
+                                WHERE id = ?
+                            ")->execute([(int)$quoteData['quote_id']]);
+                        } catch (Throwable $qEx) {
+                            error_log("automation: failed to update follow_up tracking for quote #{$quoteData['quote_id']}: " . $qEx->getMessage());
+                        }
+                    }
+                }
             }
             break;
 
