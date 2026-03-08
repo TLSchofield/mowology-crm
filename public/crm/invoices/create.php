@@ -1014,7 +1014,9 @@ document.getElementById('invoiceForm').addEventListener('submit', function (e) {
 
 // ── Totals calculation ──
 function calculateTotals() {
-    const subtotal = parseFloat(document.getElementById('subtotalInput').value) || 0;
+    const el = document.getElementById('subtotalInput');
+    if (!el) return;
+    const subtotal = parseFloat(el.value) || 0;
     const tax   = subtotal * 0.05;
     const total = subtotal + tax;
     document.getElementById('subtotalDisplay').textContent = '$' + subtotal.toFixed(2);
