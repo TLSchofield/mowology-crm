@@ -151,9 +151,10 @@
         settings[input.id] = input.value;
       });
 
-      // Save business settings + receipt forwarding + business hours
+      // Save business settings + receipt forwarding + business hours + office location
       saveReceiptSettings();
       saveBusinessHours();
+      saveOfficeLocation();
       saveSettings(settings);
     });
   }
@@ -917,6 +918,42 @@
     }
   }
 
+  // ── Office Location (ops_settings) ─────────────────────────
+
+  var OFFICE_LOC_KEYS = ['office_latitude', 'office_longitude'];
+
+  function loadOfficeLocation() {
+    OFFICE_LOC_KEYS.forEach(function (key) {
+      fetch('/crm/api/ops-settings.php?action=get&key=' + encodeURIComponent(key))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.success) return;
+          var el = document.getElementById(key);
+          if (el && data.exists && data.value !== null) {
+            el.value = data.value;
+          }
+        })
+        .catch(function () { /* ignore */ });
+    });
+  }
+
+  function saveOfficeLocation() {
+    var promises = OFFICE_LOC_KEYS.map(function (key) {
+      var el = document.getElementById(key);
+      if (!el) return Promise.resolve();
+      return fetch('/crm/api/ops-settings.php?action=save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: key,
+          value: el.value || '',
+          description: 'Office GPS coordinate for dashboard map'
+        })
+      });
+    });
+    return Promise.all(promises);
+  }
+
   // ── Business Hours ──────────────────────────────────────────
 
   var BH_DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -1032,6 +1069,7 @@
     showLoading();
     loadSettings();
     loadReceiptSettings();
+    loadOfficeLocation();
     loadBusinessHours();
     setupColorPickers();
     setupLogoPreview();

@@ -144,6 +144,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <label for="company_address" class="form-label">Address</label>
                         <textarea class="form-control" id="company_address" rows="3" maxlength="1000"></textarea>
                     </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="office_latitude" class="form-label">Office Latitude <span class="mw-help-tooltip" data-help="GPS coordinates of your office/yard. Used for the dashboard map to show when crew are at the office.">?</span></label>
+                            <input type="number" class="form-control" id="office_latitude" data-bh-ignore="1" step="0.00000001" min="-90" max="90" placeholder="49.2827">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="office_longitude" class="form-label">Office Longitude</label>
+                            <input type="number" class="form-control" id="office_longitude" data-bh-ignore="1" step="0.00000001" min="-180" max="180" placeholder="-123.1207">
+                        </div>
+                    </div>
                 </div>
             </div>
 

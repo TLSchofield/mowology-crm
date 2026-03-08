@@ -118,6 +118,7 @@ try {
 
 $pageTitle = 'Dashboard';
 $activePage = 'dashboard';
+$extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '" defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -436,9 +437,9 @@ $activePage = 'dashboard';
             </div>
           </div>
 
-          <!-- Stats Cards -->
+          <!-- Stats Cards + Live Operations Map -->
           <div class="row">
-            <div class="col-xl-6 col-xxl-5 d-flex">
+            <div class="col-xl-5 col-xxl-4 d-flex">
               <div class="w-100">
                 <div class="row">
                   <div class="col-sm-6">
@@ -493,16 +494,43 @@ $activePage = 'dashboard';
               </div>
             </div>
 
-            <div class="col-xl-6 col-xxl-7">
+            <!-- Live Operations Map -->
+            <div class="col-xl-7 col-xxl-8">
+              <div class="card mw-ops-map-card flex-fill w-100">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                  <h5 class="card-title mb-0">
+                    <i data-feather="map" class="align-middle mr-1" style="width:16px;height:16px;"></i>
+                    Live Operations
+                  </h5>
+                  <div class="d-flex align-items-center">
+                    <span class="mw-ops-map-status text-muted small mr-2" id="mapLastUpdate">Loading...</span>
+                    <a href="/crm/timeclock/crew-map.php" class="btn btn-sm btn-outline-secondary" title="Full Map">
+                      <i data-feather="maximize-2" style="width:14px;height:14px;"></i>
+                    </a>
+                  </div>
+                </div>
+                <div class="card-body p-0">
+                  <div id="dashboard-map" style="height: 340px; background: #e8e8e8;"></div>
+                  <div class="mw-ops-map-legend" id="mapLegend">
+                    <div class="text-center text-muted small py-2">Loading crew data...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Activity -->
+          <div class="row">
+            <div class="col-12 col-md-6">
               <div class="card flex-fill w-100">
                 <div class="card-header">
                   <h5 class="card-title mb-0">Recent Activity</h5>
                 </div>
                 <div class="card-body py-3">
                   <?php if (empty($recentActivity)): ?>
-                    <div class="text-center text-muted py-5">
-                      <i data-feather="inbox" style="width: 48px; height: 48px;"></i>
-                      <p class="mt-3">No activity yet. Start by adding your first client!</p>
+                    <div class="text-center text-muted py-4">
+                      <i data-feather="inbox" style="width: 36px; height: 36px;"></i>
+                      <p class="mt-2 mb-0">No activity yet</p>
                     </div>
                   <?php else: ?>
                     <div class="timeline">
@@ -608,6 +636,272 @@ $activePage = 'dashboard';
               </div>
             </div>
           </div>
+
+<!-- ── Dashboard Live Operations Map ───────────────────────────────────── -->
+<script>
+(function() {
+    var map, crewMarkers = {}, crewPolylines = {}, jobMarkers = [], officeMarker = null;
+    var infoWindow = null;
+    var refreshInterval = 60000; // 60 seconds
+    var CREW_COLORS = ['#2196F3', '#E91E63', '#FF9800', '#9C27B0', '#009688', '#795548'];
+    var STATUS_ICONS = {
+        at_job: '#4CAF50',
+        at_office: '#2196F3',
+        in_transit: '#FF9800',
+        stale: '#9E9E9E',
+        off_duty: '#BDBDBD'
+    };
+
+    function initDashboardMap() {
+        if (typeof google === 'undefined' || !google.maps) {
+            setTimeout(initDashboardMap, 200);
+            return;
+        }
+        var mapEl = document.getElementById('dashboard-map');
+        if (!mapEl) return;
+
+        map = new google.maps.Map(mapEl, {
+            center: { lat: 49.2827, lng: -123.1207 }, // Vancouver default
+            zoom: 11,
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: false,
+            zoomControl: true,
+            styles: [
+                { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+                { featureType: 'transit', stylers: [{ visibility: 'off' }] }
+            ]
+        });
+        infoWindow = new google.maps.InfoWindow();
+        loadMapData();
+        setInterval(loadMapData, refreshInterval);
+    }
+
+    function loadMapData() {
+        fetch('/crm/api/dashboard-map-data.php', { credentials: 'same-origin' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success) return;
+                updateMap(data);
+                updateLegend(data.crew);
+                var now = new Date();
+                document.getElementById('mapLastUpdate').textContent =
+                    now.getHours().toString().padStart(2,'0') + ':' +
+                    now.getMinutes().toString().padStart(2,'0');
+            })
+            .catch(function(err) {
+                console.warn('Dashboard map fetch error:', err);
+            });
+    }
+
+    function updateMap(data) {
+        var bounds = new google.maps.LatLngBounds();
+        var hasBounds = false;
+
+        // Clear old job markers
+        jobMarkers.forEach(function(m) { m.setMap(null); });
+        jobMarkers = [];
+
+        // ── Office marker ──
+        if (data.office && data.office.lat) {
+            var offPos = { lat: data.office.lat, lng: data.office.lng };
+            if (!officeMarker) {
+                officeMarker = new google.maps.Marker({
+                    position: offPos,
+                    map: map,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 8,
+                        fillColor: '#607D8B',
+                        fillOpacity: 0.9,
+                        strokeColor: '#fff',
+                        strokeWeight: 2
+                    },
+                    title: 'Office',
+                    zIndex: 1
+                });
+                officeMarker.addListener('click', function() {
+                    infoWindow.setContent('<div style="font-size:13px;"><strong>Office</strong></div>');
+                    infoWindow.open(map, officeMarker);
+                });
+            } else {
+                officeMarker.setPosition(offPos);
+            }
+            bounds.extend(offPos);
+            hasBounds = true;
+        }
+
+        // ── Job site markers ──
+        data.jobs.forEach(function(job) {
+            if (!job.lat || !job.lng) return;
+            var pos = { lat: job.lat, lng: job.lng };
+            var color = job.status === 'completed' ? '#4CAF50'
+                      : job.status === 'in_progress' ? '#2196F3'
+                      : '#9E9E9E';
+            var marker = new google.maps.Marker({
+                position: pos,
+                map: map,
+                icon: {
+                    path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z',
+                    fillColor: color,
+                    fillOpacity: 0.85,
+                    strokeColor: '#fff',
+                    strokeWeight: 1.5,
+                    scale: 1.4,
+                    anchor: new google.maps.Point(12, 22)
+                },
+                title: job.address,
+                zIndex: 2
+            });
+            marker.addListener('click', function() {
+                var statusLabel = job.status === 'in_progress' ? 'In Progress'
+                                : job.status === 'completed' ? 'Completed' : 'Scheduled';
+                infoWindow.setContent(
+                    '<div style="font-size:13px;max-width:220px;">' +
+                    '<strong>' + escHtml(job.address) + '</strong><br>' +
+                    '<span style="color:#666;">' + escHtml(job.services) + '</span><br>' +
+                    '<span style="color:#666;">Crew: ' + escHtml(job.crew_name) + '</span><br>' +
+                    '<span class="badge" style="background:' + color + ';color:#fff;font-size:11px;">' + statusLabel + '</span>' +
+                    (job.scheduled_time ? '<br><small>' + job.scheduled_time + '</small>' : '') +
+                    '</div>'
+                );
+                infoWindow.open(map, marker);
+            });
+            jobMarkers.push(marker);
+            bounds.extend(pos);
+            hasBounds = true;
+        });
+
+        // ── Crew routes + current position ──
+        var seenCrewIds = {};
+        data.crew.forEach(function(c, idx) {
+            seenCrewIds[c.user_id] = true;
+            var color = CREW_COLORS[idx % CREW_COLORS.length];
+            var statusColor = STATUS_ICONS[c.status] || '#9E9E9E';
+
+            // Route polyline
+            if (c.route && c.route.length > 1) {
+                var path = c.route.map(function(pt) {
+                    return { lat: pt[0], lng: pt[1] };
+                });
+                if (crewPolylines[c.user_id]) {
+                    crewPolylines[c.user_id].setPath(path);
+                } else {
+                    crewPolylines[c.user_id] = new google.maps.Polyline({
+                        path: path,
+                        map: map,
+                        strokeColor: color,
+                        strokeOpacity: 0.6,
+                        strokeWeight: 3,
+                        zIndex: 3
+                    });
+                }
+            }
+
+            // Current position marker
+            if (c.last_lat && c.last_lng) {
+                var pos = { lat: c.last_lat, lng: c.last_lng };
+                var initial = (c.name || '?').charAt(0).toUpperCase();
+                if (crewMarkers[c.user_id]) {
+                    crewMarkers[c.user_id].setPosition(pos);
+                    crewMarkers[c.user_id].setIcon(makeCrewIcon(statusColor, initial));
+                } else {
+                    crewMarkers[c.user_id] = new google.maps.Marker({
+                        position: pos,
+                        map: map,
+                        icon: makeCrewIcon(statusColor, initial),
+                        title: c.name,
+                        zIndex: 10
+                    });
+                    (function(crew) {
+                        crewMarkers[crew.user_id].addListener('click', function() {
+                            infoWindow.setContent(
+                                '<div style="font-size:13px;">' +
+                                '<strong>' + escHtml(crew.name) + '</strong><br>' +
+                                '<span style="color:#666;">' + escHtml(crew.status_label) + '</span>' +
+                                (crew.clock_in_time ? '<br><small>Clocked in: ' + crew.clock_in_time + '</small>' : '') +
+                                '</div>'
+                            );
+                            infoWindow.open(map, crewMarkers[crew.user_id]);
+                        });
+                    })(c);
+                }
+                bounds.extend(pos);
+                hasBounds = true;
+            }
+        });
+
+        // Remove markers for crew no longer in data
+        Object.keys(crewMarkers).forEach(function(uid) {
+            if (!seenCrewIds[uid]) {
+                crewMarkers[uid].setMap(null);
+                delete crewMarkers[uid];
+                if (crewPolylines[uid]) {
+                    crewPolylines[uid].setMap(null);
+                    delete crewPolylines[uid];
+                }
+            }
+        });
+
+        // Fit bounds on first load or when empty
+        if (hasBounds && Object.keys(crewMarkers).length > 0) {
+            map.fitBounds(bounds, { top: 30, right: 30, bottom: 30, left: 30 });
+            // Don't zoom in too far
+            var listener = google.maps.event.addListener(map, 'idle', function() {
+                if (map.getZoom() > 15) map.setZoom(15);
+                google.maps.event.removeListener(listener);
+            });
+        }
+    }
+
+    function makeCrewIcon(color, initial) {
+        return {
+            url: 'data:image/svg+xml,' + encodeURIComponent(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">' +
+                '<circle cx="16" cy="16" r="14" fill="' + color + '" stroke="#fff" stroke-width="3"/>' +
+                '<text x="16" y="21" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff" font-family="Arial">' + initial + '</text>' +
+                '</svg>'
+            ),
+            scaledSize: new google.maps.Size(32, 32),
+            anchor: new google.maps.Point(16, 16)
+        };
+    }
+
+    function updateLegend(crew) {
+        var el = document.getElementById('mapLegend');
+        if (!el) return;
+        if (!crew || crew.length === 0) {
+            el.innerHTML = '<div class="text-center text-muted small py-2">No tracking data today</div>';
+            return;
+        }
+        var html = '<div class="mw-ops-map-crew-list">';
+        crew.forEach(function(c, idx) {
+            var color = STATUS_ICONS[c.status] || '#9E9E9E';
+            html += '<div class="mw-ops-map-crew-item">' +
+                '<span class="mw-ops-map-crew-dot" style="background:' + color + ';"></span>' +
+                '<span class="mw-ops-map-crew-name">' + escHtml(c.name) + '</span>' +
+                '<span class="mw-ops-map-crew-status">' + escHtml(c.status_label) + '</span>' +
+                '</div>';
+        });
+        html += '</div>';
+        el.innerHTML = html;
+    }
+
+    function escHtml(s) {
+        if (!s) return '';
+        var d = document.createElement('div');
+        d.appendChild(document.createTextNode(s));
+        return d.innerHTML;
+    }
+
+    // Init when Google Maps API is ready
+    if (document.readyState === 'complete') {
+        initDashboardMap();
+    } else {
+        window.addEventListener('load', initDashboardMap);
+    }
+})();
+</script>
 
 <?php if (($user['role'] ?? '') === 'admin'): ?>
 <!-- ── Photo Compliance Widget (admin only) ───────────────────────────────── -->

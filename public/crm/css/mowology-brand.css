@@ -24570,3 +24570,78 @@ textarea.font-monospace {
   padding: 3rem 1.5rem; text-align: center;
   color: #9ca3af; font-size: 0.9rem;
 }
+
+/* ── Dashboard Live Operations Map ──────────────────────────────────────── */
+.mw-ops-map-card {
+  overflow: hidden;
+}
+.mw-ops-map-card .card-header {
+  border-bottom: 1px solid #e9ecef;
+}
+.mw-ops-map-card #dashboard-map {
+  width: 100%;
+  min-height: 300px;
+}
+.mw-ops-map-status {
+  font-size: 0.75rem;
+  color: #6c757d;
+}
+
+/* Legend / crew list below map */
+.mw-ops-map-legend {
+  border-top: 1px solid #e9ecef;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.mw-ops-map-crew-list {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  gap: 2px 16px;
+}
+.mw-ops-map-crew-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 0.8rem;
+  min-width: 180px;
+}
+.mw-ops-map-crew-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.15);
+}
+.mw-ops-map-crew-name {
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+}
+.mw-ops-map-crew-status {
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+/* Responsive: stack map below stat cards on mobile */
+@media (max-width: 1199px) {
+  .mw-ops-map-card #dashboard-map {
+    height: 280px !important;
+  }
+}
+@media (max-width: 767px) {
+  .mw-ops-map-card #dashboard-map {
+    height: 240px !important;
+  }
+  .mw-ops-map-crew-list {
+    flex-direction: column;
+  }
+  .mw-ops-map-crew-item {
+    min-width: unset;
+  }
+}
