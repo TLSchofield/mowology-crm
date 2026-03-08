@@ -58,9 +58,9 @@ $activePage = 'team';
             <i data-feather="file-text" style="width:14px;height:14px;"></i> Timesheets
         </a>
         <?php if ($user['role'] === 'admin'): ?>
-        <button class="btn btn-sm" style="background: var(--mw-green); color:#fff;" onclick="openAddModal()">
+        <a href="onboard.php" class="btn btn-sm" style="background: var(--mw-green); color:#fff;">
             <i data-feather="user-plus" style="width:14px;height:14px;"></i> Add Employee
-        </button>
+        </a>
         <?php endif; ?>
     </div>
 </div>

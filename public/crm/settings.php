@@ -39,54 +39,67 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <h1 class="h3">Business Settings</h1>
 </div>
 
-<!-- Settings Tabs -->
-<ul class="mw-settings-nav nav nav-tabs mb-3" role="tablist">
-    <li class="nav-item">
-        <a class="nav-link active" id="company-tab" data-toggle="tab" href="#company" role="tab">Company Info</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="branding-tab" data-toggle="tab" href="#branding" role="tab">Branding</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="invoice-tab" data-toggle="tab" href="#invoice" role="tab">Invoices</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="email-tab" data-toggle="tab" href="#email" role="tab">Email</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="email-templates-tab" data-toggle="tab" href="#email-templates" role="tab">Email Templates</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="receipts-tab" data-toggle="tab" href="#receipts" role="tab">Receipt Forwarding</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="holidays-tab" data-toggle="tab" href="#holidays" role="tab">Holidays</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="tags-tab" data-toggle="tab" href="#tags" role="tab">Tags</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="service-types-tab" data-toggle="tab" href="#service-types" role="tab">Service Types</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="measurement-types-tab" data-toggle="tab" href="#measurement-types" role="tab">Measurement Types</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="reviews-tab" data-toggle="tab" href="#reviews" role="tab">Reviews</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="extras-tab" data-toggle="tab" href="#extras" role="tab">Extras Billing</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="summary-card-tab" data-toggle="tab" href="#summary-card" role="tab">Summary Card</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link" id="dev-tools-tab" data-toggle="tab" href="#dev-tools" role="tab">Developer Tools</a>
-    </li>
+<!-- Settings Categories -->
+<div class="mw-settings-categories mb-4" id="settingsCategories">
+    <div class="mw-settings-cat-card active" data-category="business" onclick="switchSettingsCategory('business')">
+        <div class="mw-settings-cat-icon"><i data-feather="briefcase"></i></div>
+        <div class="mw-settings-cat-info">
+            <h6 class="mw-settings-cat-name mb-0">Business Setup</h6>
+            <small class="mw-settings-cat-desc">Company info, branding, tax &amp; hours</small>
+        </div>
+        <span class="mw-settings-cat-badge" id="businessCompletionBadge"></span>
+    </div>
+    <div class="mw-settings-cat-card" data-category="documents" onclick="switchSettingsCategory('documents')">
+        <div class="mw-settings-cat-icon"><i data-feather="file-text"></i></div>
+        <div class="mw-settings-cat-info">
+            <h6 class="mw-settings-cat-name mb-0">Documents</h6>
+            <small class="mw-settings-cat-desc">Invoices, email &amp; templates</small>
+        </div>
+    </div>
+    <div class="mw-settings-cat-card" data-category="operations" onclick="switchSettingsCategory('operations')">
+        <div class="mw-settings-cat-icon"><i data-feather="tool"></i></div>
+        <div class="mw-settings-cat-info">
+            <h6 class="mw-settings-cat-name mb-0">Operations</h6>
+            <small class="mw-settings-cat-desc">Services, measurements, holidays &amp; more</small>
+        </div>
+    </div>
+    <?php if ($user['role'] === 'admin'): ?>
+    <div class="mw-settings-cat-card" data-category="admin" onclick="switchSettingsCategory('admin')">
+        <div class="mw-settings-cat-icon"><i data-feather="shield"></i></div>
+        <div class="mw-settings-cat-info">
+            <h6 class="mw-settings-cat-name mb-0">Admin</h6>
+            <small class="mw-settings-cat-desc">Database &amp; developer tools</small>
+        </div>
+    </div>
+    <?php endif; ?>
+</div>
+
+<!-- Sub-tab Navs (one per category) -->
+<ul class="mw-settings-subtabs nav nav-tabs mb-3" id="subtabs-business" role="tablist">
+    <li class="nav-item"><a class="nav-link active" id="company-tab" data-toggle="tab" href="#company" role="tab">Company Info</a></li>
+    <li class="nav-item"><a class="nav-link" id="branding-tab" data-toggle="tab" href="#branding" role="tab">Branding</a></li>
 </ul>
+<ul class="mw-settings-subtabs nav nav-tabs mb-3" id="subtabs-documents" role="tablist" style="display:none;">
+    <li class="nav-item"><a class="nav-link" id="invoice-tab" data-toggle="tab" href="#invoice" role="tab">Invoices</a></li>
+    <li class="nav-item"><a class="nav-link" id="email-tab" data-toggle="tab" href="#email" role="tab">Email</a></li>
+    <li class="nav-item"><a class="nav-link" id="email-templates-tab" data-toggle="tab" href="#email-templates" role="tab">Email Templates</a></li>
+    <li class="nav-item"><a class="nav-link" id="receipts-tab" data-toggle="tab" href="#receipts" role="tab">Receipt Forwarding</a></li>
+</ul>
+<ul class="mw-settings-subtabs nav nav-tabs mb-3" id="subtabs-operations" role="tablist" style="display:none;">
+    <li class="nav-item"><a class="nav-link" id="holidays-tab" data-toggle="tab" href="#holidays" role="tab">Holidays</a></li>
+    <li class="nav-item"><a class="nav-link" id="tags-tab" data-toggle="tab" href="#tags" role="tab">Tags</a></li>
+    <li class="nav-item"><a class="nav-link" id="service-types-tab" data-toggle="tab" href="#service-types" role="tab">Service Types</a></li>
+    <li class="nav-item"><a class="nav-link" id="measurement-types-tab" data-toggle="tab" href="#measurement-types" role="tab">Measurement Types</a></li>
+    <li class="nav-item"><a class="nav-link" id="reviews-tab" data-toggle="tab" href="#reviews" role="tab">Reviews</a></li>
+    <li class="nav-item"><a class="nav-link" id="extras-tab" data-toggle="tab" href="#extras" role="tab">Extras Billing</a></li>
+    <li class="nav-item"><a class="nav-link" id="summary-card-tab" data-toggle="tab" href="#summary-card" role="tab">Summary Card</a></li>
+</ul>
+<?php if ($user['role'] === 'admin'): ?>
+<ul class="mw-settings-subtabs nav nav-tabs mb-3" id="subtabs-admin" role="tablist" style="display:none;">
+    <li class="nav-item"><a class="nav-link" id="database-tab" data-toggle="tab" href="#database" role="tab">Database / Migrations</a></li>
+    <li class="nav-item"><a class="nav-link" id="dev-tools-tab" data-toggle="tab" href="#dev-tools" role="tab">Developer Tools</a></li>
+</ul>
+<?php endif; ?>
 
 <!-- Loading State -->
 <div id="settingsLoading" class="card text-center py-5">
@@ -1110,14 +1123,108 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         </div>
     </div>
 
-    <!-- Save Button -->
-    <div class="mt-4 mb-3">
+    <!-- Save Button (shown for Business Setup & Documents categories) -->
+    <div class="mt-4 mb-3" id="mainSaveButtonArea">
         <button type="submit" class="btn btn-primary btn-lg">Save Settings</button>
         <a href="dashboard_appstack.php" class="btn btn-secondary btn-lg">Cancel</a>
     </div>
 </form>
 
 <script src="js/business-settings.js?v=2"></script>
+
+<!-- Settings Category Navigation -->
+<script>
+(function () {
+    var currentCategory = 'business';
+    var categoryTabs = {
+        business:   ['company', 'branding'],
+        documents:  ['invoice', 'email', 'email-templates', 'receipts'],
+        operations: ['holidays', 'tags', 'service-types', 'measurement-types', 'reviews', 'extras', 'summary-card'],
+        admin:      ['database', 'dev-tools']
+    };
+
+    window.switchSettingsCategory = function (name) {
+        if (name === currentCategory) return;
+        currentCategory = name;
+
+        // Update category cards
+        var cards = document.querySelectorAll('.mw-settings-cat-card');
+        for (var i = 0; i < cards.length; i++) {
+            cards[i].classList.toggle('active', cards[i].getAttribute('data-category') === name);
+        }
+
+        // Show/hide sub-tab navs
+        var allSubtabs = document.querySelectorAll('.mw-settings-subtabs');
+        for (var j = 0; j < allSubtabs.length; j++) {
+            allSubtabs[j].style.display = 'none';
+        }
+        var activeSubtabs = document.getElementById('subtabs-' + name);
+        if (activeSubtabs) activeSubtabs.style.display = '';
+
+        // Activate the first sub-tab in this category via Bootstrap tab
+        var firstLink = activeSubtabs ? activeSubtabs.querySelector('.nav-link') : null;
+        if (firstLink) {
+            // Use jQuery .tab() if available (Bootstrap 4), else click
+            if (typeof $ !== 'undefined' && $.fn.tab) {
+                $(firstLink).tab('show');
+            } else {
+                firstLink.click();
+            }
+        }
+
+        // Show/hide main save button (only for business & documents)
+        var saveArea = document.getElementById('mainSaveButtonArea');
+        if (saveArea) {
+            saveArea.style.display = (name === 'business' || name === 'documents') ? '' : 'none';
+        }
+
+        // Update URL hash
+        if (history.replaceState) {
+            history.replaceState(null, '', '#' + name);
+        }
+
+        // Re-render feather icons (for newly-visible category card icons)
+        if (typeof feather !== 'undefined') feather.replace();
+    };
+
+    // Business Setup completion indicator
+    window.updateBusinessCompletion = function () {
+        var fields = ['company_name', 'company_phone', 'company_email', 'company_address', 'gst_registration'];
+        var filled = 0;
+        for (var i = 0; i < fields.length; i++) {
+            var el = document.getElementById(fields[i]);
+            if (el && el.value && el.value.trim() !== '') filled++;
+        }
+        var badge = document.getElementById('businessCompletionBadge');
+        if (!badge) return;
+        if (filled === fields.length) {
+            badge.className = 'mw-settings-cat-badge complete';
+            badge.textContent = 'Complete';
+        } else {
+            badge.className = 'mw-settings-cat-badge incomplete';
+            badge.textContent = filled + '/' + fields.length;
+        }
+    };
+
+    // On page load: read hash and switch category, check completion
+    document.addEventListener('DOMContentLoaded', function () {
+        var hash = window.location.hash.replace('#', '');
+        if (hash && categoryTabs[hash]) {
+            // Delay slightly to let Bootstrap initialize
+            setTimeout(function () { switchSettingsCategory(hash); }, 100);
+        }
+
+        // Check business completion after settings load
+        var checkInterval = setInterval(function () {
+            var form = document.getElementById('settingsForm');
+            if (form && form.style.display !== 'none') {
+                clearInterval(checkInterval);
+                updateBusinessCompletion();
+            }
+        }, 300);
+    });
+})();
+</script>
 
 <script>
 // ─────────────────────────────────────────────────────────────────────────────

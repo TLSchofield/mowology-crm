@@ -377,8 +377,30 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                 <input type="hidden" name="line_items" id="lineItemsInput" value="">
 
+                <!-- Quote Wizard Stepper -->
+                <div class="mw-stepper mb-4" id="quoteWizardStepper">
+                    <div class="mw-stepper-step active" data-wizard-step="1">
+                        <span class="mw-stepper-dot">1</span>
+                        <span class="mw-stepper-label">Customer</span>
+                    </div>
+                    <div class="mw-stepper-step" data-wizard-step="2">
+                        <span class="mw-stepper-dot">2</span>
+                        <span class="mw-stepper-label">Services</span>
+                    </div>
+                    <div class="mw-stepper-step" data-wizard-step="3">
+                        <span class="mw-stepper-dot">3</span>
+                        <span class="mw-stepper-label">Terms</span>
+                    </div>
+                    <div class="mw-stepper-step" data-wizard-step="4">
+                        <span class="mw-stepper-dot">4</span>
+                        <span class="mw-stepper-label">Review</span>
+                    </div>
+                </div>
+
                 <div class="mw-content-grid">
                     <div class="left-column">
+                        <!-- Step 1: Customer & Property -->
+                        <div class="mw-wizard-step" data-step="1" id="wizardStep1">
                         <!-- Client & Property Selection -->
                         <div class="card">
                             <div class="card-header">
@@ -456,7 +478,17 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                 </div>
                             </div>
                         </div>
+                        <!-- Step 1 Navigation -->
+                        <div class="mw-wizard-nav">
+                            <div></div>
+                            <button type="button" class="btn btn-primary mw-wizard-next" onclick="quoteWizard.next()">
+                                Next: Services &amp; Pricing <i data-feather="arrow-right" style="width:16px;height:16px;vertical-align:middle;margin-left:4px;"></i>
+                            </button>
+                        </div>
+                        </div><!-- /wizardStep1 -->
 
+                        <!-- Step 2: Services & Pricing -->
+                        <div class="mw-wizard-step" data-step="2" id="wizardStep2" style="display:none;">
                         <!-- Measurement Summary + Service Picker -->
                         <div class="card mw-measurement-summary" id="measurementPanel" style="display:none;">
                             <div class="card-header d-flex justify-content-between align-items-center">
@@ -549,7 +581,19 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                 </div>
                             </div>
                         </div>
+                        <!-- Step 2 Navigation -->
+                        <div class="mw-wizard-nav">
+                            <button type="button" class="btn btn-secondary" onclick="quoteWizard.prev()">
+                                <i data-feather="arrow-left" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;"></i> Back
+                            </button>
+                            <button type="button" class="btn btn-primary mw-wizard-next" onclick="quoteWizard.next()">
+                                Next: Terms &amp; Notes <i data-feather="arrow-right" style="width:16px;height:16px;vertical-align:middle;margin-left:4px;"></i>
+                            </button>
+                        </div>
+                        </div><!-- /wizardStep2 -->
 
+                        <!-- Step 3: Terms & Notes -->
+                        <div class="mw-wizard-step" data-step="3" id="wizardStep3" style="display:none;">
                         <!-- Terms & Notes -->
                         <div class="card">
                             <div class="card-header">
@@ -578,6 +622,37 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                 </div>
                             </div>
                         </div>
+                        <!-- Step 3 Navigation -->
+                        <div class="mw-wizard-nav">
+                            <button type="button" class="btn btn-secondary" onclick="quoteWizard.prev()">
+                                <i data-feather="arrow-left" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;"></i> Back
+                            </button>
+                            <button type="button" class="btn btn-primary mw-wizard-next" onclick="quoteWizard.next()">
+                                Next: Review &amp; Save <i data-feather="arrow-right" style="width:16px;height:16px;vertical-align:middle;margin-left:4px;"></i>
+                            </button>
+                        </div>
+                        </div><!-- /wizardStep3 -->
+
+                        <!-- Step 4: Review & Save -->
+                        <div class="mw-wizard-step" data-step="4" id="wizardStep4" style="display:none;">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Review Quote</h5>
+                            </div>
+                            <div class="card-body" id="wizardPreviewContent">
+                                <p class="text-muted mb-3">Review all details before saving your quote.</p>
+                                <div id="previewClientInfo" class="mb-4"></div>
+                                <div id="previewLineItems" class="mb-4"></div>
+                                <div id="previewTerms"></div>
+                            </div>
+                        </div>
+                        <!-- Step 4 Navigation -->
+                        <div class="mw-wizard-nav">
+                            <button type="button" class="btn btn-secondary" onclick="quoteWizard.prev()">
+                                <i data-feather="arrow-left" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;"></i> Back
+                            </button>
+                        </div>
+                        </div><!-- /wizardStep4 -->
                     </div>
 
                     <div class="right-column">
@@ -2005,5 +2080,156 @@ document.addEventListener('keydown', (e) => {
 });
 </script>
 <?php endif; ?>
+
+<!-- Quote Wizard Controller -->
+<script>
+(function() {
+    var totalSteps = 4;
+    var currentStep = 1;
+    var isEditMode = <?php echo $quoteId ? 'true' : 'false'; ?>;
+    var completedSteps = isEditMode ? {1: true, 2: true, 3: true, 4: true} : {};
+
+    function escHtml(s) {
+        var d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    window.quoteWizard = {
+        showStep: function(step) {
+            currentStep = step;
+            for (var i = 1; i <= totalSteps; i++) {
+                var el = document.getElementById('wizardStep' + i);
+                if (el) el.style.display = (i === step) ? '' : 'none';
+            }
+            // Update stepper dots
+            var stepEls = document.querySelectorAll('#quoteWizardStepper .mw-stepper-step');
+            for (var j = 0; j < stepEls.length; j++) {
+                var stepNum = parseInt(stepEls[j].getAttribute('data-wizard-step'));
+                stepEls[j].classList.remove('active', 'completed');
+                if (stepNum === step) {
+                    stepEls[j].classList.add('active');
+                } else if (completedSteps[stepNum]) {
+                    stepEls[j].classList.add('completed');
+                }
+            }
+            // Scroll to top of form
+            document.getElementById('quoteWizardStepper').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // Re-render feather icons
+            if (typeof feather !== 'undefined') setTimeout(function() { feather.replace(); }, 50);
+        },
+
+        validateStep: function(step) {
+            if (step === 1) {
+                var clientId = document.getElementById('selectedClientId');
+                var propSelect = document.getElementById('propertySelect');
+                if (!clientId || !clientId.value) {
+                    alert('Please select a client before proceeding.');
+                    return false;
+                }
+                if (!propSelect || !propSelect.value) {
+                    alert('Please select a property before proceeding.');
+                    return false;
+                }
+                return true;
+            }
+            if (step === 2) {
+                if (typeof lineItems !== 'undefined' && lineItems.length === 0) {
+                    if (!confirm('You haven\'t added any line items yet. Continue anyway?')) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+            return true;
+        },
+
+        next: function() {
+            if (currentStep >= totalSteps) return;
+            if (!this.validateStep(currentStep)) return;
+            completedSteps[currentStep] = true;
+            if (currentStep + 1 === 4) this.buildPreview();
+            this.showStep(currentStep + 1);
+        },
+
+        prev: function() {
+            if (currentStep <= 1) return;
+            this.showStep(currentStep - 1);
+        },
+
+        goTo: function(step) {
+            if (step < currentStep) {
+                this.showStep(step);
+            } else if (completedSteps[step] || step === currentStep) {
+                this.showStep(step);
+            }
+        },
+
+        buildPreview: function() {
+            // Client info
+            var clientName = document.getElementById('clientSearchInput')?.value || 'Not selected';
+            var propSelect = document.getElementById('propertySelect');
+            var propText = propSelect && propSelect.selectedIndex > 0 ? propSelect.options[propSelect.selectedIndex].text : 'Not selected';
+            document.getElementById('previewClientInfo').innerHTML =
+                '<h6 class="font-weight-bold mb-2"><i data-feather="user" style="width:16px;height:16px;vertical-align:middle;margin-right:6px;"></i>Customer &amp; Property</h6>' +
+                '<div class="card bg-light border-0 p-3">' +
+                '<div><strong>Client:</strong> ' + escHtml(clientName) + '</div>' +
+                '<div class="mt-1"><strong>Property:</strong> ' + escHtml(propText) + '</div>' +
+                '</div>';
+
+            // Line items table
+            var html = '<h6 class="font-weight-bold mb-2"><i data-feather="list" style="width:16px;height:16px;vertical-align:middle;margin-right:6px;"></i>Services &amp; Pricing</h6>';
+            if (typeof lineItems !== 'undefined' && lineItems.length > 0) {
+                html += '<div class="table-responsive"><table class="table table-sm table-bordered mb-0"><thead class="thead-light"><tr><th>Service</th><th class="text-center" style="width:60px;">Qty</th><th class="text-right" style="width:90px;">Price</th><th class="text-right" style="width:90px;">Total</th></tr></thead><tbody>';
+                var items = lineItems.filter(function(i) { return !i._type; });
+                items.forEach(function(item) {
+                    var qty = parseFloat(item.quantity) || 1;
+                    var price = parseFloat(item.unit_price) || 0;
+                    html += '<tr><td>' + escHtml(item.service_name || '') + '</td><td class="text-center">' + qty + '</td><td class="text-right">$' + price.toFixed(2) + '</td><td class="text-right">$' + (qty * price).toFixed(2) + '</td></tr>';
+                });
+                html += '</tbody></table></div>';
+            } else {
+                html += '<p class="text-muted">No line items added.</p>';
+            }
+            var subtotalEl = document.getElementById('subtotalDisplay');
+            var taxEl = document.getElementById('taxDisplay');
+            var totalEl = document.getElementById('totalDisplay');
+            html += '<div class="mt-2 text-right"><strong>Subtotal:</strong> ' + (subtotalEl?.textContent || '$0.00') +
+                    ' &nbsp; <strong>GST:</strong> ' + (taxEl?.textContent || '$0.00') +
+                    ' &nbsp; <strong class="text-primary" style="font-size:16px;">Total: ' + (totalEl?.textContent || '$0.00') + '</strong></div>';
+            document.getElementById('previewLineItems').innerHTML = html;
+
+            // Terms
+            var termsEl = document.querySelector('textarea[name="terms"]');
+            var notesEl = document.querySelector('textarea[name="notes_customer"]');
+            var validEl = document.querySelector('input[name="valid_until"]');
+            var termsHtml = '<h6 class="font-weight-bold mb-2"><i data-feather="file-text" style="width:16px;height:16px;vertical-align:middle;margin-right:6px;"></i>Terms &amp; Notes</h6><div class="card bg-light border-0 p-3">';
+            if (validEl && validEl.value) termsHtml += '<div><strong>Valid until:</strong> ' + escHtml(validEl.value) + '</div>';
+            if (termsEl && termsEl.value) termsHtml += '<div class="mt-2"><strong>Terms:</strong><br><span class="text-muted" style="white-space:pre-line;">' + escHtml(termsEl.value) + '</span></div>';
+            if (notesEl && notesEl.value) termsHtml += '<div class="mt-2"><strong>Notes for customer:</strong><br><span class="text-muted">' + escHtml(notesEl.value) + '</span></div>';
+            termsHtml += '</div>';
+            document.getElementById('previewTerms').innerHTML = termsHtml;
+        }
+    };
+
+    // Make stepper dots clickable
+    document.addEventListener('DOMContentLoaded', function() {
+        var stepEls = document.querySelectorAll('#quoteWizardStepper .mw-stepper-step');
+        for (var i = 0; i < stepEls.length; i++) {
+            stepEls[i].style.cursor = 'pointer';
+            (function(el) {
+                el.addEventListener('click', function() {
+                    var step = parseInt(el.getAttribute('data-wizard-step'));
+                    quoteWizard.goTo(step);
+                });
+            })(stepEls[i]);
+        }
+        // Edit mode: show all steps as completed
+        if (isEditMode) {
+            quoteWizard.showStep(1);
+        }
+    });
+})();
+</script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

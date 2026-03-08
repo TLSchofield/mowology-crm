@@ -6538,11 +6538,105 @@ tr[data-href] { cursor: pointer; }
   border-color: var(--mw-green);
 }
 
-/* Business Settings Page */
+/* Business Settings Page — Category Cards */
+.mw-settings-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.mw-settings-cat-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #fff;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+.mw-settings-cat-card:hover {
+  border-color: var(--mw-green);
+  box-shadow: 0 2px 8px rgba(45, 134, 89, 0.1);
+}
+.mw-settings-cat-card.active {
+  border-color: var(--mw-green);
+  background: var(--mw-light);
+}
+.mw-settings-cat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--mw-light);
+  color: var(--mw-green);
+  flex-shrink: 0;
+}
+.mw-settings-cat-card.active .mw-settings-cat-icon {
+  background: var(--mw-green);
+  color: #fff;
+}
+.mw-settings-cat-info {
+  flex: 1;
+  min-width: 0;
+}
+.mw-settings-cat-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #1a1a2e;
+}
+.mw-settings-cat-desc {
+  color: #6b7a8d;
+  font-size: 12px;
+  margin-top: 2px;
+  display: block;
+}
+.mw-settings-cat-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.mw-settings-cat-badge.complete {
+  background: #d4edda;
+  color: #155724;
+}
+.mw-settings-cat-badge.incomplete {
+  background: #fff3cd;
+  color: #856404;
+}
+
+/* Business Settings Page — Sub-tabs */
+.mw-settings-subtabs {
+  border-bottom: 2px solid #dee2e6 !important;
+}
+.mw-settings-subtabs .nav-link {
+  color: #6c757d;
+  border: none;
+  border-bottom: 3px solid transparent;
+  font-weight: 500;
+  padding: 10px 20px;
+  transition: all 0.2s;
+}
+.mw-settings-subtabs .nav-link:hover {
+  color: var(--mw-green);
+  border-bottom-color: var(--mw-green);
+}
+.mw-settings-subtabs .nav-link.active {
+  color: var(--mw-green);
+  border-bottom-color: var(--mw-green);
+  background: transparent;
+}
+
+/* Legacy nav class (keep for backwards compat) */
 .mw-settings-nav {
   border-bottom: 2px solid #dee2e6 !important;
 }
-
 .mw-settings-nav .nav-link {
   color: #6c757d;
   border: none;
@@ -6551,16 +6645,36 @@ tr[data-href] { cursor: pointer; }
   padding: 10px 20px;
   transition: all 0.2s;
 }
-
 .mw-settings-nav .nav-link:hover {
   color: var(--mw-green);
   border-bottom-color: var(--mw-green);
 }
-
 .mw-settings-nav .nav-link.active {
   color: var(--mw-green);
   border-bottom-color: var(--mw-green);
   background: transparent;
+}
+
+@media (max-width: 576px) {
+  .mw-settings-categories {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .mw-settings-cat-card {
+    padding: 12px;
+    gap: 8px;
+  }
+  .mw-settings-cat-desc {
+    display: none;
+  }
+  .mw-settings-cat-icon {
+    width: 32px;
+    height: 32px;
+  }
+  .mw-settings-subtabs .nav-link {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
 }
 
 .tab-content {
@@ -22921,6 +23035,114 @@ textarea.font-monospace {
   }
 }
 
+/* ── Quote Wizard Step Containers ─────────────────────────────────────── */
+.mw-wizard-step {
+  animation: mwWizardFadeIn 0.3s ease;
+}
+@keyframes mwWizardFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.mw-wizard-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  margin-top: 8px;
+}
+.mw-wizard-next {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 24px;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+.mw-wizard-next:hover {
+  background: var(--mw-dark);
+  border-color: var(--mw-dark);
+  color: #fff;
+}
+.mw-wizard-nav .btn-secondary {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+
+/* ── Employee Onboarding — Role Selection Cards ──────────────────────── */
+.mw-onboard-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mw-onboard-role-card {
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #fff;
+}
+.mw-onboard-role-card:hover {
+  border-color: var(--mw-green);
+  box-shadow: 0 2px 8px rgba(45, 134, 89, 0.08);
+}
+.mw-onboard-role-card.active {
+  border-color: var(--mw-green);
+  background: var(--mw-light);
+}
+.mw-onboard-role-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.mw-onboard-role-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.mw-onboard-role-radio {
+  margin-left: auto;
+}
+.mw-onboard-role-radio input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--mw-green);
+}
+.mw-onboard-role-perms {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 52px;
+  font-size: 13px;
+}
+.mw-perm-allowed {
+  color: #1a5f4a;
+}
+.mw-perm-allowed i {
+  color: var(--mw-green);
+  margin-right: 6px;
+}
+.mw-perm-denied {
+  color: #9ca3af;
+  font-style: italic;
+}
+.mw-perm-denied i {
+  color: #d1d5db;
+  margin-right: 6px;
+}
+@media (max-width: 576px) {
+  .mw-onboard-role-perms {
+    padding-left: 0;
+    font-size: 12px;
+  }
+}
+
 
 /* ══════════════════════════════════════════════════════════════════════════════
    SALESFORCE-GAP FEATURES
@@ -23453,3 +23675,64 @@ textarea.font-monospace {
     flex-direction: column;
   }
 }
+
+/* ── Photo Compliance Banner (visit-work.php) ─────────────────────────────── */
+.mw-photo-compliance-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff8e1;
+  border: 2px solid #f59e0b;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  animation: mwPcbSlide .2s ease;
+}
+@keyframes mwPcbSlide {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.mw-pcb-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.mw-pcb-body {
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.3;
+}
+.mw-pcb-missing {
+  color: #92400e;
+  margin-top: 2px;
+  font-size: 13px;
+}
+.mw-pcb-missing span {
+  font-weight: 600;
+}
+.mw-pcb-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ── Photo Compliance Dashboard Widget ────────────────────────────────────── */
+.mw-compliance-table td,
+.mw-compliance-table th {
+  font-size: 13px;
+  padding: 6px 10px;
+  vertical-align: middle;
+}
+.mw-compliance-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: #e9ecef;
+  overflow: hidden;
+  min-width: 60px;
+}
+.mw-compliance-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--mw-green);
+  transition: width .4s ease;
+}
+.mw-compliance-bar-fill--warn { background: #f59e0b; }
+.mw-compliance-bar-fill--danger { background: #ef4444; }
