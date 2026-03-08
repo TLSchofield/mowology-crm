@@ -2363,24 +2363,24 @@ $unconvertedRequests = $db->query("
                   <div class="card-body">
                     <?php if (!empty($viewContact['email'])): ?>
                     <div class="row mb-2">
-                      <div class="col-sm-3 text-muted">Email</div>
+                      <div class="col-sm-3 text-muted"><i data-feather="mail" style="width: 14px; height: 14px;"></i> Email</div>
                       <div class="col-sm-9"><a href="mailto:<?php echo h($viewContact['email']); ?>"><?php echo h($viewContact['email']); ?></a></div>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($viewContact['phone'])): ?>
                     <div class="row mb-2">
-                      <div class="col-sm-3 text-muted">Phone</div>
+                      <div class="col-sm-3 text-muted"><i data-feather="phone" style="width: 14px; height: 14px;"></i> Phone</div>
                       <div class="col-sm-9"><a href="tel:<?php echo h($viewContact['phone']); ?>"><?php echo h($viewContact['phone']); ?></a></div>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($viewContact['mobile'])): ?>
                     <div class="row mb-2">
-                      <div class="col-sm-3 text-muted">Mobile</div>
+                      <div class="col-sm-3 text-muted"><i data-feather="smartphone" style="width: 14px; height: 14px;"></i> Mobile</div>
                       <div class="col-sm-9"><a href="tel:<?php echo h($viewContact['mobile']); ?>"><?php echo h($viewContact['mobile']); ?></a></div>
                     </div>
                     <?php endif; ?>
                     <div class="row mb-2">
-                      <div class="col-sm-3 text-muted">Preferred</div>
+                      <div class="col-sm-3 text-muted"><i data-feather="star" style="width: 14px; height: 14px;"></i> Preferred</div>
                       <div class="col-sm-9"><?php echo ucfirst(h($viewContact['preferred_contact_method'] ?? 'phone')); ?></div>
                     </div>
 
