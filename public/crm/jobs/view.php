@@ -1964,6 +1964,10 @@ if ($hasPropCoords) {
                         <div class="mw-crew-chips" id="editCrewChips">
                             <?php
                             $existingCrew = getPlanCrewAssignments($planId);
+                            // Fallback: if no multi-crew rows, use legacy default_crew_id
+                            if (empty($existingCrew) && !empty($plan['default_crew_id']) && !empty($plan['default_crew_name'])) {
+                                $existingCrew = [['user_id' => (int)$plan['default_crew_id'], 'full_name' => $plan['default_crew_name'], 'role' => 'lead']];
+                            }
                             foreach ($existingCrew as $ec):
                             ?>
                                 <span class="mw-crew-chip <?php echo $ec['role'] === 'lead' ? 'mw-crew-lead' : ''; ?>">
@@ -2529,6 +2533,9 @@ if ($hasPropCoords) {
                 // $existingCrew was fetched earlier for edit modal HTML
             } else {
                 $existingCrew = getPlanCrewAssignments($planId);
+                if (empty($existingCrew) && !empty($plan['default_crew_id']) && !empty($plan['default_crew_name'])) {
+                    $existingCrew = [['user_id' => (int)$plan['default_crew_id'], 'full_name' => $plan['default_crew_name'], 'role' => 'lead']];
+                }
             }
             foreach ($existingCrew as $ec) {
                 $crewJson[] = ['id' => (int)$ec['user_id'], 'name' => $ec['full_name']];
