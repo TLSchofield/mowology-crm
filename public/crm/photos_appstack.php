@@ -37,7 +37,6 @@ if ($propertyId) {
 $properties = $db->query("
     SELECT p.id, p.address, p.city
     FROM properties p
-    WHERE p.status = 'active'
     ORDER BY p.address
 ")->fetchAll(PDO::FETCH_ASSOC);
 
@@ -51,7 +50,6 @@ $serviceTypes = $db->query("
 // Crew members dropdown
 $crewMembers = $db->query("
     SELECT id, full_name FROM users
-    WHERE status = 'active'
     ORDER BY full_name
 ")->fetchAll(PDO::FETCH_ASSOC);
 
