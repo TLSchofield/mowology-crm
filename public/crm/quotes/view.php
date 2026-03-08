@@ -171,7 +171,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 $emailSubject = $tpl['subject'];
                 $emailBody    = EmailWrapper::wrap(
                     $tpl['body_html'],
-                    'View &amp; Accept Quote',
+                    'View & Accept Quote',
                     $quoteUrl,
                     $companyInfo
                 );
