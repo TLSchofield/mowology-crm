@@ -248,6 +248,36 @@ try {
                 } catch (Exception $e) { /* use 0 if setting unavailable */ }
             }
 
+            // ── Photo compliance check ────────────────────────────────────
+            $planCompStmt = $db->prepare("
+                SELECT photo_types_required, photos_block_completion
+                FROM job_plans WHERE id = ?
+            ");
+            $planCompStmt->execute([$visit['plan_id']]);
+            $planCompliance = $planCompStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($planCompliance && (int)$planCompliance['photos_block_completion'] === 1 && !empty($planCompliance['photo_types_required'])) {
+                $required = json_decode($planCompliance['photo_types_required'], true) ?: [];
+                if (!empty($required)) {
+                    $uploadedStmt = $db->prepare("
+                        SELECT DISTINCT photo_type FROM visit_photos
+                        WHERE visit_id = ? AND deleted_at IS NULL
+                    ");
+                    $uploadedStmt->execute([$visitId]);
+                    $uploaded = array_column($uploadedStmt->fetchAll(PDO::FETCH_ASSOC), 'photo_type');
+                    $missing  = array_values(array_diff($required, $uploaded));
+                    if (!empty($missing)) {
+                        echo json_encode([
+                            'success'       => false,
+                            'error'         => 'Required photos missing before visit can be completed.',
+                            'missing_types' => $missing,
+                        ]);
+                        break;
+                    }
+                }
+            }
+            // ─────────────────────────────────────────────────────────────
+
             $db->prepare("
                 UPDATE job_visits SET
                     status = 'completed',

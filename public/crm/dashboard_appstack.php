@@ -609,4 +609,99 @@ $activePage = 'dashboard';
             </div>
           </div>
 
+<?php if (($user['role'] ?? '') === 'admin'): ?>
+<!-- ── Photo Compliance Widget (admin only) ───────────────────────────────── -->
+<div class="row mt-3">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">
+          <i data-feather="camera" class="align-middle mr-1" style="width:16px;height:16px;"></i>
+          Photo Compliance
+          <span class="text-muted font-weight-normal small ml-1">last 30 days</span>
+        </h5>
+        <a href="/crm/photos_appstack.php" class="btn btn-sm btn-outline-success">View All Photos</a>
+      </div>
+      <div class="card-body p-0">
+        <div id="compliance-loading" class="text-center text-muted py-3 small">
+          <span class="spinner-border spinner-border-sm mr-1"></span> Loading…
+        </div>
+        <div id="compliance-none" class="text-center text-muted py-3 small" style="display:none;">
+          No plans have photo requirements configured yet.
+        </div>
+        <div id="compliance-content" style="display:none;">
+          <table class="table table-sm mb-0 mw-compliance-table">
+            <thead>
+              <tr>
+                <th>Crew Member</th>
+                <th>Visits</th>
+                <th>Compliant</th>
+                <th style="min-width:100px;">Rate</th>
+              </tr>
+            </thead>
+            <tbody id="compliance-tbody"></tbody>
+          </table>
+          <div id="compliance-missing-banner" class="px-3 py-2 border-top" style="display:none;">
+            <small class="text-danger">
+              <i data-feather="alert-circle" style="width:12px;height:12px;"></i>
+              <strong><span id="compliance-missing-count"></span> completed visit(s)</strong> missing required photos this week
+            </small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function() {
+  fetch('/crm/api/photo-compliance.php?action=crew_summary&days=30', { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById('compliance-loading').style.display = 'none';
+      if (!data.rows || !data.rows.length) {
+        document.getElementById('compliance-none').style.display = 'block';
+        return;
+      }
+      document.getElementById('compliance-content').style.display = 'block';
+      var tbody = document.getElementById('compliance-tbody');
+      data.rows.forEach(function(row) {
+        var pct  = row.pct;
+        var cls  = pct >= 90 ? '' : pct >= 70 ? 'warn' : 'danger';
+        var badge = pct >= 90
+          ? '<span class="badge badge-success">' + pct + '%</span>'
+          : pct >= 70
+            ? '<span class="badge badge-warning">' + pct + '%</span>'
+            : '<span class="badge badge-danger">' + pct + '%</span>';
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td>' + row.crew_name + '</td>' +
+          '<td>' + row.total + '</td>' +
+          '<td>' + row.compliant + '</td>' +
+          '<td><div class="d-flex align-items-center" style="gap:8px;">' +
+            '<div class="mw-compliance-bar" style="flex:1"><div class="mw-compliance-bar-fill' + (cls ? ' mw-compliance-bar-fill--' + cls : '') + '" style="width:' + pct + '%"></div></div>' +
+            badge +
+          '</div></td>';
+        tbody.appendChild(tr);
+      });
+      if (typeof feather !== 'undefined') feather.replace();
+    })
+    .catch(function() {
+      document.getElementById('compliance-loading').style.display = 'none';
+    });
+
+  fetch('/crm/api/photo-compliance.php?action=missing_list&days=7', { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.rows && data.rows.length) {
+        document.getElementById('compliance-content').style.display = 'block';
+        document.getElementById('compliance-loading').style.display = 'none';
+        document.getElementById('compliance-missing-count').textContent = data.rows.length;
+        document.getElementById('compliance-missing-banner').style.display = 'block';
+        if (typeof feather !== 'undefined') feather.replace();
+      }
+    });
+})();
+</script>
+<?php endif; ?>
+
 <?php include 'includes/appstack_footer.php'; ?>

@@ -1105,14 +1105,40 @@ $activePage = 'jobs';
           showToast('Visit completed! Redirecting\u2026', 'success');
           setTimeout(function() { location.href = 'visit-detail.php?id=' + VISIT_ID; }, 1500);
         } else {
-          alert(res.error || 'Could not complete visit');
+          // Re-enable modal buttons
           if (skipBtn)    skipBtn.disabled    = false;
           if (closeBtn)   closeBtn.disabled   = false;
           if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.innerHTML = 'Add to Invoice &amp; Complete'; }
+
+          // Photo compliance failure — show inline banner with jump-to-photos
+          if (res.missing_types && res.missing_types.length) {
+            hideExtrasModal();
+            var typeLabels = { before: 'Before', after: 'After', additional: 'Additional', during: 'During', issue: 'Issue' };
+            var missingNames = res.missing_types.map(function(t) { return typeLabels[t] || t; });
+            var banner = document.getElementById('mw-photo-compliance-banner');
+            if (!banner) {
+              banner = document.createElement('div');
+              banner.id = 'mw-photo-compliance-banner';
+              banner.className = 'mw-photo-compliance-banner';
+              var btnEnd2 = document.getElementById('btn-end-visit');
+              if (btnEnd2 && btnEnd2.parentNode) btnEnd2.parentNode.insertBefore(banner, btnEnd2);
+            }
+            banner.innerHTML =
+              '<div class="mw-pcb-icon">&#128247;</div>' +
+              '<div class="mw-pcb-body">' +
+                '<strong>Photos required before completing</strong>' +
+                '<div class="mw-pcb-missing">Missing: <span>' + missingNames.join(', ') + '</span></div>' +
+              '</div>' +
+              '<button type="button" class="btn btn-sm btn-success mw-pcb-btn" onclick="document.getElementById(\'photos-tab-link\').click();document.getElementById(\'mw-photo-compliance-banner\').style.display=\'none\';">Go to Photos</button>';
+            banner.style.display = 'flex';
+            banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else {
+            showToast(res.error || 'Could not complete visit', 'danger');
+          }
         }
       })
       .catch(function() {
-        alert('Network error \u2014 please try again.');
+        showToast('Network error \u2014 please try again.', 'danger');
         if (skipBtn)    skipBtn.disabled    = false;
         if (closeBtn)   closeBtn.disabled   = false;
         if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.innerHTML = 'Add to Invoice &amp; Complete'; }
