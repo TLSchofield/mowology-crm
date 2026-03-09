@@ -1753,9 +1753,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
         if (selectedClientIdInput.value && propertySelect.value) {
             propertySelect.dispatchEvent(new Event('change'));
         }
-        if (selectedClientIdInput.value && currentClientType === 'contact') {
-            fetchContactDetails(parseInt(selectedClientIdInput.value));
-        }
+        // Contact details init is handled by a deferred <script> block at the bottom of the page
 
         // Form submission
         document.getElementById('quoteForm').addEventListener('submit', function() {
@@ -2326,6 +2324,19 @@ document.addEventListener('keydown', (e) => {
             quoteWizard.showStep(1);
         }
     });
+})();
+</script>
+
+<script>
+// Load contact info on edit mode (deferred to ensure all scripts are ready)
+(function() {
+    var cid = document.getElementById('selectedClientId');
+    var ctype = document.getElementById('selectedClientType');
+    if (cid && cid.value && (!ctype || ctype.value === 'contact')) {
+        if (typeof fetchContactDetails === 'function') {
+            fetchContactDetails(parseInt(cid.value));
+        }
+    }
 })();
 </script>
 
