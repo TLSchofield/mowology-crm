@@ -1,9 +1,9 @@
 <?php
 require_once __DIR__ . '/auth.php';
 
-// If already logged in, redirect to dashboard
+// If already logged in, go to app launch
 if (isLoggedIn()) {
-    header('Location: ' . DASHBOARD_URL);
+    header('Location: /crm/app-launch.php');
     exit();
 }
 
@@ -26,12 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Too many login attempts. Please try again in a few minutes.';
         } else {
             if (loginUser($email, $password)) {
-                $loggedIn = getCurrentUser();
-                // Driver role ('user') gets the Driver Portal (vehicle checks, trip reports)
-                $dest = (($loggedIn['role'] ?? '') === 'user')
-                    ? '/crm/driver-portal.php'
-                    : DASHBOARD_URL;
-                header('Location: ' . $dest);
+                header('Location: /crm/app-launch.php');
                 exit();
             } else {
                 $error = 'Invalid email or password.';
