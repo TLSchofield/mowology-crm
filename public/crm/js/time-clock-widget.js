@@ -870,11 +870,14 @@
         },
         /**
          * Called by pill workflow when a job timer starts.
-         * For personal devices, this is what activates GPS tracking.
+         * Ensures GPS tracking is running for ALL device types.
+         * Personal devices: this is the primary trigger for tracking.
+         * Truck devices: tracking should already be running, but if the
+         * native plugin failed on page load, this retries it.
          */
         notifyJobTimerStarted: function() {
             hasActiveJobTimer = true;
-            if (trackingEnabled && deviceType === 'personal') {
+            if (trackingEnabled) {
                 startTracking();
             }
         },
