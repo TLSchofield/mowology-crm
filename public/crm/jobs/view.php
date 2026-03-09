@@ -43,8 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     // Resume plan
     if ($action === 'resume_plan') {
         if (resumePlan($planId, $user['id'])) {
-            $message = 'Plan resumed. Visits have been regenerated.';
-            $messageType = 'success';
+            header("Location: view.php?id={$planId}&resumed=1");
+            exit;
         } else {
             $message = 'Could not resume this plan. It may already be active.';
             $messageType = 'error';
@@ -524,6 +524,7 @@ $serviceTemplates = $stmtSt->fetchAll(PDO::FETCH_ASSOC);
 $csrfToken = generateCSRFToken();
 
 if (isset($_GET['created'])) { $message = 'Plan created successfully!'; $messageType = 'success'; }
+if (isset($_GET['resumed'])) { $message = 'Plan resumed. Visits have been regenerated.'; $messageType = 'success'; }
 if (isset($_GET['visit_started'])) { $message = 'Visit started!'; $messageType = 'success'; }
 if (isset($_GET['visit_completed'])) { $message = 'Visit completed!'; $messageType = 'success'; }
 if (isset($_GET['visit_skipped'])) { $message = 'Visit skipped.'; $messageType = 'success'; }

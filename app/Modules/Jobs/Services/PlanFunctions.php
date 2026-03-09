@@ -1496,6 +1496,7 @@ function pausePlan(int $planId, int $userId, string $reason = ''): bool {
  */
 function resumePlan(int $planId, int $userId): bool {
     $db = getDB();
+    $db->beginTransaction();
     try {
         $stmt = $db->prepare("
             UPDATE job_plans
@@ -1506,12 +1507,18 @@ function resumePlan(int $planId, int $userId): bool {
         ");
         $stmt->execute([$planId]);
 
-        if ($stmt->rowCount() === 0) return false;
+        if ($stmt->rowCount() === 0) {
+            $db->rollBack();
+            return false;
+        }
 
-        // Regenerate visits
+        $db->commit();
+
+        // Regenerate visits (outside transaction — generateVisits manages its own DB operations)
         generateVisits($planId);
         return true;
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) $db->rollBack();
         error_log("resumePlan error: " . $e->getMessage());
         return false;
     }
