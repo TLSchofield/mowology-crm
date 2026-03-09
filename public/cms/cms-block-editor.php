@@ -229,9 +229,10 @@ $fields = $blockFieldTemplates[$block['block_type'] ?? ''] ?? [];
                         ?>
                         <div class="form-group">
                             <label for="variant">Design Variant</label>
+                            <?php $currentVariant = $block['variant'] ?? $block['config']['variant'] ?? 'default'; ?>
                             <select class="form-control" id="variant" name="variant">
-                                <option value="default" <?php echo ($block['variant'] ?? 'default') === 'default' ? 'selected' : ''; ?>>Default (Basic)</option>
-                                <option value="enhanced" <?php echo ($block['variant'] ?? '') === 'enhanced' ? 'selected' : ''; ?>>Enhanced (Animated)</option>
+                                <option value="default" <?php echo $currentVariant === 'default' ? 'selected' : ''; ?>>Default (Basic)</option>
+                                <option value="enhanced" <?php echo $currentVariant === 'enhanced' ? 'selected' : ''; ?>>Enhanced (Animated)</option>
                             </select>
                             <small class="form-text text-muted">Enhanced variants include animations, parallax, and interactive components.</small>
                         </div>

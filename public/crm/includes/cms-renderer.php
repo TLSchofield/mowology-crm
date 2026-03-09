@@ -107,7 +107,8 @@ function cms_renderPage(array $page): void
 function cms_renderBlock(array $block): string
 {
     $blockType = $block['block_type'] ?? '';
-    $variant   = !empty($block['variant']) ? $block['variant'] : 'default';
+    $variant   = !empty($block['variant']) ? $block['variant']
+               : (!empty($block['config']['variant']) ? $block['config']['variant'] : 'default');
 
     // Variant renderer: blocks/{type}--{variant}.php (P1-C)
     // Falls back to the standard renderer if the variant file doesn't exist.

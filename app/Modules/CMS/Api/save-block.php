@@ -51,6 +51,10 @@ $isVisible = (bool)($_POST['is_visible'] ?? 1);
 // Build config from form fields
 $config = $_POST['config'] ?? [];
 
+// Store variant in config (reliable — no schema dependency)
+$variant = $_POST['variant'] ?? 'default';
+$config['variant'] = $variant;
+
 // Parse and validate JSON fields
 foreach ($config as $key => $value) {
     if (is_string($value) && !empty($value)) {
