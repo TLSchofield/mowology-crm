@@ -762,52 +762,9 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
         setTimeout(() => showHome(), 1800);
     }
 
-    // ── 3. Home screen ───────────────────────────────────────
+    // ── 3. Home → always go to schedule ─────────────────────
     function showHome() {
-        if (!homeData || !homeData.success) {
-            window.location.href = '/crm/jobs/schedule.php?view=day';
-            return;
-        }
-
-        const d = homeData;
-
-        // Greeting
-        $('homeGreeting').textContent = d.user.greeting + ', ' + d.user.first_name;
-        $('homeDate').textContent = d.today.day_name + ', ' + formatDate(d.today.date);
-
-        // Revenue
-        $('homeRevenue').textContent = formatMoney(d.today.revenue);
-        $('homeTarget').textContent = '/ ' + formatMoney(d.today.target);
-        $('homeStops').textContent = d.today.stops + ' stop' + (d.today.stops !== 1 ? 's' : '');
-        const hrs = (d.today.duration_min / 60).toFixed(1);
-        $('homeDuration').textContent = hrs + ' hrs est.';
-
-        // Animate bar after transition
-        setTimeout(() => {
-            $('homeRevenueBar').style.width = Math.min(100, d.today.target_pct) + '%';
-        }, 600);
-
-        // Weather
-        if (d.weather && d.weather.condition) {
-            $('weatherCard').style.display = '';
-            $('weatherIcon').textContent = d.weather.icon || '🌤';
-            $('weatherCondition').textContent = d.weather.condition;
-            $('weatherTemps').textContent = (d.weather.high ?? '--') + '° / ' + (d.weather.low ?? '--') + '°';
-            const details = [];
-            if (d.weather.precipitation > 0) details.push(d.weather.precipitation + ' mm precip');
-            if (d.weather.wind > 0) details.push(d.weather.wind + ' km/h wind');
-            $('weatherDetail').textContent = details.join(' · ') || '';
-        }
-
-        // Clock button state
-        if (d.clock.clocked_in) {
-            $('clockBtn').className = 'al-clock-btn go-to-schedule';
-            $('clockBtnText').textContent = 'Go to Schedule';
-            $('clockBtn').onclick = () => window.location.href = '/crm/jobs/schedule.php?view=day';
-            $('skipLink').style.display = 'none';
-        }
-
-        show('homeScreen');
+        window.location.href = '/crm/jobs/schedule.php';
     }
 
     function formatDate(dateStr) {
