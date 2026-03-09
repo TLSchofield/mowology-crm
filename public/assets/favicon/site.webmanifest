@@ -3,7 +3,7 @@
   "short_name": "Mowology",
   "description": "Landscaping CRM - Schedule, quotes, jobs & invoicing",
   "id": "/crm/",
-  "start_url": "/crm/jobs/schedule.php",
+  "start_url": "/crm/app-launch.php",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
