@@ -107,7 +107,8 @@ class ZoneEditorManager {
             });
         }
 
-        street.addTo(this._map);
+        // Satellite is default; fall back to street if no satellite URL
+        (satellite || street).addTo(this._map);
 
         // Layer control for switching views
         const baseMaps = { 'Street': street };
