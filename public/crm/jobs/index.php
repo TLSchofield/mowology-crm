@@ -94,6 +94,7 @@ try {
         'plan_number' => 'jp.plan_number',
         'title'       => 'jp.title',
         'service'     => 'jp.service_type',
+        'property'    => 'p.address',
         'client'      => 'contact_first_name',
         'status'      => 'jp.status',
         'created_at'  => 'jp.created_at',
@@ -436,7 +437,7 @@ $activePage = 'jobs';
                               <th class="<?php echo jobSortClass('plan_number', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('plan_number', $sortCol, $sortDir); ?>">Plan #</a></th>
                               <th class="<?php echo jobSortClass('title', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('title', $sortCol, $sortDir); ?>">Title</a></th>
                               <th class="<?php echo jobSortClass('service', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('service', $sortCol, $sortDir); ?>">Service</a></th>
-                              <th>Property</th>
+                              <th class="<?php echo jobSortClass('property', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('property', $sortCol, $sortDir); ?>">Property</a></th>
                               <th class="<?php echo jobSortClass('client', $sortCol, $sortDir); ?>"><a href="<?php echo jobSortUrl('client', $sortCol, $sortDir); ?>">Client</a></th>
                               <th>Crew</th>
                               <th>Pricing</th>
