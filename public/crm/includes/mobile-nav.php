@@ -101,8 +101,8 @@ $menuItems = [
     <div class="mw-mobile-topbar-right">
         <!-- Reuse existing clock widget from appstack_topbar — JS targets #clockWidget -->
         <div class="mw-clock-widget" id="mwMobileClockWidget"></div>
-        <button type="button" class="mw-mobile-menu-btn" id="mwMobileMenuBtn" aria-label="Open menu">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <button type="button" class="mw-mobile-search-btn" data-spotlight-open aria-label="Search">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         </button>
     </div>
 </div>
@@ -193,7 +193,6 @@ $menuItems = [
 (function() {
     var overlay  = document.getElementById('mwMobileMenuOverlay');
     var scrim    = document.getElementById('mwMobileMenuScrim');
-    var topBtn   = document.getElementById('mwMobileMenuBtn');
     var botBtn   = document.getElementById('mwMobileMenuBtnBottom');
 
     if (!overlay) return;
@@ -208,7 +207,6 @@ $menuItems = [
         document.body.style.overflow = '';
     }
 
-    if (topBtn) topBtn.addEventListener('click', openMenu);
     if (botBtn) botBtn.addEventListener('click', openMenu);
     if (scrim)  scrim.addEventListener('click', closeMenu);
 
@@ -308,13 +306,10 @@ $menuItems = [
         setInterval(syncClockState, 5000);
 
         // Re-sync immediately whenever menu opens
-        var menuTopBtn = document.getElementById('mwMobileMenuBtn');
-        var menuBotBtn = document.getElementById('mwMobileMenuBtnBottom');
-        [menuTopBtn, menuBotBtn].forEach(function(btn) {
-            if (btn) btn.addEventListener('click', function() {
-                syncClockState();
-                setTimeout(syncClockState, 300);
-            });
+        var menuBotBtn2 = document.getElementById('mwMobileMenuBtnBottom');
+        if (menuBotBtn2) menuBotBtn2.addEventListener('click', function() {
+            syncClockState();
+            setTimeout(syncClockState, 300);
         });
     })();
 })();

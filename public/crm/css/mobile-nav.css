@@ -114,25 +114,26 @@
         align-items: center;
     }
 
-    /* Hamburger menu button */
-    .mw-mobile-menu-btn {
+    /* Search button in topbar */
+    .mw-mobile-search-btn {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 48px;   /* raised from 44px — glove-safe tap target */
-        height: 48px;
+        width: 40px;
+        height: 40px;
         border: none;
         border-radius: 10px;
-        background: #f4f4f4;
-        color: #444;
+        background: transparent;
+        color: #666;
         cursor: pointer;
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
         flex-shrink: 0;
     }
 
-    .mw-mobile-menu-btn:active {
-        background: #e8e8e8;
+    .mw-mobile-search-btn:active {
+        background: #f4f4f4;
+        color: #333;
     }
 
     /* ════════════════════════════════════════════════════
