@@ -1369,6 +1369,46 @@ switch ($action) {
         $db->prepare("DELETE FROM quiz_seasonal_campaigns WHERE id=?")->execute([$cid]);
         qOk(['message' => 'Campaign deleted']);
 
+    // ── Pre-shift gate: check if user needs quiz today ────────────────────────
+    case 'preshift_check':
+        $enabledRow = $db->query(
+            "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_enabled'"
+        )->fetch(PDO::FETCH_ASSOC);
+        $enabled = ($enabledRow && $enabledRow['setting_value'] == '1');
+
+        $lenRow = $db->query(
+            "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"
+        )->fetch(PDO::FETCH_ASSOC);
+        $sessionLen = (int)($lenRow['setting_value'] ?? 3);
+
+        $done = false;
+        if ($enabled) {
+            $doneStmt = $db->prepare(
+                "SELECT id FROM quiz_preshift_log WHERE user_id=? AND log_date=CURDATE()"
+            );
+            $doneStmt->execute([$userId]);
+            $done = (bool)$doneStmt->fetch();
+        }
+        qOk(['enabled' => $enabled, 'done' => $done, 'session_length' => $sessionLen]);
+
+    // ── Pre-shift gate: mark today's quiz complete ────────────────────────────
+    case 'preshift_complete':
+        $input     = postInput(); verifyCsrf($input);
+        $sessionId = (int)($input['session_id'] ?? 0);
+        $correct   = max(0, (int)($input['questions_correct'] ?? 0));
+        $asked     = max(1, (int)($input['questions_asked'] ?? 3));
+        $pct       = (int)round($correct / $asked * 100);
+
+        // INSERT IGNORE — idempotent, safe to call twice on same day
+        $db->prepare(
+            "INSERT IGNORE INTO quiz_preshift_log
+             (user_id, log_date, session_id, questions_asked, questions_correct, score_pct, completed_at)
+             VALUES (?, CURDATE(), ?, ?, ?, ?, NOW())"
+        )->execute([$userId, $sessionId ?: null, $asked, $correct, $pct]);
+
+        $alreadyDone = ($db->lastInsertId() == 0);
+        qOk(['already_done' => $alreadyDone]);
+
     default:
         qErr('Unknown action', 404);
 }

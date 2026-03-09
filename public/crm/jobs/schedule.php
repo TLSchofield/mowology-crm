@@ -23,6 +23,27 @@ $db = getDB();
 // ─── CSRF token for JS API calls ─────────────────────────────────
 $csrfToken = generateCSRFToken();
 
+// ─── Pre-shift quiz gate ──────────────────────────────────────────────────────
+$preshiftEnabled = false;
+$preshiftDone    = false;
+$preshiftLen     = 3;
+(function () use ($db, $user, &$preshiftEnabled, &$preshiftDone, &$preshiftLen) {
+    $row = $db->query(
+        "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_enabled'"
+    )->fetch(PDO::FETCH_ASSOC);
+    if (!$row || $row['setting_value'] != '1') return;
+    $preshiftEnabled = true;
+    $lrow = $db->query(
+        "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"
+    )->fetch(PDO::FETCH_ASSOC);
+    $preshiftLen = max(3, (int)($lrow['setting_value'] ?? 3));
+    $done = $db->prepare(
+        "SELECT id FROM quiz_preshift_log WHERE user_id=? AND log_date=CURDATE()"
+    );
+    $done->execute([$user['id']]);
+    $preshiftDone = (bool)$done->fetch();
+})();
+
 // ─── Active visit timer (for restoring in-progress state on load) ─
 $activeTimer = getActiveVisitTimer($user['id']);
 $activeTimerData = null;
@@ -2318,6 +2339,26 @@ if ($apiKey) {
                   </div>
                   <?php endif; ?>
 
+                  <!-- Pre-shift quiz gate card -->
+                  <?php if ($preshiftEnabled && !$preshiftDone): ?>
+                  <div class="mw-preshift-card" id="preshiftCard">
+                      <div class="mw-preshift-icon">⚡</div>
+                      <div class="mw-preshift-body">
+                          <div class="mw-preshift-title">Pre-Shift Check</div>
+                          <div class="mw-preshift-sub"><?php echo (int)$preshiftLen; ?> quick questions before you start</div>
+                      </div>
+                      <button class="btn btn-sm mw-preshift-start-btn" id="preshiftStartBtn" type="button">Start Quiz</button>
+                  </div>
+                  <?php elseif ($preshiftEnabled && $preshiftDone): ?>
+                  <div class="mw-preshift-card mw-preshift-done" id="preshiftCard">
+                      <div class="mw-preshift-icon">✅</div>
+                      <div class="mw-preshift-body">
+                          <div class="mw-preshift-title">Pre-Shift Done</div>
+                          <div class="mw-preshift-sub">Good work — you're all set for today</div>
+                      </div>
+                  </div>
+                  <?php endif; ?>
+
                   <!-- Clock in/out card -->
                   <?php if ($sc['show_clock_card']): ?>
                   <div class="mw-ds-clock-card<?php echo $isClockedIn ? ' is-active' : ''; ?>">
@@ -2338,13 +2379,22 @@ if ($apiKey) {
                       <?php if ($isClockedIn): ?>
                           <button class="mw-ds-clock-btn mw-ds-clock-btn-out" id="dsSummaryClockOut" type="button">Clock Out</button>
                       <?php else: ?>
-                          <button class="mw-ds-clock-btn mw-ds-clock-btn-in" id="dsSummaryClockIn" type="button">Clock In</button>
+                          <button class="mw-ds-clock-btn mw-ds-clock-btn-in" id="dsSummaryClockIn" type="button"
+                              <?php if ($preshiftEnabled && !$preshiftDone): ?>disabled title="Complete pre-shift quiz first"<?php endif; ?>>Clock In</button>
                       <?php endif; ?>
                   </div>
                   <?php endif; ?>
 
               </div><!-- /.mw-ds-wrap -->
               <?php endif; // is_driver guard ?>
+
+              <?php if ($preshiftEnabled && !$preshiftDone): ?>
+              <div class="mw-preshift-overlay" id="preshiftOverlay">
+                  <div class="mw-preshift-overlay-msg">
+                      ⚡ Complete your pre-shift quiz above to unlock your stops
+                  </div>
+              </div>
+              <?php endif; ?>
 
               <?php if (empty($mobileStops)): ?>
                   <!-- Empty state -->
@@ -4230,6 +4280,254 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
     // Initial fetch + refresh every 60s
     fetchConflicts();
     setInterval(fetchConflicts, 60000);
+})();
+</script>
+<?php endif; ?>
+
+<?php if ($preshiftEnabled && !$preshiftDone): ?>
+<script>
+(function () {
+'use strict';
+var PS_LEN  = <?php echo (int)$preshiftLen; ?>;
+var PS_CSRF = <?php echo json_encode($csrfToken); ?>;
+var psSessionId = null;
+var psCurrent   = 1;
+var psCorrect   = 0;
+var psStartTs   = 0;
+
+// ── Build and open the full-screen quiz modal ────────────────────────────────
+function psOpen() {
+    var el = document.createElement('div');
+    el.id        = 'psMod';
+    el.className = 'mw-ps-modal';
+    el.innerHTML =
+        '<div class="mw-ps-inner">' +
+            '<div class="mw-ps-header">' +
+                '<div class="mw-ps-progress" id="psProgress"></div>' +
+                '<div class="mw-ps-hdr-label">Pre-Shift Check</div>' +
+            '</div>' +
+            '<div class="mw-ps-body" id="psBody">' +
+                '<div class="mw-ps-loading">Loading question…</div>' +
+            '</div>' +
+        '</div>';
+    document.body.appendChild(el);
+}
+
+// ── Render dot progress bar ───────────────────────────────────────────────────
+function psProgress(qNum) {
+    var out = '';
+    for (var i = 1; i <= PS_LEN; i++) {
+        var cls = i < qNum ? 'done' : (i === qNum ? 'active' : '');
+        out += '<span class="mw-ps-dot' + (cls ? ' ' + cls : '') + '"></span>';
+    }
+    var p = document.getElementById('psProgress');
+    if (p) p.innerHTML = out;
+}
+
+// ── Load a question from the existing quiz API ────────────────────────────────
+function psLoad(qNum) {
+    psProgress(qNum);
+    var body = document.getElementById('psBody');
+    if (body) body.innerHTML = '<div class="mw-ps-loading">Loading…</div>';
+
+    fetch('/crm/api/quiz.php?action=question&session_id=' + psSessionId + '&q=' + qNum)
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (!d.success) { psError(d.error); return; }
+            psRender(d, qNum);
+        })
+        .catch(function () { psError('Connection error'); });
+}
+
+// ── Render a question + options ───────────────────────────────────────────────
+function psRender(d, qNum) {
+    psStartTs = Date.now();
+    var q = d.question;
+    var opts = d.options || [];
+
+    var imgHtml = '';
+    if (q.image_path) {
+        imgHtml = '<div class="mw-ps-img-wrap"><img src="' + psEsc(q.image_path) + '" class="mw-ps-img" alt=""></div>';
+    }
+
+    var optHtml = '<div class="mw-ps-options">';
+    opts.forEach(function (o) {
+        optHtml +=
+            '<button class="mw-ps-option" data-oid="' + o.id + '" data-qid="' + q.id + '" data-qnum="' + qNum + '">' +
+                psEsc(o.option_text) +
+            '</button>';
+    });
+    optHtml += '</div>';
+
+    var body = document.getElementById('psBody');
+    if (body) {
+        body.innerHTML =
+            '<div class="mw-ps-cat" style="color:' + psEsc(q.category_colour || '#2D8659') + '">' + psEsc(q.category_name || '') + '</div>' +
+            imgHtml +
+            '<div class="mw-ps-qtext">' + psEsc(q.question_text) + '</div>' +
+            optHtml;
+
+        // Bind option clicks
+        body.querySelectorAll('.mw-ps-option').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var oid  = parseInt(btn.getAttribute('data-oid'));
+                var qid  = parseInt(btn.getAttribute('data-qid'));
+                var qnum = parseInt(btn.getAttribute('data-qnum'));
+                psAnswer(oid, qid, qnum);
+            });
+        });
+    }
+}
+
+// ── Record answer, show feedback, advance ─────────────────────────────────────
+function psAnswer(selectedOid, questionId, qNum) {
+    // Disable all options while waiting
+    var body = document.getElementById('psBody');
+    if (body) body.querySelectorAll('.mw-ps-option').forEach(function (b) { b.disabled = true; });
+
+    var taken = Math.min(30, Math.round((Date.now() - psStartTs) / 1000));
+
+    fetch('/crm/api/quiz.php?action=answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: psSessionId,
+            question_id: questionId,
+            selected_option_id: selectedOid,
+            time_taken_seconds: taken,
+            csrf_token: PS_CSRF
+        })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+        if (!d.success) return;
+        var correct = d.is_correct;
+        if (correct) psCorrect++;
+
+        // Highlight correct/wrong options
+        if (body) {
+            body.querySelectorAll('.mw-ps-option').forEach(function (btn) {
+                var oid = parseInt(btn.getAttribute('data-oid'));
+                if (oid === d.correct_option_id) btn.classList.add('correct');
+                else if (oid === selectedOid && !correct) btn.classList.add('wrong');
+            });
+        }
+
+        // Advance after 1.2s
+        setTimeout(function () {
+            if (qNum < PS_LEN) {
+                psCurrent = qNum + 1;
+                psLoad(psCurrent);
+            } else {
+                psSummary();
+            }
+        }, 1200);
+    })
+    .catch(function () { /* silently advance on network error */ setTimeout(function () { psSummary(); }, 1200); });
+}
+
+// ── Summary screen after all questions ───────────────────────────────────────
+function psSummary() {
+    var pct = Math.round(psCorrect / PS_LEN * 100);
+    var emoji = pct === 100 ? '🌟' : pct >= 67 ? '👍' : '💪';
+    var msg   = pct === 100 ? 'Perfect score!' : pct >= 67 ? 'Nice work!' : 'Keep learning!';
+
+    var body = document.getElementById('psBody');
+    if (body) {
+        body.innerHTML =
+            '<div class="mw-ps-summary">' +
+                '<div class="mw-ps-sum-emoji">' + emoji + '</div>' +
+                '<div class="mw-ps-sum-score">' + psCorrect + ' / ' + PS_LEN + ' correct</div>' +
+                '<div class="mw-ps-sum-msg">' + msg + '</div>' +
+                '<button class="btn mw-ps-done-btn" id="psDoneBtn">Start your day →</button>' +
+            '</div>';
+        document.getElementById('psDoneBtn').addEventListener('click', psComplete);
+    }
+}
+
+// ── Mark pre-shift complete and unlock schedule ───────────────────────────────
+function psComplete() {
+    var btn = document.getElementById('psDoneBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    fetch('/crm/api/quiz.php?action=preshift_complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: psSessionId,
+            questions_correct: psCorrect,
+            questions_asked: PS_LEN,
+            csrf_token: PS_CSRF
+        })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function () { psUnlock(); })
+    .catch(function () { psUnlock(); }); // unlock even if network fails
+}
+
+// ── Remove overlay, enable clock-in, update card ─────────────────────────────
+function psUnlock() {
+    // Remove modal
+    var mod = document.getElementById('psMod');
+    if (mod) mod.remove();
+
+    // Remove overlay
+    var ov = document.getElementById('preshiftOverlay');
+    if (ov) ov.remove();
+
+    // Update pre-shift card to "done" state
+    var card = document.getElementById('preshiftCard');
+    if (card) {
+        card.classList.add('mw-preshift-done');
+        card.innerHTML =
+            '<div class="mw-preshift-icon">✅</div>' +
+            '<div class="mw-preshift-body">' +
+                '<div class="mw-preshift-title">Pre-Shift Done</div>' +
+                '<div class="mw-preshift-sub">Good work — you\'re all set for today</div>' +
+            '</div>';
+    }
+
+    // Enable clock-in button
+    var cin = document.getElementById('dsSummaryClockIn');
+    if (cin) { cin.removeAttribute('disabled'); cin.removeAttribute('title'); }
+}
+
+// ── Escape HTML helper ────────────────────────────────────────────────────────
+function psEsc(str) {
+    var d = document.createElement('div');
+    d.textContent = String(str || '');
+    return d.innerHTML;
+}
+
+function psError(msg) {
+    var body = document.getElementById('psBody');
+    if (body) body.innerHTML = '<div class="mw-ps-loading" style="color:#dc3545">Error: ' + psEsc(msg) + '</div>';
+}
+
+// ── Wire up the Start Quiz button ─────────────────────────────────────────────
+var startBtn = document.getElementById('preshiftStartBtn');
+if (startBtn) {
+    startBtn.addEventListener('click', function () {
+        startBtn.disabled = true;
+        startBtn.textContent = 'Loading…';
+
+        fetch('/crm/api/quiz.php?action=start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'seasonal', session_length: PS_LEN, csrf_token: PS_CSRF })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (!d.success) { startBtn.disabled = false; startBtn.textContent = 'Start Quiz'; return; }
+            psSessionId = d.session_id;
+            psCurrent   = 1;
+            psCorrect   = 0;
+            psOpen();
+            psLoad(1);
+        })
+        .catch(function () { startBtn.disabled = false; startBtn.textContent = 'Start Quiz'; });
+    });
+}
 })();
 </script>
 <?php endif; ?>

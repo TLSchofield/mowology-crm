@@ -93,6 +93,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <li class="nav-item"><a class="nav-link" id="reviews-tab" data-toggle="tab" href="#reviews" role="tab">Reviews</a></li>
     <li class="nav-item"><a class="nav-link" id="extras-tab" data-toggle="tab" href="#extras" role="tab">Extras Billing</a></li>
     <li class="nav-item"><a class="nav-link" id="summary-card-tab" data-toggle="tab" href="#summary-card" role="tab">Summary Card</a></li>
+    <li class="nav-item"><a class="nav-link" id="quiz-tab" data-toggle="tab" href="#quiz" role="tab">Quiz</a></li>
 </ul>
 <?php if ($user['role'] === 'admin'): ?>
 <ul class="mw-settings-subtabs nav nav-tabs mb-3" id="subtabs-admin" role="tablist" style="display:none;">
@@ -1057,6 +1058,49 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
                         Save Summary Card Settings
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quiz Tab -->
+        <div class="tab-pane fade" id="quiz" role="tabpanel">
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">Pre-Shift Quiz Gate</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        When enabled, crew members must complete a short knowledge quiz before they can clock in each day.
+                        Completion (not score) unlocks the schedule — this is about habit, not gatekeeping.
+                    </p>
+                    <div class="form-group row mb-3">
+                        <div class="col-12">
+                            <div class="custom-control custom-switch">
+                                <input type="checkbox" class="custom-control-input" id="quiz_preshift_enabled">
+                                <label class="custom-control-label" for="quiz_preshift_enabled">
+                                    Require pre-shift quiz before clock-in
+                                </label>
+                            </div>
+                            <small class="form-text text-muted">Applies to all roles including admins.</small>
+                        </div>
+                    </div>
+                    <div class="form-group row mb-3">
+                        <label class="col-sm-4 col-form-label">Questions per session</label>
+                        <div class="col-sm-4">
+                            <select class="form-control" id="quiz_preshift_session_length">
+                                <option value="3">3 questions</option>
+                                <option value="5">5 questions</option>
+                            </select>
+                            <small class="form-text text-muted">Uses the seasonal question blending algorithm.</small>
+                        </div>
+                    </div>
+                    <div id="quizPreshiftSaveResult" class="alert" style="display:none;"></div>
+                    <button type="button" class="btn btn-primary" id="saveQuizPreshiftBtn">
+                        <i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
+                        Save Quiz Settings
+                    </button>
+                    <a href="/crm/api/run-migration-quiz7.php" target="_blank" class="btn btn-outline-secondary ml-2">
+                        <i data-feather="database" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;"></i>
+                        Run Migration (first time only)
+                    </a>
                 </div>
             </div>
         </div>
@@ -2064,6 +2108,85 @@ document.addEventListener('DOMContentLoaded', function () {
             btn.innerHTML = '<i data-feather="send" style="width:16px;height:16px;"></i> Send Test';
             if (typeof feather !== 'undefined') feather.replace();
         });
+    });
+})();
+</script>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// QUIZ PRE-SHIFT SETTINGS — load + save from ops_settings
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    function loadQuizPreshiftSettings() {
+        Promise.all([
+            fetch('/crm/api/ops-settings.php?action=get&key=quiz_preshift_enabled').then(r => r.json()),
+            fetch('/crm/api/ops-settings.php?action=get&key=quiz_preshift_session_length').then(r => r.json())
+        ]).then(function ([enabledData, lenData]) {
+            const toggle = document.getElementById('quiz_preshift_enabled');
+            const select = document.getElementById('quiz_preshift_session_length');
+            if (toggle && enabledData.success && enabledData.value !== null) {
+                toggle.checked = (enabledData.value === '1');
+            }
+            if (select && lenData.success && lenData.value !== null) {
+                select.value = lenData.value;
+            }
+        }).catch(() => {});
+    }
+
+    function saveQuizPreshiftSettings() {
+        const toggle = document.getElementById('quiz_preshift_enabled');
+        const select = document.getElementById('quiz_preshift_session_length');
+        const btn    = document.getElementById('saveQuizPreshiftBtn');
+        const res    = document.getElementById('quizPreshiftSaveResult');
+        if (!toggle || !select) return;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+        res.style.display = 'none';
+
+        const enabled = toggle.checked ? '1' : '0';
+        const len     = select.value;
+
+        Promise.all([
+            fetch('/crm/api/ops-settings.php?action=save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: csrf(), key: 'quiz_preshift_enabled', value: enabled, description: 'Enable pre-shift quiz gate on the schedule page' })
+            }).then(r => r.json()),
+            fetch('/crm/api/ops-settings.php?action=save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: csrf(), key: 'quiz_preshift_session_length', value: len, description: 'Number of questions in the pre-shift quiz' })
+            }).then(r => r.json())
+        ]).then(function ([r1, r2]) {
+            if (r1.success && r2.success) {
+                res.className = 'alert alert-success';
+                res.textContent = 'Quiz settings saved.';
+            } else {
+                res.className = 'alert alert-danger';
+                res.textContent = (r1.error || r2.error || 'Failed to save settings.');
+            }
+            res.style.display = 'block';
+            setTimeout(() => { res.style.display = 'none'; }, 3000);
+        }).catch(() => {
+            res.className = 'alert alert-danger';
+            res.textContent = 'Network error. Please try again.';
+            res.style.display = 'block';
+        }).finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i> Save Quiz Settings';
+            if (typeof feather !== 'undefined') feather.replace();
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        loadQuizPreshiftSettings();
+        var saveBtn = document.getElementById('saveQuizPreshiftBtn');
+        if (saveBtn) saveBtn.addEventListener('click', saveQuizPreshiftSettings);
+        var tab = document.getElementById('quiz-tab');
+        if (tab) tab.addEventListener('shown.bs.tab', loadQuizPreshiftSettings);
     });
 })();
 </script>
