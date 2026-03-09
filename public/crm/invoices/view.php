@@ -509,7 +509,7 @@ $extraHead = $isPayable
                           </div>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Phone</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($invoice['contact_phone'] ?: $invoice['billing_phone'] ?: 'N/A'); ?></span>
+                              <span class="mw-detail-value"><?php echo formatPhone($invoice['contact_phone'] ?: $invoice['billing_phone'] ?: ''); ?></span>
                           </div>
                           <?php if ($svcAddrFull && $svcAddrFull !== $billAddrFull): ?>
                               <div class="mw-detail-row">

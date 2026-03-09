@@ -379,6 +379,20 @@ function formatDateTime($datetime, $format = 'M j, Y g:i A') {
 }
 
 /**
+ * Format a phone number for display: (XXX) XXX-XXXX
+ * Strips non-digits, removes leading 1, returns formatted if 10 digits.
+ */
+function formatPhone(?string $phone): string {
+    if (empty($phone)) return '-';
+    $digits = preg_replace('/[^0-9]/', '', $phone);
+    if (strlen($digits) === 11 && $digits[0] === '1') {
+        $digits = substr($digits, 1);
+    }
+    if (strlen($digits) !== 10) return htmlspecialchars($phone);
+    return '(' . substr($digits, 0, 3) . ') ' . substr($digits, 3, 3) . '-' . substr($digits, 6, 4);
+}
+
+/**
  * Get status badge HTML
  */
 function getStatusBadge($status, $type = 'quote') {

@@ -864,7 +864,7 @@ $activePage = 'quotes';
                           </div>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Phone</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($contactPhone); ?></span>
+                              <span class="mw-detail-value"><?php echo formatPhone($contactPhone); ?></span>
                           </div>
                           <div class="mw-detail-row">
                               <span class="mw-detail-label">Property</span>

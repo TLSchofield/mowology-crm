@@ -2399,13 +2399,13 @@ $unconvertedRequests = $db->query("
                     <?php if (!empty($viewContact['phone'])): ?>
                     <div class="row mb-2 align-items-center">
                       <div class="col-sm-1 text-muted" title="Phone"><i data-feather="phone" style="width: 16px; height: 16px;"></i></div>
-                      <div class="col-sm-11"><a href="tel:<?php echo h($viewContact['phone']); ?>"><?php echo h($viewContact['phone']); ?></a></div>
+                      <div class="col-sm-11"><a href="tel:<?php echo h($viewContact['phone']); ?>"><?php echo formatPhone($viewContact['phone']); ?></a></div>
                     </div>
                     <?php endif; ?>
                     <?php if (!empty($viewContact['mobile'])): ?>
                     <div class="row mb-2 align-items-center">
                       <div class="col-sm-1 text-muted" title="Mobile"><i data-feather="smartphone" style="width: 16px; height: 16px;"></i></div>
-                      <div class="col-sm-11"><a href="tel:<?php echo h($viewContact['mobile']); ?>"><?php echo h($viewContact['mobile']); ?></a></div>
+                      <div class="col-sm-11"><a href="tel:<?php echo h($viewContact['mobile']); ?>"><?php echo formatPhone($viewContact['mobile']); ?></a></div>
                     </div>
                     <?php endif; ?>
                     <div class="row mb-2 align-items-center">
@@ -4572,7 +4572,7 @@ $unconvertedRequests = $db->query("
                                 <i data-feather="mail" style="width: 12px; height: 12px;"></i> <?php echo h($cc['email']); ?>
                               <?php endif; ?>
                               <?php if (!empty($cc['phone'])): ?>
-                                <span class="ml-2"><i data-feather="phone" style="width: 12px; height: 12px;"></i> <?php echo h($cc['phone']); ?></span>
+                                <span class="ml-2"><i data-feather="phone" style="width: 12px; height: 12px;"></i> <?php echo formatPhone($cc['phone']); ?></span>
                               <?php endif; ?>
                               <?php if (!empty($cc['mobile'])): ?>
                                 <span class="ml-2"><i data-feather="smartphone" style="width: 12px; height: 12px;"></i> <?php echo h($cc['mobile']); ?></span>
@@ -4737,7 +4737,7 @@ $unconvertedRequests = $db->query("
                     <?php if (!empty($viewCompany['billing_phone'])): ?>
                     <div class="row mb-2">
                       <div class="col-sm-4 text-muted">Billing Phone</div>
-                      <div class="col-sm-8"><a href="tel:<?php echo h($viewCompany['billing_phone']); ?>"><?php echo h($viewCompany['billing_phone']); ?></a></div>
+                      <div class="col-sm-8"><a href="tel:<?php echo h($viewCompany['billing_phone']); ?>"><?php echo formatPhone($viewCompany['billing_phone']); ?></a></div>
                     </div>
                     <?php endif; ?>
                     <div class="row mb-2">
@@ -5480,11 +5480,11 @@ $unconvertedRequests = $db->query("
                               </tr>
                               <tr>
                                 <td class="text-muted">Phone</td>
-                                <td><?php echo $c['phone'] ? h($c['phone']) : '<span class="text-muted">—</span>'; ?></td>
+                                <td><?php echo $c['phone'] ? formatPhone($c['phone']) : '<span class="text-muted">—</span>'; ?></td>
                               </tr>
                               <tr>
                                 <td class="text-muted">Mobile</td>
-                                <td><?php echo $c['mobile'] ? h($c['mobile']) : '<span class="text-muted">—</span>'; ?></td>
+                                <td><?php echo $c['mobile'] ? formatPhone($c['mobile']) : '<span class="text-muted">—</span>'; ?></td>
                               </tr>
                               <tr>
                                 <td class="text-muted">Properties</td>
@@ -5665,7 +5665,7 @@ $unconvertedRequests = $db->query("
                             <?php if (!empty($contact['phone'])): ?>
                             <small class="text-muted d-block mt-1">
                               <i data-feather="phone" style="width: 14px; height: 14px;"></i>
-                              <?php echo h($contact['phone']); ?>
+                              <?php echo formatPhone($contact['phone']); ?>
                             </small>
                             <?php endif; ?>
                             <small class="text-muted d-block mt-1">
@@ -5762,7 +5762,7 @@ $unconvertedRequests = $db->query("
                               </span>
                             </td>
                             <td><?php echo h($c['billing_email'] ?? '—'); ?></td>
-                            <td><?php echo h($c['primary_contact_phone'] ?? '—'); ?></td>
+                            <td><?php echo ($c['primary_contact_phone'] ?? '') ? formatPhone($c['primary_contact_phone']) : '—'; ?></td>
                             <td>
                               <?php
                                 if ($c['source_type'] === 'prospect') {
@@ -5822,7 +5822,7 @@ $unconvertedRequests = $db->query("
                               <?php endif; ?>
                             </td>
                             <td><?php echo h($ct['email'] ?? '—'); ?></td>
-                            <td><?php echo h($ct['phone'] ?? '—'); ?></td>
+                            <td><?php echo ($ct['phone'] ?? '') ? formatPhone($ct['phone']) : '—'; ?></td>
                             <td>
                               <span class="badge badge-<?php echo $ct['prospect_status'] === 'client' ? 'success' : ($ct['prospect_status'] === 'inactive' ? 'secondary' : 'info'); ?>">
                                 <?php echo ucfirst($ct['prospect_status'] ?? 'prospect'); ?>

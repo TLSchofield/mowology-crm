@@ -940,7 +940,7 @@ if ($hasPropCoords) {
                                         <?php if (!empty($plan['contact_phone'])): ?>
                                             &mdash;
                                             <a href="tel:<?php echo htmlspecialchars($plan['contact_phone']); ?>">
-                                                <?php echo htmlspecialchars($plan['contact_phone']); ?>
+                                                <?php echo formatPhone($plan['contact_phone']); ?>
                                             </a>
                                         <?php endif; ?>
                                     </span>
