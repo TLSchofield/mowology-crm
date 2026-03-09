@@ -445,6 +445,26 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                                     </select>
                                 </div>
 
+                                <!-- Contact Info (editable) -->
+                                <div id="contactInfoPanel" class="mw-contact-info-panel" style="display: none;">
+                                    <label class="form-label">Contact Info</label>
+                                    <div class="mw-contact-info-fields">
+                                        <div class="mw-contact-info-row">
+                                            <span class="mw-contact-info-icon" data-feather="mail"></span>
+                                            <input type="email" id="contactEmail" class="form-control form-control-sm" placeholder="Email">
+                                        </div>
+                                        <div class="mw-contact-info-row">
+                                            <span class="mw-contact-info-icon" data-feather="phone"></span>
+                                            <input type="tel" id="contactPhone" class="form-control form-control-sm" placeholder="Phone">
+                                        </div>
+                                        <div class="mw-contact-info-row">
+                                            <span class="mw-contact-info-icon" data-feather="smartphone"></span>
+                                            <input type="tel" id="contactMobile" class="form-control form-control-sm" placeholder="Cell / Mobile">
+                                        </div>
+                                        <div id="contactInfoStatus" class="mw-contact-info-status"></div>
+                                    </div>
+                                </div>
+
                                 <div class="mw-form-group">
                                     <label class="form-label">Quote Title</label>
                                     <input type="text" name="title" class="form-control"
@@ -1098,6 +1118,7 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
             propertySummary.textContent = 'Select a client first';
             loadedProperties = [];
             document.getElementById('measurementPanel').style.display = 'none';
+            document.getElementById('contactInfoPanel').style.display = 'none';
         }
 
         // Client search input
@@ -1199,6 +1220,13 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
 
             // Update sidebar summary
             propertySummary.innerHTML = '<strong>' + escapeHtml(clientName) + '</strong><br><span class="text-muted">Loading properties...</span>';
+
+            // Load contact details (email, phone, mobile)
+            if (currentClientType === 'contact') {
+                fetchContactDetails(clientId);
+            } else {
+                document.getElementById('contactInfoPanel').style.display = 'none';
+            }
         }
 
         // Property selection updates summary + measurements
@@ -1231,8 +1259,74 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                 propertySelect.innerHTML = '<option value="">Select a client first...</option>';
                 loadedProperties = [];
                 document.getElementById('measurementPanel').style.display = 'none';
+                document.getElementById('contactInfoPanel').style.display = 'none';
             }
         });
+
+        // Contact info panel — fetch and inline editing
+        const contactEmailInput = document.getElementById('contactEmail');
+        const contactPhoneInput = document.getElementById('contactPhone');
+        const contactMobileInput = document.getElementById('contactMobile');
+        const contactInfoPanel = document.getElementById('contactInfoPanel');
+        const contactInfoStatus = document.getElementById('contactInfoStatus');
+        let contactInfoOriginal = {};
+
+        function fetchContactDetails(contactId) {
+            fetch('../api/client-search.php?action=contact-details&contact_id=' + contactId)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && data.contact) {
+                        contactEmailInput.value = data.contact.email || '';
+                        contactPhoneInput.value = data.contact.phone || '';
+                        contactMobileInput.value = data.contact.mobile || '';
+                        contactInfoOriginal = {
+                            email: data.contact.email || '',
+                            phone: data.contact.phone || '',
+                            mobile: data.contact.mobile || ''
+                        };
+                        contactInfoPanel.style.display = '';
+                        if (typeof feather !== 'undefined') feather.replace();
+                    }
+                });
+        }
+
+        function saveContactField(field, value) {
+            if (value === contactInfoOriginal[field]) return;
+            const contactId = selectedClientIdInput.value;
+            if (!contactId) return;
+
+            contactInfoStatus.textContent = 'Saving...';
+            contactInfoStatus.className = 'mw-contact-info-status mw-contact-info-saving';
+
+            const body = { contact_id: parseInt(contactId), csrf_token: '<?php echo generateCSRFToken(); ?>' };
+            body[field] = value;
+
+            fetch('../api/client-search.php?action=update-contact', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    contactInfoOriginal[field] = value;
+                    contactInfoStatus.textContent = 'Saved';
+                    contactInfoStatus.className = 'mw-contact-info-status mw-contact-info-saved';
+                    setTimeout(() => { contactInfoStatus.textContent = ''; }, 2000);
+                } else {
+                    contactInfoStatus.textContent = 'Error saving';
+                    contactInfoStatus.className = 'mw-contact-info-status mw-contact-info-error';
+                }
+            })
+            .catch(() => {
+                contactInfoStatus.textContent = 'Error saving';
+                contactInfoStatus.className = 'mw-contact-info-status mw-contact-info-error';
+            });
+        }
+
+        contactEmailInput.addEventListener('blur', function() { saveContactField('email', this.value.trim()); });
+        contactPhoneInput.addEventListener('blur', function() { saveContactField('phone', this.value.trim()); });
+        contactMobileInput.addEventListener('blur', function() { saveContactField('mobile', this.value.trim()); });
 
         // Measurement auto-fill functionality
         let propertyMeasurements = null;
@@ -1655,9 +1749,12 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
 
         renderLineItems();
 
-        // If a client is pre-selected (edit mode / from request), trigger property change
+        // If a client is pre-selected (edit mode / from request), trigger property change + load contact info
         if (selectedClientIdInput.value && propertySelect.value) {
             propertySelect.dispatchEvent(new Event('change'));
+        }
+        if (selectedClientIdInput.value && currentClientType === 'contact') {
+            fetchContactDetails(parseInt(selectedClientIdInput.value));
         }
 
         // Form submission

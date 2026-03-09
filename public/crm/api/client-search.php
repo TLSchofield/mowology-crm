@@ -212,6 +212,58 @@ switch ($action) {
         ]);
         break;
 
+    case 'contact-details':
+        $contactId = intval($_GET['contact_id'] ?? 0);
+        if (!$contactId) {
+            echo json_encode(['success' => false, 'error' => 'Missing contact_id']);
+            exit;
+        }
+        $stmt = $db->prepare("SELECT id, first_name, last_name, email, phone, mobile FROM contacts WHERE id = ?");
+        $stmt->execute([$contactId]);
+        $contact = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$contact) {
+            echo json_encode(['success' => false, 'error' => 'Contact not found']);
+            exit;
+        }
+        echo json_encode(['success' => true, 'contact' => $contact]);
+        break;
+
+    case 'update-contact':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['success' => false, 'error' => 'POST required']);
+            exit;
+        }
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        if (!verifyCSRFToken($input['csrf_token'] ?? '')) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Invalid CSRF token']);
+            exit;
+        }
+        $contactId = intval($input['contact_id'] ?? 0);
+        if (!$contactId) {
+            echo json_encode(['success' => false, 'error' => 'Missing contact_id']);
+            exit;
+        }
+        // Only allow updating these specific fields
+        $updates = [];
+        $params = [];
+        foreach (['email', 'phone', 'mobile'] as $field) {
+            if (array_key_exists($field, $input)) {
+                $updates[] = "`{$field}` = ?";
+                $params[] = trim($input[$field]) ?: null;
+            }
+        }
+        if (empty($updates)) {
+            echo json_encode(['success' => false, 'error' => 'No fields to update']);
+            exit;
+        }
+        $params[] = $contactId;
+        $stmt = $db->prepare("UPDATE contacts SET " . implode(', ', $updates) . " WHERE id = ?");
+        $stmt->execute($params);
+        echo json_encode(['success' => true]);
+        break;
+
     default:
         echo json_encode(['success' => false, 'error' => 'Unknown action']);
         break;

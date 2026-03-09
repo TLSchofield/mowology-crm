@@ -1563,6 +1563,57 @@ tr[data-href] { cursor: pointer; }
   opacity: 0.35;
 }
 
+/* ── Contact Info Inline Edit (Quote Create) ──────────── */
+.mw-contact-info-panel {
+  margin-bottom: 20px;
+}
+.mw-contact-info-fields {
+  background: var(--mw-light);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.mw-contact-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.mw-contact-info-row:last-of-type {
+  margin-bottom: 0;
+}
+.mw-contact-info-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--mw-green);
+  opacity: 0.7;
+}
+.mw-contact-info-row .form-control-sm {
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 4px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mw-contact-info-row .form-control-sm:hover {
+  border-color: #d0d7de;
+  background: #fff;
+}
+.mw-contact-info-row .form-control-sm:focus {
+  border-color: var(--mw-green);
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(45,134,89,0.12);
+}
+.mw-contact-info-status {
+  font-size: 11px;
+  margin-top: 4px;
+  min-height: 16px;
+}
+.mw-contact-info-saving { color: #888; }
+.mw-contact-info-saved { color: var(--mw-green); }
+.mw-contact-info-error { color: #dc3545; }
+
 /* ── Contract Plans Reconciliation Strip ──────────────── */
 .mw-contract-reconcile {
   display: flex;
@@ -23265,6 +23316,88 @@ textarea.font-monospace {
 }
 .mw-task-actions {
   flex-shrink: 0;
+}
+
+/* ── Purchase Tasks ──────────────────────────────────────────────────────── */
+.mw-task-purchase {
+  border-left-color: var(--mw-orange) !important;
+}
+.mw-task-purchase:hover {
+  background: #fff8f0;
+}
+.mw-task-vendor-info {
+  font-size: 13px;
+  color: #495057;
+  margin-top: 2px;
+}
+.mw-task-mode-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.mw-mode-on_route {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.mw-mode-asap {
+  background: #fef3c7;
+  color: #b45309;
+}
+.mw-mode-truck_kit {
+  background: #e5e7eb;
+  color: #374151;
+}
+.mw-badge-orange {
+  background: var(--mw-orange);
+  color: #fff;
+}
+.mw-badge-teal {
+  background: #0d9488;
+  color: #fff;
+}
+.mw-badge-dark-green {
+  background: var(--mw-forest);
+  color: #fff;
+}
+.mw-task-cost-summary {
+  color: var(--mw-green);
+}
+.mw-task-item-list {
+  font-size: 13px;
+}
+.mw-task-item-list th {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #6c757d;
+  border-top: none;
+}
+
+/* Vendor search dropdown */
+.mw-vendor-dropdown {
+  position: absolute;
+  z-index: 1050;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  width: calc(100% - 30px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.mw-vendor-option {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f3f5;
+}
+.mw-vendor-option:hover {
+  background: var(--mw-light);
+}
+.mw-vendor-option:last-child {
+  border-bottom: none;
 }
 
 /* ── Activity Timeline (Enhanced) ─────────────────────────────────────────── */
