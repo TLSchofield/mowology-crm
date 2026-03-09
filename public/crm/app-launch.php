@@ -192,6 +192,19 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             color: var(--al-green);
             margin-bottom: 16px;
         }
+        .al-quiz-img-wrap {
+            margin-bottom: 16px;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .al-quiz-img {
+            width: 100%;
+            height: auto;
+            max-height: 200px;
+            object-fit: cover;
+            display: block;
+            border-radius: 12px;
+        }
         .al-quiz-question {
             font-size: 18px;
             font-weight: 600;
@@ -644,8 +657,17 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             d.className = 'dot' + (i < num - 1 ? ' done' : '') + (i === num - 1 ? ' active' : '');
         });
 
+        // Build image HTML — use images array if available, fall back to single image_path
+        const images = (q.images && q.images.length)
+            ? q.images
+            : (q.image_path ? [{ image_path: q.image_path }] : []);
+        const imgHtml = images.length
+            ? `<div class="al-quiz-img-wrap"><img src="${esc(images[0].image_path)}" alt="Question image" class="al-quiz-img"></div>`
+            : '';
+
         $('quizCard').innerHTML = `
             <div class="al-quiz-category">${esc(q.category_name)}</div>
+            ${imgHtml}
             <div class="al-quiz-question">${esc(q.text)}</div>
             <div class="al-quiz-options">
                 ${opts.map(o => `
