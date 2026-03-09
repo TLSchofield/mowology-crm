@@ -26,12 +26,16 @@ if (!defined('APP_ROOT')) {
  *
  * @param string $slug URL slug
  * @param int $cacheTTL Cache duration in seconds (0 = no cache)
+ * @param int|null $siteId Site ID (defaults to CMS_SITE_ID)
  * @return array|null Page record or null if not found
  */
-function cms_getPageBySlug(string $slug, int $cacheTTL = 900): ?array
+function cms_getPageBySlug(string $slug, int $cacheTTL = 900, ?int $siteId = null): ?array
 {
+    $siteId = $siteId ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1);
+    $cacheKey = "page_slug_{$siteId}_{$slug}";
+
     if ($cacheTTL > 0) {
-        $cached = cms_getCache("page_slug_{$slug}");
+        $cached = cms_getCache($cacheKey);
         if ($cached) {
             return $cached;
         }
@@ -41,14 +45,14 @@ function cms_getPageBySlug(string $slug, int $cacheTTL = 900): ?array
     $stmt = $db->prepare("
         SELECT *
         FROM cms_pages
-        WHERE slug = ?
+        WHERE slug = ? AND site_id = ?
         LIMIT 1
     ");
-    $stmt->execute([$slug]);
+    $stmt->execute([$slug, $siteId]);
     $page = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($page && $cacheTTL > 0) {
-        cms_setCache("page_slug_{$slug}", $page, $cacheTTL);
+        cms_setCache($cacheKey, $page, $cacheTTL);
     }
 
     return $page ?: null;
@@ -78,20 +82,23 @@ function cms_getPageById(int $pageId): ?array
  * Respects publish_at / unpublish_at scheduling windows.
  *
  * @param string|null $pageType Filter by page_type (optional)
+ * @param int|null $siteId Site ID (defaults to CMS_SITE_ID)
  * @return array Array of page records
  */
-function cms_getPublishedPages(?string $pageType = null): array
+function cms_getPublishedPages(?string $pageType = null, ?int $siteId = null): array
 {
+    $siteId = $siteId ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1);
     $db = getDB();
     $sql = "
         SELECT id, slug, title, meta_title, meta_description, page_type, noindex, updated_at
         FROM cms_pages
         WHERE status = 'published'
+          AND site_id = ?
           AND (publish_at IS NULL OR publish_at <= NOW())
           AND (unpublish_at IS NULL OR unpublish_at > NOW())
     ";
 
-    $params = [];
+    $params = [$siteId];
     if ($pageType) {
         $sql .= " AND page_type = ?";
         $params[] = $pageType;
@@ -140,17 +147,21 @@ function cms_isPageLive(array $page): bool
  *
  * Includes all statuses so filtering/stats are accurate in admin UI.
  *
+ * @param int|null $siteId Site ID (defaults to CMS_SITE_ID)
  * @return array Array of all page records
  */
-function cms_getAllPages(): array
+function cms_getAllPages(?int $siteId = null): array
 {
+    $siteId = $siteId ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1);
     $db = getDB();
-    $stmt = $db->query("
+    $stmt = $db->prepare("
         SELECT id, slug, title, page_type, status, meta_title, meta_description,
                created_at, updated_at, created_by, view_count, noindex
         FROM cms_pages
+        WHERE site_id = ?
         ORDER BY created_at DESC
     ");
+    $stmt->execute([$siteId]);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
@@ -172,13 +183,14 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
         throw new Exception('Invalid or empty slug');
     }
 
-    // Check for slug collision
+    // Check for slug collision within this site
+    $siteId = (int)($data['site_id'] ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1));
     $existing = $db->prepare("
         SELECT id FROM cms_pages
-        WHERE slug = ? AND id != ?
+        WHERE slug = ? AND site_id = ? AND id != ?
         LIMIT 1
     ");
-    $existing->execute([$slug, $pageId ?? 0]);
+    $existing->execute([$slug, $siteId, $pageId ?? 0]);
     if ($existing->fetch()) {
         throw new Exception("Slug '{$slug}' is already in use");
     }
@@ -272,8 +284,8 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
             INSERT INTO cms_pages
             (slug, title, meta_title, meta_description, meta_keywords, canonical_url, og_image_path,
              page_type, layout_template, status, publish_at, unpublish_at, noindex, seo_score,
-             created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             site_id, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
 
         $stmt->execute([
@@ -291,6 +303,7 @@ function cms_savePage(array $data, ?int $pageId = null, int $userId = 0): int
             $data['unpublish_at'] ?? null,
             isset($data['noindex']) ? (int)$data['noindex'] : 0,
             $data['seo_score'] ?? null,
+            $siteId,
             $userId,
             $now,
             $now,
@@ -644,20 +657,22 @@ function cms_getBlockType(string $blockType): ?array
  * Get a menu with all items (hierarchical)
  *
  * @param string $menuKey Menu key (e.g., header_nav, footer_nav)
+ * @param int|null $siteId Site ID (defaults to CMS_SITE_ID)
  * @return array|null Menu with nested items
  */
-function cms_getMenu(string $menuKey): ?array
+function cms_getMenu(string $menuKey, ?int $siteId = null): ?array
 {
+    $siteId = $siteId ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1);
     $db = getDB();
 
     // Get menu
     $stmt = $db->prepare("
         SELECT id, menu_key, label, description
         FROM cms_menus
-        WHERE menu_key = ?
+        WHERE menu_key = ? AND site_id = ?
         LIMIT 1
     ");
-    $stmt->execute([$menuKey]);
+    $stmt->execute([$menuKey, $siteId]);
     $menu = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$menu) {
@@ -770,11 +785,12 @@ function cms_deleteMenuItem(int $itemId): bool
  * @param int $offset Pagination offset
  * @return array Array of media records
  */
-function cms_getMediaAssets(array $filters = [], int $limit = 50, int $offset = 0): array
+function cms_getMediaAssets(array $filters = [], int $limit = 50, int $offset = 0, ?int $siteId = null): array
 {
+    $siteId = $siteId ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1);
     $db = getDB();
 
-    $sql = "SELECT * FROM media_assets WHERE 1=1";
+    $sql = "SELECT * FROM media_assets WHERE site_id = " . (int)$siteId;
 
     if (!empty($filters['type'])) {
         $sql .= " AND file_type = ?";
@@ -1381,17 +1397,18 @@ function cms_incrementPageView(int $pageId): void
  * @param string $fromSlug The slug being requested
  * @return array|null  Array with keys: to_slug, status_code — or null if none
  */
-function cms_getRedirectForSlug(string $fromSlug): ?array
+function cms_getRedirectForSlug(string $fromSlug, ?int $siteId = null): ?array
 {
+    $siteId = $siteId ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1);
     try {
         $db = getDB();
         $stmt = $db->prepare("
             SELECT to_slug, status_code
             FROM cms_page_redirects
-            WHERE from_slug = ? AND is_active = 1
+            WHERE from_slug = ? AND site_id = ? AND is_active = 1
             LIMIT 1
         ");
-        $stmt->execute([$fromSlug]);
+        $stmt->execute([$fromSlug, $siteId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($row) {
@@ -1417,22 +1434,24 @@ function cms_getRedirectForSlug(string $fromSlug): ?array
  * @param string $toSlug     New slug
  * @param int    $statusCode 301 (permanent) or 302 (temporary)
  */
-function cms_registerRedirect(string $fromSlug, string $toSlug, int $statusCode = 301): void
+function cms_registerRedirect(string $fromSlug, string $toSlug, int $statusCode = 301, ?int $siteId = null): void
 {
     if ($fromSlug === $toSlug) {
         return;
     }
 
+    $siteId = $siteId ?? (defined('CMS_SITE_ID') ? CMS_SITE_ID : 1);
+
     try {
         $db = getDB();
         $stmt = $db->prepare("
-            INSERT INTO cms_page_redirects (from_slug, to_slug, status_code, is_active, created_at)
-            VALUES (?, ?, ?, 1, NOW())
+            INSERT INTO cms_page_redirects (from_slug, to_slug, status_code, site_id, is_active, created_at)
+            VALUES (?, ?, ?, ?, 1, NOW())
             ON DUPLICATE KEY UPDATE to_slug     = VALUES(to_slug),
                                     status_code = VALUES(status_code),
                                     is_active   = 1
         ");
-        $stmt->execute([$fromSlug, $toSlug, $statusCode]);
+        $stmt->execute([$fromSlug, $toSlug, $statusCode, $siteId]);
 
         // If the new slug was itself redirected FROM somewhere, update that chain
         // so we never create redirect loops. (e.g. A→B, then B→C becomes A→C)

@@ -1,15 +1,12 @@
 <?php
 declare(strict_types=1);
 
-// Foundation bootstrap for future CMS expansion
-// - Central site settings
-// - Helpers (escape, asset paths)
-// - Database access (for dynamic content)
+// Foundation bootstrap — multi-tenant site resolution
+// Detects which site (tenant) is being served from the request domain,
+// then sets SITE_* constants dynamically from the cms_sites table.
 
 // Load app config first (sets up Database::pdo(), getDB(), etc.)
 require_once dirname(__DIR__) . '/app_config/config.php';
-
-date_default_timezone_set('America/Vancouver');
 
 // Configure session to use a writable cPanel temp directory
 if (session_status() === PHP_SESSION_NONE) {
@@ -20,16 +17,41 @@ if (session_status() === PHP_SESSION_NONE) {
   session_start();
 }
 
-define('SITE_NAME', 'Mowology');
-define('SITE_TAGLINE', 'A HIGHER DEGREE OF SERVICE');
-define('SITE_URL', 'https://mowology.ca');
-define('SITE_PHONE_DISPLAY', '778-846-9273');
-define('SITE_PHONE_TEL', '7788469273');
-define('SITE_EMAIL', 'office@mowology.ca');
-define('SITE_LOCALE', 'en_CA');
+// ── Multi-tenant site resolution ───────────────────────────────────────────
+// Load CmsSiteFunctions and resolve which site this request belongs to.
+// Falls back to hardcoded Mowology defaults if cms_sites table doesn't exist yet.
+$__siteFuncsPath = dirname(__DIR__) . '/app/Modules/CMS/Services/CmsSiteFunctions.php';
+if (is_file($__siteFuncsPath)) {
+    require_once $__siteFuncsPath;
+    $__site = cms_resolveSite();
+} else {
+    // Pre-migration fallback: use hardcoded Mowology values
+    $__site = [
+        'id' => 1, 'slug' => 'mowology', 'domain' => 'mowology.ca',
+        'name' => 'Mowology', 'tagline' => 'A HIGHER DEGREE OF SERVICE',
+        'phone_display' => '778-846-9273', 'phone_tel' => '7788469273',
+        'email' => 'office@mowology.ca', 'locale' => 'en_CA',
+        'timezone' => 'America/Vancouver',
+    ];
+}
 
-// If you later add staging environments, you can switch this automatically.
-define('SITE_YEAR', '2026');
+define('CMS_SITE_ID', (int)$__site['id']);
+define('SITE_NAME', $__site['name'] ?? 'Mowology');
+define('SITE_TAGLINE', $__site['tagline'] ?? '');
+define('SITE_URL', 'https://' . ($__site['domain'] ?? 'mowology.ca'));
+define('SITE_PHONE_DISPLAY', $__site['phone_display'] ?? '');
+define('SITE_PHONE_TEL', $__site['phone_tel'] ?? '');
+define('SITE_EMAIL', $__site['email'] ?? '');
+define('SITE_LOCALE', $__site['locale'] ?? 'en_CA');
+
+date_default_timezone_set($__site['timezone'] ?? 'America/Vancouver');
+
+// Year constant (used in copyright footers, etc.)
+define('SITE_YEAR', date('Y'));
+
+// Store full site record for downstream use (header.php, footer.php, etc.)
+$GLOBALS['__cms_site'] = $__site;
+unset($__site, $__siteFuncsPath);
 
 // h() is already defined in config.php, so we only add it here if not present
 // For backward compatibility in case this file is used standalone

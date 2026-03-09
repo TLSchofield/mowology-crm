@@ -12,17 +12,27 @@
 
 $activeNav = $activeNav ?? '';
 
-// Static logo path
-$logoPath = '/assets/img/logo/mowology-logo.jpg';
+// Dynamic logo from site record (set by bootstrap.php → cms_resolveSite)
+$__siteRecord = $GLOBALS['__cms_site'] ?? [];
+$logoPath = $__siteRecord['logo_path'] ?? '/assets/img/logo/mowology-logo.jpg';
 $logoAlt = SITE_NAME;
 
-$nav = [
-  ['key' => 'home',      'label' => 'Home',      'href' => '/'],
-  ['key' => 'services',  'label' => 'Services',  'href' => '/services'],
-  ['key' => 'portfolio', 'label' => 'Portfolio', 'href' => '/portfolio.php'],
-  ['key' => 'about',     'label' => 'About',     'href' => '/about.php'],
-  ['key' => 'contact',   'label' => 'Contact',   'href' => '/contact.php'],
-];
+// Dynamic nav: try cms_menus first, then fall back to hardcoded Mowology nav
+$nav = null;
+if (function_exists('cms_getSiteMenuItems') && defined('CMS_SITE_ID')) {
+    $nav = cms_getSiteMenuItems('main', CMS_SITE_ID);
+}
+if (!$nav) {
+    // Fallback: default Mowology navigation
+    $nav = [
+        ['key' => 'home',      'label' => 'Home',      'href' => '/'],
+        ['key' => 'services',  'label' => 'Services',  'href' => '/services'],
+        ['key' => 'portfolio', 'label' => 'Portfolio', 'href' => '/portfolio.php'],
+        ['key' => 'about',     'label' => 'About',     'href' => '/about.php'],
+        ['key' => 'contact',   'label' => 'Contact',   'href' => '/contact.php'],
+    ];
+}
+unset($__siteRecord);
 ?>
 <body>
 <?php
