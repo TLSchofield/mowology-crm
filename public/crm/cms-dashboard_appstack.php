@@ -209,7 +209,7 @@ function cmsDash_actionIcon(string $action): string
 }
 
 ?>
-<?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+<?php include __DIR__ . '/includes/appstack_head.php'; ?>
 
 <!-- =========================================================
      CMS DASHBOARD — P1-G
@@ -803,4 +803,4 @@ document.getElementById('importPageBtn').addEventListener('click', function() {
 });
 </script>
 
-<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
+<?php include __DIR__ . '/includes/appstack_footer.php'; ?>

@@ -71,7 +71,7 @@ $rows = $submissions->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
 $csrfToken = generateCSRFToken();
 ?>
-<?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+<?php include __DIR__ . '/includes/appstack_head.php'; ?>
 
 <!-- CMS Sub-nav -->
 <div class="mb-3">
@@ -206,4 +206,4 @@ $csrfToken = generateCSRFToken();
     </div>
 </div>
 
-<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
+<?php include __DIR__ . '/includes/appstack_footer.php'; ?>
