@@ -236,7 +236,17 @@ $csrfToken = generateCSRFToken();
               Object.keys(body).forEach(function(k) { fd.append(k, body[k]); });
               fd.append('csrf_token', CSRF);
               return fetch(window.location.pathname, { method: 'POST', body: fd })
-                .then(function(r) { return r.json(); });
+                .then(function(r) {
+                  var ct = r.headers.get('content-type') || '';
+                  if (!ct.includes('application/json')) {
+                    throw new Error('Session expired. Please refresh the page and try again.');
+                  }
+                  return r.json();
+                })
+                .then(function(data) {
+                  if (data && !data.success) throw new Error(data.error || 'Save failed');
+                  return data;
+                });
             }
 
             function fetchMedia() {
@@ -336,8 +346,11 @@ $csrfToken = generateCSRFToken();
                 var cls = 'mw-ba-pick-item';
                 if (beforeId === m.id) cls += ' is-selected-before';
                 if (afterId === m.id)  cls += ' is-selected-after';
+                var name = (m.filename || '').replace(/\.[^.]+$/, '');
+                if (name.length > 20) name = name.substring(0, 20) + '...';
                 return '<div class="' + cls + '" data-id="' + m.id + '" data-url="' + escAttr(m.url_thumb || m.url) + '"' +
-                  ' style="background-image:url(\'' + escAttr(m.url_thumb || m.url) + '\')"></div>';
+                  ' style="background-image:url(\'' + escAttr(m.url_thumb || m.url) + '\')" title="' + escAttr(m.filename || '') + '">' +
+                  '<span class="mw-ba-pick-name">' + escHtml(name) + '</span></div>';
               }).join('');
 
               grid.querySelectorAll('.mw-ba-pick-item').forEach(function(item) {
@@ -452,6 +465,9 @@ $csrfToken = generateCSRFToken();
                 btn.textContent = 'Save Pair'; btn.disabled = false;
                 resetPanel();
                 fetchPairs();
+              }).catch(function(err) {
+                btn.textContent = 'Save Pair'; btn.disabled = false;
+                alert(err.message || 'Save failed. Please refresh and try again.');
               });
             });
 
