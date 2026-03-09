@@ -18,7 +18,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
-requirePermission('billing.view');
+requirePermission('billing.edit');
 
 header('Content-Type: application/json');
 

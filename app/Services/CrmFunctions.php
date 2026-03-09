@@ -30,11 +30,12 @@ function generateQuoteNumber() {
 function generateInvoiceNumber() {
     $db = getDB();
     $year = date('Y');
-    $stmt = $db->query("
+    $stmt = $db->prepare("
         SELECT MAX(CAST(SUBSTRING(invoice_number, 11) AS UNSIGNED)) as max_num
         FROM invoices
-        WHERE invoice_number LIKE 'INV-{$year}-%'
+        WHERE invoice_number LIKE ?
     ");
+    $stmt->execute(["INV-{$year}-%"]);
     $result = $stmt->fetch();
     $nextNum = ($result['max_num'] ?? 0) + 1;
     return sprintf("INV-%s-%04d", $year, $nextNum);
@@ -47,11 +48,12 @@ function generateInvoiceNumber() {
 function generateContractNumber() {
     $db = getDB();
     $year = date('Y');
-    $stmt = $db->query("
+    $stmt = $db->prepare("
         SELECT MAX(CAST(SUBSTRING(contract_number, 10) AS UNSIGNED)) as max_num
         FROM contracts
-        WHERE contract_number LIKE 'CTR-{$year}-%'
+        WHERE contract_number LIKE ?
     ");
+    $stmt->execute(["CTR-{$year}-%"]);
     $result = $stmt->fetch();
     $nextNum = ($result['max_num'] ?? 0) + 1;
     return sprintf("CTR-%s-%04d", $year, $nextNum);

@@ -109,13 +109,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
     $action = $_POST['action'] ?? '';
 
     if ($action === 'send') {
-        // Update status to sent
-        $oldStatus = $invoice['status'] ?? 'draft';
-        $stmt = $db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ? AND status IN ('draft', 'sent')");
-        $stmt->execute([$invoiceId]);
-        trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
-
-        // Phase 2-3: Get all recipients from invoice_contacts table
+        // Load recipients FIRST — status only updates if emails actually go out
         $stmt = $db->prepare("
             SELECT ic.id, ic.contact_id, ic.email_address, ic.contact_role,
                    c.first_name, c.last_name, c.receive_sms,
@@ -154,8 +148,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             }
         }
 
-        // Ensure the invoice has an access_token (older invoices may not have one)
-        if (empty($invoice['access_token'])) {
+        // Ensure the invoice has a valid (non-expired) access_token
+        $tokenExpired = !empty($invoice['token_expires_at']) && strtotime($invoice['token_expires_at']) < time();
+        if (empty($invoice['access_token']) || $tokenExpired) {
             $newToken = generateAccessToken();
             $db->prepare("UPDATE invoices SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 90 DAY) WHERE id = ?")
                ->execute([$newToken, $invoiceId]);
@@ -271,6 +266,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // Build activity log message
         $attachNote = $attachPath ? ' (with PDF attached)' : '';
         if (!empty($sentTo)) {
+            // Update status to 'sent' only now that we know at least one email went out
+            $oldStatus = $invoice['status'] ?? 'draft';
+            $db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ? AND status IN ('draft', 'sent')")
+               ->execute([$invoiceId]);
+            trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
+
             $recipientList = implode(', ', $sentTo);
             $details = "Invoice sent to {$recipientList}{$attachNote}";
             if (!empty($smsSentTo)) {
@@ -305,33 +306,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         }
 
         $newBalance = max(0, floatval($invoice['balance_due']) - $paymentAmount);
+        // 0.5¢ tolerance handles floating-point rounding (e.g. $100.00 - $100.00 = $0.000001)
         $newStatus  = $newBalance <= 0.005 ? 'paid' : 'partial';
 
         $params = [$paymentAmount, $newBalance, $newStatus, $paymentMethod, $paymentReference];
         if ($paidAtParam) $params[] = $paidAtParam;
         $params[] = $invoiceId;
 
-        $stmt = $db->prepare("
-            UPDATE invoices
-            SET amount_paid       = amount_paid + ?,
-                balance_due       = ?,
-                status            = ?,
-                payment_method    = ?,
-                payment_reference = ?,
-                paid_at           = {$paidAtVal}
-            WHERE id = ?
-        ");
-        $stmt->execute($params);
+        $db->beginTransaction();
+        try {
+            $stmt = $db->prepare("
+                UPDATE invoices
+                SET amount_paid       = amount_paid + ?,
+                    balance_due       = ?,
+                    status            = ?,
+                    payment_method    = ?,
+                    payment_reference = ?,
+                    paid_at           = {$paidAtVal}
+                WHERE id = ?
+            ");
+            $stmt->execute($params);
 
-        // Track field changes for payment
-        trackFieldChange('invoice', $invoiceId, 'status', $invoice['status'], $newStatus, $user['id']);
-        trackFieldChange('invoice', $invoiceId, 'amount_paid', $invoice['amount_paid'], (string)($invoice['amount_paid'] + $paymentAmount), $user['id']);
-        trackFieldChange('invoice', $invoiceId, 'balance_due', $invoice['balance_due'], (string)$newBalance, $user['id']);
+            // Track field changes for payment
+            trackFieldChange('invoice', $invoiceId, 'status', $invoice['status'], $newStatus, $user['id']);
+            trackFieldChange('invoice', $invoiceId, 'amount_paid', $invoice['amount_paid'], (string)($invoice['amount_paid'] + $paymentAmount), $user['id']);
+            trackFieldChange('invoice', $invoiceId, 'balance_due', $invoice['balance_due'], (string)$newBalance, $user['id']);
 
-        $methodLabel = ['e_transfer'=>'e-Transfer','cash'=>'Cash','cheque'=>'Cheque','credit_card'=>'Credit Card','other'=>'Other'][$paymentMethod] ?? ucfirst($paymentMethod);
-        $detail = "Payment of " . formatCurrency($paymentAmount) . " via {$methodLabel}";
-        if ($paymentReference) $detail .= " (Ref: {$paymentReference})";
-        logActivityExtended($user['id'], 'Payment recorded', $detail, null, null, null, $invoiceId);
+            $methodLabel = ['e_transfer'=>'e-Transfer','cash'=>'Cash','cheque'=>'Cheque','credit_card'=>'Credit Card','other'=>'Other'][$paymentMethod] ?? ucfirst($paymentMethod);
+            $detail = "Payment of " . formatCurrency($paymentAmount) . " via {$methodLabel}";
+            if ($paymentReference) $detail .= " (Ref: {$paymentReference})";
+            logActivityExtended($user['id'], 'Payment recorded', $detail, null, null, null, $invoiceId);
+
+            $db->commit();
+        } catch (Throwable $e) {
+            $db->rollBack();
+            error_log("mark_paid error for invoice {$invoiceId}: " . $e->getMessage());
+            $message = 'Payment could not be recorded due to a system error. Please try again.';
+            $messageType = 'error';
+            goto end_mark_paid;
+        }
 
         // ── Send receipt email (non-blocking — payment success must never depend on this) ──
         if (!empty($invoice['contact_email'])) {
@@ -381,6 +394,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $invoice['balance_due'] = $newBalance;
         $message     = "Payment of " . formatCurrency($paymentAmount) . " recorded successfully.";
         $messageType = 'success';
+        end_mark_paid:
     }
 }
 
