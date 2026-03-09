@@ -445,7 +445,8 @@ $extraHead = $isPayable
                   <?php if (in_array($invoice['status'], ['draft', 'sent'])): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="send" class="btn btn-<?php echo $invoice['status'] === 'draft' ? 'primary' : 'secondary'; ?>">
+                          <input type="hidden" name="action" value="send">
+                          <button type="submit" class="btn btn-<?php echo $invoice['status'] === 'draft' ? 'primary' : 'secondary'; ?>">
                               <i data-feather="send" class="mr-1"></i> <?php echo $invoice['status'] === 'draft' ? 'Send to Customer' : 'Resend'; ?>
                           </button>
                       </form>

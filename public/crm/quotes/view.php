@@ -107,10 +107,16 @@ $quoteNotes = getQuoteNotes($quoteId);
 $message = '';
 $messageType = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
+        $message = 'Security token expired. Please refresh the page and try again.';
+        $messageType = 'error';
+        error_log("CSRF verification failed for quote {$quoteId} send action");
+    } else {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'send') {
+      try {
         // Resolve customer contact info (quote request contact → company contact → property contact → billing)
         $customerEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['prop_contact_email'] ?? $quote['billing_email'] ?? null;
         $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['prop_contact_phone'] ?? $quote['billing_phone'] ?? null;
@@ -252,6 +258,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                 error_log("Quote send failed for quote {$quoteId}");
             }
         }
+      } catch (\Throwable $e) {
+        $message = 'Error sending quote: ' . $e->getMessage();
+        $messageType = 'error';
+        error_log("Quote send exception for {$quoteId}: " . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+      }
     }
 
     if ($action === 'approve_verbal') {
@@ -478,7 +489,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
             }
         }
     }
-}
+    } // end CSRF verified
+} // end POST
 
 $csrfToken = generateCSRFToken();
 
@@ -525,11 +537,15 @@ $activePage = 'quotes';
               $wasPostRequest = $_SERVER['REQUEST_METHOD'] === 'POST';
           ?>
 
-          <!-- POST Request Status (shown if POST was received) -->
-          <?php if ($wasPostRequest): ?>
-          <div class="alert alert-info">
-              <strong>ℹ️ Form Submission Received:</strong> Your "Send to Customer" request was received by the server.
-              Check the Contact Information panel above for any data issues, or check server logs for detailed send attempt logs.
+          <!-- POST Result Message -->
+          <?php if ($message): ?>
+          <div class="alert <?php echo $messageType === 'success' ? 'alert-success' : 'alert-danger'; ?> alert-dismissible fade show">
+              <?php echo htmlspecialchars($message); ?>
+              <button type="button" class="btn-close" data-dismiss="alert" aria-label="Close"></button>
+          </div>
+          <?php elseif ($wasPostRequest): ?>
+          <div class="alert alert-warning">
+              <strong>Warning:</strong> Form was submitted but no action was taken. This may indicate a session timeout — try refreshing the page.
           </div>
           <?php endif; ?>
 
@@ -686,9 +702,7 @@ $activePage = 'quotes';
               }
           </script>
 
-          <?php if ($message): ?>
-              <div class="mw-message <?php echo $messageType; ?>" style="margin-top: 20px;"><?php echo htmlspecialchars($message); ?></div>
-          <?php endif; ?>
+          <!-- Message now shown at top of page -->
 
           <div class="mw-page-header">
               <div>
@@ -718,7 +732,8 @@ $activePage = 'quotes';
                   <?php if ($quote['status'] === 'draft'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="send" class="btn btn-primary">
+                          <input type="hidden" name="action" value="send">
+                          <button type="submit" class="btn btn-primary">
                               <i data-feather="send" class="mr-1"></i> Send to Customer
                           </button>
                       </form>
@@ -728,7 +743,8 @@ $activePage = 'quotes';
                   <?php elseif ($quote['status'] === 'sent'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="send" class="btn btn-secondary">
+                          <input type="hidden" name="action" value="send">
+                          <button type="submit" class="btn btn-secondary">
                               <i data-feather="send" class="mr-1"></i> Resend
                           </button>
                       </form>
@@ -739,7 +755,8 @@ $activePage = 'quotes';
                       ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="send_followup"
+                          <input type="hidden" name="action" value="send_followup">
+                          <button type="submit"
                                   class="btn btn-warning"
                                   onclick="return confirm('Send a follow-up email to this customer about quote <?php echo htmlspecialchars($quote['quote_number']); ?>?')">
                               <i data-feather="bell" class="mr-1"></i> Send Follow-Up
@@ -763,7 +780,8 @@ $activePage = 'quotes';
                           <!-- Single service type → one-click conversion, line items auto-copied -->
                           <form method="POST" class="d-inline">
                               <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                              <button type="submit" name="action" value="convert_to_job" class="btn btn-primary">
+                              <input type="hidden" name="action" value="convert_to_job">
+                              <button type="submit" class="btn btn-primary">
                                   <i data-feather="zap" class="mr-1"></i> Convert to Job
                               </button>
                           </form>
@@ -776,14 +794,16 @@ $activePage = 'quotes';
                       <?php endif; ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="send" class="btn btn-outline-secondary">
+                          <input type="hidden" name="action" value="send">
+                          <button type="submit" class="btn btn-outline-secondary">
                               <i data-feather="send" class="mr-1"></i> Resend Link
                           </button>
                       </form>
                   <?php elseif (in_array($quote['status'], ['declined', 'expired'])): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                          <button type="submit" name="action" value="send" class="btn btn-outline-secondary">
+                          <input type="hidden" name="action" value="send">
+                          <button type="submit" class="btn btn-outline-secondary">
                               <i data-feather="send" class="mr-1"></i> Resend Link
                           </button>
                       </form>
@@ -1130,7 +1150,8 @@ $activePage = 'quotes';
                           <div class="mt-3">
                               <form method="POST" class="d-inline">
                                   <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
-                                  <button type="submit" name="action" value="send_followup"
+                                  <input type="hidden" name="action" value="send_followup">
+                                  <button type="submit"
                                           class="btn btn-sm btn-warning btn-block"
                                           onclick="return confirm('Send a follow-up email for quote <?php echo htmlspecialchars($quote['quote_number']); ?>?')">
                                       <i data-feather="bell" style="width:13px;height:13px;"></i>
