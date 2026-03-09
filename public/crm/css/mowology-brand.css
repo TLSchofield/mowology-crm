@@ -25230,3 +25230,62 @@ textarea.font-monospace {
   background: var(--mw-dark);
   color: #fff;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Clock-In Gate
+   Replaces the job cards on the Today view when user is not globally clocked in.
+   jobs/schedule.php — rendered when $isClockedIn = false
+   ═══════════════════════════════════════════════════════════════════════════ */
+.mw-clock-gate-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 20px;
+  margin: 8px 0;
+  background: #fff;
+  border: 2px dashed #b8dacc;
+  border-radius: 14px;
+  text-align: center;
+}
+.mw-clock-gate-icon {
+  font-size: 2.4rem;
+  line-height: 1;
+  opacity: 0.5;
+}
+.mw-clock-gate-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--mw-forest);
+}
+.mw-clock-gate-sub {
+  font-size: 0.82rem;
+  color: #6c757d;
+}
+
+/* ── Stop Timer drawer button ────────────────────────────────────────────── */
+.mw-mc-drawer-row-secondary {
+  border-top: 1px solid #f1f3f5;
+  padding-top: 8px;
+  margin-top: 4px;
+  display: flex;
+  justify-content: center;
+}
+.mw-mc-drawer-btn-stop {
+  background: transparent;
+  border: 1.5px solid #dc3545;
+  color: #dc3545;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.15s;
+}
+.mw-mc-drawer-btn-stop:hover {
+  background: #fdecea;
+}

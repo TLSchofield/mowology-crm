@@ -369,6 +369,7 @@
      * "Photo" + "Finish" buttons for an in-progress visit
      */
     function renderWorkingDrawer(drawer, visitId) {
+        var v = visits[visitId];
         drawer.innerHTML =
             '<div class="mw-mc-drawer-row">' +
             '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-secondary" data-action="photo">' +
@@ -382,6 +383,12 @@
             '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-finish" data-action="finish">' +
             '    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="12" x2="16" y2="12"/></svg>' +
             '    Finish' +
+            '  </button>' +
+            '</div>' +
+            '<div class="mw-mc-drawer-row-secondary">' +
+            '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-stop" data-action="stop-timer">' +
+            '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
+            '    Stop Timer' +
             '  </button>' +
             '</div>';
 
@@ -403,6 +410,12 @@
                 visits[visitId].status = 'prompt_after';
                 renderPhotoPrompt(drawer, visitId, 'after');
             });
+
+        drawer.querySelector('[data-action="stop-timer"]')
+            .addEventListener('click', function(e) {
+                e.stopPropagation();
+                stopTimer(visitId);
+            });
     }
 
     /**
@@ -422,7 +435,15 @@
             (photosRequired
                 ? '<span class="mw-mc-drawer-skip-disabled">Photo required for this job</span>'
                 : '<button class="mw-mc-drawer-skip" data-action="skip-photo">Skip</button>') +
-            '</div>';
+            '</div>' +
+            (category === 'before'
+                ? '<div class="mw-mc-drawer-row-secondary">' +
+                  '  <button class="mw-mc-drawer-btn mw-mc-drawer-btn-stop" data-action="cancel-timer">' +
+                  '    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
+                  '    Cancel (wrong job)' +
+                  '  </button>' +
+                  '</div>'
+                : '');
 
         drawer.querySelector('[data-action="take-photo"]')
             .addEventListener('click', function(e) {
@@ -443,6 +464,12 @@
                     // Skip after photo → clock out
                     clockOut(visitId);
                 }
+            });
+
+        var cancelBtn = drawer.querySelector('[data-action="cancel-timer"]');
+        if (cancelBtn) cancelBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                stopTimer(visitId);
             });
     }
 
@@ -487,6 +514,11 @@
                     }
                     if (data.require_photos !== undefined) {
                         visits[visitId].requirePhotos = data.require_photos;
+                    }
+
+                    // If user was not globally clocked in, job-timer auto-clocked them in
+                    if (data.auto_clock_in_performed && typeof window.MwScheduleAutoClockIn === 'function') {
+                        window.MwScheduleAutoClockIn(data.auto_clock_in_time);
                     }
 
                     // Notify GPS widget: job timer started (activates GPS on personal devices)
@@ -593,6 +625,67 @@
                 }
             })
             .catch(function(err) {
+                showToast('Network error. Check your connection.');
+            });
+        });
+    }
+
+    /**
+     * Stop a running timer WITHOUT completing the visit.
+     * Used to cancel an accidental start.
+     */
+    function stopTimer(visitId) {
+        var v = visits[visitId];
+        if (!v) return;
+
+        getGps(function(lat, lng) {
+            fetch('/crm/api/job-timer.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'stop',
+                    visit_id: visitId,
+                    lat: lat,
+                    lng: lng,
+                    complete_visit: false,
+                    notes: 'Manually stopped without completing'
+                })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    // Reset visit to unstarted state
+                    visits[visitId].status = 'scheduled';
+                    visits[visitId].startTime = null;
+                    visits[visitId].entryId = null;
+                    stopPillTimer(visitId);
+
+                    // Restore pill label text (was overwritten by timer display)
+                    v.pill.innerHTML = escHtml(v.serviceLabel);
+                    updatePillVisual(visitId, 'scheduled');
+                    closeDrawer();
+
+                    // Reset card footer
+                    var card = v.pill.closest('.mw-mc-card');
+                    var stopIdForFooter = card ? parseInt(card.dataset.stopId, 10) : 0;
+                    if (stopIdForFooter) footerSetIdle(stopIdForFooter);
+                    pvSetIdle(visitId);
+
+                    // Notify GPS widget
+                    if (window.MwTimeClock) {
+                        var otherActive = getActiveInProgressVisitId();
+                        if (!otherActive) {
+                            window.MwTimeClock.notifyJobTimerStopped();
+                            window.MwTimeClock.setTrackingInterval('standard');
+                        }
+                    }
+
+                    showToast('Timer stopped — visit reset.');
+                } else {
+                    showToast('Could not stop timer: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(function() {
                 showToast('Network error. Check your connection.');
             });
         });

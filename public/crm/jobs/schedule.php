@@ -2396,6 +2396,31 @@ if ($apiKey) {
               </div>
               <?php endif; ?>
 
+              <?php if (!$isClockedIn): ?>
+
+              <!-- ── Clock-In Gate — hides job cards until user clocks in ── -->
+              <?php if (!empty($mobileStops)):
+                  $upcomingCount  = 0;
+                  foreach ($mobileStops as $_s) {
+                      $st = $_s['stop_status'] ?? 'scheduled';
+                      if ($st !== 'completed' && $st !== 'skipped') $upcomingCount++;
+                  }
+              ?>
+              <div class="mw-clock-gate-card" id="clockGateCard">
+                  <div class="mw-clock-gate-icon">&#9200;</div>
+                  <div class="mw-clock-gate-title">Clock in to start your day</div>
+                  <div class="mw-clock-gate-sub"><?php echo $upcomingCount; ?> stop<?php echo $upcomingCount !== 1 ? 's' : ''; ?> scheduled — tap Clock In above</div>
+              </div>
+              <?php else: ?>
+                  <div class="mw-mc-empty">
+                      <div class="mw-mc-empty-icon">&#127793;</div>
+                      <div class="mw-mc-empty-text">No stops today</div>
+                      <div class="mw-mc-empty-sub">Check the weekly view for upcoming work</div>
+                  </div>
+              <?php endif; ?>
+
+              <?php else: // ── User IS clocked in — render normal stops ──────── ?>
+
               <?php if (empty($mobileStops)): ?>
                   <!-- Empty state -->
                   <div class="mw-mc-empty">
@@ -2437,7 +2462,8 @@ if ($apiKey) {
                       endforeach; ?>
                   <?php endif; ?>
 
-              <?php endif; ?>
+              <?php endif; // empty mobileStops ?>
+              <?php endif; // isClockedIn gate ?>
 
               </div><!-- /.mw-mc-scroll-area -->
 
@@ -3969,6 +3995,15 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
             cb(null, null);
         }
     }
+
+    // ── Auto clock-in from job timer (called by schedule-pill-workflow.js) ────
+    // When a user starts a job timer while not globally clocked in, the backend
+    // auto-clocks them in. This function updates the UI to reflect that.
+    window.MwScheduleAutoClockIn = function(clockInTime) {
+        // Reload the page so the clock card updates and job cards appear
+        // (brief delay so the pill workflow can finish its start animation)
+        setTimeout(function() { window.location.href = TODAY_URL; }, 800);
+    };
 
     // ── Clock In ──────────────────────────────────────────────────────────────
     var btnIn = document.getElementById('dsSummaryClockIn');
