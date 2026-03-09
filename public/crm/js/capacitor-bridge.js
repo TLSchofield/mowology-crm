@@ -33,14 +33,25 @@
     // ── Location Processor (JS-side noise filter) ──────────
     // Supplements the native accuracy gating with JS-side smoothing
     var locationProcessor = {
-        ACCURACY_THRESHOLD: 50,  // meters — reject fixes worse than this
+        ACCURACY_THRESHOLD: 200, // meters — reject only wildly inaccurate fixes
         SPEED_MAX_MPS: 42,       // ~150 km/h — reject teleports
         MIN_DISTANCE: 5,         // meters — skip tiny jitters when still
         lastAccepted: null,
         stationaryCount: 0,
+        totalReceived: 0,        // Always accept first 3 fixes for fast startup
 
         process: function(pos) {
-            // Accuracy gate
+            this.totalReceived++;
+
+            // Always accept the first 3 positions so latestPosition gets set quickly.
+            // Without this, accuracy gating on startup (indoors, cold GPS) can block
+            // ALL positions and leave the tracking widget permanently stale.
+            if (this.totalReceived <= 3) {
+                this.lastAccepted = pos;
+                return true;
+            }
+
+            // Accuracy gate — relaxed to 200m to handle indoors/urban canyon
             if (pos.accuracy > this.ACCURACY_THRESHOLD) {
                 return false;
             }
@@ -57,11 +68,10 @@
                     return false; // GPS teleport
                 }
 
-                // Jitter filter when stationary
+                // Jitter filter when stationary — accept every 3rd (was 10th)
                 if (dist < this.MIN_DISTANCE) {
                     this.stationaryCount++;
-                    // Accept every 10th point as presence signal
-                    if (this.stationaryCount % 10 !== 0) {
+                    if (this.stationaryCount % 3 !== 0) {
                         return false;
                     }
                 } else {

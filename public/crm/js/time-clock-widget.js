@@ -372,6 +372,11 @@
         requestWakeLock();
 
         // ── Native Capacitor: background-capable GPS ──
+        // Start the native plugin for background capability, BUT also start
+        // browser watchPosition as a reliable secondary source. The native
+        // locationProcessor filter can reject fixes (accuracy > 50m, jitter),
+        // leaving latestPosition null. The browser watch ensures we always
+        // have a position to send.
         if (window.MwNative && window.MwNative.geo) {
             window.MwNative.geo.startBackgroundTracking(function(pos, error) {
                 if (error) {
@@ -387,18 +392,28 @@
                 latestPosition = pos;
                 updateTrackingDot('active', 'accuracy: ' + Math.round(pos.accuracy) + 'm');
             });
-            // Server ping interval — native plugin delivers locations,
-            // but we still POST them to crew-location.php
-            sendPosition();
-            trackingInterval = setInterval(sendPosition, TRACKING_INTERVAL_MS);
-            return;
+            // Fall through to ALSO start browser watchPosition below
         }
 
-        // ── Browser fallback: existing watchPosition code ──
-        if (gpsWatchId !== null) return; // Already tracking
+        // ── Browser GPS watch (primary for browsers, secondary for native) ──
+        if (gpsWatchId !== null) {
+            // Already watching — just ensure send interval is running
+            if (!trackingInterval) {
+                sendPosition();
+                trackingInterval = setInterval(sendPosition, TRACKING_INTERVAL_MS);
+            }
+            return;
+        }
         if (!navigator.geolocation) {
-            showToast('Location not supported on this browser', 'error');
-            updateTrackingDot('error', 'Not supported');
+            if (!window.MwNative) {
+                showToast('Location not supported on this browser', 'error');
+                updateTrackingDot('error', 'Not supported');
+            }
+            // Native-only: still set up the send interval
+            if (!trackingInterval) {
+                sendPosition();
+                trackingInterval = setInterval(sendPosition, TRACKING_INTERVAL_MS);
+            }
             return;
         }
 
@@ -474,12 +489,42 @@
 
     var GPS_QUEUE_KEY = 'mw-gps-queue';
     var GPS_QUEUE_MAX = 500; // ~4 hours at 30s intervals
+    var noFixCount = 0; // Tracks consecutive sendPosition() calls with no GPS fix
 
     function sendPosition() {
         if (!latestPosition) {
-            console.warn('[MwTracking] No GPS fix yet, skipping ping');
+            noFixCount++;
+            // After 2 misses (60s) with no position from native/watch, try one-shot fallback
+            if (noFixCount >= 2 && navigator.geolocation) {
+                console.warn('[MwTracking] No GPS fix after ' + noFixCount + ' intervals — trying one-shot fallback');
+                navigator.geolocation.getCurrentPosition(
+                    function(pos) {
+                        latestPosition = {
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy,
+                            speed: pos.coords.speed,
+                            heading: pos.coords.heading
+                        };
+                        updateTrackingDot('active', 'accuracy: ' + Math.round(pos.coords.accuracy) + 'm (fallback)');
+                        doSendPosition(); // Send the fallback position now
+                    },
+                    function() {
+                        console.warn('[MwTracking] One-shot fallback also failed');
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+                );
+            } else {
+                console.warn('[MwTracking] No GPS fix yet, skipping ping');
+            }
             return;
         }
+        noFixCount = 0;
+        doSendPosition();
+    }
+
+    function doSendPosition() {
+        if (!latestPosition) return;
 
         // Check if we're offline
         var isOffline = (window.MwNative && !window.MwNative.network.isOnline) ||

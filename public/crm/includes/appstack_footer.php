@@ -40,8 +40,8 @@
   <script src="/crm/js/app.js"></script>
   <script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script>
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
-  <script src="/crm/js/time-clock-widget.js?v=20260214h"></script>
-  <script src="/crm/js/capacitor-bridge.js?v=20260214"></script>
+  <script src="/crm/js/time-clock-widget.js?v=20260309a"></script>
+  <script src="/crm/js/capacitor-bridge.js?v=20260309a"></script>
 
   <!-- Dropdown fix: app.js bundles jQuery+Bootstrap whose dropdown plugin fails without global Popper.
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->
