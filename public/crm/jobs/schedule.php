@@ -2455,10 +2455,10 @@ if ($apiKey) {
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M2 7h2m16 0h2M2 17h2m16 0h2"/></svg>
                       <span>Receipt</span>
                   </a>
-                  <a href="index.php" class="mw-mc-bottombar-btn">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                      <span>List</span>
-                  </a>
+                  <button type="button" class="mw-mc-bottombar-btn" id="mwScheduleMenuBtn">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                      <span>Menu</span>
+                  </button>
                   <!-- Clock status button: Pong — ball bouncing = clocked in, frozen = not clocked in -->
                   <button type="button"
                           class="mw-mc-bottombar-btn mw-mc-clock-navbtn <?php echo $isClockedIn ? 'mw-clock-on' : 'mw-clock-off'; ?>"
@@ -3905,6 +3905,18 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
             });
         });
     });
+})();
+
+// ── Schedule bottom-bar Menu button → open global mobile nav overlay ─────────
+(function () {
+    var menuBtn = document.getElementById('mwScheduleMenuBtn');
+    var overlay = document.getElementById('mwMobileMenuOverlay');
+    if (menuBtn && overlay) {
+        menuBtn.addEventListener('click', function () {
+            overlay.classList.add('mw-menu-open');
+            document.body.style.overflow = 'hidden';
+        });
+    }
 })();
 
 // ── Touchstart prefetch: begin loading the target page the moment a finger lands ─

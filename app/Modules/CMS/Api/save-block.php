@@ -45,8 +45,7 @@ if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
 
 $blockId = (int)($_POST['id'] ?? 0);
 $pageId = (int)($_POST['page_id'] ?? 0);
-$label = $_POST['label'] ?? '';
-$isVisible = (bool)($_POST['is_visible'] ?? 1);
+$isVisible = isset($_POST['is_visible']) ? (bool)$_POST['is_visible'] : true;
 
 // Build config from form fields
 $config = $_POST['config'] ?? [];
@@ -55,17 +54,20 @@ $config = $_POST['config'] ?? [];
 $variant = $_POST['variant'] ?? 'default';
 $config['variant'] = $variant;
 
+// Store label in config (cms_blocks has no label column)
+if (!empty($_POST['label'])) {
+    $config['_label'] = $_POST['label'];
+}
+
 // Parse and validate JSON fields
 foreach ($config as $key => $value) {
     if (is_string($value) && !empty($value)) {
-        // Try to parse as JSON if it looks like JSON
         $firstChar = trim($value)[0] ?? '';
         if ($firstChar === '[' || $firstChar === '{') {
             $decoded = json_decode($value, true);
             if ($decoded !== null && json_last_error() === JSON_ERROR_NONE) {
                 $config[$key] = $decoded;
             } elseif ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
-                // Invalid JSON detected
                 error_log("Invalid JSON in block config field '$key': " . json_last_error_msg());
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => "Invalid JSON in field '$key': " . json_last_error_msg()]);
@@ -75,22 +77,29 @@ foreach ($config as $key => $value) {
     }
 }
 
+// Build visibility JSON
+$visibilityJson = $isVisible ? null : json_encode(['hidden' => true]);
+
 try {
     if ($blockId) {
-        // Update existing block
         $db = getDB();
         $stmt = $db->prepare('
             UPDATE cms_blocks
-            SET label = ?, config = ?, is_visible = ?, updated_at = NOW()
+            SET config_json = ?, visibility_json = ?, updated_at = NOW()
             WHERE id = ? AND page_id = ?
         ');
         $stmt->execute([
-            $label,
             json_encode($config),
-            $isVisible ? 1 : 0,
+            $visibilityJson,
             $blockId,
             $pageId,
         ]);
+
+        // Invalidate page cache
+        cms_invalidateCache("blocks_page_{$pageId}");
+        if (function_exists('cms_invalidatePageHtmlCache')) {
+            cms_invalidatePageHtmlCache($pageId);
+        }
 
         // Audit log
         cms_logCmsActivity(
@@ -109,6 +118,7 @@ try {
         echo json_encode(['success' => false, 'error' => 'Block ID required for update']);
     }
 } catch (PDOException $e) {
+    error_log("save-block.php DB error: " . $e->getMessage());
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => 'Database error']);
     exit;

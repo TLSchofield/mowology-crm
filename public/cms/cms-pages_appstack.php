@@ -64,7 +64,7 @@ foreach ($pages as &$p) {
         default => 'secondary',
     };
     $p['type_display'] = ucfirst(str_replace('_', ' ', $p['page_type']));
-    $p['edit_url'] = "/crm/cms-page-editor.php?id=" . $p['id'];
+    $p['edit_url'] = "/cms/cms-page-editor.php?id=" . $p['id'];
     $p['view_url'] = "/" . $p['slug'];
     $p['created_date'] = date('M d, Y', strtotime($p['created_at']));
 
@@ -87,7 +87,7 @@ foreach ($pages as &$p) {
             <h1 class="mb-0">CMS Pages</h1>
             <small class="text-muted">Manage your website pages</small>
         </div>
-        <a href="/crm/cms-page-editor.php?action=create" class="btn btn-primary">
+        <a href="/cms/cms-page-editor.php?action=create" class="btn btn-primary">
             <i data-feather="plus"></i> New Page
         </a>
     </div>
@@ -176,7 +176,7 @@ foreach ($pages as &$p) {
         <?php echo admin_empty_state(
             'No pages found',
             'Create your first page or adjust your filters',
-            ['url' => '/crm/cms-page-editor.php?action=create', 'label' => 'Create Page']
+            ['url' => '/cms/cms-page-editor.php?action=create', 'label' => 'Create Page']
         ); ?>
     <?php else: ?>
         <?php echo admin_table($pages, [
@@ -212,7 +212,7 @@ foreach ($pages as &$p) {
             ],
         ], [
             'row_actions' => [
-                ['label' => 'Edit', 'icon' => 'edit-2', 'href' => '/crm/cms-page-editor.php?id={{id}}'],
+                ['label' => 'Edit', 'icon' => 'edit-2', 'href' => '/cms/cms-page-editor.php?id={{id}}'],
                 ['label' => 'View', 'icon' => 'external-link', 'href' => '/{{slug}}', 'target' => '_blank'],
                 ['label' => 'Delete', 'icon' => 'trash-2', 'action' => 'delete', 'confirm' => true],
             ],

@@ -241,7 +241,7 @@ $suggestedMetaDesc = $page ? seo_getMetaDescription($page, $blocks) : '';
                                         <?php endif; ?>
                                     </div>
                                     <div class="mw-block-row-actions">
-                                        <a href="/crm/cms-block-editor.php?block_id=<?php echo (int)$block['id']; ?>" class="btn btn-sm btn-outline-primary">
+                                        <a href="/cms/cms-block-editor.php?block_id=<?php echo (int)$block['id']; ?>" class="btn btn-sm btn-outline-primary">
                                             <i data-feather="edit-2" style="width:12px;height:12px;"></i> Edit
                                         </a>
                                         <button type="button" class="btn btn-sm btn-outline-danger mw-delete-block"

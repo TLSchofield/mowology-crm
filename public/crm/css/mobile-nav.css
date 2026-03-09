@@ -509,7 +509,7 @@
 */
 
 body.mw-page-schedule .mw-mobile-topbar,
-body.mw-page-schedule .mw-mobile-bottombar,
-body.mw-page-schedule .mw-mobile-menu-overlay {
+body.mw-page-schedule .mw-mobile-bottombar {
     display: none !important;
 }
+/* Keep the slide-up menu overlay available for the schedule's Menu button */
