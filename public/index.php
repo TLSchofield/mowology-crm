@@ -8,7 +8,7 @@ $pageDescription = 'Professional landscaping and grounds maintenance services in
 $pageKeywords    = 'landscaping Vancouver, strata landscaping, property management landscaping, residential landscaping, grounds maintenance, Burnaby landscaping, Richmond landscaping';
 $activeNav       = 'home';
 
-$heroImgDesktop = '/assets/img/hero/hero-lawn-care-1920x1080.jpg';
+$heroImgDesktop = '/assets/img/hero/hero-strata-crew.jpg';
 
 $heroWords = ['Professional', 'Landscaping', 'Services', 'in', 'Metro', 'Vancouver'];
 
@@ -121,6 +121,9 @@ $testimonials = [
       <div class="services-grid">
 
         <div class="service-card mw-reveal">
+          <div class="service-card__photo">
+            <img src="/assets/img/services/strata-aerial.jpg" alt="Strata property grounds maintenance from above" loading="lazy">
+          </div>
           <div class="service-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>
           </div>
@@ -136,6 +139,9 @@ $testimonials = [
         </div>
 
         <div class="service-card mw-reveal" style="--delay:0.1s">
+          <div class="service-card__photo">
+            <img src="/assets/img/hero/hero-residential-lawn.jpg" alt="Child playing on a beautifully maintained residential lawn" loading="lazy">
+          </div>
           <div class="service-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           </div>

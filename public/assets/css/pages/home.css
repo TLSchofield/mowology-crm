@@ -59,8 +59,9 @@
 .mw-hero__content {
     position: relative;
     z-index: 2;
-    max-width: 800px;
-    padding: 0 max(2rem, calc((100vw - 1200px) / 2 + 2rem));
+    max-width: 700px;
+    width: 100%;
+    padding: 0 2rem;
 }
 
 .mw-hero__badge {
@@ -177,7 +178,7 @@
 .mw-hero__scroll {
     position: absolute;
     bottom: 2rem;
-    right: max(2rem, calc((100vw - 1200px) / 2 + 2rem));
+    right: max(2rem, calc((100vw - 1280px) / 2 + 2rem));
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -301,6 +302,23 @@
 }
 .service-card:hover::before {
     transform: scaleY(1);
+}
+
+.service-card__photo {
+    margin: -28px -28px 24px;
+    height: 200px;
+    overflow: hidden;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+.service-card__photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    transition: transform 0.5s ease;
+}
+.service-card:hover .service-card__photo img {
+    transform: scale(1.05);
 }
 
 .service-icon {

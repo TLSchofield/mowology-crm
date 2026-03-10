@@ -116,11 +116,11 @@ require __DIR__ . '/includes/header.php';
   var allPairs = [], filteredPairs = [];
 
   var DEMO_PAIRS = [
-    { id:1, before_url:'https://images.unsplash.com/photo-1558904541-efa843a96f01?w=900', after_url:'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=900', label:'Overgrown Garden — Kerrisdale', service:'Garden Restoration', date:'March 2026', category:'garden', crew:'Team A' },
-    { id:2, before_url:'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=900', after_url:'https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=900', label:'Lawn Recovery — Burnaby', service:'Lawn Restoration', date:'February 2026', category:'lawn', crew:'Team B' },
+    { id:1, before_url:'/assets/img/portfolio/hedge-before.jpg', after_url:'/assets/img/portfolio/hedge-after.jpg', label:'Hedge Trim — Point Grey', service:'Hedge Trimming', date:'March 2026', category:'garden', crew:'Team A' },
+    { id:2, before_url:'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=900', after_url:'/assets/img/portfolio/lawn-cut-service.jpg', label:'Lawn Recovery — Burnaby', service:'Lawn Care', date:'February 2026', category:'lawn', crew:'Team B' },
     { id:3, before_url:'https://images.unsplash.com/photo-1523348837708-15d4a09cfac2?w=900', after_url:'https://images.unsplash.com/photo-1508193638397-1c4234db14d8?w=900', label:'Strata Common Area — Richmond', service:'Strata Maintenance', date:'March 2026', category:'strata', crew:'Team A' },
     { id:4, before_url:'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=900', after_url:'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=900', label:'Spring Cleanup — Kitsilano', service:'Seasonal Cleanup', date:'March 2026', category:'cleanup', crew:'Team C' },
-    { id:5, before_url:'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=900', after_url:'https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=900', label:'Hedge & Border Refresh — West Van', service:'Garden Care', date:'February 2026', category:'garden', crew:'Team B' },
+    { id:5, before_url:'/assets/img/portfolio/hedge-trimming.jpg', after_url:'/assets/img/portfolio/hedge-after.jpg', label:'Hedge & Border Refresh — West Van', service:'Garden Care', date:'February 2026', category:'garden', crew:'Team B' },
     { id:6, before_url:'https://images.unsplash.com/photo-1503945438517-f65904a52ce6?w=900', after_url:'https://images.unsplash.com/photo-1448630360428-65456885c650?w=900', label:'Property Grounds — Metrotown', service:'Strata Maintenance', date:'January 2026', category:'strata', crew:'Team A' }
   ];
 
