@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v30';
+var CACHE_VERSION = 'mw-v31';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -34,7 +34,7 @@ var APP_SHELL = [
   /* ── Core AppStack frame ── */
   '/crm/css/classic.css',
   '/crm/css/mowology-brand.css?v=20260228a',
-  '/crm/css/mobile-cards.css?v=20260301a',
+  '/crm/css/mobile-cards.css?v=20260310a',
   '/crm/css/mobile-nav.css?v=20260225a',
   '/crm/js/app.js',
   '/crm/js/feather-helper.js',
@@ -44,7 +44,7 @@ var APP_SHELL = [
   '/crm/js/capacitor-bridge.js?v=20260304',
   '/crm/js/navigation-launcher.js?v=20260225c',
   '/crm/js/schedule-route-map.js?v=20260226b',
-  '/crm/js/schedule-pill-workflow.js?v=20260228e',
+  '/crm/js/schedule-pill-workflow.js?v=20260310a',
   '/crm/js/schedule-drag-drop.js',
   '/crm/js/route-engine.js?v=20260219a',
   '/crm/js/offline-receipts.js',
