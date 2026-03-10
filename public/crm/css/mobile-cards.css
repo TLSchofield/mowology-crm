@@ -1708,6 +1708,37 @@
         color: #555;
     }
 
+    /* Gallery multi-select button — next to camera additionals */
+    .mw-mc-gallery-btn {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        min-width: 60px;
+        height: 60px;
+        border-radius: 8px;
+        border: 2px dashed var(--mw-green, #2D8659);
+        background: var(--mw-light, #E8F3F0);
+        color: var(--mw-green, #2D8659);
+        cursor: pointer;
+        padding: 0 8px;
+        font-size: 0.58rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+        -webkit-tap-highlight-color: transparent;
+        white-space: nowrap;
+    }
+
+    .mw-mc-gallery-btn:active {
+        background: #cde8db;
+        border-color: var(--mw-dark, #1A5F4A);
+        color: var(--mw-dark, #1A5F4A);
+    }
+
     /* ════════════════════════════════════════════════════
        PHOTO LIGHTBOX (tap to expand)
        ════════════════════════════════════════════════════ */
@@ -3334,12 +3365,13 @@
     border-radius: 12px;
 }
 
+/* ── Optimise-from-here button (green) ── */
 .mw-mv-card-go {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 48px;
+    height: 48px;
     border: none;
     border-radius: 50%;
     background: var(--mw-green, #2D8659);
@@ -3347,7 +3379,7 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     flex-shrink: 0;
-    box-shadow: 0 2px 6px rgba(45, 134, 89, 0.3);
+    box-shadow: 0 2px 8px rgba(45, 134, 89, 0.35);
     transition: background 0.15s ease, transform 0.15s ease;
 }
 
@@ -3356,17 +3388,13 @@
     transform: scale(0.92);
 }
 
-.mw-mv-card-go svg {
-    margin-left: 1px;
-}
-
-/* ── Navigate (external turn-by-turn) button ── */
+/* ── Google Maps navigation button (orange) ── */
 .mw-mv-card-nav {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 48px;
+    height: 48px;
     border: none;
     border-radius: 50%;
     background: var(--mw-orange, #e85d04);
@@ -3374,7 +3402,7 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     flex-shrink: 0;
-    box-shadow: 0 2px 6px rgba(232, 93, 4, 0.3);
+    box-shadow: 0 2px 8px rgba(232, 93, 4, 0.35);
     transition: background 0.15s ease, transform 0.15s ease;
 }
 
@@ -3386,7 +3414,7 @@
 /* ── Card button group ── */
 .mw-mv-card-btns {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     align-items: center;
 }
 
@@ -3856,6 +3884,23 @@
 
 .mw-mc-card-footer.is-timing .mw-mc-footer-btn-complete:active {
     background: #FFE0B2;
+}
+
+/* Clock-in button transformed into digital clock when timer is running */
+.mw-mc-footer-btn-clockin.is-clocked-in {
+    background: rgba(45, 134, 89, 0.1);
+    color: var(--mw-green, #2D8659);
+    border: 1.5px solid rgba(45, 134, 89, 0.3);
+    cursor: default;
+    font-size: 1rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.05em;
+}
+
+.mw-mc-footer-btn-clockin.is-clocked-in:active {
+    transform: none;
+    background: rgba(45, 134, 89, 0.1);
 }
 
 /* ══════════════════════════════════════════════════════════

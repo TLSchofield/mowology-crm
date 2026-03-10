@@ -851,6 +851,92 @@
     }
 
     /**
+     * Open the device photo gallery for multi-select additional photos.
+     * Unlike triggerCamera(), this does NOT set capture="environment", so the
+     * OS presents the full gallery/files picker. All selected images are
+     * uploaded sequentially as photo_type=additional.
+     */
+    function triggerGallery(visitId) {
+        console.log('[PillWorkflow] triggerGallery: visit=' + visitId);
+
+        var v = visits[visitId];
+        if (!v) { console.warn('[PillWorkflow] triggerGallery: visit ' + visitId + ' not registered'); return; }
+
+        // Clean up any pending camera session to prevent ghost inputs
+        if (pendingCamera) {
+            if (pendingCamera.input) {
+                pendingCamera.input.removeEventListener('change', pendingCamera.handler);
+                if (pendingCamera.input.parentNode) pendingCamera.input.parentNode.removeChild(pendingCamera.input);
+            }
+            pendingCamera = null;
+        }
+
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.multiple = true;
+        // No capture attribute — forces gallery/files picker on iOS and Android
+        input.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;';
+        document.body.appendChild(input);
+
+        var handler = function() {
+            input.removeEventListener('change', handler);
+            if (input.parentNode) input.parentNode.removeChild(input);
+
+            if (!input.files || !input.files.length) {
+                renderPhotoStrip(visitId);
+                return;
+            }
+
+            var files = Array.prototype.slice.call(input.files);
+            var MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+            var validFiles = [];
+            files.forEach(function(f) {
+                if (f.size > MAX_UPLOAD_BYTES) {
+                    showToast(f.name + ' is too large (max 15 MB) — skipped.');
+                } else {
+                    validFiles.push(f);
+                }
+            });
+
+            if (!validFiles.length) {
+                renderPhotoStrip(visitId);
+                return;
+            }
+
+            var total = validFiles.length;
+            var uploaded = 0;
+            var failed = 0;
+
+            showToast('Uploading ' + total + ' photo' + (total > 1 ? 's' : '') + '…');
+
+            // Upload sequentially to avoid hammering the server
+            var idx = 0;
+            function uploadNext() {
+                if (idx >= validFiles.length) {
+                    renderPhotoStrip(visitId);
+                    if (failed > 0) {
+                        showToast(uploaded + ' uploaded, ' + failed + ' failed.');
+                    } else {
+                        showToast(uploaded + ' photo' + (uploaded > 1 ? 's' : '') + ' added.');
+                    }
+                    return;
+                }
+                var file = validFiles[idx++];
+                uploadPhoto(visitId, file, 'additional', function(success) {
+                    if (success) { uploaded++; } else { failed++; }
+                    uploadNext();
+                });
+            }
+            uploadNext();
+        };
+
+        input.addEventListener('change', handler);
+        // Must be synchronous — same rule as triggerCamera()
+        input.click();
+    }
+
+    /**
      * Upload a photo to the media system.
      * Photos use visibility=client_visible so they populate the client portal.
      *
@@ -1271,6 +1357,10 @@
             '<button class="mw-mc-add-photo-btn" data-visit-id="' + visitId + '" data-category="additional" type="button">' +
             '  ' + PLUS_SVG +
             '  <span>' + (addThumbs.length === 0 ? 'Additionals' : '+') + '</span>' +
+            '</button>' +
+            '<button class="mw-mc-gallery-btn" data-visit-id="' + visitId + '" type="button">' +
+            '  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
+            '  <span>Gallery</span>' +
             '</button>';
         addHtml += '</div>';
 
@@ -1291,6 +1381,15 @@
             addBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
                 triggerCamera(visitId, 'additional');
+            });
+        }
+
+        // Wire gallery button → multi-select device gallery picker
+        var galleryBtn = strip.querySelector('.mw-mc-gallery-btn');
+        if (galleryBtn) {
+            galleryBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                triggerGallery(visitId);
             });
         }
 
@@ -2179,16 +2278,29 @@
     function pvSetTiming(visitId) {
         var timerEl    = document.querySelector('[data-pv-timer="' + visitId + '"]');
         var clockInBtn = document.querySelector('[data-pv-clockin="' + visitId + '"]');
-        if (timerEl)    timerEl.style.display    = 'flex';
-        if (clockInBtn) clockInBtn.style.display = 'none';
+        if (timerEl) timerEl.style.display = 'none'; // clock is now in the button
+        if (clockInBtn) {
+            clockInBtn.disabled = true;
+            clockInBtn.classList.add('is-clocked-in');
+            clockInBtn.innerHTML =
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                '<span class="mw-mc-footer-elapsed" data-pv-elapsed="' + visitId + '">0:00</span>';
+            clockInBtn.style.display = 'flex';
+        }
     }
 
     /** Show clock-in, hide timer for a specific visit's section footer */
     function pvSetIdle(visitId) {
         var timerEl    = document.querySelector('[data-pv-timer="' + visitId + '"]');
         var clockInBtn = document.querySelector('[data-pv-clockin="' + visitId + '"]');
-        if (timerEl)    timerEl.style.display    = 'none';
-        if (clockInBtn) clockInBtn.style.display = 'flex';
+        if (timerEl) timerEl.style.display = 'none';
+        if (clockInBtn) {
+            clockInBtn.disabled = false;
+            clockInBtn.classList.remove('is-clocked-in');
+            clockInBtn.innerHTML =
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Clock In';
+            clockInBtn.style.display = 'flex';
+        }
     }
 
     /** Hide the per-visit section footer entirely (visit completed) */
@@ -2213,8 +2325,15 @@
 
             // Set initial state
             if (v && v.status === 'in_progress' && v.startTime) {
-                if (timerEl)    timerEl.style.display    = 'flex';
-                if (clockInBtn) clockInBtn.style.display = 'none';
+                if (timerEl) timerEl.style.display = 'none';
+                if (clockInBtn) {
+                    clockInBtn.disabled = true;
+                    clockInBtn.classList.add('is-clocked-in');
+                    clockInBtn.innerHTML =
+                        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                        '<span class="mw-mc-footer-elapsed" data-pv-elapsed="' + visitId + '">0:00</span>';
+                    clockInBtn.style.display = 'flex';
+                }
             } else if (v && v.status === 'scheduled') {
                 if (timerEl)    timerEl.style.display    = 'none';
                 if (clockInBtn) clockInBtn.style.display = 'flex';
@@ -2350,10 +2469,17 @@
             var runningVisitId = getRunningVisitForCard(card);
 
             if (runningVisitId) {
-                // A timer is active: show the timer, hide clock-in
+                // A timer is active: transform the clock-in button to show the digital clock
                 footer.classList.add('is-timing');
-                if (timerEl) timerEl.style.display = 'flex';
-                if (clockInBtn) clockInBtn.style.display = 'none';
+                if (timerEl) timerEl.style.display = 'none';
+                if (clockInBtn) {
+                    clockInBtn.disabled = true;
+                    clockInBtn.classList.add('is-clocked-in');
+                    clockInBtn.innerHTML =
+                        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                        '<span class="mw-mc-footer-elapsed" data-footer-elapsed="' + stopId + '">0:00</span>';
+                    clockInBtn.style.display = 'flex';
+                }
                 startFooterTimer(stopId, runningVisitId);
             } else if (clockInVisitId) {
                 // No timer: show clock-in button
@@ -2461,8 +2587,15 @@
             var timerEl    = footer.querySelector('[data-footer-timer]');
             var clockInBtn = footer.querySelector('[data-footer-clockin]');
             footer.classList.add('is-timing');
-            if (timerEl)    timerEl.style.display    = 'flex';
-            if (clockInBtn) clockInBtn.style.display = 'none';
+            if (timerEl) timerEl.style.display = 'none'; // clock is now in the button
+            if (clockInBtn) {
+                clockInBtn.disabled = true;
+                clockInBtn.classList.add('is-clocked-in');
+                clockInBtn.innerHTML =
+                    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' +
+                    '<span class="mw-mc-footer-elapsed" data-footer-elapsed="' + stopId + '">0:00</span>';
+                clockInBtn.style.display = 'flex';
+            }
         });
         startFooterTimer(stopId, visitId);
     }
