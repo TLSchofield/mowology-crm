@@ -6,11 +6,12 @@
     display: inline-block;
     padding: 14px 32px;
     text-decoration: none;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     font-weight: 600;
-    transition: all 0.3s ease;
+    transition: all var(--transition-base);
     text-align: center;
     font-size: 16px;
+    cursor: pointer;
 }
 
 .btn-primary {
@@ -65,7 +66,7 @@
     color: var(--color-primary);
     font-weight: 600;
     text-decoration: none;
-    transition: color 0.3s ease;
+    transition: color var(--transition-base);
 }
 
 .btn-link:hover {
@@ -80,8 +81,90 @@
     background: linear-gradient(135deg, var(--mowology-green), var(--mowology-dark));
     color: white;
     border: none;
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     font-size: 18px;
     font-weight: 700;
     cursor: pointer;
+}
+
+/* ── Enhanced button system (mw-btn) ────────────────────
+   Used by the hero, CTA sections, and premium modules.
+   Inherits the design language from --enhanced blocks.
+   ─────────────────────────────────────────────────── */
+
+.mw-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 28px;
+    border-radius: var(--radius-sm);
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all var(--transition-base);
+    cursor: pointer;
+    border: none;
+    letter-spacing: 0.01em;
+}
+
+.mw-btn svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    transition: transform var(--transition-base);
+}
+
+.mw-btn:hover svg {
+    transform: translateX(4px);
+}
+
+/* Green filled — primary action */
+.mw-btn--primary {
+    background: var(--mowology-green);
+    color: #fff;
+    box-shadow: 0 4px 24px rgba(45, 134, 89, 0.38);
+}
+.mw-btn--primary:hover {
+    background: var(--mowology-dark);
+    box-shadow: 0 6px 32px rgba(45, 134, 89, 0.52);
+    transform: translateY(-2px);
+    color: #fff;
+}
+
+/* Ghost — transparent with white border (for dark backgrounds) */
+.mw-btn--ghost {
+    background: transparent;
+    color: #fff;
+    border: 1.5px solid rgba(255, 255, 255, 0.45);
+}
+.mw-btn--ghost:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.8);
+    color: #fff;
+}
+
+/* White filled — for dark backgrounds */
+.mw-btn--white {
+    background: #fff;
+    color: var(--mowology-green);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+.mw-btn--white:hover {
+    background: var(--bg-green-tint);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+    color: var(--mowology-dark);
+}
+
+/* Outline white — subtle variant for dark backgrounds */
+.mw-btn--outline-white {
+    background: transparent;
+    color: #fff;
+    border: 1.5px solid rgba(255, 255, 255, 0.55);
+}
+.mw-btn--outline-white:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: #fff;
+    color: #fff;
 }

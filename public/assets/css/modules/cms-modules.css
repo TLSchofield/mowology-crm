@@ -4,8 +4,7 @@
    --enhanced block variants.
    ===================================================== */
 
-/* ── Google Fonts (Playfair Display + DM Sans) ─────── */
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:wght@400;500;600;700&display=swap');
+/* Fonts loaded via <link> in head.php for better performance (no nested @import) */
 
 /* ── Shared label component ─────────────────────────── */
 .mw-label {

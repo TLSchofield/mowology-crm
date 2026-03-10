@@ -9,14 +9,65 @@
     color: var(--text-dark);
 }
 
+/* Green accent underline beneath section titles */
+.section-title::after {
+    content: '';
+    display: block;
+    width: 48px;
+    height: 3px;
+    background: var(--color-primary);
+    border-radius: 2px;
+    margin: 14px auto 0;
+}
+
+/* Left-aligned variant — no auto-centering of the underline */
+.section-title--left {
+    text-align: left;
+}
+.section-title--left::after {
+    margin-left: 0;
+    margin-right: 0;
+}
+
 .section-subtitle {
     text-align: center;
     font-size: 18px;
     color: var(--text-medium);
     margin-bottom: 50px;
-    max-width: 700px;
+    max-width: 620px;
     margin-left: auto;
     margin-right: auto;
+    line-height: 1.7;
+}
+
+/* ── Shared reveal animation (used by all --enhanced block types) ── */
+/* These complement the identical rules in cms-modules.css            */
+.mw-reveal {
+    opacity: 0;
+    transform: translateY(28px);
+}
+.mw-reveal.is-visible {
+    animation: mwRevealUpPage 0.65s var(--delay, 0s) cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+@keyframes mwRevealUpPage {
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Animated counter (stats banner) ── */
+.mw-count-done {
+    transition: none;
+}
+
+/* ── Legacy card scroll animation ──────────────────── */
+/* JS adds .anim-hidden on init, .anim-visible when in viewport */
+.anim-hidden {
+    opacity: 0;
+    transform: translateY(22px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.anim-visible {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 @media (max-width: 768px) {

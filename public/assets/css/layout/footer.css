@@ -3,9 +3,9 @@
    ===================================================== */
 
 .footer {
-    background: var(--text-dark);
+    background: var(--bg-dark);
     color: white;
-    padding: 60px 0 30px;
+    padding: 70px 0 30px;
 }
 
 .footer-content {
@@ -28,8 +28,41 @@
 }
 
 .footer-tagline {
-    color: var(--mowology-lime);
+    color: var(--mw-gold);
     font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+}
+
+.footer-social {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+}
+.footer-social a {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.6);
+    text-decoration: none;
+    transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.footer-social a:hover {
+    background: var(--mowology-green);
+    border-color: var(--mowology-green);
+    color: #fff;
+}
+.footer-social svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
 }
 
 .footer-col ul {

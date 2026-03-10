@@ -3,14 +3,23 @@
    ===================================================== */
 
 body {
-    font-family: 'Open Sans', sans-serif;
+    font-family: 'DM Sans', 'Open Sans', system-ui, sans-serif;
     line-height: 1.6;
     color: var(--text-dark);
     background-color: var(--bg-white);
 }
 
-h1, h2, h3, h4, h5, h6 {
-    font-family: 'Montserrat', sans-serif;
+/* Editorial headings — Playfair Display for h1/h2 (section titles, hero, page titles) */
+h1, h2 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text-dark);
+}
+
+/* Interface headings — DM Sans for h3–h6 (cards, sidebar, smaller UI) */
+h3, h4, h5, h6 {
+    font-family: 'DM Sans', 'Montserrat', system-ui, sans-serif;
     font-weight: 600;
     line-height: 1.3;
     color: var(--text-dark);
