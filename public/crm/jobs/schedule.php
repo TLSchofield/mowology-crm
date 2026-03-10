@@ -3186,6 +3186,8 @@ var MW_ROUTE_STOPS = <?php
     }
     echo json_encode($routeStopsJson);
 ?>;
+var MW_CSRF          = <?php echo json_encode($csrfToken); ?>;
+var MW_SCHEDULE_DATE = <?php echo json_encode($dayDate ?? $startDate); ?>;
 </script>
 <script src="../js/navigation-launcher.js?v=20260225c"></script>
 <script src="../js/route-engine.js?v=20260219a"></script>

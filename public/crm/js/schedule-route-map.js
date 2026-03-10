@@ -934,14 +934,15 @@ var MwRouteMap = (function() {
             // Show just street from full address (strip city/province/country)
             var displayAddress = stop.address ? stop.address.split(',')[0] : '';
 
-            // Navigate button — launches turn-by-turn navigation via MwNavLauncher
-            var navBtn = '<button type="button" class="mw-mv-card-nav" data-stop-idx="' + idx + '" aria-label="Start navigation to this stop">' +
-                '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>' +
+            // Optimise-from-here button — re-orders remaining stops starting from this one
+            var goBtn = '<button type="button" class="mw-mv-card-go" data-stop-id="' + (stop.stopId || '') + '" aria-label="Optimise route from this stop">' +
+                '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>' +
                 '</button>';
 
-            // Route preview button — shows in-app route to this stop
-            var goBtn = '<button type="button" class="mw-mv-card-go" aria-label="Preview route to this stop">' +
-                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>' +
+            // Google Maps button — opens navigation to the NEXT stop with traffic
+            var isLastStop = (idx >= stops.length - 1);
+            var navBtn = '<button type="button" class="mw-mv-card-nav" data-stop-idx="' + idx + '" aria-label="Open Google Maps to next stop"' + (isLastStop ? ' disabled style="opacity:0.35;cursor:default"' : '') + '>' +
+                '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>' +
                 '</button>';
 
             card.innerHTML =
@@ -973,24 +974,75 @@ var MwRouteMap = (function() {
             trackEl.appendChild(card);
         });
 
-        // Wire up Navigate buttons — start in-app turn-by-turn
-        trackEl.querySelectorAll('.mw-mv-card-nav').forEach(function(btn) {
-            btn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                var card = btn.closest('.mw-mv-card');
-                var idx = card ? parseInt(card.dataset.index, 10) : currentIndex;
-                log('Navigate button tapped: starting in-app nav for stop index', idx);
-                startInAppNav(idx);
-            });
-        });
-
-        // Wire up Go buttons — show in-app route preview
+        // Wire up Optimise-from-here buttons (green)
         trackEl.querySelectorAll('.mw-mv-card-go').forEach(function(btn) {
             btn.addEventListener('click', function(e) {
                 e.stopPropagation();
+                var stopId = parseInt(btn.dataset.stopId, 10);
+                var date   = (typeof MW_SCHEDULE_DATE !== 'undefined') ? MW_SCHEDULE_DATE : todayStr();
+                var csrf   = (typeof MW_CSRF !== 'undefined') ? MW_CSRF : '';
+                if (!stopId || !csrf) { log('optimise-from-here: missing stopId or CSRF'); return; }
+
+                btn.disabled = true;
+                var origHTML = btn.innerHTML;
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+
+                fetch('/crm/api/optimize-route.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: date, from_stop_id: stopId, csrf_token: csrf })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        window.location.reload();
+                    } else {
+                        btn.disabled = false;
+                        btn.innerHTML = origHTML;
+                        log('optimise-from-here failed:', data.error);
+                    }
+                })
+                .catch(function() {
+                    btn.disabled = false;
+                    btn.innerHTML = origHTML;
+                });
+            });
+        });
+
+        // Wire up nav buttons (orange) — launch navigation to NEXT stop via MwNavLauncher.
+        // Uses google.navigation: intent on Android (Capacitor + Chrome PWA),
+        // Apple Maps on iOS, Google Maps web URL as fallback.
+        trackEl.querySelectorAll('.mw-mv-card-nav').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (btn.disabled) return;
                 var card = btn.closest('.mw-mv-card');
-                var idx = card ? parseInt(card.dataset.index, 10) : currentIndex;
-                routeToStop(idx);
+                var idx  = card ? parseInt(card.dataset.index, 10) : currentIndex;
+                var nextStop = stops[idx + 1] || null;
+                if (!nextStop) { log('nav-next: no next stop'); return; }
+
+                log('Navigating to next stop:', nextStop);
+
+                if (typeof MwNavLauncher !== 'undefined') {
+                    getFreshGPS(function() {
+                        var navOptions = {};
+                        if (userLat && userLng) {
+                            navOptions.origin = { lat: userLat, lng: userLng };
+                        }
+                        MwNavLauncher.launchNavigation(nextStop, navOptions);
+                    });
+                } else {
+                    // MwNavLauncher not loaded — plain URL fallback
+                    var dest = (nextStop.lat && nextStop.lng)
+                        ? (nextStop.lat + ',' + nextStop.lng)
+                        : encodeURIComponent(nextStop.address || '');
+                    if (!dest) return;
+                    var url = 'https://www.google.com/maps/dir/?api=1&destination=' + dest + '&travelmode=driving&dir_action=navigate';
+                    if (userLat && userLng) {
+                        url = 'https://www.google.com/maps/dir/?api=1&origin=' + userLat + ',' + userLng + '&destination=' + dest + '&travelmode=driving&dir_action=navigate';
+                    }
+                    window.open(url, '_blank');
+                }
             });
         });
 

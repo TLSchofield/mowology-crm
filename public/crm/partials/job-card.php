@@ -421,14 +421,6 @@ $stopTags = $stop['tags'] ?? [];
                 </div>
             <?php endif; ?>
 
-            <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
-            <button type="button" class="mw-mc-expand-route-link mw-mc-btn-route"
-                    data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
-                    data-address="<?php echo htmlspecialchars($stop['property_address'] ?? ''); ?>">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-                Optimize route
-            </button>
-            <?php endif; ?>
 
             <?php if (!empty($stop['visits'])): ?>
                 <?php $multiVisit = count($stop['visits']) > 1; ?>
