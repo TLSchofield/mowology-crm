@@ -450,6 +450,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
 // ── Load Plan Data ───────────────────────────────────────────────────
 
 $plan = getPlanDetails($planId);
+$TAX_RATE = 0.05;   // BC GST — price_per_visit is stored gross (incl. tax)
 
 if (!$plan) {
     header('Location: index.php');
@@ -960,9 +961,9 @@ if ($hasPropCoords) {
                                 </span>
                             </div>
                             <div class="mw-detail-row">
-                                <span class="mw-detail-label">Price / Visit</span>
+                                <span class="mw-detail-label">Price / Visit <small class="text-muted">(excl. GST)</small></span>
                                 <span class="mw-detail-value">
-                                    <?php echo $plan['price_per_visit'] ? formatCurrency($plan['price_per_visit']) : 'N/A'; ?>
+                                    <?php echo $plan['price_per_visit'] ? formatCurrency($plan['price_per_visit'] / (1 + $TAX_RATE)) : 'N/A'; ?>
                                 </span>
                             </div>
                             <div class="mw-detail-row">
@@ -1360,7 +1361,7 @@ if ($hasPropCoords) {
                                                 <?php if ($visit['actual_amount']): ?>
                                                     <?php echo formatCurrency($visit['actual_amount']); ?>
                                                 <?php elseif ($plan['price_per_visit']): ?>
-                                                    <span class="text-muted"><?php echo formatCurrency($plan['price_per_visit']); ?></span>
+                                                    <span class="text-muted"><?php echo formatCurrency($plan['price_per_visit'] / (1 + $TAX_RATE)); ?></span>
                                                 <?php else: ?>
                                                     <span class="text-muted">-</span>
                                                 <?php endif; ?>
