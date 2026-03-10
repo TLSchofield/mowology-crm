@@ -20,7 +20,12 @@ $logoAlt = SITE_NAME;
 // Dynamic nav: try cms_menus first, then fall back to hardcoded Mowology nav
 $nav = null;
 if (function_exists('cms_getSiteMenuItems') && defined('CMS_SITE_ID')) {
-    $nav = cms_getSiteMenuItems('main', CMS_SITE_ID);
+    try {
+        $nav = cms_getSiteMenuItems('main', CMS_SITE_ID);
+    } catch (\Throwable $e) {
+        // Table/column may not exist yet (pre-migration). Fall through to default.
+        $nav = null;
+    }
 }
 if (!$nav) {
     // Fallback: default Mowology navigation
