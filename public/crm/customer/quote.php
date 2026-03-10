@@ -167,7 +167,7 @@ function formatCurrency($amount) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quote <?php echo isset($quote) ? htmlspecialchars($quote['quote_number']) : ''; ?> - Mowology</title>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Mono:wght@700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+    <script src="https://unpkg.com/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
