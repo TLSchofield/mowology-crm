@@ -1,0 +1,15 @@
+# Site Admin — Security rules
+# Deny direct access to includes/ and block PHP execution in css/
+Options -Indexes
+
+# Prevent direct access to includes
+<FilesMatch "^includes/">
+  Require all denied
+</FilesMatch>
+
+# Block access to any .php in css directory
+<FilesMatch "\.php$">
+  <If "%{REQUEST_URI} =~ m|/site-admin/css/|">
+    Require all denied
+  </If>
+</FilesMatch>
