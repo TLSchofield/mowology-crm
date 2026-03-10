@@ -21057,6 +21057,148 @@ textarea.font-monospace {
 .dp-toast.show { transform: translateX(-50%) translateY(0); }
 .dp-toast.error { background: #7f1d1d; }
 
+/* ── Driver Portal: Logo Splash Screen ──────────────────────────────────────── */
+.dp-logo-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    background: var(--mw-forest);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.dp-logo-screen.dp-logo-out {
+    opacity: 0;
+    transform: scale(1.04);
+    pointer-events: none;
+}
+.dp-logo-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    animation: dp-logo-rise 0.5s ease-out;
+}
+@keyframes dp-logo-rise {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.dp-logo-leaf {
+    width: 72px;
+    height: 72px;
+    filter: drop-shadow(0 4px 16px rgba(127,216,88,0.4));
+}
+.dp-logo-wordmark {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 4px;
+    color: #fff;
+    text-transform: uppercase;
+}
+.dp-logo-sub {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 2px;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase;
+}
+
+/* ── Driver Portal: Quiz Screen ─────────────────────────────────────────────── */
+.dp-quiz-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 2500;
+    background: rgba(13, 59, 46, 0.96);
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    overflow-y: auto;
+    transition: opacity 0.4s ease;
+}
+.dp-quiz-inner {
+    background: #fff;
+    width: 100%;
+    max-width: 480px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+.dp-quiz-header {
+    background: var(--mw-forest);
+    color: #fff;
+    padding: 20px 20px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+.dp-quiz-screen .mw-ps-body { flex: 1; }
+
+/* ── Driver Portal: Fade-in for Home Base ───────────────────────────────────── */
+.dp-screen-fadein {
+    animation: dp-screen-in 0.35s ease-out;
+}
+@keyframes dp-screen-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.dp-screen-fadeout {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+}
+
+/* ── Driver Portal: Hero Clock-In Card ──────────────────────────────────────── */
+.dp-clock-hero {
+    padding: 28px 20px;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    text-align: center;
+    background: linear-gradient(135deg, var(--mw-forest) 0%, var(--mw-dark) 100%);
+    border-radius: 16px;
+    margin-top: 4px;
+}
+.dp-clock-hero .mw-ds-clock-info {
+    flex-direction: column;
+    gap: 6px;
+    color: rgba(255,255,255,0.85);
+}
+.dp-clock-hero .mw-ds-clock-dot {
+    width: 12px;
+    height: 12px;
+    background: rgba(255,255,255,0.3);
+}
+.dp-clock-hero .mw-ds-clock-status {
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.7);
+}
+.dp-clock-hero-btn {
+    width: 100%;
+    padding: 18px 24px;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    border-radius: 12px;
+    background: var(--mw-lime) !important;
+    color: var(--mw-forest) !important;
+    box-shadow: 0 6px 24px rgba(127,216,88,0.4);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.dp-clock-hero-btn:hover {
+    background: #94e86a !important;
+    transform: translateY(-2px);
+    box-shadow: 0 10px 32px rgba(127,216,88,0.5);
+}
+.dp-clock-hero-btn:active {
+    transform: scale(0.97);
+}
+
 /* ── Email Templates — Preview Modal ─────────────────────────────── */
 #et-preview-overlay {
     display: none;

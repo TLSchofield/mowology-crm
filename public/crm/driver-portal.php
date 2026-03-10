@@ -14,14 +14,35 @@ require_once 'includes/weather-service.php';
 requireLogin();
 $user = getCurrentUser();
 
-// Only designated drivers (and admins) can see the driver portal
-if (empty($user['is_driver']) && $user['role'] !== 'admin') {
+// Only designated drivers can see the driver portal — admins use the main CRM
+if (empty($user['is_driver'])) {
     header('Location: /crm/');
     exit;
 }
 
 $db    = getDB();
 $today = date('Y-m-d');
+
+// ── Pre-shift quiz gate ────────────────────────────────────────────────────────
+$preshiftEnabled = false;
+$preshiftDone    = false;
+$preshiftLen     = 3;
+(function () use ($db, $user, &$preshiftEnabled, &$preshiftDone, &$preshiftLen) {
+    $row = $db->query(
+        "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_enabled'"
+    )->fetch(PDO::FETCH_ASSOC);
+    if (!$row || $row['setting_value'] != '1') return;
+    $preshiftEnabled = true;
+    $lrow = $db->query(
+        "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"
+    )->fetch(PDO::FETCH_ASSOC);
+    $preshiftLen = max(3, (int)($lrow['setting_value'] ?? 3));
+    $done = $db->prepare(
+        "SELECT id FROM quiz_preshift_log WHERE user_id=? AND log_date=CURDATE()"
+    );
+    $done->execute([$user['id']]);
+    $preshiftDone = (bool)$done->fetch();
+})();
 $hour             = (int)date('G');
 $greetingHour     = $hour;
 $dayGreeting      = $greetingHour < 12 ? 'Good morning' : ($greetingHour < 17 ? 'Good afternoon' : 'Good evening');
@@ -118,10 +139,46 @@ $csrf = generateCSRFToken();
 $pageTitle  = 'Driver Portal';
 $activePage = 'driver';
 $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="stylesheet">';
+
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
-<div class="dp-page">
+<!-- ════════════════════════════════════════════════════════════════════════════
+     SCREEN 0 — Logo Splash
+     Auto-advances after 1.5s → quiz (if needed) or Home Base
+     ════════════════════════════════════════════════════════════════════════════ -->
+<div class="dp-logo-screen" id="dpLogoScreen">
+    <div class="dp-logo-inner">
+        <svg class="dp-logo-leaf" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M28 6C14 6 6 18 6 28C6 40 16 50 28 50C40 50 50 40 50 28C50 16 42 6 28 6Z" fill="rgba(127,216,88,0.15)"/>
+            <path d="M28 12C20 12 12 20 12 30C12 38 18 44 28 46C28 46 40 38 44 28C47 20 38 12 28 12Z" fill="rgba(127,216,88,0.3)"/>
+            <path d="M28 14C19 18 16 26 18 34C22 30 28 28 34 30C36 24 34 16 28 14Z" fill="#7FD858"/>
+            <path d="M28 14L26 36" stroke="#2D8659" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <div class="dp-logo-wordmark">MOWOLOGY</div>
+        <div class="dp-logo-sub">Field Operations</div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════════
+     SCREEN 1 — Pre-Shift Quiz
+     Only rendered when quiz is enabled and not yet done today.
+     ════════════════════════════════════════════════════════════════════════════ -->
+<?php if ($preshiftEnabled && !$preshiftDone): ?>
+<div class="dp-quiz-screen" id="dpQuizScreen">
+    <div class="dp-quiz-inner">
+        <div class="dp-quiz-header">
+            <div class="mw-ps-progress" id="dpQuizProgress"></div>
+            <div class="mw-ps-hdr-label">Pre-Shift Check</div>
+        </div>
+        <div class="mw-ps-body" id="dpQuizBody">
+            <div class="mw-ps-loading">Loading quiz…</div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<div class="dp-page" id="dpHomeBase" style="display:none">
 
     <!-- ══ Day Summary Card — metrics, weather, clock in ══════════════════════ -->
     <div class="mw-ds-wrap" id="dpDaySummary">
@@ -182,18 +239,19 @@ $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="styleshee
             </div>
         </div>
 
-        <!-- Clock in card -->
-        <div class="mw-ds-clock-card">
+        <!-- Hero Clock In card -->
+        <div class="mw-ds-clock-card dp-clock-hero">
             <div class="mw-ds-clock-info">
                 <div class="mw-ds-clock-dot"></div>
-                <span class="mw-ds-clock-status">Not clocked in</span>
+                <span class="mw-ds-clock-status">Ready to start your shift</span>
             </div>
-            <button class="mw-ds-clock-btn mw-ds-clock-btn-in" id="dpClockInBtn" type="button" onclick="dpClockIn()">Clock In</button>
+            <button class="mw-ds-clock-btn mw-ds-clock-btn-in dp-clock-hero-btn" id="dpClockInBtn" type="button" onclick="dpClockIn()">Clock In</button>
         </div>
 
     </div><!-- /.mw-ds-wrap -->
 
-    <!-- ══ Vehicle Check ══ -->
+    <!-- ══ Vehicle Check — only shown when returning at end of day (pre-trip already done) ══ -->
+    <?php if ($preComplete): ?>
     <div class="dp-card">
         <div class="dp-card-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
@@ -230,16 +288,7 @@ $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="styleshee
             <?php endif; ?>
         </div>
 
-        <?php if (!$preComplete): ?>
-        <button class="dp-action-btn primary" onclick="dpOpenForm('pre')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-            <div class="dp-action-btn-label">
-                Start Pre-Trip Inspection
-                <div class="dp-action-btn-sub">Running order, odometer, defects</div>
-            </div>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-        <?php elseif ($preComplete && !$postComplete): ?>
+        <?php if (!$postComplete): ?>
         <button class="dp-action-btn primary" onclick="dpOpenForm('post')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
             <div class="dp-action-btn-label">
@@ -259,8 +308,9 @@ $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="styleshee
         </a>
         <?php endif; ?>
     </div>
+    <?php endif; // preComplete ?>
 
-</div><!-- /.dp-page -->
+</div><!-- /.dp-page #dpHomeBase -->
 
 <!-- ════════════════════════════════════════════════════════════════════════════
      PRE-TRIP OVERLAY
@@ -453,12 +503,19 @@ function mwInjectFlatlineCSS() {
     document.head.appendChild(s);
 }
 var DP = {
-    csrf:        <?php echo json_encode($csrf); ?>,
-    isClockedIn: false,
-    preComplete: <?php echo $preComplete ? 'true' : 'false'; ?>,
-    postComplete:<?php echo $postComplete ? 'true' : 'false'; ?>,
-    clockStart:  null,
-    reportId:    <?php echo $tripReport ? (int)$tripReport['id'] : 'null'; ?>
+    csrf:           <?php echo json_encode($csrf); ?>,
+    isClockedIn:    false,
+    preComplete:    <?php echo $preComplete ? 'true' : 'false'; ?>,
+    postComplete:   <?php echo $postComplete ? 'true' : 'false'; ?>,
+    clockStart:     null,
+    reportId:       <?php echo $tripReport ? (int)$tripReport['id'] : 'null'; ?>,
+    quizEnabled:    <?php echo $preshiftEnabled ? 'true' : 'false'; ?>,
+    quizDone:       <?php echo $preshiftDone ? 'true' : 'false'; ?>,
+    quizLen:        <?php echo (int)$preshiftLen; ?>,
+    quizSessionId:  null,
+    quizCurrent:    1,
+    quizCorrect:    0,
+    quizStartTs:    0
 };
 
 // ── Overlay open/close ────────────────────────────────────────────────────────
@@ -508,12 +565,9 @@ function dpClockIn() {
         .then(function(r){ return r.json(); })
         .then(function(data) {
             if (data.success || data.clocked_in) {
-                dpToast('Clocked in!');
-                // Flatline the whole day summary wrap, then navigate to schedule
-                mwInjectFlatlineCSS();
-                var wrap = document.getElementById('dpDaySummary');
-                if (wrap) wrap.classList.add('mw-flatline-out');
-                setTimeout(function(){ window.location.href = '/crm/jobs/schedule.php'; }, 3200);
+                dpToast('Clocked in! Complete your vehicle inspection.');
+                // Open pre-trip form (Driver Portal Form) — redirect to schedule after completion
+                setTimeout(function(){ dpOpenForm('pre'); }, 600);
             } else {
                 dpToast(data.error || 'Clock in failed', true);
                 btn.disabled = false;
@@ -594,8 +648,8 @@ function dpSubmitPreTrip(e) {
     .then(function(r){ return r.json(); })
     .then(function(res) {
         if (res.success) {
-            dpToast('Pre-trip inspection saved!');
-            setTimeout(function(){ location.reload(); }, 800);
+            dpToast('Pre-trip complete! Starting your day…');
+            setTimeout(function(){ window.location.href = '/crm/jobs/schedule.php'; }, 900);
         } else {
             dpToast(res.error || 'Save failed', true);
             btn.disabled = false;
@@ -638,6 +692,207 @@ function dpToast(msg, isError) {
     void el.offsetWidth;
     el.classList.add('show');
     setTimeout(function(){ el.classList.remove('show'); }, 3000);
+}
+
+// ── Screen Manager ─────────────────────────────────────────────────────────────
+function dpShowHomeBase() {
+    var home = document.getElementById('dpHomeBase');
+    if (home) { home.style.display = ''; home.classList.add('dp-screen-fadein'); }
+}
+
+// ── Logo Splash → Quiz/Home auto-advance ──────────────────────────────────────
+(function dpInitFlow() {
+    var logo = document.getElementById('dpLogoScreen');
+    var quiz = document.getElementById('dpQuizScreen');
+
+    // After 1.5s, fade out the logo
+    setTimeout(function() {
+        if (logo) logo.classList.add('dp-logo-out');
+        setTimeout(function() {
+            if (logo) logo.style.display = 'none';
+            // Show quiz screen if quiz is needed, otherwise home base
+            if (DP.quizEnabled && !DP.quizDone && quiz) {
+                quiz.style.display = 'flex';
+                quiz.classList.add('dp-screen-fadein');
+                dpQuizStart();
+            } else {
+                dpShowHomeBase();
+            }
+        }, 400); // match CSS transition duration
+    }, 1500);
+})();
+
+// ── Pre-Shift Quiz (driver portal) ────────────────────────────────────────────
+function dpQuizStart() {
+    var body = document.getElementById('dpQuizBody');
+    if (body) body.innerHTML = '<div class="mw-ps-loading">Loading quiz…</div>';
+
+    fetch('/crm/api/quiz.php?action=start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'seasonal', session_length: DP.quizLen, csrf_token: DP.csrf })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (!d.success) { dpQuizError('Could not load quiz'); return; }
+        DP.quizSessionId = d.session_id;
+        DP.quizCurrent   = 1;
+        DP.quizCorrect   = 0;
+        dpQuizLoad(1);
+    })
+    .catch(function() { dpQuizError('Connection error'); });
+}
+
+function dpQuizProgress(qNum) {
+    var out = '';
+    for (var i = 1; i <= DP.quizLen; i++) {
+        var cls = i < qNum ? 'done' : (i === qNum ? 'active' : '');
+        out += '<span class="mw-ps-dot' + (cls ? ' ' + cls : '') + '"></span>';
+    }
+    var p = document.getElementById('dpQuizProgress');
+    if (p) p.innerHTML = out;
+}
+
+function dpQuizLoad(qNum) {
+    dpQuizProgress(qNum);
+    var body = document.getElementById('dpQuizBody');
+    if (body) body.innerHTML = '<div class="mw-ps-loading">Loading…</div>';
+
+    fetch('/crm/api/quiz.php?action=question&session_id=' + DP.quizSessionId + '&q=' + qNum)
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.success) { dpQuizError(d.error); return; }
+            dpQuizRender(d, qNum);
+        })
+        .catch(function() { dpQuizError('Connection error'); });
+}
+
+function dpQuizRender(d, qNum) {
+    DP.quizStartTs = Date.now();
+    var q    = d.question;
+    var opts = d.options || [];
+    var imgHtml = q.image_path ? '<div class="mw-ps-img-wrap"><img src="' + dpEsc(q.image_path) + '" class="mw-ps-img" alt=""></div>' : '';
+    var optHtml = '<div class="mw-ps-options">';
+    opts.forEach(function(o) {
+        optHtml += '<button class="mw-ps-option" data-oid="' + o.id + '" data-qid="' + q.id + '" data-qnum="' + qNum + '">' + dpEsc(o.option_text) + '</button>';
+    });
+    optHtml += '</div>';
+    var body = document.getElementById('dpQuizBody');
+    if (body) {
+        body.innerHTML =
+            '<div class="mw-ps-cat" style="color:' + dpEsc(q.category_colour || '#2D8659') + '">' + dpEsc(q.category_name || '') + '</div>' +
+            imgHtml +
+            '<div class="mw-ps-qtext">' + dpEsc(q.question_text) + '</div>' +
+            optHtml;
+        body.querySelectorAll('.mw-ps-option').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                dpQuizAnswer(
+                    parseInt(btn.getAttribute('data-oid')),
+                    parseInt(btn.getAttribute('data-qid')),
+                    parseInt(btn.getAttribute('data-qnum'))
+                );
+            });
+        });
+    }
+}
+
+function dpQuizAnswer(selectedOid, questionId, qNum) {
+    var body = document.getElementById('dpQuizBody');
+    if (body) body.querySelectorAll('.mw-ps-option').forEach(function(b) { b.disabled = true; });
+    var taken = Math.min(30, Math.round((Date.now() - DP.quizStartTs) / 1000));
+
+    fetch('/crm/api/quiz.php?action=answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: DP.quizSessionId,
+            question_id: questionId,
+            selected_option_id: selectedOid,
+            time_taken_seconds: taken,
+            csrf_token: DP.csrf
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (!d.success) return;
+        if (d.is_correct) DP.quizCorrect++;
+        if (body) {
+            body.querySelectorAll('.mw-ps-option').forEach(function(btn) {
+                var oid = parseInt(btn.getAttribute('data-oid'));
+                if (oid === d.correct_option_id) btn.classList.add('correct');
+                else if (oid === selectedOid && !d.is_correct) btn.classList.add('wrong');
+            });
+        }
+        setTimeout(function() {
+            if (qNum < DP.quizLen) {
+                DP.quizCurrent = qNum + 1;
+                dpQuizLoad(DP.quizCurrent);
+            } else {
+                dpQuizSummary();
+            }
+        }, 1200);
+    })
+    .catch(function() { setTimeout(function() { dpQuizSummary(); }, 1200); });
+}
+
+function dpQuizSummary() {
+    var pct   = Math.round(DP.quizCorrect / DP.quizLen * 100);
+    var emoji = pct === 100 ? '🌟' : pct >= 67 ? '👍' : '💪';
+    var msg   = pct === 100 ? 'Perfect score!' : pct >= 67 ? 'Great work!' : 'Keep learning!';
+    var body  = document.getElementById('dpQuizBody');
+    if (body) {
+        body.innerHTML =
+            '<div class="mw-ps-summary">' +
+                '<div class="mw-ps-sum-emoji">' + emoji + '</div>' +
+                '<div class="mw-ps-sum-score">' + DP.quizCorrect + ' / ' + DP.quizLen + ' correct</div>' +
+                '<div class="mw-ps-sum-msg">' + msg + '</div>' +
+                '<button class="btn mw-ps-done-btn" id="dpQuizDoneBtn">Start your day →</button>' +
+            '</div>';
+        document.getElementById('dpQuizDoneBtn').addEventListener('click', dpQuizComplete);
+    }
+}
+
+function dpQuizComplete() {
+    var btn = document.getElementById('dpQuizDoneBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    fetch('/crm/api/quiz.php?action=preshift_complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: DP.quizSessionId,
+            questions_correct: DP.quizCorrect,
+            questions_asked: DP.quizLen,
+            csrf_token: DP.csrf
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function() { dpQuizUnlock(); })
+    .catch(function() { dpQuizUnlock(); });
+}
+
+function dpQuizUnlock() {
+    var quiz = document.getElementById('dpQuizScreen');
+    if (quiz) {
+        quiz.classList.add('dp-screen-fadeout');
+        setTimeout(function() {
+            quiz.style.display = 'none';
+            dpShowHomeBase();
+        }, 400);
+    } else {
+        dpShowHomeBase();
+    }
+}
+
+function dpEsc(str) {
+    var d = document.createElement('div');
+    d.textContent = String(str || '');
+    return d.innerHTML;
+}
+
+function dpQuizError(msg) {
+    var body = document.getElementById('dpQuizBody');
+    if (body) body.innerHTML = '<div class="mw-ps-loading" style="color:#dc3545">Error: ' + dpEsc(msg) + ' — <button onclick="dpQuizStart()" style="color:var(--mw-green);background:none;border:none;cursor:pointer;text-decoration:underline;">Retry</button></div>';
 }
 </script>
 
