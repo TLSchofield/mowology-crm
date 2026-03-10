@@ -32,15 +32,20 @@ try {
     }
 } catch (Throwable $__e) { /* table may not exist yet */ }
 
-// Overdue task count for badge (silent fail if tasks table not yet created)
+// Overdue task count + pending purchase count for badge (silent fail if tasks table not yet created)
 $_mwOverdueTasks = 0;
+$_mwPendingPurchases = 0;
 try {
     if (isset($user['id'])) {
         $__taskStmt = getDB()->prepare("SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status != 'completed' AND due_date IS NOT NULL AND due_date < CURDATE()");
         $__taskStmt->execute([(int)$user['id']]);
         $_mwOverdueTasks = (int)$__taskStmt->fetchColumn();
+
+        $__purStmt = getDB()->query("SELECT COUNT(*) FROM tasks WHERE task_type = 'purchase' AND (purchase_status IS NULL OR purchase_status NOT IN ('verified'))");
+        $_mwPendingPurchases = (int)$__purStmt->fetchColumn();
     }
 } catch (Throwable $__e) { /* table may not exist yet */ }
+$_mwTaskBadge = $_mwOverdueTasks + $_mwPendingPurchases;
 
 $navItems = [
 
@@ -55,7 +60,7 @@ $navItems = [
 
     // ── Pipeline ──────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Pipeline'],
-    ['key' => 'tasks',     'label' => 'Tasks',     'icon' => 'check-square', 'href' => '/crm/tasks_appstack.php', 'badge' => $_mwOverdueTasks],
+    ['key' => 'tasks',     'label' => 'Tasks',     'icon' => 'check-square', 'href' => '/crm/tasks_appstack.php', 'badge' => $_mwTaskBadge],
     ['key' => 'quotes',    'label' => 'Quotes',    'icon' => 'dollar-sign', 'href' => '/crm/quotes_appstack.php',    'perm' => 'billing.view'],
     ['key' => 'contracts', 'label' => 'Contracts', 'icon' => 'pen-tool', 'href' => '/crm/contracts_appstack.php', 'perm' => 'jobs.view'],
     ['key' => 'jobs',      'label' => 'Jobs',      'icon' => 'briefcase',  'href' => '/crm/jobs/index.php',         'perm' => 'jobs.view'],
@@ -150,6 +155,15 @@ $navItems = [
                 <a class="sidebar-link" href="/crm/import_appstack.php">
                     <i class="align-middle" data-feather="upload"></i>
                     <span class="align-middle">Import Data</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
+            <?php if (!function_exists('userHasPermission') || userHasPermission('database.manage')): ?>
+            <li class="sidebar-item<?php echo ($activePage === 'sites') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/sites_appstack.php">
+                    <i class="align-middle" data-feather="globe"></i>
+                    <span class="align-middle">Tenant Sites</span>
                 </a>
             </li>
             <?php endif; ?>

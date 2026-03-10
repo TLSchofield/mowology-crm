@@ -56,7 +56,7 @@ require __DIR__ . '/includes/nav.php';
 
 <div class="sa-page-header">
   <h1>Pages</h1>
-  <a href="/crm/cms/cms-page-edit.php?site_id=<?= $siteId ?>" class="sa-btn sa-btn-primary">
+  <a href="/site-admin/page-edit.php" class="sa-btn sa-btn-primary">
     <i data-feather="plus"></i> New Page
   </a>
 </div>
@@ -79,7 +79,7 @@ require __DIR__ . '/includes/nav.php';
       <h3>No pages <?= $filterStatus !== 'all' ? "with status &ldquo;{$filterStatus}&rdquo;" : 'yet' ?></h3>
       <p>Pages you create will appear here.</p>
       <?php if ($filterStatus === 'all'): ?>
-        <a href="/crm/cms/cms-page-edit.php?site_id=<?= $siteId ?>" class="sa-btn sa-btn-primary">Create your first page</a>
+        <a href="/site-admin/page-edit.php" class="sa-btn sa-btn-primary">Create your first page</a>
       <?php endif; ?>
     </div>
   <?php else: ?>
@@ -120,7 +120,7 @@ require __DIR__ . '/includes/nav.php';
               <td style="color:var(--sa-text-muted);font-size:12.5px"><?= date('M j, Y', strtotime($p['updated_at'])) ?></td>
               <td>
                 <div style="display:flex;gap:6px;align-items:center">
-                  <a href="/crm/cms/cms-page-edit.php?id=<?= (int)$p['id'] ?>" class="sa-btn sa-btn-secondary sa-btn-sm">Edit</a>
+                  <a href="/site-admin/page-edit.php?id=<?= (int)$p['id'] ?>" class="sa-btn sa-btn-secondary sa-btn-sm">Edit</a>
                   <?php if ($p['status'] === 'published'): ?>
                     <a href="/<?= h($p['slug']) ?>" target="_blank" class="sa-btn sa-btn-secondary sa-btn-sm">View</a>
                   <?php endif; ?>
