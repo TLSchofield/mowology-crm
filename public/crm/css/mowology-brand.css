@@ -21435,8 +21435,7 @@ textarea.font-monospace {
 /* ── Hub: category cards ── */
 .mw-quiz-category-card {
     display: flex;
-    align-items: center;
-    gap: 14px;
+    flex-direction: column;
     padding: 16px 18px;
     background: #fff;
     border: 1px solid #e8edf0;
@@ -21444,6 +21443,7 @@ textarea.font-monospace {
     border-radius: 10px;
     transition: box-shadow 0.2s ease, transform 0.15s ease;
     cursor: default;
+    height: 100%;
 }
 .mw-quiz-category-card:hover {
     box-shadow: 0 6px 20px rgba(0,0,0,0.08);
