@@ -8,7 +8,7 @@ $pageDescription = 'Professional landscaping and grounds maintenance services in
 $pageKeywords    = 'landscaping Vancouver, strata landscaping, property management landscaping, residential landscaping, grounds maintenance, Burnaby landscaping, Richmond landscaping';
 $activeNav       = 'home';
 
-$heroImgDesktop = '/assets/img/hero/hero-strata-crew.jpg';
+$heroImgDesktop = '/assets/img/hero/hero-residential-lawn.jpg';
 
 $heroWords = ['Professional', 'Landscaping', 'Services', 'in', 'Metro', 'Vancouver'];
 
