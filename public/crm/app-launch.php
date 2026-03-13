@@ -26,6 +26,7 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
 $user = getCurrentUser();
 $csrfToken = generateCSRFToken();
+session_write_close(); // release session lock — all session reads/writes done
 $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0];
 ?>
 <!DOCTYPE html>
@@ -40,7 +41,9 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <link rel="icon" href="/assets/favicon/favicon.ico">
     <link rel="apple-touch-icon" href="/assets/favicon/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="/crm/js/capacitor-bridge.js" defer></script>
     <style>
         :root {
             --al-forest: #0D3B2E;
@@ -437,6 +440,84 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             margin-top: 3px;
         }
 
+        /* ── Memory card ────────────────────────────────── */
+        .al-memory-card {
+            background: #fff;
+            border-radius: var(--al-radius);
+            overflow: hidden;
+            box-shadow: 0 2px 14px rgba(0,0,0,0.05);
+        }
+        .al-memory-season {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 13px 20px 0;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--al-muted);
+        }
+        .al-memory-season-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--al-lime);
+            flex-shrink: 0;
+        }
+        .al-memory-img {
+            width: 100%;
+            height: 140px;
+            object-fit: cover;
+            display: block;
+            margin-top: 12px;
+        }
+        .al-memory-body {
+            padding: 16px 20px 20px;
+        }
+        .al-memory-cat {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 9px;
+            border-radius: 20px;
+            color: #fff;
+            margin-bottom: 12px;
+        }
+        .al-memory-q {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--al-text);
+            line-height: 1.45;
+            margin-bottom: 12px;
+        }
+        .al-memory-answer {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            background: var(--al-light);
+            border-radius: 10px;
+            padding: 11px 14px;
+            margin-bottom: 10px;
+        }
+        .al-memory-answer-icon {
+            font-size: 16px;
+            flex-shrink: 0;
+            margin-top: 1px;
+        }
+        .al-memory-answer-text {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--al-dark);
+            line-height: 1.4;
+        }
+        .al-memory-notes {
+            font-size: 13px;
+            color: var(--al-muted);
+            line-height: 1.5;
+            margin-top: 4px;
+        }
+
         /* ── Clock-in card ───────────────────────────────── */
         .al-clock-card {
             background: linear-gradient(145deg, var(--al-forest), var(--al-dark));
@@ -574,7 +655,26 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             </div>
         </div>
 
-        <!-- Card 3: Clock In -->
+        <!-- Card 3: Memory / Plant Care Tip -->
+        <div class="al-memory-card" id="memoryCard" style="display:none;">
+            <div class="al-memory-season">
+                <span class="al-memory-season-dot"></span>
+                <span id="memorySeasonLabel">Seasonal tip</span>
+                <span id="memorySeasonIcon" style="font-size:14px;margin-left:auto;"></span>
+            </div>
+            <img id="memoryImg" class="al-memory-img" alt="" style="display:none;" decoding="async">
+            <div class="al-memory-body">
+                <span class="al-memory-cat" id="memoryCat"></span>
+                <div class="al-memory-q" id="memoryQ"></div>
+                <div class="al-memory-answer">
+                    <span class="al-memory-answer-icon">✓</span>
+                    <span class="al-memory-answer-text" id="memoryAnswer"></span>
+                </div>
+                <div class="al-memory-notes" id="memoryNotes" style="display:none;"></div>
+            </div>
+        </div>
+
+        <!-- Card 4: Clock In -->
         <div class="al-clock-card">
             <div class="al-clock-card-label">Ready to start your shift?</div>
             <button class="al-clock-btn" id="clockBtn" onclick="handleClockIn()">
@@ -636,17 +736,19 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
 
     // ── 1. Splash: load data ─────────────────────────────────
     async function init() {
+        // Run API fetch and minimum splash in parallel — total time = max(fetch, 1.5s)
+        let fetchFailed = false;
         try {
-            homeData = await api('app-home.php?action=data');
+            const results = await Promise.all([
+                api('app-home.php?action=data').catch(() => { fetchFailed = true; return null; }),
+                new Promise(r => setTimeout(r, 1500))
+            ]);
+            homeData = results[0];
         } catch (e) {
-            window.location.href = '/crm/jobs/schedule.php?view=day';
-            return;
+            fetchFailed = true;
         }
 
-        // Minimum 1.5s splash
-        await new Promise(r => setTimeout(r, 1500));
-
-        if (!homeData || !homeData.success) {
+        if (fetchFailed || !homeData || !homeData.success) {
             window.location.href = '/crm/jobs/schedule.php?view=day';
             return;
         }
@@ -668,7 +770,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     // ── 2. Quiz flow — one question at a time, nothing else ──
     async function startQuiz(sessionLength) {
         try {
-            const res = await api('quiz.php', {
+            const startRes = await api('quiz.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -679,16 +781,16 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
                 })
             });
 
-            if (!res.success) {
+            if (!startRes.success) {
                 // No questions available — skip to home
                 showHome();
                 return;
             }
 
-            quizSession    = res.session_id;
-            quizTotal      = res.total;
+            quizSession     = startRes.session_id;
+            quizTotal       = startRes.total;
             quizQuestionNum = 0;
-            quizCorrect    = 0;
+            quizCorrect     = 0;
 
             // Build progress dots
             const prog = $('quizProgress');
@@ -699,8 +801,11 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
                 prog.appendChild(d);
             }
 
+            // Pre-fetch q1 before showing the screen — quiz card is never blank
+            const q1 = await api('quiz.php?action=question&session_id=' + quizSession + '&q=1');
+
             show('quizScreen');
-            loadQuestion(1);
+            renderQuestion(1, q1);
         } catch (e) {
             showHome();
         }
@@ -709,17 +814,23 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     async function loadQuestion(num) {
         quizQuestionNum = num;
 
-        // Fade card out
+        // Fade card out then fetch
         const card = $('quizCard');
         card.style.opacity = '0';
         card.style.transform = 'translateY(8px)';
         card.style.transition = 'opacity 0.2s, transform 0.2s';
 
         const res = await api('quiz.php?action=question&session_id=' + quizSession + '&q=' + num);
-
         if (!res.success) { finishQuiz(); return; }
 
-        const q   = res.question;
+        renderQuestion(num, res);
+    }
+
+    function renderQuestion(num, res) {
+        quizQuestionNum = num;
+        if (!res || !res.success) { finishQuiz(); return; }
+
+        const q    = res.question;
         const opts = res.options;
         currentQuestionId = q.id;
 
@@ -738,10 +849,25 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             ? `<div class="al-quiz-img-wrap"><img src="${esc(images[0].image_path)}" alt="" class="al-quiz-img" loading="eager" decoding="async"></div>`
             : '';
 
+        // Fallback question text for image-only or missing-text questions
+        const cat = (q.category_name || '').toLowerCase();
+        let questionText = q.text || '';
+        if (!questionText) {
+            if (images.length) {
+                if (cat.includes('weed'))   questionText = 'Identify the weed shown in this photo:';
+                else if (cat.includes('pest') || cat.includes('disease')) questionText = 'Identify the pest or disease shown:';
+                else if (cat.includes('equipment') || cat.includes('tool')) questionText = 'Identify the tool or equipment shown:';
+                else                        questionText = 'Identify the plant shown in this photo:';
+            } else {
+                questionText = 'Answer the following:';
+            }
+        }
+
+        const card = $('quizCard');
         card.innerHTML = `
             <div class="al-quiz-category">${esc(q.category_name)}</div>
             ${imgHtml}
-            <div class="al-quiz-question">${esc(q.text)}</div>
+            <div class="al-quiz-question">${esc(questionText)}</div>
             <div class="al-quiz-options">
                 ${opts.map(o => `
                     <button class="al-quiz-option" data-id="${o.id}" onclick="window._answerQuiz(${o.id})">
@@ -752,11 +878,11 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             <div class="al-quiz-feedback" id="quizFeedback"></div>
         `;
 
-        // Fade in
-        requestAnimationFrame(() => {
+        // Double-rAF ensures the browser has painted opacity:0 before transitioning in
+        requestAnimationFrame(() => requestAnimationFrame(() => {
             card.style.opacity = '1';
             card.style.transform = 'translateY(0)';
-        });
+        }));
     }
 
     window._answerQuiz = async function(optionId) {
@@ -891,6 +1017,34 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             $('weatherCard').style.display = '';
         }
 
+        // Memory card
+        const mem = homeData.memory || {};
+        if (mem.question && mem.answer) {
+            $('memorySeasonLabel').textContent = mem.season_label || 'Seasonal tip';
+            $('memorySeasonIcon').textContent  = mem.season_icon  || '🌿';
+
+            // Category badge with colour
+            const catEl = $('memoryCat');
+            catEl.textContent = mem.category || '';
+            catEl.style.background = mem.category_colour || 'var(--al-green)';
+
+            $('memoryQ').textContent      = mem.question;
+            $('memoryAnswer').textContent = mem.answer;
+
+            if (mem.learn_notes) {
+                $('memoryNotes').textContent  = mem.learn_notes;
+                $('memoryNotes').style.display = '';
+            }
+
+            if (mem.image_path) {
+                const img = $('memoryImg');
+                img.src            = mem.image_path;
+                img.style.display  = 'block';
+            }
+
+            $('memoryCard').style.display = '';
+        }
+
         show('homeScreen');
     }
 
@@ -903,16 +1057,26 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
         txt.innerHTML = '<span class="al-spinner"></span>';
 
         try {
-            // Try to get location (best-effort)
+            // Try to get location (best-effort) — prefer MwNative on Capacitor
             let lat = null, lng = null;
             try {
-                const pos = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, {
-                        enableHighAccuracy: true, timeout: 5000
+                if (window.MwNative && window.MwNative.geo && window.MwNative.geo.getPosition) {
+                    await new Promise((resolve) => {
+                        window.MwNative.geo.getPosition(
+                            (pos) => { lat = pos.latitude; lng = pos.longitude; resolve(); },
+                            ()    => { resolve(); },
+                            { enableHighAccuracy: true, timeout: 5000 }
+                        );
                     });
-                });
-                lat = pos.coords.latitude;
-                lng = pos.coords.longitude;
+                } else {
+                    const pos = await new Promise((resolve, reject) => {
+                        navigator.geolocation.getCurrentPosition(resolve, reject, {
+                            enableHighAccuracy: true, timeout: 5000
+                        });
+                    });
+                    lat = pos.coords.latitude;
+                    lng = pos.coords.longitude;
+                }
             } catch (e) { /* proceed without GPS */ }
 
             const res = await api('time-clock.php', {
