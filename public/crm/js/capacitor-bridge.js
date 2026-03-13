@@ -463,6 +463,13 @@
 
     console.log('[MwNative] Capacitor bridge v2 initialized (with MwTracking)');
 
+    // Signal to photo-queue.js (and any other modules) that the bridge is ready.
+    // photo-queue.js registers MwNative.network.onStatusChange in response to this
+    // event when the bridge loads after photo-queue.js has already run.
+    document.dispatchEvent(new CustomEvent('mw-capacitor-ready', {
+        detail: { MwNative: window.MwNative }
+    }));
+
     // ── Proof of Work — Visit GPS Integration ──────────────────────────────
     // When the visit-work page is active, pump GPS points into the PoW GPS
     // sync buffer. The visit-work page's JS owns the IndexedDB buffer and

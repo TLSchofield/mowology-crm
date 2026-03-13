@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v31';
+var CACHE_VERSION = 'mw-v32';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -48,6 +48,7 @@ var APP_SHELL = [
   '/crm/js/schedule-drag-drop.js',
   '/crm/js/route-engine.js?v=20260219a',
   '/crm/js/offline-receipts.js',
+  '/crm/js/photo-queue.js?v=20260312a',
 
   /* ── Geofence / location ── */
   '/crm/js/geofence/geofence-manager.js',
@@ -305,10 +306,13 @@ function latLngToTile(lat, lng, zoom) {
   return { x: x, y: y };
 }
 
-// ── Background Sync: retry failed receipt uploads ──
+// ── Background Sync: retry failed uploads ──
 self.addEventListener('sync', function(event) {
   if (event.tag === 'receipt-upload') {
     event.waitUntil(syncPendingReceipts());
+  }
+  if (event.tag === 'photo-queue-sync') {
+    event.waitUntil(syncPendingPhotos());
   }
 });
 
@@ -360,6 +364,144 @@ function syncPendingReceipts() {
         });
       };
     };
+  });
+}
+
+/**
+ * Process the photo upload queue when the Background Sync tag fires.
+ *
+ * Strategy (two-tier):
+ *   1. If open CRM pages exist, post them a 'process-photo-queue' message.
+ *      Pages have full access to the Capacitor Filesystem + MwPhotoQueue engine.
+ *   2. If no pages are open (true background), process IDB-stored blobs directly
+ *      from the SW context (Capacitor Filesystem is not accessible here).
+ *
+ * The SW path only handles records with storageType === 'idb'. Filesystem-stored
+ * records are left as 'pending' for the app to pick up on next launch.
+ */
+function syncPendingPhotos() {
+  return self.clients.matchAll({ includeUncontrolled: true }).then(function(clients) {
+    var crmClients = clients.filter(function(c) { return c.url.indexOf('/crm/') !== -1; });
+
+    if (crmClients.length > 0) {
+      // Pages are open — hand off to the full MwPhotoQueue engine
+      crmClients.forEach(function(c) {
+        c.postMessage({ type: 'process-photo-queue' });
+      });
+      return;
+    }
+
+    // No open pages — process IDB blobs directly from the SW
+    return syncPhotosFromSW();
+  });
+}
+
+/**
+ * Direct SW photo upload: reads photo-queue IDB → loads blobs from photo-store
+ * IDB → uploads to server. Only processes storageType === 'idb' records.
+ */
+function syncPhotosFromSW() {
+  return new Promise(function(resolve) {
+    var qReq = indexedDB.open('mowology-photo-queue', 1);
+    qReq.onerror = function() { resolve(); };
+    qReq.onsuccess = function(e) {
+      var qDb = e.target.result;
+      if (!qDb.objectStoreNames.contains('uploads')) { resolve(); return; }
+
+      var tx     = qDb.transaction('uploads', 'readonly');
+      var getAll = tx.objectStore('uploads').getAll();
+      getAll.onsuccess = function() {
+        // Only handle IDB-stored blobs that haven't exhausted retries
+        var records = (getAll.result || []).filter(function(r) {
+          return (r.status === 'pending' || r.status === 'failed') &&
+                 r.storageType === 'idb' &&
+                 (r.retries || 0) < 5;
+        });
+
+        if (!records.length) { resolve(); return; }
+
+        var bReq = indexedDB.open('mowology-photo-store', 1);
+        bReq.onerror = function() { resolve(); };
+        bReq.onsuccess = function(be) {
+          var bDb   = be.target.result;
+          var chain = Promise.resolve();
+          records.forEach(function(record) {
+            chain = chain.then(function() {
+              return uploadPhotoFromSW(record, qDb, bDb);
+            });
+          });
+          chain.then(resolve).catch(resolve);
+        };
+      };
+      getAll.onerror = function() { resolve(); };
+    };
+  });
+}
+
+function uploadPhotoFromSW(record, qDb, bDb) {
+  return new Promise(function(resolve) {
+    if (!bDb.objectStoreNames.contains('blobs')) { resolve(); return; }
+
+    var blobTx  = bDb.transaction('blobs', 'readonly');
+    var blobReq = blobTx.objectStore('blobs').get(record.storageRef);
+
+    blobReq.onsuccess = function() {
+      var blobRecord = blobReq.result;
+
+      if (!blobRecord || !blobRecord.blob) {
+        // Storage entry gone (OS cleared cache) — remove stale queue record
+        var delTx = qDb.transaction('uploads', 'readwrite');
+        delTx.objectStore('uploads').delete(record.id);
+        resolve(); return;
+      }
+
+      var formData = new FormData();
+      formData.append('files[]',        blobRecord.blob, record.filename || 'photo.jpg');
+      formData.append('csrf_token',     record.csrf        || '');
+      formData.append('context_type',   record.contextType || '');
+      formData.append('context_id',     String(record.contextId || ''));
+      formData.append('category',       record.category    || '');
+      formData.append('visibility',     record.visibility  || 'internal');
+      if (record.powStamp)     formData.append('pow_stamp',    record.powStamp);
+      if (record.gpsLat)      formData.append('gps_lat',      String(record.gpsLat));
+      if (record.gpsLng)      formData.append('gps_lng',      String(record.gpsLng));
+      if (record.gpsAccuracy) formData.append('gps_accuracy', String(record.gpsAccuracy));
+
+      fetch(record.uploadUrl || '/crm/api/media-upload.php', { method: 'POST', body: formData })
+        .then(function(res) { return res.json(); })
+        .then(function(resp) {
+          var fr = (resp.results && resp.results[0]) ? resp.results[0] : null;
+          if (resp.success && fr && fr.success) {
+            // Remove from queue and blob store
+            var delQ = qDb.transaction('uploads', 'readwrite');
+            delQ.objectStore('uploads').delete(record.id);
+            var delB = bDb.transaction('blobs', 'readwrite');
+            delB.objectStore('blobs').delete(record.storageRef);
+            // Notify any pages that open later
+            self.clients.matchAll().then(function(clients) {
+              clients.forEach(function(c) {
+                c.postMessage({ type: 'photo-queue-synced' });
+              });
+            });
+          } else {
+            // Server rejection — mark failed, don't retry from SW
+            var pTx  = qDb.transaction('uploads', 'readwrite');
+            var store = pTx.objectStore('uploads');
+            var pGet  = store.get(record.id);
+            pGet.onsuccess = function() {
+              var rec = pGet.result;
+              if (rec) { rec.status = 'failed'; rec.retries = (rec.retries || 0) + 1; store.put(rec); }
+            };
+          }
+          resolve();
+        })
+        .catch(function() {
+          // Network error — leave as pending; Background Sync will retry
+          resolve();
+        });
+    };
+
+    blobReq.onerror = function() { resolve(); };
   });
 }
 

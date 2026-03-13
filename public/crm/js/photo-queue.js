@@ -557,6 +557,22 @@
                 return reg.sync.register('photo-queue-sync');
             }).catch(function () { /* Background Sync not available — silent */ });
         }
+
+        // Listen for 'process-photo-queue' message from the service worker.
+        // The SW sends this when a photo-queue-sync Background Sync event fires
+        // and open CRM pages are detected — it prefers the full engine (with
+        // Capacitor Filesystem access) over the SW's IDB-only fallback path.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('message', function (e) {
+                if (e.data && e.data.type === 'process-photo-queue') {
+                    PhotoUploader.run();
+                }
+                // Also handle receipt-synced messages for badge updates
+                if (e.data && e.data.type === 'photo-queue-synced') {
+                    emit('mwPhotoQueueSynced', {});
+                }
+            });
+        }
     }
 
 
