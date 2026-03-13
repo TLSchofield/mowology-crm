@@ -311,7 +311,41 @@
             }).catch(function () { return 0; });
         }
 
-        return { add: add, patch: patch, remove: remove, getByStatus: getByStatus, count: count };
+        /**
+         * Get all non-completed records for a specific upload context.
+         * Used on page load to restore preview cards for photos that are still
+         * pending upload — so the user always sees their photos, never wonders
+         * if they were lost.
+         *
+         * @param {string} contextType
+         * @param {string|number} contextId
+         * @returns {Promise<Array>} array of raw queue records (with .blob loadable
+         *   via PhotoStorage.load if needed)
+         */
+        function getForContext(contextType, contextId) {
+            return openDB().then(function (db) {
+                return new Promise(function (resolve) {
+                    var tx      = db.transaction(STORE, 'readonly');
+                    var results = [];
+                    var req     = tx.objectStore(STORE).openCursor();
+                    req.onsuccess = function (e) {
+                        var cursor = e.target.result;
+                        if (!cursor) return;
+                        var r = cursor.value;
+                        if (r.contextType === contextType &&
+                            String(r.contextId) === String(contextId) &&
+                            r.status !== 'done') {
+                            results.push(r);
+                        }
+                        cursor.continue();
+                    };
+                    tx.oncomplete = function () { resolve(results); };
+                    tx.onerror    = function () { resolve([]); };
+                });
+            }).catch(function () { return []; });
+        }
+
+        return { add: add, patch: patch, remove: remove, getByStatus: getByStatus, count: count, getForContext: getForContext };
     })();
 
 
@@ -509,6 +543,49 @@
     }
 
     /**
+     * Get all pending/failed photos for a specific context, with local blob URLs
+     * ready to render as previews. Call this on page load to restore photo cards
+     * so the user always sees their photos even if upload hasn't completed.
+     *
+     * Each returned item:
+     *   { queueId, blobUrl, filename, fileSize, status, retries }
+     *
+     * The caller is responsible for revoking blobUrls when done (on upload success
+     * the mwPhotoUploaded event carries the server thumbUrl to swap in).
+     *
+     * @param {string} contextType  e.g. 'job_visit'
+     * @param {string|number} contextId
+     * @returns {Promise<Array>}
+     */
+    function getPendingForContext(contextType, contextId) {
+        return PhotoQueue.getForContext(contextType, contextId).then(function (records) {
+            // Load blobs from storage in parallel, build preview items
+            return Promise.all(records.map(function (record) {
+                return PhotoStorage.load(record.storageType, record.storageRef, record.mime)
+                    .then(function (blob) {
+                        if (!blob) {
+                            // Storage entry gone (OS cleared cache) — clean up queue
+                            PhotoQueue.remove(record.id);
+                            return null;
+                        }
+                        return {
+                            queueId : record.id,
+                            blobUrl : URL.createObjectURL(blob),
+                            filename: record.filename  || 'photo.jpg',
+                            fileSize: record.fileSize  || 0,
+                            status  : record.status    || 'pending',
+                            retries : record.retries   || 0
+                        };
+                    })
+                    .catch(function () { return null; }); // silent on storage errors
+            }));
+        }).then(function (items) {
+            // Filter out nulls (missing/corrupt storage entries)
+            return items.filter(Boolean);
+        }).catch(function () { return []; });
+    }
+
+    /**
      * Returns count of all items currently in the queue (any status).
      * @returns {Promise<number>}
      */
@@ -582,13 +659,11 @@
     if (!global.indexedDB) {
         // IndexedDB not available — expose a no-op API so callers don't crash
         global.MwPhotoQueue = {
-            saveAndEnqueue : function (file) {
-                // Fallback: return a fake queue ID of -1; caller can still upload inline
-                return Promise.resolve(-1);
-            },
-            processQueue   : function () {},
-            getPendingCount: function () { return Promise.resolve(0); },
-            on             : function () {}
+            saveAndEnqueue      : function () { return Promise.resolve(-1); },
+            processQueue        : function () {},
+            getPendingCount     : function () { return Promise.resolve(0); },
+            getPendingForContext: function () { return Promise.resolve([]); },
+            on                  : function () {}
         };
     } else {
         if (document.readyState === 'loading') {
@@ -598,10 +673,11 @@
         }
 
         global.MwPhotoQueue = {
-            saveAndEnqueue : saveAndEnqueue,
-            processQueue   : processQueue,
-            getPendingCount: getPendingCount,
-            on             : on
+            saveAndEnqueue      : saveAndEnqueue,
+            processQueue        : processQueue,
+            getPendingCount     : getPendingCount,
+            getPendingForContext: getPendingForContext,
+            on                  : on
         };
     }
 

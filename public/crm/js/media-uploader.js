@@ -233,6 +233,69 @@
         zone._mwConfig = config;
         zone._mwQueue  = queue;
         zone._mwStats  = stats;
+
+        // ── Restore pending photos on page load ───────────────────────────
+        // Any photos that are still in the upload queue (from this session or
+        // a previous one) are immediately shown as preview cards so the user
+        // can always see their photos and know they are safe.
+        restorePendingCards(zone, queue, config, stats);
+    }
+
+    /**
+     * On page load, query the photo queue for any pending/failed items belonging
+     * to this dropzone's context and render preview cards for them.
+     * This is the "always visible" guarantee — photos survive page reloads.
+     */
+    function restorePendingCards(zone, queue, config, stats) {
+        if (!window.MwPhotoQueue) return;
+
+        MwPhotoQueue.getPendingForContext(config.contextType, config.contextId)
+            .then(function (items) {
+                if (!items.length) return;
+
+                items.forEach(function (item) {
+                    // Don't add a duplicate card if this queueId is already tracked
+                    // (can happen if the same page calls init() twice)
+                    if (_pending[item.queueId]) return;
+
+                    var card = createPhotoCard(item.filename, item.fileSize, item.blobUrl);
+
+                    // Show appropriate state: failed items get error styling, others pulse
+                    if (item.status === 'failed' && item.retries >= 5) {
+                        setCardState(card, 'error', 'Failed — tap to retry');
+                        var thumbEl = card.querySelector('.mw-upload-thumb');
+                        if (thumbEl) {
+                            thumbEl.style.cursor = 'pointer';
+                            thumbEl.title = 'Tap to retry';
+                            thumbEl.addEventListener('click', function retryClick() {
+                                thumbEl.removeEventListener('click', retryClick);
+                                thumbEl.style.cursor = '';
+                                thumbEl.title = '';
+                                setCardState(card, 'uploading', 'Retrying…');
+                                MwPhotoQueue.processQueue();
+                            }, { once: true });
+                        }
+                    } else {
+                        // pending or failed-but-retrying — show as syncing
+                        setCardState(card, 'uploading', item.status === 'failed' ? 'Retrying…' : 'Syncing…');
+                    }
+
+                    card.dataset.mwQueueId = item.queueId;
+                    queue.appendChild(card);
+
+                    // Track so queue events can update this card
+                    stats.active++;
+                    stats.total++;
+                    _pending[item.queueId] = {
+                        item    : card,
+                        blobUrl : item.blobUrl,
+                        zone    : zone,
+                        filename: item.filename,
+                        stats   : stats
+                    };
+                });
+            })
+            .catch(function () { /* silent — restore is best-effort */ });
     }
 
 
