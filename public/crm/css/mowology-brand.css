@@ -1332,6 +1332,8 @@ a:hover {
 
 .mw-table tr:hover td { background: rgba(232,243,240,0.4); }
 .mw-table tr:last-child td { border-bottom: none; }
+.mw-table tr[data-href] { cursor: pointer; }
+.mw-table tr[data-href]:hover td { background: rgba(45,134,89,0.08); }
 
 /* Status badges for list views */
 .mw-badge-status {
@@ -12423,12 +12425,20 @@ textarea.font-monospace {
   margin-bottom: 0;
 }
 
-/* Upload queue items */
+/* ── Upload Queue — photo-first layout ──────────────────────────────────── */
+/*
+ * Photos appear instantly (blob URL) the moment the user picks them.
+ * The upload runs silently in the background via photo-queue.js.
+ * The only upload indicator is a small pulsing ring on the photo corner.
+ * No blocking progress bars, no percentage text.
+ */
+
 .mw-dropzone-queue {
   text-align: left;
   margin-top: 0.75rem;
 }
 
+/* Base upload item (legacy / list style — kept for non-photo contexts) */
 .mw-upload-item {
   display: flex;
   align-items: center;
@@ -12442,85 +12452,152 @@ textarea.font-monospace {
   border-bottom: none;
 }
 
+/* ── Photo-first card variant ── */
+.mw-upload-item--photo {
+  gap: 0.75rem;
+  padding: 0.6rem 0;
+  align-items: flex-start;
+}
+
+/* ── Thumbnail ── */
 .mw-upload-thumb {
+  position: relative;  /* anchor for ::after ring */
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: visible; /* let the ring bleed outside the border-radius */
+  background: #f0f0f0;
 }
 
 .mw-upload-thumb img {
-  width: 32px;
-  height: 32px;
+  width: 56px;
+  height: 56px;
   object-fit: cover;
-  border-radius: 3px;
+  border-radius: 6px;
+  display: block;
+}
+
+/* ── Uploading state: animated ring on thumb corner ── */
+@keyframes mw-ring-spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes mw-ring-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.mw-thumb-uploading::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--mw-green);
+  border-right-color: var(--mw-green);
+  background: #fff;
+  animation: mw-ring-spin 0.9s linear infinite;
+  z-index: 2;
+}
+
+/* ── Done state: small green dot ── */
+.mw-thumb-done::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--mw-green);
+  border: 2px solid #fff;
+  z-index: 2;
+}
+
+/* Done tick mark (::before) */
+.mw-thumb-done::before {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 5px;
+  border-left: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
+  transform: rotate(-45deg) translate(-1px, -1px);
+  z-index: 3;
+}
+
+/* ── Error state: red dot ── */
+.mw-thumb-error::after {
+  content: '!';
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  line-height: 11px;
+  text-align: center;
+  border-radius: 50%;
+  background: #dc3545;
+  border: 2px solid #fff;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  z-index: 2;
+}
+
+/* ── Metadata column (name, size, status) ── */
+.mw-upload-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding-top: 2px;
 }
 
 .mw-upload-name {
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
   color: #333;
+  font-size: 0.82rem;
+  line-height: 1.3;
 }
 
 .mw-upload-size {
-  flex-shrink: 0;
-  width: 4.5rem;
-  text-align: right;
   color: #999;
-  font-size: 0.75rem;
-}
-
-.mw-upload-progress {
-  flex-shrink: 0;
-  width: 100px;
-  height: 6px;
-  background: #e9ecef;
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.mw-upload-progress-bar {
-  height: 100%;
-  background: var(--mw-green);
-  width: 0%;
-  transition: width 0.15s ease;
-  border-radius: 3px;
-}
-
-.mw-upload-pct {
-  flex-shrink: 0;
-  width: 2.5rem;
-  text-align: right;
-  color: #666;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
 }
 
 .mw-upload-status {
-  flex-shrink: 0;
-  width: 5rem;
-  text-align: right;
+  font-size: 0.75rem;
   font-weight: 600;
-  font-size: 0.78rem;
-  color: #666;
+  color: #aaa;
+  margin-top: 2px;
 }
 
 .mw-upload-done .mw-upload-status {
   color: var(--mw-green);
 }
 
-.mw-upload-done .mw-upload-progress-bar {
-  background: var(--mw-green);
-  width: 100%;
-}
-
 .mw-upload-error .mw-upload-status {
   color: #dc3545;
 }
 
-.mw-upload-error .mw-upload-progress-bar {
-  background: #dc3545;
+/* Responsive: tighter on very small screens */
+@media (max-width: 400px) {
+  .mw-upload-thumb,
+  .mw-upload-thumb img {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 /* Media grid cards on library page */
@@ -12615,17 +12692,10 @@ textarea.font-monospace {
   color: #383d41;
 }
 
-/* Responsive: stack upload items on mobile */
+/* Responsive: upload items on mobile */
 @media (max-width: 576px) {
   .mw-upload-item {
     flex-wrap: wrap;
-  }
-  .mw-upload-progress {
-    width: 100%;
-    order: 10;
-  }
-  .mw-upload-size {
-    display: none;
   }
 }
 

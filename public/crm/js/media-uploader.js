@@ -1,385 +1,484 @@
 /**
- * Mowology Media Uploader
+ * Mowology Media Uploader — UI Shell
+ * ────────────────────────────────────
+ * Thin UI layer over photo-queue.js.
  *
- * Self-initializing vanilla JS component for drag-and-drop + file picker
- * multi-file upload with per-file XHR progress, browser geolocation,
- * and mobile camera capture support.
+ * This file only handles the visual side:
+ *   • Shows the local blob URL preview the moment a file is picked (instant)
+ *   • Delegates all storage, queuing, and uploading to window.MwPhotoQueue
+ *   • Listens for queue events to update each photo card's state
+ *   • Never blocks the user — no progress bars, no spinners over the full UI
  *
- * Usage: Place a .mw-media-dropzone element on the page with data attributes:
- *   data-context-type   - Context type (job_visit, quote_visit, marketing_general, etc.)
- *   data-context-id     - Context ID
- *   data-category       - Default category (before, after, etc.)
- *   data-visibility     - Default visibility (internal, client_visible, marketing_eligible)
- *   data-csrf           - CSRF token
- *   data-upload-url     - Upload endpoint URL
- *   data-max-size       - Max file size in bytes
- *   data-allowed-types  - Comma-separated MIME types
+ * Requires: photo-queue.js (must load first)
+ *
+ * Usage: Place a .mw-media-dropzone element with data attributes:
+ *   data-context-type   — context type (job_visit, quote_visit, etc.)
+ *   data-context-id     — context entity ID
+ *   data-category       — default category (before, after, during, etc.)
+ *   data-visibility     — default visibility (internal, client_visible, etc.)
+ *   data-csrf           — CSRF token
+ *   data-upload-url     — upload endpoint (default: /crm/api/media-upload.php)
+ *   data-max-size       — max file size in bytes (default: 15 MB)
+ *   data-allowed-types  — comma-separated MIME types
  *
  * Events dispatched on the dropzone element:
- *   mediaUploaded  - detail: { media_id, uuid, filename, thumb_url, ... }
- *   mediaError     - detail: { filename, errors }
- *   allUploadsComplete - detail: { total, succeeded, failed }
+ *   mediaUploaded       — detail: { media_id, uuid, filename, thumb_url, ... }
+ *   mediaError          — detail: { filename, errors }
+ *   allUploadsComplete  — detail: { total, succeeded, failed }
  *
  * @package Mowology CRM
  */
-(function() {
+(function () {
     'use strict';
 
-    // Initialize all dropzones on the page
+    // Map: queueId → { item (DOM element), blobUrl, zone, filename, stats reference }
+    var _pending = {};
+
+    // =========================================================================
+    // Initialisation
+    // =========================================================================
     function init() {
         document.querySelectorAll('.mw-media-dropzone').forEach(initDropzone);
+
+        // Listen globally for queue events — updates any live card on the page
+        if (window.MwPhotoQueue) {
+            MwPhotoQueue.on('mwPhotoUploaded', onUploaded);
+            MwPhotoQueue.on('mwPhotoFailed',   onFailed);
+            MwPhotoQueue.on('mwPhotoRetrying', onRetrying);
+        }
     }
 
     function initDropzone(zone) {
-        var fileInput = zone.querySelector('.mw-dropzone-input');
+        var fileInput   = zone.querySelector('.mw-dropzone-input');
         var cameraInput = zone.querySelector('.mw-dropzone-camera-input');
-        var browseBtn = zone.querySelector('.mw-dropzone-browse');
-        var cameraBtn = zone.querySelector('.mw-dropzone-camera');
-        var queue = zone.querySelector('.mw-dropzone-queue');
-        var gpsToggle = zone.querySelector('.mw-dropzone-gps-toggle');
-        var powToggle = zone.querySelector('.mw-dropzone-pow-toggle');
+        var browseBtn   = zone.querySelector('.mw-dropzone-browse');
+        var cameraBtn   = zone.querySelector('.mw-dropzone-camera');
+        var queue       = zone.querySelector('.mw-dropzone-queue');
+        var gpsToggle   = zone.querySelector('.mw-dropzone-gps-toggle');
+        var powToggle   = zone.querySelector('.mw-dropzone-pow-toggle');
 
         var config = {
-            contextType: zone.dataset.contextType || 'marketing_general',
-            contextId: zone.dataset.contextId || '0',
-            category: zone.dataset.category || '',
-            visibility: zone.dataset.visibility || 'internal',
-            csrf: zone.dataset.csrf || '',
-            uploadUrl: zone.dataset.uploadUrl || '/crm/api/media-upload.php',
-            maxSize: parseInt(zone.dataset.maxSize || '15728640', 10),
+            contextType : zone.dataset.contextType  || 'marketing_general',
+            contextId   : zone.dataset.contextId    || '0',
+            category    : zone.dataset.category     || '',
+            visibility  : zone.dataset.visibility   || 'internal',
+            csrf        : zone.dataset.csrf          || '',
+            uploadUrl   : zone.dataset.uploadUrl    || '/crm/api/media-upload.php',
+            maxSize     : parseInt(zone.dataset.maxSize || '15728640', 10),
             allowedTypes: (zone.dataset.allowedTypes || 'image/jpeg,image/png,image/webp').split(',')
         };
 
-        var cachedGps = null;
+        // Per-zone upload stats (reset after allUploadsComplete)
+        var stats        = { total: 0, succeeded: 0, failed: 0, active: 0 };
+        var cachedGps    = null;
         var gpsRequested = false;
-        var pendingUploads = 0;
-        var uploadStats = { total: 0, succeeded: 0, failed: 0 };
 
-        // --- GPS: request once on init if toggle checked ---
+        // ── GPS ─────────────────────────────────────────────────────────────
         function requestGps() {
             if (gpsRequested || !navigator.geolocation) return;
             gpsRequested = true;
             navigator.geolocation.getCurrentPosition(
-                function(pos) {
-                    cachedGps = {
-                        lat: pos.coords.latitude,
-                        lng: pos.coords.longitude,
-                        accuracy: pos.coords.accuracy
-                    };
+                function (pos) {
+                    cachedGps = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy };
                 },
-                function() { cachedGps = null; },
+                function () { cachedGps = null; },
                 { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
             );
         }
 
-        if (gpsToggle && gpsToggle.checked) {
-            requestGps();
-        }
+        if (gpsToggle && gpsToggle.checked) requestGps();
         if (gpsToggle) {
-            gpsToggle.addEventListener('change', function() {
-                if (this.checked) requestGps();
-                else cachedGps = null;
+            gpsToggle.addEventListener('change', function () {
+                if (this.checked) requestGps(); else cachedGps = null;
             });
         }
 
-        // --- Drag and drop ---
-        ['dragenter', 'dragover'].forEach(function(evtName) {
-            zone.addEventListener(evtName, function(e) {
-                e.preventDefault();
-                e.stopPropagation();
+        // ── Drag-and-drop ────────────────────────────────────────────────────
+        ['dragenter', 'dragover'].forEach(function (evt) {
+            zone.addEventListener(evt, function (e) {
+                e.preventDefault(); e.stopPropagation();
                 zone.classList.add('mw-dropzone-active');
             });
         });
 
-        ['dragleave', 'drop'].forEach(function(evtName) {
-            zone.addEventListener(evtName, function(e) {
-                e.preventDefault();
-                e.stopPropagation();
+        ['dragleave', 'drop'].forEach(function (evt) {
+            zone.addEventListener(evt, function (e) {
+                e.preventDefault(); e.stopPropagation();
                 zone.classList.remove('mw-dropzone-active');
             });
         });
 
-        zone.addEventListener('drop', function(e) {
-            if (e.dataTransfer && e.dataTransfer.files) {
-                handleFiles(e.dataTransfer.files);
-            }
+        zone.addEventListener('drop', function (e) {
+            if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
         });
 
-        // --- Browse button ---
+        // ── Browse / camera ──────────────────────────────────────────────────
         if (browseBtn && fileInput) {
-            browseBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                fileInput.click();
-            });
-            fileInput.addEventListener('change', function() {
-                if (this.files && this.files.length) {
-                    handleFiles(this.files);
-                    this.value = ''; // Reset so same files can be picked again
-                }
+            browseBtn.addEventListener('click', function (e) { e.preventDefault(); fileInput.click(); });
+            fileInput.addEventListener('change', function () {
+                if (this.files && this.files.length) { handleFiles(this.files); this.value = ''; }
             });
         }
 
-        // --- Camera button (mobile) ---
         if (cameraBtn && cameraInput) {
-            cameraBtn.addEventListener('click', function(e) {
-                e.preventDefault();
-                cameraInput.click();
-            });
-            cameraInput.addEventListener('change', function() {
-                if (this.files && this.files.length) {
-                    handleFiles(this.files);
-                    this.value = '';
-                }
+            cameraBtn.addEventListener('click', function (e) { e.preventDefault(); cameraInput.click(); });
+            cameraInput.addEventListener('change', function () {
+                if (this.files && this.files.length) { handleFiles(this.files); this.value = ''; }
             });
         }
 
-        // --- Blur detection via Canvas pixel-variance analysis ---
-        // Samples a downscaled greyscale version of the image and computes
-        // variance. Low variance = flat image = likely blurry/dark/covered lens.
-        // Threshold of 80 catches most blurry photos without false positives.
-        // Returns a Promise<boolean> — true if the image appears blurry.
+        // ── Blur detection (receipts only) ───────────────────────────────────
         function isImageBlurry(file, threshold) {
             threshold = threshold || 80;
-            return new Promise(function(resolve) {
-                // Only run on JPEG/PNG/WebP — skip for unsupported types
-                if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
-                    resolve(false);
-                    return;
-                }
+            return new Promise(function (resolve) {
+                if (!file.type.match(/^image\/(jpeg|png|webp)$/)) { resolve(false); return; }
                 var url = URL.createObjectURL(file);
                 var img = new Image();
-                img.onload = function() {
+                img.onload = function () {
                     try {
-                        // Downscale to 100x100 for fast variance calculation
-                        var canvas = document.createElement('canvas');
-                        canvas.width = 100;
-                        canvas.height = 100;
-                        var ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, 100, 100);
+                        var c = document.createElement('canvas'); c.width = 100; c.height = 100;
+                        var ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, 100, 100);
                         URL.revokeObjectURL(url);
-
                         var data = ctx.getImageData(0, 0, 100, 100).data;
-                        // Convert to greyscale and compute mean
                         var grey = [];
                         for (var i = 0; i < data.length; i += 4) {
                             grey.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
                         }
-                        var mean = grey.reduce(function(a, b) { return a + b; }, 0) / grey.length;
-                        var variance = grey.reduce(function(sum, v) { return sum + (v - mean) * (v - mean); }, 0) / grey.length;
-
+                        var mean = grey.reduce(function (a, b) { return a + b; }, 0) / grey.length;
+                        var variance = grey.reduce(function (s, v) { return s + (v - mean) * (v - mean); }, 0) / grey.length;
                         resolve(variance < threshold);
-                    } catch (e) {
-                        // Canvas tainted or unsupported — skip blur check
-                        resolve(false);
-                    }
+                    } catch (e) { resolve(false); }
                 };
-                img.onerror = function() {
-                    URL.revokeObjectURL(url);
-                    resolve(false);
-                };
+                img.onerror = function () { URL.revokeObjectURL(url); resolve(false); };
                 img.src = url;
             });
         }
 
-        // --- File handling ---
+        // ── File handling ────────────────────────────────────────────────────
         function handleFiles(fileList) {
-            var files = Array.prototype.slice.call(fileList);
-            files.forEach(function(file) {
-                // Validate type
+            Array.prototype.slice.call(fileList).forEach(function (file) {
                 if (config.allowedTypes.indexOf(file.type) === -1) {
-                    showFileError(file.name, 'Invalid file type: ' + file.type);
-                    return;
+                    showError(queue, file.name, 'Invalid file type: ' + file.type); return;
                 }
-                // Validate size
                 if (file.size > config.maxSize) {
-                    var maxMB = Math.round(config.maxSize / 1024 / 1024);
-                    showFileError(file.name, 'Too large (max ' + maxMB + ' MB)');
-                    return;
+                    showError(queue, file.name, 'Too large (max ' + Math.round(config.maxSize / 1048576) + ' MB)'); return;
                 }
-                // Blur detection — warn before wasting an API call on a bad photo.
-                // Only applied when context is 'expense' (receipt capture).
+
                 if (config.contextType === 'expense') {
-                    isImageBlurry(file).then(function(blurry) {
-                        if (blurry) {
-                            if (!window.confirm('This photo looks blurry or dark.\nUpload anyway, or retake for a better result?')) {
-                                return; // User chose to retake
-                            }
-                        }
-                        uploadFile(file);
+                    isImageBlurry(file).then(function (blurry) {
+                        if (blurry && !window.confirm('This photo looks blurry or dark.\nUpload anyway, or retake?')) return;
+                        processFile(file);
                     });
                 } else {
-                    uploadFile(file);
+                    processFile(file);
                 }
             });
         }
 
-        function uploadFile(file) {
-            var item = createQueueItem(file.name, file.size);
+        // ── Core: instant preview + enqueue to background uploader ───────────
+        function processFile(file) {
+            // 1. Create local blob URL — instant preview, zero network required
+            var blobUrl = URL.createObjectURL(file);
+
+            // 2. Show the photo card immediately
+            var item = createPhotoCard(file.name, file.size, blobUrl);
             queue.appendChild(item);
-            pendingUploads++;
-            uploadStats.total++;
 
-            var formData = new FormData();
-            formData.append('files[]', file);
-            formData.append('csrf_token', config.csrf);
-            formData.append('context_type', config.contextType);
-            formData.append('context_id', config.contextId);
-            formData.append('category', config.category);
-            formData.append('visibility', config.visibility);
+            // 3. Track stats
+            stats.total++;
+            stats.active++;
 
-            // GPS
-            if (gpsToggle && gpsToggle.checked && cachedGps) {
-                formData.append('gps_lat', String(cachedGps.lat));
-                formData.append('gps_lng', String(cachedGps.lng));
-                formData.append('gps_accuracy', String(cachedGps.accuracy));
+            // 4. Build upload metadata snapshot (CSRF, GPS, etc.)
+            var meta = {
+                contextType : config.contextType,
+                contextId   : config.contextId,
+                category    : config.category,
+                visibility  : config.visibility,
+                csrf        : config.csrf,
+                uploadUrl   : config.uploadUrl,
+                powStamp    : (powToggle && powToggle.checked) ? '1' : '',
+                gpsLat      : (gpsToggle && gpsToggle.checked && cachedGps) ? cachedGps.lat      : null,
+                gpsLng      : (gpsToggle && gpsToggle.checked && cachedGps) ? cachedGps.lng      : null,
+                gpsAccuracy : (gpsToggle && gpsToggle.checked && cachedGps) ? cachedGps.accuracy : null
+            };
+
+            // 5. Persist to durable storage + add to upload queue
+            if (window.MwPhotoQueue) {
+                MwPhotoQueue.saveAndEnqueue(file, meta)
+                    .then(function (queueId) {
+                        // Register this item so queue events can update it
+                        _pending[queueId] = {
+                            item    : item,
+                            blobUrl : blobUrl,
+                            zone    : zone,
+                            filename: file.name,
+                            stats   : stats
+                        };
+                        item.dataset.mwQueueId = queueId;
+                    })
+                    .catch(function () {
+                        // Storage unavailable — mark item as failed immediately
+                        setCardState(item, 'error', 'Storage unavailable');
+                        stats.active--;
+                        stats.failed++;
+                        checkAllComplete(zone, stats);
+                    });
+            } else {
+                // photo-queue.js not loaded — fall back to direct inline upload
+                inlineUpload(file, meta, item, blobUrl, stats, zone, config);
             }
+        }
 
-            // PoW stamp
-            if (powToggle && powToggle.checked) {
-                formData.append('pow_stamp', '1');
+        // Store refs on the zone so replay (page reload) can use the right zone
+        zone._mwConfig = config;
+        zone._mwQueue  = queue;
+        zone._mwStats  = stats;
+    }
+
+
+    // =========================================================================
+    // Queue event handlers — called by photo-queue.js lifecycle events
+    // =========================================================================
+    function onUploaded(detail) {
+        var entry = _pending[detail.queueId];
+        if (!entry) return;
+
+        var item = entry.item;
+        setCardState(item, 'done', detail.isDuplicate ? 'Linked' : 'Saved');
+
+        // Swap blob URL for real server thumbnail once it loads
+        if (detail.thumbUrl) {
+            var thumbEl = item.querySelector('.mw-upload-thumb');
+            var img     = thumbEl ? thumbEl.querySelector('img') : null;
+            if (img) {
+                var newImg    = new Image();
+                newImg.onload = function () {
+                    img.src = detail.thumbUrl;
+                    URL.revokeObjectURL(entry.blobUrl);
+                };
+                newImg.onerror = function () {
+                    URL.revokeObjectURL(entry.blobUrl);
+                };
+                newImg.src = detail.thumbUrl;
             }
+        } else {
+            URL.revokeObjectURL(entry.blobUrl);
+        }
 
-            var xhr = new XMLHttpRequest();
+        entry.stats.active--;
+        entry.stats.succeeded++;
 
-            // Progress handler
-            xhr.upload.addEventListener('progress', function(e) {
-                if (e.lengthComputable) {
-                    var pct = Math.round((e.loaded / e.total) * 100);
-                    var bar = item.querySelector('.mw-upload-progress-bar');
-                    var pctLabel = item.querySelector('.mw-upload-pct');
-                    if (bar) bar.style.width = pct + '%';
-                    if (pctLabel) pctLabel.textContent = pct + '%';
+        entry.zone.dispatchEvent(new CustomEvent('mediaUploaded', {
+            detail: {
+                media_id    : detail.mediaId,
+                uuid        : detail.uuid,
+                thumb_url   : detail.thumbUrl,
+                is_duplicate: detail.isDuplicate,
+                filename    : entry.filename
+            }
+        }));
+
+        checkAllComplete(entry.zone, entry.stats);
+        delete _pending[detail.queueId];
+    }
+
+    function onFailed(detail) {
+        var entry = _pending[detail.queueId];
+        if (!entry) return;
+
+        var item = entry.item;
+        setCardState(item, 'error', 'Failed — tap to retry');
+
+        // Tap-to-retry on the photo thumb
+        var thumbEl = item.querySelector('.mw-upload-thumb');
+        if (thumbEl) {
+            thumbEl.style.cursor = 'pointer';
+            thumbEl.title = 'Tap to retry';
+            thumbEl.addEventListener('click', function retryClick() {
+                thumbEl.removeEventListener('click', retryClick);
+                thumbEl.style.cursor = '';
+                thumbEl.title = '';
+                setCardState(item, 'uploading', 'Retrying…');
+                // Re-enqueue: reset the queue record status via patch
+                if (window.MwPhotoQueue) {
+                    // Accessing internal PhotoQueue is not public — trigger a full queue run
+                    // The queue runner will pick up 'failed' records that still have retries left
+                    MwPhotoQueue.processQueue();
                 }
-            });
-
-            // Load handler
-            xhr.addEventListener('load', function() {
-                pendingUploads--;
-                try {
-                    var resp = JSON.parse(xhr.responseText);
-                    var fileResult = (resp.results && resp.results[0]) ? resp.results[0] : null;
-
-                    if (resp.success && fileResult && fileResult.success) {
-                        item.classList.add('mw-upload-done');
-                        item.querySelector('.mw-upload-status').textContent = 'Done';
-
-                        // Show thumbnail if available
-                        if (fileResult.thumb_url) {
-                            var thumbEl = item.querySelector('.mw-upload-thumb');
-                            if (thumbEl) {
-                                thumbEl.innerHTML = '<img src="' + escapeAttr(fileResult.thumb_url) + '" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:3px;">';
-                            }
-                        }
-
-                        // Show dedup badge
-                        if (fileResult.is_duplicate) {
-                            var statusEl = item.querySelector('.mw-upload-status');
-                            if (statusEl) statusEl.textContent = 'Linked';
-                            statusEl.title = 'File already exists — linked to this context';
-                        }
-
-                        uploadStats.succeeded++;
-                        zone.dispatchEvent(new CustomEvent('mediaUploaded', { detail: fileResult }));
-                    } else {
-                        item.classList.add('mw-upload-error');
-                        var errorMsg = (fileResult && fileResult.errors) ? fileResult.errors.join(', ') : (resp.error || 'Upload failed');
-                        item.querySelector('.mw-upload-status').textContent = 'Error';
-                        item.querySelector('.mw-upload-status').title = errorMsg;
-                        uploadStats.failed++;
-                        zone.dispatchEvent(new CustomEvent('mediaError', { detail: { filename: file.name, errors: [errorMsg] } }));
-                    }
-                } catch (e) {
-                    item.classList.add('mw-upload-error');
-                    item.querySelector('.mw-upload-status').textContent = 'Error';
-                    uploadStats.failed++;
-                }
-
-                checkAllComplete();
-            });
-
-            // Error handler
-            xhr.addEventListener('error', function() {
-                pendingUploads--;
-                item.classList.add('mw-upload-error');
-                item.querySelector('.mw-upload-status').textContent = 'Network error';
-                uploadStats.failed++;
-                checkAllComplete();
-            });
-
-            // Timeout handler
-            xhr.addEventListener('timeout', function() {
-                pendingUploads--;
-                item.classList.add('mw-upload-error');
-                item.querySelector('.mw-upload-status').textContent = 'Timeout';
-                uploadStats.failed++;
-                checkAllComplete();
-            });
-
-            xhr.timeout = 120000; // 2 minutes
-            xhr.open('POST', config.uploadUrl);
-            xhr.send(formData);
+            }, { once: true });
         }
 
-        function checkAllComplete() {
-            if (pendingUploads <= 0) {
-                zone.dispatchEvent(new CustomEvent('allUploadsComplete', { detail: uploadStats }));
-                // Reset stats for next batch
-                uploadStats = { total: 0, succeeded: 0, failed: 0 };
-            }
-        }
+        entry.stats.active--;
+        entry.stats.failed++;
 
-        // --- Queue item DOM ---
-        function createQueueItem(filename, fileSize) {
-            var div = document.createElement('div');
-            div.className = 'mw-upload-item';
+        entry.zone.dispatchEvent(new CustomEvent('mediaError', {
+            detail: { filename: entry.filename, errors: [detail.error || 'Upload failed'] }
+        }));
 
-            var sizeStr = fileSize > 1024 * 1024
-                ? (fileSize / 1024 / 1024).toFixed(1) + ' MB'
-                : Math.round(fileSize / 1024) + ' KB';
+        checkAllComplete(entry.zone, entry.stats);
+        delete _pending[detail.queueId];
+    }
 
-            div.innerHTML =
-                '<span class="mw-upload-thumb"></span>' +
-                '<span class="mw-upload-name" title="' + escapeAttr(filename) + '">' + escapeHtml(filename) + '</span>' +
-                '<span class="mw-upload-size">' + sizeStr + '</span>' +
-                '<div class="mw-upload-progress"><div class="mw-upload-progress-bar"></div></div>' +
-                '<span class="mw-upload-pct">0%</span>' +
-                '<span class="mw-upload-status">Uploading</span>';
+    function onRetrying(detail) {
+        var entry = _pending[detail.queueId];
+        if (!entry) return;
+        setCardState(entry.item, 'uploading', 'Retrying (' + detail.attempt + ')…');
+    }
 
-            return div;
-        }
-
-        function showFileError(name, msg) {
-            var div = document.createElement('div');
-            div.className = 'mw-upload-item mw-upload-error';
-            div.innerHTML =
-                '<span class="mw-upload-thumb"></span>' +
-                '<span class="mw-upload-name">' + escapeHtml(name) + '</span>' +
-                '<span class="mw-upload-size"></span>' +
-                '<div class="mw-upload-progress"></div>' +
-                '<span class="mw-upload-pct"></span>' +
-                '<span class="mw-upload-status" title="' + escapeAttr(msg) + '">' + escapeHtml(msg) + '</span>';
-            queue.appendChild(div);
+    function checkAllComplete(zone, stats) {
+        if (stats.active <= 0) {
+            zone.dispatchEvent(new CustomEvent('allUploadsComplete', {
+                detail: { total: stats.total, succeeded: stats.succeeded, failed: stats.failed }
+            }));
+            // Reset for next batch
+            stats.total = 0; stats.succeeded = 0; stats.failed = 0; stats.active = 0;
         }
     }
 
-    // --- Utility functions ---
-    function escapeHtml(str) {
+
+    // =========================================================================
+    // DOM helpers
+    // =========================================================================
+
+    /**
+     * Create a photo card with an instant local preview.
+     * The card is photo-first: large thumb on the left, subtle status on the right.
+     * A small pulsing ring on the thumb corner indicates the upload is in progress.
+     */
+    function createPhotoCard(filename, fileSize, blobUrl) {
+        var div       = document.createElement('div');
+        div.className = 'mw-upload-item mw-upload-item--photo';
+
+        var sizeStr = fileSize > 1048576
+            ? (fileSize / 1048576).toFixed(1) + ' MB'
+            : Math.round(fileSize / 1024) + ' KB';
+
+        // Thumb with pulsing ring (uploading state by default)
+        var thumbImg = blobUrl
+            ? '<img src="' + escapeAttr(blobUrl) + '" alt="" loading="eager">'
+            : '';
+
+        div.innerHTML =
+            '<span class="mw-upload-thumb mw-thumb-uploading">' + thumbImg + '</span>' +
+            '<span class="mw-upload-meta">' +
+                '<span class="mw-upload-name" title="' + escapeAttr(filename) + '">' + escapeHtml(filename) + '</span>' +
+                '<span class="mw-upload-size">' + sizeStr + '</span>' +
+                '<span class="mw-upload-status">Uploading…</span>' +
+            '</span>';
+
+        return div;
+    }
+
+    /**
+     * Set a card's visual state.
+     * @param {HTMLElement} item
+     * @param {'uploading'|'done'|'error'} state
+     * @param {string} statusText
+     */
+    function setCardState(item, state, statusText) {
+        var thumbEl  = item.querySelector('.mw-upload-thumb');
+        var statusEl = item.querySelector('.mw-upload-status');
+
+        // Remove all state classes
+        if (thumbEl) {
+            thumbEl.classList.remove('mw-thumb-uploading', 'mw-thumb-done', 'mw-thumb-error');
+        }
+        item.classList.remove('mw-upload-done', 'mw-upload-error');
+
+        if (state === 'done') {
+            if (thumbEl)  thumbEl.classList.add('mw-thumb-done');
+            item.classList.add('mw-upload-done');
+        } else if (state === 'error') {
+            if (thumbEl)  thumbEl.classList.add('mw-thumb-error');
+            item.classList.add('mw-upload-error');
+        } else {
+            // uploading
+            if (thumbEl) thumbEl.classList.add('mw-thumb-uploading');
+        }
+
+        if (statusEl) statusEl.textContent = statusText || '';
+    }
+
+    function showError(queueEl, name, msg) {
         var div = document.createElement('div');
-        div.textContent = str || '';
-        return div.innerHTML;
+        div.className = 'mw-upload-item mw-upload-error';
+        div.innerHTML =
+            '<span class="mw-upload-thumb mw-thumb-error"></span>' +
+            '<span class="mw-upload-meta">' +
+                '<span class="mw-upload-name">' + escapeHtml(name) + '</span>' +
+                '<span class="mw-upload-size"></span>' +
+                '<span class="mw-upload-status">' + escapeHtml(msg) + '</span>' +
+            '</span>';
+        queueEl.appendChild(div);
+    }
+
+
+    // =========================================================================
+    // Inline upload fallback (when photo-queue.js is not available)
+    // =========================================================================
+    function inlineUpload(file, meta, item, blobUrl, stats, zone) {
+        var formData = new FormData();
+        formData.append('files[]',        file);
+        formData.append('csrf_token',     meta.csrf        || '');
+        formData.append('context_type',   meta.contextType || '');
+        formData.append('context_id',     String(meta.contextId || ''));
+        formData.append('category',       meta.category    || '');
+        formData.append('visibility',     meta.visibility  || 'internal');
+        if (meta.powStamp)     formData.append('pow_stamp',    meta.powStamp);
+        if (meta.gpsLat)      formData.append('gps_lat',      String(meta.gpsLat));
+        if (meta.gpsLng)      formData.append('gps_lng',      String(meta.gpsLng));
+        if (meta.gpsAccuracy) formData.append('gps_accuracy', String(meta.gpsAccuracy));
+
+        fetch(meta.uploadUrl || '/crm/api/media-upload.php', { method: 'POST', body: formData })
+            .then(function (res) { return res.json(); })
+            .then(function (resp) {
+                var fr = (resp.results && resp.results[0]) ? resp.results[0] : null;
+                if (resp.success && fr && fr.success) {
+                    setCardState(item, 'done', fr.is_duplicate ? 'Linked' : 'Saved');
+                    if (fr.thumb_url) {
+                        var img = item.querySelector('.mw-upload-thumb img');
+                        if (img) { img.onload = function () { URL.revokeObjectURL(blobUrl); }; img.src = fr.thumb_url; }
+                    }
+                    stats.active--; stats.succeeded++;
+                    zone.dispatchEvent(new CustomEvent('mediaUploaded', { detail: fr }));
+                } else {
+                    var err = (fr && fr.errors) ? fr.errors.join(', ') : 'Upload failed';
+                    setCardState(item, 'error', err);
+                    stats.active--; stats.failed++;
+                    zone.dispatchEvent(new CustomEvent('mediaError', { detail: { filename: file.name, errors: [err] } }));
+                }
+                checkAllComplete(zone, stats);
+            })
+            .catch(function () {
+                setCardState(item, 'error', 'Network error');
+                stats.active--; stats.failed++;
+                checkAllComplete(zone, stats);
+            });
+    }
+
+
+    // =========================================================================
+    // Utilities
+    // =========================================================================
+    function escapeHtml(str) {
+        var d = document.createElement('div');
+        d.textContent = str || '';
+        return d.innerHTML;
     }
 
     function escapeAttr(str) {
         return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    // Initialize when DOM is ready
+
+    // =========================================================================
+    // Boot
+    // =========================================================================
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
         init();
     }
 
-    // Re-initialize for dynamically added dropzones
     window.MowologyMediaUploader = { init: init };
 })();

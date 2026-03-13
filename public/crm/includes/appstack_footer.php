@@ -42,6 +42,8 @@
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
   <script src="/crm/js/time-clock-widget.js?v=20260309a"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20260309a"></script>
+  <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->
+  <script src="/crm/js/photo-queue.js?v=20260312a"></script>
 
   <!-- Dropdown fix: app.js bundles jQuery+Bootstrap whose dropdown plugin fails without global Popper.
        Remove the broken jQuery handler and replace with a working vanilla JS one. -->
