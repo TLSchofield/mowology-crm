@@ -187,20 +187,26 @@
             stats.total++;
             stats.active++;
 
-            // 2. Generate a small thumbnail async using createImageBitmap.
-            //    Hardware-accelerated + resized at decode time → <500ms even on
-            //    old iPhones, vs 10s+ for full-res blob URL in an <img>.
-            //    Full-resolution file is sent to the server unchanged.
+            // 2. Generate a small thumbnail AFTER yielding to the browser.
+            //    Double-yield (rAF + setTimeout) guarantees the card with its
+            //    spinner is painted on screen BEFORE we do any image decode work.
+            //    Without this, iOS never repaints between appendChild and
+            //    createImageBitmap, so the card is invisible for 10+ seconds.
             var previewBlobUrl = null;
-            generatePreview(file).then(function (url) {
-                previewBlobUrl = url;
-                var thumbEl = item.querySelector('.mw-upload-thumb');
-                if (thumbEl && url) {
-                    var img = document.createElement('img');
-                    img.alt = '';
-                    img.src = url; // tiny thumbnail — decodes in milliseconds
-                    thumbEl.appendChild(img);
-                }
+            requestAnimationFrame(function () {
+                setTimeout(function () {
+                    generatePreview(file).then(function (url) {
+                        previewBlobUrl = url;
+                        var thumbEl = item.querySelector('.mw-upload-thumb');
+                        if (thumbEl && url) {
+                            var img = document.createElement('img');
+                            img.alt      = '';
+                            img.decoding = 'async'; // don't block paint while decoding
+                            img.src      = url;
+                            thumbEl.appendChild(img);
+                        }
+                    });
+                }, 50);
             });
 
             // 3. Build upload metadata snapshot (CSRF, GPS, etc.)
@@ -561,10 +567,13 @@
                 resizeQuality: 'medium'
             })
             .then(function (bitmap) {
-                var canvas   = document.createElement('canvas');
-                canvas.width  = bitmap.width;
-                canvas.height = bitmap.height;
-                canvas.getContext('2d').drawImage(bitmap, 0, 0);
+                // Always output a small canvas — if iOS ignored the resize options,
+                // bitmap may be full-res (4032×3024). Cap it here so toBlob() is fast.
+                var scale     = Math.min(size / bitmap.width, size / bitmap.height, 1);
+                var canvas    = document.createElement('canvas');
+                canvas.width  = Math.round(bitmap.width  * scale);
+                canvas.height = Math.round(bitmap.height * scale);
+                canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
                 bitmap.close(); // free GPU memory immediately
 
                 return new Promise(function (resolve) {
