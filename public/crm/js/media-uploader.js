@@ -175,20 +175,35 @@
             });
         }
 
-        // ── Core: instant preview + enqueue to background uploader ───────────
+        // ── Core: instant card + async thumbnail + background enqueue ────────
         function processFile(file) {
-            // 1. Create local blob URL — instant preview, zero network required
-            var blobUrl = URL.createObjectURL(file);
-
-            // 2. Show the photo card immediately
-            var item = createPhotoCard(file.name, file.size, blobUrl);
+            // 1. Show the card IMMEDIATELY with just the ring spinner.
+            //    DO NOT set img.src yet — decoding a 5-15 MB camera JPEG via
+            //    blob URL freezes the render thread for 5-15s on iOS/mobile.
+            //    The card (spinner + filename) appears in <1 frame.
+            var item = createPhotoCard(file.name, file.size, null);
             queue.appendChild(item);
 
-            // 3. Track stats
             stats.total++;
             stats.active++;
 
-            // 4. Build upload metadata snapshot (CSRF, GPS, etc.)
+            // 2. Generate a small thumbnail async using createImageBitmap.
+            //    Hardware-accelerated + resized at decode time → <500ms even on
+            //    old iPhones, vs 10s+ for full-res blob URL in an <img>.
+            //    Full-resolution file is sent to the server unchanged.
+            var previewBlobUrl = null;
+            generatePreview(file).then(function (url) {
+                previewBlobUrl = url;
+                var thumbEl = item.querySelector('.mw-upload-thumb');
+                if (thumbEl && url) {
+                    var img = document.createElement('img');
+                    img.alt = '';
+                    img.src = url; // tiny thumbnail — decodes in milliseconds
+                    thumbEl.appendChild(img);
+                }
+            });
+
+            // 3. Build upload metadata snapshot (CSRF, GPS, etc.)
             var meta = {
                 contextType : config.contextType,
                 contextId   : config.contextId,
@@ -202,14 +217,13 @@
                 gpsAccuracy : (gpsToggle && gpsToggle.checked && cachedGps) ? cachedGps.accuracy : null
             };
 
-            // 5. Persist to durable storage + add to upload queue
+            // 4. Persist to durable storage + add to upload queue
             if (window.MwPhotoQueue) {
                 MwPhotoQueue.saveAndEnqueue(file, meta)
                     .then(function (queueId) {
-                        // Register this item so queue events can update it
                         _pending[queueId] = {
                             item    : item,
-                            blobUrl : blobUrl,
+                            blobUrl : previewBlobUrl, // revoke when server thumb arrives
                             zone    : zone,
                             filename: file.name,
                             stats   : stats
@@ -217,15 +231,13 @@
                         item.dataset.mwQueueId = queueId;
                     })
                     .catch(function () {
-                        // Storage unavailable — mark item as failed immediately
                         setCardState(item, 'error', 'Storage unavailable');
                         stats.active--;
                         stats.failed++;
                         checkAllComplete(zone, stats);
                     });
             } else {
-                // photo-queue.js not loaded — fall back to direct inline upload
-                inlineUpload(file, meta, item, blobUrl, stats, zone, config);
+                inlineUpload(file, meta, item, previewBlobUrl, stats, zone, config);
             }
         }
 
@@ -523,6 +535,54 @@
     // =========================================================================
     // Utilities
     // =========================================================================
+
+    /**
+     * Generate a tiny thumbnail blob URL for instant display without freezing
+     * the render thread.
+     *
+     * createImageBitmap() with resize options decodes the JPEG at reduced
+     * resolution using hardware acceleration — sub-500ms even on old iPhones,
+     * vs 5-15s for full-res blob URLs decoded by the browser in an <img>.
+     *
+     * The full-resolution file is still sent to the server unchanged.
+     *
+     * @param  {File}   file  — original camera/gallery file
+     * @param  {number} [size=160] — max side length in CSS px for the thumbnail
+     * @returns {Promise<string>} blob URL of the small JPEG thumbnail
+     */
+    function generatePreview(file, size) {
+        size = size || 160;
+
+        // Fast path: createImageBitmap with resize (hardware-accelerated)
+        if (typeof createImageBitmap === 'function') {
+            return createImageBitmap(file, {
+                resizeWidth  : size,
+                resizeHeight : size,
+                resizeQuality: 'medium'
+            })
+            .then(function (bitmap) {
+                var canvas   = document.createElement('canvas');
+                canvas.width  = bitmap.width;
+                canvas.height = bitmap.height;
+                canvas.getContext('2d').drawImage(bitmap, 0, 0);
+                bitmap.close(); // free GPU memory immediately
+
+                return new Promise(function (resolve) {
+                    canvas.toBlob(function (blob) {
+                        resolve(blob ? URL.createObjectURL(blob) : URL.createObjectURL(file));
+                    }, 'image/jpeg', 0.8);
+                });
+            })
+            .catch(function () {
+                // createImageBitmap failed (e.g. unsupported MIME) — fall through
+                return URL.createObjectURL(file);
+            });
+        }
+
+        // Fallback: plain blob URL (may be slow on low-end devices with large JPEGs)
+        return Promise.resolve(URL.createObjectURL(file));
+    }
+
     function escapeHtml(str) {
         var d = document.createElement('div');
         d.textContent = str || '';
