@@ -31,7 +31,14 @@ try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
 
-    requireLogin();
+    // API endpoint — return 401 JSON instead of redirecting so Android WorkManager
+    // can detect session expiry and keep unsynced points in Room DB rather than
+    // silently treating the HTML redirect response as a successful sync.
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Session expired', 'code' => 'SESSION_EXPIRED']);
+        exit;
+    }
     $user = getCurrentUser();
     // Release session lock immediately — this endpoint never writes to $_SESSION.
     // Without this, the WorkManager SyncWorker (which loops 100+ DB queries per batch)

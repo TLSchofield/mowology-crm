@@ -24,7 +24,14 @@ try {
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
 
-    requireLogin();
+    // API endpoint — return 401 JSON instead of redirecting, so the JS widget
+    // and Android WorkManager can detect session expiry rather than silently
+    // receiving HTML (which causes GPS pings to be queued/dropped all day).
+    if (!isLoggedIn()) {
+        http_response_code(401);
+        echo json_encode(['error' => 'Session expired', 'code' => 'SESSION_EXPIRED']);
+        exit;
+    }
     $user = getCurrentUser();
     $db = getDB();
 

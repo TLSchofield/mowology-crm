@@ -552,8 +552,16 @@
                 heading: latestPosition.heading
             })
         })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (r.status === 401) {
+                stopTracking();
+                showSessionExpiredBanner();
+                return null;
+            }
+            return r.json();
+        })
         .then(function(data) {
+            if (!data) return;
             if (data.success && !data.skipped) {
                 console.log('[MwTracking] Position sent OK');
             }
@@ -569,6 +577,25 @@
             console.warn('[MwTracking] Send failed, queueing:', err);
             queuePosition(latestPosition);
         });
+    }
+
+    var _sessionExpiredBannerShown = false;
+    function showSessionExpiredBanner() {
+        if (_sessionExpiredBannerShown) return;
+        _sessionExpiredBannerShown = true;
+        stopTracking();
+        // Show a persistent banner prompting re-login — GPS queue is preserved in
+        // localStorage and will replay automatically after the user logs back in.
+        var banner = document.createElement('div');
+        banner.id = 'mw-session-expired-banner';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#c0392b;color:#fff;padding:12px 16px;font-size:14px;font-weight:600;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+        banner.innerHTML = 'Your session has expired — <a href="/loginAuth/login.php" style="color:#fff;text-decoration:underline;">tap here to log back in</a>. Your GPS data is saved and will sync automatically.';
+        document.body.prepend(banner);
+        // Native notification if in Capacitor
+        if (window.MwNative && window.MwNative.notifications) {
+            window.MwNative.notifications.notify('Session Expired', 'Tap to log back in to Mowology CRM', 9001);
+        }
+        console.warn('[MwTracking] Session expired — tracking stopped, banner shown');
     }
 
     function queuePosition(pos) {
@@ -607,8 +634,13 @@
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(pos)
+                }).then(function(r) {
+                    if (r.status === 401) {
+                        queuePosition(pos); // Keep for replay after re-login
+                        showSessionExpiredBanner();
+                    }
                 }).catch(function() {
-                    queuePosition(pos); // Re-queue on failure
+                    queuePosition(pos); // Re-queue on network failure
                 });
             }, i * 200); // 200ms between each to avoid rate limiting
         });
