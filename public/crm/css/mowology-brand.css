@@ -25634,3 +25634,54 @@ textarea.font-monospace {
 .mw-mc-drawer-btn-stop:hover {
   background: #fdecea;
 }
+
+/* ── Plant & Weed Library ────────────────────────────────────────────────── */
+.mw-lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.mw-lib-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow 0.15s;
+}
+.mw-lib-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,.08);
+}
+.mw-lib-card-img {
+  width: 100%;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.mw-lib-type-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.mw-lib-card-body {
+  padding: 10px 12px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.mw-lib-card-actions {
+  margin-top: auto;
+  padding-top: 10px;
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}

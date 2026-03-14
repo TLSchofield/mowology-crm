@@ -184,11 +184,13 @@ function selectSeasonalQuestions(PDO $db, int $userId, ?int $categoryId, int $se
 
     $selected = [];
 
+    $hasText = "AND (q.question_text IS NOT NULL AND q.question_text != '')";
+
     // ── Pool 1: Current season ────────────────────────────────────────────────
     $stmt = $db->prepare(
         "SELECT q.id FROM quiz_questions q
          LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
-         WHERE q.is_active = 1 $catWhere
+         WHERE q.is_active = 1 $catWhere $hasText
            AND FIND_IN_SET(?, IFNULL(q.relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0
            AND COALESCE(m.mastery_level, 0) < 5
          ORDER BY COALESCE(q.seasonal_priority, 5) DESC, COALESCE(m.mastery_level, 0) ASC, RAND()
@@ -202,7 +204,7 @@ function selectSeasonalQuestions(PDO $db, int $userId, ?int $categoryId, int $se
     $stmt = $db->prepare(
         "SELECT q.id FROM quiz_questions q
          LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
-         WHERE q.is_active = 1 $catWhere
+         WHERE q.is_active = 1 $catWhere $hasText
            AND q.id NOT IN ($excl)
            AND (FIND_IN_SET(?, IFNULL(q.relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0
                 OR FIND_IN_SET(?, IFNULL(q.relevant_months,'1,2,3,4,5,6,7,8,9,10,11,12')) > 0)
@@ -218,7 +220,7 @@ function selectSeasonalQuestions(PDO $db, int $userId, ?int $categoryId, int $se
     $stmt = $db->prepare(
         "SELECT q.id FROM quiz_questions q
          JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
-         WHERE q.is_active = 1 $catWhere
+         WHERE q.is_active = 1 $catWhere $hasText
            AND q.id NOT IN ($excl)
            AND m.next_review_at <= NOW()
            AND m.mastery_level >= 1
@@ -235,7 +237,7 @@ function selectSeasonalQuestions(PDO $db, int $userId, ?int $categoryId, int $se
         $stmt = $db->prepare(
             "SELECT q.id FROM quiz_questions q
              LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
-             WHERE q.is_active = 1 $catWhere
+             WHERE q.is_active = 1 $catWhere $hasText
                AND q.id NOT IN ($excl)
              ORDER BY COALESCE(m.mastery_level, 0) ASC, RAND()
              LIMIT $needed"
@@ -701,6 +703,7 @@ switch ($action) {
                      FROM quiz_questions q
                      LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
                      WHERE q.category_id = ? AND q.is_active = 1
+                       AND (q.question_text IS NOT NULL AND q.question_text != '')
                      ORDER BY not_due ASC, mlvl ASC, RAND()
                      LIMIT {$sessionLength}"
                 );
@@ -714,6 +717,7 @@ switch ($action) {
                      FROM quiz_questions q
                      LEFT JOIN quiz_user_mastery m ON m.question_id = q.id AND m.user_id = ?
                      WHERE q.is_active = 1
+                       AND (q.question_text IS NOT NULL AND q.question_text != '')
                      ORDER BY not_due ASC, mlvl ASC, RAND()
                      LIMIT {$sessionLength}"
                 );
@@ -723,10 +727,10 @@ switch ($action) {
         } elseif ($mode === 'random') {
             // Pure random mode
             if ($categoryId !== null) {
-                $stmt = $db->prepare("SELECT id FROM quiz_questions WHERE category_id=? AND is_active=1 ORDER BY RAND() LIMIT {$sessionLength}");
+                $stmt = $db->prepare("SELECT id FROM quiz_questions WHERE category_id=? AND is_active=1 AND (question_text IS NOT NULL AND question_text != '') ORDER BY RAND() LIMIT {$sessionLength}");
                 $stmt->execute([$categoryId]);
             } else {
-                $stmt = $db->query("SELECT id FROM quiz_questions WHERE is_active=1 ORDER BY RAND() LIMIT {$sessionLength}");
+                $stmt = $db->query("SELECT id FROM quiz_questions WHERE is_active=1 AND (question_text IS NOT NULL AND question_text != '') ORDER BY RAND() LIMIT {$sessionLength}");
             }
             $qids = $stmt->fetchAll(PDO::FETCH_COLUMN);
         } else {
@@ -1408,6 +1412,89 @@ switch ($action) {
 
         $alreadyDone = ($db->lastInsertId() == 0);
         qOk(['already_done' => $alreadyDone]);
+
+    // ── Admin: list plant/weed library entries ────────────────────────────────
+    case 'library_list':
+        requireAdminQ($isAdmin);
+        $type   = $_GET['type']   ?? '';
+        $search = trim($_GET['q'] ?? '');
+        $sql    = "SELECT * FROM quiz_plant_library WHERE is_active = 1";
+        $params = [];
+        if ($type && in_array($type, ['plant','weed','grass','shrub','tree','fungus'], true)) {
+            $sql    .= " AND type = ?";
+            $params[] = $type;
+        }
+        if ($search !== '') {
+            $like     = '%' . $search . '%';
+            $sql     .= " AND (common_name LIKE ? OR latin_name LIKE ? OR tags LIKE ? OR description LIKE ?)";
+            $params   = array_merge($params, [$like, $like, $like, $like]);
+        }
+        $sql .= " ORDER BY type ASC, common_name ASC";
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        qOk(['entries' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+
+    // ── Admin: save plant/weed library entry ──────────────────────────────────
+    case 'save_library_entry':
+        requireAdminQ($isAdmin);
+        $input = postInput(); verifyCsrf($input);
+        $id    = (int)($input['id'] ?? 0);
+        $name  = trim($input['common_name'] ?? '');
+        if ($name === '') qErr('Common name is required');
+        $validTypes = ['plant','weed','grass','shrub','tree','fungus'];
+        $type  = in_array($input['type'] ?? '', $validTypes, true) ? $input['type'] : 'plant';
+        $data  = [
+            trim($input['common_name'] ?? ''),
+            trim($input['latin_name'] ?? '') ?: null,
+            $type,
+            trim($input['description'] ?? '') ?: null,
+            trim($input['identification_notes'] ?? '') ?: null,
+            trim($input['image_path'] ?? '') ?: null,
+            trim($input['tags'] ?? '') ?: null,
+        ];
+        if ($id > 0) {
+            $db->prepare(
+                "UPDATE quiz_plant_library
+                 SET common_name=?, latin_name=?, type=?, description=?,
+                     identification_notes=?, image_path=?, tags=?, updated_at=NOW()
+                 WHERE id=?"
+            )->execute(array_merge($data, [$id]));
+            qOk(['message' => 'Entry updated', 'id' => $id]);
+        } else {
+            $db->prepare(
+                "INSERT INTO quiz_plant_library
+                    (common_name, latin_name, type, description, identification_notes, image_path, tags)
+                 VALUES (?,?,?,?,?,?,?)"
+            )->execute($data);
+            qOk(['message' => 'Entry created', 'id' => (int)$db->lastInsertId()]);
+        }
+
+    // ── Admin: delete plant/weed library entry ────────────────────────────────
+    case 'delete_library_entry':
+        requireAdminQ($isAdmin);
+        $input = postInput(); verifyCsrf($input);
+        $id    = (int)($input['id'] ?? 0);
+        if ($id <= 0) qErr('Invalid id');
+        $db->prepare("DELETE FROM quiz_plant_library WHERE id=?")->execute([$id]);
+        qOk(['message' => 'Entry deleted']);
+
+    // ── Admin: upload library image ───────────────────────────────────────────
+    case 'upload_library_image':
+        requireAdminQ($isAdmin);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') qErr('POST required', 405);
+        $file = $_FILES['image'] ?? null;
+        if (!$file || $file['error'] !== UPLOAD_ERR_OK) qErr('Upload failed');
+        $allowed  = ['image/jpeg','image/png','image/gif','image/webp'];
+        $mimeType = mime_content_type($file['tmp_name']);
+        if (!in_array($mimeType, $allowed, true)) qErr('Invalid file type');
+        if ($file['size'] > 8 * 1024 * 1024) qErr('File too large — max 8MB');
+        $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $ext      = in_array($ext, ['jpg','jpeg','png','gif','webp']) ? $ext : 'jpg';
+        $filename = 'lib_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $destDir  = PUBLIC_ROOT . '/uploads/quiz';
+        if (!is_dir($destDir)) mkdir($destDir, 0755, true);
+        if (!move_uploaded_file($file['tmp_name'], $destDir . '/' . $filename)) qErr('Failed to save file');
+        qOk(['image_path' => '/uploads/quiz/' . $filename]);
 
     default:
         qErr('Unknown action', 404);

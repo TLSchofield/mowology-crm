@@ -15,7 +15,7 @@ if (($user['role'] ?? '') !== 'admin') {
     exit;
 }
 
-$activeTab  = in_array($_GET['tab'] ?? '', ['categories','questions','leaderboard','campaigns']) ? $_GET['tab'] : 'questions';
+$activeTab  = in_array($_GET['tab'] ?? '', ['categories','questions','leaderboard','campaigns','library']) ? $_GET['tab'] : 'questions';
 $csrfToken  = function_exists('generateCSRFToken') ? generateCSRFToken() : '';
 $pageTitle  = 'Quiz Admin';
 $activePage = 'quiz';
@@ -45,6 +45,9 @@ $activePage = 'quiz';
     </li>
     <li class="nav-item">
         <a class="nav-link <?php echo $activeTab === 'campaigns' ? 'active' : ''; ?>" href="?tab=campaigns">🌱 Seasonal Campaigns</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link <?php echo $activeTab === 'library' ? 'active' : ''; ?>" href="?tab=library">🌿 Plant &amp; Weed Library</a>
     </li>
 </ul>
 
@@ -180,6 +183,127 @@ $activePage = 'quiz';
         <div class="card-body p-0">
             <div id="campaignsList">
                 <div class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TAB: PLANT & WEED LIBRARY
+═══════════════════════════════════════════════════════════════════════════ -->
+<div id="tabLibrary" <?php echo $activeTab !== 'library' ? 'style="display:none"' : ''; ?>>
+
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <p class="text-muted small mb-0">Reference library of plants and weeds. Use entries to quickly create quiz questions.</p>
+        <button class="btn mw-btn-green btn-sm" onclick="openLibraryModal(null)">
+            <i data-feather="plus" style="width:14px;height:14px;"></i> Add Entry
+        </button>
+    </div>
+
+    <!-- Search + filter -->
+    <div class="card mb-3">
+        <div class="card-body py-2 px-3">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <div class="flex-grow-1" style="max-width:340px;">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i data-feather="search" style="width:13px;height:13px;"></i></span>
+                        <input type="text" id="libSearch" class="form-control" placeholder="Search by name, latin name, or tags…"
+                               oninput="filterLibraryDisplay()">
+                    </div>
+                </div>
+                <div class="d-flex gap-1 flex-wrap" id="libTypeFilters">
+                    <button class="btn btn-sm btn-primary lib-type-btn active" data-type="">All</button>
+                    <button class="btn btn-sm btn-outline-danger lib-type-btn"   data-type="weed">Weeds</button>
+                    <button class="btn btn-sm btn-outline-success lib-type-btn"  data-type="plant">Plants</button>
+                    <button class="btn btn-sm btn-outline-info lib-type-btn"     data-type="grass">Grass</button>
+                    <button class="btn btn-sm btn-outline-secondary lib-type-btn" data-type="shrub">Shrubs</button>
+                    <button class="btn btn-sm btn-outline-secondary lib-type-btn" data-type="tree">Trees</button>
+                    <button class="btn btn-sm btn-outline-warning lib-type-btn"  data-type="fungus">Fungus</button>
+                </div>
+                <span class="text-muted small ms-auto" id="libCount"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Card grid -->
+    <div id="libraryGrid" class="mw-lib-grid">
+        <div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL: Add / Edit Library Entry
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="libraryModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="libModalTitle">Add Library Entry</h5>
+                <button type="button" class="btn-close" data-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="libId">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Common Name <span class="text-danger">*</span></label>
+                        <input type="text" id="libCommonName" class="form-control form-control-sm"
+                               placeholder="e.g. Dandelion">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Latin / Scientific Name</label>
+                        <input type="text" id="libLatinName" class="form-control form-control-sm"
+                               placeholder="e.g. Taraxacum officinale" style="font-style:italic;">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">Type <span class="text-danger">*</span></label>
+                        <select id="libType" class="form-select form-select-sm">
+                            <option value="weed">Weed</option>
+                            <option value="plant">Plant</option>
+                            <option value="grass">Grass</option>
+                            <option value="shrub">Shrub</option>
+                            <option value="tree">Tree</option>
+                            <option value="fungus">Fungus / Disease</option>
+                        </select>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label small fw-bold">Tags <span class="text-muted fw-normal">(comma-separated, for search)</span></label>
+                        <input type="text" id="libTags" class="form-control form-control-sm"
+                               placeholder="e.g. broadleaf, summer, invasive, lawn">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Description</label>
+                        <textarea id="libDescription" class="form-control form-control-sm" rows="2"
+                                  placeholder="Brief description shown in library cards and pre-filled into quiz learn notes."></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Identification Notes <span class="text-muted fw-normal">(how to ID it in the field)</span></label>
+                        <textarea id="libIdNotes" class="form-control form-control-sm" rows="2"
+                                  placeholder="e.g. Hollow stem with milky sap, deep taproot, jagged basal rosette leaves."></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-bold">Image</label>
+                        <div class="d-flex gap-2 align-items-start flex-wrap">
+                            <div id="libImgPreview" style="width:80px;height:80px;border:1px solid #dee2e6;border-radius:6px;background:#f8f9fa;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+                                <i data-feather="image" style="width:28px;height:28px;color:#ccc;" id="libImgPlaceholder"></i>
+                                <img id="libImgThumb" src="" alt="" style="width:100%;height:100%;object-fit:cover;display:none;">
+                            </div>
+                            <div class="flex-grow-1">
+                                <input type="text" id="libImagePath" class="form-control form-control-sm mb-2"
+                                       placeholder="Paste image URL, or upload below"
+                                       oninput="updateLibImgPreview(this.value)">
+                                <label class="btn btn-sm btn-outline-secondary mb-0" style="cursor:pointer;">
+                                    <i data-feather="upload" style="width:13px;height:13px;"></i> Upload Image
+                                    <input type="file" id="libImageFile" accept="image/*" style="display:none;" onchange="uploadLibraryImage(this)">
+                                </label>
+                                <div class="text-muted mt-1" style="font-size:11px;" id="libUploadStatus"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm mw-btn-green" onclick="saveLibraryEntry()">Save Entry</button>
             </div>
         </div>
     </div>
@@ -1041,6 +1165,264 @@ function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ══ Plant & Weed Library ══════════════════════════════════════════════════════
+
+const LIB_TYPE_COLORS = {
+    weed:   { bg: '#dc3545', label: 'Weed' },
+    plant:  { bg: '#198754', label: 'Plant' },
+    grass:  { bg: '#0dcaf0', label: 'Grass' },
+    shrub:  { bg: '#6f42c1', label: 'Shrub' },
+    tree:   { bg: '#146c43', label: 'Tree' },
+    fungus: { bg: '#fd7e14', label: 'Fungus' },
+};
+
+let allLibraryEntries = [];
+let libActiveType = '';
+
+async function loadLibrary() {
+    const grid = document.getElementById('libraryGrid');
+    if (!grid) return;
+    grid.innerHTML = '<div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div>';
+    const r = await fetch('/crm/api/quiz.php?action=library_list');
+    const d = await r.json();
+    if (!d.success) { grid.innerHTML = '<div class="text-center py-4 text-danger">Failed to load library.</div>'; return; }
+    allLibraryEntries = d.entries || [];
+    filterLibraryDisplay();
+}
+
+function filterLibraryDisplay() {
+    const search = (document.getElementById('libSearch')?.value || '').toLowerCase();
+    const grid   = document.getElementById('libraryGrid');
+    if (!grid) return;
+
+    let entries = allLibraryEntries;
+    if (libActiveType) entries = entries.filter(e => e.type === libActiveType);
+    if (search) {
+        entries = entries.filter(e =>
+            (e.common_name  || '').toLowerCase().includes(search) ||
+            (e.latin_name   || '').toLowerCase().includes(search) ||
+            (e.tags         || '').toLowerCase().includes(search) ||
+            (e.description  || '').toLowerCase().includes(search)
+        );
+    }
+
+    const countEl = document.getElementById('libCount');
+    if (countEl) countEl.textContent = entries.length + ' entr' + (entries.length === 1 ? 'y' : 'ies');
+
+    if (!entries.length) {
+        grid.innerHTML = '<div class="text-center py-5 text-muted" style="grid-column:1/-1;">No entries found. Click "Add Entry" to get started.</div>';
+        return;
+    }
+
+    grid.innerHTML = entries.map(e => {
+        const tc = LIB_TYPE_COLORS[e.type] || { bg: '#6c757d', label: e.type };
+        const img = e.image_path
+            ? `<img src="${escHtml(e.image_path)}" alt="" style="width:100%;height:140px;object-fit:cover;">`
+            : `<div style="width:100%;height:140px;background:#f0f4f1;display:flex;align-items:center;justify-content:center;"><i data-feather="image" style="width:36px;height:36px;color:#ccc;"></i></div>`;
+        const tags = (e.tags || '').split(',').filter(Boolean).map(t =>
+            `<span class="badge bg-light text-dark border" style="font-size:10px;">${escHtml(t.trim())}</span>`
+        ).join(' ');
+        const latin = e.latin_name ? `<div class="text-muted" style="font-size:11px;font-style:italic;">${escHtml(e.latin_name)}</div>` : '';
+        const desc  = e.description ? `<div class="text-muted mt-1" style="font-size:12px;line-height:1.3;">${escHtml(e.description).slice(0,100)}${e.description.length>100?'…':''}</div>` : '';
+        const entryJson = escHtml(JSON.stringify(e));
+        return `<div class="mw-lib-card" data-type="${escHtml(e.type)}">
+            <div class="mw-lib-card-img">${img}</div>
+            <span class="mw-lib-type-badge" style="background:${tc.bg};">${tc.label}</span>
+            <div class="mw-lib-card-body">
+                <div class="fw-bold" style="font-size:13px;">${escHtml(e.common_name)}</div>
+                ${latin}
+                ${desc}
+                ${tags ? `<div class="mt-1 d-flex flex-wrap gap-1">${tags}</div>` : ''}
+                <div class="mw-lib-card-actions">
+                    <button class="btn btn-xs btn-outline-secondary" onclick="openLibraryModal(${e.id})">Edit</button>
+                    <button class="btn btn-xs mw-btn-green" onclick='useInQuestion(${JSON.stringify(e)})'>Use in Question</button>
+                    <button class="btn btn-xs btn-outline-danger" onclick="deleteLibraryEntry(${e.id})">Delete</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+    feather.replace();
+}
+
+// Type filter pills
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.lib-type-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.lib-type-btn').forEach(b => b.classList.remove('active','btn-primary','btn-danger','btn-success','btn-info','btn-warning'));
+            document.querySelectorAll('.lib-type-btn').forEach(b => {
+                if (!b.classList.contains('active')) {
+                    const t = b.dataset.type;
+                    b.classList.add(t ? 'btn-outline-' + (LIB_TYPE_COLORS[t] ? typeToBootstrap(t) : 'secondary') : 'btn-outline-secondary');
+                }
+            });
+            this.classList.add('active');
+            if (!this.dataset.type) {
+                this.classList.remove('btn-outline-secondary'); this.classList.add('btn-primary');
+            }
+            libActiveType = this.dataset.type;
+            filterLibraryDisplay();
+        });
+    });
+});
+
+function typeToBootstrap(t) {
+    const m = { weed:'danger', plant:'success', grass:'info', shrub:'secondary', tree:'secondary', fungus:'warning' };
+    return m[t] || 'secondary';
+}
+
+function openLibraryModal(id) {
+    document.getElementById('libId').value          = '';
+    document.getElementById('libCommonName').value  = '';
+    document.getElementById('libLatinName').value   = '';
+    document.getElementById('libType').value        = 'weed';
+    document.getElementById('libTags').value        = '';
+    document.getElementById('libDescription').value = '';
+    document.getElementById('libIdNotes').value     = '';
+    document.getElementById('libImagePath').value   = '';
+    document.getElementById('libUploadStatus').textContent = '';
+    updateLibImgPreview('');
+    document.getElementById('libModalTitle').textContent = id ? 'Edit Entry' : 'Add Library Entry';
+
+    if (id) {
+        const entry = allLibraryEntries.find(e => parseInt(e.id) === id);
+        if (entry) {
+            document.getElementById('libId').value          = entry.id;
+            document.getElementById('libCommonName').value  = entry.common_name || '';
+            document.getElementById('libLatinName').value   = entry.latin_name  || '';
+            document.getElementById('libType').value        = entry.type        || 'weed';
+            document.getElementById('libTags').value        = entry.tags        || '';
+            document.getElementById('libDescription').value = entry.description || '';
+            document.getElementById('libIdNotes').value     = entry.identification_notes || '';
+            document.getElementById('libImagePath').value   = entry.image_path  || '';
+            updateLibImgPreview(entry.image_path || '');
+        }
+    }
+    $('#libraryModal').modal('show');
+}
+
+async function saveLibraryEntry() {
+    const name = document.getElementById('libCommonName').value.trim();
+    if (!name) { alert('Common name is required.'); return; }
+    const id = document.getElementById('libId').value;
+    const payload = {
+        csrf_token:           CSRF,
+        common_name:          name,
+        latin_name:           document.getElementById('libLatinName').value.trim() || null,
+        type:                 document.getElementById('libType').value,
+        tags:                 document.getElementById('libTags').value.trim() || null,
+        description:          document.getElementById('libDescription').value.trim() || null,
+        identification_notes: document.getElementById('libIdNotes').value.trim() || null,
+        image_path:           document.getElementById('libImagePath').value.trim() || null,
+    };
+    if (id) payload.id = parseInt(id);
+    const r = await fetch('/crm/api/quiz.php?action=save_library_entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.success) {
+        $('#libraryModal').modal('hide');
+        loadLibrary();
+    } else {
+        alert(d.error || 'Save failed');
+    }
+}
+
+async function deleteLibraryEntry(id) {
+    if (!confirm('Delete this entry from the library?')) return;
+    const r = await fetch('/crm/api/quiz.php?action=delete_library_entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, csrf_token: CSRF }),
+    });
+    const d = await r.json();
+    if (d.success) loadLibrary();
+    else alert(d.error || 'Delete failed');
+}
+
+async function uploadLibraryImage(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('libUploadStatus');
+    statusEl.textContent = 'Uploading…';
+    const fd = new FormData();
+    fd.append('image', file);
+    const r = await fetch('/crm/api/quiz.php?action=upload_library_image', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.success && d.image_path) {
+        document.getElementById('libImagePath').value = d.image_path;
+        updateLibImgPreview(d.image_path);
+        statusEl.textContent = 'Uploaded.';
+    } else {
+        statusEl.textContent = d.error || 'Upload failed';
+    }
+    input.value = '';
+}
+
+function updateLibImgPreview(url) {
+    const thumb = document.getElementById('libImgThumb');
+    const placeholder = document.getElementById('libImgPlaceholder');
+    if (url) {
+        thumb.src = url;
+        thumb.style.display = 'block';
+        if (placeholder) placeholder.style.display = 'none';
+    } else {
+        thumb.style.display = 'none';
+        if (placeholder) placeholder.style.display = '';
+    }
+}
+
+/**
+ * Pre-fill the question modal from a library entry and switch to the Questions tab.
+ * The admin still needs to add answer options and save.
+ */
+function useInQuestion(entry) {
+    $('#libraryModal').modal('hide');
+
+    // Switch to Questions tab
+    document.querySelectorAll('.nav-link').forEach(a => a.classList.remove('active'));
+    document.querySelectorAll('[id^="tab"]').forEach(d => d.style.display = 'none');
+    const qTab = document.querySelector('a[href="?tab=questions"]');
+    if (qTab) qTab.classList.add('active');
+    const qDiv = document.getElementById('tabQuestions');
+    if (qDiv) qDiv.style.display = '';
+
+    // Build learn notes from library data
+    let learnNotes = entry.common_name;
+    if (entry.latin_name) learnNotes += ' (' + entry.latin_name + ')';
+    if (entry.description) learnNotes += '\n' + entry.description;
+    if (entry.identification_notes) learnNotes += '\n\nID Notes: ' + entry.identification_notes;
+
+    // Auto-select category: Weed ID for weeds, Plant/Grass ID for plants/grass
+    const targetCatName = (entry.type === 'weed') ? 'Weed Identification' : 'Plant & Grass ID';
+
+    openQuestionModal(null);
+
+    // Fill fields after modal opens (short delay for DOM)
+    setTimeout(() => {
+        document.getElementById('qmText').value       = 'Identify this ' + entry.type + ':';
+        document.getElementById('qmLearnNotes').value = learnNotes;
+
+        // Set category
+        const catSelect = document.getElementById('qmCategory');
+        if (catSelect) {
+            for (let opt of catSelect.options) {
+                if (opt.text.includes('Weed') && entry.type === 'weed') { catSelect.value = opt.value; break; }
+                if ((opt.text.includes('Plant') || opt.text.includes('Grass')) && entry.type !== 'weed') { catSelect.value = opt.value; break; }
+            }
+        }
+
+        // Add image if present
+        if (entry.image_path && qmImages.length < 5) {
+            qmImages.push({ image_path: entry.image_path, caption: '' });
+            renderImageManager();
+        }
+
+        feather.replace();
+    }, 200);
+}
+
 // ── Init ────────────────────────────────────────────────────────────────────
 loadCategories().then(() => {
     <?php if ($activeTab === 'questions'): ?>
@@ -1050,6 +1432,8 @@ loadCategories().then(() => {
     loadPrizeHistory();
     <?php elseif ($activeTab === 'campaigns'): ?>
     loadCampaignsList();
+    <?php elseif ($activeTab === 'library'): ?>
+    loadLibrary();
     <?php endif; ?>
 });
 
