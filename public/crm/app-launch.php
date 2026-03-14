@@ -1,12 +1,13 @@
 <?php
 /**
- * App Launch — Mobile-first opening flow
+ * App Launch — Mobile-first pre-shift flow
  *
- * Screen 1: Splash (Mowology logo, loads data behind the scenes)
- * Screen 2: Pre-shift Quiz (if enabled & not done today — 3 questions, nothing else)
- * Screen 3: Homebase (jobs/revenue card, weather cards, big clock-in)
+ * Screen 1: Splash  (data loads in background)
+ * Screen 2: Learn   (one plant-care flashcard from quiz bank — ALL users)
+ * Screen 3: Quiz    (3 multiple-choice questions — if quiz enabled & not done today)
+ * Screen 4: Clock In (full-screen, no navbar — GPS ping + tracker on submit)
  *
- * On clock-in → redirect to schedule (day view)
+ * Already clocked in → skip straight to schedule.
  */
 declare(strict_types=1);
 
@@ -26,12 +27,16 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 requireLogin();
 $user = getCurrentUser();
 $csrfToken = generateCSRFToken();
-session_write_close(); // release session lock — all session reads/writes done
+session_write_close();
 $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0];
 ?>
+<!-- app-launch v20260313b -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -47,14 +52,12 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <style>
         :root {
             --al-forest: #0D3B2E;
-            --al-green: #2D8659;
-            --al-dark: #1A5F4A;
-            --al-lime: #7FD858;
-            --al-light: #E8F3F0;
-            --al-orange: #e85d04;
-            --al-cream: #F6F4EF;
-            --al-text: #1a1a2e;
-            --al-muted: #6b7280;
+            --al-green:  #2D8659;
+            --al-dark:   #1A5F4A;
+            --al-lime:   #7FD858;
+            --al-light:  #E8F3F0;
+            --al-text:   #1a1a2e;
+            --al-muted:  #6b7280;
             --al-radius: 18px;
         }
 
@@ -62,14 +65,14 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--al-cream);
+            background: var(--al-forest);
             color: var(--al-text);
             min-height: 100dvh;
             overflow-x: hidden;
             -webkit-font-smoothing: antialiased;
         }
 
-        /* ── Screens ───────────────────────────────────────── */
+        /* ── Screens ─────────────────────────────────────────── */
         .al-screen {
             position: fixed;
             inset: 0;
@@ -77,514 +80,247 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            transition: opacity 0.45s ease, transform 0.45s ease;
+            transition: opacity 0.4s ease, transform 0.4s ease;
             z-index: 10;
         }
         .al-screen.hidden {
             opacity: 0;
             pointer-events: none;
-            transform: translateY(24px);
+            transform: translateY(20px);
         }
         .al-screen.exit {
             opacity: 0;
             pointer-events: none;
-            transform: scale(0.96);
+            transform: scale(0.97);
         }
 
-        /* ── Screen 1: Splash ─────────────────────────────── */
-        .al-splash {
-            background: var(--al-forest);
-            z-index: 30;
-        }
+        /* ── Screen 1: Splash ───────────────────────────────── */
+        .al-splash { background: var(--al-forest); z-index: 30; }
         .al-splash-logo {
-            width: 140px;
-            height: 140px;
-            border-radius: 32px;
-            object-fit: cover;
+            width: 140px; height: 140px;
+            border-radius: 32px; object-fit: cover;
             animation: al-breathe 2s ease-in-out infinite;
         }
         @keyframes al-breathe {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.04); opacity: 0.9; }
+            0%,100% { transform: scale(1); opacity: 1; }
+            50%      { transform: scale(1.04); opacity: 0.9; }
         }
         .al-splash-name {
-            margin-top: 20px;
-            font-size: 28px;
-            font-weight: 700;
-            color: #fff;
-            letter-spacing: -0.5px;
+            margin-top: 20px; font-size: 28px; font-weight: 700;
+            color: #fff; letter-spacing: -0.5px;
         }
-        .al-splash-dots {
-            margin-top: 32px;
-            display: flex;
-            gap: 8px;
-        }
+        .al-splash-dots { margin-top: 32px; display: flex; gap: 8px; }
         .al-splash-dots span {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
+            width: 8px; height: 8px; border-radius: 50%;
             background: rgba(255,255,255,0.3);
             animation: al-dot-pulse 1.4s ease-in-out infinite;
         }
         .al-splash-dots span:nth-child(2) { animation-delay: 0.2s; }
         .al-splash-dots span:nth-child(3) { animation-delay: 0.4s; }
         @keyframes al-dot-pulse {
-            0%, 80%, 100% { background: rgba(255,255,255,0.3); transform: scale(1); }
-            40% { background: rgba(255,255,255,0.8); transform: scale(1.3); }
+            0%,80%,100% { background: rgba(255,255,255,0.3); transform: scale(1); }
+            40%          { background: rgba(255,255,255,0.8); transform: scale(1.3); }
         }
 
-        /* ── Screen 2: Quiz ───────────────────────────────── */
+        /* ── Screens 2 & 3: Quiz + Learn (shared dark bg) ───── */
         .al-quiz {
             background: var(--al-forest);
             padding: 0 24px;
+            padding-top: max(20px, env(safe-area-inset-top, 20px));
             z-index: 20;
         }
+
+        /* Progress dots (quiz only, hidden during learn card) */
         .al-quiz-progress {
-            display: flex;
-            gap: 8px;
-            justify-content: center;
-            margin-bottom: 36px;
+            display: flex; gap: 8px; justify-content: center;
+            margin-bottom: 28px;
+            transition: opacity 0.3s;
         }
+        .al-quiz-progress.hidden-progress { opacity: 0; pointer-events: none; }
         .al-quiz-progress .dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
+            width: 12px; height: 12px; border-radius: 50%;
             background: rgba(255,255,255,0.25);
             transition: background 0.3s, transform 0.3s;
         }
-        .al-quiz-progress .dot.active {
-            background: var(--al-lime);
-            transform: scale(1.25);
-        }
-        .al-quiz-progress .dot.done {
-            background: rgba(127,216,88,0.55);
-        }
+        .al-quiz-progress .dot.active  { background: var(--al-lime); transform: scale(1.25); }
+        .al-quiz-progress .dot.done    { background: rgba(127,216,88,0.55); }
 
+        /* Learn card step indicator (shown instead of dots) */
+        .al-learn-step {
+            text-align: center;
+            margin-bottom: 28px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: rgba(255,255,255,0.55);
+        }
+        .al-learn-step span { color: var(--al-lime); }
+
+        /* Shared white card */
         .al-quiz-card {
             background: #fff;
             border-radius: var(--al-radius);
-            padding: 28px 24px 24px;
-            width: 100%;
-            max-width: 420px;
-            box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+            width: 100%; max-width: 420px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+            overflow: hidden;
+            max-height: calc(100dvh - 120px);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
+        .al-quiz-card-inner { padding: 24px 22px 22px; }
+
+        /* Category badge */
         .al-quiz-category {
             display: inline-block;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            padding: 4px 10px;
-            border-radius: 6px;
-            background: var(--al-light);
-            color: var(--al-green);
-            margin-bottom: 16px;
+            font-size: 11px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.6px;
+            padding: 4px 10px; border-radius: 6px;
+            background: var(--al-light); color: var(--al-green);
+            margin-bottom: 14px;
         }
-        .al-quiz-img-wrap {
-            margin-bottom: 16px;
-            border-radius: 12px;
-            overflow: hidden;
-        }
+
+        /* Image */
+        .al-quiz-img-wrap { margin-bottom: 14px; border-radius: 10px; overflow: hidden; }
         .al-quiz-img {
-            width: 100%;
-            height: auto;
-            max-height: 200px;
-            object-fit: cover;
-            display: block;
-            border-radius: 12px;
+            width: 100%; height: auto; max-height: 190px;
+            object-fit: cover; display: block;
         }
+
+        /* Question text */
         .al-quiz-question {
-            font-size: 18px;
-            font-weight: 700;
-            line-height: 1.45;
-            color: var(--al-text);
-            margin-bottom: 22px;
+            font-size: 17px; font-weight: 700;
+            line-height: 1.45; color: var(--al-text);
+            margin-bottom: 18px;
         }
-        .al-quiz-options {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+
+        /* Multiple choice */
+        .al-quiz-options { display: flex; flex-direction: column; gap: 10px; }
         .al-quiz-option {
-            display: block;
-            width: 100%;
-            padding: 14px 18px;
-            border: 2px solid #e5e7eb;
-            border-radius: 12px;
-            background: #fff;
-            font-size: 15px;
-            font-weight: 500;
-            color: var(--al-text);
-            text-align: left;
-            cursor: pointer;
-            transition: all 0.18s;
+            display: block; width: 100%;
+            padding: 13px 16px;
+            border: 2px solid #e5e7eb; border-radius: 12px;
+            background: #fff; font-size: 15px; font-weight: 500;
+            color: var(--al-text); text-align: left;
+            cursor: pointer; transition: all 0.15s;
+            font-family: inherit;
         }
-        .al-quiz-option:active {
-            transform: scale(0.98);
-        }
-        .al-quiz-option.selected {
-            border-color: var(--al-green);
-            background: var(--al-light);
-        }
-        .al-quiz-option.correct {
-            border-color: #22c55e;
-            background: #f0fdf4;
-            color: #15803d;
-            font-weight: 600;
-        }
-        .al-quiz-option.wrong {
-            border-color: #ef4444;
-            background: #fef2f2;
-            color: #991b1b;
-        }
-        .al-quiz-option:disabled {
-            cursor: default;
-        }
+        .al-quiz-option:active  { transform: scale(0.98); }
+        .al-quiz-option.correct { border-color: #22c55e; background: #f0fdf4; color: #15803d; font-weight: 600; }
+        .al-quiz-option.wrong   { border-color: #ef4444; background: #fef2f2; color: #991b1b; }
+        .al-quiz-option:disabled { cursor: default; }
         .al-quiz-feedback {
-            text-align: center;
-            margin-top: 16px;
-            font-size: 14px;
-            font-weight: 700;
-            min-height: 20px;
-            letter-spacing: 0.2px;
+            text-align: center; margin-top: 14px;
+            font-size: 14px; font-weight: 700; min-height: 20px;
         }
 
-        /* Quiz complete overlay */
-        .al-quiz-complete {
-            text-align: center;
-            padding: 12px 0;
-        }
-        .al-quiz-complete .score-circle {
-            width: 96px;
-            height: 96px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--al-green), var(--al-lime));
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 16px;
-            color: #fff;
-            font-size: 28px;
-            font-weight: 800;
-        }
-        .al-quiz-complete h2 {
-            font-size: 22px;
-            font-weight: 700;
-            color: var(--al-forest);
-        }
-        .al-quiz-complete p {
-            font-size: 14px;
-            color: var(--al-muted);
-            margin-top: 6px;
-        }
-
-        /* ── Screen 3: Homebase ───────────────────────────── */
-        .al-home {
-            background: var(--al-cream);
-            padding: 0 20px;
-            padding-top: max(52px, env(safe-area-inset-top, 20px));
-            padding-bottom: max(24px, env(safe-area-inset-bottom, 16px));
-            justify-content: flex-start;
-            overflow-y: auto;
-            z-index: 10;
-        }
-
-        .al-home-greeting {
-            text-align: center;
-            margin-bottom: 28px;
-        }
-        .al-home-greeting h1 {
-            font-size: 26px;
-            font-weight: 800;
-            color: var(--al-forest);
-            letter-spacing: -0.5px;
-        }
-        .al-home-greeting p {
-            font-size: 14px;
-            color: var(--al-muted);
-            margin-top: 4px;
-        }
-
-        .al-home-cards {
-            width: 100%;
-            max-width: 440px;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-
-        .al-card {
-            background: #fff;
-            border-radius: var(--al-radius);
-            padding: 22px 22px 20px;
-            box-shadow: 0 2px 14px rgba(0,0,0,0.05);
-        }
-
-        /* ── Jobs / Revenue card ─────────────────────────── */
-        .al-jobs-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 14px;
-        }
-        .al-jobs-label {
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--al-muted);
-        }
-        .al-jobs-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            background: var(--al-light);
-            color: var(--al-green);
-            font-size: 12px;
-            font-weight: 700;
-            padding: 3px 9px;
-            border-radius: 20px;
-        }
-        .al-jobs-main {
-            display: flex;
-            align-items: baseline;
-            gap: 6px;
-            margin-bottom: 16px;
-        }
-        .al-jobs-count {
-            font-size: 52px;
-            font-weight: 800;
-            line-height: 1;
-            color: var(--al-forest);
-            letter-spacing: -2px;
-        }
-        .al-jobs-unit {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--al-muted);
-        }
-        .al-jobs-revenue {
-            font-size: 22px;
-            font-weight: 700;
-            color: var(--al-green);
-            margin-bottom: 14px;
-        }
-        .al-jobs-revenue span {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--al-muted);
-            margin-left: 4px;
-        }
-        .al-revenue-bar {
-            height: 6px;
-            border-radius: 3px;
-            background: #e5e7eb;
-            overflow: hidden;
-            margin-bottom: 10px;
-        }
-        .al-revenue-bar-fill {
-            height: 100%;
-            border-radius: 3px;
-            background: linear-gradient(90deg, var(--al-green), var(--al-lime));
-            transition: width 1.2s cubic-bezier(0.25, 1, 0.5, 1);
-            width: 0%;
-        }
-        .al-jobs-meta {
-            display: flex;
-            gap: 16px;
-            font-size: 13px;
-            color: var(--al-muted);
-        }
-        .al-jobs-meta span {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        /* ── Weather card ────────────────────────────────── */
-        .al-weather-card-header {
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--al-muted);
-            margin-bottom: 14px;
-        }
-        .al-weather-row {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-        .al-weather-icon {
-            font-size: 52px;
-            line-height: 1;
-            flex-shrink: 0;
-        }
-        .al-weather-info {
-            flex: 1;
-        }
-        .al-weather-condition {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--al-text);
-        }
-        .al-weather-temps {
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--al-forest);
-            margin-top: 3px;
-        }
-        .al-weather-detail {
-            font-size: 12px;
-            color: var(--al-muted);
-            margin-top: 3px;
-        }
-
-        /* ── Memory card ────────────────────────────────── */
-        .al-memory-card {
-            background: #fff;
-            border-radius: var(--al-radius);
-            overflow: hidden;
-            box-shadow: 0 2px 14px rgba(0,0,0,0.05);
-        }
-        .al-memory-season {
-            display: flex;
-            align-items: center;
-            gap: 7px;
-            padding: 13px 20px 0;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            color: var(--al-muted);
-        }
-        .al-memory-season-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--al-lime);
-            flex-shrink: 0;
-        }
-        .al-memory-img {
-            width: 100%;
-            height: 140px;
-            object-fit: cover;
-            display: block;
-            margin-top: 12px;
-        }
-        .al-memory-body {
-            padding: 16px 20px 20px;
-        }
-        .al-memory-cat {
-            display: inline-block;
-            font-size: 11px;
-            font-weight: 700;
-            padding: 3px 9px;
-            border-radius: 20px;
-            color: #fff;
-            margin-bottom: 12px;
-        }
-        .al-memory-q {
-            font-size: 15px;
-            font-weight: 600;
-            color: var(--al-text);
-            line-height: 1.45;
-            margin-bottom: 12px;
-        }
-        .al-memory-answer {
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
+        /* ── Learn card specifics ────────────────────────────── */
+        .al-learn-answer-block {
             background: var(--al-light);
             border-radius: 10px;
-            padding: 11px 14px;
+            padding: 12px 14px;
             margin-bottom: 10px;
         }
-        .al-memory-answer-icon {
-            font-size: 16px;
-            flex-shrink: 0;
-            margin-top: 1px;
+        .al-learn-answer-label {
+            font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            color: var(--al-green); margin-bottom: 5px;
         }
-        .al-memory-answer-text {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--al-dark);
-            line-height: 1.4;
+        .al-learn-answer-text {
+            font-size: 15px; font-weight: 700;
+            color: var(--al-dark); line-height: 1.35;
         }
-        .al-memory-notes {
-            font-size: 13px;
-            color: var(--al-muted);
-            line-height: 1.5;
+        .al-learn-notes {
+            font-size: 13px; color: var(--al-muted);
+            line-height: 1.55; margin-bottom: 18px;
+            border-left: 3px solid #e5e7eb;
+            padding-left: 12px;
+        }
+        .al-learn-got-it {
+            display: flex; align-items: center; justify-content: center;
+            gap: 8px; width: 100%;
+            padding: 15px 20px;
+            border: none; border-radius: 12px;
+            background: var(--al-forest);
+            color: #fff;
+            font-size: 16px; font-weight: 700;
+            cursor: pointer; font-family: inherit;
+            transition: opacity 0.15s, transform 0.15s;
+        }
+        .al-learn-got-it:active { opacity: 0.85; transform: scale(0.98); }
+
+        /* Quiz complete overlay */
+        .al-quiz-complete { text-align: center; padding: 16px 0; }
+        .al-quiz-complete .score-circle {
+            width: 96px; height: 96px; border-radius: 50%;
+            background: linear-gradient(135deg, var(--al-green), var(--al-lime));
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 16px;
+            color: #fff; font-size: 28px; font-weight: 800;
+        }
+        .al-quiz-complete h2 { font-size: 22px; font-weight: 700; color: var(--al-forest); }
+        .al-quiz-complete p  { font-size: 14px; color: var(--al-muted); margin-top: 6px; }
+
+        /* ── Screen 4: Clock In (full screen, dark) ─────────── */
+        .al-clockin {
+            background: var(--al-forest);
+            padding: 0 28px;
+            padding-top:    max(56px, env(safe-area-inset-top, 20px));
+            padding-bottom: max(40px, env(safe-area-inset-bottom, 24px));
+            justify-content: space-between;
+            z-index: 10;
+        }
+        .al-clockin-top {
+            text-align: center;
+            flex: 1;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 8px;
+        }
+        .al-clockin-emoji { font-size: 52px; line-height: 1; margin-bottom: 4px; }
+        .al-clockin-greeting {
+            font-size: 28px; font-weight: 800;
+            color: #fff; letter-spacing: -0.5px;
+        }
+        .al-clockin-date {
+            font-size: 14px; color: rgba(255,255,255,0.5);
+            font-weight: 500;
+        }
+        .al-clockin-tagline {
+            font-size: 13px; color: rgba(255,255,255,0.35);
             margin-top: 4px;
         }
-
-        /* ── Clock-in card ───────────────────────────────── */
-        .al-clock-card {
-            background: linear-gradient(145deg, var(--al-forest), var(--al-dark));
-            border-radius: var(--al-radius);
-            padding: 28px 22px 24px;
-            box-shadow: 0 8px 32px rgba(13,59,46,0.35);
-        }
-        .al-clock-card-label {
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: rgba(255,255,255,0.55);
-            text-align: center;
-            margin-bottom: 20px;
-        }
+        .al-clockin-btn-wrap { width: 100%; max-width: 400px; }
         .al-clock-btn {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            width: 100%;
-            padding: 22px;
-            border: none;
-            border-radius: 14px;
-            font-size: 20px;
-            font-weight: 800;
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px; width: 100%;
+            padding: 22px; border: none; border-radius: 16px;
+            font-size: 20px; font-weight: 800;
             color: var(--al-forest);
             background: linear-gradient(135deg, #a8e063, var(--al-lime));
             cursor: pointer;
             transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
-            box-shadow: 0 4px 20px rgba(127,216,88,0.4);
-            letter-spacing: -0.3px;
+            box-shadow: 0 4px 24px rgba(127,216,88,0.45);
+            letter-spacing: -0.3px; font-family: inherit;
         }
-        .al-clock-btn:active {
-            transform: scale(0.97);
-            box-shadow: 0 2px 10px rgba(127,216,88,0.3);
-        }
-        .al-clock-btn:disabled {
-            opacity: 0.7;
-        }
-        .al-clock-btn .btn-icon {
-            font-size: 26px;
-        }
-
+        .al-clock-btn:active  { transform: scale(0.97); box-shadow: 0 2px 12px rgba(127,216,88,0.3); }
+        .al-clock-btn:disabled { opacity: 0.7; }
+        .al-clock-btn .btn-icon { font-size: 26px; }
         .al-skip-link {
-            display: block;
-            text-align: center;
-            margin-top: 14px;
-            font-size: 13px;
-            color: rgba(255,255,255,0.45);
-            text-decoration: none;
-            padding: 4px;
+            display: block; text-align: center;
+            margin-top: 16px; font-size: 13px;
+            color: rgba(255,255,255,0.35); text-decoration: none; padding: 6px;
         }
-        .al-skip-link:hover {
-            color: rgba(255,255,255,0.7);
-        }
+        .al-skip-link:hover { color: rgba(255,255,255,0.6); }
 
         /* Spinner */
         .al-spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(13,59,46,0.3);
-            border-top-color: var(--al-forest);
-            border-radius: 50%;
-            animation: al-spin 0.6s linear infinite;
+            display: inline-block; width: 20px; height: 20px;
+            border: 3px solid rgba(13,59,46,0.3); border-top-color: var(--al-forest);
+            border-radius: 50%; animation: al-spin 0.6s linear infinite;
+        }
+        .al-spinner-white {
+            border: 3px solid rgba(255,255,255,0.2); border-top-color: #fff;
         }
         @keyframes al-spin { to { transform: rotate(360deg); } }
     </style>
@@ -600,90 +336,31 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     </div>
 </div>
 
-<!-- ════════ Screen 2: Quiz ════════ -->
+<!-- ════════ Screen 2 + 3: Quiz / Learn (shared screen) ════════ -->
 <div class="al-screen al-quiz hidden" id="quizScreen">
+    <div class="al-learn-step hidden-progress" id="learnStep">📚 <span>Today's Learn</span></div>
     <div class="al-quiz-progress" id="quizProgress"></div>
     <div class="al-quiz-card" id="quizCard">
-        <!-- Populated by JS -->
+        <div class="al-quiz-card-inner" id="quizCardInner">
+            <!-- Populated by JS -->
+        </div>
     </div>
 </div>
 
-<!-- ════════ Screen 3: Homebase ════════ -->
-<div class="al-screen al-home hidden" id="homeScreen">
-    <div class="al-home-greeting">
-        <h1 id="homeGreeting">Good morning</h1>
-        <p id="homeDate"></p>
+<!-- ════════ Screen 4: Clock In ════════ -->
+<div class="al-screen al-clockin hidden" id="clockScreen">
+    <div class="al-clockin-top">
+        <div class="al-clockin-emoji">⏱</div>
+        <div class="al-clockin-greeting" id="clockGreeting">Good morning</div>
+        <div class="al-clockin-date" id="clockDate"></div>
+        <div class="al-clockin-tagline">Ready to start your shift?</div>
     </div>
-    <div class="al-home-cards">
-
-        <!-- Card 1: Today's Jobs + Revenue -->
-        <div class="al-card">
-            <div class="al-jobs-header">
-                <div class="al-jobs-label">Today's Jobs</div>
-                <div class="al-jobs-badge" id="completedBadge" style="display:none;">
-                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="5" fill="#2D8659"/><path d="M3 5l1.5 1.5L7 3.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    <span id="completedCount">0 done</span>
-                </div>
-            </div>
-            <div class="al-jobs-main">
-                <span class="al-jobs-count" id="homeStops">0</span>
-                <span class="al-jobs-unit">stops</span>
-            </div>
-            <div class="al-jobs-revenue">
-                <span id="homeRevenue">$0</span>
-                <span id="homeTarget">expected today</span>
-            </div>
-            <div class="al-revenue-bar">
-                <div class="al-revenue-bar-fill" id="homeRevenueBar"></div>
-            </div>
-            <div class="al-jobs-meta">
-                <span>🎯 <em id="homeTargetAmt">$1,200</em> target</span>
-                <span>⏱ <em id="homeDuration">0 hrs</em></span>
-            </div>
-        </div>
-
-        <!-- Card 2: Weather -->
-        <div class="al-card" id="weatherCard" style="display:none;">
-            <div class="al-weather-card-header">Today's Weather</div>
-            <div class="al-weather-row">
-                <span class="al-weather-icon" id="weatherIcon">🌤</span>
-                <div class="al-weather-info">
-                    <div class="al-weather-condition" id="weatherCondition"></div>
-                    <div class="al-weather-temps" id="weatherTemps"></div>
-                    <div class="al-weather-detail" id="weatherDetail"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Card 3: Memory / Plant Care Tip -->
-        <div class="al-memory-card" id="memoryCard" style="display:none;">
-            <div class="al-memory-season">
-                <span class="al-memory-season-dot"></span>
-                <span id="memorySeasonLabel">Seasonal tip</span>
-                <span id="memorySeasonIcon" style="font-size:14px;margin-left:auto;"></span>
-            </div>
-            <img id="memoryImg" class="al-memory-img" alt="" style="display:none;" decoding="async">
-            <div class="al-memory-body">
-                <span class="al-memory-cat" id="memoryCat"></span>
-                <div class="al-memory-q" id="memoryQ"></div>
-                <div class="al-memory-answer">
-                    <span class="al-memory-answer-icon">✓</span>
-                    <span class="al-memory-answer-text" id="memoryAnswer"></span>
-                </div>
-                <div class="al-memory-notes" id="memoryNotes" style="display:none;"></div>
-            </div>
-        </div>
-
-        <!-- Card 4: Clock In -->
-        <div class="al-clock-card">
-            <div class="al-clock-card-label">Ready to start your shift?</div>
-            <button class="al-clock-btn" id="clockBtn" onclick="handleClockIn()">
-                <span class="btn-icon">⏱</span>
-                <span id="clockBtnText">Clock In & Start</span>
-            </button>
-            <a href="/crm/jobs/schedule.php?view=day" class="al-skip-link" id="skipLink">View schedule without clocking in</a>
-        </div>
-
+    <div class="al-clockin-btn-wrap">
+        <button class="al-clock-btn" id="clockBtn" onclick="handleClockIn()">
+            <span class="btn-icon">▶</span>
+            <span id="clockBtnText">Clock In & Start</span>
+        </button>
+        <a href="/crm/jobs/schedule.php?view=day" class="al-skip-link">Skip — view schedule</a>
     </div>
 </div>
 
@@ -691,13 +368,14 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
 (function() {
     'use strict';
 
-    const CSRF   = <?= json_encode($csrfToken) ?>;
-    const API    = '/crm/api/';
-    let homeData = null;
-    let quizSession = null;
+    const CSRF      = <?= json_encode($csrfToken) ?>;
+    const API       = '/crm/api/';
+    const IS_DRIVER = <?= !empty($user['is_driver']) ? 'true' : 'false' ?>;
+    let homeData        = null;
+    let quizSession     = null;
     let quizQuestionNum = 0;
-    let quizTotal = 0;
-    let quizCorrect = 0;
+    let quizTotal       = 0;
+    let quizCorrect     = 0;
     let currentQuestionId = 0;
 
     // ── Helpers ──────────────────────────────────────────────
@@ -709,23 +387,14 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
                 s.classList.remove('hidden', 'exit');
             } else {
                 s.classList.add('exit');
-                setTimeout(() => s.classList.add('hidden'), 450);
+                setTimeout(() => s.classList.add('hidden'), 420);
             }
         });
     }
 
     async function api(endpoint, opts) {
-        const res = await fetch(API + endpoint, opts || {});
-        return res.json();
-    }
-
-    function formatMoney(n) {
-        return '$' + Math.round(n).toLocaleString('en-CA');
-    }
-
-    function formatDate(dateStr) {
-        const d = new Date(dateStr + 'T12:00:00');
-        return d.toLocaleDateString('en-CA', { weekday: 'long', month: 'long', day: 'numeric' });
+        const r = await fetch(API + endpoint, opts || {});
+        return r.json();
     }
 
     function esc(str) {
@@ -734,66 +403,137 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
         return el.innerHTML;
     }
 
-    // ── 1. Splash: load data ─────────────────────────────────
-    async function init() {
-        // Run API fetch and minimum splash in parallel — total time = max(fetch, 1.5s)
-        let fetchFailed = false;
-        try {
-            const results = await Promise.all([
-                api('app-home.php?action=data').catch(() => { fetchFailed = true; return null; }),
-                new Promise(r => setTimeout(r, 1500))
-            ]);
-            homeData = results[0];
-        } catch (e) {
-            fetchFailed = true;
-        }
-
-        if (fetchFailed || !homeData || !homeData.success) {
-            window.location.href = '/crm/jobs/schedule.php?view=day';
-            return;
-        }
-
-        // Already clocked in? Skip straight to schedule
-        if (homeData.clock && homeData.clock.clocked_in) {
-            window.location.href = '/crm/jobs/schedule.php?view=day';
-            return;
-        }
-
-        // Quiz needed?
-        if (homeData.quiz && homeData.quiz.enabled && !homeData.quiz.done) {
-            startQuiz(homeData.quiz.session_length || 3);
-        } else {
-            showHome();
-        }
+    function fadeCard(inner) {
+        inner.style.transition = 'opacity 0.18s, transform 0.18s';
+        inner.style.opacity    = '0';
+        inner.style.transform  = 'translateY(6px)';
     }
 
-    // ── 2. Quiz flow — one question at a time, nothing else ──
-    async function startQuiz(sessionLength) {
+    function revealCard(inner) {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            inner.style.opacity   = '1';
+            inner.style.transform = 'translateY(0)';
+        }));
+    }
+
+    // ── 1. Splash: load data in parallel ─────────────────────
+    async function init() {
+        let fetchFailed = false;
+        try {
+            const [data] = await Promise.all([
+                api('app-home.php?action=data&t=' + Date.now()).catch(() => { fetchFailed = true; return null; }),
+                new Promise(r => setTimeout(r, 1500))
+            ]);
+            homeData = data;
+        } catch (e) { fetchFailed = true; }
+
+        console.log('[app-launch] homeData:', JSON.stringify(homeData));
+
+        if (fetchFailed || !homeData || !homeData.success) {
+            console.error('[app-launch] API failed, fetchFailed=', fetchFailed, 'homeData=', homeData);
+            document.getElementById('splashScreen').innerHTML =
+                '<div style="padding:40px;color:#fff;font-size:14px;word-break:break-all">'
+                + '<b>API ERROR — tap to continue</b><br><br>'
+                + 'fetchFailed=' + fetchFailed + '<br>'
+                + 'homeData=' + JSON.stringify(homeData)
+                + '</div>';
+            document.getElementById('splashScreen').onclick = () => {
+                window.location.href = '/crm/jobs/schedule.php?view=day';
+            };
+            return;
+        }
+
+        // Already clocked in → go straight to schedule
+        if (homeData.clock && homeData.clock.clocked_in) {
+            console.log('[app-launch] already clocked in, redirecting to schedule');
+            window.location.href = '/crm/jobs/schedule.php?view=day';
+            return;
+        }
+
+        // Always show learn card first, then quiz (if needed), then clock-in
+        const quizEnabled = homeData.quiz && homeData.quiz.enabled && !homeData.quiz.done;
+        const sessionLen  = (homeData.quiz && homeData.quiz.session_length) || 3;
+
+        showLearnCard(quizEnabled, sessionLen);
+    }
+
+    // ── 2. Learn card — shown to ALL users before quiz/clock-in ──
+    function showLearnCard(quizEnabled, sessionLen) {
+        const mem = homeData.memory || {};
+
+        // If no memory data, skip learn card
+        if (!mem.question || !mem.answer) {
+            if (quizEnabled) startQuiz(sessionLen);
+            else             showClockScreen();
+            return;
+        }
+
+        const inner = $('quizCardInner');
+
+        // Hide progress dots, show learn step indicator
+        $('learnStep').classList.remove('hidden-progress');
+        $('quizProgress').classList.add('hidden-progress');
+
+        const imgHtml = mem.image_path
+            ? `<div class="al-quiz-img-wrap">
+                   <img src="${esc(mem.image_path)}" alt="" class="al-quiz-img" decoding="async">
+               </div>`
+            : '';
+
+        const notesHtml = mem.learn_notes
+            ? `<p class="al-learn-notes">${esc(mem.learn_notes)}</p>`
+            : '';
+
+        const catStyle = mem.category_colour
+            ? `background:${esc(mem.category_colour)};color:#fff;`
+            : '';
+
+        inner.innerHTML = `
+            <div class="al-quiz-category" style="${catStyle}">${esc(mem.category || 'Plant Care')}</div>
+            ${imgHtml}
+            <div class="al-quiz-question">${esc(mem.question)}</div>
+            <div class="al-learn-answer-block">
+                <div class="al-learn-answer-label">Answer</div>
+                <div class="al-learn-answer-text">${esc(mem.answer)}</div>
+            </div>
+            ${notesHtml}
+            <button class="al-learn-got-it" onclick="window._learnGotIt()">
+                Got it &nbsp;→
+            </button>
+        `;
+
+        window._learnGotIt = function() {
+            if (quizEnabled) startQuiz(sessionLen);
+            else             showClockScreen();
+        };
+
+        show('quizScreen');
+        revealCard(inner);
+    }
+
+    // ── 3. Quiz flow ─────────────────────────────────────────
+    async function startQuiz(sessionLen) {
         try {
             const startRes = await api('quiz.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'start',
-                    mode: 'seasonal',
-                    session_length: sessionLength,
-                    csrf_token: CSRF
+                    action: 'start', mode: 'seasonal',
+                    session_length: sessionLen, csrf_token: CSRF
                 })
             });
 
-            if (!startRes.success) {
-                // No questions available — skip to home
-                showHome();
-                return;
-            }
+            if (!startRes.success) { showClockScreen(); return; }
 
             quizSession     = startRes.session_id;
             quizTotal       = startRes.total;
             quizQuestionNum = 0;
             quizCorrect     = 0;
 
-            // Build progress dots
+            // Swap learn indicator for progress dots
+            $('learnStep').classList.add('hidden-progress');
             const prog = $('quizProgress');
+            prog.classList.remove('hidden-progress');
             prog.innerHTML = '';
             for (let i = 0; i < quizTotal; i++) {
                 const d = document.createElement('span');
@@ -801,28 +541,19 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
                 prog.appendChild(d);
             }
 
-            // Pre-fetch q1 before showing the screen — quiz card is never blank
+            // Pre-fetch Q1 so card is never blank
             const q1 = await api('quiz.php?action=question&session_id=' + quizSession + '&q=1');
-
-            show('quizScreen');
+            // quizScreen is already visible (came from learn card) — just render
             renderQuestion(1, q1);
-        } catch (e) {
-            showHome();
-        }
+
+        } catch (e) { showClockScreen(); }
     }
 
     async function loadQuestion(num) {
-        quizQuestionNum = num;
-
-        // Fade card out then fetch
-        const card = $('quizCard');
-        card.style.opacity = '0';
-        card.style.transform = 'translateY(8px)';
-        card.style.transition = 'opacity 0.2s, transform 0.2s';
-
+        const inner = $('quizCardInner');
+        fadeCard(inner);
         const res = await api('quiz.php?action=question&session_id=' + quizSession + '&q=' + num);
         if (!res.success) { finishQuiz(); return; }
-
         renderQuestion(num, res);
     }
 
@@ -834,37 +565,38 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
         const opts = res.options;
         currentQuestionId = q.id;
 
-        // Update progress dots
+        // Update dots
         document.querySelectorAll('.al-quiz-progress .dot').forEach((d, i) => {
             d.className = 'dot'
-                + (i < num - 1 ? ' done' : '')
+                + (i < num - 1 ? ' done'   : '')
                 + (i === num - 1 ? ' active' : '');
         });
 
-        // Build image html
         const images = (q.images && q.images.length)
-            ? q.images
-            : (q.image_path ? [{ image_path: q.image_path }] : []);
+            ? q.images : (q.image_path ? [{ image_path: q.image_path }] : []);
         const imgHtml = images.length
-            ? `<div class="al-quiz-img-wrap"><img src="${esc(images[0].image_path)}" alt="" class="al-quiz-img" loading="eager" decoding="async"></div>`
+            ? `<div class="al-quiz-img-wrap">
+                   <img src="${esc(images[0].image_path)}" alt="" class="al-quiz-img" loading="eager" decoding="async">
+               </div>`
             : '';
 
-        // Fallback question text for image-only or missing-text questions
         const cat = (q.category_name || '').toLowerCase();
-        let questionText = q.text || '';
+        let questionText = (q.text || '').trim();
         if (!questionText) {
             if (images.length) {
-                if (cat.includes('weed'))   questionText = 'Identify the weed shown in this photo:';
-                else if (cat.includes('pest') || cat.includes('disease')) questionText = 'Identify the pest or disease shown:';
-                else if (cat.includes('equipment') || cat.includes('tool')) questionText = 'Identify the tool or equipment shown:';
-                else                        questionText = 'Identify the plant shown in this photo:';
+                questionText = cat.includes('weed')                              ? 'Identify the weed shown:'
+                             : (cat.includes('pest') || cat.includes('disease')) ? 'Identify the pest or disease shown:'
+                             : 'Identify the plant shown:';
             } else {
-                questionText = 'Answer the following:';
+                questionText = cat.includes('weed')  ? 'Which season is this weed most problematic?'
+                             : cat.includes('turf')  ? 'Which answer best describes this turf condition?'
+                             : cat.includes('pest')  ? 'When is this pest most active?'
+                             : 'Answer the following:';
             }
         }
 
-        const card = $('quizCard');
-        card.innerHTML = `
+        const inner = $('quizCardInner');
+        inner.innerHTML = `
             <div class="al-quiz-category">${esc(q.category_name)}</div>
             ${imgHtml}
             <div class="al-quiz-question">${esc(questionText)}</div>
@@ -872,213 +604,120 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
                 ${opts.map(o => `
                     <button class="al-quiz-option" data-id="${o.id}" onclick="window._answerQuiz(${o.id})">
                         ${esc(o.option_text)}
-                    </button>
-                `).join('')}
+                    </button>`).join('')}
             </div>
             <div class="al-quiz-feedback" id="quizFeedback"></div>
         `;
-
-        // Double-rAF ensures the browser has painted opacity:0 before transitioning in
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-            card.style.opacity = '1';
-            card.style.transform = 'translateY(0)';
-        }));
+        revealCard(inner);
     }
 
     window._answerQuiz = async function(optionId) {
-        // Disable all options immediately
         document.querySelectorAll('.al-quiz-option').forEach(b => b.disabled = true);
 
         const res = await api('quiz.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                action:             'answer',
-                session_id:         quizSession,
-                question_id:        currentQuestionId,
+                action: 'answer', session_id: quizSession,
+                question_id: currentQuestionId,
                 selected_option_id: optionId,
-                time_taken_seconds: 10,
-                csrf_token:         CSRF
+                time_taken_seconds: 10, csrf_token: CSRF
             })
         });
 
         if (res.is_correct) quizCorrect++;
 
-        // Colour correct / wrong
         document.querySelectorAll('.al-quiz-option').forEach(b => {
             const id = parseInt(b.dataset.id);
-            if (id === res.correct_option_id)         b.classList.add('correct');
-            else if (id === optionId && !res.is_correct) b.classList.add('wrong');
+            if (id === res.correct_option_id)              b.classList.add('correct');
+            else if (id === optionId && !res.is_correct)   b.classList.add('wrong');
         });
 
         const fb = $('quizFeedback');
-        fb.textContent  = res.is_correct ? '✓ Correct!' : '✗ Not quite';
-        fb.style.color  = res.is_correct ? 'var(--al-green)' : '#ef4444';
+        fb.textContent = res.is_correct ? '✓ Correct!' : '✗ Not quite';
+        fb.style.color = res.is_correct ? 'var(--al-green)' : '#ef4444';
 
-        // Advance after short pause
         setTimeout(() => {
-            if (quizQuestionNum < quizTotal) {
-                loadQuestion(quizQuestionNum + 1);
-            } else {
-                finishQuiz();
-            }
+            if (quizQuestionNum < quizTotal) loadQuestion(quizQuestionNum + 1);
+            else finishQuiz();
         }, 1200);
     };
 
     async function finishQuiz() {
-        // Fire finish + preshift_complete in parallel
         await Promise.all([
             api('quiz.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'finish', session_id: quizSession, csrf_token: CSRF })
             }),
             api('quiz.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action:             'preshift_complete',
-                    session_id:         quizSession,
-                    questions_asked:    quizTotal,
-                    questions_correct:  quizCorrect,
-                    csrf_token:         CSRF
+                    action: 'preshift_complete', session_id: quizSession,
+                    questions_asked: quizTotal, questions_correct: quizCorrect, csrf_token: CSRF
                 })
             })
         ]);
 
-        // Show completion score briefly
         const pct = quizTotal > 0 ? Math.round((quizCorrect / quizTotal) * 100) : 0;
         $('quizProgress').style.visibility = 'hidden';
-        $('quizCard').innerHTML = `
+        $('quizCardInner').innerHTML = `
             <div class="al-quiz-complete">
                 <div class="score-circle">${pct}%</div>
                 <h2>${quizCorrect}/${quizTotal} correct</h2>
-                <p>Nice — let's get to work</p>
+                <p>Nice — let's start the day</p>
             </div>
         `;
-        $('quizCard').style.opacity = '1';
-        $('quizCard').style.transform = 'translateY(0)';
+        $('quizCardInner').style.opacity   = '1';
+        $('quizCardInner').style.transform = 'translateY(0)';
 
-        setTimeout(() => showHome(), 1800);
+        setTimeout(() => showClockScreen(), 1600);
     }
 
-    // ── 3. Homebase screen ───────────────────────────────────
-    function showHome() {
-        const today = homeData.today || {};
-        const weather = homeData.weather || {};
-        const user = homeData.user || {};
+    // ── 4. Clock-in screen ───────────────────────────────────
+    function showClockScreen() {
+        const u    = homeData.user || {};
+        const name = u.first_name || '<?= htmlspecialchars($firstName) ?>';
+        $('clockGreeting').textContent = (u.greeting || 'Good morning') + ', ' + name + '!';
 
-        // Greeting
-        const name = user.first_name || '<?= htmlspecialchars($firstName) ?>';
-        $('homeGreeting').textContent = (user.greeting || 'Good morning') + ', ' + name;
-        $('homeDate').textContent = formatDate(today.date || new Date().toISOString().slice(0, 10));
+        const now = new Date();
+        $('clockDate').textContent = now.toLocaleDateString('en-CA', {
+            weekday: 'long', month: 'long', day: 'numeric'
+        });
 
-        // Jobs card
-        const stops = today.stops || 0;
-        const completed = today.completed_stops || 0;
-        const revenue = today.revenue || 0;
-        const target = today.target || 1200;
-        const targetPct = today.target_pct || 0;
-        const durationMin = today.duration_min || 0;
-
-        $('homeStops').textContent = stops;
-        $('homeRevenue').textContent = formatMoney(revenue);
-        $('homeTargetAmt').textContent = formatMoney(target);
-
-        // Duration
-        const hrs = durationMin >= 60
-            ? (Math.round(durationMin / 6) / 10).toFixed(1) + ' hrs'
-            : durationMin + ' min';
-        $('homeDuration').textContent = hrs;
-
-        // Completed badge
-        if (completed > 0) {
-            $('completedBadge').style.display = 'inline-flex';
-            $('completedCount').textContent = completed + ' done';
-        }
-
-        // Revenue target text
-        $('homeTarget').textContent = '— ' + formatMoney(target) + ' expected';
-
-        // Animate bar after paint
-        setTimeout(() => {
-            $('homeRevenueBar').style.width = Math.min(100, targetPct) + '%';
-        }, 300);
-
-        // Weather
-        if (weather.condition) {
-            $('weatherIcon').textContent = weather.icon || '🌤';
-            $('weatherCondition').textContent = weather.condition;
-            $('weatherTemps').textContent = weather.high + '°C / ' + weather.low + '°C';
-            const details = [];
-            if (weather.precipitation) details.push(weather.precipitation + '% precip');
-            if (weather.wind) details.push(weather.wind + ' km/h wind');
-            $('weatherDetail').textContent = details.join(' · ');
-            $('weatherCard').style.display = '';
-        }
-
-        // Memory card
-        const mem = homeData.memory || {};
-        if (mem.question && mem.answer) {
-            $('memorySeasonLabel').textContent = mem.season_label || 'Seasonal tip';
-            $('memorySeasonIcon').textContent  = mem.season_icon  || '🌿';
-
-            // Category badge with colour
-            const catEl = $('memoryCat');
-            catEl.textContent = mem.category || '';
-            catEl.style.background = mem.category_colour || 'var(--al-green)';
-
-            $('memoryQ').textContent      = mem.question;
-            $('memoryAnswer').textContent = mem.answer;
-
-            if (mem.learn_notes) {
-                $('memoryNotes').textContent  = mem.learn_notes;
-                $('memoryNotes').style.display = '';
-            }
-
-            if (mem.image_path) {
-                const img = $('memoryImg');
-                img.src            = mem.image_path;
-                img.style.display  = 'block';
-            }
-
-            $('memoryCard').style.display = '';
-        }
-
-        show('homeScreen');
+        show('clockScreen');
     }
 
-    // ── Clock In ─────────────────────────────────────────────
+    // ── 5. Clock In + GPS ────────────────────────────────────
     window.handleClockIn = async function() {
         const btn = $('clockBtn');
         const txt = $('clockBtnText');
-
         btn.disabled = true;
-        txt.innerHTML = '<span class="al-spinner"></span>';
+        txt.innerHTML = '<span class="al-spinner al-spinner-white"></span>';
+
+        let lat = null, lng = null;
+
+        // One-shot GPS ping for clock-in record
+        try {
+            if (window.MwNative && window.MwNative.geo && window.MwNative.geo.getPosition) {
+                await new Promise(resolve => {
+                    window.MwNative.geo.getPosition(
+                        pos => { lat = pos.latitude; lng = pos.longitude; resolve(); },
+                        ()  => resolve(),
+                        { enableHighAccuracy: true, timeout: 5000 }
+                    );
+                });
+            } else {
+                const pos = await new Promise((resolve, reject) =>
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true, timeout: 5000
+                    })
+                );
+                lat = pos.coords.latitude;
+                lng = pos.coords.longitude;
+            }
+        } catch (e) { /* proceed without GPS */ }
 
         try {
-            // Try to get location (best-effort) — prefer MwNative on Capacitor
-            let lat = null, lng = null;
-            try {
-                if (window.MwNative && window.MwNative.geo && window.MwNative.geo.getPosition) {
-                    await new Promise((resolve) => {
-                        window.MwNative.geo.getPosition(
-                            (pos) => { lat = pos.latitude; lng = pos.longitude; resolve(); },
-                            ()    => { resolve(); },
-                            { enableHighAccuracy: true, timeout: 5000 }
-                        );
-                    });
-                } else {
-                    const pos = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, {
-                            enableHighAccuracy: true, timeout: 5000
-                        });
-                    });
-                    lat = pos.coords.latitude;
-                    lng = pos.coords.longitude;
-                }
-            } catch (e) { /* proceed without GPS */ }
-
             const res = await api('time-clock.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1087,9 +726,11 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
 
             if (res.success || res.entry_id) {
                 txt.textContent = 'Clocked in ✓';
-                setTimeout(() => {
-                    window.location.href = '/crm/jobs/schedule.php?view=day';
-                }, 700);
+                // Start continuous GPS tracker after successful clock-in
+                startGpsTracker(lat, lng);
+                // Drivers: pre-trip log form first. Crew: straight to homebase.
+                const dest = IS_DRIVER ? '/crm/driver-log.php' : '/crm/homebase.php';
+                setTimeout(() => { window.location.href = dest; }, 700);
             } else {
                 txt.textContent = 'Clock In & Start';
                 btn.disabled = false;
@@ -1101,6 +742,52 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             alert('Network error. Please try again.');
         }
     };
+
+    /**
+     * Start continuous GPS tracking after clock-in.
+     * Capacitor: uses native background tracking (keeps running when app is backgrounded).
+     * PWA: uses watchPosition, pings /crm/api/crew-location.php every 30s.
+     */
+    function startGpsTracker(initialLat, initialLng) {
+        if (window.MwNative && window.MwNative.geo && window.MwNative.geo.startBackgroundTracking) {
+            // Capacitor — hand off to native background GPS
+            window.MwNative.geo.startBackgroundTracking(function(pos, err) {
+                if (pos && window.MwNative.pow) {
+                    // POW system handles location streaming; nothing else needed here
+                }
+            });
+            return;
+        }
+
+        // PWA — watchPosition + periodic ping to crew-location
+        if (!navigator.geolocation) return;
+
+        let lastPingTime = 0;
+        const PING_INTERVAL_MS = 30000; // 30s
+
+        function pingLocation(lat, lng) {
+            fetch(API + 'crew-location.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lat, lng, source: 'preshift_tracker' })
+            }).catch(() => {}); // fire-and-forget, non-critical
+        }
+
+        // Send initial position immediately
+        if (initialLat !== null) pingLocation(initialLat, initialLng);
+
+        navigator.geolocation.watchPosition(
+            function(pos) {
+                const now = Date.now();
+                if (now - lastPingTime >= PING_INTERVAL_MS) {
+                    lastPingTime = now;
+                    pingLocation(pos.coords.latitude, pos.coords.longitude);
+                }
+            },
+            function() { /* GPS unavailable — non-critical */ },
+            { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+        );
+    }
 
     // ── Boot ─────────────────────────────────────────────────
     init();

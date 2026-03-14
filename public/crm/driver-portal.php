@@ -81,9 +81,9 @@ $summaryMinutes += $totalStops > 0 ? (max(0, $totalStops - 1) * 8 + 10) : 0;
 $activeClock = getActiveClockEntry($user['id']);
 $isClockedIn = (bool)$activeClock;
 
-// Already clocked in — skip the portal, go straight to the day's stops
+// Already clocked in — go to homebase
 if ($isClockedIn) {
-    header('Location: /crm/jobs/schedule.php');
+    header('Location: /crm/homebase.php');
     exit;
 }
 
@@ -649,7 +649,7 @@ function dpSubmitPreTrip(e) {
     .then(function(res) {
         if (res.success) {
             dpToast('Pre-trip complete! Starting your day…');
-            setTimeout(function(){ window.location.href = '/crm/jobs/schedule.php'; }, 900);
+            setTimeout(function(){ window.location.href = '/crm/homebase.php'; }, 900);
         } else {
             dpToast(res.error || 'Save failed', true);
             btn.disabled = false;
