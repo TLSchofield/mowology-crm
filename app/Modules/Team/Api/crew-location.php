@@ -206,10 +206,11 @@ try {
         }
 
         $isTruck = ($trackRow['device_type'] === 'truck');
+        $isDriver = !empty($user['is_driver']);
 
-        // Truck devices can report GPS without being clocked in.
-        // Personal devices must be clocked in.
-        if (!$isTruck) {
+        // Truck devices and driver-flagged users can report GPS without being clocked in.
+        // Regular personal devices must be clocked in.
+        if (!$isTruck && !$isDriver) {
             $clockEntry = getActiveClockEntry($user['id']);
             if (!$clockEntry) {
                 throw new Exception('Not clocked in');
