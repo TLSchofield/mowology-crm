@@ -79,6 +79,13 @@ function maskSin(string $sin): string {
     return '••• ••• ' . substr($digits, -3);
 }
 
+// Mask driver's licence: show last 4 chars
+function maskDl(string $dl): string {
+    $dl = trim($dl);
+    if (strlen($dl) <= 4) return $dl ? str_repeat('•', strlen($dl)) : '';
+    return str_repeat('•', strlen($dl) - 4) . substr($dl, -4);
+}
+
 // Mask bank account: show last 4
 function maskAccount(string $acct): string {
     $acct = trim($acct);
@@ -502,6 +509,46 @@ if ($apiKey) {
                                 </p>
                             </div>
                         </div>
+
+                        <!-- Driver's Licence -->
+                        <hr>
+                        <p class="mw-hr-label mb-2" style="text-transform:uppercase;letter-spacing:.5px;">Driver's Licence</p>
+                        <?php $dlDecrypted = decryptField($emp['dl_number_encrypted'] ?? ''); ?>
+                        <div class="row">
+                            <div class="col-sm-6 mb-3">
+                                <label class="mw-hr-label">Licence Number</label>
+                                <p class="mw-hr-value">
+                                    <?php echo $dlDecrypted ? h(maskDl($dlDecrypted)) : '—'; ?>
+                                    <?php if ($canHrEdit && $dlDecrypted): ?>
+                                    <button class="btn btn-xs btn-link p-0 ml-2 text-muted" onclick="revealDl(this)" data-id="<?php echo $empId; ?>">
+                                        <i data-feather="eye" style="width:12px;height:12px;"></i>
+                                    </button>
+                                    <?php endif; ?>
+                                </p>
+                            </div>
+                            <div class="col-sm-2 mb-3">
+                                <label class="mw-hr-label">Class</label>
+                                <p class="mw-hr-value"><?php echo h($emp['dl_class'] ?? '—'); ?></p>
+                            </div>
+                            <div class="col-sm-2 mb-3">
+                                <label class="mw-hr-label">Province</label>
+                                <p class="mw-hr-value"><?php echo h($emp['dl_province'] ?? '—'); ?></p>
+                            </div>
+                            <div class="col-sm-4 mb-3">
+                                <label class="mw-hr-label">Expiry</label>
+                                <p class="mw-hr-value">
+                                    <?php
+                                    if (!empty($emp['dl_expiry'])) {
+                                        $exp = strtotime($emp['dl_expiry']);
+                                        $cls = $exp < time() ? 'text-danger font-weight-bold' : ($exp < strtotime('+90 days') ? 'text-warning font-weight-bold' : '');
+                                        echo '<span class="' . $cls . '">' . date('M j, Y', $exp) . ($exp < time() ? ' — EXPIRED' : '') . '</span>';
+                                    } else {
+                                        echo '—';
+                                    }
+                                    ?>
+                                </p>
+                            </div>
+                        </div>
                     </div>
 
                     <?php if ($canHrEdit): ?>
@@ -561,6 +608,49 @@ if ($apiKey) {
                                         <input type="text" class="form-control" id="hrPostalCode" name="postal_code"
                                                value="<?php echo h($emp['postal_code'] ?? ''); ?>"
                                                placeholder="V6B 2W9" maxlength="7">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <hr>
+                            <p class="font-weight-bold small text-muted mb-3" style="text-transform:uppercase;letter-spacing:.5px;">Driver's Licence</p>
+                            <div class="row">
+                                <div class="col-sm-6">
+                                    <div class="form-group">
+                                        <label>Licence Number</label>
+                                        <input type="text" class="form-control" name="dl_number"
+                                               placeholder="Leave blank to keep current"
+                                               maxlength="20" autocomplete="off">
+                                        <small class="form-text text-muted">Stored encrypted.</small>
+                                    </div>
+                                </div>
+                                <div class="col-sm-2">
+                                    <div class="form-group">
+                                        <label>Class</label>
+                                        <select class="form-control" name="dl_class">
+                                            <option value="">—</option>
+                                            <?php foreach (['1','2','3','4','5','6','7','8'] as $cls): ?>
+                                            <option value="<?php echo $cls; ?>" <?php echo ($emp['dl_class'] ?? '') === $cls ? 'selected' : ''; ?>><?php echo $cls; ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-sm-2">
+                                    <div class="form-group">
+                                        <label>Province</label>
+                                        <select class="form-control" name="dl_province">
+                                            <option value="">—</option>
+                                            <?php foreach (['AB','BC','MB','NB','NL','NS','NT','NU','ON','PE','QC','SK','YT'] as $prov): ?>
+                                            <option value="<?php echo $prov; ?>" <?php echo ($emp['dl_province'] ?? '') === $prov ? 'selected' : ''; ?>><?php echo $prov; ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-sm-4">
+                                    <div class="form-group">
+                                        <label>Expiry Date <span class="text-danger">*</span></label>
+                                        <input type="date" class="form-control" name="dl_expiry"
+                                               value="<?php echo h($emp['dl_expiry'] ?? ''); ?>">
                                     </div>
                                 </div>
                             </div>
@@ -1240,6 +1330,40 @@ function revealSin(btn) {
                 }, 15000);
             } else {
                 alert(json.error || 'Could not retrieve SIN');
+            }
+        });
+}
+
+// ── Reveal driver's licence number (AJAX) ─────────────────────────────────
+function revealDl(btn) {
+    if (btn.dataset.revealed) {
+        var span = btn.closest('p').querySelector('.mw-hr-dl-val');
+        if (span) span.textContent = '••••' + btn.dataset.last4;
+        btn.dataset.revealed = '';
+        return;
+    }
+    var id = btn.dataset.id;
+    fetch('/crm/api/employees.php?action=get_dl&id=' + id)
+        .then(function(r) { return r.json(); })
+        .then(function(json) {
+            if (json.success && json.dl_number) {
+                var dlSpan = btn.closest('p').querySelector('.mw-hr-dl-val');
+                if (!dlSpan) {
+                    dlSpan = document.createElement('span');
+                    dlSpan.className = 'mw-hr-dl-val';
+                    btn.before(dlSpan);
+                }
+                dlSpan.textContent = json.dl_number;
+                btn.dataset.revealed = '1';
+                btn.dataset.last4 = json.dl_number.slice(-4);
+                setTimeout(function() {
+                    if (btn.dataset.revealed) {
+                        dlSpan.textContent = '••••' + btn.dataset.last4;
+                        btn.dataset.revealed = '';
+                    }
+                }, 15000);
+            } else {
+                alert(json.error || 'Could not retrieve licence number');
             }
         });
 }

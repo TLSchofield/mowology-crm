@@ -15,7 +15,8 @@ if (($user['role'] ?? '') !== 'admin') {
     exit;
 }
 
-$activeTab  = in_array($_GET['tab'] ?? '', ['categories','questions','leaderboard','campaigns','library']) ? $_GET['tab'] : 'questions';
+$activeTab    = in_array($_GET['tab'] ?? '', ['categories','questions','leaderboard','campaigns','library']) ? $_GET['tab'] : 'questions';
+$autoImport   = isset($_GET['action']) && $_GET['action'] === 'import';
 $csrfToken  = function_exists('generateCSRFToken') ? generateCSRFToken() : '';
 $pageTitle  = 'Quiz Admin';
 $activePage = 'quiz';
@@ -1834,6 +1835,48 @@ loadCategories().then(() => {
     loadLibrary();
     <?php endif; ?>
 });
+
+// ── Auto-open plant import modal (from mobile menu file picker) ──────────────
+<?php if ($autoImport): ?>
+(function() {
+    function openImportWithFile(file) {
+        openPlantImportModal();
+        // Small delay for modal animation to settle
+        setTimeout(function() {
+            var input = document.getElementById('piFileInput');
+            if (!input || !file) return;
+            var dt = new DataTransfer();
+            dt.items.add(file);
+            input.files = dt.files;
+            handlePlantImportFile(input);
+        }, 300);
+    }
+
+    // Try to retrieve pending file from IndexedDB
+    var req = indexedDB.open('mw_plant_import', 1);
+    req.onupgradeneeded = function(e) {
+        e.target.result.createObjectStore('pending', { keyPath: 'id' });
+    };
+    req.onsuccess = function(e) {
+        var db  = e.target.result;
+        var tx  = db.transaction('pending', 'readwrite');
+        var get = tx.objectStore('pending').get(1);
+        get.onsuccess = function() {
+            var record = get.result;
+            // Clear it right away so it doesn't re-open on refresh
+            tx.objectStore('pending').delete(1);
+            if (record && record.file) {
+                openImportWithFile(record.file);
+            } else {
+                // No file stored — just open the modal (manual upload)
+                openPlantImportModal();
+            }
+        };
+        get.onerror = function() { openPlantImportModal(); };
+    };
+    req.onerror = function() { openPlantImportModal(); };
+})();
+<?php endif; ?>
 
 // Pre-load leaderboard data for prize dropdown on that tab
 <?php if ($activeTab !== 'leaderboard'): ?>

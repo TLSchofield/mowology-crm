@@ -91,6 +91,7 @@ $menuItems = [
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'],
     ['key' => 'quiz',         'label' => 'Quiz',       'href' => '/crm/quiz_appstack.php',
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'],
+    // Admin only — handled separately below as file-picker button
 ];
 ?>
 
@@ -172,6 +173,18 @@ $menuItems = [
             <?php endforeach; ?>
         </div>
 
+        <?php if ($_mobileUserRole === 'admin'): ?>
+        <!-- Admin quick action: import plant card photo -->
+        <div class="mw-mobile-plant-import-bar">
+            <label for="mwPlantImportFile" class="mw-mobile-plant-import-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/><line x1="12" y1="11" x2="12" y2="15"/><line x1="10" y1="13" x2="14" y2="13"/></svg>
+                Import Plant Card
+            </label>
+            <input type="file" id="mwPlantImportFile" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;">
+            <span class="mw-mobile-plant-import-hint">Choose from photos or camera</span>
+        </div>
+        <?php endif; ?>
+
         <!-- Account actions -->
         <div class="mw-mobile-menu-actions">
             <a href="/crm/profile.php" class="mw-mobile-menu-action">
@@ -216,6 +229,36 @@ $menuItems = [
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') closeMenu();
     });
+
+    // ── Plant import file picker ────────────────────────────────────────────
+    var plantFileInput = document.getElementById('mwPlantImportFile');
+    if (plantFileInput) {
+        plantFileInput.addEventListener('change', function() {
+            var file = this.files[0];
+            if (!file) return;
+
+            // Store file in IndexedDB so it survives the page navigation
+            var req = indexedDB.open('mw_plant_import', 1);
+            req.onupgradeneeded = function(e) {
+                e.target.result.createObjectStore('pending', { keyPath: 'id' });
+            };
+            req.onsuccess = function(e) {
+                var db = e.target.result;
+                var tx = db.transaction('pending', 'readwrite');
+                tx.objectStore('pending').put({ id: 1, file: file, name: file.name, type: file.type });
+                tx.oncomplete = function() {
+                    window.location.href = '/crm/quiz-admin_appstack.php?tab=library&action=import';
+                };
+                tx.onerror = function() {
+                    // IndexedDB failed — fall back to navigating without the file
+                    window.location.href = '/crm/quiz-admin_appstack.php?tab=library&action=import';
+                };
+            };
+            req.onerror = function() {
+                window.location.href = '/crm/quiz-admin_appstack.php?tab=library&action=import';
+            };
+        });
+    }
 
     // Sync clock widget — move the existing clockWidget into the mobile topbar slot
     // (the appstack topbar is hidden on mobile, so the JS-enhanced widget needs

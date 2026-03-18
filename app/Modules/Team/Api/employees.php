@@ -100,6 +100,28 @@ try {
             echo json_encode(['success' => true, 'employee' => $emp]);
             break;
 
+        // ── GET: reveal driver's licence number (hr.edit only, logged) ────
+        case 'get_dl':
+            if (!$canHrEdit) throw new Exception('Access denied — requires hr.edit permission');
+
+            $id = (int)($_GET['id'] ?? 0);
+            if (!$id) throw new Exception('Employee ID required');
+
+            $stmt = $db->prepare("SELECT dl_number_encrypted, full_name FROM users WHERE id = ?");
+            $stmt->execute([$id]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) throw new Exception('Employee not found');
+
+            $dl = decryptField($row['dl_number_encrypted'] ?? '');
+            if (!$dl) {
+                echo json_encode(['success' => false, 'error' => 'No licence number on file']);
+                break;
+            }
+
+            logActivity($user['id'], null, "Revealed driver's licence for employee #{$id} ({$row['full_name']})", null);
+            echo json_encode(['success' => true, 'dl_number' => $dl]);
+            break;
+
         // ── GET: reveal SIN (admin/hr.edit only, logged) ───────────────────
         case 'get_sin':
             if (!$canHrEdit) throw new Exception('Access denied — requires hr.edit permission');
@@ -314,6 +336,21 @@ try {
                 $params[]  = encryptField($sinDigits);
             }
 
+            // Driver's licence — number stored encrypted, others plaintext
+            if (!empty($input['dl_number'])) {
+                $updates[] = 'dl_number_encrypted = ?';
+                $params[]  = encryptField(trim($input['dl_number']));
+            }
+            if (array_key_exists('dl_class', $input)) {
+                $updates[] = 'dl_class = ?';    $params[] = trim($input['dl_class']) ?: null;
+            }
+            if (array_key_exists('dl_province', $input)) {
+                $updates[] = 'dl_province = ?'; $params[] = trim($input['dl_province']) ?: null;
+            }
+            if (array_key_exists('dl_expiry', $input)) {
+                $updates[] = 'dl_expiry = ?';   $params[] = !empty($input['dl_expiry']) ? $input['dl_expiry'] : null;
+            }
+
             if (empty($updates)) throw new Exception('No changes provided');
 
             $params[] = $id;
@@ -422,7 +459,7 @@ try {
 
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, create, update, update_hr, update_payroll, update_td1, update_roles']);
+            echo json_encode(['error' => 'Invalid action. Use: get, get_sin, get_dl, create, update, update_hr, update_payroll, update_td1, update_roles']);
     }
 
 } catch (PDOException $e) {
