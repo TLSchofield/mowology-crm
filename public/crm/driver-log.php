@@ -62,7 +62,7 @@ $csrf      = generateCSRFToken();
 $firstName = $user['first_name'] ?? explode(' ', trim($user['full_name'] ?? 'Driver'))[0];
 session_write_close();
 ?>
-<!-- driver-log v20260313 -->
+<!-- driver-log v20260317 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -269,6 +269,50 @@ session_write_close();
         .dl-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .dl-submit-btn svg { stroke: #fff; }
 
+        /* ── Validation states ───────────────────────────────────── */
+        .dl-card--invalid .dl-card-header {
+            border-left: 4px solid #DC2626;
+        }
+        .dl-card--invalid .dl-card-title { color: #DC2626; }
+
+        @keyframes dl-shake {
+            0%,100% { transform: translateX(0); }
+            20%      { transform: translateX(-6px); }
+            40%      { transform: translateX(6px); }
+            60%      { transform: translateX(-4px); }
+            80%      { transform: translateX(4px); }
+        }
+        .dl-shake { animation: dl-shake 0.35s ease; }
+
+        .dl-input--error {
+            border-color: #DC2626 !important;
+            background: #FEF2F2;
+        }
+        .dl-field-error {
+            font-size: 11px; color: #DC2626; font-weight: 600;
+            display: none; margin-top: 3px;
+        }
+        .dl-field-error.visible { display: block; }
+
+        .dl-check-counter {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 46px; height: 22px; border-radius: 11px;
+            font-size: 11px; font-weight: 700;
+            background: var(--dl-light); color: var(--dl-muted);
+            transition: background 0.2s, color 0.2s;
+            float: right;
+        }
+        .dl-check-counter.done { background: #D1FAE5; color: #065F46; }
+        .dl-check-counter.partial { background: #FEF3C7; color: #92400E; }
+
+        .dl-submit-btn:disabled {
+            background: #9CA3AF; cursor: not-allowed; opacity: 1;
+        }
+        .dl-submit-hint {
+            text-align: center; font-size: 12px; color: var(--dl-muted);
+            margin-top: 8px; min-height: 16px;
+        }
+
         /* ── Toast ───────────────────────────────────────────────── */
         .dl-toast {
             position: fixed;
@@ -304,10 +348,13 @@ session_write_close();
             <input type="hidden" name="action" value="save_pre_trip">
 
             <!-- ── Running Order Checklist ─────────────────────── -->
-            <div class="dl-card">
+            <div class="dl-card" id="dlCheckCard">
                 <div class="dl-card-header">
-                    <div class="dl-card-title">Running Order Checklist</div>
-                    <div class="dl-card-sub">Check each item before departure</div>
+                    <div class="dl-card-title">
+                        Running Order Checklist
+                        <span class="dl-check-counter" id="dlCheckCounter">0 / <?php echo count($checks); ?></span>
+                    </div>
+                    <div class="dl-card-sub">All items required before departure</div>
                 </div>
                 <?php
                 $checks = [
@@ -336,16 +383,17 @@ session_write_close();
             </div>
 
             <!-- ── Odometer ────────────────────────────────────── -->
-            <div class="dl-card">
+            <div class="dl-card" id="dlOdomCard">
                 <div class="dl-card-header">
-                    <div class="dl-card-title">Odometer</div>
+                    <div class="dl-card-title">Odometer <span style="color:#DC2626;font-size:12px;font-weight:400;margin-left:4px">Required</span></div>
                 </div>
                 <div class="dl-card-body">
                     <div class="dl-field">
                         <label class="dl-label" for="dlOdomStart">Start of Day (km)</label>
                         <input class="dl-input" type="number" id="dlOdomStart" name="odometer_start"
-                               min="0" max="999999" placeholder="e.g. 48250"
+                               min="1" max="999999" placeholder="e.g. 48250"
                                value="<?php echo htmlspecialchars((string)($tripReport['odometer_start'] ?? '')); ?>">
+                        <div class="dl-field-error" id="dlOdomError">Odometer reading is required</div>
                     </div>
                 </div>
             </div>
@@ -419,10 +467,11 @@ session_write_close();
 
     <!-- ── Submit Button (outside scroll to stay visible) ──────────────────── -->
     <div class="dl-submit-wrap">
-        <button class="dl-submit-btn" id="dlSubmitBtn" onclick="dlSubmit(event)" type="button">
+        <button class="dl-submit-btn" id="dlSubmitBtn" onclick="dlSubmit(event)" type="button" disabled>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
             Save & Continue to Home Base
         </button>
+        <div class="dl-submit-hint" id="dlSubmitHint"></div>
     </div>
 
 </div><!-- /.dl-page -->
@@ -433,16 +482,78 @@ session_write_close();
 (function () {
     'use strict';
 
+    var TOTAL_CHECKS = <?php echo count($checks); ?>;
+
+    // ── Validation state ───────────────────────────────────────────
+    function dlValidate() {
+        var issues = [];
+
+        // 1. Checklist — all boxes must be checked
+        var checkboxes = document.querySelectorAll('#dlCheckCard input[type="checkbox"]');
+        var checked = 0;
+        checkboxes.forEach(function (cb) { if (cb.checked) checked++; });
+        var counter   = document.getElementById('dlCheckCounter');
+        var checkCard = document.getElementById('dlCheckCard');
+        counter.textContent = checked + ' / ' + TOTAL_CHECKS;
+        counter.className = 'dl-check-counter' + (checked === TOTAL_CHECKS ? ' done' : (checked > 0 ? ' partial' : ''));
+        if (checked < TOTAL_CHECKS) {
+            checkCard.classList.add('dl-card--invalid');
+            issues.push((TOTAL_CHECKS - checked) + ' checklist item' + (TOTAL_CHECKS - checked !== 1 ? 's' : '') + ' unchecked');
+        } else {
+            checkCard.classList.remove('dl-card--invalid');
+        }
+
+        // 2. Odometer — must be a positive number
+        var odom     = document.getElementById('dlOdomStart');
+        var odomCard = document.getElementById('dlOdomCard');
+        var odomErr  = document.getElementById('dlOdomError');
+        var odomVal  = parseInt(odom.value, 10);
+        if (!odom.value.trim() || isNaN(odomVal) || odomVal < 1) {
+            odomCard.classList.add('dl-card--invalid');
+            odom.classList.add('dl-input--error');
+            odomErr.classList.add('visible');
+            issues.push('odometer reading missing');
+        } else {
+            odomCard.classList.remove('dl-card--invalid');
+            odom.classList.remove('dl-input--error');
+            odomErr.classList.remove('visible');
+        }
+
+        // 3. Safe to drive declaration
+        var safe     = document.getElementById('dlSafeToDriveInput');
+        var ackCard  = document.getElementById('dlAckBox').closest('.dl-card');
+        if (!safe || safe.value !== '1') {
+            ackCard.classList.add('dl-card--invalid');
+            issues.push('safe to drive declaration');
+        } else {
+            ackCard.classList.remove('dl-card--invalid');
+        }
+
+        // Update button & hint
+        var btn  = document.getElementById('dlSubmitBtn');
+        var hint = document.getElementById('dlSubmitHint');
+        if (issues.length === 0) {
+            btn.disabled = false;
+            hint.textContent = '';
+        } else {
+            btn.disabled = true;
+            hint.textContent = 'Required: ' + issues.join(' · ');
+        }
+
+        return issues.length === 0;
+    }
+
     // ── Safe-to-drive toggle ───────────────────────────────────────
     window.dlToggleAck = function () {
-        var box    = document.getElementById('dlAckBox');
-        var input  = document.getElementById('dlSafeToDriveInput');
-        var label  = document.getElementById('dlAckLabel');
-        var chk    = document.getElementById('dlAckCheck');
-        var on     = box.classList.toggle('checked');
+        var box   = document.getElementById('dlAckBox');
+        var input = document.getElementById('dlSafeToDriveInput');
+        var label = document.getElementById('dlAckLabel');
+        var chk   = document.getElementById('dlAckCheck');
+        var on    = box.classList.toggle('checked');
         input.value = on ? '1' : '0';
         label.textContent = on ? 'Safe to Drive — Confirmed ✓' : 'Safe to Drive — I confirm';
         if (chk) chk.style.display = on ? 'block' : 'none';
+        dlValidate();
     };
 
     // Restore check icon on load if pre-confirmed
@@ -452,19 +563,32 @@ session_write_close();
         if (box && box.classList.contains('checked') && chk) chk.style.display = 'block';
     }());
 
+    // ── Live listeners ─────────────────────────────────────────────
+    document.querySelectorAll('#dlCheckCard input[type="checkbox"]').forEach(function (cb) {
+        cb.addEventListener('change', dlValidate);
+    });
+    document.getElementById('dlOdomStart').addEventListener('input', dlValidate);
+
     // ── Submit ─────────────────────────────────────────────────────
     window.dlSubmit = function (e) {
         if (e) e.preventDefault();
 
-        var btn  = document.getElementById('dlSubmitBtn');
-        var safe = document.getElementById('dlSafeToDriveInput');
-
-        if (!safe || safe.value !== '1') {
-            dlToast('Please confirm safe to drive before continuing', true);
-            document.getElementById('dlAckBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (!dlValidate()) {
+            // Scroll to first invalid card and shake it
+            var firstInvalid = document.querySelector('.dl-card--invalid');
+            if (firstInvalid) {
+                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                firstInvalid.classList.remove('dl-shake');
+                void firstInvalid.offsetWidth; // reflow to restart animation
+                firstInvalid.classList.add('dl-shake');
+                firstInvalid.addEventListener('animationend', function () {
+                    firstInvalid.classList.remove('dl-shake');
+                }, { once: true });
+            }
             return;
         }
 
+        var btn = document.getElementById('dlSubmitBtn');
         btn.disabled = true;
         btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Saving…';
 
@@ -480,19 +604,19 @@ session_write_close();
         .then(function (res) {
             if (res.success) {
                 dlToast('Pre-trip saved — starting your day!');
-                setTimeout(function () {
-                    window.location.href = '/crm/homebase.php';
-                }, 800);
+                setTimeout(function () { window.location.href = '/crm/homebase.php'; }, 800);
             } else {
                 dlToast(res.error || 'Save failed — try again', true);
                 btn.disabled = false;
                 btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Save & Continue to Home Base';
+                dlValidate();
             }
         })
         .catch(function () {
             dlToast('Network error — check connection', true);
             btn.disabled = false;
             btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Save & Continue to Home Base';
+            dlValidate();
         });
     };
 
@@ -505,6 +629,9 @@ session_write_close();
         el.classList.add('show');
         setTimeout(function () { el.classList.remove('show'); }, 3500);
     };
+
+    // ── Initial state ──────────────────────────────────────────────
+    dlValidate();
 }());
 </script>
 </body>
