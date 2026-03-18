@@ -182,27 +182,8 @@ try {
             throw new Exception('Latitude and longitude required');
         }
 
-        // Check user's tracking settings and device type
-        $trackStmt = $db->prepare("SELECT location_tracking_enabled, IFNULL(device_type, 'personal') AS device_type FROM users WHERE id = ?");
-        $trackStmt->execute([$user['id']]);
-        $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$trackRow || !$trackRow['location_tracking_enabled']) {
-            throw new Exception('Tracking not enabled');
-        }
-
-        $isTruck = ($trackRow['device_type'] === 'truck');
-
-        // Truck devices can report GPS without being clocked in.
-        // Personal devices must be clocked in — UNLESS this is a proximity-only check
-        // (the proximity engine handles auto-clock-in itself).
-        if (!$isTruck && !$isProximityOnly) {
-            $clockEntry = getActiveClockEntry($user['id']);
-            if (!$clockEntry) {
-                throw new Exception('Not clocked in');
-            }
-        }
-
-        // For proximity-only checks, skip location storage and rate limiting — just run the check
+        // For proximity-only checks, skip tracking flag entirely — no location is stored,
+        // so the user's opt-out preference doesn't apply to this read-only geofence test.
         if ($isProximityOnly) {
             require_once CRM_INCLUDES . '/plan-functions.php';
             $autoStartResult = checkProximityAutoStart(
@@ -214,6 +195,25 @@ try {
                 'auto_started' => $autoStartResult
             ]);
             exit;
+        }
+
+        // Check user's tracking settings and device type
+        $trackStmt = $db->prepare("SELECT location_tracking_enabled, IFNULL(device_type, 'personal') AS device_type FROM users WHERE id = ?");
+        $trackStmt->execute([$user['id']]);
+        $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$trackRow || !$trackRow['location_tracking_enabled']) {
+            throw new Exception('Tracking not enabled');
+        }
+
+        $isTruck = ($trackRow['device_type'] === 'truck');
+
+        // Truck devices can report GPS without being clocked in.
+        // Personal devices must be clocked in.
+        if (!$isTruck) {
+            $clockEntry = getActiveClockEntry($user['id']);
+            if (!$clockEntry) {
+                throw new Exception('Not clocked in');
+            }
         }
 
         // Rate limit: reject if last entry < 10 seconds ago (use UNIX_TIMESTAMP for tz-agnostic comparison)
