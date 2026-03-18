@@ -195,9 +195,14 @@ $activePage = 'quiz';
 
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <p class="text-muted small mb-0">Reference library of plants and weeds. Use entries to quickly create quiz questions.</p>
-        <button class="btn mw-btn-green btn-sm" onclick="openLibraryModal(null)">
-            <i data-feather="plus" style="width:14px;height:14px;"></i> Add Entry
-        </button>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm" onclick="openPlantImportModal()" title="Upload a PictureThis card to auto-extract plant data">
+                <i data-feather="camera" style="width:14px;height:14px;"></i> Import from Photo
+            </button>
+            <button class="btn mw-btn-green btn-sm" onclick="openLibraryModal(null)">
+                <i data-feather="plus" style="width:14px;height:14px;"></i> Add Entry
+            </button>
+        </div>
     </div>
 
     <!-- Search + filter -->
@@ -228,6 +233,138 @@ $activePage = 'quiz';
     <!-- Card grid -->
     <div id="libraryGrid" class="mw-lib-grid">
         <div class="text-center py-5 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>Loading…</div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL: Import Plant from Photo
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="plantImportModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Import Plant from Photo</h5>
+                <button type="button" class="btn-close" data-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+
+                <!-- Step 1: Upload -->
+                <div id="piStep1">
+                    <p class="text-muted small mb-3">Upload a PictureThis share card (or any plant ID image with text). The system will extract the plant name, scientific name, sunlight, watering, and toxicity — then generate draft quiz questions for your review.</p>
+                    <div id="piDropzone" onclick="document.getElementById('piFileInput').click()"
+                         style="border:2px dashed #dee2e6;border-radius:10px;padding:40px;text-align:center;cursor:pointer;background:#f8f9fa;transition:border-color .2s;">
+                        <i data-feather="image" style="width:36px;height:36px;color:#adb5bd;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto;"></i>
+                        <p class="mb-1 fw-bold text-muted">Click to choose a photo</p>
+                        <p class="text-muted small mb-0">JPG, PNG, WEBP — max 10MB</p>
+                    </div>
+                    <input type="file" id="piFileInput" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;" onchange="handlePlantImportFile(this)">
+                    <div id="piFilePreview" class="mt-3" style="display:none;">
+                        <img id="piFileThumb" src="" alt="" style="max-height:200px;max-width:100%;border-radius:6px;border:1px solid #dee2e6;">
+                        <p class="small text-muted mt-1 mb-0" id="piFileName"></p>
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn mw-btn-green" id="piRunOcrBtn" onclick="runPlantImport()" style="display:none;">
+                            <i data-feather="zap" style="width:14px;height:14px;"></i> Extract Plant Data
+                        </button>
+                    </div>
+                    <div id="piOcrStatus" class="mt-3" style="display:none;">
+                        <div class="d-flex align-items-center gap-2 text-muted">
+                            <div class="spinner-border spinner-border-sm"></div>
+                            <span id="piOcrStatusText">Running OCR…</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Review extracted data -->
+                <div id="piStep2" style="display:none;">
+                    <div class="row g-3">
+                        <!-- Left: extracted plant fields -->
+                        <div class="col-md-5">
+                            <div class="card h-100">
+                                <div class="card-header py-2 px-3">
+                                    <strong class="small">Extracted Plant Data</strong>
+                                    <span class="badge bg-success ms-2 small" id="piConfidenceBadge"></span>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row g-2">
+                                        <div class="col-12">
+                                            <label class="form-label small fw-bold mb-1">Common Name <span class="text-danger">*</span></label>
+                                            <input type="text" id="piCommonName" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label small fw-bold mb-1">Scientific Name</label>
+                                            <input type="text" id="piLatinName" class="form-control form-control-sm" style="font-style:italic;">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1">Type</label>
+                                            <select id="piType" class="form-select form-select-sm">
+                                                <option value="plant">Plant</option>
+                                                <option value="weed">Weed</option>
+                                                <option value="grass">Grass</option>
+                                                <option value="shrub">Shrub</option>
+                                                <option value="tree">Tree</option>
+                                                <option value="fungus">Fungus</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1">Sunlight</label>
+                                            <input type="text" id="piSunlight" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1">Watering</label>
+                                            <input type="text" id="piWatering" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-6">
+                                            <label class="form-label small fw-bold mb-1">Toxicity</label>
+                                            <input type="text" id="piToxicity" class="form-control form-control-sm">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label small fw-bold mb-1">Tags</label>
+                                            <input type="text" id="piTags" class="form-control form-control-sm" placeholder="comma-separated">
+                                        </div>
+                                        <div class="col-12">
+                                            <label class="form-label small fw-bold mb-1">Description (from Wikipedia)</label>
+                                            <textarea id="piDescription" class="form-control form-control-sm" rows="4"></textarea>
+                                        </div>
+                                        <div class="col-12">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <img id="piSavedThumb" src="" alt="" style="width:50px;height:50px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;display:none;">
+                                                <span class="text-muted small" id="piImageLabel"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Right: suggested quiz questions -->
+                        <div class="col-md-7">
+                            <div class="card h-100">
+                                <div class="card-header py-2 px-3">
+                                    <strong class="small">Suggested Quiz Questions</strong>
+                                    <span class="text-muted small ms-2">Check the ones you want to generate</span>
+                                </div>
+                                <div class="card-body p-0">
+                                    <div id="piQuestionList" style="max-height:480px;overflow-y:auto;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+            <div class="modal-footer" id="piFooter" style="display:none;">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="startImportOver()">
+                    <i data-feather="refresh-cw" style="width:13px;height:13px;"></i> Try Another Photo
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-success" onclick="saveImportToLibrary()">
+                    <i data-feather="bookmark" style="width:13px;height:13px;"></i> Save to Library
+                </button>
+                <button type="button" class="btn btn-sm mw-btn-green" onclick="saveImportAll()">
+                    <i data-feather="check-circle" style="width:13px;height:13px;"></i> Save Library + Generate Questions
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -1421,6 +1558,267 @@ function useInQuestion(entry) {
 
         feather.replace();
     }, 200);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PLANT IMPORT FROM PHOTO
+// ══════════════════════════════════════════════════════════════════════════════
+
+let piImportData = null;  // holds last API response
+
+function openPlantImportModal() {
+    startImportOver();
+    $('#plantImportModal').modal('show');
+}
+
+function startImportOver() {
+    piImportData = null;
+    document.getElementById('piStep1').style.display = '';
+    document.getElementById('piStep2').style.display = 'none';
+    document.getElementById('piFooter').style.display = 'none';
+    document.getElementById('piFilePreview').style.display = 'none';
+    document.getElementById('piRunOcrBtn').style.display = 'none';
+    document.getElementById('piOcrStatus').style.display = 'none';
+    document.getElementById('piFileInput').value = '';
+}
+
+function handlePlantImportFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        document.getElementById('piFileThumb').src = e.target.result;
+        document.getElementById('piFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+        document.getElementById('piFilePreview').style.display = '';
+        document.getElementById('piRunOcrBtn').style.display = '';
+    };
+    reader.readAsDataURL(file);
+}
+
+// Dropzone drag-over highlight
+document.addEventListener('DOMContentLoaded', function() {
+    const dz = document.getElementById('piDropzone');
+    if (!dz) return;
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor = 'var(--mw-green)'; });
+    dz.addEventListener('dragleave', () => { dz.style.borderColor = '#dee2e6'; });
+    dz.addEventListener('drop', e => {
+        e.preventDefault();
+        dz.style.borderColor = '#dee2e6';
+        const files = e.dataTransfer.files;
+        if (files.length) {
+            const dt = new DataTransfer();
+            dt.items.add(files[0]);
+            document.getElementById('piFileInput').files = dt.files;
+            handlePlantImportFile(document.getElementById('piFileInput'));
+        }
+    });
+});
+
+async function runPlantImport() {
+    const file = document.getElementById('piFileInput').files[0];
+    if (!file) { alert('Please choose an image first.'); return; }
+
+    document.getElementById('piRunOcrBtn').style.display = 'none';
+    document.getElementById('piOcrStatus').style.display = '';
+    document.getElementById('piOcrStatusText').textContent = 'Running OCR on image…';
+
+    const fd = new FormData();
+    fd.append('image', file);
+    fd.append('csrf_token', CSRF);
+
+    let data;
+    try {
+        document.getElementById('piOcrStatusText').textContent = 'Extracting plant data + looking up Wikipedia…';
+        const r = await fetch('/crm/api/quiz-plant-import.php', { method: 'POST', body: fd });
+        data = await r.json();
+    } catch (e) {
+        document.getElementById('piOcrStatus').style.display = 'none';
+        document.getElementById('piRunOcrBtn').style.display = '';
+        alert('Network error — try again.');
+        return;
+    }
+
+    document.getElementById('piOcrStatus').style.display = 'none';
+
+    if (!data.success) {
+        document.getElementById('piRunOcrBtn').style.display = '';
+        alert('Import failed: ' + (data.error || 'Unknown error'));
+        return;
+    }
+
+    piImportData = data;
+    populateImportReview(data);
+}
+
+function populateImportReview(data) {
+    const p = data.plant;
+
+    document.getElementById('piCommonName').value  = p.common_name || '';
+    document.getElementById('piLatinName').value   = p.latin_name  || '';
+    document.getElementById('piType').value        = p.type        || 'plant';
+    document.getElementById('piSunlight').value    = p.sunlight    || '';
+    document.getElementById('piWatering').value    = p.watering    || '';
+    document.getElementById('piToxicity').value    = p.toxicity    || '';
+    document.getElementById('piTags').value        = p.tags        || '';
+    document.getElementById('piDescription').value = data.wikipedia_summary || '';
+
+    // Show saved image thumbnail
+    if (data.image_path) {
+        const thumb = document.getElementById('piSavedThumb');
+        thumb.src = data.image_path;
+        thumb.style.display = 'block';
+        document.getElementById('piImageLabel').textContent = 'Photo saved: ' + data.image_path;
+    }
+
+    // Confidence badge
+    const fields = [p.common_name, p.latin_name, p.sunlight, p.toxicity].filter(Boolean).length;
+    const badge  = document.getElementById('piConfidenceBadge');
+    if (fields >= 3) { badge.textContent = 'Good match'; badge.className = 'badge bg-success ms-2 small'; }
+    else if (fields >= 2) { badge.textContent = 'Partial match'; badge.className = 'badge bg-warning ms-2 small'; }
+    else { badge.textContent = 'Low confidence — check fields'; badge.className = 'badge bg-danger ms-2 small'; }
+
+    // Build question checklist
+    const list = document.getElementById('piQuestionList');
+    list.innerHTML = '';
+    if (!data.questions || !data.questions.length) {
+        list.innerHTML = '<p class="text-muted small p-3">No questions could be generated. Fill in the plant data and try again.</p>';
+    } else {
+        data.questions.forEach((q, i) => {
+            const checked = q.selected ? 'checked' : '';
+            const typeLabel = q.type === 'photo_id' ? '📷 Photo ID' : '❓ Multiple Choice';
+            const imgHtml = q.image_path
+                ? `<img src="${q.image_path}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;flex-shrink:0;">`
+                : '';
+            const opts = (q.options || []).map((o, oi) =>
+                `<span class="badge ${oi === 0 ? 'bg-success' : 'bg-light text-dark border'} me-1 mb-1">${o}</span>`
+            ).join('');
+            list.innerHTML += `
+                <div class="d-flex gap-3 align-items-start p-3 border-bottom" id="piQ${i}">
+                    <div class="form-check pt-1" style="flex-shrink:0;">
+                        <input class="form-check-input" type="checkbox" id="piQCheck${i}" ${checked}>
+                    </div>
+                    ${imgHtml}
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="badge bg-secondary" style="font-size:10px;">${typeLabel}</span>
+                            <span class="badge bg-light text-dark border" style="font-size:10px;">${q.difficulty}</span>
+                        </div>
+                        <p class="mb-1 small fw-bold">${q.question_text}</p>
+                        <div class="mb-1">${opts}</div>
+                        <p class="text-muted mb-0" style="font-size:11px;">Learn notes: ${(q.learn_notes || '').substring(0, 100)}…</p>
+                    </div>
+                </div>`;
+        });
+    }
+
+    document.getElementById('piStep1').style.display = 'none';
+    document.getElementById('piStep2').style.display = '';
+    document.getElementById('piFooter').style.display = '';
+    feather.replace();
+}
+
+function getImportPlantPayload() {
+    return {
+        csrf_token:           CSRF,
+        common_name:          document.getElementById('piCommonName').value.trim(),
+        latin_name:           document.getElementById('piLatinName').value.trim() || null,
+        type:                 document.getElementById('piType').value,
+        tags:                 document.getElementById('piTags').value.trim() || null,
+        description:          document.getElementById('piDescription').value.trim() || null,
+        identification_notes: null,
+        image_path:           (piImportData && piImportData.image_path) || null,
+    };
+}
+
+async function saveImportToLibrary() {
+    const name = document.getElementById('piCommonName').value.trim();
+    if (!name) { alert('Common name is required.'); return; }
+
+    const r = await fetch('/crm/api/quiz.php?action=save_library_entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(getImportPlantPayload()),
+    });
+    const d = await r.json();
+    if (d.success) {
+        $('#plantImportModal').modal('hide');
+        loadLibrary();
+        alert('Plant saved to library.');
+    } else {
+        alert(d.error || 'Save failed');
+    }
+}
+
+async function saveImportAll() {
+    const name = document.getElementById('piCommonName').value.trim();
+    if (!name) { alert('Common name is required.'); return; }
+
+    // 1. Save to library
+    const libR = await fetch('/crm/api/quiz.php?action=save_library_entry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(getImportPlantPayload()),
+    });
+    const libD = await libR.json();
+    if (!libD.success) { alert(libD.error || 'Library save failed'); return; }
+
+    // 2. Generate selected questions
+    if (!piImportData || !piImportData.questions) {
+        $('#plantImportModal').modal('hide');
+        loadLibrary();
+        return;
+    }
+
+    const selectedQuestions = piImportData.questions.filter((q, i) => {
+        const cb = document.getElementById('piQCheck' + i);
+        return cb && cb.checked;
+    });
+
+    if (!selectedQuestions.length) {
+        $('#plantImportModal').modal('hide');
+        loadLibrary();
+        alert('Plant saved to library. No questions were selected to generate.');
+        return;
+    }
+
+    // Find the correct category ID (Plant & Grass ID or Weed ID)
+    const plantType = document.getElementById('piType').value;
+    const targetCatName = plantType === 'weed' ? 'Weed Identification' : 'Plant & Grass ID';
+    let catId = null;
+    if (window.allCategories) {
+        const cat = window.allCategories.find(c => c.name && c.name.includes(plantType === 'weed' ? 'Weed' : 'Plant'));
+        if (cat) catId = parseInt(cat.id);
+    }
+
+    let saved = 0, failed = 0;
+    for (const q of selectedQuestions) {
+        const options = (q.options || []).map((o, i) => ({ text: o, is_correct: i === 0 }));
+        const payload = {
+            csrf_token:    CSRF,
+            category_id:   catId,
+            question_text: q.question_text,
+            question_type: q.type || 'multiple_choice',
+            difficulty:    q.difficulty || 'medium',
+            learn_notes:   q.learn_notes || '',
+            is_active:     1,
+            options:       options,
+            image_path:    q.image_path || null,
+            images:        q.image_path ? [{ image_path: q.image_path, caption: name }] : [],
+        };
+        const qr = await fetch('/crm/api/quiz.php?action=save_question', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const qd = await qr.json();
+        if (qd.success) saved++; else failed++;
+    }
+
+    $('#plantImportModal').modal('hide');
+    loadLibrary();
+    const msg = `Plant saved to library. ${saved} question${saved !== 1 ? 's' : ''} generated.`
+        + (failed ? ` (${failed} failed — check category assignment)` : '');
+    alert(msg);
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────
