@@ -213,11 +213,46 @@ $menuItems = [
 
     if (!overlay || !sheet) return;
 
+    // ── Background prefetch nav pages on first menu open ─────────────
+    // Fires low-priority fetch() calls so the browser has the HTML in its
+    // HTTP cache before the user taps. Runs once per page load.
+    var _prefetchDone = false;
+    function prefetchNavPages() {
+        if (_prefetchDone) return;
+        _prefetchDone = true;
+
+        // Collect hrefs from the nav grid (skip # links)
+        var links = sheet.querySelectorAll('.mw-mobile-menu-item[href]');
+        var urls  = [];
+        links.forEach(function(a) {
+            var href = a.getAttribute('href');
+            if (href && href !== '#' && href !== window.location.pathname) {
+                urls.push(href);
+            }
+        });
+
+        // Prefetch in batches of 3 so we don't hammer shared hosting
+        var i = 0;
+        function fetchNext() {
+            var batch = urls.slice(i, i + 3);
+            if (!batch.length) return;
+            i += 3;
+            Promise.all(batch.map(function(url) {
+                return fetch(url, { credentials: 'same-origin', priority: 'low' })
+                    .catch(function() { /* best-effort, ignore errors */ });
+            })).then(function() {
+                // Small gap between batches to stay off the hot path
+                if (i < urls.length) setTimeout(fetchNext, 600);
+            });
+        }
+        // Start after a short delay so menu open animation gets priority
+        setTimeout(fetchNext, 400);
+    }
+
     function openMenu() {
         sheet.style.transform = ''; // reset any leftover drag position
         overlay.classList.add('mw-menu-open');
-        // Prevent page scroll without body overflow hack (avoids iOS layout jump)
-        document.documentElement.style.setProperty('--mw-scroll-lock', window.scrollY + 'px');
+        prefetchNavPages();
     }
 
     function closeMenu() {

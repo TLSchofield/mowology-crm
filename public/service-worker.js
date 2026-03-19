@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v33';
+var CACHE_VERSION = 'mw-v35';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -33,9 +33,9 @@ var TILE_CACHE   = 'mw-tiles-v2'; // satellite tiles — long-lived, NOT version
 var APP_SHELL = [
   /* ── Core AppStack frame ── */
   '/crm/css/classic.css',
-  '/crm/css/mowology-brand.css?v=20260228a',
-  '/crm/css/mobile-cards.css?v=20260310a',
-  '/crm/css/mobile-nav.css?v=20260225a',
+  '/crm/css/mowology-brand.css?v=20260313a',
+  '/crm/css/mobile-cards.css?v=20260313a',
+  '/crm/css/mobile-nav.css?v=20260318a',
   '/crm/js/app.js',
   '/crm/js/feather-helper.js',
 

@@ -180,10 +180,12 @@
         letter-spacing: 0.2px;
     }
 
-    .mw-mobile-nav-btn:hover,
+    .mw-mobile-nav-btn:hover { color: #555; text-decoration: none; }
+
     .mw-mobile-nav-btn:active {
-        color: #555;
+        color: #2D8659;
         text-decoration: none;
+        transform: scale(0.92);
     }
 
     .mw-mobile-nav-btn svg {
@@ -340,8 +342,14 @@
         line-height: 1.2;
     }
 
-    .mw-mobile-menu-item:hover,
     .mw-mobile-menu-item:active {
+        background: #ebebeb;
+        text-decoration: none;
+        color: #1a1a1a;
+        transform: scale(0.96);
+    }
+
+    .mw-mobile-menu-item:hover {
         background: #f4f4f4;
         text-decoration: none;
         color: #1a1a1a;
