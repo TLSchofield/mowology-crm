@@ -208,18 +208,21 @@ $menuItems = [
 (function() {
     var overlay  = document.getElementById('mwMobileMenuOverlay');
     var scrim    = document.getElementById('mwMobileMenuScrim');
+    var sheet    = document.getElementById('mwMobileMenuSheet');
     var botBtn   = document.getElementById('mwMobileMenuBtnBottom');
 
-    if (!overlay) return;
+    if (!overlay || !sheet) return;
 
     function openMenu() {
+        sheet.style.transform = ''; // reset any leftover drag position
         overlay.classList.add('mw-menu-open');
-        document.body.style.overflow = 'hidden';
+        // Prevent page scroll without body overflow hack (avoids iOS layout jump)
+        document.documentElement.style.setProperty('--mw-scroll-lock', window.scrollY + 'px');
     }
 
     function closeMenu() {
         overlay.classList.remove('mw-menu-open');
-        document.body.style.overflow = '';
+        // CSS transition: visibility delays 0.32s so the slide-down is visible
     }
 
     if (botBtn) botBtn.addEventListener('click', openMenu);
@@ -229,6 +232,50 @@ $menuItems = [
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') closeMenu();
     });
+
+    // ── Swipe-to-dismiss ───────────────────────────────────────────
+    var touchStartY   = 0;
+    var touchStartScroll = 0;
+    var DISMISS_THRESHOLD = 72; // px downward to trigger close
+
+    sheet.addEventListener('touchstart', function(e) {
+        touchStartY      = e.touches[0].clientY;
+        touchStartScroll = sheet.scrollTop;
+    }, { passive: true });
+
+    sheet.addEventListener('touchmove', function(e) {
+        var dy = e.touches[0].clientY - touchStartY;
+        // Only drag-to-dismiss when sheet is scrolled to the very top and
+        // the finger is moving downward. Otherwise let normal scroll happen.
+        if (touchStartScroll <= 0 && dy > 0) {
+            sheet.classList.add('mw-sheet-dragging');
+            var clamped = Math.max(0, dy);
+            sheet.style.transform = 'translateY(' + clamped + 'px)';
+            // Fade scrim proportionally
+            var ratio = Math.max(0, 1 - clamped / 220);
+            scrim.style.background = 'rgba(0,0,0,' + (0.45 * ratio).toFixed(3) + ')';
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    sheet.addEventListener('touchend', function(e) {
+        var dy = e.changedTouches[0].clientY - touchStartY;
+        sheet.classList.remove('mw-sheet-dragging');
+        scrim.style.background = ''; // let CSS take back over
+
+        if (touchStartScroll <= 0 && dy > DISMISS_THRESHOLD) {
+            // Finger dragged far enough — snap to bottom and close
+            sheet.style.transform = 'translateY(100%)';
+            // Small delay so the snap animation is visible before overlay hides
+            setTimeout(function() {
+                sheet.style.transform = '';
+                closeMenu();
+            }, 60);
+        } else {
+            // Snap back to fully open
+            sheet.style.transform = '';
+        }
+    }, { passive: true });
 
     // ── Plant import file picker ────────────────────────────────────────────
     var plantFileInput = document.getElementById('mwPlantImportFile');
