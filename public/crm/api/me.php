@@ -36,6 +36,7 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 // Session auth only — no token auth
 requireLogin();
 $user = getCurrentUser();
+session_write_close();
 
 if (!$user) {
     http_response_code(401);

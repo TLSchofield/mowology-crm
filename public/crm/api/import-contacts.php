@@ -23,6 +23,7 @@ require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/crm/includes/functions.php';
 requireLogin();
 $user = getCurrentUser();
+session_write_close();
 
 if (!function_exists('userHasPermission') || !userHasPermission('settings.edit')) {
     http_response_code(403);

@@ -1565,7 +1565,8 @@ function useInQuestion(entry) {
 // PLANT IMPORT FROM PHOTO
 // ══════════════════════════════════════════════════════════════════════════════
 
-let piImportData = null;  // holds last API response
+let piImportData  = null;  // holds last API response
+let piPendingFile = null;  // holds File object across iOS (DataTransfer not supported)
 
 function openPlantImportModal() {
     startImportOver();
@@ -1573,7 +1574,8 @@ function openPlantImportModal() {
 }
 
 function startImportOver() {
-    piImportData = null;
+    piImportData  = null;
+    piPendingFile = null;
     document.getElementById('piStep1').style.display = '';
     document.getElementById('piStep2').style.display = 'none';
     document.getElementById('piFooter').style.display = 'none';
@@ -1584,16 +1586,24 @@ function startImportOver() {
 }
 
 function handlePlantImportFile(input) {
-    const file = input.files[0];
+    const file = input ? input.files[0] : null;
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        document.getElementById('piFileThumb').src = e.target.result;
-        document.getElementById('piFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
-        document.getElementById('piFilePreview').style.display = '';
-        document.getElementById('piRunOcrBtn').style.display = '';
-    };
-    reader.readAsDataURL(file);
+    piPendingFile = file;  // store for upload — avoids DataTransfer (unsupported on iOS)
+    const objUrl = URL.createObjectURL(file);
+    document.getElementById('piFileThumb').src = objUrl;
+    document.getElementById('piFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+    document.getElementById('piFilePreview').style.display = '';
+    document.getElementById('piRunOcrBtn').style.display = '';
+}
+
+// Called from auto-import flow (IndexedDB → file blob, no input element)
+function loadPlantFileFromBlob(file) {
+    piPendingFile = file;
+    const objUrl = URL.createObjectURL(file);
+    document.getElementById('piFileThumb').src = objUrl;
+    document.getElementById('piFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+    document.getElementById('piFilePreview').style.display = '';
+    document.getElementById('piRunOcrBtn').style.display = '';
 }
 
 // Dropzone drag-over highlight
@@ -1616,7 +1626,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function runPlantImport() {
-    const file = document.getElementById('piFileInput').files[0];
+    const file = piPendingFile || (document.getElementById('piFileInput').files[0] || null);
     if (!file) { alert('Please choose an image first.'); return; }
 
     document.getElementById('piRunOcrBtn').style.display = 'none';
@@ -1843,12 +1853,9 @@ loadCategories().then(() => {
         openPlantImportModal();
         // Small delay for modal animation to settle
         setTimeout(function() {
-            var input = document.getElementById('piFileInput');
-            if (!input || !file) return;
-            var dt = new DataTransfer();
-            dt.items.add(file);
-            input.files = dt.files;
-            handlePlantImportFile(input);
+            if (!file) return;
+            // Use loadPlantFileFromBlob — avoids DataTransfer which iOS Safari doesn't support
+            loadPlantFileFromBlob(file);
         }, 300);
     }
 

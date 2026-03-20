@@ -25,6 +25,7 @@ require_once CRM_INCLUDES . '/functions.php';
 
 requireLogin();
 $user = getCurrentUser();
+session_write_close();
 
 header('Content-Type: application/json');
 

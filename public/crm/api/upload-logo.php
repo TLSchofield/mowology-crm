@@ -16,6 +16,7 @@ header('Content-Type: application/json');
 
 requireLogin();
 $user = getCurrentUser();
+session_write_close();
 requirePermission('settings.edit');
 
 // Verify CSRF token

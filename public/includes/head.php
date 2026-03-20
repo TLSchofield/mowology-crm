@@ -98,7 +98,7 @@ if (file_exists($__themeFuncs)) {
   <?php endif; ?>
 
   <!-- Styles -->
-  <link rel="stylesheet" href="/assets/css/master.css">
+  <link rel="stylesheet" href="<?= asset('/assets/css/master.css') ?>">
 
   <?php if ($__activeTheme && function_exists('cms_buildThemeCss')): ?>
   <style id="cms-theme-vars"><?= cms_buildThemeCss($__activeTheme) ?></style>

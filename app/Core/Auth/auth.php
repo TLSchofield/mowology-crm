@@ -95,10 +95,14 @@ function getCurrentUser(): ?array {
     if (!isLoggedIn()) return null;
 
     return [
-        'id'    => (int)$_SESSION['user_id'],
-        'email' => (string)($_SESSION['user_email'] ?? ''),
-        'name'  => (string)($_SESSION['user_name'] ?? ''),
-        'role'  => (string)($_SESSION['user_role'] ?? 'user'),
+        'id'         => (int)$_SESSION['user_id'],
+        'email'      => (string)($_SESSION['user_email'] ?? ''),
+        'name'       => (string)($_SESSION['user_name'] ?? ''),
+        'role'       => (string)($_SESSION['user_role'] ?? 'user'),
+        'first_name' => (string)($_SESSION['user_first_name'] ?? ''),
+        'last_name'  => (string)($_SESSION['user_last_name'] ?? ''),
+        'full_name'  => (string)($_SESSION['user_full_name'] ?? $_SESSION['user_name'] ?? ''),
+        'is_driver'  => (bool)($_SESSION['user_is_driver'] ?? false),
     ];
 }
 
@@ -189,7 +193,7 @@ function loginUser(string $email, string $password): bool {
     try {
         // Fetch user without is_active filter — check it separately so NULL is treated as active
         $stmt = $db->prepare("
-            SELECT id, email, password_hash, full_name, role, is_active
+            SELECT id, email, password_hash, full_name, first_name, last_name, role, is_active, is_driver
             FROM users
             WHERE LOWER(email) = ?
             LIMIT 1
@@ -205,12 +209,16 @@ function loginUser(string $email, string $password): bool {
         if ($user && isset($user['password_hash']) && password_verify($password, (string)$user['password_hash'])) {
             session_regenerate_id(true);
 
-            $_SESSION['user_id'] = (int)$user['id'];
-            $_SESSION['user_email'] = (string)$user['email'];
-            $_SESSION['user_name'] = (string)($user['full_name'] ?? '');
-            $_SESSION['user_role'] = (string)($user['role'] ?: 'user');
-            $_SESSION['login_time'] = time();
-            $_SESSION['last_activity'] = time();
+            $_SESSION['user_id']         = (int)$user['id'];
+            $_SESSION['user_email']      = (string)$user['email'];
+            $_SESSION['user_name']       = (string)($user['full_name'] ?? '');
+            $_SESSION['user_role']       = (string)($user['role'] ?: 'user');
+            $_SESSION['user_first_name'] = (string)($user['first_name'] ?? '');
+            $_SESSION['user_last_name']  = (string)($user['last_name'] ?? '');
+            $_SESSION['user_full_name']  = (string)($user['full_name'] ?? '');
+            $_SESSION['user_is_driver']  = !empty($user['is_driver']);
+            $_SESSION['login_time']      = time();
+            $_SESSION['last_activity']   = time();
 
             // Update last login
             $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
@@ -356,3 +364,37 @@ if (!function_exists('record_failed_login')) {
 if (!function_exists('clear_login_attempts')) {
     function clear_login_attempts(string $email, ?string $ip = null): void { clearLoginAttempts($email, $ip); }
 }
+
+// ── Global exception handler ──────────────────────────────────────────────────
+// Catches any unhandled Throwable (DB errors, require failures, etc.) across
+// the entire CRM.  Logs a structured entry via error_log() and — for API
+// endpoints — returns a JSON error instead of a raw PHP fatal page.
+// Registered once here so every page that loads auth.php gets it automatically.
+set_exception_handler(function (Throwable $e): void {
+    $uri  = $_SERVER['REQUEST_URI'] ?? '';
+    $msg  = $e->getMessage();
+    $loc  = $e->getFile() . ':' . $e->getLine();
+    $user = (isset($_SESSION['user_email']) ? $_SESSION['user_email'] : 'guest');
+
+    error_log("[CRM FATAL] $msg | $loc | user=$user | uri=$uri");
+
+    if (headers_sent()) {
+        exit(1);
+    }
+
+    // API endpoints → JSON so JS callers get a parseable response
+    if (strpos($uri, '/api/') !== false || strpos($uri, '/crm/api/') !== false) {
+        header('Content-Type: application/json');
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => 'Internal server error']);
+        exit(1);
+    }
+
+    // HTML pages → plain message (display_errors is Off in production)
+    http_response_code(500);
+    echo '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:2rem">'
+       . '<h2>Something went wrong</h2>'
+       . '<p>An unexpected error occurred. Please try again or contact support.</p>'
+       . '</body></html>';
+    exit(1);
+});
