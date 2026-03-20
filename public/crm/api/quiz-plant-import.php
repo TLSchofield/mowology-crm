@@ -85,7 +85,23 @@ if ($searchName) {
     }
 }
 
-// ── 5. Save uploaded image to /uploads/quiz/ ──────────────────────────────────
+// ── 5. Check for existing library entry (duplicate detection) ─────────────────
+
+$existingEntry = null;
+if ($plant['common_name'] || $plant['latin_name']) {
+    $db = getDB();
+    $stmt = $db->prepare(
+        "SELECT id, common_name, latin_name, image_path, type
+         FROM quiz_plant_library
+         WHERE (common_name IS NOT NULL AND LOWER(common_name) = LOWER(?))
+            OR (latin_name IS NOT NULL AND latin_name != '' AND LOWER(latin_name) = LOWER(?))
+         LIMIT 1"
+    );
+    $stmt->execute([$plant['common_name'] ?: '', $plant['latin_name'] ?: '']);
+    $existingEntry = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
+// ── 6. Save uploaded image to /uploads/quiz/ ──────────────────────────────────
 
 $ext      = in_array($mimeType, ['image/jpeg', 'image/jpg']) ? 'jpg'
           : (($mimeType === 'image/png') ? 'png'
@@ -110,6 +126,7 @@ piOk([
     'image_path'        => $imagePath,
     'wikipedia_summary' => $wikiSummary,
     'questions'         => $questions,
+    'existing_entry'    => $existingEntry,
     'raw_ocr'           => $rawText,   // for debugging
 ]);
 

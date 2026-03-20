@@ -25685,3 +25685,34 @@ textarea.font-monospace {
   gap: 5px;
   flex-wrap: wrap;
 }
+
+/* ── Plant Import Modal — mobile-first flow ─────────────────────────────── */
+.mw-pi-dropzone {
+  border: 2px dashed var(--mw-green);
+  border-radius: 12px;
+  padding: 36px 24px;
+  text-align: center;
+  cursor: pointer;
+  background: #f0f9f5;
+  transition: border-color .2s, background .2s;
+}
+.mw-pi-dropzone:active,
+.mw-pi-dropzone.drag-over {
+  border-color: var(--mw-dark);
+  background: #e0f3ec;
+}
+@media (max-width: 767px) {
+  .mw-plant-import-dialog {
+    margin: 0;
+    max-width: 100%;
+    height: 100%;
+  }
+  .mw-plant-import-dialog .modal-content {
+    height: 100%;
+    border-radius: 0;
+    border: none;
+  }
+  .mw-pi-dropzone {
+    padding: 28px 16px;
+  }
+}

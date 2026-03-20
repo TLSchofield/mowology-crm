@@ -241,52 +241,71 @@ $activePage = 'quiz';
      MODAL: Import Plant from Photo
 ═══════════════════════════════════════════════════════════════════════════ -->
 <div class="modal fade" id="plantImportModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable mw-plant-import-dialog">
         <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Import Plant from Photo</h5>
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title mb-0">Import Plant Card</h5>
+                    <small class="text-muted" id="piStepLabel">Step 1 · Choose a photo</small>
+                </div>
                 <button type="button" class="btn-close" data-dismiss="modal"></button>
             </div>
             <div class="modal-body">
 
-                <!-- Step 1: Upload -->
+                <!-- Step 1: Choose photo -->
                 <div id="piStep1">
-                    <p class="text-muted small mb-3">Upload a PictureThis share card (or any plant ID image with text). The system will extract the plant name, scientific name, sunlight, watering, and toxicity — then generate draft quiz questions for your review.</p>
                     <div id="piDropzone" onclick="document.getElementById('piFileInput').click()"
-                         style="border:2px dashed #dee2e6;border-radius:10px;padding:40px;text-align:center;cursor:pointer;background:#f8f9fa;transition:border-color .2s;">
-                        <i data-feather="image" style="width:36px;height:36px;color:#adb5bd;margin-bottom:10px;display:block;margin-left:auto;margin-right:auto;"></i>
-                        <p class="mb-1 fw-bold text-muted">Click to choose a photo</p>
-                        <p class="text-muted small mb-0">JPG, PNG, WEBP — max 10MB</p>
+                         class="mw-pi-dropzone">
+                        <i data-feather="camera" style="width:40px;height:40px;color:#2D8659;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;"></i>
+                        <p class="mb-1 fw-bold" style="color:#2D8659;">Tap to choose a photo</p>
+                        <p class="text-muted small mb-0">Use a PictureThis card or any plant photo with text</p>
                     </div>
                     <input type="file" id="piFileInput" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;" onchange="handlePlantImportFile(this)">
-                    <div id="piFilePreview" class="mt-3" style="display:none;">
-                        <img id="piFileThumb" src="" alt="" style="max-height:200px;max-width:100%;border-radius:6px;border:1px solid #dee2e6;">
-                        <p class="small text-muted mt-1 mb-0" id="piFileName"></p>
+                    <div id="piFilePreview" class="mt-3 text-center" style="display:none;">
+                        <img id="piFileThumb" src="" alt="" style="max-height:220px;max-width:100%;border-radius:8px;border:1px solid #dee2e6;object-fit:contain;">
+                        <p class="small text-muted mt-2 mb-0" id="piFileName"></p>
                     </div>
                     <div class="mt-3">
-                        <button class="btn mw-btn-green" id="piRunOcrBtn" onclick="runPlantImport()" style="display:none;">
-                            <i data-feather="zap" style="width:14px;height:14px;"></i> Extract Plant Data
+                        <button class="btn mw-btn-green w-100" id="piRunOcrBtn" onclick="runPlantImport()" style="display:none;">
+                            <i data-feather="zap" style="width:15px;height:15px;"></i> Scan Plant Card
                         </button>
                     </div>
                     <div id="piOcrStatus" class="mt-3" style="display:none;">
-                        <div class="d-flex align-items-center gap-2 text-muted">
+                        <div class="d-flex align-items-center gap-2 text-muted justify-content-center py-3">
                             <div class="spinner-border spinner-border-sm"></div>
-                            <span id="piOcrStatusText">Running OCR…</span>
+                            <span id="piOcrStatusText">Scanning…</span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Step 2: Review extracted data -->
                 <div id="piStep2" style="display:none;">
+
+                    <!-- Saved image preview -->
+                    <div id="piStep2ImgWrap" class="mb-3 text-center" style="display:none;">
+                        <img id="piSavedThumb" src="" alt="" style="max-height:140px;max-width:100%;border-radius:8px;border:1px solid #dee2e6;object-fit:contain;">
+                        <p class="text-muted small mt-1 mb-0">✓ Photo saved</p>
+                    </div>
+
+                    <!-- Merge alert (shown when plant already exists) -->
+                    <div id="piMergeBanner" class="alert alert-info d-flex align-items-start gap-2 py-2 mb-3" style="display:none;">
+                        <i data-feather="refresh-cw" style="width:16px;height:16px;flex-shrink:0;margin-top:2px;"></i>
+                        <div class="flex-grow-1">
+                            <strong id="piMergeTitle" class="small"></strong>
+                            <p class="mb-1 small" id="piMergeDesc"></p>
+                            <button type="button" class="btn btn-xs btn-outline-secondary" style="font-size:11px;padding:1px 8px;" onclick="piSaveAsNew()">Save as new entry instead</button>
+                        </div>
+                    </div>
+
                     <div class="row g-3">
                         <!-- Left: extracted plant fields -->
                         <div class="col-md-5">
-                            <div class="card h-100">
-                                <div class="card-header py-2 px-3">
-                                    <strong class="small">Extracted Plant Data</strong>
-                                    <span class="badge bg-success ms-2 small" id="piConfidenceBadge"></span>
+                            <div class="card">
+                                <div class="card-header py-2 px-3 d-flex align-items-center justify-content-between">
+                                    <strong class="small">Plant Details</strong>
+                                    <span class="badge small" id="piConfidenceBadge"></span>
                                 </div>
-                                <div class="card-body">
+                                <div class="card-body py-2">
                                     <div class="row g-2">
                                         <div class="col-12">
                                             <label class="form-label small fw-bold mb-1">Common Name <span class="text-danger">*</span></label>
@@ -324,14 +343,8 @@ $activePage = 'quiz';
                                             <input type="text" id="piTags" class="form-control form-control-sm" placeholder="comma-separated">
                                         </div>
                                         <div class="col-12">
-                                            <label class="form-label small fw-bold mb-1">Description (from Wikipedia)</label>
-                                            <textarea id="piDescription" class="form-control form-control-sm" rows="4"></textarea>
-                                        </div>
-                                        <div class="col-12">
-                                            <div class="d-flex align-items-center gap-2">
-                                                <img id="piSavedThumb" src="" alt="" style="width:50px;height:50px;object-fit:cover;border-radius:4px;border:1px solid #dee2e6;display:none;">
-                                                <span class="text-muted small" id="piImageLabel"></span>
-                                            </div>
+                                            <label class="form-label small fw-bold mb-1">Description</label>
+                                            <textarea id="piDescription" class="form-control form-control-sm" rows="3"></textarea>
                                         </div>
                                     </div>
                                 </div>
@@ -339,13 +352,13 @@ $activePage = 'quiz';
                         </div>
                         <!-- Right: suggested quiz questions -->
                         <div class="col-md-7">
-                            <div class="card h-100">
+                            <div class="card">
                                 <div class="card-header py-2 px-3">
-                                    <strong class="small">Suggested Quiz Questions</strong>
-                                    <span class="text-muted small ms-2">Check the ones you want to generate</span>
+                                    <strong class="small">Suggested Questions</strong>
+                                    <span class="text-muted small ms-2">Check the ones to generate</span>
                                 </div>
                                 <div class="card-body p-0">
-                                    <div id="piQuestionList" style="max-height:480px;overflow-y:auto;"></div>
+                                    <div id="piQuestionList"></div>
                                 </div>
                             </div>
                         </div>
@@ -353,16 +366,17 @@ $activePage = 'quiz';
                 </div>
 
             </div>
-            <div class="modal-footer" id="piFooter" style="display:none;">
+            <div class="modal-footer py-2" id="piFooter" style="display:none;">
                 <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" onclick="startImportOver()">
-                    <i data-feather="refresh-cw" style="width:13px;height:13px;"></i> Try Another Photo
+                    <i data-feather="refresh-cw" style="width:13px;height:13px;"></i> Try Another
                 </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="piSaveNewBtn" onclick="piSaveAsNew()" style="display:none;">Save as New</button>
                 <button type="button" class="btn btn-sm btn-outline-success" onclick="saveImportToLibrary()">
-                    <i data-feather="bookmark" style="width:13px;height:13px;"></i> Save to Library
+                    <i data-feather="bookmark" style="width:13px;height:13px;"></i> <span id="piSaveLibLabel">Save to Library</span>
                 </button>
                 <button type="button" class="btn btn-sm mw-btn-green" onclick="saveImportAll()">
-                    <i data-feather="check-circle" style="width:13px;height:13px;"></i> Save Library + Generate Questions
+                    <i data-feather="check-circle" style="width:13px;height:13px;"></i> <span id="piSaveAllLabel">Save + Add Questions</span>
                 </button>
             </div>
         </div>
@@ -1567,6 +1581,7 @@ function useInQuestion(entry) {
 
 let piImportData  = null;  // holds last API response
 let piPendingFile = null;  // holds File object across iOS (DataTransfer not supported)
+let piMergeId     = 0;     // >0 = update existing library entry, 0 = create new
 
 function openPlantImportModal() {
     startImportOver();
@@ -1576,6 +1591,7 @@ function openPlantImportModal() {
 function startImportOver() {
     piImportData  = null;
     piPendingFile = null;
+    piMergeId     = 0;
     document.getElementById('piStep1').style.display = '';
     document.getElementById('piStep2').style.display = 'none';
     document.getElementById('piFooter').style.display = 'none';
@@ -1583,6 +1599,12 @@ function startImportOver() {
     document.getElementById('piRunOcrBtn').style.display = 'none';
     document.getElementById('piOcrStatus').style.display = 'none';
     document.getElementById('piFileInput').value = '';
+    document.getElementById('piStepLabel').textContent = 'Step 1 · Choose a photo';
+    document.getElementById('piMergeBanner').style.display = 'none';
+    document.getElementById('piSaveNewBtn').style.display = 'none';
+    document.getElementById('piSaveLibLabel').textContent = 'Save to Library';
+    document.getElementById('piSaveAllLabel').textContent = 'Save + Add Questions';
+    document.getElementById('piStep2ImgWrap').style.display = 'none';
 }
 
 function handlePlantImportFile(input) {
@@ -1673,20 +1695,40 @@ function populateImportReview(data) {
     document.getElementById('piTags').value        = p.tags        || '';
     document.getElementById('piDescription').value = data.wikipedia_summary || '';
 
-    // Show saved image thumbnail
+    // Show saved image at top of step 2
     if (data.image_path) {
         const thumb = document.getElementById('piSavedThumb');
         thumb.src = data.image_path;
-        thumb.style.display = 'block';
-        document.getElementById('piImageLabel').textContent = 'Photo saved: ' + data.image_path;
+        document.getElementById('piStep2ImgWrap').style.display = '';
+    }
+
+    // Update step label
+    document.getElementById('piStepLabel').textContent = 'Step 2 · Review & save';
+
+    // Handle merge — existing plant in library
+    if (data.existing_entry) {
+        piMergeId = data.existing_entry.id;
+        const name = data.existing_entry.common_name || 'This plant';
+        document.getElementById('piMergeTitle').textContent = name + ' is already in your library';
+        document.getElementById('piMergeDesc').textContent = 'Saving will update the existing entry with the new photo and any filled-in fields.';
+        document.getElementById('piMergeBanner').style.display = '';
+        document.getElementById('piSaveNewBtn').style.display = '';
+        document.getElementById('piSaveLibLabel').textContent = 'Update Library Entry';
+        document.getElementById('piSaveAllLabel').textContent = 'Update + Add Questions';
+    } else {
+        piMergeId = 0;
+        document.getElementById('piMergeBanner').style.display = 'none';
+        document.getElementById('piSaveNewBtn').style.display = 'none';
+        document.getElementById('piSaveLibLabel').textContent = 'Save to Library';
+        document.getElementById('piSaveAllLabel').textContent = 'Save + Add Questions';
     }
 
     // Confidence badge
     const fields = [p.common_name, p.latin_name, p.sunlight, p.toxicity].filter(Boolean).length;
     const badge  = document.getElementById('piConfidenceBadge');
-    if (fields >= 3) { badge.textContent = 'Good match'; badge.className = 'badge bg-success ms-2 small'; }
-    else if (fields >= 2) { badge.textContent = 'Partial match'; badge.className = 'badge bg-warning ms-2 small'; }
-    else { badge.textContent = 'Low confidence — check fields'; badge.className = 'badge bg-danger ms-2 small'; }
+    if (fields >= 3) { badge.textContent = 'Good match'; badge.className = 'badge bg-success small'; }
+    else if (fields >= 2) { badge.textContent = 'Partial match'; badge.className = 'badge bg-warning small'; }
+    else { badge.textContent = 'Low confidence — check fields'; badge.className = 'badge bg-danger small'; }
 
     // Build question checklist
     const list = document.getElementById('piQuestionList');
@@ -1731,6 +1773,7 @@ function populateImportReview(data) {
 function getImportPlantPayload() {
     return {
         csrf_token:           CSRF,
+        id:                   piMergeId || 0,
         common_name:          document.getElementById('piCommonName').value.trim(),
         latin_name:           document.getElementById('piLatinName').value.trim() || null,
         type:                 document.getElementById('piType').value,
@@ -1739,6 +1782,14 @@ function getImportPlantPayload() {
         identification_notes: null,
         image_path:           (piImportData && piImportData.image_path) || null,
     };
+}
+
+function piSaveAsNew() {
+    piMergeId = 0;
+    document.getElementById('piMergeBanner').style.display = 'none';
+    document.getElementById('piSaveNewBtn').style.display = 'none';
+    document.getElementById('piSaveLibLabel').textContent = 'Save to Library';
+    document.getElementById('piSaveAllLabel').textContent = 'Save + Add Questions';
 }
 
 async function saveImportToLibrary() {
