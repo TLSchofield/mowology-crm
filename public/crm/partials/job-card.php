@@ -185,6 +185,11 @@ function renderPropertyTags(array $tags, array $tagIcons): string {
 endif;
 
 $stopTags = $stop['tags'] ?? [];
+
+// Obsidian Root™ / fertilizer program status
+$orStatus      = $stop['or_status'] ?? 'none';
+$orIconVariant = ($orStatus === 'enrolled') ? 'full' : (($orStatus === 'offer') ? 'sell' : 'grey');
+$orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus === 'offer') ? 'Offer Program' : 'Not Enrolled');
 ?>
 
 <?php if ($isActive): ?>
@@ -202,6 +207,8 @@ $stopTags = $stop['tags'] ?? [];
     <div class="mw-mc-accent" style="background: <?php echo $accentColor; ?>"></div>
 
     <div class="mw-mc-card-body">
+    <div class="mw-mc-flip-inner">
+    <div class="mw-mc-flip-front">
         <div class="mw-mc-card-header">
             <!-- Top row: uses exact same classes as compact card (.mw-mc-compact-main) — proven to work -->
             <div class="mw-mc-compact-main">
@@ -278,7 +285,8 @@ $stopTags = $stop['tags'] ?? [];
                 <!-- Pill action drawer (JS populates based on tapped pill) -->
                 <div class="mw-mc-pill-drawer" style="display: none;"></div>
                 <!-- Persistent photo strip (JS populates after photo capture) -->
-                <div class="mw-mc-photo-strips"></div>
+                <!-- OR icon tile sits here when enrolled/offer so it lines up with photo placeholders -->
+                <div class="mw-mc-photo-strips"><?php if ($orStatus !== 'none'): ?><div class="mw-mc-or-tile or-icon-<?php echo $orIconVariant; ?>"><img src="/assets/images/programs/obsidian-root-logo.png" alt="Obsidian Root™" decoding="async"></div><?php endif; ?></div>
             <?php endif; ?>
 
             <?php $stopProfitMargin = $stop['profit_margin'] ?? null; ?>
@@ -287,6 +295,20 @@ $stopTags = $stop['tags'] ?? [];
                     <div class="mw-mc-profit-fill" style="width: <?php echo max(0, min(100, $stopProfitMargin)); ?>%; background: <?php echo function_exists('profitBarColor') ? profitBarColor((int)$stopProfitMargin) : '#2D8659'; ?>" data-margin="<?php echo (int)$stopProfitMargin; ?>"></div>
                 </div>
             <?php endif; ?>
+        </div>
+
+        <!-- ── Fertilizer / Obsidian Root™ Row ── -->
+        <div class="mw-mc-fert-row" data-or-status="<?php echo htmlspecialchars($orStatus); ?>">
+            <button type="button" class="mw-mc-fert-flip-btn" data-flip-card="<?php echo (int)$stop['stop_id']; ?>">
+                <span class="or-icon or-icon-<?php echo $orIconVariant; ?>" style="width:44px;height:44px;">
+                    <img src="/assets/images/programs/obsidian-root-logo.png" width="44" height="44" alt="Obsidian Root™">
+                </span>
+                <span class="mw-mc-fert-label">Obsidian Root™</span>
+                <span class="mw-mc-fert-status-label"><?php echo htmlspecialchars($orStatusLabel); ?></span>
+            </button>
+            <span class="mw-mc-fert-flip-arrow">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
         </div>
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
@@ -307,7 +329,56 @@ $stopTags = $stop['tags'] ?? [];
         </div>
         <?php endif; ?>
 
-    </div>
+    </div><!-- /.mw-mc-flip-front -->
+
+    <!-- ── Card Back: Fertilizer Panel ── -->
+    <div class="mw-mc-flip-back">
+        <div class="mw-mc-fert-panel">
+            <div class="mw-mc-fert-panel-header">
+                <span class="or-icon or-icon-<?php echo $orIconVariant; ?>" style="width:48px;height:48px;flex-shrink:0;">
+                    <img src="/assets/images/programs/obsidian-root-logo.png" width="48" height="48" alt="Obsidian Root™">
+                </span>
+                <div>
+                    <div class="mw-mc-fert-panel-title">Obsidian Root™</div>
+                    <div class="mw-mc-fert-panel-sub"><?php echo htmlspecialchars($orStatusLabel); ?></div>
+                </div>
+                <button type="button" class="mw-mc-fert-close" data-flip-card="<?php echo (int)$stop['stop_id']; ?>">&#x2715;</button>
+            </div>
+            <div class="mw-mc-fert-panel-body">
+                <?php if ($orStatus === 'enrolled'): ?>
+                    <div class="mw-mc-fert-stat-row">
+                        <div class="mw-mc-fert-stat">
+                            <div class="mw-mc-fert-stat-val">—</div>
+                            <div class="mw-mc-fert-stat-lbl">Last Applied</div>
+                        </div>
+                        <div class="mw-mc-fert-stat">
+                            <div class="mw-mc-fert-stat-val">—</div>
+                            <div class="mw-mc-fert-stat-lbl">Next Due</div>
+                        </div>
+                        <div class="mw-mc-fert-stat">
+                            <div class="mw-mc-fert-stat-val">—</div>
+                            <div class="mw-mc-fert-stat-lbl">Applications</div>
+                        </div>
+                    </div>
+                    <button type="button" class="mw-mc-fert-log-btn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Log Application
+                    </button>
+                <?php elseif ($orStatus === 'offer'): ?>
+                    <div class="mw-mc-fert-none-msg">This client doesn't have an Obsidian Root™ program.<br>Consider offering it today.</div>
+                    <button type="button" class="mw-mc-fert-log-btn" style="background: linear-gradient(135deg, #CC0000, #8B0000);">
+                        Offer Program
+                    </button>
+                <?php else: ?>
+                    <div class="mw-mc-fert-none-msg">No fertilizer program on file for this property.</div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div><!-- /.mw-mc-flip-back -->
+
+    </div><!-- /.mw-mc-flip-inner -->
+
+    </div><!-- /.mw-mc-card-body -->
 
     <!-- Hidden camera input for photo capture -->
     <input type="file" class="mw-mc-camera-input" accept="image/*" capture="environment"
@@ -421,6 +492,14 @@ $stopTags = $stop['tags'] ?? [];
                 </div>
             <?php endif; ?>
 
+            <!-- Obsidian Root™ inline indicator -->
+            <div class="mw-mc-fert-compact" data-or-status="<?php echo htmlspecialchars($orStatus); ?>">
+                <span class="or-icon or-icon-<?php echo $orIconVariant; ?>" style="width:20px;height:20px;">
+                    <img src="/assets/images/programs/obsidian-root-logo.png" width="20" height="20" alt="Obsidian Root™">
+                </span>
+                <span class="mw-mc-fert-compact-label">Obsidian Root™</span>
+                <span class="mw-mc-fert-compact-status"><?php echo htmlspecialchars($orStatusLabel); ?></span>
+            </div>
 
             <?php if (!empty($stop['visits'])): ?>
                 <?php $multiVisit = count($stop['visits']) > 1; ?>

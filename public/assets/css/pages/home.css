@@ -305,10 +305,12 @@
 }
 
 .service-card__photo {
-    margin: -28px -28px 24px;
+    align-self: stretch;
+    margin: -16px -12px 20px;
     height: 200px;
     overflow: hidden;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    flex-shrink: 0;
 }
 .service-card__photo img {
     width: 100%;

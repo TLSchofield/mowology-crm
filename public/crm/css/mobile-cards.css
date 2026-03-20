@@ -1653,6 +1653,29 @@
         height: 72px;
     }
 
+    /* ── Obsidian Root™ icon tile in photo strip ── */
+    /* Sits inside .mw-mc-photo-strips alongside photo placeholders/thumbs */
+    .mw-mc-or-tile {
+        flex: 0 0 80px;
+        width: 80px;
+        height: 80px;
+        border-radius: 8px;
+        overflow: hidden;
+        display: inline-flex;
+        align-items: stretch;
+    }
+    .mw-mc-or-tile img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        border-radius: 0;
+    }
+    /* Hero card: match taller thumb height */
+    .mw-mc-card-hero .mw-mc-or-tile {
+        height: 110px;
+    }
+
     /* ── Additionals row ── */
     .mw-mc-photo-additionals {
         display: flex;
@@ -3655,6 +3678,204 @@
     min-width: 2px;
     /* Color set via inline style from PHP based on margin value */
 }
+
+
+/* ══════════════════════════════════════════════════════
+   Fertilizer / Obsidian Root™ Row + Card Flip
+   ══════════════════════════════════════════════════════ */
+
+/* Flip container — wraps front + back inside card-body */
+.mw-mc-card-body {
+    perspective: 900px;
+}
+.mw-mc-flip-inner {
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.mw-mc-card--flipped .mw-mc-flip-inner {
+    transform: rotateY(180deg);
+}
+.mw-mc-flip-front {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+.mw-mc-flip-back {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    transform: rotateY(180deg);
+    background: #fff;
+    border-radius: 12px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Fert row — sits between profit bar and card footer */
+.mw-mc-fert-row {
+    display: flex;
+    align-items: center;
+    padding: 7px 12px 5px;
+    border-top: 1px solid #F0F4F2;
+    margin-top: 4px;
+}
+.mw-mc-fert-flip-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: none;
+    padding: 4px 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    font-family: inherit;
+    flex: 1;
+    min-width: 0;
+}
+.mw-mc-fert-flip-btn .or-icon img {
+    display: block;
+    border-radius: 50%;
+}
+.mw-mc-fert-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #1A1A1A;
+    white-space: nowrap;
+}
+.mw-mc-fert-status-label {
+    font-size: 0.62rem;
+    color: #9CA3AF;
+    white-space: nowrap;
+    margin-left: auto;
+    padding-right: 6px;
+}
+.mw-mc-fert-row[data-or-status="enrolled"] .mw-mc-fert-status-label { color: #2D8659; }
+.mw-mc-fert-row[data-or-status="offer"]    .mw-mc-fert-status-label { color: #CC0000; }
+
+/* Flip hint arrow (right side of fert row) */
+.mw-mc-fert-flip-arrow {
+    flex-shrink: 0;
+    color: #D1D5DB;
+    display: flex;
+    align-items: center;
+}
+
+/* Back face — fertilizer panel */
+.mw-mc-fert-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 180px;
+}
+.mw-mc-fert-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid #F0F4F2;
+}
+.mw-mc-fert-panel-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #111;
+    line-height: 1.2;
+}
+.mw-mc-fert-panel-sub {
+    font-size: 0.62rem;
+    color: #6B7280;
+    margin-top: 1px;
+}
+.mw-mc-fert-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #6B7280;
+    font-size: 1rem;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+}
+.mw-mc-fert-close:active { background: #F3F4F6; }
+.mw-mc-fert-panel-body {
+    padding: 12px 14px;
+    flex: 1;
+}
+.mw-mc-fert-stat-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.mw-mc-fert-stat {
+    flex: 1;
+    background: #F9FAFB;
+    border-radius: 8px;
+    padding: 8px 10px;
+    text-align: center;
+}
+.mw-mc-fert-stat-val {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #111;
+}
+.mw-mc-fert-stat-lbl {
+    font-size: 0.55rem;
+    color: #9CA3AF;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 2px;
+}
+.mw-mc-fert-log-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(135deg, #2D8659, #1A5F4A);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    font-family: inherit;
+    margin-top: 4px;
+}
+.mw-mc-fert-log-btn:active { opacity: 0.85; }
+.mw-mc-fert-none-msg {
+    font-size: 0.7rem;
+    color: #9CA3AF;
+    text-align: center;
+    padding: 16px 0 8px;
+}
+
+/* Compact card fert icon — inline in expand-detail */
+.mw-mc-fert-compact {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-top: 6px;
+}
+.mw-mc-fert-compact-label {
+    font-size: 0.65rem;
+    color: #6B7280;
+}
+.mw-mc-fert-compact-status {
+    font-size: 0.62rem;
+    font-weight: 600;
+}
+.mw-mc-fert-compact[data-or-status="enrolled"] .mw-mc-fert-compact-status { color: #2D8659; }
+.mw-mc-fert-compact[data-or-status="offer"]    .mw-mc-fert-compact-status { color: #CC0000; }
+.mw-mc-fert-compact[data-or-status="none"]     .mw-mc-fert-compact-status { color: #9CA3AF; }
 
 
 /* ══════════════════════════════════════════════════════

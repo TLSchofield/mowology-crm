@@ -201,9 +201,9 @@
     background: linear-gradient(to right, transparent, rgba(45,122,58,0.3), transparent);
 }
 .mw-ba__inner {
-    max-width: 1380px;
+    max-width: 1280px;
     margin: 0 auto;
-    padding: 0 max(1.5rem, calc((100vw - 1380px) / 2 + 1.5rem));
+    padding: 0 2rem;
 }
 .mw-ba__header {
     text-align: center;

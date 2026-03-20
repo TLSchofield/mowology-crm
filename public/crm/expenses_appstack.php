@@ -1226,9 +1226,47 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         <!-- Locations -->
         <div class="mw-vd-section">
-            <h6 class="mb-2">Locations <span class="badge bg-secondary" id="vdLocationCount">0</span></h6>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0">Locations <span class="badge bg-secondary" id="vdLocationCount">0</span></h6>
+                <?php if ($canEdit): ?>
+                <button class="btn btn-sm btn-outline-primary" onclick="mwShowAddLocation()">
+                    <i data-feather="plus" style="width:12px;height:12px;"></i> Add
+                </button>
+                <?php endif; ?>
+            </div>
             <div id="vdLocationsList">
                 <div class="text-muted small py-2">No locations.</div>
+            </div>
+            <!-- Add/Edit Location Form (hidden by default) -->
+            <div id="vdLocationForm" style="display:none;" class="mw-vd-location-form mt-2">
+                <input type="hidden" id="vdLocEditId" value="">
+                <div class="mb-2">
+                    <input type="text" class="form-control form-control-sm" id="vdLocLabel" placeholder="Location name (e.g. Burnaby Store)">
+                </div>
+                <div class="mb-2">
+                    <input type="text" class="form-control form-control-sm" id="vdLocAddress" placeholder="Address">
+                </div>
+                <div class="row mb-2">
+                    <div class="col-6"><input type="text" class="form-control form-control-sm" id="vdLocCity" placeholder="City"></div>
+                    <div class="col-6"><input type="text" class="form-control form-control-sm" id="vdLocPhone" placeholder="Phone"></div>
+                </div>
+                <div class="row mb-2">
+                    <div class="col-4"><input type="text" class="form-control form-control-sm" id="vdLocHoursWeekday" placeholder="Mon-Fri hrs"></div>
+                    <div class="col-4"><input type="text" class="form-control form-control-sm" id="vdLocHoursSat" placeholder="Sat hrs"></div>
+                    <div class="col-4"><input type="text" class="form-control form-control-sm" id="vdLocHoursSun" placeholder="Sun hrs"></div>
+                </div>
+                <div class="mb-2">
+                    <input type="text" class="form-control form-control-sm" id="vdLocNotes" placeholder="Notes (loading dock, contractor desk, etc.)">
+                </div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <label class="d-flex align-items-center gap-1 small mb-0" style="cursor:pointer;">
+                        <input type="checkbox" id="vdLocPreferred"> Preferred location
+                    </label>
+                </div>
+                <div class="d-flex gap-2 mt-2">
+                    <button class="btn btn-sm btn-primary" onclick="mwSaveLocation()">Save</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="mwCancelLocation()">Cancel</button>
+                </div>
             </div>
         </div>
 
@@ -3517,10 +3555,23 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vdLocationCount').textContent = locs.length;
         if (locs.length > 0) {
             document.getElementById('vdLocationsList').innerHTML = locs.map(function(loc) {
-                return '<div class="mw-vd-location-item">' +
-                    '<i data-feather="map-pin" style="width:12px;height:12px;"></i> ' +
-                    '<span>' + esc(loc.label || loc.address || 'Unnamed') + '</span>' +
-                    (loc.city ? ' <small class="text-muted">(' + esc(loc.city) + ')</small>' : '') +
+                var hours = [];
+                if (loc.hours_weekday) hours.push('M-F ' + esc(loc.hours_weekday));
+                if (loc.hours_saturday) hours.push('Sat ' + esc(loc.hours_saturday));
+                if (loc.hours_sunday) hours.push('Sun ' + esc(loc.hours_sunday));
+                var hoursHtml = hours.length ? '<div class="text-muted small">' + hours.join(' &middot; ') + '</div>' : '';
+                var phoneHtml = loc.phone ? '<div class="text-muted small"><i data-feather="phone" style="width:10px;height:10px;"></i> ' + esc(loc.phone) + '</div>' : '';
+                var notesHtml = loc.notes ? '<div class="text-muted small fst-italic">' + esc(loc.notes) + '</div>' : '';
+                var prefHtml = loc.is_preferred == 1 ? ' <span class="badge bg-success" style="font-size:9px;">Preferred</span>' : '';
+                var editBtn = CAN_EDIT ? ' <a href="#" class="text-muted small" onclick="event.preventDefault();mwEditLocation(' + loc.id + ')"><i data-feather="edit-2" style="width:10px;height:10px;"></i></a>' : '';
+                return '<div class="mw-vd-location-item" data-loc-id="' + loc.id + '" data-loc=\'' + JSON.stringify(loc).replace(/'/g, '&#39;') + '\'>' +
+                    '<div class="d-flex align-items-center gap-1">' +
+                        '<i data-feather="map-pin" style="width:12px;height:12px;"></i> ' +
+                        '<span>' + esc(loc.label || loc.address || 'Unnamed') + '</span>' +
+                        (loc.city ? ' <small class="text-muted">(' + esc(loc.city) + ')</small>' : '') +
+                        prefHtml + editBtn +
+                    '</div>' +
+                    phoneHtml + hoursHtml + notesHtml +
                 '</div>';
             }).join('');
         } else {
@@ -5509,6 +5560,103 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         div.textContent = s;
         return div.innerHTML;
     }
+
+    // ── Vendor Location Management ──────────────────────────────────────────
+    var _currentVendorId = null;
+
+    // Expose to global scope for onclick handlers
+    window.mwShowAddLocation = function() {
+        _currentVendorId = document.getElementById('vdVendorName')?.dataset?.vendorId;
+        if (!_currentVendorId) return;
+        document.getElementById('vdLocEditId').value = '';
+        document.getElementById('vdLocLabel').value = '';
+        document.getElementById('vdLocAddress').value = '';
+        document.getElementById('vdLocCity').value = '';
+        document.getElementById('vdLocPhone').value = '';
+        document.getElementById('vdLocHoursWeekday').value = '';
+        document.getElementById('vdLocHoursSat').value = '';
+        document.getElementById('vdLocHoursSun').value = '';
+        document.getElementById('vdLocNotes').value = '';
+        document.getElementById('vdLocPreferred').checked = false;
+        document.getElementById('vdLocationForm').style.display = '';
+    };
+
+    window.mwEditLocation = function(locId) {
+        var el = document.querySelector('[data-loc-id="' + locId + '"]');
+        if (!el) return;
+        var loc = JSON.parse(el.dataset.loc);
+        _currentVendorId = document.getElementById('vdVendorName')?.dataset?.vendorId;
+        document.getElementById('vdLocEditId').value = loc.id;
+        document.getElementById('vdLocLabel').value = loc.label || '';
+        document.getElementById('vdLocAddress').value = loc.address || '';
+        document.getElementById('vdLocCity').value = loc.city || '';
+        document.getElementById('vdLocPhone').value = loc.phone || '';
+        document.getElementById('vdLocHoursWeekday').value = loc.hours_weekday || '';
+        document.getElementById('vdLocHoursSat').value = loc.hours_saturday || '';
+        document.getElementById('vdLocHoursSun').value = loc.hours_sunday || '';
+        document.getElementById('vdLocNotes').value = loc.notes || '';
+        document.getElementById('vdLocPreferred').checked = loc.is_preferred == 1;
+        document.getElementById('vdLocationForm').style.display = '';
+    };
+
+    window.mwCancelLocation = function() {
+        document.getElementById('vdLocationForm').style.display = 'none';
+    };
+
+    window.mwSaveLocation = async function() {
+        var editId = document.getElementById('vdLocEditId').value;
+        var vendorId = _currentVendorId;
+        if (!vendorId) return;
+
+        var payload = {
+            csrf_token: CSRF,
+            label: document.getElementById('vdLocLabel').value.trim(),
+            address: document.getElementById('vdLocAddress').value.trim(),
+            city: document.getElementById('vdLocCity').value.trim(),
+            phone: document.getElementById('vdLocPhone').value.trim(),
+            hours_weekday: document.getElementById('vdLocHoursWeekday').value.trim(),
+            hours_saturday: document.getElementById('vdLocHoursSat').value.trim(),
+            hours_sunday: document.getElementById('vdLocHoursSun').value.trim(),
+            notes: document.getElementById('vdLocNotes').value.trim(),
+            is_preferred: document.getElementById('vdLocPreferred').checked ? 1 : 0
+        };
+
+        if (!payload.label && !payload.address) {
+            alert('Please enter a label or address.');
+            return;
+        }
+
+        var action, url;
+        if (editId) {
+            payload.action = 'update_location';
+            payload.id = editId;
+        } else {
+            payload.action = 'add_location';
+            payload.vendor_id = vendorId;
+        }
+
+        try {
+            var resp = await fetch('/crm/api/vendors.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            var data = await resp.json();
+            if (!data.success) throw new Error(data.error || 'Save failed');
+            document.getElementById('vdLocationForm').style.display = 'none';
+            // Refresh vendor detail
+            openVendorDetail(vendorId);
+        } catch(e) {
+            if (e.message && e.message.includes('CSRF')) {
+                var ok = await refreshCSRF();
+                if (ok) { payload.csrf_token = CSRF; return window.mwSaveLocation(); }
+            }
+            alert('Error saving location: ' + e.message);
+        }
+    };
+
+    // Store vendor ID when detail panel opens
+    var _origOpenVendorDetail = typeof openVendorDetail === 'function' ? openVendorDetail : null;
 
     // Go
     if (document.readyState === 'loading') {

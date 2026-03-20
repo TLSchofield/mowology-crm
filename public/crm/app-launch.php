@@ -514,13 +514,10 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     // ── 3. Quiz flow ─────────────────────────────────────────
     async function startQuiz(sessionLen) {
         try {
-            const startRes = await api('quiz.php', {
+            const startRes = await api('quiz.php?action=start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'start', mode: 'seasonal',
-                    session_length: sessionLen, csrf_token: CSRF
-                })
+                body: JSON.stringify({ mode: 'seasonal', session_length: sessionLen, csrf_token: CSRF })
             });
 
             if (!startRes.success) { showClockScreen(); return; }
@@ -614,11 +611,11 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     window._answerQuiz = async function(optionId) {
         document.querySelectorAll('.al-quiz-option').forEach(b => b.disabled = true);
 
-        const res = await api('quiz.php', {
+        const res = await api('quiz.php?action=answer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                action: 'answer', session_id: quizSession,
+                session_id: quizSession,
                 question_id: currentQuestionId,
                 selected_option_id: optionId,
                 time_taken_seconds: 10, csrf_token: CSRF
@@ -644,19 +641,21 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     };
 
     async function finishQuiz() {
-        await Promise.all([
-            api('quiz.php', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'finish', session_id: quizSession, csrf_token: CSRF })
-            }),
-            api('quiz.php', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'preshift_complete', session_id: quizSession,
-                    questions_asked: quizTotal, questions_correct: quizCorrect, csrf_token: CSRF
+        try {
+            await Promise.all([
+                api('quiz.php?action=finish', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: quizSession, csrf_token: CSRF })
+                }),
+                api('quiz.php?action=preshift_complete', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        session_id: quizSession,
+                        questions_asked: quizTotal, questions_correct: quizCorrect, csrf_token: CSRF
+                    })
                 })
-            })
-        ]);
+            ]);
+        } catch (e) { /* proceed regardless — score screen must always show */ }
 
         const pct = quizTotal > 0 ? Math.round((quizCorrect / quizTotal) * 100) : 0;
         $('quizProgress').style.visibility = 'hidden';

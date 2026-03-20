@@ -37,12 +37,12 @@ if (!defined('APP_ROOT')) {
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
-    require_once APP_ROOT . '/Services/Pow/PowPdfGenerator.php';
-    // MapSnapshotService is required inside generate_pdf action branch
+    // PowPdfGenerator is loaded inside the generate_pdf action only — not here
 
     requireLogin();
     $user = getCurrentUser();
     $db   = getDB();
+    session_write_close(); // Release session lock — photo uploads + GD processing can take several seconds
 
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         http_response_code(405);

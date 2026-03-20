@@ -13,6 +13,12 @@ $GLOBALS['crm_error_handler'] = $errorHandler;
 $pageTitle = 'Business Settings';
 $activePage = 'settings';
 $csrfToken = generateCSRFToken();
+
+// Load quiz preshift settings server-side so they're always correct on render
+$db = getDB();
+$_quizRows = $db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('quiz_preshift_enabled','quiz_preshift_session_length')")->fetchAll(PDO::FETCH_KEY_PAIR);
+$_quizEnabled = ($_quizRows['quiz_preshift_enabled'] ?? '0') === '1';
+$_quizLen     = (int)($_quizRows['quiz_preshift_session_length'] ?? 3);
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<script src="/crm/js/email-templates.js?v=1" defer></script>';
 ?>
@@ -1074,7 +1080,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="form-group row mb-3">
                         <div class="col-12">
                             <div class="custom-control custom-switch">
-                                <input type="checkbox" class="custom-control-input" id="quiz_preshift_enabled">
+                                <input type="checkbox" class="custom-control-input" id="quiz_preshift_enabled" <?= $_quizEnabled ? 'checked' : '' ?>>
                                 <label class="custom-control-label" for="quiz_preshift_enabled">
                                     Require pre-shift quiz before clock-in
                                 </label>
@@ -1085,9 +1091,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="form-group row mb-3">
                         <label class="col-sm-4 col-form-label">Questions per session</label>
                         <div class="col-sm-4">
-                            <select class="form-control" id="quiz_preshift_session_length">
-                                <option value="3">3 questions</option>
-                                <option value="5">5 questions</option>
+                            <select class="form-control" id="quiz_preshift_session_length" autocomplete="off">
+                                <option value="3" <?= $_quizLen === 3 ? 'selected' : '' ?>>3 questions</option>
+                                <option value="5" <?= $_quizLen === 5 ? 'selected' : '' ?>>5 questions</option>
                             </select>
                             <small class="form-text text-muted">Uses the seasonal question blending algorithm.</small>
                         </div>
@@ -2119,22 +2125,6 @@ document.addEventListener('DOMContentLoaded', function () {
 (function () {
     const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
 
-    function loadQuizPreshiftSettings() {
-        Promise.all([
-            fetch('/crm/api/ops-settings.php?action=get&key=quiz_preshift_enabled').then(r => r.json()),
-            fetch('/crm/api/ops-settings.php?action=get&key=quiz_preshift_session_length').then(r => r.json())
-        ]).then(function ([enabledData, lenData]) {
-            const toggle = document.getElementById('quiz_preshift_enabled');
-            const select = document.getElementById('quiz_preshift_session_length');
-            if (toggle && enabledData.success && enabledData.value !== null) {
-                toggle.checked = (enabledData.value === '1');
-            }
-            if (select && lenData.success && lenData.value !== null) {
-                select.value = lenData.value;
-            }
-        }).catch(() => {});
-    }
-
     function saveQuizPreshiftSettings() {
         const toggle = document.getElementById('quiz_preshift_enabled');
         const select = document.getElementById('quiz_preshift_session_length');
@@ -2182,11 +2172,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        loadQuizPreshiftSettings();
         var saveBtn = document.getElementById('saveQuizPreshiftBtn');
         if (saveBtn) saveBtn.addEventListener('click', saveQuizPreshiftSettings);
-        var tab = document.getElementById('quiz-tab');
-        if (tab) tab.addEventListener('shown.bs.tab', loadQuizPreshiftSettings);
     });
 })();
 </script>

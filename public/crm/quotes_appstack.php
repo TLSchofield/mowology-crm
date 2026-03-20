@@ -525,7 +525,7 @@ $activePage = 'quotes';
                                       }
                                       if (empty($clientName)) $clientName = 'N/A';
                                   ?>
-                                      <tr>
+                                      <tr data-href="quotes/view.php?id=<?php echo $quote['id']; ?>">
                                           <td class="mw-bulk-checkbox-cell">
                                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$quote['id']; ?>">
                                           </td>
@@ -605,6 +605,15 @@ $activePage = 'quotes';
                       localStorage.setItem('quotesViewMode', view);
                   });
               });
+          });
+
+          // ── Clickable table rows ─────────────────────────────
+          document.addEventListener('click', function(e) {
+              var row = e.target.closest('tr[data-href]');
+              if (!row) return;
+              // Ignore clicks on checkboxes and action buttons/links
+              if (e.target.closest('.mw-bulk-checkbox-cell') || e.target.closest('.actions')) return;
+              window.location.href = row.dataset.href;
           });
 
           // ── Bulk Delete ──────────────────────────────────────

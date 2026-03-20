@@ -2972,7 +2972,8 @@ function getServiceLabel(type) {
                 e.target.closest('.mw-mc-drawer-skip') ||
                 e.target.closest('.mw-mc-photo-placeholder') ||
                 e.target.closest('.mw-mc-add-photo-btn') ||
-                e.target.closest('.mw-mc-photo-thumb')) return;
+                e.target.closest('.mw-mc-photo-thumb') ||
+                e.target.closest('[data-flip-card]')) return;
 
             var detail = card.querySelector('.mw-mc-expand-detail');
             if (!detail) return;
@@ -3005,6 +3006,42 @@ function getServiceLabel(type) {
                 }, 50);
             }
         });
+    });
+})();
+
+/**
+ * Obsidian Root™ card flip handler
+ * Tapping the fert row icon flips the active card to show the fertilizer panel.
+ * Tapping the ✕ on the back face flips it back.
+ */
+(function() {
+    function flipCard(stopId, toBack) {
+        var card = document.querySelector('.mw-mc-card-active[data-stop-id="' + stopId + '"]');
+        if (!card) return;
+        var inner = card.querySelector('.mw-mc-flip-inner');
+        if (!inner) return;
+
+        if (toBack) {
+            // Lock current height so the absolutely-positioned back face has a container
+            inner.style.height = inner.scrollHeight + 'px';
+            card.classList.add('mw-mc-card--flipped');
+        } else {
+            card.classList.remove('mw-mc-card--flipped');
+            // Release the locked height after the flip transition completes
+            setTimeout(function() { inner.style.height = ''; }, 400);
+        }
+    }
+
+    document.addEventListener('click', function(e) {
+        // Flip to back — fert row button
+        var flipBtn = e.target.closest('[data-flip-card]');
+        if (!flipBtn) return;
+        e.stopPropagation();
+        var stopId = flipBtn.getAttribute('data-flip-card');
+        var card = document.querySelector('.mw-mc-card-active[data-stop-id="' + stopId + '"]');
+        if (!card) return;
+        var toBack = !card.classList.contains('mw-mc-card--flipped');
+        flipCard(stopId, toBack);
     });
 })();
 
@@ -4399,6 +4436,21 @@ function psRender(d, qNum) {
         imgHtml = '<div class="mw-ps-img-wrap"><img src="' + psEsc(q.image_path) + '" class="mw-ps-img" alt=""></div>';
     }
 
+    var qText = (q.text || '').trim();
+    if (!qText) {
+        var cat = (q.category_name || '').toLowerCase();
+        if (imgHtml) {
+            qText = cat.includes('weed')                            ? 'Identify the weed shown:'
+                  : (cat.includes('pest') || cat.includes('disease')) ? 'Identify the pest or disease shown:'
+                  : 'Identify the plant shown:';
+        } else {
+            qText = cat.includes('weed')    ? 'Which season is this weed most problematic?'
+                  : cat.includes('turf')    ? 'Which answer best describes this turf condition?'
+                  : cat.includes('pest')    ? 'When is this pest most active?'
+                  : 'Answer the following:';
+        }
+    }
+
     var optHtml = '<div class="mw-ps-options">';
     opts.forEach(function (o) {
         optHtml +=
@@ -4413,7 +4465,7 @@ function psRender(d, qNum) {
         body.innerHTML =
             '<div class="mw-ps-cat" style="color:' + psEsc(q.category_colour || '#2D8659') + '">' + psEsc(q.category_name || '') + '</div>' +
             imgHtml +
-            '<div class="mw-ps-qtext">' + psEsc(q.question_text) + '</div>' +
+            '<div class="mw-ps-qtext">' + psEsc(qText) + '</div>' +
             optHtml;
 
         // Bind option clicks
