@@ -256,22 +256,25 @@ $activePage = 'quiz';
                 <div id="piStep1">
                     <div id="piDropzone" onclick="document.getElementById('piFileInput').click()"
                          class="mw-pi-dropzone">
-                        <i data-feather="camera" style="width:40px;height:40px;color:#2D8659;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;"></i>
-                        <p class="mb-1 fw-bold" style="color:#2D8659;">Tap to choose a photo</p>
-                        <p class="text-muted small mb-0">Use a PictureThis card or any plant photo with text</p>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#2D8659" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:56px;height:56px;margin:0 auto 16px;display:block;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        <p class="mb-2 fw-bold" style="font-size:18px;color:#1A5F4A;">Tap to choose a photo</p>
+                        <p class="mb-0" style="font-size:14px;color:#6b7280;line-height:1.4;">Use a PictureThis share card or<br>any plant photo with text</p>
                     </div>
                     <input type="file" id="piFileInput" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;" onchange="handlePlantImportFile(this)">
-                    <div id="piFilePreview" class="mt-3 text-center" style="display:none;">
-                        <img id="piFileThumb" src="" alt="" style="max-height:220px;max-width:100%;border-radius:8px;border:1px solid #dee2e6;object-fit:contain;">
+
+                    <div id="piFilePreview" class="mt-4 text-center" style="display:none;">
+                        <img id="piFileThumb" src="" alt="" style="max-height:240px;max-width:100%;border-radius:10px;border:1px solid #dee2e6;object-fit:contain;">
                         <p class="small text-muted mt-2 mb-0" id="piFileName"></p>
                     </div>
-                    <div class="mt-3">
-                        <button class="btn mw-btn-green mw-pi-scan-btn" id="piRunOcrBtn" onclick="runPlantImport()" style="display:none;">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:-3px;margin-right:6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>Scan Plant Card
+
+                    <div class="mt-4" id="piScanWrap" style="display:none;">
+                        <button class="btn mw-btn-green mw-pi-scan-btn" id="piRunOcrBtn" onclick="runPlantImport()">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:-3px;margin-right:8px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>Scan Plant Card
                         </button>
                     </div>
-                    <div id="piOcrStatus" class="mt-3" style="display:none;">
-                        <div class="d-flex align-items-center gap-2 text-muted justify-content-center py-3">
+
+                    <div id="piOcrStatus" class="mt-4" style="display:none;">
+                        <div class="d-flex align-items-center gap-2 text-muted justify-content-center py-2">
                             <div class="spinner-border spinner-border-sm"></div>
                             <span id="piOcrStatusText">Scanning…</span>
                         </div>
@@ -1596,7 +1599,7 @@ function startImportOver() {
     document.getElementById('piStep2').style.display = 'none';
     document.getElementById('piFooter').style.display = 'none';
     document.getElementById('piFilePreview').style.display = 'none';
-    document.getElementById('piRunOcrBtn').style.display = 'none';
+    document.getElementById('piScanWrap').style.display = 'none';
     document.getElementById('piOcrStatus').style.display = 'none';
     document.getElementById('piFileInput').value = '';
     document.getElementById('piStepLabel').textContent = 'Step 1 · Choose a photo';
@@ -1615,7 +1618,7 @@ function handlePlantImportFile(input) {
     document.getElementById('piFileThumb').src = objUrl;
     document.getElementById('piFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
     document.getElementById('piFilePreview').style.display = '';
-    document.getElementById('piRunOcrBtn').style.display = '';
+    document.getElementById('piScanWrap').style.display = '';
 }
 
 // Called from auto-import flow (IndexedDB → file blob, no input element)
@@ -1625,7 +1628,7 @@ function loadPlantFileFromBlob(file) {
     document.getElementById('piFileThumb').src = objUrl;
     document.getElementById('piFileName').textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
     document.getElementById('piFilePreview').style.display = '';
-    document.getElementById('piRunOcrBtn').style.display = '';
+    document.getElementById('piScanWrap').style.display = '';
 }
 
 // Dropzone drag-over highlight
@@ -1651,7 +1654,7 @@ async function runPlantImport() {
     const file = piPendingFile || (document.getElementById('piFileInput').files[0] || null);
     if (!file) { alert('Please choose an image first.'); return; }
 
-    document.getElementById('piRunOcrBtn').style.display = 'none';
+    document.getElementById('piScanWrap').style.display = 'none';
     document.getElementById('piOcrStatus').style.display = '';
     document.getElementById('piOcrStatusText').textContent = 'Running OCR on image…';
 
@@ -1666,7 +1669,7 @@ async function runPlantImport() {
         data = await r.json();
     } catch (e) {
         document.getElementById('piOcrStatus').style.display = 'none';
-        document.getElementById('piRunOcrBtn').style.display = '';
+        document.getElementById('piScanWrap').style.display = '';
         alert('Network error — try again.');
         return;
     }
@@ -1674,7 +1677,7 @@ async function runPlantImport() {
     document.getElementById('piOcrStatus').style.display = 'none';
 
     if (!data.success) {
-        document.getElementById('piRunOcrBtn').style.display = '';
+        document.getElementById('piScanWrap').style.display = '';
         alert('Import failed: ' + (data.error || 'Unknown error'));
         return;
     }

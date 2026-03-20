@@ -25689,17 +25689,44 @@ textarea.font-monospace {
 /* ── Plant Import Modal — mobile-first flow ─────────────────────────────── */
 .mw-pi-dropzone {
   border: 2px dashed var(--mw-green);
-  border-radius: 12px;
-  padding: 36px 24px;
+  border-radius: 16px;
+  padding: 48px 32px;
   text-align: center;
   cursor: pointer;
   background: #f0f9f5;
   transition: border-color .2s, background .2s;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .mw-pi-dropzone:active,
 .mw-pi-dropzone.drag-over {
   border-color: var(--mw-dark);
   background: #e0f3ec;
+}
+/* Step 1 fills the modal body and vertically centres its content */
+#piStep1 {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  padding: 8px 0;
+}
+/* Modal body stretches to use full available height */
+.mw-plant-import-dialog .modal-body {
+  display: flex;
+  flex-direction: column;
+}
+/* Step 2 resets to normal flow */
+#piStep2 {
+  flex: 1;
+}
+.mw-pi-scan-btn {
+  width: 100%;
+  padding: 15px 20px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
+  border-radius: 12px;
 }
 @media (max-width: 767px) {
   .mw-plant-import-dialog {
@@ -25713,14 +25740,6 @@ textarea.font-monospace {
     border: none;
   }
   .mw-pi-dropzone {
-    padding: 28px 16px;
+    padding: 48px 24px;
   }
-}
-.mw-pi-scan-btn {
-  width: 100%;
-  padding: 14px 20px;
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  border-radius: 10px;
 }
