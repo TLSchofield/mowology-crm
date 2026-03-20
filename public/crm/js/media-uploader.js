@@ -223,28 +223,34 @@
                 gpsAccuracy : (gpsToggle && gpsToggle.checked && cachedGps) ? cachedGps.accuracy : null
             };
 
-            // 4. Persist to durable storage + add to upload queue
-            if (window.MwPhotoQueue) {
-                MwPhotoQueue.saveAndEnqueue(file, meta)
-                    .then(function (queueId) {
-                        _pending[queueId] = {
-                            item    : item,
-                            blobUrl : previewBlobUrl, // revoke when server thumb arrives
-                            zone    : zone,
-                            filename: file.name,
-                            stats   : stats
-                        };
-                        item.dataset.mwQueueId = queueId;
-                    })
-                    .catch(function () {
-                        setCardState(item, 'error', 'Storage unavailable');
-                        stats.active--;
-                        stats.failed++;
-                        checkAllComplete(zone, stats);
-                    });
-            } else {
-                inlineUpload(file, meta, item, previewBlobUrl, stats, zone, config);
-            }
+            // 4. Compress for upload, then persist + enqueue.
+            //    iPhone photos are 10-48 MP (~5-15 MB). Resizing to max 1920px
+            //    at 85% quality yields ~200-400 KB — 20-50x faster upload.
+            //    The preview thumbnail (step 2) is already generated at 160px,
+            //    so this compression does not affect the instant preview display.
+            compressForUpload(file).then(function (uploadFile) {
+                if (window.MwPhotoQueue) {
+                    MwPhotoQueue.saveAndEnqueue(uploadFile, meta)
+                        .then(function (queueId) {
+                            _pending[queueId] = {
+                                item    : item,
+                                blobUrl : previewBlobUrl,
+                                zone    : zone,
+                                filename: file.name,
+                                stats   : stats
+                            };
+                            item.dataset.mwQueueId = queueId;
+                        })
+                        .catch(function () {
+                            setCardState(item, 'error', 'Storage unavailable');
+                            stats.active--;
+                            stats.failed++;
+                            checkAllComplete(zone, stats);
+                        });
+                } else {
+                    inlineUpload(uploadFile, meta, item, previewBlobUrl, stats, zone, config);
+                }
+            });
         }
 
         // Store refs on the zone so replay (page reload) can use the right zone
@@ -541,6 +547,67 @@
     // =========================================================================
     // Utilities
     // =========================================================================
+
+    /**
+     * Compress an image file to a max 1920px JPEG before upload.
+     *
+     * iPhone photos are 10-48 MP (5-15 MB). Uploading them full-res on mobile
+     * can take 20+ seconds. This resizes to max 1920px at 85% quality, yielding
+     * ~200-400 KB — a 20-50x reduction in upload size and time.
+     *
+     * Uses createImageBitmap (hardware-accelerated) so compression itself
+     * takes <500ms on device. Falls back to the original file if:
+     *   - The browser doesn't support createImageBitmap
+     *   - The image is already ≤1920px on its longest side
+     *   - Any error occurs during processing
+     *
+     * @param  {File} file  — original file from input/camera
+     * @returns {Promise<File>} compressed File (or original if already small)
+     */
+    function compressForUpload(file) {
+        var MAX_DIM = 1920;
+        var QUALITY = 0.85;
+
+        if (typeof createImageBitmap !== 'function') {
+            return Promise.resolve(file);
+        }
+
+        return createImageBitmap(file)
+            .then(function (bitmap) {
+                var w   = bitmap.width;
+                var h   = bitmap.height;
+                var max = Math.max(w, h);
+
+                // Already within limit — skip re-encoding
+                if (max <= MAX_DIM) {
+                    bitmap.close();
+                    return file;
+                }
+
+                var scale      = MAX_DIM / max;
+                var canvas     = document.createElement('canvas');
+                canvas.width   = Math.round(w * scale);
+                canvas.height  = Math.round(h * scale);
+                canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                bitmap.close();
+
+                return new Promise(function (resolve) {
+                    canvas.toBlob(function (blob) {
+                        if (!blob) { resolve(file); return; }
+                        // Keep original filename, force .jpg extension + JPEG MIME
+                        var name       = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+                        var compressed = new File([blob], name, {
+                            type        : 'image/jpeg',
+                            lastModified: file.lastModified || Date.now()
+                        });
+                        resolve(compressed);
+                    }, 'image/jpeg', QUALITY);
+                });
+            })
+            .catch(function () {
+                return file; // safe fallback — upload original
+            });
+    }
 
     /**
      * Generate a tiny thumbnail blob URL for instant display without freezing
