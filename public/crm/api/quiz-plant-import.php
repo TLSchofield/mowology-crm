@@ -55,9 +55,13 @@ if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) piErr('Invalid CSRF token', 40
 $file = $_FILES['image'] ?? null;
 if (!$file || $file['error'] !== UPLOAD_ERR_OK) piErr('Image upload failed');
 
-$allowed  = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+// iOS camera roll often reports 'image/jpg' (no 'e') — normalise to 'image/jpeg'
 $mimeType = mime_content_type($file['tmp_name']);
-if (!in_array($mimeType, $allowed, true)) piErr('Unsupported image type');
+if ($mimeType === 'image/jpg') $mimeType = 'image/jpeg';
+// HEIC/HEIF: convert by treating as JPEG for OCR (OCR.space accepts binary)
+if (in_array($mimeType, ['image/heic', 'image/heif'], true)) $mimeType = 'image/jpeg';
+$allowed  = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+if (!in_array($mimeType, $allowed, true)) piErr('Unsupported image type: ' . $mimeType);
 if ($file['size'] > 10 * 1024 * 1024) piErr('Image too large — max 10MB');
 
 // ── 2. Run OCR via ocr.space free API ────────────────────────────────────────
