@@ -29,7 +29,7 @@
  */
 'use strict';
 
-var CACHE_NAME  = 'mwcrm-assets-v8';
+var CACHE_NAME  = 'mwcrm-assets-v9';
 var OFFLINE_URL = '/crm/offline.html';
 var TILE_CACHE  = 'mw-tiles-v2'; // satellite tiles — long-lived, separate from asset cache
 var MAX_TILES   = 2000;          // evict oldest when exceeded
