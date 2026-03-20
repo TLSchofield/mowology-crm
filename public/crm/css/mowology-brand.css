@@ -25716,3 +25716,11 @@ textarea.font-monospace {
     padding: 28px 16px;
   }
 }
+.mw-pi-scan-btn {
+  width: 100%;
+  padding: 14px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  border-radius: 10px;
+}

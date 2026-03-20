@@ -266,8 +266,8 @@ $activePage = 'quiz';
                         <p class="small text-muted mt-2 mb-0" id="piFileName"></p>
                     </div>
                     <div class="mt-3">
-                        <button class="btn mw-btn-green w-100" id="piRunOcrBtn" onclick="runPlantImport()" style="display:none;">
-                            <i data-feather="zap" style="width:15px;height:15px;"></i> Scan Plant Card
+                        <button class="btn mw-btn-green mw-pi-scan-btn" id="piRunOcrBtn" onclick="runPlantImport()" style="display:none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:-3px;margin-right:6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>Scan Plant Card
                         </button>
                     </div>
                     <div id="piOcrStatus" class="mt-3" style="display:none;">
