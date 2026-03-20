@@ -20,6 +20,20 @@
 if (!isset($pageTitle)) $pageTitle = 'Mowology CRM';
 $extraHead  = $extraHead  ?? '';
 $bodyClass  = $bodyClass  ?? '';
+
+/**
+ * Return a URL with an automatic cache-busting query string derived from
+ * the file's last-modified time.  No manual version bumping ever needed.
+ * Falls back to current timestamp on first deploy before the file exists.
+ *
+ * Usage:  _av('/crm/css/mobile-nav.css')
+ *         → '/crm/css/mobile-nav.css?v=1742400123'
+ */
+function _av(string $webPath): string {
+    $disk = PUBLIC_ROOT . $webPath;
+    $ts   = @filemtime($disk) ?: time();
+    return $webPath . '?v=' . $ts;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -83,21 +97,21 @@ $bodyClass  = $bodyClass  ?? '';
   <link href="/crm/css/classic.css" rel="stylesheet">
 
   <!-- Mowology brand override -->
-  <link href="/crm/css/mowology-brand.css?v=20260308a" rel="stylesheet">
+  <link href="<?= _av('/crm/css/mowology-brand.css') ?>" rel="stylesheet">
 
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
-  <link href="/crm/css/mobile-nav.css?v=20260319a" rel="stylesheet">
+  <link href="<?= _av('/crm/css/mobile-nav.css') ?>" rel="stylesheet">
 
   <!-- Feather Icons (self-hosted — no CDN dependency) -->
-  <script src="/crm/js/feather.min.js"></script>
+  <script src="<?= _av('/crm/js/feather.min.js') ?>"></script>
 
   <!-- Global Spotlight Search -->
-  <script src="/crm/js/global-search.js?v=1" defer></script>
+  <script src="<?= _av('/crm/js/global-search.js') ?>" defer></script>
 
   <!-- Offline Action Queue: intercepts time-clock / pow-actions / job-timer
        fetch() calls when offline and queues them in IndexedDB for replay.
        Loads on every CRM page so queued actions sync on any page load. -->
-  <script src="/crm/js/offline-queue.js?v=20260303d" defer></script>
+  <script src="<?= _av('/crm/js/offline-queue.js') ?>" defer></script>
 
   <script>window.MW_USER_ROLE = '<?= htmlspecialchars($user['role'] ?? 'crew', ENT_QUOTES, 'UTF-8') ?>';</script>
 
