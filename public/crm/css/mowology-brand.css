@@ -25743,3 +25743,124 @@ textarea.font-monospace {
     padding: 48px 24px;
   }
 }
+
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* Accounting Module                                                          */
+/* ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Stat Cards ────────────────────────────────────────────────────────────── */
+.mw-acct-stat-card {
+  background: var(--bs-card-bg, #fff);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-left: 4px solid #dee2e6;
+  height: 100%;
+}
+.mw-acct-income  { border-left-color: #2D8659; }
+.mw-acct-expense { border-left-color: #e85d04; }
+.mw-acct-profit  { border-left-color: #2D8659; }
+.mw-acct-loss    { border-left-color: #dc3545; }
+.mw-acct-tax     { border-left-color: #3B82F6; }
+
+.mw-acct-stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; margin-bottom: 4px; }
+.mw-acct-stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+.mw-acct-stat-sub   { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+
+.mw-acct-color-income  { color: #2D8659; }
+.mw-acct-color-expense { color: #e85d04; }
+
+/* ── Recent Transactions List ──────────────────────────────────────────────── */
+.mw-acct-recent-list { max-height: 340px; overflow-y: auto; }
+.mw-acct-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--bs-border-color, #f3f4f6);
+}
+.mw-acct-recent-item:last-child { border-bottom: none; }
+.mw-acct-recent-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.mw-acct-dot-income  { background: #2D8659; }
+.mw-acct-dot-expense { background: #e85d04; }
+.mw-acct-recent-body { flex: 1; min-width: 0; }
+.mw-acct-recent-label { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mw-acct-recent-meta  { font-size: 11px; color: #9ca3af; }
+.mw-acct-amt-income   { font-size: 13px; font-weight: 600; color: #2D8659; white-space: nowrap; }
+.mw-acct-amt-expense  { font-size: 13px; font-weight: 600; color: #e85d04; white-space: nowrap; }
+.mw-acct-flag-dot     { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #F59E0B; vertical-align: middle; }
+
+/* ── Quick Action Grid ─────────────────────────────────────────────────────── */
+.mw-acct-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+.mw-acct-quick-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 10px;
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: 8px;
+  color: inherit;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mw-acct-quick-btn:hover { border-color: var(--mw-green); background: var(--mw-light); color: var(--mw-dark); }
+.mw-acct-quick-btn svg  { width: 22px; height: 22px; color: var(--mw-green); }
+.mw-acct-quick-btn--review:hover { border-color: #F59E0B; background: #FFFBEB; }
+
+/* ── YTD Summary ───────────────────────────────────────────────────────────── */
+.mw-acct-ytd-box     { text-align: center; padding: 1rem; }
+.mw-acct-ytd-label   { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 4px; }
+.mw-acct-ytd-val     { font-size: 1.25rem; font-weight: 700; }
+.mw-acct-margin-bar  { height: 6px; background: #f3f4f6; border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.mw-acct-margin-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+
+/* ── Transaction Table ─────────────────────────────────────────────────────── */
+.mw-acct-table thead th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; white-space: nowrap; }
+.mw-acct-table td       { vertical-align: middle; font-size: 13px; }
+.mw-acct-row-review     { background: rgba(245, 158, 11, 0.05) !important; }
+.mw-acct-badge-income   { background: rgba(45,134,89,0.1); color: #2D8659; font-size: 10px; border-radius: 4px; padding: 2px 6px; }
+.mw-acct-badge-expense  { background: rgba(232,93,4,0.1);  color: #e85d04; font-size: 10px; border-radius: 4px; padding: 2px 6px; }
+
+/* ── Mini Stat Strip ───────────────────────────────────────────────────────── */
+.mw-acct-mini-stat {
+  font-size: 12px;
+  padding: 8px 12px;
+  background: var(--bs-card-bg, #fff);
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: 6px;
+  text-align: center;
+}
+
+/* ── Tax Table ─────────────────────────────────────────────────────────────── */
+.mw-acct-tax-table td:first-child { font-family: monospace; font-weight: 700; color: #6b7280; }
+
+/* ── % Bar (Expense Breakdown) ─────────────────────────────────────────────── */
+.mw-acct-pct-bar  { height: 4px; background: #f3f4f6; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+.mw-acct-pct-fill { height: 100%; background: var(--mw-orange); border-radius: 2px; }
+
+/* ── Spin animation for sync icon ─────────────────────────────────────────── */
+@keyframes mw-spin { to { transform: rotate(360deg); } }
+.spin { animation: mw-spin 0.8s linear infinite; }
+
+/* ── Chart of Accounts ─────────────────────────────────────────────────────── */
+.mw-acct-row-header { background: var(--mw-light) !important; }
+.mw-acct-row-header td { font-weight: 600; font-size: 13px; }
+.fw-mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 12px; }
+
+/* ── Financial Intelligence Alerts Grid ────────────────────────────────────── */
+.mw-intel-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 768px)  { .mw-intel-grid { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1200px) { .mw-intel-grid { grid-template-columns: 1fr 1fr 1fr; } }
