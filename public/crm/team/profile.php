@@ -548,6 +548,16 @@ if ($apiKey) {
                                     ?>
                                 </p>
                             </div>
+                            <div class="col-sm-2 mb-3">
+                                <label class="mw-hr-label">Authorized Driver</label>
+                                <p class="mw-hr-value">
+                                    <?php if (!empty($emp['is_driver'])): ?>
+                                    <span class="badge badge-success"><i data-feather="check" style="width:11px;height:11px;"></i> Yes</span>
+                                    <?php else: ?>
+                                    <span class="badge badge-secondary">No</span>
+                                    <?php endif; ?>
+                                </p>
+                            </div>
                         </div>
                     </div>
 
@@ -651,6 +661,19 @@ if ($apiKey) {
                                         <label>Expiry Date <span class="text-danger">*</span></label>
                                         <input type="date" class="form-control" name="dl_expiry"
                                                value="<?php echo h($emp['dl_expiry'] ?? ''); ?>">
+                                    </div>
+                                </div>
+                                <div class="col-sm-12">
+                                    <div class="form-group">
+                                        <div class="custom-control custom-switch">
+                                            <input type="checkbox" class="custom-control-input" id="isDriverCheck"
+                                                   name="is_driver" value="1"
+                                                   <?php echo !empty($emp['is_driver']) ? 'checked' : ''; ?>>
+                                            <label class="custom-control-label" for="isDriverCheck">
+                                                Authorized Driver
+                                                <small class="text-muted d-block">Enables the pre-trip inspection form and driver portal on clock-in</small>
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

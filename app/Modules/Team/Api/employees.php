@@ -350,6 +350,9 @@ try {
             if (array_key_exists('dl_expiry', $input)) {
                 $updates[] = 'dl_expiry = ?';   $params[] = !empty($input['dl_expiry']) ? $input['dl_expiry'] : null;
             }
+            if (array_key_exists('is_driver', $input)) {
+                $updates[] = 'is_driver = ?';   $params[] = $input['is_driver'] ? 1 : 0;
+            }
 
             if (empty($updates)) throw new Exception('No changes provided');
 
