@@ -1,0 +1,14 @@
+{
+    "name": "mowology/crm",
+    "description": "Mowology CRM",
+    "type": "project",
+    "authors": [
+        {
+            "name": "Tim Schofield",
+            "email": "timschofield@example.com"
+        }
+    ],
+    "require": {
+        "smalot/pdfparser": "^2.12"
+    }
+}

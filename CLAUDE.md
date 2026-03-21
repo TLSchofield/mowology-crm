@@ -12,7 +12,7 @@ Read the companion `ARCHITECTURE.md` for the full system map. This file is the r
 - **Hosting:** cPanel shared hosting (auto-deploys from GitHub)
 - **Email:** PHPMailer SMTP (primary) with native mail() fallback, via `/crm/includes/messaging.php`
 - **SMS:** Native PHP mail() to Canadian carrier email-to-SMS gateways (NEVER PHPMailer — see rule 8)
-- **Build tools:** None. No npm, Webpack, Sass compilation, or Composer.
+- **Build tools:** Composer is allowed for PHP dependencies. No npm, Webpack, or Sass compilation.
 
 ---
 
@@ -42,7 +42,7 @@ This is a critical constraint for all SQL queries and schema changes:
 3. **NEVER put credentials, API keys, or secrets in any file other than `secrets.php`.**
 4. **NEVER add inline `<style>` blocks to AppStack-based PHP pages.** All CRM styling goes through `mowology-brand.css`.
 5. **NEVER hardcode color hex values.** Use CSS custom properties (`--mw-*` in CRM, `--mowology-*` on public site).
-6. **NEVER add npm, Webpack, Sass, or Composer.** This is a zero-dependency project using only PHP and native browser APIs.
+6. **NEVER add npm, Webpack, or Sass.** Composer is allowed for PHP server-side dependencies. Frontend stays vanilla JS and native browser APIs.
 7. **NEVER create new CSS files without adding them to the correct import chain** (`master.css` for public site, `appstack_head.php` for CRM).
 8. **NEVER route SMS through PHPMailer.** SMS delivery MUST use native `mail()` with minimal headers. PHPMailer adds MIME headers that carrier email-to-SMS gateways silently reject. See `ARCHITECTURE.md` "Messaging Module" for full details.
 9. **ALWAYS use the built-in messaging functions for all email and SMS.** Never call `mail()` or PHPMailer directly from page code. Always use:

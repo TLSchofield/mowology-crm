@@ -61,20 +61,32 @@ try {
             echo json_encode(['ok' => true, 'presets' => $importer->getPresets()]);
             break;
 
-        // ── Preview (file upload) ─────────────────────────────────────────────
+        // ── Preview (file upload — CSV or PDF) ───────────────────────────────
         case 'preview':
-            if (empty($_FILES['csv'])) throw new Exception('No CSV file uploaded');
-            $file = $_FILES['csv'];
+            $fileKey = !empty($_FILES['csv']) ? 'csv' : (!empty($_FILES['file']) ? 'file' : null);
+            if (!$fileKey) throw new Exception('No file uploaded');
+            $file = $_FILES[$fileKey];
 
             if ($file['error'] !== UPLOAD_ERR_OK) throw new Exception('Upload error: ' . $file['error']);
-            if ($file['size'] > 5 * 1024 * 1024) throw new Exception('File too large (max 5MB)');
+            if ($file['size'] > 20 * 1024 * 1024) throw new Exception('File too large (max 20MB)');
 
-            $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-            if ($ext !== 'csv') throw new Exception('Only CSV files are supported');
+            $ext      = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            $bankName = htmlspecialchars($_POST['bank_name'] ?? $_POST['preset'] ?? '');
+
+            if ($ext === 'pdf') {
+                // PDF path — extract text and parse transactions automatically
+                $result = $importer->previewPdf($file['tmp_name'], $bankName);
+                echo json_encode(['ok' => true] + $result);
+                break;
+            }
+
+            if (!in_array($ext, ['csv', 'txt'], true)) {
+                throw new Exception('Supported formats: CSV (.csv, .txt) or PDF (.pdf)');
+            }
 
             $content  = file_get_contents($file['tmp_name']);
             $preset   = $_POST['preset'] ?? $importer->detectPreset($file['name']);
-            $bankName = htmlspecialchars($_POST['bank_name'] ?? $preset);
+            if (!$bankName) $bankName = htmlspecialchars($preset);
 
             // Build column mapping from preset or POST params
             $presetData = $importer->getPreset($preset);

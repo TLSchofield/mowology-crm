@@ -43,12 +43,19 @@ $activePage = 'accounting';
                 <input type="text" id="account-name" class="form-control" placeholder="e.g. TD Business Chequing">
             </div>
             <div class="col-md-4">
-                <label class="form-label small">CSV File</label>
-                <input type="file" id="csv-file" class="form-control" accept=".csv,.txt" onchange="detectPreset()">
+                <label class="form-label small">File <span class="text-muted">(CSV or PDF)</span></label>
+                <input type="file" id="csv-file" class="form-control" accept=".csv,.txt,.pdf" onchange="onFileSelected()">
             </div>
         </div>
 
-        <!-- Custom mapping panel (hidden by default) -->
+        <!-- PDF notice (shown when PDF is selected) -->
+        <div id="pdf-notice" class="alert alert-info py-2 mt-3 d-none small">
+            <i data-feather="file-text" style="width:14px;height:14px;"></i>
+            <strong>PDF detected.</strong> Transactions will be extracted automatically — no column mapping needed.
+            Results may vary depending on your bank's PDF format. If extraction misses rows, export a CSV instead.
+        </div>
+
+        <!-- Custom mapping panel (hidden by default, CSV only) -->
         <div id="custom-mapping" class="mt-3 p-3 border rounded" style="display:none; background:var(--bs-light)">
             <p class="small text-muted mb-2">Enter zero-based column index for each field (0 = first column):</p>
             <div class="row g-2">
@@ -207,9 +214,20 @@ function updatePresetHint() {
     document.getElementById('custom-mapping').style.display = preset === 'custom' ? '' : 'none';
 }
 
-function detectPreset() {
+function onFileSelected() {
     const file = document.getElementById('csv-file').files[0];
     if (!file) return;
+
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+    document.getElementById('pdf-notice').classList.toggle('d-none', !isPdf);
+    document.getElementById('preset').closest('.col-md-4').style.display = isPdf ? 'none' : '';
+    if (isPdf) {
+        document.getElementById('custom-mapping').style.display = 'none';
+        if (typeof feather !== 'undefined') feather.replace();
+        return;
+    }
+
+    // CSV — auto-detect preset from filename
     const name = file.name.toLowerCase();
     const keys = ['td', 'rbc', 'bmo', 'cibc', 'scotiabank'];
     for (const k of keys) {

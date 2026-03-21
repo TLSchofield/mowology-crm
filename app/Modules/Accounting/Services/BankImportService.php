@@ -1,13 +1,16 @@
 <?php
 /**
- * BankImportService — CSV bank statement import for the accounting ledger.
+ * BankImportService — bank statement import for the accounting ledger.
+ *
+ * Supports CSV and PDF (emailed bank statements via smalot/pdfparser).
  *
  * Workflow:
  *  1. preview(content, mapping)    → validate + parse CSV, return rows for user to review
+ *     previewPdf(filePath)         → extract text from PDF, parse transactions, return rows
  *  2. commit(sessionId, rows)      → insert staged rows into accounting_transactions
  *  3. rollback(sessionId)          → delete all transactions from a session
  *
- * Column Mapping:
+ * Column Mapping (CSV only):
  *  The user specifies which CSV column index maps to each field:
  *  { date: 0, description: 1, debit: 2, credit: 3 }
  *  OR single-amount format (positive = income, negative = expense):
@@ -299,6 +302,214 @@ class BankImportService
         ");
         $stmt->execute([$sessionId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // PDF IMPORT
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Parse a PDF bank statement file and return the same preview structure as preview().
+     * Uses smalot/pdfparser (Composer). Falls back gracefully if not installed.
+     *
+     * @param string $filePath   Absolute path to the uploaded PDF file
+     * @param string $bankName   Bank label
+     */
+    public function previewPdf(string $filePath, string $bankName = ''): array
+    {
+        if (!defined('VENDOR_ROOT') || !is_file(VENDOR_ROOT . '/autoload.php')) {
+            throw new RuntimeException('Composer autoloader not found. Run composer install in the project root.');
+        }
+        require_once VENDOR_ROOT . '/autoload.php';
+
+        if (!class_exists('\Smalot\PdfParser\Parser')) {
+            throw new RuntimeException('smalot/pdfparser is not installed. Run: composer require smalot/pdfparser');
+        }
+
+        $parser = new \Smalot\PdfParser\Parser();
+        $pdf    = $parser->parseFile($filePath);
+        $text   = $pdf->getText();
+
+        $rows = $this->parsePdfText($text);
+
+        if (empty($rows)) {
+            throw new RuntimeException('No transactions could be extracted from this PDF. The format may not be supported — try exporting a CSV from your bank instead.');
+        }
+
+        // Run same enrichment as CSV preview (categorization + duplicate detection)
+        require_once __DIR__ . '/RulesEngine.php';
+        $engine = new RulesEngine($this->db);
+
+        $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
+        $defaultExpenseId = $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
+        $totals = ['income' => 0.0, 'expense' => 0.0, 'duplicates' => 0, 'rows' => count($rows)];
+
+        foreach ($rows as &$row) {
+            $match = $engine->previewMatch($row['description'], '', $row['type']);
+            if ($match) {
+                $row['account_id']   = $match['account_id'];
+                $row['account_name'] = $match['account_name'];
+                $row['account_code'] = $match['account_code'];
+                $row['rule_id']      = $match['rule_id'];
+                $row['auto_cat']     = true;
+            } else {
+                $id = $row['type'] === 'income' ? $defaultIncomeId : $defaultExpenseId;
+                $row['account_id']   = $id;
+                $row['account_name'] = $row['type'] === 'income' ? 'Other Services' : 'Miscellaneous Expenses';
+                $row['account_code'] = $row['type'] === 'income' ? self::DEFAULT_INCOME_CODE : self::DEFAULT_EXPENSE_CODE;
+                $row['rule_id']      = null;
+                $row['auto_cat']     = false;
+            }
+
+            $dupCheck = $this->checkDuplicate($row['date'], $row['amount'], $row['type']);
+            $row['is_duplicate']    = $dupCheck !== null;
+            $row['duplicate_tx_id'] = $dupCheck;
+
+            if ($row['is_duplicate'])       $totals['duplicates']++;
+            if ($row['type'] === 'income')  $totals['income']  += $row['amount'];
+            if ($row['type'] === 'expense') $totals['expense'] += $row['amount'];
+        }
+        unset($row);
+
+        return [
+            'rows'   => $rows,
+            'totals' => $totals,
+            'bank'   => $bankName,
+            'source' => 'pdf',
+        ];
+    }
+
+    /**
+     * Extract transaction rows from raw PDF text.
+     *
+     * Handles two common Canadian bank PDF statement layouts:
+     *
+     *   Layout A — date at start of line, amount at end (TD, BMO, most banks):
+     *     Jan 15  GROCERY STORE PURCHASE   123.45
+     *     Jan 15  PAYROLL DEPOSIT         +1500.00
+     *
+     *   Layout B — debit/credit in separate columns (RBC-style):
+     *     01/15  Description    100.00
+     *     01/16  Description              200.00  1500.00  (last col = balance, ignored)
+     *
+     * Returns normalized rows identical in shape to parseCSV() output.
+     */
+    private function parsePdfText(string $text): array
+    {
+        $rows  = [];
+        $lines = preg_split('/\r?\n/', $text);
+
+        // Regex: date (various formats) + description + amount(s) at end of line
+        // Handles: Jan 15, 15 Jan, 01/15, 01-15, 2024-01-15, etc.
+        $datePatterns = [
+            // Month-name day (no year) — Jan 15, Jan. 15
+            '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}',
+            // Day Month-name — 15 Jan
+            '\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?',
+            // MM/DD or MM-DD
+            '\d{1,2}[\/\-]\d{1,2}',
+            // YYYY-MM-DD
+            '\d{4}-\d{2}-\d{2}',
+            // MM/DD/YYYY or DD/MM/YYYY
+            '\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}',
+        ];
+        $datePat = '(' . implode('|', $datePatterns) . ')';
+
+        // Amount pattern: optional sign or CR/DR, digits with optional comma-separators and decimal
+        $amtPat = '([\-\+]?\$?\s*[\d,]+\.\d{2})';
+
+        // Full line pattern: date | description (anything) | one or two amounts
+        $pattern = '/^' . $datePat . '\s+(.+?)\s+' . $amtPat . '(?:\s+' . $amtPat . ')?$/i';
+
+        // Detect year from surrounding text (statement year)
+        $statementYear = date('Y');
+        if (preg_match('/\b(20\d{2})\b/', $text, $ym)) {
+            $statementYear = $ym[1];
+        }
+
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (strlen($line) < 10) continue;
+
+            if (!preg_match($pattern, $line, $m)) continue;
+
+            $dateRaw = trim($m[1]);
+            $desc    = trim($m[2]);
+            $amt1Raw = trim($m[3]);
+            $amt2Raw = isset($m[4]) ? trim($m[4]) : '';
+
+            // Skip lines that look like balance/total rows
+            $descLower = strtolower($desc);
+            if (preg_match('/\b(balance|total|opening|closing|brought forward|carried forward)\b/', $descLower)) continue;
+            if (strlen($desc) < 3) continue;
+
+            // Parse date — append statement year if no year in date string
+            $dateStr = $dateRaw;
+            if (!preg_match('/\d{4}/', $dateRaw)) {
+                $dateStr = $dateRaw . ' ' . $statementYear;
+            }
+            $date = $this->parseDate($dateStr);
+            if (!$date) continue;
+
+            // Determine type and amount
+            // If two amounts: first is debit (expense), second is credit (income), ignore balance col
+            $type   = null;
+            $amount = null;
+
+            if ($amt2Raw !== '') {
+                // Two amount columns: treat amt1 as debit (expense), amt2 as credit (income)
+                // But if amt2 looks like a running balance (much larger), it's balance — use amt1
+                $a1 = $this->parseNumber($amt1Raw);
+                $a2 = $this->parseNumber($amt2Raw);
+                if ($a1 !== null && $a1 > 0 && ($a2 === null || $a2 > $a1 * 5)) {
+                    $type   = 'expense';
+                    $amount = $a1;
+                } elseif ($a2 !== null && $a2 > 0) {
+                    $type   = 'income';
+                    $amount = $a2;
+                } elseif ($a1 !== null && $a1 > 0) {
+                    $type   = 'expense';
+                    $amount = $a1;
+                }
+            } else {
+                $raw = $this->parseNumber($amt1Raw);
+                if ($raw === null || $raw == 0) continue;
+
+                // Sign-based: negative = expense, positive = income
+                // But PDF bank statements often show all amounts as positive with
+                // CR/DR markers or description keywords
+                $isCredit = preg_match('/\bCR\b|DEPOSIT|CREDIT|PAYROLL|SALARY|TRANSFER IN|REFUND/i', $desc);
+                if ($raw < 0) {
+                    $type   = 'expense';
+                    $amount = abs($raw);
+                } elseif ($isCredit) {
+                    $type   = 'income';
+                    $amount = abs($raw);
+                } else {
+                    $type   = 'expense';
+                    $amount = abs($raw);
+                }
+            }
+
+            if ($type === null || $amount === null || $amount <= 0) continue;
+
+            $rows[] = [
+                'date'            => $date,
+                'description'     => substr($desc, 0, 500),
+                'amount'          => round($amount, 2),
+                'type'            => $type,
+                'raw_line'        => $line,
+                'account_id'      => null,
+                'account_name'    => null,
+                'account_code'    => null,
+                'rule_id'         => null,
+                'auto_cat'        => false,
+                'is_duplicate'    => false,
+                'duplicate_tx_id' => null,
+            ];
+        }
+
+        return $rows;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
