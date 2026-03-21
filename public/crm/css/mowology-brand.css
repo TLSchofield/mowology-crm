@@ -16303,6 +16303,27 @@ textarea.font-monospace {
   background: #546e7a; color: #fff;
   font-size: 0.68rem; padding: 2px 8px; border-radius: 12px; font-weight: 600;
 }
+.mw-badge-accounting {
+  background: #e65100; color: #fff;
+  font-size: 0.68rem; padding: 2px 8px; border-radius: 12px; font-weight: 600;
+}
+.mw-badge-contracts {
+  background: #00695c; color: #fff;
+  font-size: 0.68rem; padding: 2px 8px; border-radius: 12px; font-weight: 600;
+}
+.mw-badge-cms {
+  background: #1976d2; color: #fff;
+  font-size: 0.68rem; padding: 2px 8px; border-radius: 12px; font-weight: 600;
+}
+.mw-badge-social {
+  background: #c62828; color: #fff;
+  font-size: 0.68rem; padding: 2px 8px; border-radius: 12px; font-weight: 600;
+}
+/* Timeline tick colours for new modules */
+.mw-tick-accounting { background: #e65100; }
+.mw-tick-contracts  { background: #00695c; }
+.mw-tick-cms        { background: #1976d2; }
+.mw-tick-social     { background: #c62828; }
 
 /* Cron card */
 .mw-cron-card {
