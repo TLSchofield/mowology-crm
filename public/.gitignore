@@ -3,8 +3,9 @@ crm/config.php
 .env
 *.log
 
-# Database backups
+# Database backups (but allow migration files)
 *.sql
+!database/migrations/*.sql
 crm/backup/
 
 # OS files
