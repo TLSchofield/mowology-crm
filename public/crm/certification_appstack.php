@@ -327,22 +327,6 @@ $csrfToken = generateCSRFToken();
     </div>
 </div>
 
-<style>
-.mw-cert-tier-card { transition: box-shadow .2s; }
-.mw-cert-tier-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.1); }
-.mw-cert-tier-active { background: #f0faf5; }
-.mw-cert-course-row:hover { background: #fafafa; }
-.mw-cert-option-btn {
-    display: block; width: 100%;
-    text-align: left; padding: 12px 16px;
-    border: 2px solid #d1d5db; border-radius: 8px;
-    background: #fff; cursor: pointer;
-    font-size: .9rem; transition: border-color .15s, background .15s;
-}
-.mw-cert-option-btn:hover { border-color: var(--mw-green); background: #f0faf5; }
-.mw-cert-option-btn.correct { border-color: #1a7a4a; background: #d4edda; font-weight: 700; }
-.mw-cert-option-btn.wrong   { border-color: #dc3545; background: #f8d7da; }
-</style>
 
 <script>
 (function () {
