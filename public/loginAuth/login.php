@@ -1,6 +1,9 @@
 <?php
 require_once __DIR__ . '/auth.php';
 
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
+
 // If already logged in, go to app launch
 if (isLoggedIn()) {
     header('Location: /crm/app-launch.php');
