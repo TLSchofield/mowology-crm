@@ -454,8 +454,8 @@ $extraHead = $isPayable
               </div>
               <div class="mw-header-actions">
                   <!-- Copy customer portal link -->
-                  <button type="button" class="btn btn-outline-secondary"
-                          onclick="navigator.clipboard.writeText(<?php echo json_encode($invoicePortalUrl); ?>).then(function(){this.innerHTML='<i data-feather=\'check\' class=\'mr-1\'></i> Copied!';feather.replace();setTimeout(function(){document.querySelectorAll('.mw-header-actions .btn').forEach(function(b){if(b.textContent.trim().startsWith('Copied'))b.innerHTML='<i data-feather=\'link\' class=\'mr-1\'></i> Copy Link';});feather.replace();},2000);}.bind(this))"
+                  <button type="button" class="btn btn-outline-secondary" id="mw-copy-link-btn"
+                          onclick="mwCopyInvoiceLink(this)"
                           title="Copy customer portal link to clipboard">
                       <i data-feather="link" class="mr-1"></i> Copy Link
                   </button>
@@ -472,7 +472,7 @@ $extraHead = $isPayable
                       </button>
                   </form>
 
-                  <?php if (in_array($invoice['status'], ['draft', 'sent'])): ?>
+                  <?php if ($invoice['status'] !== 'paid'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
                           <input type="hidden" name="action" value="send">
@@ -1064,6 +1064,18 @@ $extraHead = $isPayable
 
 <?php if ($isPayable): ?>
 <script>
+var _mwInvoicePortalUrl = <?php echo json_encode($invoicePortalUrl); ?>;
+function mwCopyInvoiceLink(btn) {
+    navigator.clipboard.writeText(_mwInvoicePortalUrl).then(function () {
+        btn.innerHTML = '<i data-feather="check" class="mr-1"></i> Copied!';
+        if (typeof feather !== 'undefined') feather.replace();
+        setTimeout(function () {
+            btn.innerHTML = '<i data-feather="link" class="mr-1"></i> Copy Link';
+            if (typeof feather !== 'undefined') feather.replace();
+        }, 2000);
+    });
+}
+
 (function () {
     'use strict';
 
