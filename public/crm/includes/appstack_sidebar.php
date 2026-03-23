@@ -10,7 +10,7 @@
  *                   'invoices', 'schedule', 'timeclock', 'expenses',
  *                   'profitability', 'cost-factors', 'intel', 'marketing', 'social', 'cms', 'media',
  *                   'team', 'leaderboard', 'quiz', 'map', 'photos', 'products', 'portfolio',
- *                   'work-zones', 'users', 'settings'
+ *                   'work-zones', 'users', 'settings', 'privacy'
  *
  * Nav items support two types:
  *   - Section headers: ['type' => 'header', 'label' => 'Section Name']
@@ -156,6 +156,12 @@ $navItems = [
                 <a class="sidebar-link" href="/crm/import_appstack.php">
                     <i class="align-middle" data-feather="upload"></i>
                     <span class="align-middle">Import Data</span>
+                </a>
+            </li>
+            <li class="sidebar-item<?php echo ($activePage === 'privacy') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/privacy_appstack.php">
+                    <i class="align-middle" data-feather="lock"></i>
+                    <span class="align-middle">Privacy &amp; Data</span>
                 </a>
             </li>
             <?php endif; ?>

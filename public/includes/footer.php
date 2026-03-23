@@ -36,6 +36,8 @@
             <li><a href="/about.php">About Us</a></li>
             <li><a href="/contact.php">Contact</a></li>
             <li><a href="/jobFlow/jobFlow-getQuote.php">Get a Quote</a></li>
+            <li><a href="/privacy">Privacy Policy</a></li>
+            <li><a href="/privacy-request">Data Request</a></li>
           </ul>
         </div>
 

@@ -35,5 +35,7 @@
 @import "pages/jobflow-success.css";
 @import "pages/service-landing.css";
 
+@import "pages/privacy.css";
+
 /* ---- CMS Modules ---- */
 @import "modules/cms-modules.css";

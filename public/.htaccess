@@ -67,6 +67,10 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteCond %{DOCUMENT_ROOT}/services/$1.php -f
 RewriteRule ^services/([a-z0-9\-]+)/?$ /services/$1.php [L,QSA]
 
+# /privacy and /privacy-request — PIPEDA public pages
+RewriteRule ^privacy/?$ /privacy.php [L,QSA]
+RewriteRule ^privacy-request/?$ /privacy-request.php [L,QSA]
+
 # /api/module/action → handled by /api/.htaccess (do not rewrite here)
 RewriteRule ^api/ - [L]
 
