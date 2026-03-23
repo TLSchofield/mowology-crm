@@ -89,6 +89,15 @@ $stmt = $db->prepare("
 $stmt->execute([$invoiceId]);
 $invoiceRecipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Build portal URL — refresh token if missing or expired
+$_tokenExpired = !empty($invoice['token_expires_at']) && strtotime($invoice['token_expires_at']) < time();
+if (empty($invoice['access_token']) || $_tokenExpired) {
+    $invoice['access_token'] = generateAccessToken();
+    $db->prepare("UPDATE invoices SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 90 DAY) WHERE id = ?")
+       ->execute([$invoice['access_token'], $invoiceId]);
+}
+$invoicePortalUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+
 // Get activity for this invoice
 $stmt = $db->prepare("
     SELECT a.*, u.full_name
@@ -444,6 +453,13 @@ $extraHead = $isPayable
                   </div>
               </div>
               <div class="mw-header-actions">
+                  <!-- Copy customer portal link -->
+                  <button type="button" class="btn btn-outline-secondary"
+                          onclick="navigator.clipboard.writeText(<?php echo json_encode($invoicePortalUrl); ?>).then(function(){this.innerHTML='<i data-feather=\'check\' class=\'mr-1\'></i> Copied!';feather.replace();setTimeout(function(){document.querySelectorAll('.mw-header-actions .btn').forEach(function(b){if(b.textContent.trim().startsWith('Copied'))b.innerHTML='<i data-feather=\'link\' class=\'mr-1\'></i> Copy Link';});feather.replace();},2000);}.bind(this))"
+                          title="Copy customer portal link to clipboard">
+                      <i data-feather="link" class="mr-1"></i> Copy Link
+                  </button>
+
                   <!-- PDF Actions -->
                   <a href="../documents/generate_pdf.php?type=invoice&id=<?php echo $invoiceId; ?>&action=download"
                      class="btn btn-outline-secondary" title="Download PDF">
