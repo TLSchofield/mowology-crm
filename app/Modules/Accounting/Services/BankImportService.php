@@ -534,7 +534,7 @@ class BankImportService
             if ($line === '') continue;
 
             // Parse CSV line (handles quoted fields with commas inside)
-            $cols = str_getcsv($line);
+            $cols = str_getcsv($line, ',', '"', '');
 
             // Determine amount and type
             $amount = null;

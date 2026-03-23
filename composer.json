@@ -10,5 +10,13 @@
     ],
     "require": {
         "smalot/pdfparser": "^2.12"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload-dev": {
+        "classmap": [
+            "app/Modules/Accounting/Services/"
+        ]
     }
 }

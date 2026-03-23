@@ -1,0 +1,21 @@
+<?php
+declare(strict_types=1);
+
+// Composer autoloader (PHPUnit + smalot/pdfparser)
+require_once __DIR__ . '/../vendor/autoload.php';
+
+// Load service classes under test
+// No namespace — plain PHP classes, loaded directly
+
+// Accounting
+require_once __DIR__ . '/../app/Modules/Accounting/Services/RulesEngine.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/TaxEngine.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/AlertEngine.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/BankImportService.php';
+require_once __DIR__ . '/../app/Modules/Accounting/Services/AccountingService.php';
+
+// Quotes
+require_once __DIR__ . '/../app/Modules/Quotes/Services/QuoteService.php';
+
+// Contacts
+require_once __DIR__ . '/../app/Modules/Contacts/Services/ContactService.php';

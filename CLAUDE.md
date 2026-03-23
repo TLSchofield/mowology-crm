@@ -48,7 +48,11 @@ This is a critical constraint for all SQL queries and schema changes:
 9. **ALWAYS use the built-in messaging functions for all email and SMS.** Never call `mail()` or PHPMailer directly from page code. Always use:
    - **Email:** `sendCrmEmail()` from `/crm/includes/messaging.php` (→ `app/Services/Messaging/MessagingService.php`)
    - **SMS:** `sendSms()` or a named wrapper like `sendInvoiceNotificationSms()` / `sendQuoteNotificationSms()` from the same service
-10. **SMS content rules — STRICT.** Canadian carrier email-to-SMS gateways silently drop messages that violate these rules:
+10. **NEVER put new business logic in page files.** All new SQL mutations, calculations, and business rules MUST go in a service class under `app/Modules/[Module]/Services/` first. Page files (`/crm/**/*.php`, API files) are thin controllers that call services. Existing inline logic may stay until it is extracted, but do NOT add more.
+    - Services live at: `app/Modules/Contacts/Services/ContactService.php`, `app/Modules/Quotes/Services/QuoteService.php`, `app/Modules/Accounting/Services/AccountingService.php`, etc.
+    - New services must be registered in `tests/bootstrap.php` and covered by a test in `tests/Unit/`.
+    - Run `vendor/bin/phpunit` before every commit — all 73+ tests must pass.
+11. **SMS content rules — STRICT.** Canadian carrier email-to-SMS gateways silently drop messages that violate these rules:
     - ✅ Plain text only — no HTML
     - ✅ 160 characters max (provide a shorter fallback if the primary message may exceed this)
     - ❌ **NO URLs of any kind** — not even short URLs, bare domains, or anything with a dot that looks like a link. Carriers block them silently.

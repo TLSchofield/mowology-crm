@@ -1,6 +1,7 @@
 <?php
 /**
  * Quote View - Internal CRM View
+ * Thin controller — business logic lives in QuoteService.
  * AppStack layout via shared includes.
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
@@ -8,6 +9,7 @@ require_once dirname(__DIR__) . '/includes/functions.php';
 require_once dirname(__DIR__) . '/includes/plan-functions.php';
 require_once dirname(__DIR__) . '/includes/messaging.php';
 require_once dirname(__DIR__) . '/includes/roi-functions.php';
+require_once APP_ROOT . '/Modules/Quotes/Services/QuoteService.php';
 // Note: pdf_bootstrap.php and PdfGenerator.php are loaded lazily below only when PDF generation is needed
 
 requireLogin();
@@ -21,60 +23,17 @@ if (!$quoteId) {
     exit;
 }
 
-$db = getDB();
+$db  = getDB();
+$svc = new QuoteService($db);
 
-// Get quote with related data - also check quote_requests for original contact info
-// Contact resolution priority: quote_request contact → company primary contact → property site contact
-$stmt = $db->prepare("
-    SELECT
-        q.*,
-        p.address as property_address,
-        p.city as property_city,
-        p.postal_code as property_postal,
-        p.property_type,
-        p.site_contact_id,
-        c.company_name,
-        c.billing_email,
-        c.billing_phone,
-        ct.id as contact_id,
-        ct.first_name as contact_first,
-        ct.last_name as contact_last,
-        ct.email as contact_email,
-        ct.phone as contact_phone,
-        qr.contact_id as qr_contact_id,
-        qrc.first_name as qr_first_name,
-        qrc.last_name as qr_last_name,
-        qrc.email as qr_email,
-        qrc.phone as qr_phone,
-        pc.id as prop_contact_id,
-        pc.first_name as prop_contact_first,
-        pc.last_name as prop_contact_last,
-        pc.email as prop_contact_email,
-        pc.phone as prop_contact_phone,
-        u.full_name as created_by_name
-    FROM quotes q
-    LEFT JOIN properties p ON q.property_id = p.id
-    LEFT JOIN company_properties cp ON p.id = cp.property_id AND cp.is_primary = 1
-    LEFT JOIN companies c ON q.company_id = c.id
-    LEFT JOIN contacts ct ON c.primary_contact_id = ct.id
-    LEFT JOIN quote_requests qr ON qr.quote_id = q.id
-    LEFT JOIN contacts qrc ON qr.contact_id = qrc.id
-    LEFT JOIN contacts pc ON p.site_contact_id = pc.id
-    LEFT JOIN users u ON q.created_by = u.id
-    WHERE q.id = ?
-");
-$stmt->execute([$quoteId]);
-$quote = $stmt->fetch(PDO::FETCH_ASSOC);
+$quote = $svc->getWithContact($quoteId);
 
 if (!$quote) {
     header('Location: index.php');
     exit;
 }
 
-// Get line items
-$stmt = $db->prepare("SELECT * FROM quote_line_items WHERE quote_id = ? ORDER BY sort_order");
-$stmt->execute([$quoteId]);
-$lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$lineItems = $svc->getLineItems($quoteId);
 
 // Smart conversion detection: single distinct service_type → one-click; multiple → multi-plan flow
 $distinctServiceTypes = array_unique(array_filter(array_column($lineItems, 'service_type')));
@@ -117,42 +76,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'send') {
       try {
-        // Resolve customer contact info (quote request contact → company contact → property contact → billing)
-        $customerEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['prop_contact_email'] ?? $quote['billing_email'] ?? null;
-        $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['prop_contact_phone'] ?? $quote['billing_phone'] ?? null;
-        $customerConsentsToSms = false;
-
-        // Check SMS consent via contacts table (quote request contact → company primary contact → property contact)
-        if (!empty($quote['qr_contact_id'])) {
-            $customerConsentsToSms = hasSmConsent((int)$quote['qr_contact_id']);
-        } elseif (!empty($quote['contact_id'])) {
-            $customerConsentsToSms = hasSmConsent((int)$quote['contact_id']);
-        } elseif (!empty($quote['prop_contact_id'])) {
-            $customerConsentsToSms = hasSmConsent((int)$quote['prop_contact_id']);
-        }
+        $customer              = $svc->resolveContact($quote);
+        $customerEmail         = $customer['email'];
+        $customerPhone         = $customer['phone'];
+        $customerName          = $customer['name'];
+        $customerConsentsToSms = $customer['contact_id']
+            ? hasSmConsent((int)$customer['contact_id'])
+            : false;
 
         if (!$customerEmail && !$customerPhone) {
             $message = 'Error: No contact information found (no email or phone). Please add contact details first.';
             $messageType = 'error';
         } else {
-            $emailSent = false;
-            $smsSent = false;
-            $sentVia = [];
+            $emailSent  = false;
+            $smsSent    = false;
+            $sentVia    = [];
             $attachPath = null;
 
-            // Generate access token if not exists; always refresh expiry on send/resend
-            if (empty($quote['access_token'])) {
-                $quote['access_token'] = generateAccessToken();
-                $stmt = $db->prepare("UPDATE quotes SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?");
-                $stmt->execute([$quote['access_token'], $quoteId]);
-            } else {
-                // Token exists — refresh the 30-day expiry window so resent links don't expire
-                $stmt = $db->prepare("UPDATE quotes SET token_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?");
-                $stmt->execute([$quoteId]);
-            }
-
-            // Build customer name and quote URL
-            $customerName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? $quote['prop_contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? $quote['prop_contact_last'] ?? '')) ?: ($quote['company_name'] ?? 'Valued Customer');
+            $svc->ensureAccessToken($quoteId, $quote);
             $quoteUrl = "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token'];
 
             // --- SEND EMAIL ---
@@ -229,8 +170,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // --- UPDATE QUOTE STATUS ---
             if ($emailSent || $smsSent) {
                 $oldStatus = $quote['status'];
-                $stmt = $db->prepare("UPDATE quotes SET status = 'sent', sent_at = NOW(), sent_via = ? WHERE id = ?");
-                $stmt->execute([implode(',', $sentVia), $quoteId]);
+                $svc->markSent($quoteId, implode(',', $sentVia));
                 trackFieldChange('quote', $quoteId, 'status', $oldStatus, 'sent', $user['id']);
 
                 logQuoteSentEvent($quoteId);
@@ -266,76 +206,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'approve_verbal') {
-        // Admin approves quote on behalf of customer (verbal confirmation)
         $approverName = trim($_POST['approver_name'] ?? '');
         if (empty($approverName)) {
-            $approverName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? $quote['prop_contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? $quote['prop_contact_last'] ?? ''));
-        }
-        if (empty($approverName)) {
-            $approverName = 'Customer (verbal)';
+            $resolved     = $svc->resolveContact($quote);
+            $approverName = $resolved['name'] ?: 'Customer (verbal)';
         }
 
         try {
             $oldStatus = $quote['status'];
-            $stmt = $db->prepare("
-                UPDATE quotes SET
-                    status = 'accepted',
-                    accepted_at = NOW(),
-                    accepted_by_name = ?,
-                    accepted_ip_address = ?
-                WHERE id = ?
-            ");
-            $stmt->execute([
-                $approverName . ' (verbal approval by ' . $user['name'] . ')',
-                $_SERVER['REMOTE_ADDR'],
-                $quoteId
-            ]);
+            $svc->approveVerbal($quoteId, $approverName, $user['name'] ?? '', $_SERVER['REMOTE_ADDR']);
             trackFieldChange('quote', $quoteId, 'status', $oldStatus, 'accepted', $user['id']);
-
             logActivityExtended($user['id'], 'Quote approved (verbal)', "Approved on behalf of {$approverName} by {$user['name']}", null, null, $quoteId);
-
             $quote['status'] = 'accepted';
-            $message = "Quote approved (verbal confirmation from {$approverName}).";
-            $messageType = 'success';
+            $message         = "Quote approved (verbal confirmation from {$approverName}).";
+            $messageType     = 'success';
         } catch (Exception $e) {
             error_log("Quote verbal approval error: " . $e->getMessage());
-            $message = 'Error approving quote. Please try again.';
+            $message     = 'Error approving quote. Please try again.';
             $messageType = 'error';
         }
     }
 
     if ($action === 'send_followup') {
-        // Manual follow-up — uses the quote_followup template
-        $customerEmail = $quote['qr_email'] ?? $quote['contact_email'] ?? $quote['prop_contact_email'] ?? $quote['billing_email'] ?? null;
-        $customerPhone = $quote['qr_phone'] ?? $quote['contact_phone'] ?? $quote['prop_contact_phone'] ?? $quote['billing_phone'] ?? null;
-        $customerConsentsToSms = false;
-
-        if (!empty($quote['qr_contact_id'])) {
-            $customerConsentsToSms = hasSmConsent((int)$quote['qr_contact_id']);
-        } elseif (!empty($quote['contact_id'])) {
-            $customerConsentsToSms = hasSmConsent((int)$quote['contact_id']);
-        } elseif (!empty($quote['prop_contact_id'])) {
-            $customerConsentsToSms = hasSmConsent((int)$quote['prop_contact_id']);
-        }
+        $customer              = $svc->resolveContact($quote);
+        $customerEmail         = $customer['email'];
+        $customerPhone         = $customer['phone'];
+        $customerName          = $customer['name'];
+        $firstName             = $customer['first_name'] ?: 'there';
+        $customerConsentsToSms = $customer['contact_id']
+            ? hasSmConsent((int)$customer['contact_id'])
+            : false;
 
         if (!$customerEmail) {
-            $message = 'Error: No email address found for this quote contact.';
+            $message     = 'Error: No email address found for this quote contact.';
             $messageType = 'error';
         } else {
             require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
 
-            // Ensure access token exists
-            if (empty($quote['access_token'])) {
-                $quote['access_token'] = generateAccessToken();
-                $db->prepare("UPDATE quotes SET access_token = ?, token_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?")
-                   ->execute([$quote['access_token'], $quoteId]);
-            } else {
-                $db->prepare("UPDATE quotes SET token_expires_at = DATE_ADD(NOW(), INTERVAL 30 DAY) WHERE id = ?")
-                   ->execute([$quoteId]);
-            }
-
-            $customerName = trim(($quote['qr_first_name'] ?? $quote['contact_first'] ?? $quote['prop_contact_first'] ?? '') . ' ' . ($quote['qr_last_name'] ?? $quote['contact_last'] ?? $quote['prop_contact_last'] ?? '')) ?: ($quote['company_name'] ?? 'Valued Customer');
-            $firstName    = explode(' ', $customerName)[0] ?: 'there';
+            $svc->ensureAccessToken($quoteId, $quote);
             $quoteUrl     = "https://" . $_SERVER['HTTP_HOST'] . "/customer/quote.php?token=" . $quote['access_token'];
             $companyInfo  = EmailWrapper::getCompanyInfo();
 
@@ -359,13 +267,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $emailResult = sendEmail($customerEmail, $subject, $body);
 
             if ($emailResult['success']) {
-                // Update follow-up tracking (graceful — columns may not exist pre-migration)
-                try {
-                    $db->prepare("UPDATE quotes SET follow_up_sent_at = NOW(), follow_up_count = COALESCE(follow_up_count, 0) + 1 WHERE id = ?")
-                       ->execute([$quoteId]);
-                } catch (PDOException $fuEx) {
-                    error_log("follow_up column update skipped (pre-migration?): " . $fuEx->getMessage());
-                }
+                $svc->recordFollowUp($quoteId);
 
                 // SMS notification (if consented) — no URL, just a nudge
                 if ($customerPhone && $customerConsentsToSms) {
@@ -375,12 +277,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 logActivityExtended($user['id'], 'Follow-up sent', "Quote follow-up email sent to {$customerEmail}", null, null, $quoteId);
 
-                $message = 'Follow-up sent successfully to ' . $customerEmail . '.';
+                $message     = 'Follow-up sent successfully to ' . $customerEmail . '.';
                 $messageType = 'success';
 
                 // Reload quote to show updated follow_up_count
-                $stmt->execute([$quoteId]);
-                $quote = $stmt->fetch(PDO::FETCH_ASSOC) ?: $quote;
+                $quote = $svc->getWithContact($quoteId) ?: $quote;
             } else {
                 $message = 'Error sending follow-up. Please check the email address and try again.';
                 $messageType = 'error';
