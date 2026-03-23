@@ -25885,3 +25885,29 @@ textarea.font-monospace {
 }
 @media (min-width: 768px)  { .mw-intel-grid { grid-template-columns: 1fr 1fr; } }
 @media (min-width: 1200px) { .mw-intel-grid { grid-template-columns: 1fr 1fr 1fr; } }
+
+/* ── Certification Module ──────────────────────────────────────────────────── */
+.mw-cert-tier-card { transition: box-shadow .2s, transform .15s; }
+.mw-cert-tier-card:hover { box-shadow: 0 4px 18px rgba(13,59,46,.12); transform: translateY(-1px); }
+.mw-cert-tier-active { background: #f0faf5; }
+.mw-cert-course-row { transition: background .1s; }
+.mw-cert-course-row:hover { background: #f8fffe; }
+.mw-cert-option-btn {
+    display: block; width: 100%; text-align: left;
+    padding: 12px 16px; border: 2px solid #d1d5db; border-radius: 8px;
+    background: #fff; cursor: pointer; font-size: .9rem;
+    transition: border-color .15s, background .15s;
+}
+.mw-cert-option-btn:disabled { cursor: default; }
+.mw-cert-option-btn:not(:disabled):hover { border-color: var(--mw-green); background: #f0faf5; }
+.mw-cert-option-btn.correct { border-color: #1a7a4a; background: #d4edda; font-weight: 700; }
+.mw-cert-option-btn.wrong   { border-color: #dc3545; background: #f8d7da; }
+
+/* Tier badge colours */
+.mw-cert-badge-tier1 { background: #d4edda; color: #155724; }
+.mw-cert-badge-tier2 { background: #fde7d3; color: #7c3b00; }
+.mw-cert-badge-tier3 { background: #d1ecf1; color: #0c5460; }
+
+/* Progress bar in exam modal */
+#examPlayModal .modal-content { border-radius: 12px; overflow: hidden; }
+#examPlayModal .modal-header  { border-radius: 0; }

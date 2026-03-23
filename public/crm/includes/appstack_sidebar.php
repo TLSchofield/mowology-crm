@@ -10,7 +10,7 @@
  *                   'invoices', 'schedule', 'timeclock', 'expenses',
  *                   'profitability', 'cost-factors', 'intel', 'marketing', 'social', 'cms', 'media',
  *                   'team', 'leaderboard', 'quiz', 'map', 'photos', 'products', 'portfolio',
- *                   'work-zones', 'users', 'settings', 'privacy'
+ *                   'work-zones', 'users', 'settings', 'privacy', 'certification'
  *
  * Nav items support two types:
  *   - Section headers: ['type' => 'header', 'label' => 'Section Name']
@@ -101,7 +101,8 @@ $navItems = [
     ['type' => 'header', 'label' => 'Team'],
     ['key' => 'team',        'label' => 'Team',           'icon' => 'user-check',  'href' => '/crm/team/index.php',            'perm' => 'team.view'],
     ['key' => 'leaderboard', 'label' => 'Leaderboard',    'icon' => 'award',       'href' => '/crm/leaderboard_appstack.php',  'perm' => 'team.view'],
-    ['key' => 'quiz',        'label' => 'Knowledge Quiz', 'icon' => 'book-open',   'href' => '/crm/quiz_appstack.php'],
+    ['key' => 'quiz',          'label' => 'Knowledge Quiz',  'icon' => 'book-open',   'href' => '/crm/quiz_appstack.php'],
+    ['key' => 'certification', 'label' => 'Certification',    'icon' => 'award',       'href' => '/crm/certification_appstack.php'],
     ['key' => 'map',         'label' => 'Territory Map',  'icon' => 'map',         'href' => '/crm/map_appstack.php',          'perm' => 'jobs.view'],
 
     // ── Library ───────────────────────────────────────────────────────────────
