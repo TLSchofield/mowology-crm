@@ -2715,7 +2715,7 @@ function getFieldChanges(string $entityType, int $entityId, int $limit = 50): ar
  * @param string $message Human-readable description
  * @param array  $context Optional key/value pairs (stored as JSON)
  */
-function sysLog(string $level, string $source, string $message, array $context = []): void {
+function writeSystemLog(string $level, string $source, string $message, array $context = []): void {
     // Always mirror to PHP error_log so nothing is lost if DB is unavailable
     error_log("[{$level}][{$source}] {$message}" . ($context ? ' ' . json_encode($context) : ''));
 

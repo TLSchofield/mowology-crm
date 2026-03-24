@@ -106,7 +106,7 @@ if ($contactId && !$stripeCustomerId) {
            ->execute([$stripeCustomerId, $contactId]);
 
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        sysLog('warning', 'stripe', 'Could not create Stripe Customer', ['contact_id' => $contactId, 'error' => $e->getMessage()]);
+        writeSystemLog('warning', 'stripe', 'Could not create Stripe Customer', ['contact_id' => $contactId, 'error' => $e->getMessage()]);
         // Non-fatal — proceed without customer linkage
         $stripeCustomerId = null;
     }
@@ -125,7 +125,7 @@ if ($hasSavedCard && $stripeCustomerId) {
         $customer = \Stripe\Customer::retrieve($stripeCustomerId);
         $defaultPaymentMethodId = $customer->invoice_settings->default_payment_method ?? null;
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        sysLog('warning', 'stripe', 'Could not retrieve Stripe Customer', ['stripe_customer_id' => $stripeCustomerId, 'error' => $e->getMessage()]);
+        writeSystemLog('warning', 'stripe', 'Could not retrieve Stripe Customer', ['stripe_customer_id' => $stripeCustomerId, 'error' => $e->getMessage()]);
     }
 }
 
@@ -152,7 +152,7 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             exit;
         }
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        sysLog('warning', 'stripe', 'Could not retrieve existing PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
+        writeSystemLog('warning', 'stripe', 'Could not retrieve existing PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
     }
 }
 
@@ -201,7 +201,7 @@ try {
             VALUES (?, ?, ?, 'cad', ?, 'created')
         ")->execute([$invoice['id'], $intent->id, $amountCents, $stripeCustomerId]);
     } catch (PDOException $auditEx) {
-        sysLog('warning', 'stripe', 'stripe_payments audit insert failed', ['invoice_id' => $invoice['id'], 'error' => $auditEx->getMessage()]);
+        writeSystemLog('warning', 'stripe', 'stripe_payments audit insert failed', ['invoice_id' => $invoice['id'], 'error' => $auditEx->getMessage()]);
     }
 
     echo json_encode([
@@ -217,7 +217,7 @@ try {
     ]);
 
 } catch (\Throwable $e) {
-    sysLog('error', 'stripe', get_class($e) . ': ' . $e->getMessage(), [
+    writeSystemLog('error', 'stripe', get_class($e) . ': ' . $e->getMessage(), [
         'invoice_id' => $invoice['id'] ?? null,
         'file'       => $e->getFile() . ':' . $e->getLine(),
     ]);
