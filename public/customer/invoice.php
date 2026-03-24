@@ -578,8 +578,15 @@ function fmtDate(string $d): string {
             clearError();
             setSavedCardLoading(true);
 
-            stripe.confirmCardPayment(intentData.client_secret, {
-                payment_method: intentData.default_payment_method
+            // Use confirmPayment (modern API) — no Elements instance needed when
+            // payment_method is passed directly in confirmParams.
+            stripe.confirmPayment({
+                clientSecret  : intentData.client_secret,
+                confirmParams : {
+                    payment_method: intentData.default_payment_method,
+                    return_url    : window.location.href + '&payment=success'
+                },
+                redirect: 'if_required'
             })
             .then(function (result) {
                 setSavedCardLoading(false);

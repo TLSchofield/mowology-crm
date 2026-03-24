@@ -142,6 +142,18 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
         $isCardOnly = (count($existing->payment_method_types ?? []) === 1 && ($existing->payment_method_types[0] ?? '') === 'card');
 
         if ($isReusable && $isCardOnly) {
+            // If customer opts to save card, UPDATE the existing intent with
+            // setup_future_usage so elements.fetchUpdates() picks up the change.
+            // Stripe docs: setup_future_usage can be updated before confirmation.
+            if ($saveCard && $stripeCustomerIdFromIntent && !$existing->setup_future_usage) {
+                try {
+                    $existing = \Stripe\PaymentIntent::update($existing->id, [
+                        'setup_future_usage' => 'off_session',
+                    ]);
+                } catch (\Stripe\Exception\ApiErrorException $e) {
+                    writeSystemLog('warning', 'stripe', 'Could not update PaymentIntent setup_future_usage', ['pi_id' => $existing->id, 'error' => $e->getMessage()]);
+                }
+            }
             echo json_encode([
                 'client_secret'           => $existing->client_secret,
                 'publishable_key'         => STRIPE_PUBLISHABLE_KEY,

@@ -251,6 +251,26 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                 '[Stripe Webhook] Saved card on file for contact %d: %s ••••%s exp %s',
                 $contactId, $cardBrand ?? 'unknown', $cardLast4, $cardExpiry ?? ''
             ));
+
+            // ── Set as default payment method on Stripe Customer ──────────────
+            // This is what enables one-click saved-card pay on future invoices.
+            // invoice-payment-intent.php reads customer->invoice_settings->default_payment_method
+            // to offer the saved card UI. Without this call that field is always null.
+            if ($paymentMethodId) {
+                try {
+                    \Stripe\Customer::update($stripeCustomerIdFromIntent, [
+                        'invoice_settings' => ['default_payment_method' => $paymentMethodId],
+                    ]);
+                    error_log(sprintf(
+                        '[Stripe Webhook] Set default_payment_method %s on customer %s',
+                        $paymentMethodId, $stripeCustomerIdFromIntent
+                    ));
+                } catch (\Stripe\Exception\ApiErrorException $e) {
+                    // Non-fatal — card is still saved in contacts; one-click pay just won't
+                    // be offered until next successful payment resolves this.
+                    error_log('[Stripe Webhook] Could not set default_payment_method: ' . $e->getMessage());
+                }
+            }
         }
 
         // ── Activity log ──────────────────────────────────────────────────────
