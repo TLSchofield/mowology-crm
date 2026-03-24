@@ -539,7 +539,7 @@ function fmtDate(string $d): string {
                     setLoading(false);
                     if (result.error) {
                         showError(result.error.message);
-                    } else if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
+                    } else if (result.paymentIntent && (result.paymentIntent.status === 'succeeded' || result.paymentIntent.status === 'processing')) {
                         showSuccess();
                     }
                 })
@@ -570,7 +570,11 @@ function fmtDate(string $d): string {
 
         // ── Pay with saved card ───────────────────────────────────────────────
         window.submitSavedCardPayment = function () {
-            if (!stripe || !intentData || !intentData.default_payment_method) return;
+            if (!stripe || !intentData || !intentData.default_payment_method) {
+                showError('Card on file could not be loaded. Please use a different card.');
+                showNewCardForm();
+                return;
+            }
             clearError();
             setSavedCardLoading(true);
 
@@ -585,7 +589,7 @@ function fmtDate(string $d): string {
                     if (result.error.code === 'card_declined' || result.error.code === 'expired_card') {
                         showNewCardForm();
                     }
-                } else if (result.paymentIntent && result.paymentIntent.status === 'succeeded') {
+                } else if (result.paymentIntent && (result.paymentIntent.status === 'succeeded' || result.paymentIntent.status === 'processing')) {
                     showSuccess();
                 }
             })
@@ -618,12 +622,12 @@ function fmtDate(string $d): string {
             document.querySelector('#payModal .portal-modal').innerHTML = [
                 '<div style="padding:48px 32px;text-align:center;">',
                 '<div style="font-size:56px;color:#2D8659;line-height:1;">&#10003;</div>',
-                '<h3 style="color:#0D3B2E;margin:16px 0 8px;font-family:Montserrat,sans-serif;">Payment Received!</h3>',
-                '<p style="color:#4a6b5d;font-size:14px;">Thank you. Your payment is being processed and this invoice will be marked paid shortly.</p>',
-                '<p style="color:#9ca3af;font-size:12px;margin-top:12px;">Refreshing in 3 seconds&hellip;</p>',
+                '<h3 style="color:#0D3B2E;margin:16px 0 8px;font-family:Montserrat,sans-serif;">Payment Submitted!</h3>',
+                '<p style="color:#4a6b5d;font-size:14px;">Thank you. Your payment is being processed and a receipt will be sent to your email shortly.</p>',
+                '<p style="color:#9ca3af;font-size:12px;margin-top:12px;">Refreshing in 5 seconds&hellip;</p>',
                 '</div>'
             ].join('');
-            setTimeout(function () { location.reload(); }, 3000);
+            setTimeout(function () { location.reload(); }, 5000);
         }
 
         <?php if (isset($_GET['payment']) && $_GET['payment'] === 'success'): ?>
