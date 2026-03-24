@@ -2706,3 +2706,32 @@ function getFieldChanges(string $entityType, int $entityId, int $limit = 50): ar
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
+/**
+ * Write an entry to the system_log table.
+ * Falls back to error_log() silently if DB write fails (e.g. table not yet created).
+ *
+ * @param string $level   'error' | 'warning' | 'info'
+ * @param string $source  Short identifier, e.g. 'stripe', 'sms', 'pdf', 'auth'
+ * @param string $message Human-readable description
+ * @param array  $context Optional key/value pairs (stored as JSON)
+ */
+function sysLog(string $level, string $source, string $message, array $context = []): void {
+    // Always mirror to PHP error_log so nothing is lost if DB is unavailable
+    error_log("[{$level}][{$source}] {$message}" . ($context ? ' ' . json_encode($context) : ''));
+
+    try {
+        $db = getDB();
+        $db->prepare("
+            INSERT INTO system_log (level, source, message, context, created_at)
+            VALUES (?, ?, ?, ?, NOW())
+        ")->execute([
+            $level,
+            $source,
+            $message,
+            $context ? json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+        ]);
+    } catch (Throwable $e) {
+        // Non-fatal — table may not exist yet; PHP error_log already received it
+    }
+}
+

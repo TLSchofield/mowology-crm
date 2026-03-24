@@ -194,6 +194,15 @@ $navItems = [
             </li>
             <?php endif; ?>
 
+            <?php if (($user['role'] ?? '') === 'admin'): ?>
+            <li class="sidebar-item<?php echo ($activePage === 'system-log') ? ' active' : ''; ?>">
+                <a class="sidebar-link" href="/crm/system-log_appstack.php">
+                    <i class="align-middle" data-feather="alert-circle"></i>
+                    <span class="align-middle">System Log</span>
+                </a>
+            </li>
+            <?php endif; ?>
+
             <!-- Install App (PWA) — hidden when already installed or on desktop -->
             <li class="sidebar-item" id="mw-pwa-sidebar-item">
                 <a class="sidebar-link" href="#" id="mw-pwa-sidebar-link"
