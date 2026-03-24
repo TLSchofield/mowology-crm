@@ -282,6 +282,9 @@ try {
             if (isset($input['is_driver'])) {
                 $updates[] = 'is_driver = ?'; $params[] = $input['is_driver'] ? 1 : 0;
             }
+            if (isset($input['pesticide_training_required'])) {
+                $updates[] = 'pesticide_training_required = ?'; $params[] = $input['pesticide_training_required'] ? 1 : 0;
+            }
             if (isset($input['device_type']) && in_array($input['device_type'], ['personal', 'truck'])) {
                 $updates[] = 'device_type = ?'; $params[] = $input['device_type'];
             }

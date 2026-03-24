@@ -132,6 +132,43 @@ if ($canAccountTab) {
     }
 }
 
+// ── Load training/certification data ──────────────────────────────────────
+$pesticideCourseId    = null;
+$pesticideCertRecord  = null;
+$pesticideExamHistory = [];
+$pesticideRequired    = (bool) ($emp['pesticide_training_required'] ?? false);
+
+try {
+    $courseRow = $db->query("SELECT id FROM cert_courses WHERE slug = 'bc-pesticide-applicator' LIMIT 1")->fetch();
+    if ($courseRow) {
+        $pesticideCourseId = (int) $courseRow['id'];
+
+        // Best cert record for this user + course
+        $crStmt = $db->prepare("
+            SELECT cr.*, ces.score_pct AS session_score, ces.completed_at AS session_completed_at
+            FROM cert_records cr
+            LEFT JOIN cert_exam_sessions ces ON ces.id = cr.exam_session_id
+            WHERE cr.user_id = ? AND cr.course_id = ?
+            LIMIT 1
+        ");
+        $crStmt->execute([$empId, $pesticideCourseId]);
+        $pesticideCertRecord = $crStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+        // Last 5 exam attempts
+        $histStmt = $db->prepare("
+            SELECT id, score_pct, passed, attempt_number, started_at, completed_at, questions_count, correct_count
+            FROM cert_exam_sessions
+            WHERE user_id = ? AND course_id = ?
+            ORDER BY started_at DESC
+            LIMIT 5
+        ");
+        $histStmt->execute([$empId, $pesticideCourseId]);
+        $pesticideExamHistory = $histStmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+} catch (Throwable $e) {
+    // cert tables may not exist yet — degrade gracefully
+}
+
 // Build display name from first/last (fall back to full_name)
 $empFirstName = $emp['first_name'] ?? '';
 $empLastName  = $emp['last_name'] ?? '';
@@ -200,6 +237,18 @@ if ($apiKey) {
     <li class="nav-item">
         <a class="nav-link" id="tab-install" data-toggle="tab" href="#pane-install" role="tab">
             <i data-feather="smartphone" style="width:14px;height:14px;"></i> Install App
+        </a>
+    </li>
+    <?php endif; ?>
+    <?php if ($canTeamEdit): ?>
+    <li class="nav-item">
+        <a class="nav-link" id="tab-training" data-toggle="tab" href="#pane-training" role="tab">
+            <i data-feather="award" style="width:14px;height:14px;"></i> Training
+            <?php if ($pesticideRequired && !$pesticideCertRecord): ?>
+                <span class="badge badge-warning badge-pill ml-1" style="font-size:.65rem;">!</span>
+            <?php elseif ($pesticideCertRecord && ($pesticideCertRecord['status'] ?? '') === 'active'): ?>
+                <span class="badge badge-success badge-pill ml-1" style="font-size:.65rem;">✓</span>
+            <?php endif; ?>
         </a>
     </li>
     <?php endif; ?>
@@ -965,6 +1014,207 @@ if ($apiKey) {
 
 <?php endif; // canTeamEdit ?>
 
+<?php if ($canTeamEdit): ?>
+
+<!-- ── Tab: Training ─────────────────────────────────────────────────────── -->
+<div class="tab-pane fade" id="pane-training" role="tabpanel">
+    <div class="row">
+
+        <!-- Left: Pesticide Training Toggle + Status ─────────────────────── -->
+        <div class="col-lg-7">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i data-feather="shield" class="mr-2" style="width:15px;height:15px;color:var(--mw-orange);"></i> BC Pesticide Applicator Certificate</span>
+                    <?php if ($pesticideCertRecord && ($pesticideCertRecord['status'] ?? '') === 'active'): ?>
+                        <span class="badge badge-success">Certified</span>
+                    <?php elseif ($pesticideRequired): ?>
+                        <span class="badge badge-warning">Required — Not Yet Passed</span>
+                    <?php else: ?>
+                        <span class="badge badge-secondary">Optional</span>
+                    <?php endif; ?>
+                </div>
+                <div class="card-body">
+
+                    <?php if (!$pesticideCourseId): ?>
+                        <div class="alert alert-warning mb-0">
+                            <strong>Setup required.</strong> Run
+                            <a href="/crm/api/run-migration-991.php" target="_blank">/crm/api/run-migration-991.php</a>
+                            then
+                            <a href="/crm/api/run-migration-pesticide-quiz-seed.php" target="_blank">the seed script</a>
+                            to activate pesticide training.
+                        </div>
+                    <?php else: ?>
+
+                        <!-- Require training toggle -->
+                        <div class="d-flex align-items-center justify-content-between mb-4 p-3"
+                             style="background:var(--mw-light);border-radius:6px;">
+                            <div>
+                                <strong style="font-size:.9rem;">Require this training for <?php echo h($empFirstName ?: $empDisplayName); ?></strong>
+                                <div class="text-muted" style="font-size:.8rem;margin-top:2px;">
+                                    Marks training as mandatory on their profile and flags it until they pass.
+                                </div>
+                            </div>
+                            <div class="custom-control custom-switch ml-3">
+                                <input type="checkbox" class="custom-control-input" id="pesticideToggle"
+                                    <?php echo $pesticideRequired ? 'checked' : ''; ?>
+                                    onchange="togglePesticideTraining(this.checked)">
+                                <label class="custom-control-label" for="pesticideToggle"></label>
+                            </div>
+                        </div>
+
+                        <!-- Certification status card -->
+                        <?php if ($pesticideCertRecord): ?>
+                            <?php
+                            $certStatus = $pesticideCertRecord['status'] ?? 'pending';
+                            $certScore  = (int) ($pesticideCertRecord['best_score_pct'] ?? 0);
+                            $certIssued = $pesticideCertRecord['issued_at'] ?? null;
+                            $certExpiry = $pesticideCertRecord['expires_at'] ?? null;
+                            $statusBadge = ['active' => 'success', 'expired' => 'danger', 'revoked' => 'danger', 'pending' => 'warning'][$certStatus] ?? 'secondary';
+                            ?>
+                            <div class="d-flex align-items-center p-3 mb-3"
+                                 style="background:#f0f9f4;border:1px solid #c3e6cb;border-radius:6px;">
+                                <div style="font-size:2rem;line-height:1;margin-right:16px;">🏆</div>
+                                <div class="flex-grow-1">
+                                    <strong>BC Pesticide Applicator Certificate</strong>
+                                    <div style="font-size:.82rem;color:#555;margin-top:3px;">
+                                        Best score: <strong><?php echo $certScore; ?>%</strong>
+                                        &nbsp;·&nbsp; Status: <span class="badge badge-<?php echo $statusBadge; ?>"><?php echo ucfirst(h($certStatus)); ?></span>
+                                        <?php if ($certIssued): ?>
+                                            &nbsp;·&nbsp; Issued: <?php echo date('M j, Y', strtotime($certIssued)); ?>
+                                        <?php endif; ?>
+                                        <?php if ($certExpiry): ?>
+                                            &nbsp;·&nbsp; Expires: <?php echo date('M j, Y', strtotime($certExpiry)); ?>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <div class="alert alert-light border" style="font-size:.85rem;">
+                                <i data-feather="info" style="width:14px;height:14px;" class="mr-1"></i>
+                                <?php echo h($empFirstName ?: $empDisplayName); ?> has not yet completed this certification.
+                                <?php if ($pesticideRequired): ?>
+                                    This training is <strong>required</strong> for their role.
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <!-- Progress bar from last attempt -->
+                        <?php if (!empty($pesticideExamHistory)): ?>
+                            <?php $lastAttempt = $pesticideExamHistory[0]; ?>
+                            <?php if ($lastAttempt['completed_at']): ?>
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between mb-1" style="font-size:.8rem;color:#555;">
+                                    <span>Last attempt score</span>
+                                    <strong><?php echo (int)$lastAttempt['score_pct']; ?>%
+                                        <?php echo $lastAttempt['passed'] ? '✓ Passed' : '✗ Not yet'; ?>
+                                    </strong>
+                                </div>
+                                <div class="progress" style="height:8px;">
+                                    <div class="progress-bar <?php echo $lastAttempt['passed'] ? 'bg-success' : 'bg-warning'; ?>"
+                                         style="width:<?php echo (int)$lastAttempt['score_pct']; ?>%"></div>
+                                </div>
+                                <div class="text-muted mt-1" style="font-size:.75rem;">
+                                    <?php echo (int)$lastAttempt['correct_count']; ?>/<?php echo (int)$lastAttempt['questions_count']; ?> correct
+                                    &nbsp;·&nbsp; <?php echo date('M j, Y', strtotime($lastAttempt['completed_at'])); ?>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                        <?php endif; ?>
+
+                        <!-- Action buttons -->
+                        <div class="d-flex gap-2 flex-wrap" style="gap:.5rem;">
+                            <a href="/crm/quiz-play_appstack.php?course=bc-pesticide-applicator&user=<?php echo $empId; ?>"
+                               class="btn btn-sm btn-primary">
+                                <i data-feather="play" style="width:13px;height:13px;" class="mr-1"></i>
+                                <?php echo $pesticideCertRecord ? 'Retake Exam' : 'Start Exam'; ?>
+                            </a>
+                            <a href="/crm/quiz-learn_appstack.php?category=BC+Pesticide+Applicator"
+                               class="btn btn-sm btn-outline-secondary">
+                                <i data-feather="book-open" style="width:13px;height:13px;" class="mr-1"></i>
+                                Study Mode
+                            </a>
+                        </div>
+
+                    <?php endif; // pesticideCourseId ?>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Exam history ───────────────────────────────────────────── -->
+        <div class="col-lg-5">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <i data-feather="clock" class="mr-2" style="width:14px;height:14px;"></i> Exam History
+                </div>
+                <div class="card-body p-0">
+                    <?php if (empty($pesticideExamHistory)): ?>
+                        <div class="p-4 text-center text-muted" style="font-size:.85rem;">
+                            No exam attempts yet.
+                        </div>
+                    <?php else: ?>
+                        <table class="table table-sm mb-0" style="font-size:.82rem;">
+                            <thead class="thead-light">
+                                <tr>
+                                    <th>Date</th>
+                                    <th class="text-center">Score</th>
+                                    <th class="text-center">Result</th>
+                                    <th class="text-center">Attempt</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($pesticideExamHistory as $attempt): ?>
+                                <tr class="<?php echo $attempt['passed'] ? 'table-success' : ''; ?>">
+                                    <td class="text-muted">
+                                        <?php echo $attempt['completed_at']
+                                            ? date('M j, Y', strtotime($attempt['completed_at']))
+                                            : '<em>In progress</em>'; ?>
+                                    </td>
+                                    <td class="text-center">
+                                        <strong><?php echo $attempt['completed_at'] ? (int)$attempt['score_pct'] . '%' : '—'; ?></strong>
+                                    </td>
+                                    <td class="text-center">
+                                        <?php if ($attempt['passed'] === null): ?>
+                                            <span class="badge badge-info">In progress</span>
+                                        <?php elseif ($attempt['passed']): ?>
+                                            <span class="badge badge-success">Passed</span>
+                                        <?php else: ?>
+                                            <span class="badge badge-warning">Not yet</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="text-center text-muted">#<?php echo (int)$attempt['attempt_number']; ?></td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- Six-week study plan hint -->
+            <div class="card">
+                <div class="card-header" style="font-size:.82rem;">
+                    <i data-feather="calendar" class="mr-1" style="width:13px;height:13px;"></i> Recommended Study Path
+                </div>
+                <div class="card-body p-3" style="font-size:.78rem;color:#555;line-height:1.6;">
+                    <strong>6-Week Plan:</strong>
+                    <ol class="pl-3 mb-0 mt-1">
+                        <li>Orientation + exam rules + label basics</li>
+                        <li>General pesticide characteristics + classification</li>
+                        <li>Human health + exposure routes + symptoms</li>
+                        <li>PPE + hierarchy of controls + safe work</li>
+                        <li>Environment + drift/runoff + buffer concepts</li>
+                        <li>Emergency response + equipment + mock review</li>
+                    </ol>
+                    <div class="mt-2 text-muted">~20–30 min/week + 1 longer mock session.</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div><!-- /training pane -->
+
+<?php endif; // canTeamEdit (training tab) ?>
+
 <?php if ($canAccountTab): ?>
 
 <!-- ── Tab: Account & Access ─────────────────────────────────────────────── -->
@@ -1285,6 +1535,11 @@ function accUpdate(field, value) {
         if (!json.success) alert(json.error || 'Update failed');
     })
     .catch(function() { alert('Network error'); });
+}
+
+// ── Training tab: pesticide training toggle ────────────────────────────────
+function togglePesticideTraining(required) {
+    accUpdate('pesticide_training_required', required ? 1 : 0);
 }
 
 // ── Account tab: RBAC roles form ──────────────────────────────────────────
