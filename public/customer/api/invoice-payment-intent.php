@@ -168,7 +168,6 @@ try {
             'contact_id'     => (string) $contactId,
             'source'         => 'customer_portal',
         ],
-        'statement_descriptor'        => 'MOWOLOGY INV',
         'automatic_payment_methods'   => ['enabled' => true],
     ];
 
