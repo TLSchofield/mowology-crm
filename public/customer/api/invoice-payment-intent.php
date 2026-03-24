@@ -192,12 +192,17 @@ try {
     $db->prepare("UPDATE invoices SET stripe_payment_intent_id = ? WHERE id = ?")
        ->execute([$intent->id, $invoice['id']]);
 
-    // Record in stripe_payments (idempotent)
-    $db->prepare("
-        INSERT IGNORE INTO stripe_payments
-            (invoice_id, payment_intent_id, amount_cents, currency, stripe_customer_id, status)
-        VALUES (?, ?, ?, 'cad', ?, 'created')
-    ")->execute([$invoice['id'], $intent->id, $amountCents, $stripeCustomerId]);
+    // Record in stripe_payments (idempotent) — fault-tolerant: table may not exist yet
+    try {
+        $db->prepare("
+            INSERT IGNORE INTO stripe_payments
+                (invoice_id, payment_intent_id, amount_cents, currency, stripe_customer_id, status)
+            VALUES (?, ?, ?, 'cad', ?, 'created')
+        ")->execute([$invoice['id'], $intent->id, $amountCents, $stripeCustomerId]);
+    } catch (PDOException $auditEx) {
+        error_log('[Stripe] stripe_payments insert skipped (table may not exist): ' . $auditEx->getMessage());
+        // Non-fatal — payment intent already created; audit row is best-effort
+    }
 
     echo json_encode([
         'client_secret'           => $intent->client_secret,
@@ -211,8 +216,8 @@ try {
         'default_payment_method'  => $defaultPaymentMethodId,
     ]);
 
-} catch (\Stripe\Exception\ApiErrorException $e) {
-    error_log('[Stripe Customer] ' . $e->getMessage());
+} catch (\Throwable $e) {
+    error_log('[Stripe PaymentIntent] ' . get_class($e) . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     http_response_code(500);
     echo json_encode(['error' => 'Payment service temporarily unavailable. Please try again or call us at (778) 846-9273.']);
 }
