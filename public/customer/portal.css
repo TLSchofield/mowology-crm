@@ -794,25 +794,47 @@ a:hover { text-decoration: underline; }
 .portal-total-row.balance-row { font-weight: 700; color: #dc2626; }
 
 /* ─── Payment Modal ──────────────────────────────────────────────────────── */
+/* Sticky header + footer, scrollable body — Pay button always visible      */
 .portal-overlay {
   display: none;
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.4);
   z-index: 1000;
-  align-items: center;
+  align-items: flex-end;        /* sheet slides up from bottom on mobile */
   justify-content: center;
-  padding: 16px;
+  padding: 0;
 }
 .portal-overlay.open { display: flex; }
+
+/* On larger screens centre it like a traditional modal */
+@media (min-width: 540px) {
+  .portal-overlay {
+    align-items: center;
+    padding: 16px;
+  }
+}
+
 .portal-modal {
   background: var(--p-bg);
-  border-radius: var(--p-radius-lg);
+  border-radius: var(--p-radius-lg) var(--p-radius-lg) 0 0; /* sheet style on mobile */
   width: 100%;
   max-width: 480px;
-  overflow: hidden;
+  /* Flex column: header fixed, body scrolls, footer fixed */
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;             /* never taller than viewport */
   box-shadow: var(--p-shadow-lg);
+  overflow: hidden;             /* keeps border-radius clean */
 }
+
+@media (min-width: 540px) {
+  .portal-modal {
+    border-radius: var(--p-radius-lg);
+    max-height: calc(100vh - 32px);
+  }
+}
+
 .portal-modal-hdr {
   background: var(--p-forest);
   color: #fff;
@@ -820,6 +842,7 @@ a:hover { text-decoration: underline; }
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;               /* never squish the header */
 }
 .portal-modal-hdr h3 { font-size: 1rem; font-weight: 600; }
 .portal-modal-close {
@@ -831,14 +854,24 @@ a:hover { text-decoration: underline; }
   line-height: 1;
 }
 .portal-modal-close:hover { color: #fff; }
-.portal-modal-body { padding: 24px; }
+
+.portal-modal-body {
+  padding: 24px;
+  overflow-y: auto;             /* body scrolls when content is tall */
+  flex: 1;
+  -webkit-overflow-scrolling: touch;
+}
+
 .portal-modal-footer {
   padding: 16px 24px;
   border-top: 1px solid var(--p-border);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-shrink: 0;               /* footer always visible — never pushed off screen */
+  background: var(--p-bg);
 }
+
 .portal-modal-amount {
   background: var(--p-bg-subtle);
   border: 1px solid var(--p-border);
