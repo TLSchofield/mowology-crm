@@ -129,15 +129,19 @@ if ($hasSavedCard && $stripeCustomerId) {
     }
 }
 
-// ── Reuse existing PaymentIntent if still valid ───────────────────────────────
+// ── Reuse existing PaymentIntent if still valid and card-only ─────────────────
 if (!empty($invoice['stripe_payment_intent_id'])) {
     try {
         $existing = \Stripe\PaymentIntent::retrieve($invoice['stripe_payment_intent_id']);
 
-        if (
-            in_array($existing->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)
-            && $existing->amount === $amountCents
-        ) {
+        $isReusable = in_array($existing->status, ['requires_payment_method', 'requires_confirmation', 'requires_action'], true)
+                      && $existing->amount === $amountCents;
+
+        // Only reuse if it's card-only — intents created with automatic_payment_methods
+        // may surface Apple Pay on iPhone, causing "incomplete" payment confusion.
+        $isCardOnly = (count($existing->payment_method_types ?? []) === 1 && ($existing->payment_method_types[0] ?? '') === 'card');
+
+        if ($isReusable && $isCardOnly) {
             echo json_encode([
                 'client_secret'           => $existing->client_secret,
                 'publishable_key'         => STRIPE_PUBLISHABLE_KEY,
@@ -151,6 +155,16 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             ]);
             exit;
         }
+
+        // Cancel stale/wrong-type intent so we create a fresh card-only one below
+        if ($isReusable && !$isCardOnly) {
+            try {
+                $existing->cancel();
+            } catch (\Stripe\Exception\ApiErrorException $e) {
+                writeSystemLog('warning', 'stripe', 'Could not cancel stale PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
+            }
+        }
+
     } catch (\Stripe\Exception\ApiErrorException $e) {
         writeSystemLog('warning', 'stripe', 'Could not retrieve existing PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
     }
@@ -168,7 +182,7 @@ try {
             'contact_id'     => (string) $contactId,
             'source'         => 'customer_portal',
         ],
-        'automatic_payment_methods'   => ['enabled' => true],
+        'payment_method_types'        => ['card'],
     ];
 
     // Link to Stripe Customer if we have one
