@@ -98,14 +98,25 @@ try {
 }
 
 // ── 5. Active employees ───────────────────────────────────────────────────────
-$out['employees'] = $db->query("
-    SELECT id, COALESCE(NULLIF(TRIM(CONCAT(first_name,' ',last_name)),''), full_name) AS name,
-           role, email, is_active,
-           pesticide_training_required
-    FROM users
-    WHERE is_active = 1
-    ORDER BY role DESC, name
-")->fetchAll(PDO::FETCH_ASSOC);
+try {
+    $out['employees'] = $db->query("
+        SELECT id, COALESCE(NULLIF(TRIM(CONCAT(first_name,' ',last_name)),''), full_name) AS name,
+               role, email, is_active,
+               pesticide_training_required
+        FROM users
+        WHERE is_active = 1
+        ORDER BY role DESC, name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    // Fallback if optional columns (e.g. pesticide_training_required) not yet migrated
+    $out['employees'] = $db->query("
+        SELECT id, COALESCE(NULLIF(TRIM(CONCAT(first_name,' ',last_name)),''), full_name) AS name,
+               role, email, is_active
+        FROM users
+        WHERE is_active = 1
+        ORDER BY role DESC, name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // ── 6. Recent system log errors ───────────────────────────────────────────────
 try {
