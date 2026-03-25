@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/timschofield/Projects/mowology-crm/.claude/hooks/fetch-dev-context.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
