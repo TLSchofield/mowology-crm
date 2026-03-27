@@ -679,10 +679,28 @@
     }
 
     function doClockOut() {
-        if (!confirm('Clock out now?')) return;
-
+        // Do NOT use confirm() — Android WebView silently returns false, blocking all clock-outs.
+        // Show an inline confirmation row instead.
         var btn = document.getElementById('btnClockOut');
-        if (btn) btn.disabled = true;
+        if (!btn) return;
+
+        // If already showing confirmation, proceed — second tap confirms
+        if (btn.dataset.confirming === '1') {
+            btn.dataset.confirming = '0';
+            btn.innerHTML = SVG_STOP + '<span class="mw-clock-label">Out</span>';
+        } else {
+            btn.dataset.confirming = '1';
+            btn.innerHTML = SVG_STOP + '<span class="mw-clock-label">Confirm?</span>';
+            setTimeout(function() {
+                if (btn && btn.dataset.confirming === '1') {
+                    btn.dataset.confirming = '0';
+                    btn.innerHTML = SVG_STOP + '<span class="mw-clock-label">Out</span>';
+                }
+            }, 3000);
+            return;
+        }
+
+        btn.disabled = true;
 
         // Truck devices keep tracking; personal devices stop
         if (deviceType !== 'truck') {
@@ -716,11 +734,21 @@
     // ── Helpers ──
 
     function getGPS(callback) {
-        // Native Capacitor: use native Geolocation plugin
+        // Native Capacitor: use native Geolocation plugin with a hard 4s timeout.
+        // Without the timeout, a denied/unavailable GPS can hang indefinitely,
+        // leaving the clock button disabled with nothing happening.
         if (window.MwNative && window.MwNative.geo) {
+            var done = false;
+            var timer = setTimeout(function() {
+                if (!done) { done = true; callback(null, null); }
+            }, 4000);
             window.MwNative.geo.getCurrentPosition()
-                .then(function(pos) { callback(pos.lat, pos.lng); })
-                .catch(function() { callback(null, null); });
+                .then(function(pos) {
+                    if (!done) { done = true; clearTimeout(timer); callback(pos.lat, pos.lng); }
+                })
+                .catch(function() {
+                    if (!done) { done = true; clearTimeout(timer); callback(null, null); }
+                });
             return;
         }
         // Browser fallback

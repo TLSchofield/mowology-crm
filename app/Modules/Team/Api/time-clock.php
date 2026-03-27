@@ -32,6 +32,11 @@ try {
     $user = getCurrentUser();
     requirePermission('timer.start');
 
+    // Release the PHP session lock immediately — this API only reads session data
+    // (user identity) and does not write to $_SESSION. Holding the lock blocks
+    // concurrent page navigations on Android WebView, causing ERR_FAILED (~5s timeout).
+    session_write_close();
+
     // Check if time clock is enabled for this user's role
     if (!isTimeClockEnabledForRole($user['role'])) {
         http_response_code(403);
