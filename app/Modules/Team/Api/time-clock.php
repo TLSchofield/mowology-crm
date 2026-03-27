@@ -175,11 +175,35 @@ try {
                 logActivity($user['id'], null, 'Admin clock-out for user #' . $targetUserId, formatMinutesAsHours($totalMinutes) . ' total');
             }
 
+            // Truck cascade — if this driver has an assigned truck device, clock it out too
+            $truckStmt = $db->prepare("SELECT assigned_truck_user_id FROM users WHERE id = ? LIMIT 1");
+            $truckStmt->execute([$targetUserId]);
+            $truckRow = $truckStmt->fetch(PDO::FETCH_ASSOC);
+            $truckCascaded = false;
+            if ($truckRow && !empty($truckRow['assigned_truck_user_id'])) {
+                $truckUserId = (int)$truckRow['assigned_truck_user_id'];
+                try {
+                    $truckActive = getActiveClockEntry($truckUserId);
+                    if ($truckActive) {
+                        // Stop any active visit timer on the truck too
+                        $truckJob = getActiveVisitTimer($truckUserId);
+                        if ($truckJob) {
+                            stopVisitTimer((int)$truckJob['visit_id'], $truckUserId, $lat, $lng, 'Auto-stopped on driver clock out');
+                        }
+                        clockOut($truckUserId, $lat, $lng, 'Auto-clocked out — driver clocked out');
+                        $truckCascaded = true;
+                    }
+                } catch (Exception $e) {
+                    // Truck not clocked in or already clocked out — not an error
+                }
+            }
+
             echo json_encode([
                 'success' => true,
                 'message' => 'Clocked out successfully',
                 'total_minutes' => $totalMinutes,
                 'total_formatted' => formatMinutesAsHours($totalMinutes),
+                'truck_cascaded' => $truckCascaded,
             ]);
             break;
 

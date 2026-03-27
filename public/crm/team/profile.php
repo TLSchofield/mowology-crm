@@ -169,7 +169,20 @@ try {
     // cert tables may not exist yet — degrade gracefully
 }
 
-// Build display name from first/last (fall back to full_name)
+// ── Load truck device users (for driver assignment dropdown) ───────────────
+$truckUsers = [];
+try {
+    $truckUsers = $db->query("
+        SELECT id, COALESCE(NULLIF(TRIM(CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,''))),''), full_name, email) AS display_name
+        FROM users
+        WHERE device_type = 'truck' AND is_active = 1
+        ORDER BY display_name
+    ")->fetchAll(PDO::FETCH_ASSOC);
+} catch (Throwable $e) {
+    // device_type column may not exist yet — degrade gracefully
+}
+
+// ── Build display name from first/last (fall back to full_name) ────────────
 $empFirstName = $emp['first_name'] ?? '';
 $empLastName  = $emp['last_name'] ?? '';
 $empDisplayName = trim($empFirstName . ' ' . $empLastName) ?: ($emp['full_name'] ?? 'Employee');
@@ -368,6 +381,36 @@ if ($apiKey) {
                                 <label class="mw-hr-label">GPS Ping Rate</label>
                                 <p class="mw-hr-value"><?php echo ucfirst(h($emp['location_ping_rate'] ?? 'high')); ?></p>
                             </div>
+                            <?php if (!empty($truckUsers)): ?>
+                            <div class="col-sm-6 mb-3">
+                                <label class="mw-hr-label">Assigned Truck</label>
+                                <p class="mw-hr-value">
+                                <?php
+                                    $assignedTruck = null;
+                                    if (!empty($emp['assigned_truck_user_id'])) {
+                                        foreach ($truckUsers as $tu) {
+                                            if ((int)$tu['id'] === (int)$emp['assigned_truck_user_id']) {
+                                                $assignedTruck = $tu['display_name'];
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    echo $assignedTruck ? h($assignedTruck) : '<span class="text-muted">—</span>';
+                                ?>
+                                </p>
+                            </div>
+                            <?php endif; ?>
+                            <div class="col-sm-12 mb-3">
+                                <label class="mw-hr-label">Home Location (Clock-Out Reminder)</label>
+                                <p class="mw-hr-value">
+                                <?php if (!empty($emp['home_lat']) && !empty($emp['home_lng'])): ?>
+                                    <?php echo number_format((float)$emp['home_lat'], 5); ?>, <?php echo number_format((float)$emp['home_lng'], 5); ?>
+                                    <span class="text-muted small ml-1">(radius: <?php echo (int)($emp['home_radius_meters'] ?? 250); ?>m)</span>
+                                <?php else: ?>
+                                    <span class="text-muted">Not set — SMS reminder disabled</span>
+                                <?php endif; ?>
+                                </p>
+                            </div>
                             <div class="col-sm-12 mb-3">
                                 <label class="mw-hr-label">Emergency Contact</label>
                                 <p class="mw-hr-value"><?php echo h($emp['emergency_contact'] ?? '—'); ?></p>
@@ -458,6 +501,49 @@ if ($apiKey) {
                                     <div class="form-group">
                                         <label>Notes</label>
                                         <textarea class="form-control" name="notes" rows="3"><?php echo h($emp['notes'] ?? ''); ?></textarea>
+                                    </div>
+                                </div>
+                                <?php if (!empty($truckUsers)): ?>
+                                <div class="col-sm-12">
+                                    <div class="form-group">
+                                        <label>Assigned Truck <span class="text-muted">(auto-clocks out when driver clocks out)</span></label>
+                                        <select class="form-control" name="assigned_truck_user_id">
+                                            <option value="">— None —</option>
+                                            <?php foreach ($truckUsers as $tu): ?>
+                                            <option value="<?php echo (int)$tu['id']; ?>"
+                                                <?php echo (int)($emp['assigned_truck_user_id'] ?? 0) === (int)$tu['id'] ? 'selected' : ''; ?>>
+                                                <?php echo h($tu['display_name']); ?>
+                                            </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <?php endif; ?>
+                                <div class="col-sm-12">
+                                    <div class="form-group">
+                                        <label>Home Address <span class="text-muted">(for forgot-to-clock-out SMS reminder)</span></label>
+                                        <input type="text" class="form-control" id="homeAddressSearch"
+                                               placeholder="Start typing to search address…"
+                                               value="<?php echo (!empty($emp['home_lat']) && !empty($emp['home_lng'])) ? h(($emp['home_lat'] ?? '') . ', ' . ($emp['home_lng'] ?? '')) : ''; ?>"
+                                               autocomplete="off">
+                                        <input type="hidden" name="home_lat" id="homeLatInput" value="<?php echo h($emp['home_lat'] ?? ''); ?>">
+                                        <input type="hidden" name="home_lng" id="homeLngInput" value="<?php echo h($emp['home_lng'] ?? ''); ?>">
+                                        <div class="small text-muted mt-1" id="homeAddressHint">
+                                            <?php if (!empty($emp['home_lat']) && !empty($emp['home_lng'])): ?>
+                                                Saved: <?php echo number_format((float)$emp['home_lat'], 6); ?>, <?php echo number_format((float)$emp['home_lng'], 6); ?>
+                                            <?php else: ?>
+                                                No home location saved yet.
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-sm-6">
+                                    <div class="form-group">
+                                        <label>Home Geofence Radius (metres)</label>
+                                        <input type="number" class="form-control" name="home_radius_meters"
+                                               value="<?php echo (int)($emp['home_radius_meters'] ?? 250); ?>"
+                                               min="50" max="2000" step="50">
+                                        <small class="text-muted">Default 250m. SMS sends when last GPS ping is within this distance of home.</small>
                                     </div>
                                 </div>
                                 <div class="col-sm-12">
@@ -1689,6 +1775,31 @@ function initAddressAutocomplete(inputId, cityId, postalId, provinceId) {
 }
 
 initAddressAutocomplete('hrAddress', 'hrCity', 'hrPostalCode', 'hrProvince');
+
+// ── Home address geocoding (Places Autocomplete) ──────────────────────────
+function initHomeAddressAutocomplete() {
+    var input = document.getElementById('homeAddressSearch');
+    if (!input) return;
+    if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+        setTimeout(initHomeAddressAutocomplete, 200);
+        return;
+    }
+    var ac = new google.maps.places.Autocomplete(input, {
+        types: ['geocode'],
+        componentRestrictions: { country: ['ca'] }
+    });
+    ac.addListener('place_changed', function() {
+        var place = ac.getPlace();
+        if (!place.geometry || !place.geometry.location) return;
+        var lat = place.geometry.location.lat();
+        var lng = place.geometry.location.lng();
+        document.getElementById('homeLatInput').value = lat;
+        document.getElementById('homeLngInput').value = lng;
+        document.getElementById('homeAddressHint').textContent =
+            'Selected: ' + lat.toFixed(6) + ', ' + lng.toFixed(6);
+    });
+}
+initHomeAddressAutocomplete();
 </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>

@@ -291,6 +291,30 @@ try {
             if (isset($input['location_ping_rate']) && in_array($input['location_ping_rate'], ['low', 'medium', 'high'])) {
                 $updates[] = 'location_ping_rate = ?'; $params[] = $input['location_ping_rate'];
             }
+            // Home geofence fields (for forgot-clock-out detection)
+            if (array_key_exists('home_lat', $input)) {
+                $updates[] = 'home_lat = ?';
+                $params[]  = $input['home_lat'] !== '' && $input['home_lat'] !== null ? (float)$input['home_lat'] : null;
+            }
+            if (array_key_exists('home_lng', $input)) {
+                $updates[] = 'home_lng = ?';
+                $params[]  = $input['home_lng'] !== '' && $input['home_lng'] !== null ? (float)$input['home_lng'] : null;
+            }
+            if (isset($input['home_radius_meters'])) {
+                $r = (int)$input['home_radius_meters'];
+                $updates[] = 'home_radius_meters = ?'; $params[] = max(50, min(2000, $r));
+            }
+            // Truck assignment — FK to a truck device user (or null to clear)
+            if (array_key_exists('assigned_truck_user_id', $input)) {
+                $truckId = !empty($input['assigned_truck_user_id']) ? (int)$input['assigned_truck_user_id'] : null;
+                if ($truckId) {
+                    // Verify the target is actually a truck device
+                    $tCheck = $db->prepare("SELECT id FROM users WHERE id = ? AND device_type = 'truck' LIMIT 1");
+                    $tCheck->execute([$truckId]);
+                    if (!$tCheck->fetch()) throw new Exception('Selected user is not a truck device');
+                }
+                $updates[] = 'assigned_truck_user_id = ?'; $params[] = $truckId;
+            }
             if (!empty($input['password']) && strlen($input['password']) >= 8) {
                 $updates[] = 'password_hash = ?'; $params[] = hashPassword($input['password']);
             }
