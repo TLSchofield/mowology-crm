@@ -529,16 +529,16 @@ $csrf_token = generateCSRFToken();
     }
 
     if (isCapacitor) {
-        // Read real installed version from the JavascriptInterface injected by MainActivity.
-        // MwNative.appVersion is set by capacitor-bridge.js from MwNativeAndroid.getVersion().
-        // If not available (older APK without the interface), null triggers a safe fallback.
-        var installedVersion = (window.MwNative && window.MwNative.appVersion)
-            ? window.MwNative.appVersion
+        // MwNativeAndroid is a JavascriptInterface injected by MainActivity into ALL
+        // pages in the WebView — it's available here on the login page directly,
+        // without needing capacitor-bridge.js (which only loads inside /crm/ pages).
+        var installedVersion = (window.MwNativeAndroid && typeof window.MwNativeAndroid.getVersion === 'function')
+            ? window.MwNativeAndroid.getVersion()
             : null;
 
         if (installedVersion === null) {
-            // Old build without version interface — show update banner immediately
-            // (will be replaced with real state once data loads)
+            // Old APK build without the version interface — demand update immediately.
+            // checkVersion() will refine this once the fetch completes.
             showUpdateBanner('latest', _apkUrl, 'Please update to the latest version for best performance.');
         }
 
