@@ -105,8 +105,17 @@
         'UNKNOWN': 15
     };
 
+    // Read installed app version from the native JavascriptInterface injected
+    // by MainActivity. Falls back to null if the interface is not available
+    // (older APK build without the interface). login.php uses this to decide
+    // which banner state to show (up-to-date / update-available).
+    var _nativeVersion = (window.MwNativeAndroid && typeof window.MwNativeAndroid.getVersion === 'function')
+        ? window.MwNativeAndroid.getVersion()
+        : null;
+
     window.MwNative = {
         isNative: true,
+        appVersion: _nativeVersion,
         _bgWatchId: null,
         _currentActivity: 'UNKNOWN',
 
