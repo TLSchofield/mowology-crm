@@ -175,17 +175,18 @@ try {
                 logActivity($user['id'], null, 'Admin clock-out for user #' . $targetUserId, formatMinutesAsHours($totalMinutes) . ' total');
             }
 
-            // Truck cascade — if this driver has an assigned truck device, clock it out too
-            $truckStmt = $db->prepare("SELECT assigned_truck_user_id FROM users WHERE id = ? LIMIT 1");
-            $truckStmt->execute([$targetUserId]);
-            $truckRow = $truckStmt->fetch(PDO::FETCH_ASSOC);
+            // Truck cascade — if this driver has an assigned truck device, clock it out too.
+            // Wrapped entirely in try/catch so any DB error (e.g. migration not yet run)
+            // can never prevent the clock-out success response from reaching the client.
             $truckCascaded = false;
-            if ($truckRow && !empty($truckRow['assigned_truck_user_id'])) {
-                $truckUserId = (int)$truckRow['assigned_truck_user_id'];
-                try {
+            try {
+                $truckStmt = $db->prepare("SELECT assigned_truck_user_id FROM users WHERE id = ? LIMIT 1");
+                $truckStmt->execute([$targetUserId]);
+                $truckRow = $truckStmt->fetch(PDO::FETCH_ASSOC);
+                if ($truckRow && !empty($truckRow['assigned_truck_user_id'])) {
+                    $truckUserId = (int)$truckRow['assigned_truck_user_id'];
                     $truckActive = getActiveClockEntry($truckUserId);
                     if ($truckActive) {
-                        // Stop any active visit timer on the truck too
                         $truckJob = getActiveVisitTimer($truckUserId);
                         if ($truckJob) {
                             stopVisitTimer((int)$truckJob['visit_id'], $truckUserId, $lat, $lng, 'Auto-stopped on driver clock out');
@@ -193,9 +194,9 @@ try {
                         clockOut($truckUserId, $lat, $lng, 'Auto-clocked out — driver clocked out');
                         $truckCascaded = true;
                     }
-                } catch (Exception $e) {
-                    // Truck not clocked in or already clocked out — not an error
                 }
+            } catch (Exception $e) {
+                // Cascade failure is non-fatal — column may not exist yet (run migration 1004)
             }
 
             echo json_encode([
