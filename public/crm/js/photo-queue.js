@@ -574,7 +574,8 @@
                             filename: record.filename  || 'photo.jpg',
                             fileSize: record.fileSize  || 0,
                             status  : record.status    || 'pending',
-                            retries : record.retries   || 0
+                            retries : record.retries   || 0,
+                            category: record.category  || ''
                         };
                     })
                     .catch(function () { return null; }); // silent on storage errors

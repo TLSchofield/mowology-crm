@@ -48,7 +48,7 @@ var APP_SHELL = [
   '/crm/js/schedule-drag-drop.js',
   '/crm/js/route-engine.js?v=20260219a',
   '/crm/js/offline-receipts.js',
-  '/crm/js/photo-queue.js?v=20260312a',
+  '/crm/js/photo-queue.js?v=20260401a',
 
   /* ── Geofence / location ── */
   '/crm/js/geofence/geofence-manager.js',

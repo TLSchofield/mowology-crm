@@ -15613,7 +15613,7 @@ textarea.font-monospace {
   font-size: 10px;
   line-height: 1.2;
 }
-.pow-work-tabs .nav-link svg { display: block; margin: 0 auto 2px; width: 18px; height: 18px; }
+.pow-work-tabs .nav-link svg { display: block; margin: 0 auto 2px; width: 22px; height: 22px; }
 .pow-work-tabs .nav-link.active {
   background: #fff;
   color: var(--mw-green);
@@ -18882,97 +18882,6 @@ textarea.font-monospace {
     gap: 8px;
 }
 
-/* ── Photo tile ──────────────────────────────────────────────────────────── */
-.mw-photo-tile {
-    position: relative;
-    border-radius: 8px;
-    overflow: hidden;
-    aspect-ratio: 1 / 1;
-    background: var(--mw-light);
-    cursor: pointer;
-    line-height: 0;
-}
-.mw-photo-tile img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-    transition: opacity 0.2s;
-}
-.mw-photo-tile:hover img { opacity: 0.9; }
-
-.mw-photo-tile-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: flex-start;
-    justify-content: flex-end;
-    padding: 4px;
-    pointer-events: none;
-}
-.mw-photo-tile:hover .mw-photo-tile-overlay { background: rgba(0,0,0,0.08); }
-.mw-photo-tile-overlay > * { pointer-events: auto; }
-
-/* ── Upload ring (spinning progress indicator) ───────────────────────────── */
-.mw-photo-tile--uploading img { opacity: 0.5; }
-.mw-photo-tile--uploading .mw-photo-tile-overlay {
-    background: rgba(0,0,0,0.25);
-    align-items: center;
-    justify-content: center;
-}
-
-.mw-upload-ring {
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    border: 3px solid rgba(255,255,255,0.25);
-    border-top-color: #fff;
-    animation: mw-spin 0.8s linear infinite;
-}
-@keyframes mw-spin {
-    to { transform: rotate(360deg); }
-}
-
-/* ── Failed tile ─────────────────────────────────────────────────────────── */
-.mw-photo-tile--failed img { opacity: 0.3; filter: grayscale(1); }
-.mw-photo-tile--failed .mw-photo-tile-overlay {
-    background: rgba(220,53,69,0.3);
-    align-items: center;
-    justify-content: center;
-}
-
-.mw-photo-retry-btn {
-    background: rgba(220,53,69,0.85);
-    border: none;
-    color: #fff;
-    font-size: 16px;
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-}
-
-/* ── Delete button on tile (admin, visit-detail) ─────────────────────────── */
-.mw-photo-delete-btn {
-    background: rgba(220,53,69,0.85);
-    border: none;
-    color: #fff;
-    font-size: 11px;
-    font-weight: 700;
-    width: 22px; height: 22px;
-    border-radius: 50%;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    opacity: 0;
-    transition: opacity 0.15s;
-    pointer-events: auto;
-}
-.mw-photo-tile:hover .mw-photo-delete-btn { opacity: 1; }
 
 /* ── Before / After columns (visit-detail.php) ───────────────────────────── */
 .mw-ba-row {
@@ -19508,16 +19417,21 @@ textarea.font-monospace {
     align-items: center;
     justify-content: center;
     pointer-events: none;
+    --pct: 0;
 }
 
 .mw-upload-ring::after {
     content: '';
-    width: 28px;
-    height: 28px;
-    border: 3px solid rgba(255,255,255,0.4);
-    border-top-color: #fff;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
-    animation: mw-spin 0.7s linear infinite;
+    background: conic-gradient(
+        rgba(255,255,255,0.92) calc(var(--pct) * 1%),
+        rgba(255,255,255,0.2)  calc(var(--pct) * 1%)
+    );
+    -webkit-mask: radial-gradient(closest-side, transparent 66%, #000 67%);
+    mask:         radial-gradient(closest-side, transparent 66%, #000 67%);
+    transition: background 0.08s linear;
 }
 
 @keyframes mw-spin {
@@ -19545,6 +19459,156 @@ textarea.font-monospace {
     cursor: pointer;
     border: none;
     width: 100%;
+}
+
+/* ── Heart / favourite (second block — cascade authority) ───────────── */
+.mw-photo-heart-btn {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.42);
+    color: rgba(255,255,255,0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    z-index: 2;
+    opacity: 0;
+    pointer-events: auto;
+    transition: background 0.15s, color 0.15s, transform 0.12s, opacity 0.15s;
+    line-height: 1;
+    /* reset any full-tile override from retry-btn rule */
+    inset: unset;
+    width: 28px;
+    height: 28px;
+    bottom: 4px;
+    left: 4px;
+}
+.mw-photo-tile:hover .mw-photo-heart-btn { opacity: 1; }
+.mw-photo-heart-btn--active              { opacity: 1 !important; background: rgba(220,38,38,0.85); color: #fff; }
+.mw-photo-heart-btn:hover                { background: rgba(220,38,38,0.75); color: #fff; transform: scale(1.18); }
+.mw-photo-heart-btn:active               { transform: scale(0.88); }
+.mw-photo-heart-btn .mw-heart-svg        { fill: none; }
+.mw-photo-heart-btn--active .mw-heart-svg{ fill: currentColor; }
+
+/* ── Before/After comparison overlay ────────────────────────────────────── */
+.mw-compare-btn {
+    margin-left: auto;
+    padding: 4px 12px;
+    border: 1px solid var(--mw-green);
+    border-radius: 20px;
+    background: transparent;
+    color: var(--mw-green);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+.mw-compare-btn:hover { background: var(--mw-green); color: #fff; }
+
+.mw-compare-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.92);
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+.mw-compare-inner {
+    position: relative;
+    width: 100%;
+    max-width: 800px;
+    max-height: 90vh;
+}
+.mw-compare-close {
+    position: absolute;
+    top: -36px;
+    right: 0;
+    width: 32px; height: 32px;
+    border: none; border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    color: #fff; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+}
+.mw-compare-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.mw-compare-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.mw-compare-label {
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.6);
+}
+.mw-compare-img {
+    width: 100%;
+    aspect-ratio: 4/3;
+    object-fit: cover;
+    border-radius: 8px;
+    background: #333;
+}
+
+/* ── Compliance blocked End Visit button ─────────────────────────────────── */
+.mw-compliance-blocked {
+    opacity: 0.5;
+    cursor: not-allowed !important;
+}
+
+/* ── Offline photo queue tile ────────────────────────────────────────── */
+.mw-photo-tile--queued .mw-photo-tile-overlay--queued {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: rgba(0, 0, 0, 0.52);
+}
+.mw-photo-queue-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.mw-photo-queue-label {
+  font-size: 9px;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-align: center;
+  padding: 0 4px;
+}
+/* Offline banner inside Photos tab */
+.mw-photo-offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(234, 179, 8, 0.10);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 6px;
+  padding: 7px 10px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #92400e;
+  line-height: 1.3;
+}
+.mw-photo-offline-banner svg {
+  flex-shrink: 0;
+  color: #d97706;
 }
 
 /* ── Delete button on tile ──────────────────────────────────────────── */
@@ -19700,6 +19764,55 @@ textarea.font-monospace {
     padding: 4px 8px;
 }
 .mw-lightbox-close:hover { color: #fff; }
+
+.mw-lightbox-prev,
+.mw-lightbox-next {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.45);
+    color: #fff;
+    font-size: 28px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    padding: 0;
+    transition: background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+}
+.mw-lightbox-prev { left: 8px; }
+.mw-lightbox-next { right: 8px; }
+.mw-lightbox-prev:hover,
+.mw-lightbox-next:hover { background: rgba(0,0,0,0.7); }
+
+.mw-lightbox-counter {
+    position: absolute;
+    bottom: 12px;
+    left: 0; right: 0;
+    text-align: center;
+    color: rgba(255,255,255,0.7);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+}
+
+.mw-lightbox-img {
+    max-width: 100%;
+    max-height: 78vh;
+    object-fit: contain;
+    cursor: zoom-in;
+    transition: transform 0.2s ease;
+    touch-action: pinch-zoom;
+    user-select: none;
+    -webkit-user-select: none;
+}
 
 /* ── Responsive ─────────────────────────────────────────────────────── */
 
@@ -25911,3 +26024,48 @@ textarea.font-monospace {
 /* Progress bar in exam modal */
 #examPlayModal .modal-content { border-radius: 12px; overflow: hidden; }
 #examPlayModal .modal-header  { border-radius: 0; }
+
+/* ── OCR Learning Widget ────────────────────────────────────────────────────── */
+.mw-ocr-widget .card-header { background: #f8fffe; border-bottom: 1px solid var(--mw-light); }
+.mw-ocr-widget .card-header:hover { background: #f0faf5; }
+
+.mw-ocr-badge       { font-size: .7rem; font-weight: 600; border-radius: 20px; padding: 2px 8px; }
+.mw-ocr-badge-high  { background: #d4edda; color: #155724; }
+.mw-ocr-badge-mid   { background: #fff3cd; color: #856404; }
+.mw-ocr-badge-low   { background: #f8d7da; color: #721c24; }
+
+.mw-ocr-stats-row {
+    display: flex; gap: 0; border: 1px solid var(--mw-light); border-radius: 8px; overflow: hidden;
+}
+.mw-ocr-stat {
+    flex: 1; text-align: center; padding: 10px 8px;
+    border-right: 1px solid var(--mw-light);
+}
+.mw-ocr-stat:last-child { border-right: none; }
+.mw-ocr-stat-val   { font-size: 1.3rem; font-weight: 700; color: var(--mw-forest); line-height: 1.2; }
+.mw-ocr-stat-label { font-size: .68rem; color: #6c757d; text-transform: uppercase; letter-spacing: .03em; }
+
+.mw-ocr-vendor-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 42px 80px;
+    align-items: center; gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+.mw-ocr-vendor-row:last-child { border-bottom: none; }
+.mw-ocr-vendor-name    { font-size: .8rem; font-weight: 600; color: var(--mw-forest); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mw-ocr-bar-wrap       { background: #e9ecef; border-radius: 4px; height: 8px; overflow: hidden; }
+.mw-ocr-bar            { height: 100%; border-radius: 4px; transition: width .6s ease; }
+.mw-ocr-bar-high       { background: var(--mw-green); }
+.mw-ocr-bar-mid        { background: #f59e0b; }
+.mw-ocr-bar-low        { background: #ef4444; }
+.mw-ocr-vendor-pct     { font-size: .78rem; font-weight: 700; text-align: right; color: var(--mw-dark); }
+.mw-ocr-vendor-receipts{ font-size: .72rem; color: #6c757d; text-align: right; }
+
+.mw-ocr-sparkline {
+    display: flex; align-items: flex-end; gap: 4px; height: 44px;
+}
+.mw-ocr-spark-col  { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; }
+.mw-ocr-spark-bar  { width: 100%; background: var(--mw-green); border-radius: 3px 3px 0 0; min-height: 4px; opacity: .8; }
+.mw-ocr-spark-lbl  { font-size: .62rem; color: #9ca3af; }
+.mw-ocr-spark-label{ font-size: .72rem; }

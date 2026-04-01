@@ -74,6 +74,19 @@ try {
     $extrasRatePerBlock = 5.00;
 }
 
+// Photo compliance requirements from the job plan
+$photoTypesRequired     = [];
+$photosBlockCompletion  = 0;
+try {
+    $pcs = $db->prepare("SELECT photo_types_required, photos_block_completion FROM job_plans WHERE id = ?");
+    $pcs->execute([$visit['plan_id']]);
+    $pcRow = $pcs->fetch(PDO::FETCH_ASSOC);
+    if ($pcRow) {
+        $photoTypesRequired    = json_decode($pcRow['photo_types_required'] ?? '[]', true) ?: [];
+        $photosBlockCompletion = (int)($pcRow['photos_block_completion'] ?? 0);
+    }
+} catch (PDOException $e) { /* non-fatal */ }
+
 $pageTitle  = 'Work: ' . ($visit['visit_number'] ?? "Visit #{$visitId}");
 $activePage = 'jobs';
 ?>
@@ -314,6 +327,12 @@ $activePage = 'jobs';
         </label>
       </div>
 
+      <!-- Offline banner — shown when device has no connectivity -->
+      <div id="photo-offline-banner" class="mw-photo-offline-banner" style="display:none;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+        No signal — photos saved locally, uploading when reconnected
+      </div>
+
       <!-- Loading state while fetching existing photos -->
       <div id="photos-loading" class="text-center p-3 text-muted small">
         <span class="spinner-border spinner-border-sm mr-1"></span> Loading photos…
@@ -392,6 +411,8 @@ $activePage = 'jobs';
 <input type="hidden" id="pow-status" value="<?= htmlspecialchars($visit['status']) ?>">
 <input type="hidden" id="pow-started-at" value="<?= htmlspecialchars($visit['started_at'] ?? '') ?>">
 <input type="hidden" id="pow-extras-rate" value="<?= htmlspecialchars((string)$extrasRatePerBlock) ?>">
+<input type="hidden" id="pow-required-photos" value="<?= htmlspecialchars(json_encode($photoTypesRequired)) ?>">
+<input type="hidden" id="pow-photos-block" value="<?= $photosBlockCompletion ? '1' : '0' ?>">
 
 <!-- ─ Billable Extras Modal ───────────────────────────────────────────────── -->
 <?php if ($visit['status'] === 'in_progress'): ?>
@@ -454,7 +475,14 @@ $activePage = 'jobs';
   var STARTED_AT  = document.getElementById('pow-started-at').value;
   var API_ACTIONS = '/crm/api/pow-actions.php';
   var API_GPS     = '/crm/api/pow-gps-sync.php';
-  var API_PHOTOS  = '/crm/api/job-photo.php';
+  var API_PHOTOS      = '/crm/api/job-photo.php';
+  var UPLOAD_QUEUE_URL = '/crm/api/visit-photo-upload.php';
+
+  var REQUIRED_PHOTO_TYPES = JSON.parse(document.getElementById('pow-required-photos').value || '[]');
+  var PHOTOS_BLOCK         = document.getElementById('pow-photos-block').value === '1';
+
+  // Reusable SVG heart markup for favourite buttons
+  var HEART_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="mw-heart-svg"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
 
   // ── GPS Buffer (IndexedDB-backed) ─────────────────────────────────────────
   var gpsBuffer = [];
@@ -793,38 +821,269 @@ $activePage = 'jobs';
   // ── Photo system ──────────────────────────────────────────────────────────
   var photoCounts = { before: 0, after: 0, additional: 0 };
 
-  // Load existing photos when tab is focused
+  // Eager-prefetch state — fetch starts immediately, renders when tab opens
+  var _photosPayload        = null;   // cached server response
+  var _photosDataReady      = false;  // fetch completed (success or fail)
+  var _photosRendered       = false;  // container made visible
+  var _serverPhotosApplied  = false;  // server list appended to DOM
+
+  function _applyServerPhotos(res) {
+    if (_serverPhotosApplied) return;
+    _serverPhotosApplied = true;
+    document.getElementById('photos-loading').style.display = 'none';
+    document.getElementById('photos-container').style.display = 'block';
+    if (res && res.success && res.photos) {
+      res.photos.forEach(function(ph) { appendServerPhoto(ph); });
+      updatePhotoBadge();
+      updateComplianceButton();
+    }
+  }
+
+  function prefetchPhotos() {
+    // Background fetch — no UI changes until tab is opened
+    fetch(API_PHOTOS + '?action=list&visit_id=' + VISIT_ID, { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        _photosPayload   = res;
+        _photosDataReady = true;
+        if (_photosRendered) {
+          _applyServerPhotos(res);
+        } else if (res && res.success && res.photos && res.photos.length > 0) {
+          // Update tab badge eagerly even before tab is opened
+          var badge = document.getElementById('photo-count-badge');
+          if (badge) { badge.textContent = res.photos.length; badge.style.display = 'inline'; }
+        }
+      })
+      .catch(function() {
+        _photosPayload   = { success: false };
+        _photosDataReady = true;
+        if (_photosRendered) {
+          document.getElementById('photos-loading').style.display = 'none';
+          document.getElementById('photos-container').style.display = 'block';
+        }
+      });
+  }
+
+  // Disable End Visit button when required photo types are missing
+  function updateComplianceButton() {
+    if (!PHOTOS_BLOCK || !REQUIRED_PHOTO_TYPES.length) return;
+    var btnEnd = document.getElementById('btn-end-visit');
+    if (!btnEnd) return;
+    var missing = REQUIRED_PHOTO_TYPES.filter(function(t) { return (photoCounts[t] || 0) === 0; });
+    if (missing.length) {
+      btnEnd.disabled = true;
+      var labels = { before: 'Before', after: 'After', additional: 'Additional', during: 'During', issue: 'Issue' };
+      btnEnd.title = 'Need photos: ' + missing.map(function(t) { return labels[t] || t; }).join(', ');
+      btnEnd.classList.add('mw-compliance-blocked');
+    } else {
+      btnEnd.disabled = false;
+      btnEnd.title = '';
+      btnEnd.classList.remove('mw-compliance-blocked');
+    }
+  }
+  // Run on load in case photos were already uploaded
+  updateComplianceButton();
+
+  // Tab event wiring — show container and apply data (or wait for it)
   var photosTabLink = document.getElementById('photos-tab-link');
-  var photosLoaded  = false;
+  function loadPhotos() {
+    _photosRendered = true;
+    if (_photosDataReady) {
+      _applyServerPhotos(_photosPayload); // data already cached → instant
+    }
+    // else: fetch still in flight, _applyServerPhotos fires when it completes
+  }
   if (photosTabLink) {
     photosTabLink.addEventListener('shown.bs.tab', loadPhotos);
-    photosTabLink.addEventListener('show.bs.tab', loadPhotos); // Bootstrap 4
+    photosTabLink.addEventListener('show.bs.tab', loadPhotos);
   }
-  // Also load on jQuery tab event (Bootstrap 4 uses jQuery)
   if (typeof $ !== 'undefined') {
     $(document).on('shown.bs.tab', 'a[href="#tab-photos"]', loadPhotos);
   }
 
-  function loadPhotos() {
-    if (photosLoaded) return;
-    photosLoaded = true;
-    fetch(API_PHOTOS + '?action=list&visit_id=' + VISIT_ID, { credentials: 'same-origin' })
-      .then(function(r) { return r.json(); })
-      .then(function(res) {
-        document.getElementById('photos-loading').style.display = 'none';
-        document.getElementById('photos-container').style.display = 'block';
-        if (res.success && res.photos) {
-          res.photos.forEach(function(ph) { appendServerPhoto(ph); });
-          updatePhotoBadge();
-        }
-      })
-      .catch(function() {
-        document.getElementById('photos-loading').style.display = 'none';
-        document.getElementById('photos-container').style.display = 'block';
-      });
+  // Start background prefetch immediately — data is ready before crew taps Photos tab
+  setTimeout(prefetchPhotos, 0);
+
+  // ── Connectivity helper ─────────────────────────────────────────────────
+  function mwIsOnline() {
+    if (window.MwNative && window.MwNative.network) {
+      return window.MwNative.network.isOnline !== false;
+    }
+    return navigator.onLine !== false;
   }
 
-  // If photos tab is already active on load (e.g., user navigated directly), load now
+  // Offline banner — show / hide based on connectivity
+  function updateOfflineBanner() {
+    var banner = document.getElementById('photo-offline-banner');
+    if (banner) banner.style.display = !mwIsOnline() ? 'flex' : 'none';
+  }
+  window.addEventListener('online',  updateOfflineBanner);
+  window.addEventListener('offline', updateOfflineBanner);
+  updateOfflineBanner();
+
+  // ── Offline enqueue — save to IndexedDB queue, show queued tile ─────────
+  function enqueuePhoto(file, photoType) {
+    var bucket  = ['before','after','additional'].indexOf(photoType) >= 0 ? photoType : 'additional';
+    var grid    = document.getElementById('grid-' + bucket);
+    var blobUrl = URL.createObjectURL(file);
+
+    // Ensure container visible
+    _photosRendered = true;
+    if (_photosDataReady && !_serverPhotosApplied) {
+      _applyServerPhotos(_photosPayload);
+    } else {
+      document.getElementById('photos-loading').style.display = 'none';
+      document.getElementById('photos-container').style.display = 'block';
+    }
+
+    photoCounts[bucket] = (photoCounts[bucket] || 0) + 1;
+    updatePhotoBadge();
+    updateComplianceButton();
+
+    var tile = document.createElement('div');
+    tile.className = 'mw-photo-tile mw-photo-tile--queued';
+    tile.dataset.photoType = photoType;
+    tile.innerHTML =
+      '<img src="' + blobUrl + '" alt="Queued\u2026">' +
+      '<div class="mw-photo-tile-overlay mw-photo-tile-overlay--queued">' +
+        '<span class="mw-photo-queue-icon">\u23f3</span>' +
+        '<span class="mw-photo-queue-label">Queued</span>' +
+      '</div>';
+    grid.appendChild(tile);
+
+    if (!window.MwPhotoQueue) {
+      // Queue not available — fall back to direct XHR
+      URL.revokeObjectURL(blobUrl);
+      return new Promise(function(resolve) { uploadPhotoFile(file, photoType, tile, resolve); });
+    }
+
+    return window.MwPhotoQueue.saveAndEnqueue(file, {
+      contextType: 'job_visit',
+      contextId  : VISIT_ID,
+      category   : photoType,
+      csrf       : CSRF,
+      uploadUrl  : UPLOAD_QUEUE_URL
+    }).then(function(queueId) {
+      tile.dataset.queueId = queueId;
+      URL.revokeObjectURL(blobUrl); // queue holds its own copy in IDB/Filesystem
+      showToast('\u23f3 No signal \u2014 photo queued, will upload on reconnect', 'info');
+    }).catch(function() {
+      tile.classList.remove('mw-photo-tile--queued');
+      tile.classList.add('mw-photo-tile--failed');
+      URL.revokeObjectURL(blobUrl);
+      showToast('Could not save photo offline', 'danger');
+    });
+  }
+
+  // ── Restore any queued photos from a previous offline session ───────────
+  function _restoreQueuedPhotos() {
+    if (!window.MwPhotoQueue) return;
+    window.MwPhotoQueue.getPendingForContext('job_visit', VISIT_ID).then(function(items) {
+      if (!items.length) return;
+
+      items.forEach(function(item) {
+        // Derive photo type from queue category (added in photo-queue.js v20260401a)
+        var photoType = (item.category && ['before','after','additional','during','issue','other'].indexOf(item.category) >= 0)
+          ? item.category : 'after';
+        var bucket = ['before','after','additional'].indexOf(photoType) >= 0 ? photoType : 'additional';
+        var grid   = document.getElementById('grid-' + bucket);
+        if (!grid) return;
+
+        photoCounts[bucket] = (photoCounts[bucket] || 0) + 1;
+
+        var label = item.status === 'failed'
+          ? '\u26a0 Will retry'
+          : (item.status === 'uploading' ? 'Uploading\u2026' : 'Queued');
+
+        var tile = document.createElement('div');
+        tile.className = 'mw-photo-tile mw-photo-tile--queued';
+        tile.dataset.photoType = photoType;
+        tile.dataset.queueId   = item.queueId;
+        tile.innerHTML =
+          '<img src="' + item.blobUrl + '" alt="' + label + '">' +
+          '<div class="mw-photo-tile-overlay mw-photo-tile-overlay--queued">' +
+            '<span class="mw-photo-queue-icon">\u23f3</span>' +
+            '<span class="mw-photo-queue-label">' + label + '</span>' +
+          '</div>';
+        grid.appendChild(tile);
+      });
+
+      updatePhotoBadge();
+      updateComplianceButton();
+      window.MwPhotoQueue.processQueue(); // kick the runner on page load
+    });
+  }
+
+  // ── MwPhotoQueue event listeners — update tiles when queue processes them ─
+  if (window.MwPhotoQueue) {
+    window.MwPhotoQueue.on('mwPhotoUploaded', function(ev) {
+      var tile = document.querySelector('.mw-photo-tile[data-queue-id="' + ev.queueId + '"]');
+      if (!tile) return;
+      var photoType = tile.dataset.photoType || 'after';
+
+      tile.classList.remove('mw-photo-tile--queued');
+      tile.dataset.photoId = ev.mediaId || '';
+
+      // Derive view URL from thumb URL (pattern: /uploads/photos/t/{id}/{base}_t.ext)
+      var viewUrl = ev.thumbUrl
+        ? ev.thumbUrl.replace('/uploads/photos/t/', '/uploads/photos/v/').replace(/_t\./, '_v.')
+        : (ev.thumbUrl || '');
+      tile.dataset.viewUrl   = viewUrl;
+      tile.dataset.photoType = photoType;
+      delete tile.dataset.queueId;
+
+      var img = tile.querySelector('img');
+      if (img && ev.thumbUrl) img.src = ev.thumbUrl;
+      var overlay = tile.querySelector('.mw-photo-tile-overlay');
+      if (overlay) overlay.innerHTML = '';
+
+      // Add heart / favourite button
+      var heart = document.createElement('button');
+      heart.className = 'mw-photo-heart-btn';
+      heart.dataset.photoId = ev.mediaId || '';
+      heart.setAttribute('aria-label', 'Star for Media Library');
+      heart.setAttribute('title', 'Star for Media Library');
+      heart.innerHTML = HEART_SVG;
+      heart.addEventListener('click', function(e) {
+        e.stopPropagation();
+        toggleFavourite(parseInt(this.dataset.photoId, 10), this);
+      });
+      tile.appendChild(heart);
+
+      tile.addEventListener('click', function(e) {
+        if (e.target.closest('.mw-photo-heart-btn')) return;
+        openLightbox(tile.dataset.viewUrl, photoType, null, ev.mediaId);
+      });
+
+      updateComplianceButton();
+      showToast('Photo uploaded \u2714', 'success');
+    });
+
+    window.MwPhotoQueue.on('mwPhotoFailed', function(ev) {
+      var tile = document.querySelector('.mw-photo-tile[data-queue-id="' + ev.queueId + '"]');
+      if (!tile) return;
+      tile.classList.remove('mw-photo-tile--queued');
+      tile.classList.add('mw-photo-tile--failed');
+      var overlay = tile.querySelector('.mw-photo-tile-overlay');
+      if (overlay) {
+        overlay.innerHTML =
+          '<span class="mw-photo-queue-label" style="color:#fca5a5;">\u26a0 ' +
+          (ev.error || 'Failed') + '</span>';
+      }
+    });
+
+    window.MwPhotoQueue.on('mwPhotoRetrying', function(ev) {
+      var tile = document.querySelector('.mw-photo-tile[data-queue-id="' + ev.queueId + '"]');
+      if (!tile) return;
+      var label = tile.querySelector('.mw-photo-queue-label');
+      if (label) label.textContent = 'Retry ' + ev.attempt + '\u2026';
+    });
+
+    // Restore photos queued in previous sessions
+    _restoreQueuedPhotos();
+  }
+
+  // If photos tab is already active on load (e.g., deep-linked), show container now
   if (document.getElementById('tab-photos') &&
       document.getElementById('tab-photos').classList.contains('active')) {
     loadPhotos();
@@ -844,6 +1103,59 @@ $activePage = 'jobs';
       var section = document.getElementById('section-' + type);
       if (section) section.style.display = photoCounts[type] > 0 ? 'block' : 'none';
     });
+    updateCompareButton();
+  }
+
+  // Before/After comparison button — appears when both types exist
+  function updateCompareButton() {
+    var existing = document.getElementById('mw-compare-btn');
+    var hasBefore = (photoCounts.before || 0) > 0;
+    var hasAfter  = (photoCounts.after  || 0) > 0;
+    if (hasBefore && hasAfter) {
+      if (!existing) {
+        var btn = document.createElement('button');
+        btn.id = 'mw-compare-btn';
+        btn.className = 'mw-compare-btn';
+        btn.textContent = '\u25d0 Compare';
+        btn.addEventListener('click', openCompareView);
+        var header = document.querySelector('.pow-tab-header');
+        if (header) header.appendChild(btn);
+      }
+    } else if (existing) {
+      existing.remove();
+    }
+  }
+
+  function openCompareView() {
+    var beforeTiles = Array.from(document.querySelectorAll('#grid-before .mw-photo-tile[data-view-url]'));
+    var afterTiles  = Array.from(document.querySelectorAll('#grid-after  .mw-photo-tile[data-view-url]'));
+    if (!beforeTiles.length || !afterTiles.length) return;
+
+    var ov = document.createElement('div');
+    ov.className = 'mw-compare-overlay';
+    ov.innerHTML =
+      '<div class="mw-compare-inner">' +
+        '<button class="mw-compare-close">\u2715</button>' +
+        '<div class="mw-compare-cols">' +
+          '<div class="mw-compare-col">' +
+            '<div class="mw-compare-label">Before</div>' +
+            '<img class="mw-compare-img" src="' + escHtml(beforeTiles[0].dataset.viewUrl) + '" alt="Before">' +
+          '</div>' +
+          '<div class="mw-compare-col">' +
+            '<div class="mw-compare-label">After</div>' +
+            '<img class="mw-compare-img" src="' + escHtml(afterTiles[afterTiles.length - 1].dataset.viewUrl) + '" alt="After">' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    document.body.style.overflow = 'hidden';
+    ov.querySelector('.mw-compare-close').addEventListener('click', function() {
+      ov.remove();
+      document.body.style.overflow = '';
+    });
+    ov.addEventListener('click', function(e) {
+      if (e.target === ov) { ov.remove(); document.body.style.overflow = ''; }
+    });
   }
 
   // Append a server-confirmed photo tile to the correct grid
@@ -862,54 +1174,101 @@ $activePage = 'jobs';
     tile.dataset.viewUrl   = ph.view_url || ph.orig_url || '';
     tile.innerHTML =
       '<img src="' + escHtml(ph.thumb_url || ph.orig_url || '') + '"' +
-           ' loading="lazy" alt="' + escHtml(type) + '"' +
+           ' alt="' + escHtml(type) + '"' +
            ' onerror="this.src=\'/crm/img/img-error.svg\'">' +
       '<div class="mw-photo-tile-overlay"></div>';
-    tile.addEventListener('click', function() {
+
+    // Heart / favourite button
+    var heart = document.createElement('button');
+    heart.className = 'mw-photo-heart-btn' + (ph.is_favorite ? ' mw-photo-heart-btn--active' : '');
+    heart.dataset.photoId = ph.id || '';
+    heart.setAttribute('aria-label', 'Star for Media Library');
+    heart.setAttribute('title', 'Star for Media Library');
+    heart.innerHTML = HEART_SVG;
+    heart.addEventListener('click', function(e) {
+      e.stopPropagation();
+      toggleFavourite(parseInt(this.dataset.photoId, 10), this);
+    });
+    tile.appendChild(heart);
+
+    tile.addEventListener('click', function(e) {
+      if (e.target.closest('.mw-photo-heart-btn')) return;
       openLightbox(tile.dataset.viewUrl, type, null, ph.id);
     });
     grid.appendChild(tile);
   }
 
-  // Photo capture: optimistic upload (supports multiple files for Additional)
+  // Photo capture: HEIC guard + serial upload queue (one at a time)
   document.querySelectorAll('.photo-trigger').forEach(function(input) {
     input.addEventListener('change', function() {
       var photoType = this.dataset.type;
       var files     = Array.from(this.files);
       if (!files.length) return;
 
-      // Ensure photos container is visible
-      photosLoaded = true;
-      document.getElementById('photos-loading').style.display = 'none';
-      document.getElementById('photos-container').style.display = 'block';
+      // Ensure photos container is visible; apply prefetched server data if ready
+      _photosRendered = true;
+      if (_photosDataReady && !_serverPhotosApplied) {
+        _applyServerPhotos(_photosPayload);
+      } else {
+        document.getElementById('photos-loading').style.display = 'none';
+        document.getElementById('photos-container').style.display = 'block';
+      }
 
-      // Upload each selected file (one at a time, each with its own progress tile)
-      files.forEach(function(file) { uploadPhotoFile(file, photoType); });
+      // Reject HEIC/HEIF — GD can't process them server-side
+      var validFiles = [];
+      files.forEach(function(f) {
+        var mime = (f.type || '').toLowerCase();
+        if (mime === 'image/heic' || mime === 'image/heif') {
+          showToast('HEIC/HEIF not supported — use JPEG or PNG', 'danger');
+        } else {
+          validFiles.push(f);
+        }
+      });
 
-      this.value = ''; // Reset so the same file(s) can be selected again if needed
+      // Route: online → direct XHR with progress ring; offline → MwPhotoQueue
+      var chain = Promise.resolve();
+      validFiles.forEach(function(f) {
+        chain = chain.then(function() {
+          if (!mwIsOnline()) {
+            return enqueuePhoto(f, photoType);
+          }
+          return new Promise(function(resolve) {
+            uploadPhotoFile(f, photoType, null, resolve);
+          });
+        });
+      });
+
+      this.value = ''; // reset so same file can be re-selected
     });
   });
 
-  function uploadPhotoFile(file, photoType) {
+  function uploadPhotoFile(file, photoType, existingTile, onDone) {
     var bucket  = ['before','after','additional'].indexOf(photoType) >= 0 ? photoType : 'additional';
     var grid    = document.getElementById('grid-' + bucket);
-
-    // ── Optimistic: blob preview immediately ──────────────────────────────
     var blobUrl = URL.createObjectURL(file);
+    var tile;
 
-    photoCounts[bucket] = (photoCounts[bucket] || 0) + 1;
-    updatePhotoBadge();
+    if (existingTile) {
+      // Retry: reset the existing failed tile to uploading state
+      tile = existingTile;
+      tile.className = 'mw-photo-tile mw-photo-tile--uploading';
+      tile.innerHTML =
+        '<img src="' + blobUrl + '" alt="Retrying\u2026">' +
+        '<div class="mw-photo-tile-overlay"><div class="mw-upload-ring"></div></div>';
+    } else {
+      // New upload: create optimistic tile immediately
+      photoCounts[bucket] = (photoCounts[bucket] || 0) + 1;
+      updatePhotoBadge();
+      updateComplianceButton();
 
-    var tile = document.createElement('div');
-    tile.className = 'mw-photo-tile mw-photo-tile--uploading';
-    tile.innerHTML =
-      '<img src="' + blobUrl + '" alt="Uploading…">' +
-      '<div class="mw-photo-tile-overlay">' +
-        '<div class="mw-upload-ring"></div>' +
-      '</div>';
-    grid.appendChild(tile);
+      tile = document.createElement('div');
+      tile.className = 'mw-photo-tile mw-photo-tile--uploading';
+      tile.innerHTML =
+        '<img src="' + blobUrl + '" alt="Uploading\u2026">' +
+        '<div class="mw-photo-tile-overlay"><div class="mw-upload-ring"></div></div>';
+      grid.appendChild(tile);
+    }
 
-    // ── XHR upload ────────────────────────────────────────────────────────
     var fd = new FormData();
     fd.append('photo',      file);
     fd.append('visit_id',   VISIT_ID);
@@ -925,79 +1284,191 @@ $activePage = 'jobs';
       if (e.lengthComputable) {
         var pct  = Math.round(e.loaded / e.total * 100);
         var ring = tile.querySelector('.mw-upload-ring');
-        if (ring) ring.style.setProperty('--pct', pct + '%');
+        if (ring) ring.style.setProperty('--pct', pct); // unitless for conic-gradient calc()
       }
     };
 
     xhr.onload = function() {
       var res = {};
-      try { res = JSON.parse(xhr.responseText); } catch(e) {}
+      try { res = JSON.parse(xhr.responseText); } catch(ex) {}
       URL.revokeObjectURL(blobUrl);
 
       if (res.success) {
         tile.classList.remove('mw-photo-tile--uploading');
-        tile.dataset.photoId = res.photo_id || '';
-        tile.dataset.viewUrl = res.view_url  || res.orig_url || '';
+        tile.dataset.photoId   = res.photo_id || '';
+        tile.dataset.photoType = photoType;
+        tile.dataset.viewUrl   = res.view_url  || res.orig_url || '';
         var img = tile.querySelector('img');
         if (img) img.src = res.thumb_url || res.orig_url || '';
         var overlay = tile.querySelector('.mw-photo-tile-overlay');
         if (overlay) overlay.innerHTML = '';
-        tile.addEventListener('click', function() {
+
+        // Heart / favourite button (starts un-starred)
+        var heart = document.createElement('button');
+        heart.className = 'mw-photo-heart-btn';
+        heart.dataset.photoId = res.photo_id || '';
+        heart.setAttribute('aria-label', 'Star for Media Library');
+        heart.setAttribute('title', 'Star for Media Library');
+        heart.innerHTML = HEART_SVG;
+        heart.addEventListener('click', function(e) {
+          e.stopPropagation();
+          toggleFavourite(parseInt(this.dataset.photoId, 10), this);
+        });
+        tile.appendChild(heart);
+
+        tile.addEventListener('click', function(e) {
+          if (e.target.closest('.mw-photo-heart-btn')) return;
           openLightbox(tile.dataset.viewUrl, photoType, null, res.photo_id);
         });
+
+        updateComplianceButton();
         showToast('Photo saved', 'success');
       } else {
+        // Server rejected — show retry button that actually retries
         tile.classList.remove('mw-photo-tile--uploading');
         tile.classList.add('mw-photo-tile--failed');
-        var overlay2 = tile.querySelector('.mw-photo-tile-overlay');
-        if (overlay2) {
-          overlay2.innerHTML = '<button class="mw-photo-retry-btn" title="Retry">↺</button>';
-          overlay2.querySelector('.mw-photo-retry-btn').addEventListener('click', function(e) {
+        var ov2 = tile.querySelector('.mw-photo-tile-overlay');
+        if (ov2) {
+          ov2.innerHTML = '<button class="mw-photo-retry-btn" title="Retry upload">\u21ba</button>';
+          ov2.querySelector('.mw-photo-retry-btn').addEventListener('click', function(e) {
             e.stopPropagation();
-            tile.remove();
-            photoCounts[bucket]--;
-            updatePhotoBadge();
-            showToast('Photo removed. Please try again.', 'warning');
+            uploadPhotoFile(file, photoType, tile, null); // TRUE RETRY with stored file ref
           });
         }
-        showToast(res.error || 'Upload failed', 'danger');
+        showToast((res.error || 'Upload failed') + ' \u2014 tap \u21ba to retry', 'warning');
       }
+
+      if (typeof onDone === 'function') onDone();
     };
 
     xhr.onerror = function() {
       URL.revokeObjectURL(blobUrl);
       tile.classList.add('mw-photo-tile--failed');
       var ov = tile.querySelector('.mw-photo-tile-overlay');
-      if (ov) ov.innerHTML = '<button class="mw-photo-retry-btn" title="Error">✕</button>';
-      showToast('Network error — photo not saved', 'danger');
+      if (ov) {
+        ov.innerHTML = '<button class="mw-photo-retry-btn" title="Retry upload">\u21ba</button>';
+        ov.querySelector('.mw-photo-retry-btn').addEventListener('click', function(e) {
+          e.stopPropagation();
+          uploadPhotoFile(file, photoType, tile, null); // TRUE RETRY
+        });
+      }
+      showToast('Network error \u2014 tap \u21ba to retry.', 'danger');
+      if (typeof onDone === 'function') onDone();
     };
 
     xhr.send(fd);
   }
 
-  // ── Minimal lightbox ──────────────────────────────────────────────────────
-  var lightbox = null;
+  // ── Lightbox — swipe navigation, prev/next, counter, double-tap zoom ──────
+  var lightbox       = null;
+  var _lbPhotos      = [];  // [{viewUrl, type, photoId}]
+  var _lbIndex       = 0;
+  var _lbZoomed      = false;
+  var _lbTouchStartX = 0;
+  var _lbTouchStartY = 0;
+
+  function _lbBuildPhotoList() {
+    _lbPhotos = [];
+    document.querySelectorAll('.mw-photo-tile[data-view-url]').forEach(function(t) {
+      if (t.dataset.viewUrl) {
+        _lbPhotos.push({
+          viewUrl: t.dataset.viewUrl,
+          type:    t.dataset.photoType || 'photo',
+          photoId: parseInt(t.dataset.photoId, 10) || null,
+        });
+      }
+    });
+  }
+
+  function _lbShowIndex(idx) {
+    var ph = _lbPhotos[idx];
+    if (!ph) return;
+    var img = lightbox.querySelector('.mw-lightbox-img');
+    img.style.transform = 'scale(1)';
+    img.style.transformOrigin = 'center';
+    _lbZoomed = false;
+    img.src = ph.viewUrl;
+    lightbox.querySelector('.mw-lightbox-type-label').textContent =
+      ph.type ? ph.type.charAt(0).toUpperCase() + ph.type.slice(1) : '';
+    var counter = lightbox.querySelector('.mw-lightbox-counter');
+    if (counter) counter.textContent = _lbPhotos.length > 1 ? (idx + 1) + '\u00a0/\u00a0' + _lbPhotos.length : '';
+    var prev = lightbox.querySelector('.mw-lightbox-prev');
+    var next = lightbox.querySelector('.mw-lightbox-next');
+    if (prev) prev.style.display = idx > 0 ? 'flex' : 'none';
+    if (next) next.style.display = idx < _lbPhotos.length - 1 ? 'flex' : 'none';
+  }
 
   function openLightbox(imgUrl, type, caption, photoId) {
     if (!imgUrl) return;
+
     if (!lightbox) {
       lightbox = document.createElement('div');
       lightbox.className = 'mw-lightbox';
       lightbox.innerHTML =
         '<div class="mw-lightbox-backdrop"></div>' +
         '<div class="mw-lightbox-content">' +
-          '<button class="mw-lightbox-close" aria-label="Close">✕</button>' +
+          '<button class="mw-lightbox-close" aria-label="Close">\u2715</button>' +
+          '<button class="mw-lightbox-prev" aria-label="Previous">\u2039</button>' +
+          '<button class="mw-lightbox-next" aria-label="Next">\u203a</button>' +
           '<div class="mw-lightbox-type-label"></div>' +
           '<img class="mw-lightbox-img" src="" alt="">' +
-          '<div class="mw-lightbox-caption"></div>' +
+          '<div class="mw-lightbox-counter"></div>' +
         '</div>';
       document.body.appendChild(lightbox);
+
       lightbox.querySelector('.mw-lightbox-backdrop').addEventListener('click', closeLightbox);
       lightbox.querySelector('.mw-lightbox-close').addEventListener('click', closeLightbox);
+
+      lightbox.querySelector('.mw-lightbox-prev').addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (_lbIndex > 0) { _lbIndex--; _lbShowIndex(_lbIndex); }
+      });
+      lightbox.querySelector('.mw-lightbox-next').addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (_lbIndex < _lbPhotos.length - 1) { _lbIndex++; _lbShowIndex(_lbIndex); }
+      });
+
+      // Touch swipe navigation
+      lightbox.addEventListener('touchstart', function(e) {
+        _lbTouchStartX = e.touches[0].clientX;
+        _lbTouchStartY = e.touches[0].clientY;
+      }, { passive: true });
+      lightbox.addEventListener('touchend', function(e) {
+        var dx = _lbTouchStartX - e.changedTouches[0].clientX;
+        var dy = _lbTouchStartY - e.changedTouches[0].clientY;
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 48) {
+          if (dx > 0 && _lbIndex < _lbPhotos.length - 1) { _lbIndex++; _lbShowIndex(_lbIndex); }
+          else if (dx < 0 && _lbIndex > 0)               { _lbIndex--; _lbShowIndex(_lbIndex); }
+        }
+      }, { passive: true });
+
+      // Double-tap zoom
+      var _lbLastTap = 0;
+      lightbox.querySelector('.mw-lightbox-img').addEventListener('click', function(e) {
+        var now = Date.now();
+        if (now - _lbLastTap < 300) {
+          _lbZoomed = !_lbZoomed;
+          if (_lbZoomed) {
+            var rect = this.getBoundingClientRect();
+            var ox = ((e.clientX - rect.left) / rect.width * 100).toFixed(1) + '%';
+            var oy = ((e.clientY - rect.top)  / rect.height * 100).toFixed(1) + '%';
+            this.style.transformOrigin = ox + ' ' + oy;
+            this.style.transform = 'scale(2.4)';
+          } else {
+            this.style.transform = 'scale(1)';
+            this.style.transformOrigin = 'center';
+          }
+        }
+        _lbLastTap = now;
+      });
     }
-    lightbox.querySelector('.mw-lightbox-img').src = imgUrl;
-    lightbox.querySelector('.mw-lightbox-type-label').textContent = type ? type.charAt(0).toUpperCase() + type.slice(1) : '';
-    lightbox.querySelector('.mw-lightbox-caption').textContent = caption || '';
+
+    _lbBuildPhotoList();
+    _lbIndex = 0;
+    for (var i = 0; i < _lbPhotos.length; i++) {
+      if (_lbPhotos[i].viewUrl === imgUrl) { _lbIndex = i; break; }
+    }
+    _lbShowIndex(_lbIndex);
     lightbox.style.display = 'flex';
     document.body.style.overflow = 'hidden';
   }
@@ -1008,8 +1479,36 @@ $activePage = 'jobs';
   }
 
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeLightbox();
+    if (!lightbox || lightbox.style.display === 'none') return;
+    if (e.key === 'Escape')      closeLightbox();
+    if (e.key === 'ArrowRight' && _lbIndex < _lbPhotos.length - 1) { _lbIndex++; _lbShowIndex(_lbIndex); }
+    if (e.key === 'ArrowLeft'  && _lbIndex > 0)                    { _lbIndex--; _lbShowIndex(_lbIndex); }
   });
+
+  // ── Heart / favourite toggle ───────────────────────────────────────────────
+  function toggleFavourite(photoId, btn) {
+    if (!photoId) return;
+    var nowActive = btn.classList.toggle('mw-photo-heart-btn--active');
+    fetch(API_PHOTOS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ action: 'toggle_favorite', photo_id: photoId, csrf_token: CSRF })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (!res.success) {
+        btn.classList.toggle('mw-photo-heart-btn--active', !nowActive);
+        showToast('Could not update star', 'warning');
+      } else if (res.is_favorite) {
+        showToast('⭐ Starred — visible in Media Library', 'success');
+      }
+    })
+    .catch(function() {
+      btn.classList.toggle('mw-photo-heart-btn--active', !nowActive);
+      showToast('Network error', 'danger');
+    });
+  }
 
   // ── End Visit + Billable Extras Modal ────────────────────────────────────
   var EXTRAS_RATE        = parseFloat((document.getElementById('pow-extras-rate') || {}).value) || 5.00;
