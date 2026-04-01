@@ -23,6 +23,7 @@
     var DB_VERSION = 1;
     var STORE_NAME = 'pending-receipts';
     var db = null;
+    var _isSyncing = false; // re-entrancy guard — prevents syncNow ↔ updatePendingBadge infinite loop
 
     /**
      * Open / create the IndexedDB database.
@@ -134,6 +135,9 @@
      * @returns {Promise<{uploaded: number, failed: number}>}
      */
     function syncNow() {
+        // Bug #1 fix: guard against re-entrant calls from updatePendingBadge()
+        if (_isSyncing) return Promise.resolve({ uploaded: 0, failed: 0 });
+        _isSyncing = true;
         return openDB().then(function(database) {
             return new Promise(function(resolve) {
                 var tx = database.transaction(STORE_NAME, 'readonly');
@@ -143,6 +147,7 @@
                 getAll.onsuccess = function() {
                     var receipts = getAll.result || [];
                     if (!receipts.length) {
+                        _isSyncing = false;
                         resolve({ uploaded: 0, failed: 0 });
                         return;
                     }
@@ -165,15 +170,30 @@
                     });
 
                     chain.then(function() {
-                        updatePendingBadge();
+                        _isSyncing = false;
+                        if (uploaded > 0) {
+                            // At least one succeeded — refresh badge (may re-sync any remaining)
+                            updatePendingBadge();
+                        } else {
+                            // All failed — update count display only; don't re-trigger sync
+                            // to avoid a tight retry loop when the server is unreachable.
+                            getPendingCount().then(function(count) {
+                                var badge = document.getElementById('mw-offline-pending-count');
+                                if (badge) badge.textContent = count;
+                            });
+                        }
                         resolve({ uploaded: uploaded, failed: failed });
                     });
                 };
 
                 getAll.onerror = function() {
+                    _isSyncing = false;
                     resolve({ uploaded: 0, failed: 0 });
                 };
             });
+        }).catch(function() {
+            _isSyncing = false;
+            return { uploaded: 0, failed: 0 };
         });
     }
 
@@ -183,9 +203,15 @@
      * @returns {Promise<boolean>} — true if upload succeeded
      */
     function uploadOne(receipt) {
+        // Bug #2 fix: prefer the page's live CSRF token over the stored one —
+        // the PHP session may have rotated while the receipt was in the offline queue.
+        var csrf = (typeof window.CSRF === 'string' && window.CSRF)
+            ? window.CSRF
+            : (receipt.csrf || '');
+
         var formData = new FormData();
         formData.append('receipt_photo', receipt.blob, 'receipt.jpg');
-        formData.append('csrf_token', receipt.csrf || '');
+        formData.append('csrf_token', csrf);
         if (receipt.lat) formData.append('lat', receipt.lat);
         if (receipt.lng) formData.append('lng', receipt.lng);
 
@@ -227,9 +253,9 @@
             if (count > 0) {
                 if (badge) badge.textContent = count;
                 // Show banner even when online if there are pending items
-                if (banner && !navigator.onLine) {
+                if (banner && !isOnline()) {
                     banner.style.display = 'flex';
-                } else if (banner && navigator.onLine && count > 0) {
+                } else if (banner && isOnline() && count > 0) {
                     // Online but still has pending — trigger sync
                     banner.style.display = 'flex';
                     banner.classList.add('mw-offline-syncing');
@@ -250,7 +276,7 @@
                     });
                 }
             } else {
-                if (banner && navigator.onLine) {
+                if (banner && isOnline()) {
                     banner.style.display = 'none';
                 }
             }

@@ -17,9 +17,11 @@ $returnTo = $_GET['return'] ?? '';
 $pageTitle = $quickMode ? 'Snap Receipt' : 'Expenses';
 $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
+$mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<link href="/crm/css/mobile-cards.css?v=20260217" rel="stylesheet">'
-           . '<script src="/crm/js/offline-receipts.js?v=20260227b" defer></script>';
+           . '<script src="/crm/js/offline-receipts.js?v=20260227b" defer></script>'
+           . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" async defer></script>';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
@@ -132,6 +134,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="col-3">
                         <label class="form-label small mb-0">PST</label>
                         <input type="number" class="form-control form-control-sm" id="rvPst" step="0.01" min="0" value="0">
+                    </div>
+                    <div class="col-3">
+                        <label class="form-label small mb-0">Recycling</label>
+                        <input type="number" class="form-control form-control-sm" id="rvRecyclingTax" step="0.01" min="0" value="0" placeholder="0.00">
                     </div>
                     <div class="col-4">
                         <label class="form-label small mb-0">Total
@@ -246,6 +252,49 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <i data-feather="send" style="width:14px;height:14px;"></i> Forward to QB
             </button>
             <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════ OCR LEARNING WIDGET ══════════════════════════════════ -->
+<div class="mw-ocr-widget card mb-3" id="ocrLearningWidget" style="display:none;">
+    <div class="card-header d-flex align-items-center justify-content-between py-2"
+         style="cursor:pointer;" onclick="toggleOcrWidget()">
+        <span class="d-flex align-items-center gap-2">
+            <i data-feather="cpu" style="width:15px;height:15px;color:var(--mw-green);"></i>
+            <span class="small fw-semibold" style="color:var(--mw-forest);">OCR Intelligence</span>
+            <span class="badge mw-ocr-badge" id="ocrAccuracyBadge" style="display:none;"></span>
+        </span>
+        <i data-feather="chevron-down" style="width:14px;height:14px;" id="ocrWidgetChevron"></i>
+    </div>
+    <div id="ocrWidgetBody" class="card-body py-3" style="display:none;">
+        <!-- Headline stats -->
+        <div class="mw-ocr-stats-row mb-3">
+            <div class="mw-ocr-stat">
+                <div class="mw-ocr-stat-val" id="ocrStatLessons">—</div>
+                <div class="mw-ocr-stat-label">lessons learned</div>
+            </div>
+            <div class="mw-ocr-stat">
+                <div class="mw-ocr-stat-val" id="ocrStatVendors">—</div>
+                <div class="mw-ocr-stat-label">vendors tracked</div>
+            </div>
+            <div class="mw-ocr-stat">
+                <div class="mw-ocr-stat-val" id="ocrStatAccuracy">—</div>
+                <div class="mw-ocr-stat-label">avg accuracy</div>
+            </div>
+        </div>
+
+        <!-- Vendor accuracy bars -->
+        <div id="ocrVendorBars" class="mb-3"></div>
+
+        <!-- Monthly sparkline -->
+        <div id="ocrSparklineWrap" style="display:none;">
+            <div class="mw-ocr-spark-label small text-muted mb-1">Lessons per month</div>
+            <div class="mw-ocr-sparkline" id="ocrSparkline"></div>
+        </div>
+
+        <div id="ocrNoData" class="text-center text-muted small py-2" style="display:none;">
+            No OCR data yet — scan a receipt to start training the system.
         </div>
     </div>
 </div>
@@ -726,7 +775,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 </div>
 
                 <!-- Amount / Tax in a compact row -->
-                <div class="mw-mc-expense-field-row">
+                <div class="mw-mc-expense-field-row mw-mc-expense-amounts-row">
                     <div class="mw-mc-expense-field">
                         <label>Subtotal</label>
                         <input type="number" id="mobileRvAmount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
@@ -738,6 +787,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="mw-mc-expense-field mw-mc-expense-field-narrow">
                         <label>PST</label>
                         <input type="number" id="mobileRvPst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                    </div>
+                    <div class="mw-mc-expense-field mw-mc-expense-field-narrow">
+                        <label>Recycling</label>
+                        <input type="number" id="mobileRvRecyclingTax" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
                     </div>
                 </div>
 
@@ -956,6 +1009,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                         <input type="number" class="form-control" id="expPst" step="0.01" min="0" value="0" placeholder="0.00">
                                     </div>
                                 </div>
+                                <div class="col-md-2">
+                                    <label class="form-label">Recycling Tax</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" class="form-control" id="expRecyclingTax" step="0.01" min="0" value="0" placeholder="0.00">
+                                    </div>
+                                </div>
                                 <div class="col-md-3">
                                     <label class="form-label fw-bold">Total <span class="text-danger">*</span></label>
                                     <div class="input-group">
@@ -1160,6 +1220,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                 </div>
                 <div class="mb-3 mt-3">
+                    <label class="form-label">Address <small class="text-muted">(main/preferred location)</small></label>
+                    <input type="hidden" id="vendorLocId" value="">
+                    <input type="hidden" id="vendorLocLat" value="">
+                    <input type="hidden" id="vendorLocLng" value="">
+                    <input type="text" class="form-control mb-2" id="vendorAddress" placeholder="123 Main St">
+                    <input type="text" class="form-control" id="vendorCity" placeholder="City">
+                </div>
+                <div class="mb-3">
                     <label class="form-label">Notes</label>
                     <textarea class="form-control" id="vendorNotes" rows="2"></textarea>
                 </div>
@@ -1240,11 +1308,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             <!-- Add/Edit Location Form (hidden by default) -->
             <div id="vdLocationForm" style="display:none;" class="mw-vd-location-form mt-2">
                 <input type="hidden" id="vdLocEditId" value="">
+                <input type="hidden" id="vdLocLat" value="">
+                <input type="hidden" id="vdLocLng" value="">
                 <div class="mb-2">
                     <input type="text" class="form-control form-control-sm" id="vdLocLabel" placeholder="Location name (e.g. Burnaby Store)">
                 </div>
                 <div class="mb-2">
-                    <input type="text" class="form-control form-control-sm" id="vdLocAddress" placeholder="Address">
+                    <input type="text" class="form-control form-control-sm" id="vdLocAddress" placeholder="Address" autocomplete="off">
                 </div>
                 <div class="row mb-2">
                     <div class="col-6"><input type="text" class="form-control form-control-sm" id="vdLocCity" placeholder="City"></div>
@@ -1348,17 +1418,18 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         loadVendors();
         loadStats();
         loadSendLog();
+        loadOcrLearning();
         loadQbStatusWidget();
         setupVendorSearch('expVendorSearch', 'vendorDropdown', 'expVendorId', 'expAcctCategory', 'expGbpCategory');
         setupVendorSearch('rvVendorSearch', 'rvVendorDropdown', 'rvVendorId', 'rvAcctCategory', 'rvGbpCategory');
         setupJobSearch();
 
-        // Auto-calc totals (subtotal + gst + pst = total)
-        ['expAmount','expGst','expPst'].forEach(function(id) {
+        // Auto-calc totals (subtotal + gst + pst + recycling = total)
+        ['expAmount','expGst','expPst','expRecyclingTax'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.addEventListener('input', function() { calcTotalFor('exp'); });
         });
-        ['rvAmount','rvGst','rvPst'].forEach(function(id) {
+        ['rvAmount','rvGst','rvPst','rvRecyclingTax'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.addEventListener('input', function() { calcTotalFor('rv'); });
         });
@@ -1412,7 +1483,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var gst = parseFloat(document.getElementById(prefix + 'Gst').value) || 0;
         var pstEl = document.getElementById(prefix + 'Pst');
         var pst = pstEl ? (parseFloat(pstEl.value) || 0) : 0;
-        document.getElementById(prefix + 'Total').value = (amt + gst + pst).toFixed(2);
+        var rtEl = document.getElementById(prefix + 'RecyclingTax');
+        var rt = rtEl ? (parseFloat(rtEl.value) || 0) : 0;
+        document.getElementById(prefix + 'Total').value = (amt + gst + pst + rt).toFixed(2);
     }
 
     // ── Camera / Photo Capture ────────────────────────────────────
@@ -1506,7 +1579,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             return;
         }
 
-        fetch('/crm/api/receipt-status.php?media_id=' + encodeURIComponent(mediaId) + '&csrf=' + encodeURIComponent(CSRF))
+        // Bug #10 fix: CSRF token removed from GET URL — it leaked to server logs, browser history,
+        // and Referer headers. receipt-status.php uses session auth only (no CSRF needed for GET reads).
+        fetch('/crm/api/receipt-status.php?media_id=' + encodeURIComponent(mediaId))
             .then(function(r) { return r.json().catch(function() { return {ocr_status: 'processing'}; }); })
             .then(function(statusData) {
                 if (statusData.ocr_status === 'ready' || statusData.ocr_status === 'failed') {
@@ -1529,6 +1604,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     function handleReceiptFile(e) {
         var file = e.target.files[0];
         if (!file) return;
+        e.target.value = ''; // Bug #5 fix: reset so the same photo can be re-selected after a failed upload
+
+        // Bug #8 fix: refresh GPS at capture time (non-blocking — updates currentGpsLat/Lng in the
+        // background while compression runs; uses page-load value if GPS hasn't resolved by upload time)
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(pos) {
+                    currentGpsLat = pos.coords.latitude;
+                    currentGpsLng = pos.coords.longitude;
+                },
+                function() { /* silently use last-known position */ },
+                { timeout: 8000, enableHighAccuracy: false }
+            );
+        }
 
         // Show spinner immediately — before compression even starts
         document.getElementById('capturePrompt').style.display = 'none';
@@ -1600,12 +1689,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         var msg = _online
                             ? 'Upload failed. Photo saved locally — tap "Retry" when ready.'
                             : 'You\'re offline. Receipt saved locally and will upload automatically when you reconnect.';
-                        alert(msg);
+                        // Bug #4 fix: alert() hangs silently in Android WebView — use toast instead
+                        if (typeof mwToast === 'function') { mwToast(msg, 'warning'); } else { alert(msg); }
                         resetCapture();
                         mobileResetReview();
                     } else {
                         if (typeof haptic === 'function') haptic('error');
-                        alert('Error: ' + err.message);
+                        if (typeof mwToast === 'function') { mwToast('Error: ' + err.message, 'error'); } else { alert('Error: ' + err.message); }
                         resetCapture();
                         mobileResetReview();
                     }
@@ -2166,6 +2256,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('rvAmount').value = '';
         document.getElementById('rvGst').value = '0';
         if (document.getElementById('rvPst')) document.getElementById('rvPst').value = '0';
+        if (document.getElementById('rvRecyclingTax')) document.getElementById('rvRecyclingTax').value = '0';
         document.getElementById('rvTotal').value = '';
         document.getElementById('rvAcctCategory').value = '';
         document.getElementById('rvGbpCategory').value = '';
@@ -2217,6 +2308,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 amount: document.getElementById('rvAmount').value,
                 gst_amount: document.getElementById('rvGst').value,
                 pst_amount: document.getElementById('rvPst')?.value || '0',
+                recycling_tax: document.getElementById('rvRecyclingTax')?.value || '0',
                 total: document.getElementById('rvTotal').value,
                 accounting_category: document.getElementById('rvAcctCategory').value,
                 gbp_category: document.getElementById('rvGbpCategory').value,
@@ -3065,9 +3157,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('expDescription').value = e.description || '';
             document.getElementById('expNotes').value = e.notes || '';
 
-            // PST
+            // PST / Recycling Tax
             var pstEl = document.getElementById('expPst');
             if (pstEl) pstEl.value = e.pst_amount || '0';
+            var rtEl = document.getElementById('expRecyclingTax');
+            if (rtEl) rtEl.value = e.recycling_tax || '0';
 
             // Fuel/mileage fields
             toggleFuelSection('exp', e.accounting_category || '');
@@ -3152,6 +3246,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 amount: document.getElementById('expAmount').value,
                 gst_amount: document.getElementById('expGst').value,
                 pst_amount: document.getElementById('expPst')?.value || '0',
+                recycling_tax: document.getElementById('expRecyclingTax')?.value || '0',
                 total: document.getElementById('expTotal').value,
                 accounting_category: document.getElementById('expAcctCategory').value,
                 gbp_category: document.getElementById('expGbpCategory').value,
@@ -3416,6 +3511,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vendorWebsite').value = data?.website || '';
         document.getElementById('vendorNotes').value = data?.notes || '';
         document.getElementById('vendorGstExempt').checked = !!(data?.gst_exempt && data.gst_exempt != '0');
+        // Populate address from preferred location (or first location)
+        var locs = data?.locations || [];
+        var preferred = locs.find(function(l) { return l.is_preferred == 1; }) || locs[0] || null;
+        document.getElementById('vendorLocId').value = preferred?.id || '';
+        document.getElementById('vendorAddress').value = preferred?.address || '';
+        document.getElementById('vendorCity').value = preferred?.city || '';
+        document.getElementById('vendorLocLat').value = preferred?.lat || '';
+        document.getElementById('vendorLocLng').value = preferred?.lng || '';
         var delBtn = document.getElementById('vendorDeleteBtn');
         if (delBtn) delBtn.style.display = data?.id ? '' : 'none';
         $('#vendorModal').modal('show');
@@ -3454,6 +3557,38 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             });
             var d = await r.json();
             if (!d.success) throw new Error(d.error);
+
+            // Save address as preferred location if provided
+            var address = document.getElementById('vendorAddress').value.trim();
+            var city = document.getElementById('vendorCity').value.trim();
+            var locLat = document.getElementById('vendorLocLat').value;
+            var locLng = document.getElementById('vendorLocLng').value;
+            var vendorId = id ? parseInt(id) : d.vendor_id;
+            if (vendorId && (address || city)) {
+                var locId = document.getElementById('vendorLocId').value;
+                var locPayload = {
+                    csrf_token: CSRF,
+                    label: 'Main',
+                    address: address,
+                    city: city,
+                    lat: locLat !== '' ? parseFloat(locLat) : null,
+                    lng: locLng !== '' ? parseFloat(locLng) : null,
+                    is_preferred: 1
+                };
+                if (locId) {
+                    locPayload.action = 'update_location';
+                    locPayload.id = parseInt(locId);
+                } else {
+                    locPayload.action = 'add_location';
+                    locPayload.vendor_id = vendorId;
+                }
+                await fetch('/crm/api/vendors.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(locPayload),
+                });
+            }
+
             $('#vendorModal').modal('hide');
             loadVendors();
         } catch(e) { alert('Error: ' + e.message); }
@@ -4089,6 +4224,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             amount: document.getElementById('mobileRvAmount').value,
             gst_amount: document.getElementById('mobileRvGst').value,
             pst_amount: document.getElementById('mobileRvPst')?.value || '0',
+            recycling_tax: document.getElementById('mobileRvRecyclingTax')?.value || '0',
             total: document.getElementById('mobileRvTotal').value,
             accounting_category: document.getElementById('mobileRvCategory').value,
             job_id: document.getElementById('mobileRvJobId')?.value || null,
@@ -4124,7 +4260,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
             });
-            var d = await r.json();
+            if (r.status === 401 || r.redirected) {
+                window.location.href = '/loginAuth/login_secure.php';
+                return;
+            }
+            var d = await r.json().catch(function() {
+                throw new Error('Session expired — please refresh the page and try again.');
+            });
             if (!d.success) throw new Error(d.error);
 
             if (andSend && d.expense_id) {
@@ -4246,22 +4388,25 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         list.innerHTML = html;
     }
 
-    // Mobile auto-calc total (amount + gst + pst = total)
+    // Mobile auto-calc total (amount + gst + pst + recycling = total)
     (function() {
         var mAmtEl = document.getElementById('mobileRvAmount');
         var mGstEl = document.getElementById('mobileRvGst');
         var mPstEl = document.getElementById('mobileRvPst');
+        var mRtEl  = document.getElementById('mobileRvRecyclingTax');
         if (mAmtEl && mGstEl) {
             function mCalc() {
                 var amt = parseFloat(mAmtEl.value) || 0;
                 var gst = parseFloat(mGstEl.value) || 0;
                 var pst = mPstEl ? (parseFloat(mPstEl.value) || 0) : 0;
+                var rt  = mRtEl  ? (parseFloat(mRtEl.value)  || 0) : 0;
                 var totalEl = document.getElementById('mobileRvTotal');
-                if (totalEl) totalEl.value = (amt + gst + pst).toFixed(2);
+                if (totalEl) totalEl.value = (amt + gst + pst + rt).toFixed(2);
             }
             mAmtEl.addEventListener('input', mCalc);
             mGstEl.addEventListener('input', mCalc);
             if (mPstEl) mPstEl.addEventListener('input', mCalc);
+            if (mRtEl)  mRtEl.addEventListener('input', mCalc);
         }
     })();
 
@@ -4286,17 +4431,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             return;
         }
 
-        // Deactivate No Job — we'll auto-select the first OCR suggestion
-        if (noneBtn) noneBtn.classList.remove('mw-mc-expense-job-pill-active');
+        // Keep "No Job" active by default — user must explicitly pick a job
+        if (noneBtn) noneBtn.classList.add('mw-mc-expense-job-pill-active');
 
-        // Append OCR-suggested job pills
+        // Append OCR-suggested job pills (none pre-selected)
         jobs.forEach(function(job, idx) {
             var label = (job.contact_name || 'Job') + (job.service_type ? ' — ' + job.service_type : '');
             var sub = job.property_address || '';
             if (sub.length > 30) sub = sub.substring(0, 30) + '…';
             var btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'mw-mc-expense-job-pill' + (idx === 0 ? ' mw-mc-expense-job-pill-active' : '');
+            btn.className = 'mw-mc-expense-job-pill';
             btn.dataset.jobIdx = idx;
             btn.innerHTML = '<span class="mw-mc-expense-job-pill-name">' + esc(label) + '</span>' +
                 (sub ? '<span class="mw-mc-expense-job-pill-addr">' + esc(sub) + '</span>' : '');
@@ -4310,8 +4455,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             container.appendChild(btn);
         });
 
-        // Auto-select first OCR-suggested job
-        onSelect(jobs[0]);
+        // No auto-selection — leave job_id blank until user taps a pill
+        onSelect(null);
     }
 
     function formatPaymentLabel(method) {
@@ -4346,6 +4491,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             payment_method: document.getElementById('mobileRvPayment').value || 'company_card',
             amount: document.getElementById('mobileRvAmount').value,
             gst_amount: document.getElementById('mobileRvGst').value,
+            pst_amount: document.getElementById('mobileRvPst')?.value || '0',
+            recycling_tax: document.getElementById('mobileRvRecyclingTax')?.value || '0',
             total: document.getElementById('mobileRvTotal').value,
             accounting_category: document.getElementById('mobileRvCategory').value || 'Materials',
             job_id: document.getElementById('mobileRvJobId').value || null,
@@ -5578,6 +5725,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vdLocHoursSun').value = '';
         document.getElementById('vdLocNotes').value = '';
         document.getElementById('vdLocPreferred').checked = false;
+        document.getElementById('vdLocLat').value = '';
+        document.getElementById('vdLocLng').value = '';
         document.getElementById('vdLocationForm').style.display = '';
     };
 
@@ -5596,6 +5745,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vdLocHoursSun').value = loc.hours_sunday || '';
         document.getElementById('vdLocNotes').value = loc.notes || '';
         document.getElementById('vdLocPreferred').checked = loc.is_preferred == 1;
+        document.getElementById('vdLocLat').value = loc.lat || '';
+        document.getElementById('vdLocLng').value = loc.lng || '';
         document.getElementById('vdLocationForm').style.display = '';
     };
 
@@ -5603,11 +5754,80 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vdLocationForm').style.display = 'none';
     };
 
+    // Google Places Autocomplete for vendor edit/create modal — attached once on load
+    function initVendorAddressAutocomplete() {
+        var input = document.getElementById('vendorAddress');
+        if (!input) return;
+        if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+            setTimeout(initVendorAddressAutocomplete, 300);
+            return;
+        }
+        var ac = new google.maps.places.Autocomplete(input, {
+            types: ['address'],
+            componentRestrictions: { country: ['ca'] },
+            fields: ['address_components', 'geometry']
+        });
+        ac.addListener('place_changed', function() {
+            var place = ac.getPlace();
+            if (!place || !place.address_components) return;
+            var street = '', city = '';
+            for (var i = 0; i < place.address_components.length; i++) {
+                var c = place.address_components[i];
+                if (c.types.indexOf('street_number') !== -1) street = c.long_name + ' ';
+                if (c.types.indexOf('route') !== -1) street += c.long_name;
+                if (c.types.indexOf('locality') !== -1) city = c.long_name;
+            }
+            if (street.trim()) input.value = street.trim();
+            var cityEl = document.getElementById('vendorCity');
+            if (cityEl && city) cityEl.value = city;
+            if (place.geometry && place.geometry.location) {
+                document.getElementById('vendorLocLat').value = place.geometry.location.lat();
+                document.getElementById('vendorLocLng').value = place.geometry.location.lng();
+            }
+        });
+    }
+
+    // Google Places Autocomplete for vendor location address field
+    function initVdLocAutocomplete() {
+        var input = document.getElementById('vdLocAddress');
+        if (!input) return;
+        if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+            setTimeout(initVdLocAutocomplete, 300);
+            return;
+        }
+        var ac = new google.maps.places.Autocomplete(input, {
+            types: ['address'],
+            componentRestrictions: { country: ['ca'] },
+            fields: ['address_components', 'geometry']
+        });
+        ac.addListener('place_changed', function() {
+            var place = ac.getPlace();
+            if (!place || !place.address_components) return;
+            var street = '', city = '';
+            for (var i = 0; i < place.address_components.length; i++) {
+                var c = place.address_components[i];
+                if (c.types.indexOf('street_number') !== -1) street = c.long_name + ' ';
+                if (c.types.indexOf('route') !== -1) street += c.long_name;
+                if (c.types.indexOf('locality') !== -1) city = c.long_name;
+            }
+            if (street.trim()) input.value = street.trim();
+            var cityEl = document.getElementById('vdLocCity');
+            if (cityEl && city) cityEl.value = city;
+            if (place.geometry && place.geometry.location) {
+                document.getElementById('vdLocLat').value = place.geometry.location.lat();
+                document.getElementById('vdLocLng').value = place.geometry.location.lng();
+            }
+        });
+    }
+    initVdLocAutocomplete();
+
     window.mwSaveLocation = async function() {
         var editId = document.getElementById('vdLocEditId').value;
         var vendorId = _currentVendorId;
         if (!vendorId) return;
 
+        var rawLat = document.getElementById('vdLocLat').value;
+        var rawLng = document.getElementById('vdLocLng').value;
         var payload = {
             csrf_token: CSRF,
             label: document.getElementById('vdLocLabel').value.trim(),
@@ -5618,7 +5838,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             hours_saturday: document.getElementById('vdLocHoursSat').value.trim(),
             hours_sunday: document.getElementById('vdLocHoursSun').value.trim(),
             notes: document.getElementById('vdLocNotes').value.trim(),
-            is_preferred: document.getElementById('vdLocPreferred').checked ? 1 : 0
+            is_preferred: document.getElementById('vdLocPreferred').checked ? 1 : 0,
+            lat: rawLat !== '' ? parseFloat(rawLat) : null,
+            lng: rawLng !== '' ? parseFloat(rawLng) : null
         };
 
         if (!payload.label && !payload.address) {
@@ -5659,6 +5881,89 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     var _origOpenVendorDetail = typeof openVendorDetail === 'function' ? openVendorDetail : null;
 
     // Go
+    // ── OCR Learning Widget ───────────────────────────────────────
+    var ocrWidgetOpen = false;
+
+    window.toggleOcrWidget = function() {
+        ocrWidgetOpen = !ocrWidgetOpen;
+        document.getElementById('ocrWidgetBody').style.display = ocrWidgetOpen ? 'block' : 'none';
+        var chev = document.getElementById('ocrWidgetChevron');
+        if (chev) chev.style.transform = ocrWidgetOpen ? 'rotate(180deg)' : '';
+    };
+
+    async function loadOcrLearning() {
+        try {
+            var r = await fetch('/crm/api/expenses.php?action=ocr_learning_stats');
+            var d = await r.json();
+            if (!d.success) return;
+
+            var widget = document.getElementById('ocrLearningWidget');
+            if (!widget) return;
+
+            // Show widget
+            widget.style.display = 'block';
+            if (typeof feather !== 'undefined') feather.replace();
+
+            if (d.total_lessons === 0) {
+                document.getElementById('ocrNoData').style.display = 'block';
+                return;
+            }
+
+            // Headline stats
+            document.getElementById('ocrStatLessons').textContent = d.total_lessons;
+            document.getElementById('ocrStatVendors').textContent = d.vendors_tracked;
+            document.getElementById('ocrStatAccuracy').textContent = d.avg_accuracy !== null ? d.avg_accuracy + '%' : '—';
+
+            // Accuracy badge in header
+            if (d.avg_accuracy !== null) {
+                var badge = document.getElementById('ocrAccuracyBadge');
+                badge.textContent = d.avg_accuracy + '% accurate';
+                badge.className = 'badge mw-ocr-badge ' + (d.avg_accuracy >= 90 ? 'mw-ocr-badge-high' : d.avg_accuracy >= 70 ? 'mw-ocr-badge-mid' : 'mw-ocr-badge-low');
+                badge.style.display = '';
+            }
+
+            // Vendor accuracy bars
+            var barsEl = document.getElementById('ocrVendorBars');
+            if (d.vendors && d.vendors.length) {
+                var html = '';
+                d.vendors.forEach(function(v) {
+                    var acc = v.accuracy !== null ? v.accuracy : 0;
+                    var barClass = acc >= 90 ? 'mw-ocr-bar-high' : acc >= 70 ? 'mw-ocr-bar-mid' : 'mw-ocr-bar-low';
+                    var label = v.accuracy !== null ? v.accuracy + '%' : 'new';
+                    html += '<div class="mw-ocr-vendor-row">'
+                          +   '<div class="mw-ocr-vendor-name">' + escHtml(v.name) + '</div>'
+                          +   '<div class="mw-ocr-bar-wrap">'
+                          +     '<div class="mw-ocr-bar ' + barClass + '" style="width:' + Math.min(100, acc) + '%"></div>'
+                          +   '</div>'
+                          +   '<div class="mw-ocr-vendor-pct">' + label + '</div>'
+                          +   '<div class="mw-ocr-vendor-receipts">' + v.receipts + ' receipt' + (v.receipts !== 1 ? 's' : '') + '</div>'
+                          + '</div>';
+                });
+                barsEl.innerHTML = html;
+            }
+
+            // Sparkline
+            if (d.monthly && d.monthly.length > 1) {
+                var maxCount = Math.max.apply(null, d.monthly.map(function(m) { return m.count; }));
+                var sparkHtml = '';
+                d.monthly.forEach(function(m) {
+                    var h = maxCount > 0 ? Math.round((m.count / maxCount) * 36) : 4;
+                    sparkHtml += '<div class="mw-ocr-spark-col">'
+                               +   '<div class="mw-ocr-spark-bar" style="height:' + h + 'px;" title="' + m.label + ': ' + m.count + ' lessons"></div>'
+                               +   '<div class="mw-ocr-spark-lbl">' + escHtml(m.label) + '</div>'
+                               + '</div>';
+                });
+                document.getElementById('ocrSparkline').innerHTML = sparkHtml;
+                document.getElementById('ocrSparklineWrap').style.display = 'block';
+            }
+
+        } catch(e) { /* non-critical */ }
+    }
+
+    function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
