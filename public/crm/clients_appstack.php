@@ -1721,12 +1721,27 @@ try {
     $cols2 = $db->query("SHOW COLUMNS FROM contacts LIKE 'prospect_status'")->fetchAll();
     $hasProspectStatus = count($cols2) > 0;
 
+    // Check if lifecycle_stage column exists — add it if not (safe inline migration, outside transaction)
+    $colsLC = $db->query("SHOW COLUMNS FROM contacts LIKE 'lifecycle_stage'")->fetchAll();
+    $hasLifecycleStage = count($colsLC) > 0;
+    if (!$hasLifecycleStage) {
+        try {
+            $db->exec("ALTER TABLE contacts ADD COLUMN lifecycle_stage VARCHAR(50) DEFAULT NULL AFTER prospect_status");
+            // Seed from prospect_status so existing cards land in the right column
+            $db->exec("UPDATE contacts SET lifecycle_stage = prospect_status WHERE lifecycle_stage IS NULL AND prospect_status IS NOT NULL");
+            $hasLifecycleStage = true;
+        } catch (Exception $ignore) {}
+    }
+
     $excludeSubquery = "SELECT COALESCE(primary_contact_id, 0) FROM companies";
     if ($hasBillingContact) {
         $excludeSubquery .= " UNION SELECT COALESCE(billing_contact_id, 0) FROM companies";
     }
 
-    $prospectCol = $hasProspectStatus ? "ct.prospect_status" : "'prospect' as prospect_status";
+    $prospectCol      = $hasProspectStatus  ? "ct.prospect_status"  : "'prospect' as prospect_status";
+    $lifecycleStageCol = $hasLifecycleStage
+        ? "COALESCE(ct.lifecycle_stage, ct.prospect_status) as kanban_stage"
+        : ($hasProspectStatus ? "ct.prospect_status as kanban_stage" : "'prospect' as kanban_stage");
 
     // Check if stripe_card_last4 column exists
     $stripeCardCols = $db->query("SHOW COLUMNS FROM contacts LIKE 'stripe_card_last4'")->fetchAll();
@@ -1742,6 +1757,7 @@ try {
             ct.phone,
             ct.is_active,
             {$prospectCol},
+            {$lifecycleStageCol},
             ct.created_at,
             ct.notes,
             {$stripeCardCol}
@@ -5555,10 +5571,11 @@ $unconvertedRequests = $db->query("
                 $stagesData = getCompaniesByLifecycleStage();
                 $allStages = getLifecycleStages();
 
-                // Map standalone contacts into stagesData by prospect_status
-                // prospect_status maps: prospect → prospect, client → client, inactive → inactive
+                // Map standalone contacts into stagesData by kanban_stage (lifecycle_stage with
+                // prospect_status fallback). This preserves exact stage keys (e.g. 'opportunity',
+                // 'baited_with_quote') rather than collapsing to the 3-value prospect_status enum.
                 foreach ($standaloneContacts as $contact) {
-                    $contactStage = $contact['prospect_status'] ?? 'prospect';
+                    $contactStage = $contact['kanban_stage'] ?? $contact['prospect_status'] ?? 'prospect';
                     if (!isset($stagesData[$contactStage])) {
                         $stagesData[$contactStage] = [
                             'label' => ucfirst($contactStage),
