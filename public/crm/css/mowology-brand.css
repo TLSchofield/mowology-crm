@@ -10301,6 +10301,20 @@ textarea.font-monospace {
   letter-spacing: 0.5px;
 }
 
+/* Timer is a nav link — reset anchor styling, keep clickable feel */
+a.mw-clock-timer-nav {
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  transition: background 0.15s;
+}
+a.mw-clock-timer-nav:hover {
+  background: rgba(45,134,89,0.12);
+  text-decoration: none;
+  color: var(--mw-forest);
+}
+
 .mw-clock-job-badge {
   display: inline-flex;
   align-items: center;
@@ -10486,6 +10500,17 @@ textarea.font-monospace {
 
   .mw-mobile-clock-out:active {
     transform: scale(0.97);
+  }
+
+  /* Confirming state — orange instead of red, prompts second tap */
+  .mw-mobile-clock-confirming {
+    background: var(--mw-orange) !important;
+    animation: mw-pulse-btn 0.6s ease-in-out 2;
+  }
+
+  @keyframes mw-pulse-btn {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
   }
 
   /* Hide topbar clock widget on mobile — in-page version takes over */
@@ -10775,6 +10800,17 @@ textarea.font-monospace {
 }
 
 .mw-tc-btn-stop:hover { background: #b91c1c; }
+
+/* Stop button confirming state — orange, pulses to draw attention */
+.mw-tc-btn-stop.mw-tc-confirming {
+  background: var(--mw-orange);
+  animation: mw-tc-confirm-pulse 0.5s ease-in-out 2;
+}
+
+@keyframes mw-tc-confirm-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
 
 .mw-tc-btn-pause {
   background: var(--mw-orange);
@@ -14295,12 +14331,25 @@ textarea.font-monospace {
   font-weight: 600;
 }
 
+/* Scheduling rows: 3-col → 2-col at intermediate desktop widths (col-lg-6 gets tight) */
+@media (min-width: 992px) and (max-width: 1350px) {
+  .mw-cfq-sched-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Plan Details: Service Type + Plan Type equal width (override global flex: 2 1 auto on first-child) */
+.mw-cfq-plan-details-row .mw-form-group {
+  flex: 1 1 auto !important;
+}
+
 /* Responsive: stack panels on mobile */
 @media (max-width: 991px) {
   .mw-cfq-quote-panel {
     position: static;
   }
-  .mw-form-row.three {
+  .mw-form-row.three,
+  .mw-cfq-sched-row {
     grid-template-columns: 1fr;
   }
 }
