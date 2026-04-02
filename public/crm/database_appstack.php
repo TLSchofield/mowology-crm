@@ -1117,7 +1117,48 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 </div>
             </div>
 
-            <!-- ─── 19. Estimating Feedback ───────────────────────── -->
+            <!-- ─── 19. Contract Monthly Billing ────────────────────── -->
+            <div class="col mb-4">
+                <div class="card mw-cron-card h-100" data-cron-key="contract_billing">
+                    <div class="card-header mw-cron-card-header">
+                        <div class="d-flex align-items-center justify-content-between w-100">
+                            <h6 class="mw-cron-card-title mb-0">Contract Monthly Billing</h6>
+                            <div class="d-flex align-items-center">
+                                <span class="mw-cron-status-dot mr-2" title="Loading…"></span>
+                                <span class="badge mw-badge-contracts">Contracts</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body d-flex flex-column">
+                        <div class="mw-cron-schedule mb-2">
+                            <i data-feather="clock" class="mw-cron-schedule-icon"></i>
+                            <span class="mw-cron-schedule-human">1st of month at 6 AM</span>
+                            <code class="mw-cron-schedule-expr">0 6 1 * *</code>
+                        </div>
+                        <p class="mw-cron-desc">Generate and email invoices for all active monthly contracts. Idempotent — skips any contract already invoiced this month. 5% GST applied, due end of month.</p>
+                        <div class="mw-cron-command-wrap mb-3">
+                            <code class="mw-cron-command" id="cmd-billing">/usr/local/bin/php /home/mowology/public_html/app/Modules/Contracts/Cron/contract_billing.php</code>
+                            <button class="mw-cron-copy-btn" onclick="copyCronCommand(this, document.getElementById('cmd-billing').textContent)" title="Copy to clipboard">
+                                <i data-feather="clipboard" style="width:13px;height:13px;"></i>
+                            </button>
+                        </div>
+                        <div class="mw-cron-last-run small mb-1">
+                            <i data-feather="clock" style="width:12px;height:12px;"></i>
+                            Last run: <span class="mw-cron-ran-at text-muted"><em>Loading&hellip;</em></span>
+                        </div>
+                        <div class="mw-cron-last-summary small text-muted mb-3" style="display:none;"></div>
+                        <div class="mt-auto">
+                            <button class="btn btn-sm mw-cron-run-btn" onclick="runCron(this, '/crm/cron/contract_billing.php')">
+                                <i data-feather="play" style="width:13px;height:13px;"></i> Run Now
+                            </button>
+                            <button class="btn btn-sm btn-link mw-cron-history-btn p-0 ml-2" onclick="showCronHistory('contract_billing', 'Contract Monthly Billing')">History</button>
+                            <div class="mw-cron-result mt-2" style="display:none;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── 20. Estimating Feedback ───────────────────────── -->
             <div class="col mb-4">
                 <div class="card mw-cron-card h-100" data-cron-key="estimating_feedback">
                     <div class="card-header mw-cron-card-header">

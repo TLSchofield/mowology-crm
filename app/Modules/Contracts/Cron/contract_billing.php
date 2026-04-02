@@ -93,10 +93,8 @@ try {
                c.title,
                c.billing_amount,
                c.billing_cycle,
-               c.invoice_timing,
                c.contact_id,
                c.property_id,
-               c.company_id,
                con.first_name,
                con.last_name,
                con.email        AS contact_email,
@@ -161,7 +159,7 @@ foreach ($contracts as $ctr) {
 
         $db->prepare("
             INSERT INTO invoices (
-                invoice_number, contract_id, company_id, contact_id, property_id,
+                invoice_number, contract_id, contact_id, property_id,
                 invoice_date, issue_date, due_date,
                 subtotal, tax_rate, tax_amount,
                 total_amount, total, balance_due,
@@ -169,7 +167,7 @@ foreach ($contracts as $ctr) {
                 service_address, service_city, service_province, service_postal_code,
                 status, created_by
             ) VALUES (
-                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
                 CURDATE(), CURDATE(), ?,
                 ?, ?, ?,
                 ?, ?, ?,
@@ -180,7 +178,6 @@ foreach ($contracts as $ctr) {
         ")->execute([
             $invoiceNumber,
             $contractId,
-            $ctr['company_id'] ?: null,
             $contactId,
             $ctr['property_id'] ?: null,
             $dueDate,
@@ -283,7 +280,7 @@ foreach ($contracts as $ctr) {
                     'period'          => $monthLabel,
                     'sent_to'         => $ctr['contact_email'],
                 ]),
-                $ctr['company_id'] ?: null,
+                null,
                 null, null,
                 $invoiceId
             );
