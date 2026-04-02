@@ -737,6 +737,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $consentQuoteFollowup, $notes, $contactId
                         ]);
 
+                        // Update pipeline stage if provided
+                        $newLifecycleStage = trim($_POST['lifecycle_stage'] ?? '');
+                        if ($newLifecycleStage) {
+                            updateContactLifecycleStage($contactId, $newLifecycleStage, $user['id']);
+                        }
+
                         // Track field changes
                         if ($oldContact) {
                             trackFieldChanges('contact', $contactId, $oldContact, [
@@ -2332,6 +2338,35 @@ $unconvertedRequests = $db->query("
                     </div>
                   </div>
 
+                  <!-- Pipeline Stage -->
+                  <div class="card mb-3">
+                    <div class="card-header">
+                      <h5 class="card-title mb-0"><i data-feather="layers"></i> Pipeline Stage</h5>
+                    </div>
+                    <div class="card-body">
+                      <?php
+                        $currentStage  = $_POST['lifecycle_stage'] ?? $contact['lifecycle_stage'] ?? $contact['prospect_status'] ?? 'prospect';
+                        $editStages    = function_exists('getLifecycleStages') ? getLifecycleStages() : [];
+                      ?>
+                      <div class="form-group mb-0">
+                        <select class="form-control" name="lifecycle_stage">
+                          <?php if (!empty($editStages)): ?>
+                            <?php foreach ($editStages as $st): ?>
+                              <option value="<?php echo h($st['stage_key']); ?>"
+                                <?php echo ($currentStage === $st['stage_key']) ? 'selected' : ''; ?>>
+                                <?php echo h($st['stage_label']); ?>
+                              </option>
+                            <?php endforeach; ?>
+                          <?php else: ?>
+                            <option value="prospect"  <?php echo $currentStage === 'prospect'  ? 'selected' : ''; ?>>Prospect</option>
+                            <option value="client"    <?php echo $currentStage === 'client'    ? 'selected' : ''; ?>>Client</option>
+                            <option value="inactive"  <?php echo $currentStage === 'inactive'  ? 'selected' : ''; ?>>Inactive</option>
+                          <?php endif; ?>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
                   <div class="card mb-3">
                     <div class="card-header">
                       <h5 class="card-title mb-0"><i data-feather="file-text"></i> Notes</h5>
@@ -2375,12 +2410,27 @@ $unconvertedRequests = $db->query("
                   <?php echo $contactName; ?>
                 </h3>
                 <?php
-                  $stage = $viewContact['prospect_status'] ?? 'prospect';
-                  $stageColors = ['prospect' => '#3B82F6', 'client' => '#2D8659', 'inactive' => '#6B7280'];
-                  $stageColor = $stageColors[$stage] ?? '#6B7280';
+                  // Use lifecycle_stage (exact key) with prospect_status as fallback
+                  $stageKey   = $viewContact['lifecycle_stage'] ?? $viewContact['prospect_status'] ?? 'prospect';
+                  $stageLabel = ucfirst($stageKey);
+                  $stageColor = '#6B7280';
+                  // Look up label + color from lifecycle_stages table if available
+                  try {
+                      $vsStages = getLifecycleStages();
+                      foreach ($vsStages as $vs) {
+                          if ($vs['stage_key'] === $stageKey) {
+                              $stageLabel = $vs['stage_label'];
+                              $stageColor = $vs['stage_color'];
+                              break;
+                          }
+                      }
+                  } catch (Exception $ignore) {
+                      $fallbackColors = ['prospect' => '#3B82F6', 'client' => '#2D8659', 'inactive' => '#6B7280'];
+                      $stageColor = $fallbackColors[$stageKey] ?? '#6B7280';
+                  }
                 ?>
-                <span class="badge ml-2" style="background: <?php echo $stageColor; ?>; color: #fff; font-size: 0.75rem;">
-                  <?php echo ucfirst(h($stage)); ?>
+                <span class="badge ml-2" style="background: <?php echo h($stageColor); ?>; color: #fff; font-size: 0.75rem;">
+                  <?php echo h($stageLabel); ?>
                 </span>
               </div>
               <div class="mw-contact-actions">
