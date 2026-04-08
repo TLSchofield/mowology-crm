@@ -81,10 +81,17 @@ $summaryMinutes += $totalStops > 0 ? (max(0, $totalStops - 1) * 8 + 10) : 0;
 $activeClock = getActiveClockEntry($user['id']);
 $isClockedIn = (bool)$activeClock;
 
-// Already clocked in — go to homebase
+// Already clocked in — only redirect to homebase if pre-trip is also done.
+// If pre-trip is pending, stay here so JS can auto-open the overlay.
 if ($isClockedIn) {
-    header('Location: /crm/homebase.php');
-    exit;
+    $tripCheckStmt = $db->prepare("SELECT pre_trip_at FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ? LIMIT 1");
+    $tripCheckStmt->execute([$user['id'], $today]);
+    $tripCheckRow = $tripCheckStmt->fetch(PDO::FETCH_ASSOC);
+    if ($tripCheckRow && $tripCheckRow['pre_trip_at'] !== null) {
+        header('Location: /crm/homebase.php');
+        exit;
+    }
+    // Pre-trip not done yet — fall through; JS will skip splash/quiz and open the overlay
 }
 
 // ── Trip report ───────────────────────────────────────────────────────────────
@@ -138,6 +145,7 @@ $csrf = generateCSRFToken();
 
 $pageTitle  = 'Driver Portal';
 $activePage = 'driver';
+$bodyClass  = 'mw-page-driver'; // Suppresses global mobile nav bars — driver portal has its own UI
 $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="stylesheet">';
 
 ?>
@@ -504,7 +512,7 @@ function mwInjectFlatlineCSS() {
 }
 var DP = {
     csrf:           <?php echo json_encode($csrf); ?>,
-    isClockedIn:    false,
+    isClockedIn:    <?= $isClockedIn ? 'true' : 'false' ?>,
     preComplete:    <?php echo $preComplete ? 'true' : 'false'; ?>,
     postComplete:   <?php echo $postComplete ? 'true' : 'false'; ?>,
     clockStart:     null,
@@ -704,6 +712,14 @@ function dpShowHomeBase() {
 (function dpInitFlow() {
     var logo = document.getElementById('dpLogoScreen');
     var quiz = document.getElementById('dpQuizScreen');
+
+    // Already clocked in but pre-trip not done — skip splash/quiz, go straight to the overlay
+    if (DP.isClockedIn && !DP.preComplete) {
+        if (logo) logo.style.display = 'none';
+        dpShowHomeBase();
+        setTimeout(function(){ dpOpenForm('pre'); }, 200);
+        return;
+    }
 
     // After 1.5s, fade out the logo
     setTimeout(function() {
