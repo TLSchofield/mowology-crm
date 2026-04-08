@@ -4,9 +4,10 @@ require_once __DIR__ . '/auth.php';
 header('Cache-Control: no-store, no-cache, must-revalidate');
 header('Pragma: no-cache');
 
-// If already logged in, go to app launch
+// If already logged in, route to the correct portal
 if (isLoggedIn()) {
-    header('Location: /crm/app-launch.php');
+    $u = getCurrentUser();
+    header('Location: ' . (!empty($u['is_driver']) ? '/crm/driver-portal.php' : '/crm/app-launch.php'));
     exit();
 }
 
@@ -29,7 +30,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Too many login attempts. Please try again in a few minutes.';
         } else {
             if (loginUser($email, $password)) {
-                header('Location: /crm/app-launch.php');
+                $dest = !empty($_SESSION['user_is_driver']) ? '/crm/driver-portal.php' : '/crm/app-launch.php';
+                header('Location: ' . $dest);
                 exit();
             } else {
                 $error = 'Invalid email or password.';
@@ -395,15 +397,15 @@ $csrf_token = generateCSRFToken();
             <input type="hidden" name="csrf_token" value="<?php echo $csrf_token; ?>">
             
             <div class="form-group">
-                <label class="form-label" for="email">Email Address</label>
-                <input 
-                    type="email" 
-                    id="email" 
-                    name="email" 
-                    class="form-input" 
-                    required 
-                    autocomplete="email"
-                    placeholder="your@email.com"
+                <label class="form-label" for="email">Email or Username</label>
+                <input
+                    type="text"
+                    id="email"
+                    name="email"
+                    class="form-input"
+                    required
+                    autocomplete="username"
+                    placeholder="your@email.com or username"
                     value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>"
                 >
             </div>

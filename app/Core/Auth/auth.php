@@ -186,19 +186,19 @@ function purgeExpiredLoginAttempts(): int {
 function loginUser(string $email, string $password): bool {
     $db = getDB();
 
-    // Normalize email: trim, lowercase, strip invisible chars
+    // Normalize input: trim, lowercase, strip invisible chars
     $email = strtolower(trim($email));
     $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0]/u', '', $email);
 
     try {
-        // Fetch user without is_active filter — check it separately so NULL is treated as active
+        // Accept username OR email — drivers use short usernames (e.g. "nigel", "dodgeram")
         $stmt = $db->prepare("
             SELECT id, email, password_hash, full_name, first_name, last_name, role, is_active, is_driver
             FROM users
-            WHERE LOWER(email) = ?
+            WHERE LOWER(email) = ? OR (username IS NOT NULL AND LOWER(username) = ?)
             LIMIT 1
         ");
-        $stmt->execute([$email]);
+        $stmt->execute([$email, $email]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         // Explicitly deactivated users (is_active = 0) cannot log in; NULL/1 are both OK
@@ -208,6 +208,12 @@ function loginUser(string $email, string $password): bool {
 
         if ($user && isset($user['password_hash']) && password_verify($password, (string)$user['password_hash'])) {
             session_regenerate_id(true);
+
+            // Force a fresh CSRF token for the authenticated session.
+            // session_regenerate_id() carries over all session data including the
+            // pre-auth CSRF token that was embedded in the login page HTML.
+            // Without this, the login-page token remains valid post-authentication.
+            unset($_SESSION['csrf_token']);
 
             $_SESSION['user_id']         = (int)$user['id'];
             $_SESSION['user_email']      = (string)$user['email'];
