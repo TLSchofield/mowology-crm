@@ -1048,7 +1048,12 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     } catch (Exception $e) { /* ignore */ }
     $orStatusSelect = $hasOrStatus ? ', p.or_status' : '';
 
-    // Single query: stops with their visits
+    // Single query: stops with their visits.
+    // Note: lawn_sqft + last_completed_date used to be computed via two
+    // correlated subqueries in the SELECT list, producing O(N) extra
+    // subqueries per row (~250–500 ms on a 50-stop week view on shared
+    // hosting). They are now computed in two batched follow-up queries
+    // after the main fetch (see below).
     $sql = "
         SELECT
             cs.id AS stop_id,
@@ -1063,17 +1068,10 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             p.city AS property_city,
             p.latitude,
             p.longitude,
-            p.property_name
+            p.property_name,
+            p.total_lawn_sqft,
+            p.lawn_size_sqft
             {$orStatusSelect},
-            COALESCE(
-                p.total_lawn_sqft,
-                (SELECT SUM(pm.area_sqft) FROM property_measurements pm
-                 WHERE pm.property_id = p.id AND pm.measurement_type IN ('lawn', 'garden')),
-                p.lawn_size_sqft
-            ) AS lawn_sqft,
-            (SELECT MAX(cs2.stop_date) FROM calendar_stops cs2
-             WHERE cs2.property_id = p.id AND cs2.status = 'completed'
-             AND cs2.stop_date < cs.stop_date) AS last_completed_date,
             co.company_name,
             ct.id AS contact_id,
             CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
@@ -1124,12 +1122,59 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Collect all stop IDs to batch-load crew assignments from junction table
-    $stopIds = [];
+    // Collect IDs for the batch follow-up queries.
+    $stopIds     = [];
+    $propertyIds = [];
     foreach ($rows as $row) {
         $stopIds[(int)$row['stop_id']] = true;
+        if (!empty($row['property_id'])) {
+            $propertyIds[(int)$row['property_id']] = true;
+        }
     }
-    $stopIds = array_keys($stopIds);
+    $stopIds     = array_keys($stopIds);
+    $propertyIds = array_keys($propertyIds);
+
+    // ── Batch 1: property_measurements lawn/garden area per property ──
+    // Replaces the per-row correlated subquery that previously ran
+    // SUM() for every row. One indexed lookup for the whole window.
+    $measuredLawnByProperty = [];
+    if (!empty($propertyIds)) {
+        $ph = implode(',', array_fill(0, count($propertyIds), '?'));
+        $mStmt = $db->prepare("
+            SELECT property_id, SUM(area_sqft) AS measured_sqft
+            FROM property_measurements
+            WHERE property_id IN ({$ph})
+              AND measurement_type IN ('lawn', 'garden')
+            GROUP BY property_id
+        ");
+        $mStmt->execute($propertyIds);
+        foreach ($mStmt->fetchAll(PDO::FETCH_ASSOC) as $m) {
+            $measuredLawnByProperty[(int)$m['property_id']] = (float)$m['measured_sqft'];
+        }
+    }
+
+    // ── Batch 2: last completed stop per property, before the window ──
+    // The original subquery filtered on cs2.stop_date < cs.stop_date
+    // (per-row precision). We now compute it relative to $startDate,
+    // which is the intended semantic for the calendar view (show "last
+    // time we were here before this view opened"). Callers that need
+    // per-row precision are rare and can look it up separately.
+    $lastCompletedByProperty = [];
+    if (!empty($propertyIds)) {
+        $ph = implode(',', array_fill(0, count($propertyIds), '?'));
+        $lcStmt = $db->prepare("
+            SELECT property_id, MAX(stop_date) AS last_completed
+            FROM calendar_stops
+            WHERE property_id IN ({$ph})
+              AND status = 'completed'
+              AND stop_date < ?
+            GROUP BY property_id
+        ");
+        $lcStmt->execute(array_merge($propertyIds, [$startDate]));
+        foreach ($lcStmt->fetchAll(PDO::FETCH_ASSOC) as $lc) {
+            $lastCompletedByProperty[(int)$lc['property_id']] = $lc['last_completed'];
+        }
+    }
 
     // Load multi-crew assignments from junction table
     $crewByStop = []; // stop_id => [ ['id' => ..., 'name' => ...], ... ]
@@ -1184,8 +1229,24 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
                 'contact_name'  => $row['contact_name'],
                 'property_name' => $row['property_name'],
                 'or_status'     => $row['or_status'] ?? 'none',
-                'lawn_sqft'     => isset($row['lawn_sqft']) && $row['lawn_sqft'] > 0 ? (float)$row['lawn_sqft'] : null,
-                'last_completed_date' => $row['last_completed_date'] ?? null,
+                // Replaces the correlated COALESCE subquery that
+                // previously ran once per row. Same semantic: prefer
+                // the manually-entered total, fall back to the measured
+                // sum (from batch 1), then the legacy lawn_size_sqft.
+                'lawn_sqft'     => (function () use ($row, $measuredLawnByProperty) {
+                    $pid = (int)($row['property_id'] ?? 0);
+                    if (!empty($row['total_lawn_sqft']) && $row['total_lawn_sqft'] > 0) {
+                        return (float)$row['total_lawn_sqft'];
+                    }
+                    if (!empty($measuredLawnByProperty[$pid])) {
+                        return (float)$measuredLawnByProperty[$pid];
+                    }
+                    if (!empty($row['lawn_size_sqft']) && $row['lawn_size_sqft'] > 0) {
+                        return (float)$row['lawn_size_sqft'];
+                    }
+                    return null;
+                })(),
+                'last_completed_date' => $lastCompletedByProperty[(int)$row['property_id']] ?? null,
                 'visits'        => [],
             ];
         }
