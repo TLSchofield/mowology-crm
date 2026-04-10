@@ -168,6 +168,18 @@ $csrf     = generateCSRFToken();
 session_write_close();
 
 $isDriver  = !empty($user['is_driver']);
+
+// ── Post-trip status (drivers only) — gates the clock-out button ──────────────
+// Drivers must fill out the end-of-shift vehicle check before clocking out.
+// Non-drivers always pass through.
+$postComplete = true;
+if ($isDriver) {
+    $ptStmt = $db->prepare("SELECT post_trip_at FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ? LIMIT 1");
+    $ptStmt->execute([$user['id'], $today]);
+    $ptRow = $ptStmt->fetch(PDO::FETCH_ASSOC);
+    $postComplete = $ptRow && $ptRow['post_trip_at'] !== null;
+}
+
 $userName  = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
 if (!$userName) $userName = $user['full_name'] ?? 'Crew';
 $userParts = explode(' ', $userName);
@@ -688,8 +700,10 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
 (function () {
     'use strict';
 
-    var CSRF    = <?php echo json_encode($csrf); ?>;
-    var clockIn = <?php echo (int)$clockInTs; ?>; // unix timestamp
+    var CSRF          = <?php echo json_encode($csrf); ?>;
+    var clockIn       = <?php echo (int)$clockInTs; ?>; // unix timestamp
+    var IS_DRIVER     = <?php echo $isDriver ? 'true' : 'false'; ?>;
+    var POST_COMPLETE = <?php echo $postComplete ? 'true' : 'false'; ?>;
 
     // ── Running clock ──────────────────────────────────────────────────
     function formatElapsed(secs) {
@@ -725,6 +739,13 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
 
     // ── Clock Out ─────────────────────────────────────────────────────
     window.hbClockOut = function () {
+        // Drivers must complete the post-trip vehicle check before clocking out.
+        // Send them to the dedicated form — it saves post-trip, then clocks out.
+        if (IS_DRIVER && !POST_COMPLETE) {
+            window.location.href = '/crm/driver-log-post.php';
+            return;
+        }
+
         var btn = document.getElementById('hbClockOutBtn');
         if (btn) { btn.disabled = true; btn.textContent = 'Clocking out…'; }
 
