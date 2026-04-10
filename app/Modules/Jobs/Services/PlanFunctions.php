@@ -1077,6 +1077,8 @@ function getCalendarStops(string $startDate, string $endDate, ?int $crewId = nul
             co.company_name,
             ct.id AS contact_id,
             CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name,
+            ct.mobile AS contact_mobile,
+            ct.phone AS contact_phone,
             u.full_name AS crew_name,
             jv.id AS visit_id,
             jv.visit_number,

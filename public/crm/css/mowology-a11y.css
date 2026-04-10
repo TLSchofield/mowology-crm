@@ -51,3 +51,56 @@
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* ── Job-card action row — Call + Navigate buttons ────────
+   Sits at the top-right of every active and compact stop card. The
+   GO button is pre-existing; the .mw-mc-btn-call is new (see
+   partials/job-card.php). Kept in a11y.css so brand.css stays the
+   user's workspace. */
+.mw-mc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mw-mc-btn-call {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: var(--mw-radius-md, 12px);
+  background: var(--mw-color-success, #16A34A);
+  color: #fff;
+  text-decoration: none;
+  box-shadow: var(--mw-shadow-sm, 0 2px 8px rgba(17,24,39,0.06));
+  transition: transform var(--mw-dur-fast, 120ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1)),
+              filter var(--mw-dur-fast, 120ms);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mc-btn-call:hover,
+.mw-mc-btn-call:focus {
+  color: #fff;
+  text-decoration: none;
+  filter: brightness(1.08);
+}
+
+.mw-mc-btn-call:active {
+  transform: scale(0.94);
+}
+
+.mw-mc-btn-call svg {
+  stroke: #fff;
+}
+
+/* Bump to 44x44 on real touch devices so the tap target clears WCAG */
+@media (hover: none) and (pointer: coarse) {
+  .mw-mc-btn-call {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+}
