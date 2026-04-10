@@ -108,6 +108,10 @@ function _av(string $webPath): string {
        a11y rules are never lost during brand maintenance) -->
   <link href="<?= _av('/crm/css/mowology-a11y.css') ?>" rel="stylesheet">
 
+  <!-- Sync status UI (offline banner + pending-queue badge) -->
+  <link href="<?= _av('/crm/css/mw-sync-status.css') ?>" rel="stylesheet">
+  <script src="<?= _av('/crm/js/mw-sync-status.js') ?>" defer></script>
+
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="<?= _av('/crm/css/mobile-nav.css') ?>" rel="stylesheet">
 
