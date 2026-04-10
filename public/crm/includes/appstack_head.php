@@ -115,6 +115,9 @@ function _av(string $webPath): string {
   <!-- Haptic feedback wrapper — Capacitor Haptics with navigator.vibrate fallback -->
   <script src="<?= _av('/crm/js/mw-haptics.js') ?>" defer></script>
 
+  <!-- Structured-error API toast helper (consumes {success, error, code, retryable}) -->
+  <script src="<?= _av('/crm/js/mw-api-toast.js') ?>" defer></script>
+
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="<?= _av('/crm/css/mobile-nav.css') ?>" rel="stylesheet">
 

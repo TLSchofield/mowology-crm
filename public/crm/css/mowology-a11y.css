@@ -104,3 +104,41 @@
     min-width: 44px;
   }
 }
+
+/* ── API error toast — retry variant ─────────────────────
+   Styles the .mw-toast--has-action variant rendered by
+   /crm/js/mw-api-toast.js when an API returns a retryable error. */
+.mw-toast.mw-toast--has-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 8px;
+}
+
+.mw-toast .mw-toast-action {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: var(--mw-radius-sm, 8px);
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: var(--mw-text-xs, 0.75rem);
+  font-weight: var(--mw-weight-bold, 700);
+  cursor: pointer;
+  min-height: 32px;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  transition: background var(--mw-dur-fast, 120ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1));
+}
+
+.mw-toast .mw-toast-action:hover,
+.mw-toast .mw-toast-action:focus {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.mw-toast.mw-toast--leaving {
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity var(--mw-dur-base, 200ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1)),
+              transform var(--mw-dur-base, 200ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1));
+}
