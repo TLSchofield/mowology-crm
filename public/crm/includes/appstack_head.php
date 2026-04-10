@@ -44,7 +44,7 @@ function _av(string $webPath): string {
   <meta name="description" content="Mowology CRM - Client Management System">
 
   <!-- PWA / Mobile App -->
-  <meta name="theme-color" content="#2D8659">
+  <meta name="theme-color" content="#0D3B2E">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Mowology">

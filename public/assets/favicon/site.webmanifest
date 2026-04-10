@@ -7,7 +7,7 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "theme_color": "#2D8659",
+  "theme_color": "#0D3B2E",
   "background_color": "#F6F4EF",
   "icons": [
     {
@@ -29,10 +29,10 @@
   ],
   "shortcuts": [
     {
-      "name": "Snap Receipt",
-      "short_name": "Receipt",
-      "url": "/crm/expenses_appstack.php?mode=quick",
-      "description": "Quick receipt capture",
+      "name": "Clock In",
+      "short_name": "Clock In",
+      "url": "/crm/app-launch.php",
+      "description": "Start or end your shift",
       "icons": [{"src": "/assets/favicon/android-chrome-192x192.png", "sizes": "192x192"}]
     },
     {
@@ -40,6 +40,20 @@
       "short_name": "Schedule",
       "url": "/crm/jobs/schedule.php",
       "description": "View today's schedule",
+      "icons": [{"src": "/assets/favicon/android-chrome-192x192.png", "sizes": "192x192"}]
+    },
+    {
+      "name": "Snap Receipt",
+      "short_name": "Receipt",
+      "url": "/crm/expenses_appstack.php?mode=quick",
+      "description": "Quick receipt capture",
+      "icons": [{"src": "/assets/favicon/android-chrome-192x192.png", "sizes": "192x192"}]
+    },
+    {
+      "name": "Vehicle Log",
+      "short_name": "Vehicle",
+      "url": "/crm/driver-log.php",
+      "description": "Pre-trip vehicle inspection",
       "icons": [{"src": "/assets/favicon/android-chrome-192x192.png", "sizes": "192x192"}]
     }
   ],

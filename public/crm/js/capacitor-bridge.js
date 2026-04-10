@@ -29,6 +29,7 @@
     var LocalNotifications = Plugins.LocalNotifications;
     var Network = Plugins.Network;
     var MwTracking = Plugins.MwTracking; // Custom plugin
+    var App = Plugins.App; // For hardware back button + app state
 
     // ── Location Processor (JS-side noise filter) ──────────
     // Supplements the native accuracy gating with JS-side smoothing
@@ -398,6 +399,40 @@
             }
         }
     };
+
+    // ── Hardware Back Button (Android) ──────────────────────
+    // Pages can call e.preventDefault() on the 'mw-native-back' event to
+    // take over the back action. If no handler claims it, we close any
+    // open menu overlay first; otherwise fall through to history.back()
+    // or exit the app at the root of the stack.
+    if (App && App.addListener) {
+        App.addListener('backButton', function (data) {
+            var ev = new CustomEvent('mw-native-back', {
+                cancelable: true,
+                detail: { canGoBack: !!(data && data.canGoBack) }
+            });
+            var claimed = !document.dispatchEvent(ev); // preventDefault() → false → claimed
+            if (claimed) return;
+
+            // Default 1: close any open menu/overlay
+            var openMenu = document.querySelector(
+                '.mw-mobile-menu-overlay.open, .hb-menu-overlay.open, .dp-overlay.open'
+            );
+            if (openMenu) {
+                openMenu.classList.remove('open');
+                document.body.style.overflow = '';
+                return;
+            }
+
+            // Default 2: normal browser back, or exit at root
+            if (data && data.canGoBack) {
+                window.history.back();
+            } else if (App.exitApp) {
+                App.exitApp();
+            }
+        });
+        console.log('[MwNative] Hardware back button handler registered');
+    }
 
     // ── Auto-initialize ─────────────────────────────────────
     window.MwNative.network.init();

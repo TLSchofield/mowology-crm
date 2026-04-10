@@ -66,6 +66,8 @@ $bottomNav = [
 ];
 
 // Menu grid items (all nav sections shown in the slide-up)
+// Crew users already have the Driver Portal in the bottom nav — skip it in the
+// grid to avoid duplication. Non-crew users still see it in the grid.
 $menuItems = [
     ['key' => 'dashboard',     'label' => 'Dashboard',  'href' => '/crm/dashboard_appstack.php',
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>'],
@@ -85,14 +87,19 @@ $menuItems = [
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'],
     ['key' => 'map',           'label' => 'Map',        'href' => '/crm/map_appstack.php',
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>'],
-    ['key' => 'driver',        'label' => 'Driver',     'href' => '/crm/driver-portal.php',
-     'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'],
     ['key' => 'timeclock',    'label' => 'Clock',      'href' => '/crm/timeclock/my-timesheet.php',
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'],
     ['key' => 'quiz',         'label' => 'Quiz',       'href' => '/crm/quiz_appstack.php',
      'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'],
     // Admin only — handled separately below as file-picker button
 ];
+
+// Add Driver Portal tile for non-crew (admin/office) users. Crew already have
+// it in the bottom bar (line 59), so showing it again in the grid is noise.
+if (!$_isCrew) {
+    $menuItems[] = ['key' => 'driver', 'label' => 'Driver', 'href' => '/crm/driver-portal.php',
+        'icon' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>'];
+}
 ?>
 
 <!-- ── Mobile Top Bar ── -->
