@@ -210,6 +210,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
+    <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
     <script src="/crm/js/capacitor-bridge.js" defer></script>
     <style>
         :root {
@@ -782,6 +783,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
                             window.MwNative.geo.stopBackgroundTracking();
                         }
                     } catch (e) { /* non-critical */ }
+                    if (window.MwHaptics) window.MwHaptics.success();
                     hbToast('Clocked out. Great work today! 👊');
                     setTimeout(function () { window.location.href = '/crm/app-launch.php'; }, 1200);
                 } else {

@@ -52,6 +52,7 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
+    <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
     <script src="/crm/js/capacitor-bridge.js" defer></script>
     <style>
         :root {

@@ -81,6 +81,7 @@ session_write_close();
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
+    <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
     <style>
         /* Brand + layout tokens come from /crm/css/tokens.css loaded
            above. Backward-compat --dl-* aliases are defined there. */
@@ -610,6 +611,7 @@ session_write_close();
         .then(function (r) { return r.json(); })
         .then(function (res) {
             if (res.success) {
+                if (window.MwHaptics) window.MwHaptics.success();
                 dlToast('Pre-trip saved — starting your day!');
                 setTimeout(function () { window.location.href = '/crm/homebase.php'; }, 800);
             } else {

@@ -80,6 +80,7 @@ session_write_close();
     <link href="/crm/css/mw-sync-status.css?v=20260410a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/mw-sync-status.js?v=20260410a" defer></script>
+    <script src="/crm/js/mw-haptics.js?v=20260410a" defer></script>
     <style>
         /* Brand + layout tokens come from /crm/css/tokens.css loaded
            above. Backward-compat --dl-* aliases are defined there. */
@@ -361,6 +362,7 @@ session_write_close();
                         window.MwNative.geo.stopBackgroundTracking();
                     }
                 } catch (e) { /* non-critical */ }
+                if (window.MwHaptics) window.MwHaptics.success();
                 dlToast('Clocked out. Good work today! 👊');
                 setTimeout(function () { window.location.href = '/crm/app-launch.php'; }, 1000);
             } else {
@@ -405,6 +407,7 @@ session_write_close();
         .then(function (r) { return r.json(); })
         .then(function (res) {
             if (res.success) {
+                if (window.MwHaptics) window.MwHaptics.success();
                 dlToast('Post-trip saved — clocking out…');
                 clockOutWithGeo();
             } else {

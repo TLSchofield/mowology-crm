@@ -112,6 +112,9 @@ function _av(string $webPath): string {
   <link href="<?= _av('/crm/css/mw-sync-status.css') ?>" rel="stylesheet">
   <script src="<?= _av('/crm/js/mw-sync-status.js') ?>" defer></script>
 
+  <!-- Haptic feedback wrapper — Capacitor Haptics with navigator.vibrate fallback -->
+  <script src="<?= _av('/crm/js/mw-haptics.js') ?>" defer></script>
+
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="<?= _av('/crm/css/mobile-nav.css') ?>" rel="stylesheet">
 
