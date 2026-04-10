@@ -76,23 +76,11 @@ session_write_close();
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <style>
-        :root {
-            --dl-forest:  #0D3B2E;
-            --dl-green:   #2D8659;
-            --dl-dark:    #1A5F4A;
-            --dl-lime:    #7FD858;
-            --dl-light:   #E8F3F0;
-            --dl-bg:      #F3F4F6;
-            --dl-card:    #FFFFFF;
-            --dl-text:    #111827;
-            --dl-muted:   #6B7280;
-            --dl-border:  #E5E7EB;
-            --dl-radius:  16px;
-            --dl-safe-top:    env(safe-area-inset-top, 0px);
-            --dl-safe-bottom: env(safe-area-inset-bottom, 0px);
-        }
+        /* Brand + layout tokens come from /crm/css/tokens.css loaded
+           above. Backward-compat --dl-* aliases are defined there. */
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -230,7 +218,7 @@ session_write_close();
             pointer-events: none; z-index: 300; white-space: nowrap;
         }
         .dl-toast.show  { opacity: 1; transform: translateX(-50%) translateY(0); }
-        .dl-toast.error { background: #DC2626; }
+        .dl-toast.error { background: var(--mw-color-danger); }
     </style>
 </head>
 <body>
@@ -330,7 +318,7 @@ session_write_close();
 
 </div><!-- /.dl-page -->
 
-<div class="dl-toast" id="dlToast"></div>
+<div class="dl-toast" id="dlToast" role="alert" aria-live="assertive" aria-atomic="true"></div>
 
 <script>
 (function () {

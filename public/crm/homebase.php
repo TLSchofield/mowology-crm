@@ -206,24 +206,15 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/capacitor-bridge.js" defer></script>
     <style>
         :root {
-            --hb-forest:       #0D3B2E;
-            --hb-green:        #2D8659;
-            --hb-dark:         #1A5F4A;
-            --hb-lime:         #7FD858;
-            --hb-light:        #E8F3F0;
-            --hb-bg:           #F3F4F6;
-            --hb-card:         #FFFFFF;
-            --hb-text:         #111827;
-            --hb-muted:        #6B7280;
-            --hb-border:       #E5E7EB;
-            --hb-radius:       16px;
+            /* Brand colour + shared sizing tokens come from
+               /crm/css/tokens.css loaded in <head>. Only keep the
+               homebase-specific values here. */
             --hb-nav-h:        68px;
-            --hb-safe-top:     env(safe-area-inset-top, 0px);
-            --hb-safe-bottom:  env(safe-area-inset-bottom, 0px);
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -350,7 +341,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         .hb-wx-icon { font-size: 24px; }
         .hb-wx-temp { font-size: 28px; font-weight: 800; line-height: 1; }
         .hb-wx-cond { font-size: 12px; color: var(--hb-muted); margin-top: 3px; }
-        .hb-wx-precip { font-size: 11px; color: #3B82F6; font-weight: 600; margin-top: 2px; }
+        .hb-wx-precip { font-size: 11px; color: var(--mw-color-info); font-weight: 600; margin-top: 2px; }
 
         /* ── Memory card ─────────────────────────────────────────── */
         .hb-mem-header {
@@ -462,8 +453,8 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         }
         .hb-menu-clock-since { font-size: 11px; color: var(--hb-muted); margin-top: 2px; }
         .hb-menu-clock-out-btn {
-            background: #FEF2F2; color: #DC2626;
-            border: 1px solid #FCA5A5; border-radius: 8px;
+            background: var(--mw-color-danger-bg); color: var(--mw-color-danger);
+            border: 1px solid var(--mw-color-danger); border-radius: 8px;
             padding: 7px 14px; font-size: 13px; font-weight: 600;
             cursor: pointer; white-space: nowrap; flex-shrink: 0;
         }
@@ -479,8 +470,8 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         .hb-menu-nav-item:active { background: #F3F4F6; }
         .hb-menu-nav-item svg { stroke: var(--hb-muted); flex-shrink: 0; }
         .hb-menu-divider { height: 1px; background: var(--hb-border); margin: 4px 20px; }
-        .hb-menu-danger { color: #DC2626 !important; }
-        .hb-menu-danger svg { stroke: #DC2626 !important; }
+        .hb-menu-danger { color: var(--mw-color-danger) !important; }
+        .hb-menu-danger svg { stroke: var(--mw-color-danger) !important; }
 
         /* ── Toast ───────────────────────────────────────────────── */
         .hb-toast {
@@ -494,7 +485,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
             pointer-events: none; z-index: 300; white-space: nowrap;
         }
         .hb-toast.show  { opacity: 1; transform: translateX(-50%) translateY(0); }
-        .hb-toast.error { background: #DC2626; }
+        .hb-toast.error { background: var(--mw-color-danger); }
     </style>
 </head>
 <body>
@@ -714,7 +705,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     </div>
 </div>
 
-<div class="hb-toast" id="hbToast"></div>
+<div class="hb-toast" id="hbToast" role="alert" aria-live="assertive" aria-atomic="true"></div>
 
 <script>
 (function () {

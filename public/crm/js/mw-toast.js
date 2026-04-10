@@ -23,6 +23,9 @@
       c = document.createElement('div');
       c.id = CONTAINER_ID;
       c.className = 'mw-toast-container';
+      // Accessibility — screen readers auto-announce appended nodes
+      c.setAttribute('role', 'region');
+      c.setAttribute('aria-label', 'Notifications');
       document.body.appendChild(c);
     }
     return c;
@@ -55,6 +58,12 @@
     var container = getContainer();
     var toast = document.createElement('div');
     toast.className = 'mw-toast mw-toast--' + type;
+    // Error toasts use role="alert" (assertive) — everything else uses
+    // role="status" (polite) so the screen reader doesn't interrupt the
+    // user mid-sentence for a success/info message.
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    toast.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+    toast.setAttribute('aria-atomic', 'true');
 
     toast.innerHTML =
       '<span class="mw-toast-icon">' + (iconMap[type] || iconMap.info) + '</span>' +

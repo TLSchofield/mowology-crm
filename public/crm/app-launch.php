@@ -48,17 +48,13 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="/crm/css/tokens.css?v=20260410a" rel="stylesheet">
     <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
     <script src="/crm/js/capacitor-bridge.js" defer></script>
     <style>
         :root {
-            --al-forest: #0D3B2E;
-            --al-green:  #2D8659;
-            --al-dark:   #1A5F4A;
-            --al-lime:   #7FD858;
-            --al-light:  #E8F3F0;
-            --al-text:   #1a1a2e;
-            --al-muted:  #6b7280;
+            /* Brand tokens come from /crm/css/tokens.css loaded above.
+               Only the page-specific border radius stays local. */
             --al-radius: 18px;
         }
 
@@ -214,8 +210,8 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
             font-family: inherit;
         }
         .al-quiz-option:active  { transform: scale(0.98); }
-        .al-quiz-option.correct { border-color: #22c55e; background: #f0fdf4; color: #15803d; font-weight: 600; }
-        .al-quiz-option.wrong   { border-color: #ef4444; background: #fef2f2; color: #991b1b; }
+        .al-quiz-option.correct { border-color: var(--mw-color-success); background: var(--mw-color-success-bg); color: #15803d; font-weight: 600; }
+        .al-quiz-option.wrong   { border-color: var(--mw-color-danger); background: var(--mw-color-danger-bg); color: #991b1b; }
         .al-quiz-option:disabled { cursor: default; }
         .al-quiz-feedback {
             text-align: center; margin-top: 14px;

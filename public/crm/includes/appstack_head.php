@@ -91,10 +91,15 @@ function _av(string $webPath): string {
   <!-- Fonts (matches public website) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700&family=Open+Sans:wght@400;600&display=swap" rel="stylesheet">
 
   <!-- AppStack base (vendor — DO NOT MODIFY) -->
   <link href="/crm/css/classic.css" rel="stylesheet">
+
+  <!-- Design tokens — single source of truth for colour, type, space,
+       radius, shadow, motion. Loaded before brand.css so brand rules
+       can use the tokens. -->
+  <link href="<?= _av('/crm/css/tokens.css') ?>" rel="stylesheet">
 
   <!-- Mowology brand override -->
   <link href="<?= _av('/crm/css/mowology-brand.css') ?>" rel="stylesheet">
