@@ -288,6 +288,51 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         /* ── Content ─────────────────────────────────────────────── */
         .hb-content { padding: 14px 14px 0; display: flex; flex-direction: column; gap: 12px; }
 
+        /* ── D8 Tracking health card (drivers only) ──────────────── */
+        .hb-health { padding: 12px 14px; }
+        .hb-health-row { display: flex; align-items: center; gap: 10px; }
+        .hb-health-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--hb-muted); flex-shrink: 0;
+            box-shadow: 0 0 0 0 rgba(127, 216, 88, 0);
+            transition: background 200ms, box-shadow 200ms;
+        }
+        .hb-health.is-active .hb-health-dot {
+            background: var(--hb-lime);
+            box-shadow: 0 0 0 4px rgba(127, 216, 88, 0.2);
+            animation: hb-health-pulse 1.6s ease-in-out infinite;
+        }
+        .hb-health.is-stale .hb-health-dot { background: var(--mw-color-warning, #D97706); }
+        .hb-health.is-error  .hb-health-dot { background: var(--mw-color-danger,  #DC2626); }
+        @keyframes hb-health-pulse {
+            0%,100% { box-shadow: 0 0 0 4px rgba(127, 216, 88, 0.2); }
+            50%     { box-shadow: 0 0 0 8px rgba(127, 216, 88, 0.0); }
+        }
+        .hb-health-main { flex: 1; min-width: 0; }
+        .hb-health-title {
+            font-size: 12px; font-weight: 800; text-transform: uppercase;
+            letter-spacing: 0.5px; color: var(--hb-muted);
+        }
+        .hb-health-sub {
+            font-size: 13px; font-weight: 600; color: var(--hb-text);
+            margin-top: 2px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .hb-health-queue {
+            display: inline-flex; flex-direction: column; align-items: flex-end;
+            padding: 4px 8px;
+            background: var(--mw-color-warning-bg, #FEF3C7);
+            color: var(--mw-color-warning, #D97706);
+            border-radius: 10px;
+            font-size: 11px; font-weight: 800;
+            line-height: 1;
+        }
+        .hb-health-queue-label {
+            font-size: 9px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
         /* ── Base card ───────────────────────────────────────────── */
         .hb-card {
             background: var(--hb-card);
@@ -616,6 +661,23 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         </div>
         <?php endif; ?>
 
+        <?php if ($isDriver): ?>
+        <!-- ── Driver tracking health card (D8) ────────────────── -->
+        <div class="hb-card hb-health" id="hbHealthCard" hidden>
+            <div class="hb-health-row">
+                <div class="hb-health-dot" id="hbHealthDot"></div>
+                <div class="hb-health-main">
+                    <div class="hb-health-title" id="hbHealthTitle">Tracking</div>
+                    <div class="hb-health-sub" id="hbHealthSub">Checking status…</div>
+                </div>
+                <div class="hb-health-queue" id="hbHealthQueue" hidden>
+                    <span id="hbHealthQueueCount">0</span>
+                    <span class="hb-health-queue-label">pending</span>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
     </div><!-- /.hb-content -->
 </div><!-- /.hb-scroll -->
 
@@ -807,6 +869,81 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
             doOut();
         }
     };
+
+    // ── D8 — Driver tracking health card ─────────────────────────────
+    // Polls MwTracking.getHealth() every 15 s and updates the small
+    // status card. No-op on non-driver pages (the PHP template gated
+    // on $isDriver so the element only exists for drivers).
+    (function () {
+        var card = document.getElementById('hbHealthCard');
+        if (!card) return;
+        if (!IS_DRIVER) return;
+        if (!window.MwNative || !window.MwNative.tracking) {
+            // Not in native app — leave the card hidden.
+            return;
+        }
+
+        card.hidden = false;
+        var dot    = document.getElementById('hbHealthDot');
+        var sub    = document.getElementById('hbHealthSub');
+        var queue  = document.getElementById('hbHealthQueue');
+        var qCount = document.getElementById('hbHealthQueueCount');
+
+        function fmtAge(ms) {
+            if (!ms || ms < 0) return '—';
+            var s = Math.floor(ms / 1000);
+            if (s < 60)  return s + 's ago';
+            if (s < 3600) return Math.floor(s / 60) + 'm ago';
+            return Math.floor(s / 3600) + 'h ago';
+        }
+
+        function render(h) {
+            if (!h) {
+                card.className = 'hb-card hb-health is-error';
+                sub.textContent = 'Tracking unavailable';
+                queue.hidden = true;
+                return;
+            }
+            var active = !!h.isTrackingActive;
+            var lastFixMs = h.lastFixTime ? (Date.now() - h.lastFixTime) : null;
+            var stale = !active || (lastFixMs !== null && lastFixMs > 5 * 60 * 1000);
+
+            card.className = 'hb-card hb-health ' +
+                (active && !stale ? 'is-active' : stale ? 'is-stale' : 'is-error');
+
+            var parts = [];
+            if (h.currentActivity && h.currentActivity !== 'UNKNOWN') {
+                parts.push(h.currentActivity.toLowerCase().replace('_', ' '));
+            }
+            if (lastFixMs !== null) parts.push('fix ' + fmtAge(lastFixMs));
+            if (!parts.length) parts.push(active ? 'Running' : 'Stopped');
+            sub.textContent = parts.join(' · ');
+
+            var pending = (h.pointsUnsyncedCount || 0);
+            if (pending > 0) {
+                queue.hidden = false;
+                qCount.textContent = String(pending);
+            } else {
+                queue.hidden = true;
+            }
+        }
+
+        function refresh() {
+            if (!window.MwNative || !window.MwNative.tracking) return;
+            window.MwNative.tracking.getHealth().then(render).catch(function () {
+                render(null);
+            });
+        }
+
+        refresh();
+        var timer = setInterval(refresh, 15000);
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') refresh();
+        });
+        // Clean up on pagehide so the setInterval doesn't leak when the
+        // WebView navigates away. (Part of D5 pattern.)
+        window.addEventListener('pagehide', function () { clearInterval(timer); }, { once: true });
+    }());
 
     // ── Toast ─────────────────────────────────────────────────────────
     window.hbToast = function (msg, isError) {

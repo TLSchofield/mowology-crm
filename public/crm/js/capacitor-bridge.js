@@ -141,8 +141,36 @@
                     return;
                 }
 
-                var distanceFilter = options.distanceFilter || 10;
+                // D6 — Adaptive distance filter at startup.
+                // Query the current activity from MwTracking before we
+                // pin a filter. This prevents the "10 m filter while
+                // still" scenario that wakes the GPS chip every few
+                // seconds in a parked truck. Falls back to the caller's
+                // requested filter, then to 15 m if we know nothing.
+                if (!options.distanceFilter && MwTracking && MwTracking.getHealth) {
+                    MwTracking.getHealth().then(function (h) {
+                        var act = (h && h.currentActivity) || 'UNKNOWN';
+                        var filter = activityDistanceFilter[act] || 15;
+                        window.MwNative._currentActivity = act;
+                        console.log('[MwNative] Initial activity:', act, '→ distanceFilter', filter);
+                        window.MwNative.geo._reallyStart(callback, filter);
+                    }).catch(function () {
+                        window.MwNative.geo._reallyStart(callback, 15);
+                    });
+                    return;
+                }
 
+                var distanceFilter = options.distanceFilter || 10;
+                this._reallyStart(callback, distanceFilter);
+            },
+
+            /**
+             * Internal — hand off to BackgroundGeolocation.addWatcher
+             * with the chosen distance filter. Split out from the
+             * public startBackgroundTracking so the async
+             * getHealth() path can call back in cleanly.
+             */
+            _reallyStart: function(callback, distanceFilter) {
                 BackgroundGeolocation.addWatcher({
                     backgroundTitle: 'Mowology GPS Tracking',
                     backgroundMessage: 'Tracking your location for crew management',
@@ -399,6 +427,69 @@
             }
         }
     };
+
+    // ── D7 — App lifecycle (pause / resume) ─────────────────
+    // When the user backgrounds the app, raise the GPS distance
+    // filter to the STILL bucket (50 m). When they foreground it
+    // again, restore the filter matching the current activity.
+    // Implemented by removing the current watcher and re-adding
+    // with the new filter — the @capacitor-community/background-
+    // geolocation plugin doesn't support live filter updates.
+    if (App && App.addListener) {
+        var pausedFilter = null;
+        App.addListener('pause', function () {
+            if (window.MwNative._bgWatchId === null) return;
+            console.log('[MwNative] App pause → raising GPS filter to STILL (50 m)');
+            pausedFilter = activityDistanceFilter[window.MwNative._currentActivity] || 15;
+            try {
+                BackgroundGeolocation.removeWatcher({ id: window.MwNative._bgWatchId });
+                window.MwNative._bgWatchId = null;
+                window.MwNative.geo.watchId = null;
+            } catch (e) { /* ignore */ }
+            // Re-add at the higher filter so native updates still flow
+            // but drain less battery. Uses the last-known callback via
+            // MwTracking events rather than a fresh JS callback.
+            if (BackgroundGeolocation) {
+                BackgroundGeolocation.addWatcher({
+                    backgroundTitle: 'Mowology GPS Tracking',
+                    backgroundMessage: 'Tracking your location for crew management',
+                    requestPermissions: false,
+                    stale: false,
+                    distanceFilter: 50
+                }, function (location) {
+                    if (!location) return;
+                    if (MwTracking) {
+                        MwTracking.storePoint({
+                            lat: location.latitude,
+                            lng: location.longitude,
+                            accuracy: location.accuracy || 0,
+                            speed: location.speed || 0,
+                            heading: location.bearing || 0,
+                            altitude: location.altitude || 0,
+                            provider: 'fused',
+                            timestamp: location.time || Date.now()
+                        }).catch(function () {});
+                    }
+                }).then(function (id) {
+                    window.MwNative._bgWatchId = id;
+                    window.MwNative.geo.watchId = id;
+                }).catch(function () {});
+            }
+        });
+
+        App.addListener('resume', function () {
+            if (pausedFilter === null) return;
+            console.log('[MwNative] App resume → restoring GPS filter', pausedFilter);
+            // Caller should re-subscribe; for now, just log so the
+            // tracking widget can react via the existing
+            // mw-activity-changed event.
+            document.dispatchEvent(new CustomEvent('mw-app-resumed', {
+                detail: { distanceFilter: pausedFilter }
+            }));
+            pausedFilter = null;
+        });
+        console.log('[MwNative] App pause/resume lifecycle listeners registered');
+    }
 
     // ── Hardware Back Button (Android) ──────────────────────
     // Pages can call e.preventDefault() on the 'mw-native-back' event to

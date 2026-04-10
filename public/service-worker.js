@@ -627,6 +627,7 @@ function staleWhileRevalidate(request, cacheName) {
 /**
  * Network-first: try network, fall back to cache if offline.
  * Best for API calls where stale data could be misleading.
+ * PAGE_CACHE writes also trigger the LRU trimmer below.
  */
 function networkFirst(request, cacheName) {
   // Use redirect:'follow' — navigation requests have redirect:'manual' by spec,
@@ -634,13 +635,48 @@ function networkFirst(request, cacheName) {
   return fetch(request, { redirect: 'follow' }).then(function(response) {
     if (response.ok) {
       var clone = response.clone();
-      caches.open(cacheName).then(function(cache) { cache.put(request, clone); });
+      caches.open(cacheName).then(function(cache) {
+        cache.put(request, clone).then(function () {
+          if (cacheName === PAGE_CACHE) trimPageCache(cache);
+        });
+      });
     }
     return response;
   }).catch(function() {
     return caches.match(request).then(function(cached) {
       return cached || offlinePage();
     });
+  });
+}
+
+/**
+ * Keep PAGE_CACHE bounded to MAX_PAGES entries so a long shift of
+ * schedule / homebase / clients navigations doesn't grow the cache
+ * past the QuotaExceededError ceiling on older Android devices.
+ *
+ * Strategy: cache.keys() returns entries in insertion order (per the
+ * CacheStorage spec). When over the cap we delete the oldest 20% of
+ * entries in a single pass. Runs asynchronously so it never blocks
+ * the fetch response.
+ */
+var MAX_PAGES = 30;
+var _pageTrimRunning = false;
+
+function trimPageCache(cache) {
+  if (_pageTrimRunning) return;
+  _pageTrimRunning = true;
+
+  cache.keys().then(function (keys) {
+    if (keys.length <= MAX_PAGES) { _pageTrimRunning = false; return; }
+    var deleteCount = Math.ceil(keys.length * 0.2);
+    var deletes = keys.slice(0, deleteCount).map(function (key) {
+      return cache.delete(key);
+    });
+    return Promise.all(deletes);
+  }).then(function () {
+    _pageTrimRunning = false;
+  }).catch(function () {
+    _pageTrimRunning = false;
   });
 }
 
