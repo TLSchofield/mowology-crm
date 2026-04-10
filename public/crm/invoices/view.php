@@ -472,6 +472,12 @@ $extraHead = $isPayable
                       </button>
                   </form>
 
+                  <?php if ($invoice['status'] !== 'paid' && userHasPermission('billing.edit')): ?>
+                      <a href="edit.php?id=<?php echo $invoiceId; ?>" class="btn btn-outline-primary" title="Edit this invoice">
+                          <i data-feather="edit" class="mr-1"></i> Edit
+                      </a>
+                  <?php endif; ?>
+
                   <?php if ($invoice['status'] !== 'paid'): ?>
                       <form method="POST" class="d-inline">
                           <input type="hidden" name="csrf_token" value="<?php echo $csrfToken; ?>">
