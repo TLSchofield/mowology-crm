@@ -223,3 +223,55 @@
 .mw-mc-search-wrap:not(.mw-mc-search-active) .mw-mc-search-count {
   display: none;
 }
+
+/* ── Pull-to-refresh loader (B6) ─────────────────────────
+   Injected by /crm/js/mw-pull-refresh.js at the top of
+   .mw-mc-container. Height is driven directly by JS to follow the
+   user's finger; CSS only owns the visual. */
+.mw-mc-pull-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  height: 0;
+  color: var(--mw-ink-500, #6B7280);
+  font-family: var(--mw-font-sans, 'Inter', sans-serif);
+  font-size: var(--mw-text-xs, 0.75rem);
+  font-weight: var(--mw-weight-semibold, 600);
+  background: var(--mw-ink-50, #F9FAFB);
+  gap: 4px;
+  padding-bottom: 6px;
+}
+
+.mw-mc-pull-loader .mw-mc-pull-spinner svg {
+  stroke: var(--mw-ink-500, #6B7280);
+  transition: transform var(--mw-dur-fast, 120ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1)),
+              stroke var(--mw-dur-fast, 120ms);
+}
+
+.mw-mc-pull-loader.mw-mc-pull-ready {
+  color: var(--mw-green, #2D8659);
+}
+
+.mw-mc-pull-loader.mw-mc-pull-ready .mw-mc-pull-spinner svg {
+  stroke: var(--mw-green, #2D8659);
+  transform: rotate(180deg);
+}
+
+@keyframes mw-mc-pull-spin {
+  to { transform: rotate(360deg); }
+}
+
+.mw-mc-pull-loader.mw-mc-pull-loading .mw-mc-pull-spinner svg {
+  animation: mw-mc-pull-spin 0.9s linear infinite;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mw-mc-pull-loader .mw-mc-pull-spinner svg,
+  .mw-mc-pull-loader.mw-mc-pull-loading .mw-mc-pull-spinner svg {
+    animation: none;
+    transition: none;
+  }
+}
