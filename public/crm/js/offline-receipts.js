@@ -316,6 +316,10 @@
         });
 
         // ── Online / Offline events (browser / iOS PWA) ──
+        // AbortController so all listeners unbind on pagehide (D5).
+        var _orAbort = new AbortController();
+        var _orSig = { signal: _orAbort.signal };
+
         window.addEventListener('online', function() {
             var banner = document.getElementById('mw-offline-banner');
             if (banner) {
@@ -324,7 +328,7 @@
             }
             // Auto-sync pending receipts when connectivity restored
             updatePendingBadge();
-        });
+        }, _orSig);
 
         window.addEventListener('offline', function() {
             var banner = document.getElementById('mw-offline-banner');
@@ -341,7 +345,11 @@
                     });
                 }
             }
-        });
+        }, _orSig);
+
+        window.addEventListener('pagehide', function () {
+            try { _orAbort.abort(); } catch (e) { /* ignore */ }
+        }, { once: true });
 
         // ── Android Capacitor: bridge MwNative.network → sync trigger ──
         // navigator.onLine is unreliable in Android WebView; the Capacitor Network

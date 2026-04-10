@@ -602,15 +602,23 @@
         // Resume pending uploads when the page first loads
         PhotoUploader.run();
 
+        // AbortController so lifecycle listeners unbind on pagehide (D5).
+        var _pqAbort = new AbortController();
+        var _pqSig = { signal: _pqAbort.signal };
+
         // Device/browser comes back online
         window.addEventListener('online', function () {
             PhotoUploader.run();
-        });
+        }, _pqSig);
 
         // App foregrounded (all platforms: iOS PWA, Android WebView, desktop)
         document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'visible') PhotoUploader.run();
-        });
+        }, _pqSig);
+
+        window.addEventListener('pagehide', function () {
+            try { _pqAbort.abort(); } catch (e) { /* ignore */ }
+        }, { once: true });
 
         // Android Capacitor: MwNative.network is more reliable than navigator.onLine
         // capacitor-bridge.js runs before this script so MwNative is available

@@ -385,17 +385,26 @@
     };
 
     // ── Connectivity event listeners ─────────────────────────────────────────────
+    // AbortController so all listeners can be cleared in one call on
+    // pagehide. Without this, a shift with 50+ navigations leaks 100+
+    // zombie listeners (~200 KB). D5.
+    var _offlineQueueAbort = new AbortController();
+    var _signal = { signal: _offlineQueueAbort.signal };
 
     window.addEventListener('online', function () {
         updateUI();
         syncNow().then(function (result) {
             if (result.replayed > 0) updateUI();
         });
-    });
+    }, _signal);
 
     window.addEventListener('offline', function () {
         updateUI();
-    });
+    }, _signal);
+
+    window.addEventListener('pagehide', function () {
+        try { _offlineQueueAbort.abort(); } catch (e) { /* ignore */ }
+    }, { once: true });
 
     // iOS PWA / all platforms: sync when the app is foregrounded
     document.addEventListener('visibilitychange', function () {
@@ -404,7 +413,7 @@
                 if (count > 0) syncNow().then(updateUI);
             });
         }
-    });
+    }, _signal);
 
     // Desktop + some mobile: sync on window focus
     window.addEventListener('focus', function () {
@@ -413,7 +422,7 @@
                 if (count > 0) syncNow().then(updateUI);
             });
         }
-    });
+    }, _signal);
 
     // Android Capacitor: MwNative.network is more reliable than navigator.onLine
     if (window.MwNative && window.MwNative.network) {
