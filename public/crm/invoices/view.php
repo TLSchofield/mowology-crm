@@ -275,21 +275,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         // Build activity log message
         $attachNote = $attachPath ? ' (with PDF attached)' : '';
         if (!empty($sentTo)) {
-            // Update status to 'sent' only now that we know at least one email went out
-            $oldStatus = $invoice['status'] ?? 'draft';
-            $db->prepare("UPDATE invoices SET status = 'sent', sent_at = NOW() WHERE id = ? AND status IN ('draft', 'sent')")
-               ->execute([$invoiceId]);
-            trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
+            // Distinguish a first send from a manual resend.
+            // Resend = the invoice already has a sent_at timestamp.
+            // First-send: stamp sent_at + flip status to 'sent'.
+            // Resend:     bump resend_count + last_resent_at, leave
+            //             sent_at and status alone so the original
+            //             timeline is preserved.
+            $isResend = !empty($invoice['sent_at']);
+
+            if ($isResend) {
+                $db->prepare("
+                    UPDATE invoices
+                    SET resend_count   = COALESCE(resend_count, 0) + 1,
+                        last_resent_at = NOW()
+                    WHERE id = ?
+                ")->execute([$invoiceId]);
+            } else {
+                $oldStatus = $invoice['status'] ?? 'draft';
+                $db->prepare("
+                    UPDATE invoices
+                    SET status = 'sent', sent_at = NOW()
+                    WHERE id = ? AND status IN ('draft', 'sent')
+                ")->execute([$invoiceId]);
+                trackFieldChange('invoice', $invoiceId, 'status', $oldStatus, 'sent', $user['id']);
+                $invoice['status'] = 'sent';
+            }
 
             $recipientList = implode(', ', $sentTo);
-            $details = "Invoice sent to {$recipientList}{$attachNote}";
+            $verb          = $isResend ? 'resent' : 'sent';
+            $actionLabel   = $isResend ? 'Invoice resent' : 'Invoice sent';
+            $details       = "Invoice {$verb} to {$recipientList}{$attachNote}";
             if (!empty($smsSentTo)) {
                 $details .= "; SMS sent to: " . implode(', ', $smsSentTo);
             }
-            logActivityExtended($user['id'], 'Invoice sent', $details, null, null, null, $invoiceId);
+            logActivityExtended($user['id'], $actionLabel, $details, null, null, null, $invoiceId);
 
-            $invoice['status'] = 'sent';
-            $message = "Invoice sent successfully to " . count($sentTo) . " recipient(s)";
+            $messageVerb = $isResend ? 'resent' : 'sent';
+            $message     = "Invoice {$messageVerb} successfully to " . count($sentTo) . " recipient(s)";
             if (!empty($smsSentTo)) {
                 $message .= " and SMS sent to " . count($smsSentTo) . " contact(s)";
             }
@@ -823,7 +845,11 @@ $extraHead = $isPayable
                                   </div>
                                   <div class="mw-tracking-stat-label">Email Opened</div>
                               </div>
-                              <div class="mw-tracking-stat">
+                              <div class="mw-tracking-stat" title="Times the crew has manually clicked Resend">
+                                  <div class="mw-tracking-stat-value"><?php echo (int)($invoice['resend_count'] ?? 0); ?></div>
+                                  <div class="mw-tracking-stat-label">Resends</div>
+                              </div>
+                              <div class="mw-tracking-stat" title="Automated overdue reminders sent by the cron">
                                   <div class="mw-tracking-stat-value"><?php echo (int)($invoice['reminder_count'] ?? 0); ?></div>
                                   <div class="mw-tracking-stat-label">Reminders</div>
                               </div>
@@ -875,11 +901,24 @@ $extraHead = $isPayable
                               </div>
                               <?php endif; ?>
 
+                              <?php if ((int)($invoice['resend_count'] ?? 0) > 0 && !empty($invoice['last_resent_at'])): ?>
+                              <div class="mw-timeline-item">
+                                  <div class="mw-timeline-dot mw-dot-sent"></div>
+                                  <div class="mw-timeline-content">
+                                      <div class="mw-timeline-label">
+                                          Resent by crew
+                                          (<?php echo (int)$invoice['resend_count']; ?> time<?php echo $invoice['resend_count'] == 1 ? '' : 's'; ?>)
+                                      </div>
+                                      <div class="mw-timeline-time">Last: <?php echo formatDateTime($invoice['last_resent_at'], 'M j, Y g:i A'); ?></div>
+                                  </div>
+                              </div>
+                              <?php endif; ?>
+
                               <?php if (!empty($invoice['last_reminder_sent_at'])): ?>
                               <div class="mw-timeline-item">
                                   <div class="mw-timeline-dot mw-dot-reminder"></div>
                                   <div class="mw-timeline-content">
-                                      <div class="mw-timeline-label">Reminder sent (<?php echo (int)$invoice['reminder_count']; ?> total)</div>
+                                      <div class="mw-timeline-label">Auto-reminder sent (<?php echo (int)$invoice['reminder_count']; ?> total)</div>
                                       <div class="mw-timeline-time"><?php echo formatDateTime($invoice['last_reminder_sent_at'], 'M j, Y g:i A'); ?></div>
                                   </div>
                               </div>
