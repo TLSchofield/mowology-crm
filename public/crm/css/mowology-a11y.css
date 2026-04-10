@@ -142,3 +142,84 @@
   transition: opacity var(--mw-dur-base, 200ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1)),
               transform var(--mw-dur-base, 200ms) var(--mw-ease-out, cubic-bezier(0.2,0.8,0.2,1));
 }
+
+/* ── Schedule client-side search (B8) ────────────────────
+   Injected by /crm/js/mw-schedule-search.js into .mw-mc-container
+   right after the top bar. Mobile-first; also appears on desktop
+   since the schedule week view has the same card layout. */
+.mw-mc-search-wrap {
+  padding: 8px 12px 4px;
+  background: var(--mw-ink-0, #fff);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.mw-mc-search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.mw-mc-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  stroke: var(--mw-ink-500, #6B7280);
+  pointer-events: none;
+}
+
+.mw-mc-search-input {
+  flex: 1;
+  width: 100%;
+  border: 1.5px solid var(--mw-ink-200, #E5E7EB);
+  border-radius: var(--mw-radius-md, 12px);
+  padding: 10px 36px 10px 36px;
+  font-family: inherit;
+  font-size: 16px; /* prevents mobile auto-zoom */
+  color: var(--mw-ink-900, #111827);
+  background: var(--mw-ink-50, #F9FAFB);
+  min-height: 44px;
+  -webkit-appearance: none;
+  transition: border-color var(--mw-dur-fast, 120ms), background var(--mw-dur-fast, 120ms);
+}
+
+.mw-mc-search-input:focus {
+  outline: none;
+  border-color: var(--mw-green, #2D8659);
+  background: var(--mw-ink-0, #fff);
+}
+
+.mw-mc-search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--mw-ink-500, #6B7280);
+  cursor: pointer;
+  border-radius: var(--mw-radius-pill, 9999px);
+}
+
+.mw-mc-search-clear:hover {
+  background: var(--mw-ink-100, #F3F4F6);
+  color: var(--mw-ink-900, #111827);
+}
+
+.mw-mc-search-count {
+  font-family: inherit;
+  font-size: var(--mw-text-xs, 0.75rem);
+  color: var(--mw-ink-500, #6B7280);
+  padding: 4px 4px 2px;
+  min-height: 1em;
+}
+
+.mw-mc-search-wrap:not(.mw-mc-search-active) .mw-mc-search-count {
+  display: none;
+}
