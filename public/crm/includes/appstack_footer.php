@@ -85,43 +85,9 @@
   })();
   </script>
 
-  <!-- Service Worker Registration (PWA + Capacitor) -->
-  <!-- Capacitor uses a live server URL so its WebView can use a SW just
-       like a browser — this is the primary caching layer for the Android app.
-       We register /service-worker.php, a thin PHP wrapper that injects a
-       dynamic CACHE_VERSION derived from the mtime of service-worker.js and
-       its dependencies — any deploy auto-busts stale caches. -->
-  <script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function() {
-      // One-time cleanup: unregister the legacy /service-worker.js registration
-      // so the wrapper can take over cleanly. Safe to leave in place long term.
-      navigator.serviceWorker.getRegistrations().then(function(regs) {
-        regs.forEach(function(r) {
-          try {
-            var url = (r.active && r.active.scriptURL) || (r.installing && r.installing.scriptURL) || '';
-            if (url && url.indexOf('/service-worker.js') !== -1 && url.indexOf('.php') === -1) {
-              r.unregister();
-            }
-          } catch (e) { /* ignore */ }
-        });
-      }).catch(function() { /* ignore */ });
-
-      navigator.serviceWorker.register('/service-worker.php', { scope: '/' })
-        .then(function(reg) {
-          // Check for updates every 30 minutes
-          setInterval(function() { reg.update(); }, 1800000);
-        })
-        .catch(function() { /* SW registration failed — non-critical */ });
-
-      // When a new SW takes over (skipWaiting + clients.claim), reload so the
-      // page gets fresh CSS/JS from the new cache instead of the stale session.
-      navigator.serviceWorker.addEventListener('controllerchange', function() {
-        window.location.reload();
-      });
-    });
-  }
-  </script>
+  <!-- Service Worker Registration (PWA + Capacitor)
+       Shared with the standalone driver pages. See /crm/js/sw-register.js. -->
+  <script src="/crm/js/sw-register.js?v=20260410a" defer></script>
 
   <!-- Hide sidebar Install App link when already in native app or installed PWA -->
   <script>

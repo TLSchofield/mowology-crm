@@ -117,13 +117,10 @@ function _av(string $webPath): string {
 
   <?php echo $extraHead; ?>
 
-  <!-- Service Worker: caches CSS/JS so static assets load instantly after first visit -->
-  <script>
-  if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/crm/sw.js', { scope: '/crm/' })
-          .catch(function () {}); // silent fail — app works fine without SW
-  }
-  </script>
+  <!-- Service Worker registration — see /crm/js/sw-register.js.
+       Registered from appstack_footer.php. The legacy /crm/sw.js
+       registration (scope /crm/) was retired in April 2026 and is
+       cleaned up by the new register script. -->
 
 </head>
 <body<?php echo $bodyClass ? ' class="' . htmlspecialchars($bodyClass) . '"' : ''; ?>>
