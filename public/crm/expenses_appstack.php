@@ -734,8 +734,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <span id="quickPayment"></span>
             </div>
             <div class="mw-mc-expense-quick-actions">
-                <button type="button" class="mw-mc-expense-edit-link" onclick="expandQuickToFull()">Edit Details</button>
-                <button type="button" class="mw-mc-expense-quick-send" onclick="quickSend()">
+                <button type="button" class="mw-mc-expense-edit-link" data-haptic="tap" onclick="expandQuickToFull()">Edit Details</button>
+                <button type="button" class="mw-mc-expense-quick-send" data-haptic="success" onclick="quickSend()">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                     SEND
                 </button>
