@@ -290,6 +290,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
                         last_resent_at = NOW()
                     WHERE id = ?
                 ")->execute([$invoiceId]);
+                // Refresh in-memory copy so the Engagement panel renders
+                // the new counter + timestamp without an extra round trip.
+                $invoice['resend_count']   = (int)($invoice['resend_count'] ?? 0) + 1;
+                $invoice['last_resent_at'] = date('Y-m-d H:i:s');
             } else {
                 $oldStatus = $invoice['status'] ?? 'draft';
                 $db->prepare("
