@@ -64,6 +64,13 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        /* Accessibility — visible focus rings */
+        :where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
+            outline: 2px solid var(--al-green);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: var(--al-forest);

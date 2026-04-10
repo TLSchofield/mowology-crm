@@ -41,6 +41,13 @@ if (!$activeClock) {
 $db    = getDB();
 $today = date('Y-m-d');
 
+// Release the session file lock before the page's DB queries (weather,
+// memory card, revenue, jobs, post-trip check). Generate CSRF first so
+// session_start's token survives. See schedule.php comment for the
+// WorkManager race we're avoiding.
+$csrf = generateCSRFToken();
+session_write_close();
+
 // ── Clock elapsed ─────────────────────────────────────────────────────────────
 $clockInTs    = strtotime($activeClock['clock_in']);
 $clockElapsed = (int)(time() - $clockInTs);
@@ -164,8 +171,7 @@ try {
 }
 
 // ── Meta ──────────────────────────────────────────────────────────────────────
-$csrf     = generateCSRFToken();
-session_write_close();
+// (CSRF + session_write_close already called at top of file, before DB work.)
 
 $isDriver  = !empty($user['is_driver']);
 
@@ -221,6 +227,13 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* Accessibility — visible focus rings for keyboard + TalkBack */
+        :where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
+            outline: 2px solid var(--hb-green);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
 
         html, body {
             height: 100%;
@@ -767,6 +780,15 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
             .then(function (r) { return r.json(); })
             .then(function (d) {
                 if (d.success || !d.clocked_in) {
+                    // Release the native foreground GPS service so the
+                    // "Mowology GPS Tracking" notification disappears and
+                    // battery drain stops. Safe in browser (MwNative is
+                    // undefined there).
+                    try {
+                        if (window.MwNative && window.MwNative.geo) {
+                            window.MwNative.geo.stopBackgroundTracking();
+                        }
+                    } catch (e) { /* non-critical */ }
                     hbToast('Clocked out. Great work today! 👊');
                     setTimeout(function () { window.location.href = '/crm/app-launch.php'; }, 1200);
                 } else {

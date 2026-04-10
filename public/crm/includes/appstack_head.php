@@ -99,6 +99,10 @@ function _av(string $webPath): string {
   <!-- Mowology brand override -->
   <link href="<?= _av('/crm/css/mowology-brand.css') ?>" rel="stylesheet">
 
+  <!-- Accessibility + mobile form fixes (kept separate from brand.css so
+       a11y rules are never lost during brand maintenance) -->
+  <link href="<?= _av('/crm/css/mowology-a11y.css') ?>" rel="stylesheet">
+
   <!-- Global mobile navigation bars (top bar + bottom bar + slide-up menu) -->
   <link href="<?= _av('/crm/css/mobile-nav.css') ?>" rel="stylesheet">
 

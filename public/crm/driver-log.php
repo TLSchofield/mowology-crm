@@ -97,6 +97,13 @@ session_write_close();
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        /* Accessibility — visible focus rings */
+        :where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
+            outline: 2px solid var(--dl-green);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+
         html, body {
             height: 100%;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -198,7 +205,7 @@ session_write_close();
             border: 1.5px solid var(--dl-border);
             border-radius: 10px;
             padding: 10px 12px;
-            font-family: inherit; font-size: 15px; color: var(--dl-text);
+            font-family: inherit; font-size: 16px; color: var(--dl-text);
             background: #fff;
             transition: border-color 0.15s;
             -webkit-appearance: none;
@@ -374,8 +381,8 @@ session_write_close();
                     $checked = ($tripReport && !empty($tripReport[$name])) ? 'checked' : '';
                 ?>
                 <label class="dl-check-item">
-                    <input type="checkbox" name="<?php echo htmlspecialchars($name); ?>" <?php echo $checked; ?>>
-                    <div class="dl-check-box">
+                    <input type="checkbox" name="<?php echo htmlspecialchars($name); ?>" aria-label="<?php echo htmlspecialchars($label); ?>" <?php echo $checked; ?>>
+                    <div class="dl-check-box" aria-hidden="true">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     </div>
                     <span class="dl-check-label"><?php echo htmlspecialchars($label); ?></span>

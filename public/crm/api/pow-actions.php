@@ -58,11 +58,16 @@ try {
         $input = $_POST;
     }
 
-    // CSRF verification
+    // CSRF verification — token stale after session expiry; retry after reload
     $token = $input['csrf_token'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (!verifyCSRFToken($token)) {
         http_response_code(403);
-        echo json_encode(['error' => 'Invalid CSRF token']);
+        echo json_encode([
+            'success'   => false,
+            'error'     => 'Your session expired. Please reload the page and try again.',
+            'code'      => 'CSRF_INVALID',
+            'retryable' => false,
+        ]);
         exit;
     }
 
@@ -77,7 +82,12 @@ try {
     $visit = loadVisit($db, $visitId);
     if (!$visit) {
         http_response_code(404);
-        echo json_encode(['error' => 'Visit not found']);
+        echo json_encode([
+            'success'   => false,
+            'error'     => 'That visit is no longer available.',
+            'code'      => 'VISIT_NOT_FOUND',
+            'retryable' => false,
+        ]);
         exit;
     }
 
@@ -86,7 +96,12 @@ try {
 
     if (!$isAdmin && !$isCrew) {
         http_response_code(403);
-        echo json_encode(['error' => 'Not authorized for this visit']);
+        echo json_encode([
+            'success'   => false,
+            'error'     => 'This visit is assigned to another crew member.',
+            'code'      => 'NOT_AUTHORIZED',
+            'retryable' => false,
+        ]);
         exit;
     }
 
@@ -94,7 +109,12 @@ try {
     $lockGuarded = ['save_checklist','save_materials','save_service_data','save_notes','save_signature','end_visit','upload_photo'];
     if (in_array($action, $lockGuarded) && $visit['locked_at'] !== null && !$isAdmin) {
         http_response_code(409);
-        echo json_encode(['error' => 'Visit is locked. Contact admin to unlock.']);
+        echo json_encode([
+            'success'   => false,
+            'error'     => 'This visit is locked. Ask an admin to unlock it before making changes.',
+            'code'      => 'VISIT_LOCKED',
+            'retryable' => false,
+        ]);
         exit;
     }
 
@@ -477,16 +497,37 @@ try {
     }
 
 } catch (PDOException $e) {
+    // DB errors on the visit path are usually connection blips or lock
+    // timeouts — both retryable. Give the client enough to show an
+    // actionable message and a retry button.
     error_log('PoW Actions API DB error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => 'Database error']);
+    echo json_encode([
+        'success'   => false,
+        'error'     => 'We could not save that just now. Please try again in a moment.',
+        'code'      => 'DB_ERROR',
+        'retryable' => true,
+    ]);
 } catch (InvalidArgumentException $e) {
+    // Bad request / invalid state — not retryable without user action.
     http_response_code(400);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode([
+        'success'   => false,
+        'error'     => $e->getMessage(),
+        'code'      => 'BAD_REQUEST',
+        'retryable' => false,
+    ]);
 } catch (Throwable $e) {
+    // Unknown server-side error — surface a friendly message, log the
+    // detail, keep the raw exception text out of the client.
     error_log('PoW Actions API error: ' . $e->getMessage() . ' ' . $e->getTraceAsString());
     http_response_code(500);
-    echo json_encode(['error' => 'Server error: ' . $e->getMessage()]);
+    echo json_encode([
+        'success'   => false,
+        'error'     => 'Something went wrong on our side. Please try again, or contact support if it keeps happening.',
+        'code'      => 'SERVER_ERROR',
+        'retryable' => true,
+    ]);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

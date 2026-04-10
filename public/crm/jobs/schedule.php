@@ -23,6 +23,13 @@ $db = getDB();
 // ─── CSRF token for JS API calls ─────────────────────────────────
 $csrfToken = generateCSRFToken();
 
+// Release the PHP session file lock before the 8–12 DB queries below.
+// Without this, concurrent WorkManager GPS sync from the Capacitor app
+// races the session lock and trips Android Chrome's 5s SW timeout →
+// ERR_FAILED on navigation. Schedule.php only reads $_SESSION (via
+// getCurrentUser), so closing early is safe.
+session_write_close();
+
 // ─── Pre-shift quiz gate ──────────────────────────────────────────────────────
 $preshiftEnabled = false;
 $preshiftDone    = false;
@@ -1112,7 +1119,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260401c" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -2514,6 +2521,42 @@ if ($apiKey) {
 
           </div><!-- /.mw-mc-container -->
 
+          <!-- ── Job Completion Sheet ──────────────────────── -->
+          <div id="mw-completion-sheet-backdrop" class="mw-csheet-backdrop"></div>
+          <div id="mw-completion-sheet" class="mw-csheet" role="dialog" aria-modal="true">
+              <div class="mw-csheet-handle"></div>
+              <div class="mw-csheet-checkmark">&#10003;</div>
+              <p class="mw-csheet-title" id="mw-csheet-label">Job Complete!</p>
+
+              <details class="mw-csheet-extras" id="mw-csheet-extras-details">
+                  <summary class="mw-csheet-extras-toggle">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      Add small job or extras
+                  </summary>
+                  <div class="mw-csheet-extras-body">
+                      <textarea id="mw-csheet-note" class="mw-csheet-textarea" placeholder="e.g. trimmed hedges, cleared debris&#8230;" rows="2"></textarea>
+                      <div class="mw-csheet-time-row">
+                          <span class="mw-csheet-time-label">Extra time</span>
+                          <div class="mw-csheet-time-input">
+                              <input type="number" id="mw-csheet-mins" min="0" max="480" step="5" placeholder="0">
+                              <span>min</span>
+                          </div>
+                      </div>
+                  </div>
+              </details>
+
+              <div class="mw-csheet-actions">
+                  <button id="mw-csheet-invoice-btn" class="mw-csheet-btn mw-csheet-btn-primary">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                      Complete &amp; Create Invoice
+                  </button>
+                  <button id="mw-csheet-done-btn" class="mw-csheet-btn mw-csheet-btn-secondary">
+                      Complete &mdash; No Invoice
+                  </button>
+              </div>
+          </div>
+          <!-- ── End Job Completion Sheet ──────────────────── -->
+
           <!-- ═══════════════════════════════════════════════
                MOBILE: Map View (full-screen overlay, hidden by default)
                ═══════════════════════════════════════════════ -->
@@ -3226,16 +3269,16 @@ var MW_ROUTE_STOPS = <?php
 var MW_CSRF          = <?php echo json_encode($csrfToken); ?>;
 var MW_SCHEDULE_DATE = <?php echo json_encode($dayDate ?? $startDate); ?>;
 </script>
-<script src="../js/navigation-launcher.js?v=20260225c"></script>
-<script src="../js/route-engine.js?v=20260219a"></script>
-<script src="../js/schedule-route-map.js?v=20260226b"></script>
-<script src="../js/schedule-pill-workflow.js?v=20260228e"></script>
-<script src="../js/schedule-drag-drop.js"></script>
+<script src="../js/navigation-launcher.js?v=20260225c" defer></script>
+<script src="../js/route-engine.js?v=20260219a" defer></script>
+<script src="../js/schedule-route-map.js?v=20260226b" defer></script>
+<script src="../js/schedule-pill-workflow.js?v=20260401a" defer></script>
+<script src="../js/schedule-drag-drop.js" defer></script>
 <?php if ($view === 'day'): ?>
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 </script>
-<script src="../js/schedule-day-map.js?v=20260306a"></script>
+<script src="../js/schedule-day-map.js?v=20260306a" defer></script>
 <?php endif; ?>
 <?php if ($view === 'week'): ?>
 <script>
@@ -3875,7 +3918,7 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
 }());
 </script>
 
-<script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(__DIR__ . '/../js/profit-risk-octagon.js'); ?>"></script>
+<script src="/crm/js/profit-risk-octagon.js?v=<?php echo filemtime(__DIR__ . '/../js/profit-risk-octagon.js'); ?>" defer></script>
 
 <script>
 // ── Day strip + week nav arrows: instant visual feedback ──────────────────────

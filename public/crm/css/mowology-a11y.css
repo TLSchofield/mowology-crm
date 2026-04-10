@@ -1,0 +1,53 @@
+/**
+ * Mowology Accessibility + Mobile Form Fixes
+ * ───────────────────────────────────────────
+ * Loaded after mowology-brand.css from appstack_head.php. Keeps
+ * a11y-critical rules in their own file so they are never lost during
+ * brand.css maintenance and are trivial to audit.
+ *
+ * Scope: AppStack CRM pages. Standalone driver pages (homebase,
+ * driver-log, driver-log-post, app-launch) inline the equivalent
+ * rules in their own <style> blocks because they do not load this
+ * stylesheet.
+ */
+
+/* ── Prevent iOS/Android auto-zoom on form focus ─────────
+   Mobile browsers zoom the viewport when an input's computed font-size
+   is below 16px. That behaviour loses the user's scroll position on
+   every tap. Enforcing ≥ 16px on the smallest screens kills the bug
+   without touching the viewport meta (which desktop a11y users need
+   for pinch-zoom). */
+@media (max-width: 991.98px) {
+  input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* ── Visible focus rings ────────────────────────────────
+   Applies :focus-visible to every interactive element so keyboard and
+   Android TalkBack users always see where they are. Uses the brand
+   green at 2px for strong contrast on both light and dark backgrounds.
+   Pair with outline-offset so the ring sits clear of the element
+   border. :focus-visible does not fire on mouse clicks, so mouse users
+   see the existing hover/active states unchanged.
+
+   Uses :where() so the selector has zero specificity — component CSS
+   with normal specificity still wins. */
+:where(
+  a,
+  button,
+  input,
+  textarea,
+  select,
+  summary,
+  [role="button"],
+  [role="link"],
+  [role="tab"],
+  [tabindex]
+):focus-visible {
+  outline: 2px solid var(--mw-green, #2D8659);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

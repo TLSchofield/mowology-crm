@@ -96,6 +96,13 @@ session_write_close();
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        /* Accessibility — visible focus rings */
+        :where(a, button, input, textarea, select, [role="button"], [tabindex]):focus-visible {
+            outline: 2px solid var(--dl-green);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+
         html, body {
             height: 100%;
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -173,7 +180,7 @@ session_write_close();
             border: 1.5px solid var(--dl-border);
             border-radius: 10px;
             padding: 10px 12px;
-            font-family: inherit; font-size: 15px; color: var(--dl-text);
+            font-family: inherit; font-size: 16px; color: var(--dl-text);
             background: #fff;
             transition: border-color 0.15s;
             -webkit-appearance: none;
@@ -358,6 +365,12 @@ session_write_close();
         .then(function (r) { return r.json(); })
         .then(function (d) {
             if (d.success || !d.clocked_in) {
+                // Stop the native foreground GPS service on clock-out.
+                try {
+                    if (window.MwNative && window.MwNative.geo) {
+                        window.MwNative.geo.stopBackgroundTracking();
+                    }
+                } catch (e) { /* non-critical */ }
                 dlToast('Clocked out. Good work today! 👊');
                 setTimeout(function () { window.location.href = '/crm/app-launch.php'; }, 1000);
             } else {
