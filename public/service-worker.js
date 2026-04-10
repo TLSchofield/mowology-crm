@@ -30,30 +30,46 @@ var TILE_CACHE   = 'mw-tiles-v2'; // satellite tiles — long-lived, NOT version
  * All static assets the schedule page needs to render, versioned so
  * a CACHE_VERSION bump fetches fresh copies automatically.
  */
+// Prefer the .min.js / .min.css siblings produced by
+// scripts/minify-assets.php — they ship ~30-60% smaller over the wire.
+// Full files remain available at their original URLs for debugging.
 var APP_SHELL = [
   /* ── Core AppStack frame ── */
   '/crm/css/classic.css',
-  '/crm/css/mowology-brand.css?v=20260401b',
-  '/crm/css/mobile-cards.css?v=20260401b',
-  '/crm/css/mobile-nav.css?v=20260318a',
-  '/crm/js/app.js',
-  '/crm/js/feather-helper.js',
+  '/crm/css/tokens.min.css',
+  '/crm/css/mowology-brand.min.css?v=20260401b',
+  '/crm/css/mowology-a11y.min.css',
+  '/crm/css/mobile-cards.min.css?v=20260401b',
+  '/crm/css/mobile-nav.min.css?v=20260318a',
+  '/crm/css/mw-sync-status.min.css',
+  '/crm/css/mw-skeleton.min.css',
+  '/crm/js/app.min.js',
+  '/crm/js/feather-helper.min.js',
+
+  /* ── Shared UI primitives ── */
+  '/crm/js/mw-toast.min.js',
+  '/crm/js/mw-sync-status.min.js',
+  '/crm/js/mw-haptics.min.js',
+  '/crm/js/mw-api-toast.min.js',
+  '/crm/js/sw-register.min.js',
 
   /* ── Schedule page JS ── */
-  '/crm/js/time-clock-widget.js?v=20260401b',
-  '/crm/js/capacitor-bridge.js?v=20260304',
-  '/crm/js/navigation-launcher.js?v=20260225c',
-  '/crm/js/schedule-route-map.js?v=20260226b',
-  '/crm/js/schedule-pill-workflow.js?v=20260310a',
-  '/crm/js/schedule-drag-drop.js',
-  '/crm/js/route-engine.js?v=20260219a',
-  '/crm/js/offline-receipts.js',
-  '/crm/js/photo-queue.js?v=20260401a',
+  '/crm/js/time-clock-widget.min.js?v=20260401b',
+  '/crm/js/capacitor-bridge.min.js?v=20260304',
+  '/crm/js/navigation-launcher.min.js?v=20260225c',
+  '/crm/js/schedule-route-map.min.js?v=20260226b',
+  '/crm/js/schedule-pill-workflow.min.js?v=20260310a',
+  '/crm/js/schedule-drag-drop.min.js',
+  '/crm/js/route-engine.min.js?v=20260219a',
+  '/crm/js/offline-receipts.min.js',
+  '/crm/js/photo-queue.min.js?v=20260401a',
+  '/crm/js/mw-schedule-search.min.js',
+  '/crm/js/mw-pull-refresh.min.js',
 
   /* ── Geofence / location ── */
-  '/crm/js/geofence/geofence-manager.js',
-  '/crm/js/geofence/location-sampler.js',
-  '/crm/js/geofence/sync-queue.js',
+  '/crm/js/geofence/geofence-manager.min.js',
+  '/crm/js/geofence/location-sampler.min.js',
+  '/crm/js/geofence/sync-queue.min.js',
 
   /* ── App icons ── */
   '/assets/favicon/apple-touch-icon.png',
