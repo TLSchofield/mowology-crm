@@ -101,6 +101,13 @@ try {
                con.email        AS contact_email,
                con.mobile       AS contact_mobile,
                con.receive_sms,
+               -- Billing email priority: companies.billing_email (direct
+               -- override) → billing_contact.email → contact.email.
+               -- Matches public/crm/invoices/view.php's recipient lookup.
+               co.id            AS company_id,
+               co.company_name,
+               NULLIF(co.billing_email, '') AS company_billing_email,
+               NULLIF(bc.email, '')          AS billing_contact_email,
                p.address        AS service_address,
                p.city           AS service_city,
                p.province       AS service_province,
@@ -108,8 +115,15 @@ try {
         FROM contracts c
         JOIN contacts   con ON con.id = c.contact_id
         LEFT JOIN properties p  ON p.id  = c.property_id
+        -- Join companies via the contract's contact as either
+        -- primary or billing contact. If the same contact is linked
+        -- to multiple companies (rare), take the first by company id.
+        LEFT JOIN companies co ON (co.primary_contact_id = con.id
+                                 OR co.billing_contact_id = con.id)
+        LEFT JOIN contacts  bc ON bc.id = co.billing_contact_id
         WHERE c.status        = 'active'
           AND c.billing_cycle = 'monthly'
+        GROUP BY c.id
         ORDER BY c.id ASC
     ");
     $stmt->execute();
@@ -142,8 +156,13 @@ foreach ($contracts as $ctr) {
             continue;
         }
 
-        // ── 3b. Skip if contact has no email ─────────────────────────────────
-        if (empty($ctr['contact_email'])) {
+        // ── 3b. Resolve the preferred billing email ──────────────────────────
+        // Priority: companies.billing_email → billing_contact.email → contact.email
+        $billingEmail = $ctr['company_billing_email']
+            ?: $ctr['billing_contact_email']
+            ?: $ctr['contact_email'];
+
+        if (empty($billingEmail)) {
             $skipped[] = $ctr['contract_number'] . ' (no email on contact)';
             continue;
         }
@@ -204,12 +223,13 @@ foreach ($contracts as $ctr) {
             VALUES (?, ?, 1, ?, ?)
         ")->execute([$invoiceId, $lineDesc, $subtotal, $subtotal]);
 
-        // ── 3e. Invoice contact ───────────────────────────────────────────────
+        // ── 3e. Invoice contact — use the resolved billing email so the
+        //       view.php recipients table shows where it actually went.
         $db->prepare("
             INSERT INTO invoice_contacts
                 (invoice_id, contact_id, contact_role, email_address)
             VALUES (?, ?, 'primary_recipient', ?)
-        ")->execute([$invoiceId, $contactId, $ctr['contact_email']]);
+        ")->execute([$invoiceId, $contactId, $billingEmail]);
 
         $db->commit();
 
@@ -246,7 +266,7 @@ foreach ($contracts as $ctr) {
             $companyInfo
         );
 
-        $emailSent = sendCrmEmail($ctr['contact_email'], $tpl['subject'], $emailBody);
+        $emailSent = sendCrmEmail($billingEmail, $tpl['subject'], $emailBody);
 
         if ($emailSent) {
             // Mark sent
@@ -279,17 +299,17 @@ foreach ($contracts as $ctr) {
                     'contract_number' => $ctr['contract_number'],
                     'amount'          => $total,
                     'period'          => $monthLabel,
-                    'sent_to'         => $ctr['contact_email'],
+                    'sent_to'         => $billingEmail,
                 ]),
                 null,
                 null, null,
                 $invoiceId
             );
 
-            $created[] = "{$ctr['contract_number']} → {$invoiceNumber} ({$ctr['contact_email']})";
+            $created[] = "{$ctr['contract_number']} → {$invoiceNumber} ({$billingEmail})";
         } else {
             // Email failed — invoice exists as draft; log it so it can be resent manually
-            error_log("[contract_billing] Email failed for invoice {$invoiceNumber} (contract {$ctr['contract_number']}, contact {$ctr['contact_email']})");
+            error_log("[contract_billing] Email failed for invoice {$invoiceNumber} (contract {$ctr['contract_number']}, email {$billingEmail})");
             $errors[] = "{$ctr['contract_number']}: invoice {$invoiceNumber} created but email failed — resend manually";
         }
 
