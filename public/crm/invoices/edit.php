@@ -82,6 +82,19 @@ $stmt = $db->prepare("SELECT id, description, quantity, unit_price, line_total, 
 $stmt->execute([$invoiceId]);
 $lineItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Existing recipients — used to pre-fill the Recipients editor
+$stmt = $db->prepare("
+    SELECT ic.id, ic.contact_id, ic.contact_role, ic.email_address,
+           ic.invoice_sent_at, ic.invoice_opened_at, ic.bounced,
+           TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,''))) AS display_name
+    FROM invoice_contacts ic
+    LEFT JOIN contacts c ON ic.contact_id = c.id
+    WHERE ic.invoice_id = ?
+    ORDER BY ic.id
+");
+$stmt->execute([$invoiceId]);
+$recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 // ── Handle form submission ───────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
@@ -119,6 +132,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $allowedStatuses = ['draft', 'sent', 'viewed', 'partial', 'overdue', 'cancelled'];
         if (!in_array($newStatus, $allowedStatuses, true)) {
             $newStatus = $invoice['status'] === 'paid' ? 'paid' : 'draft';
+        }
+
+        // Recipients — parallel arrays from the recipients editor.
+        // Each row has: rcpt_id (existing invoice_contacts.id or empty for new),
+        //              rcpt_email (editable text), rcpt_name (display only),
+        //              rcpt_contact_id (preserved from original row so
+        //              we keep the FK link to contacts when available).
+        $postRcptIds       = $_POST['rcpt_id']         ?? [];
+        $postRcptEmails    = $_POST['rcpt_email']      ?? [];
+        $postRcptNames     = $_POST['rcpt_name']       ?? [];
+        $postRcptContacts  = $_POST['rcpt_contact_id'] ?? [];
+
+        $cleanRecipients = [];
+        $rcptCount = max(count($postRcptIds), count($postRcptEmails));
+        for ($i = 0; $i < $rcptCount; $i++) {
+            $email = trim((string)($postRcptEmails[$i] ?? ''));
+            if ($email === '') continue; // skip blanks (user removed the row)
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $error = 'Recipient email "' . htmlspecialchars($email) . '" is not valid.';
+                break;
+            }
+            $cleanRecipients[] = [
+                'id'         => intval($postRcptIds[$i] ?? 0),
+                'contact_id' => intval($postRcptContacts[$i] ?? 0),
+                'name'       => trim((string)($postRcptNames[$i] ?? '')),
+                'email'      => $email,
+            ];
         }
 
         // Line items
@@ -211,6 +251,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $invoiceId,
                 ]);
 
+                // ── Recipients: stable-diff update ────────────────────
+                // UPDATE existing invoice_contacts rows in place so we
+                // preserve invoice_sent_at / invoice_opened_at / bounced
+                // timestamps. Rows not referenced in the POST are
+                // DELETEd. New rows without an id get INSERTed.
+                $keptIds = [];
+                foreach ($cleanRecipients as $r) {
+                    if ($r['id'] > 0) {
+                        $db->prepare("
+                            UPDATE invoice_contacts
+                            SET email_address = ?
+                            WHERE id = ? AND invoice_id = ?
+                        ")->execute([$r['email'], $r['id'], $invoiceId]);
+                        $keptIds[] = $r['id'];
+                    } else {
+                        $db->prepare("
+                            INSERT INTO invoice_contacts
+                                (invoice_id, contact_id, contact_role, email_address)
+                            VALUES (?, ?, 'primary_recipient', ?)
+                        ")->execute([
+                            $invoiceId,
+                            $r['contact_id'] > 0 ? $r['contact_id'] : null,
+                            $r['email'],
+                        ]);
+                        $keptIds[] = (int)$db->lastInsertId();
+                    }
+                }
+
+                // Delete any prior recipients the user removed
+                if (!empty($keptIds)) {
+                    $placeholders = implode(',', array_fill(0, count($keptIds), '?'));
+                    $params = array_merge([$invoiceId], $keptIds);
+                    $db->prepare("
+                        DELETE FROM invoice_contacts
+                        WHERE invoice_id = ?
+                          AND id NOT IN ({$placeholders})
+                    ")->execute($params);
+                } elseif (!empty($recipients)) {
+                    // User cleared every recipient row. Block it — an
+                    // invoice with no recipients can't be sent.
+                    throw new RuntimeException('Please keep at least one recipient.');
+                }
+
                 // Replace line items — simplest correct behaviour. A
                 // stable-diff version that UPDATEs existing rows can come
                 // later; for now this is one atomic transaction and the
@@ -244,6 +327,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 if (count($lineItems) !== count($cleanLineItems)) {
                     $changes[] = 'line items ' . count($lineItems) . ' → ' . count($cleanLineItems);
+                }
+                // Recipient-email change summary
+                $origEmails = array_map(fn($r) => $r['email_address'] ?? '', $recipients);
+                $newEmails  = array_map(fn($r) => $r['email'], $cleanRecipients);
+                if ($origEmails !== $newEmails) {
+                    $changes[] = 'recipients: ' . (implode(', ', $origEmails) ?: '(none)') . ' → ' . (implode(', ', $newEmails) ?: '(none)');
                 }
                 $detail = 'Invoice ' . ($invoice['invoice_number'] ?? '#' . $invoiceId) . ' updated';
                 if ($changes) $detail .= ' — ' . implode(' · ', $changes);
@@ -450,6 +539,61 @@ $activePage = 'invoices';
                     </div>
                 </div>
 
+                <!-- ── Recipients ────────────────────────────────────── -->
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title mb-2">Invoice Recipients</h3>
+                        <p class="text-muted mb-3" style="font-size:.85rem;">
+                            These are the email addresses that receive this invoice when you click
+                            <strong>Send to Customer</strong> or <strong>Resend</strong>.
+                            Edit the email field directly to change where this specific invoice goes —
+                            you don't have to touch the contact or company record.
+                        </p>
+
+                        <table class="table table-sm table-bordered mb-0" id="recipientsTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th style="width:26%;">Name</th>
+                                    <th>Email address</th>
+                                    <th style="width:14%;">Last sent</th>
+                                    <th style="width:46px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="recipientsBody">
+                                <?php if (empty($recipients)): ?>
+                                    <tr class="mw-rcpt-row">
+                                        <td><input type="text" name="rcpt_name[]"  class="form-control form-control-sm" placeholder="Name (optional)" value=""></td>
+                                        <td>
+                                            <input type="email" name="rcpt_email[]" class="form-control form-control-sm" placeholder="billing@example.com" value="" required>
+                                            <input type="hidden" name="rcpt_id[]"        value="0">
+                                            <input type="hidden" name="rcpt_contact_id[]" value="0">
+                                        </td>
+                                        <td class="text-muted small">—</td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger mw-rcpt-remove" title="Remove">&times;</button></td>
+                                    </tr>
+                                <?php else: foreach ($recipients as $r): ?>
+                                    <tr class="mw-rcpt-row">
+                                        <td><input type="text" name="rcpt_name[]"  class="form-control form-control-sm" placeholder="Name (optional)" value="<?php echo htmlspecialchars($r['display_name'] ?? ''); ?>"></td>
+                                        <td>
+                                            <input type="email" name="rcpt_email[]" class="form-control form-control-sm" placeholder="billing@example.com" value="<?php echo htmlspecialchars($r['email_address'] ?? ''); ?>" required>
+                                            <input type="hidden" name="rcpt_id[]"        value="<?php echo (int)$r['id']; ?>">
+                                            <input type="hidden" name="rcpt_contact_id[]" value="<?php echo (int)($r['contact_id'] ?? 0); ?>">
+                                        </td>
+                                        <td class="text-muted small">
+                                            <?php echo !empty($r['invoice_sent_at']) ? date('M j, g:i a', strtotime($r['invoice_sent_at'])) : '—'; ?>
+                                        </td>
+                                        <td><button type="button" class="btn btn-sm btn-outline-danger mw-rcpt-remove" title="Remove">&times;</button></td>
+                                    </tr>
+                                <?php endforeach; endif; ?>
+                            </tbody>
+                        </table>
+
+                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="addRecipientBtn">
+                            <i data-feather="plus" class="mr-1"></i> Add Recipient
+                        </button>
+                    </div>
+                </div>
+
                 <!-- ── Line Items ──────────────────────────────────── -->
                 <div class="card">
                     <div class="card-body">
@@ -620,6 +764,47 @@ $activePage = 'invoices';
         row.querySelector('.mw-li-desc').focus();
         recalc();
     });
+
+    // ── Recipients editor ──────────────────────────────
+    var rcptBody  = document.getElementById('recipientsBody');
+    var rcptAddBtn = document.getElementById('addRecipientBtn');
+
+    function wireRcptRow(row) {
+        var removeBtn = row.querySelector('.mw-rcpt-remove');
+        if (!removeBtn) return;
+        removeBtn.addEventListener('click', function () {
+            // Keep at least one row visible so the form is never empty.
+            if (rcptBody.querySelectorAll('.mw-rcpt-row').length <= 1) {
+                row.querySelector('input[name="rcpt_email[]"]').value = '';
+                row.querySelector('input[name="rcpt_name[]"]').value  = '';
+                return;
+            }
+            row.remove();
+        });
+    }
+
+    if (rcptBody) {
+        rcptBody.querySelectorAll('.mw-rcpt-row').forEach(wireRcptRow);
+    }
+
+    if (rcptAddBtn) {
+        rcptAddBtn.addEventListener('click', function () {
+            var row = document.createElement('tr');
+            row.className = 'mw-rcpt-row';
+            row.innerHTML =
+                '<td><input type="text" name="rcpt_name[]" class="form-control form-control-sm" placeholder="Name (optional)" value=""></td>' +
+                '<td>' +
+                  '<input type="email" name="rcpt_email[]" class="form-control form-control-sm" placeholder="billing@example.com" value="" required>' +
+                  '<input type="hidden" name="rcpt_id[]"        value="0">' +
+                  '<input type="hidden" name="rcpt_contact_id[]" value="0">' +
+                '</td>' +
+                '<td class="text-muted small">&mdash;</td>' +
+                '<td><button type="button" class="btn btn-sm btn-outline-danger mw-rcpt-remove" title="Remove">&times;</button></td>';
+            rcptBody.appendChild(row);
+            wireRcptRow(row);
+            row.querySelector('input[name="rcpt_email[]"]').focus();
+        });
+    }
 
     // ── Billing address toggle ─────────────────────────
     var billingToggle = document.getElementById('differentBillingAddress');
