@@ -535,20 +535,39 @@ $extraHead = $isPayable
                       <div class="card-body">
                           <?php
                               $contactFullName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
-                              $displayCompany = $invoice['company_name'] ?? '';
+                              $displayCompany  = $invoice['company_name'] ?? '';
+                              // Priority: manual bill_to_name override →
+                              // company_name → contact full name.
+                              $billToHeading   = !empty($invoice['bill_to_name'])
+                                  ? $invoice['bill_to_name']
+                                  : ($displayCompany ?: $contactFullName);
                           ?>
-                          <?php if ($displayCompany): ?>
+                          <?php if ($billToHeading): ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Company</span>
-                              <span class="mw-detail-value"><?php echo htmlspecialchars($displayCompany); ?></span>
+                              <span class="mw-detail-label"><?php echo !empty($invoice['bill_to_name']) ? 'Billed To' : ($displayCompany ? 'Company' : 'Bill To'); ?></span>
+                              <span class="mw-detail-value" style="font-weight:600;"><?php echo htmlspecialchars($billToHeading); ?></span>
                           </div>
                           <?php endif; ?>
+                          <?php
+                              // Show the contact as Attn: only when it's a
+                              // different string from what's already rendered
+                              // as the Bill To (avoids "Contact: Monica Nicule"
+                              // appearing twice when Monica IS the billing entity).
+                              $showContactLine = $contactFullName !== '' && strcasecmp($billToHeading, $contactFullName) !== 0;
+                          ?>
+                          <?php if ($showContactLine): ?>
                           <div class="mw-detail-row">
-                              <span class="mw-detail-label">Contact</span>
+                              <span class="mw-detail-label">Attn</span>
                               <span class="mw-detail-value">
-                                  <?php echo htmlspecialchars($contactFullName ?: 'N/A'); ?>
+                                  <?php echo htmlspecialchars($contactFullName); ?>
                               </span>
                           </div>
+                          <?php elseif ($contactFullName === '' && empty($invoice['bill_to_name'])): ?>
+                          <div class="mw-detail-row">
+                              <span class="mw-detail-label">Contact</span>
+                              <span class="mw-detail-value">N/A</span>
+                          </div>
+                          <?php endif; ?>
                           <?php
                               $billAddrParts = array_filter([
                                   $invoice['billing_address'] ?? '',

@@ -106,6 +106,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $newStatus     = $_POST['status']     ?? $invoice['status'];
         $notes         = trim($_POST['notes'] ?? '');
         $internalNotes = trim($_POST['internal_notes'] ?? '');
+        $billToName    = trim($_POST['bill_to_name'] ?? '');
+        if ($billToName === '') $billToName = null; // NULL means "use default"
 
         $serviceAddress    = trim($_POST['service_address'] ?? '');
         $serviceCity       = trim($_POST['service_city'] ?? '');
@@ -217,6 +219,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         address_differs   = ?,
                         notes             = ?,
                         internal_notes    = ?,
+                        bill_to_name      = ?,
                         subtotal          = ?,
                         tax_rate          = ?,
                         tax_amount        = ?,
@@ -242,6 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $addressDiffers,
                     $notes,
                     $internalNotes,
+                    $billToName,
                     $newSubtotal,
                     $taxRate,
                     $newTaxAmount,
@@ -400,6 +404,21 @@ $activePage = 'invoices';
                 <div class="card">
                     <div class="card-body">
                         <h3 class="card-title mb-3">Invoice Details</h3>
+
+                        <!-- Bill To (entity name) -->
+                        <div class="mw-form-group">
+                            <label class="form-label" for="billToName">
+                                Bill To <span class="text-muted" style="font-weight:400;">(entity name shown on the invoice)</span>
+                            </label>
+                            <input type="text" id="billToName" name="bill_to_name" class="form-control"
+                                   placeholder="e.g. VR14-50 C/O MACDONALD REALTY"
+                                   value="<?php echo htmlspecialchars($invoice['bill_to_name'] ?? ''); ?>">
+                            <small class="text-muted">
+                                Use this for strata / property-management / numbered-company billing
+                                where the entity isn't the same as the day-to-day contact.
+                                Leave blank to fall back to the company or contact name.
+                            </small>
+                        </div>
 
                         <!-- Customer (locked) -->
                         <div class="mw-form-group">
