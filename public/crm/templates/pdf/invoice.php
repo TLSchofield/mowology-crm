@@ -12,10 +12,22 @@ $esc = function($str) { return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8')
 
 $contactName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
 $companyName = $invoice['company_name'] ?? '';
-// Display company name as primary if present; contact name as secondary (or primary if no company)
-if (empty($contactName) && empty($companyName)) {
-    $contactName = 'Customer';
+// New priority (matches view.php + Edit Invoice page):
+//   1. invoices.bill_to_name  — per-invoice manual override
+//      (e.g. "VR14-50 C/O MACDONALD REALTY" set by the contract cron
+//       from property.billing_entity_name + company_name)
+//   2. companies.company_name  — the linked company
+//   3. contact first + last     — fallback to the rep's name
+$billToHeading = trim((string)($invoice['bill_to_name'] ?? ''));
+if ($billToHeading === '') {
+    $billToHeading = $companyName ?: $contactName;
 }
+if ($billToHeading === '') {
+    $billToHeading = 'Customer';
+}
+// Show the contact as an "Attn:" sub-line only when it's different from
+// whatever we already put on the heading — avoids "Monica Nicule" twice.
+$showAttn = $contactName !== '' && strcasecmp($billToHeading, $contactName) !== 0;
 
 $billingLine = $esc($invoice['billing_address'] ?? '');
 if (!empty($invoice['billing_city'])) $billingLine .= ', ' . $esc($invoice['billing_city']);
@@ -207,13 +219,9 @@ $isOverdue = ($invoice['status'] === 'overdue');
         <td>
             <div class="section-title">Bill To</div>
             <div class="client-info">
-                <?php if ($companyName): ?>
-                    <div class="client-name"><?php echo $esc($companyName); ?></div>
-                    <?php if ($contactName): ?>
-                        <?php echo $esc($contactName); ?><br>
-                    <?php endif; ?>
-                <?php else: ?>
-                    <div class="client-name"><?php echo $esc($contactName ?: 'Customer'); ?></div>
+                <div class="client-name"><?php echo $esc($billToHeading); ?></div>
+                <?php if ($showAttn): ?>
+                    Attn: <?php echo $esc($contactName); ?><br>
                 <?php endif; ?>
                 <?php if ($billingLine): ?>
                     <?php echo $billingLine; ?><br>
