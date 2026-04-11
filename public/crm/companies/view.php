@@ -234,45 +234,46 @@ $activePage = 'companies';
                 </div>
             </div>
 
-            <!-- Tabs -->
-            <ul class="nav nav-tabs mw-company-tabs mb-4" id="companyTabs" role="tablist">
-                <li class="nav-item">
-                    <a class="nav-link active" id="overview-tab" data-toggle="tab" href="#overview" role="tab">Overview</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="contacts-tab" data-toggle="tab" href="#contacts" role="tab">
-                        Contacts <span class="badge badge-light ml-1"><?= count($companyContacts) ?></span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="properties-tab" data-toggle="tab" href="#properties" role="tab">
-                        Properties <span class="badge badge-light ml-1"><?= count($companyProperties) ?></span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="quotes-tab" data-toggle="tab" href="#quotes" role="tab">
-                        Quotes <span class="badge badge-light ml-1"><?= count($quotes) ?></span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="jobs-tab" data-toggle="tab" href="#jobs" role="tab">
-                        Jobs <span class="badge badge-light ml-1"><?= count($jobs) ?></span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="invoices-tab" data-toggle="tab" href="#invoices" role="tab">
-                        Invoices <span class="badge badge-light ml-1"><?= count($invoices) ?></span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="activity-tab" data-toggle="tab" href="#activity" role="tab">Activity</a>
-                </li>
-            </ul>
+            <!-- Section Jump Nav — sticky at top while scrolling. Replaces
+                 the old Bootstrap nav-tabs with plain anchor links so every
+                 section renders inline on the page. -->
+            <div class="mw-company-jumpnav mb-4" style="position:sticky; top:0; z-index:10; background:#fff; padding:12px 0; border-bottom:1px solid #e5e7eb; display:flex; flex-wrap:wrap; gap:8px;">
+                <a href="#overview"   class="btn btn-sm btn-outline-secondary">Overview</a>
+                <a href="#contacts"   class="btn btn-sm btn-outline-secondary">Contacts <span class="badge badge-light ml-1"><?= count($companyContacts) ?></span></a>
+                <a href="#properties" class="btn btn-sm btn-outline-secondary">Properties <span class="badge badge-light ml-1"><?= count($companyProperties) ?></span></a>
+                <a href="#quotes"     class="btn btn-sm btn-outline-secondary">Quotes <span class="badge badge-light ml-1"><?= count($quotes) ?></span></a>
+                <a href="#jobs"       class="btn btn-sm btn-outline-secondary">Jobs <span class="badge badge-light ml-1"><?= count($jobs) ?></span></a>
+                <a href="#invoices"   class="btn btn-sm btn-outline-secondary">Invoices <span class="badge badge-light ml-1"><?= count($invoices) ?></span></a>
+                <a href="#activity"   class="btn btn-sm btn-outline-secondary">Activity</a>
+            </div>
 
-            <div class="tab-content" id="companyTabContent">
+            <style>
+                /* Section wrapper — gives each block enough scroll margin
+                   so sticky-nav anchor jumps don't hide the section title
+                   behind the jump bar. */
+                .mw-company-section { scroll-margin-top: 84px; margin-bottom: 32px; }
+                .mw-company-section-title {
+                    font-size: 13px;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: 0.8px;
+                    color: var(--mw-green, #2D8659);
+                    margin-bottom: 12px;
+                    padding-bottom: 8px;
+                    border-bottom: 2px solid var(--mw-light, #E8F3F0);
+                }
+                .mw-company-section-title .count {
+                    color: #9ca3af;
+                    font-weight: 500;
+                    margin-left: 6px;
+                }
+            </style>
 
-                <!-- Overview Tab -->
-                <div class="tab-pane fade show active" id="overview" role="tabpanel">
+            <div id="companyContent">
+
+                <!-- Overview Section -->
+                <section class="mw-company-section" id="overview">
+                    <div class="mw-company-section-title">Overview</div>
                     <div class="row">
                         <div class="col-lg-6">
                             <div class="card mb-4">
@@ -350,10 +351,11 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <!-- Contacts Tab -->
-                <div class="tab-pane fade" id="contacts" role="tabpanel">
+                <!-- Contacts Section -->
+                <section class="mw-company-section" id="contacts">
+                    <div class="mw-company-section-title">Contacts <span class="count">(<?= count($companyContacts) ?>)</span></div>
                     <div class="card">
                         <div class="card-body">
                             <?php if (empty($companyContacts)): ?>
@@ -394,10 +396,11 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <!-- Properties Tab -->
-                <div class="tab-pane fade" id="properties" role="tabpanel">
+                <!-- Properties Section -->
+                <section class="mw-company-section" id="properties">
+                    <div class="mw-company-section-title">Properties <span class="count">(<?= count($companyProperties) ?>)</span></div>
                     <div class="card">
                         <div class="card-body">
                             <?php if ($linkFlash === '1'): ?>
@@ -602,9 +605,11 @@ $activePage = 'companies';
                 }());
                 </script>
                 <?php endif; ?>
+                </section>
 
-                <!-- Quotes Tab -->
-                <div class="tab-pane fade" id="quotes" role="tabpanel">
+                <!-- Quotes Section -->
+                <section class="mw-company-section" id="quotes">
+                    <div class="mw-company-section-title">Quotes <span class="count">(<?= count($quotes) ?>)</span></div>
                     <div class="card">
                         <div class="card-body">
                             <?php if (empty($quotes)): ?>
@@ -637,10 +642,11 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <!-- Jobs Tab -->
-                <div class="tab-pane fade" id="jobs" role="tabpanel">
+                <!-- Jobs Section -->
+                <section class="mw-company-section" id="jobs">
+                    <div class="mw-company-section-title">Jobs <span class="count">(<?= count($jobs) ?>)</span></div>
                     <div class="card">
                         <div class="card-body">
                             <?php if (empty($jobs)): ?>
@@ -673,10 +679,11 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <!-- Invoices Tab -->
-                <div class="tab-pane fade" id="invoices" role="tabpanel">
+                <!-- Invoices Section -->
+                <section class="mw-company-section" id="invoices">
+                    <div class="mw-company-section-title">Invoices <span class="count">(<?= count($invoices) ?>)</span></div>
                     <?php if ($outstandingBalance > 0): ?>
                         <div class="mw-outstanding-balance mb-3">
                             <div class="small text-muted mb-1">Outstanding Balance</div>
@@ -715,10 +722,11 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </div>
+                </section>
 
-                <!-- Activity Tab -->
-                <div class="tab-pane fade" id="activity" role="tabpanel">
+                <!-- Activity Section -->
+                <section class="mw-company-section" id="activity">
+                    <div class="mw-company-section-title">Activity</div>
                     <div class="card">
                         <div class="card-body">
                             <?php if (empty($activities)): ?>
@@ -751,7 +759,7 @@ $activePage = 'companies';
                             <?php endif; ?>
                         </div>
                     </div>
-                </div>
+                </section>
 
             </div>
 
