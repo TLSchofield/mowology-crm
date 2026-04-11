@@ -1,0 +1,19 @@
+-- ═══════════════════════════════════════════════════════════════
+-- Migration 1011 — properties.billing_entity_name
+-- ═══════════════════════════════════════════════════════════════
+--
+-- Stores the property-level "billed entity" name (e.g. "VR14-50")
+-- that belongs to the property itself, separate from the company
+-- that manages it or the contact that represents it.
+--
+-- The Bill To string on a contract invoice becomes
+--     {properties.billing_entity_name} C/O {companies.company_name}
+-- e.g. "VR14-50 C/O MACDONALD REALTY"
+--
+-- The contract_billing cron copies this value into the new
+-- invoices.bill_to_name column at invoice creation time.
+-- If the property has no billing_entity_name, the cron falls back
+-- to the company name, then to the contact's full name.
+--
+-- Additive. Rollback: ALTER TABLE properties DROP COLUMN billing_entity_name;
+-- Apply via /crm/api/run-migration-1011.php (idempotent).

@@ -86,6 +86,24 @@ try {
     error_log("[contract_billing] Migration check failed: " . $e->getMessage());
 }
 
+// Soft-check optional schema additions — run without them if migrations
+// haven't been applied yet, so the cron keeps working during partial rollouts.
+$hasPropertyBillingEntity = false;
+try {
+    $hasPropertyBillingEntity = (bool)$db->query("SHOW COLUMNS FROM properties LIKE 'billing_entity_name'")->fetch();
+} catch (Throwable $e) { /* column absent — fall through */ }
+
+$hasInvoiceBillToName = false;
+try {
+    $hasInvoiceBillToName = (bool)$db->query("SHOW COLUMNS FROM invoices LIKE 'bill_to_name'")->fetch();
+} catch (Throwable $e) { /* column absent — fall through */ }
+
+// Build the optional SELECT clause dynamically so the query works on
+// databases that haven't run migration 1011 yet.
+$propertyBillingEntitySelect = $hasPropertyBillingEntity
+    ? "NULLIF(p.billing_entity_name, '') AS property_billing_entity,"
+    : "NULL AS property_billing_entity,";
+
 // ── 2. Fetch active monthly contracts with contact + property info ────────────
 try {
     $stmt = $db->prepare("
@@ -108,6 +126,10 @@ try {
                co.company_name,
                NULLIF(co.billing_email, '') AS company_billing_email,
                NULLIF(bc.email, '')          AS billing_contact_email,
+               -- Property-level billing entity for the Bill To line.
+               -- E.g. \"VR14-50\" — gets formatted as
+               -- \"{billing_entity_name} C/O {company_name}\" at invoice time.
+               {$propertyBillingEntitySelect}
                p.address        AS service_address,
                p.city           AS service_city,
                p.province       AS service_province,
@@ -167,6 +189,22 @@ foreach ($contracts as $ctr) {
             continue;
         }
 
+        // ── 3b.2 Resolve the Bill To heading ──────────────────────────────────
+        // Priority: "{property.billing_entity_name} C/O {company.company_name}"
+        //           → property.billing_entity_name alone
+        //           → company.company_name
+        //           → null (view.php falls back to contact full name).
+        $propertyEntity = $ctr['property_billing_entity'] ?? null;
+        $companyName    = $ctr['company_name']           ?? null;
+        $billToName     = null;
+        if (!empty($propertyEntity) && !empty($companyName)) {
+            $billToName = $propertyEntity . ' C/O ' . $companyName;
+        } elseif (!empty($propertyEntity)) {
+            $billToName = $propertyEntity;
+        } elseif (!empty($companyName)) {
+            $billToName = $companyName;
+        }
+
         $db->beginTransaction();
 
         // ── 3c. Create invoice ────────────────────────────────────────────────
@@ -177,25 +215,27 @@ foreach ($contracts as $ctr) {
         $invoiceNumber = generateInvoiceNumber();
         $accessToken   = generateAccessToken();
 
-        $db->prepare("
-            INSERT INTO invoices (
-                invoice_number, contract_id, contact_id, property_id,
-                invoice_date, issue_date, due_date,
-                subtotal, tax_rate, tax_amount,
-                total_amount, total, balance_due,
-                notes, access_token, token_expires_at,
-                service_address, service_city, service_province, service_postal_code,
-                status, created_by
-            ) VALUES (
-                ?, ?, ?, ?,
-                CURDATE(), CURDATE(), ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, DATE_ADD(NOW(), INTERVAL 90 DAY),
-                ?, ?, ?, ?,
-                'draft', 0
-            )
-        ")->execute([
+        // Build the INSERT dynamically so older databases without
+        // invoices.bill_to_name still work. Migration 1010 adds it.
+        $insertCols = [
+            'invoice_number','contract_id','contact_id','property_id',
+            'invoice_date','issue_date','due_date',
+            'subtotal','tax_rate','tax_amount',
+            'total_amount','total','balance_due',
+            'notes','access_token','token_expires_at',
+            'service_address','service_city','service_province','service_postal_code',
+            'status','created_by',
+        ];
+        $insertPlaceholders = [
+            '?','?','?','?',
+            'CURDATE()','CURDATE()','?',
+            '?','?','?',
+            '?','?','?',
+            '?','?',"DATE_ADD(NOW(), INTERVAL 90 DAY)",
+            '?','?','?','?',
+            "'draft'",'0',
+        ];
+        $insertParams = [
             $invoiceNumber,
             $contractId,
             $contactId,
@@ -209,7 +249,15 @@ foreach ($contracts as $ctr) {
             $ctr['service_city']    ?? '',
             $ctr['service_province'] ?? 'BC',
             $ctr['service_postal']  ?? '',
-        ]);
+        ];
+        if ($hasInvoiceBillToName) {
+            $insertCols[]         = 'bill_to_name';
+            $insertPlaceholders[] = '?';
+            $insertParams[]       = $billToName;
+        }
+        $sql = "INSERT INTO invoices (" . implode(',', $insertCols) . ") VALUES ("
+             . implode(',', $insertPlaceholders) . ")";
+        $db->prepare($sql)->execute($insertParams);
 
         $invoiceId = (int)$db->lastInsertId();
 

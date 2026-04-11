@@ -459,9 +459,12 @@ $activePage = 'companies';
                                         <tbody>
                                             <?php foreach ($companyProperties as $prop):
                                                 $isInferred = ($prop['link_source'] ?? '') === 'inferred';
+                                                $propHref   = '/crm/properties/view.php?id=' . (int)$prop['id']
+                                                            . '&return_to=' . urlencode('/crm/companies/view.php?id=' . $companyId . '#properties');
                                             ?>
-                                                <tr>
+                                                <tr class="mw-row-link" data-href="<?= htmlspecialchars($propHref) ?>" style="cursor:pointer;">
                                                     <td>
+                                                        <a href="<?= htmlspecialchars($propHref) ?>" class="text-dark" style="text-decoration:none;">
                                                         <?php if (!empty($prop['property_name'])): ?>
                                                             <div style="font-weight:600;"><?= htmlspecialchars($prop['property_name']) ?></div>
                                                             <div class="text-muted" style="font-size:.85rem;"><?= htmlspecialchars($prop['address'] ?? '—') ?></div>
@@ -474,6 +477,7 @@ $activePage = 'companies';
                                                                 Linked via <?= htmlspecialchars($prop['linked_via_name']) ?>
                                                             </div>
                                                         <?php endif; ?>
+                                                        </a>
                                                     </td>
                                                     <td><?= htmlspecialchars($prop['city'] ?? '—') ?></td>
                                                     <td>
@@ -573,16 +577,27 @@ $activePage = 'companies';
                 (function () {
                     var filter = document.getElementById('linkPropertyFilter');
                     var picker = document.getElementById('linkPropertyPicker');
-                    if (!filter || !picker) return;
-                    filter.addEventListener('input', function () {
-                        var q = filter.value.trim().toLowerCase();
-                        Array.from(picker.options).forEach(function (opt) {
-                            var hay = opt.getAttribute('data-search') || '';
-                            opt.hidden = q !== '' && hay.indexOf(q) === -1;
+                    if (filter && picker) {
+                        filter.addEventListener('input', function () {
+                            var q = filter.value.trim().toLowerCase();
+                            Array.from(picker.options).forEach(function (opt) {
+                                var hay = opt.getAttribute('data-search') || '';
+                                opt.hidden = q !== '' && hay.indexOf(q) === -1;
+                            });
+                            // Auto-select first visible option for Enter-key friendliness
+                            var firstVisible = Array.from(picker.options).find(function (o) { return !o.hidden; });
+                            if (firstVisible) picker.value = firstVisible.value;
                         });
-                        // Auto-select first visible option for Enter-key friendliness
-                        var firstVisible = Array.from(picker.options).find(function (o) { return !o.hidden; });
-                        if (firstVisible) picker.value = firstVisible.value;
+                    }
+                    // Whole-row click → property page, but ignore clicks on
+                    // the Unlink form (button / icon) so those still POST
+                    // instead of navigating away.
+                    document.querySelectorAll('.mw-row-link').forEach(function (row) {
+                        row.addEventListener('click', function (e) {
+                            if (e.target.closest('form, button, a')) return;
+                            var href = row.getAttribute('data-href');
+                            if (href) window.location.href = href;
+                        });
                     });
                 }());
                 </script>
