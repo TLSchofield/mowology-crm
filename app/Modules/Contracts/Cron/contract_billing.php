@@ -59,6 +59,7 @@ if (!$isCli) {
 }
 
 require_once APP_ROOT . '/Services/Messaging/EmailWrapper.php';
+require_once APP_ROOT . '/Services/Messaging/MessagingService.php'; // defines loadEmailTemplate() used below
 
 $startMs    = (int)(microtime(true) * 1000);
 $today      = date('Y-m-d');
