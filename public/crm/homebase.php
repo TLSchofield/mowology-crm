@@ -835,7 +835,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
             })
             .then(function (r) { return r.json(); })
             .then(function (d) {
-                if (d.success || !d.clocked_in) {
+                if (d.success === true) {
                     // Release the native foreground GPS service so the
                     // "Mowology GPS Tracking" notification disappears and
                     // battery drain stops. Safe in browser (MwNative is

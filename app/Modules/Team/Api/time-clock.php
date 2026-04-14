@@ -162,10 +162,16 @@ try {
                 $notes = $notes ? $notes . ' — ' . $adminNote : $adminNote;
             }
 
-            // Stop any active visit timers first
+            // Stop any active visit timers first. Wrapped in try/catch so a stale/orphaned
+            // job_time_entry row (e.g. visit deleted, FK mismatch) cannot block clock-out.
+            // The clock_out itself must always run — a stuck user is worse than a stale timer.
             $activeJob = getActiveVisitTimer($targetUserId);
             if ($activeJob) {
-                stopVisitTimer((int)$activeJob['visit_id'], $targetUserId, $lat, $lng, 'Auto-stopped on clock out');
+                try {
+                    stopVisitTimer((int)$activeJob['visit_id'], $targetUserId, $lat, $lng, 'Auto-stopped on clock out');
+                } catch (Exception $e) {
+                    error_log('[time-clock] stopVisitTimer failed for user #' . $targetUserId . ' visit #' . (int)$activeJob['visit_id'] . ': ' . $e->getMessage());
+                }
             }
 
             $totalMinutes = clockOut($targetUserId, $lat, $lng, $notes);
