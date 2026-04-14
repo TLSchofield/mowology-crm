@@ -554,7 +554,12 @@
         })
         .then(function(r) {
             if (r.status === 401) {
-                stopTracking();
+                // Session expired — queue this ping for replay after re-login.
+                // Do NOT call stopTracking(): the interval must keep running so
+                // pings resume automatically once the user logs back in (or the
+                // session is restored). Calling stopTracking() here permanently
+                // kills GPS for the rest of the day.
+                queuePosition(latestPosition);
                 showSessionExpiredBanner();
                 return null;
             }
@@ -565,9 +570,12 @@
             if (data.success && !data.skipped) {
                 console.log('[MwTracking] Position sent OK');
             }
-            if (data.error === 'Not clocked in' || data.error === 'Tracking not enabled') {
+            if (data.error === 'Tracking not enabled') {
+                // Admin explicitly disabled tracking — stop until next page load.
                 stopTracking();
             }
+            // "Not clocked in" is transient (clocking in will re-enable) — do NOT
+            // stop tracking. Just skip this ping; the next interval will retry.
             // Handle server-side proximity auto-start
             if (data.auto_started) {
                 handleServerAutoStart(data.auto_started);
@@ -583,9 +591,10 @@
     function showSessionExpiredBanner() {
         if (_sessionExpiredBannerShown) return;
         _sessionExpiredBannerShown = true;
-        stopTracking();
         // Show a persistent banner prompting re-login — GPS queue is preserved in
         // localStorage and will replay automatically after the user logs back in.
+        // Do NOT call stopTracking() here — GPS interval must keep running so that
+        // pings resume automatically when the user logs back in on the same tab.
         var banner = document.createElement('div');
         banner.id = 'mw-session-expired-banner';
         banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#c0392b;color:#fff;padding:12px 16px;font-size:14px;font-weight:600;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.4)';
