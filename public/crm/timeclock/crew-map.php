@@ -594,48 +594,57 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
         routeData.forEach(function(route, index) {
             if (!routeVisible[route.user_id]) return;
-            if (route.points.length < 2) return;
+            if (!route.points.length) return;
 
             var color = ROUTE_COLORS[index % ROUTE_COLORS.length];
             var path = route.points.map(function(p) {
                 return { lat: p.lat, lng: p.lng };
             });
 
-            // Draw polyline
-            var polyline = new google.maps.Polyline({
-                path: path,
-                geodesic: true,
-                strokeColor: color,
-                strokeOpacity: 0.8,
-                strokeWeight: 3,
-                map: gmap,
-                zIndex: 500
-            });
+            // Draw polyline only when 2+ points exist
+            if (route.points.length >= 2) {
+                var polyline = new google.maps.Polyline({
+                    path: path,
+                    geodesic: true,
+                    strokeColor: color,
+                    strokeOpacity: 0.8,
+                    strokeWeight: 3,
+                    map: gmap,
+                    zIndex: 500
+                });
+                routePolylines[route.user_id] = polyline;
+            }
 
-            routePolylines[route.user_id] = polyline;
+            // Always draw a start/last-known marker (even for single-ping routes)
+            var isSinglePing = route.points.length === 1;
+            var startLabel = isSinglePing
+                ? route.full_name + ' — Only ping (' + formatTime(route.points[0].time) + ')'
+                : route.full_name + ' — Start (' + formatTime(route.points[0].time) + ')';
 
-            // Start marker (small circle)
             var startMarker = new google.maps.Marker({
                 position: path[0],
                 map: gmap,
                 icon: {
                     path: google.maps.SymbolPath.CIRCLE,
-                    scale: 6,
+                    scale: isSinglePing ? 8 : 6,
                     fillColor: color,
                     fillOpacity: 1,
                     strokeColor: '#fff',
                     strokeWeight: 2
                 },
-                title: route.full_name + ' — Start (' + formatTime(route.points[0].time) + ')',
+                title: startLabel,
                 zIndex: 600
             });
 
             var startInfo = new google.maps.InfoWindow({
                 content: '<div style="padding:6px;font-size:12px;">' +
                     '<strong>' + escapeHtml(route.full_name) + '</strong><br>' +
-                    'Started: ' + formatTime(route.points[0].time) + '<br>' +
-                    'Last ping: ' + formatTime(route.points[route.points.length - 1].time) + '<br>' +
-                    'Points: ' + route.points.length +
+                    (isSinglePing
+                        ? 'Only ping: ' + formatTime(route.points[0].time) + '<br><em style="color:#f59e0b;">No route — awaiting more pings</em>'
+                        : 'Started: ' + formatTime(route.points[0].time) + '<br>' +
+                          'Last ping: ' + formatTime(route.points[route.points.length - 1].time) + '<br>' +
+                          'Points: ' + route.points.length
+                    ) +
                     '</div>'
             });
 
@@ -645,7 +654,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
             routeStartMarkers[route.user_id] = startMarker;
 
-            // Detect and draw stop markers
+            // Detect and draw stop markers (only meaningful with 2+ points)
+            if (isSinglePing) return;
             var stops = detectStops(route.points);
             stops.forEach(function(stop) {
                 var durationMin = Math.round(stop.duration / 60);
@@ -812,21 +822,26 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             var color = ROUTE_COLORS[index % ROUTE_COLORS.length];
             var firstTime = route.points[0].time;
             var lastTime = route.points[route.points.length - 1].time;
-            var distance = calcRouteDistance(route.points);
-            var stops = detectStops(route.points);
-            var stopsText = stops.length === 0 ? 'no stops' :
-                stops.length + ' stop' + (stops.length > 1 ? 's' : '');
+
+            var detailLine;
+            if (route.points.length === 1) {
+                detailLine = '1 ping &middot; awaiting more';
+            } else {
+                var distance = calcRouteDistance(route.points);
+                var stops = detectStops(route.points);
+                var stopsText = stops.length === 0 ? 'no stops' :
+                    stops.length + ' stop' + (stops.length > 1 ? 's' : '');
+                detailLine = route.points.length + ' pings &middot; ~' + distance + ' km &middot; ' + stopsText;
+            }
 
             html += '<div class="mw-route-stat-item">' +
                 '<div class="mw-route-stat-dot" style="background:' + color + ';"></div>' +
                 '<div class="mw-route-stat-info">' +
                     '<div class="mw-route-stat-name">' + escapeHtml(route.full_name) + '</div>' +
                     '<div class="mw-route-stat-detail">' +
-                        formatTime(firstTime) + ' &mdash; ' + formatTime(lastTime) +
+                        formatTime(firstTime) + (route.points.length > 1 ? ' &mdash; ' + formatTime(lastTime) : '') +
                     '</div>' +
-                    '<div class="mw-route-stat-detail">' +
-                        route.points.length + ' pings &middot; ~' + distance + ' km &middot; ' + stopsText +
-                    '</div>' +
+                    '<div class="mw-route-stat-detail">' + detailLine + '</div>' +
                 '</div>' +
                 '</div>';
         });
