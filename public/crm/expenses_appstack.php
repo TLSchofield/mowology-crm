@@ -774,21 +774,23 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                 </div>
 
-                <!-- Amount / Tax in a compact row -->
-                <div class="mw-mc-expense-field-row mw-mc-expense-amounts-row">
+                <!-- Amount / Tax — two 2-column rows (avoids flex-wrap specificity issues) -->
+                <div class="mw-mc-expense-field-row">
                     <div class="mw-mc-expense-field">
                         <label>Subtotal</label>
                         <input type="number" id="mobileRvAmount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
                     </div>
-                    <div class="mw-mc-expense-field mw-mc-expense-field-narrow">
+                    <div class="mw-mc-expense-field">
                         <label>GST</label>
                         <input type="number" id="mobileRvGst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
                     </div>
-                    <div class="mw-mc-expense-field mw-mc-expense-field-narrow">
+                </div>
+                <div class="mw-mc-expense-field-row">
+                    <div class="mw-mc-expense-field">
                         <label>PST</label>
                         <input type="number" id="mobileRvPst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
                     </div>
-                    <div class="mw-mc-expense-field mw-mc-expense-field-narrow">
+                    <div class="mw-mc-expense-field">
                         <label>Recycling</label>
                         <input type="number" id="mobileRvRecyclingTax" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
                     </div>
@@ -1151,14 +1153,27 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                             </div>
                             <div id="expLineItemsList">
                                 <table class="mw-line-items-table w-100" id="expLineItemsTable"></table>
-                                <!-- Add item inline form (hidden by default) -->
-                                <div id="expAddItemRow" style="display:none;" class="mw-add-item-row">
-                                    <input type="text"   class="form-control form-control-sm" id="newItemName"      placeholder="Item name (e.g. Moss Control)">
-                                    <input type="number" class="form-control form-control-sm" id="newItemQty"       placeholder="Qty" min="1" step="1" value="1" style="width:60px;">
-                                    <input type="number" class="form-control form-control-sm" id="newItemUnitPrice" placeholder="$/unit" min="0" step="0.01" style="width:80px;">
-                                    <input type="number" class="form-control form-control-sm" id="newItemTotal"     placeholder="Total" min="0" step="0.01" style="width:80px;">
-                                    <button type="button" class="btn btn-sm btn-primary"   onclick="commitAddLineItem()"><i data-feather="check" style="width:12px;height:12px;"></i></button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelAddLineItem()"><i data-feather="x" style="width:12px;height:12px;"></i></button>
+                                <!-- Smart Add Item Panel (hidden by default) -->
+                                <div id="expAddItemPanel" class="mw-aip" style="display:none;">
+                                    <!-- Search / filter -->
+                                    <div class="mw-aip-search-wrap">
+                                        <svg class="mw-aip-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                                        <input type="text" id="expAipSearch" class="mw-aip-search" placeholder="Search products…" autocomplete="off">
+                                    </div>
+                                    <!-- Product chips — rendered by JS when vendor has products -->
+                                    <div id="expAipCatalog" class="mw-aip-catalog" style="display:none;"></div>
+                                    <!-- Entry form — chips auto-fill these fields -->
+                                    <div class="mw-aip-form-inner">
+                                        <div id="expAipBadge" class="mw-aip-badge" style="display:none;"></div>
+                                        <div class="mw-add-item-row" style="border:none;margin:0;padding:0;">
+                                            <input type="text"   class="form-control form-control-sm" id="newItemName"      placeholder="Item name (required)">
+                                            <input type="number" class="form-control form-control-sm" id="newItemQty"       placeholder="Qty" min="0.25" step="0.25" value="1" style="width:60px;">
+                                            <input type="number" class="form-control form-control-sm" id="newItemUnitPrice" placeholder="$/unit" min="0" step="0.01" style="width:80px;">
+                                            <input type="number" class="form-control form-control-sm" id="newItemTotal"     placeholder="Total" min="0" step="0.01" style="width:80px;">
+                                            <button type="button" class="btn btn-sm btn-success"          onclick="commitAddLineItem()"><i data-feather="check" style="width:12px;height:12px;"></i></button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelAddLineItem()"><i data-feather="x" style="width:12px;height:12px;"></i></button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1407,6 +1422,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     let currentPage = 1;
     let currentGpsLat = null;
     let currentGpsLng = null;
+    var pendingReceiptInput = null; // tracks ephemeral file input for camera/gallery
+
+    // Android WebView bug: a persistent <input type=file> stops responding to
+    // .click() after the first file selection. Fix: create a fresh input each
+    // time and destroy the old one (same pattern as schedule-pill-workflow.js).
+    function cleanupPendingReceiptInput() {
+        if (pendingReceiptInput) {
+            if (pendingReceiptInput.input) {
+                pendingReceiptInput.input.removeEventListener('change', pendingReceiptInput.handler);
+                if (pendingReceiptInput.input.parentNode)
+                    pendingReceiptInput.input.parentNode.removeChild(pendingReceiptInput.input);
+            }
+            pendingReceiptInput = null;
+        }
+    }
 
     // ── Init ─────────────────────────────────────────────────────
     async function init() {
@@ -1433,6 +1463,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var el = document.getElementById(id);
             if (el) el.addEventListener('input', function() { calcTotalFor('rv'); });
         });
+        // Reverse calc: when total is edited and subtotal is empty, back-fill subtotal
+        (function() {
+            var rvTotalEl = document.getElementById('rvTotal');
+            if (rvTotalEl) rvTotalEl.addEventListener('input', function() {
+                var amtEl = document.getElementById('rvAmount');
+                if (!amtEl || parseFloat(amtEl.value) > 0) return;
+                var sub = parseFloat(this.value || 0)
+                    - parseFloat(document.getElementById('rvGst').value || 0)
+                    - parseFloat((document.getElementById('rvPst') || {}).value || 0)
+                    - parseFloat((document.getElementById('rvRecyclingTax') || {}).value || 0);
+                if (sub > 0) amtEl.value = sub.toFixed(2);
+            });
+        })();
 
         // Fuel section toggle on category change
         var expCatEl = document.getElementById('expAcctCategory');
@@ -1456,12 +1499,29 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var galleryInput = document.getElementById('receiptGalleryInput');
         if (galleryInput) galleryInput.addEventListener('change', handleReceiptFile);
 
-        // Gallery link click
+        // Gallery link click — same create-and-destroy pattern (no capture attr)
         var galleryLink = document.querySelector('.mw-gallery-link');
         if (galleryLink) {
             galleryLink.addEventListener('click', function(e) {
                 e.preventDefault();
-                document.getElementById('receiptGalleryInput').click();
+                cleanupPendingReceiptInput();
+
+                var input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;';
+                document.body.appendChild(input);
+
+                var handler = function() {
+                    input.removeEventListener('change', handler);
+                    if (input.parentNode) input.parentNode.removeChild(input);
+                    pendingReceiptInput = null;
+                    handleReceiptFile({ target: input });
+                };
+
+                pendingReceiptInput = { input: input, handler: handler };
+                input.addEventListener('change', handler);
+                input.click();
             });
         }
 
@@ -1490,7 +1550,25 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     // ── Camera / Photo Capture ────────────────────────────────────
     window.triggerCamera = function() {
-        document.getElementById('receiptFileInput').click();
+        cleanupPendingReceiptInput();
+
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.setAttribute('capture', 'environment');
+        input.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;';
+        document.body.appendChild(input);
+
+        var handler = function() {
+            input.removeEventListener('change', handler);
+            if (input.parentNode) input.parentNode.removeChild(input);
+            pendingReceiptInput = null;
+            handleReceiptFile({ target: input });
+        };
+
+        pendingReceiptInput = { input: input, handler: handler };
+        input.addEventListener('change', handler);
+        input.click();
     };
 
     // ── Phase 2.1: Client-side image compression ──────────────────
@@ -1765,9 +1843,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         }
         if (p.subtotal) {
             document.getElementById('rvAmount').value = p.subtotal;
-        } else if (p.total && p.gst) {
-            var calcSub = parseFloat(p.total) - parseFloat(p.gst) - parseFloat(p.pst || 0);
-            document.getElementById('rvAmount').value = calcSub.toFixed(2);
+        } else if (p.total) {
+            var calcSub = parseFloat(p.total) - parseFloat(p.gst || 0) - parseFloat(p.pst || 0) - parseFloat(p.recycling_tax || 0);
+            if (calcSub > 0) document.getElementById('rvAmount').value = calcSub.toFixed(2);
         }
         // PST
         if (p.pst) {
@@ -1881,7 +1959,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             setMobileVal('mobileRvDate', safeDate(p.date));
             setMobileVal('mobileRvTotal', p.total || '');
             setMobileVal('mobileRvGst', p.gst || '0');
-            setMobileVal('mobileRvAmount', p.subtotal || (p.total && p.gst ? (parseFloat(p.total) - parseFloat(p.gst)).toFixed(2) : ''));
+            var mobileCalcSub = p.subtotal || (p.total ? (parseFloat(p.total) - parseFloat(p.gst || 0) - parseFloat(p.pst || 0) - parseFloat(p.recycling_tax || 0)).toFixed(2) : '');
+            setMobileVal('mobileRvAmount', mobileCalcSub > 0 ? mobileCalcSub : '');
             setMobileVal('mobileRvCategory', s.accounting_category || '');
             setMobileVal('mobileRvPayment', p.payment_method || '');
 
@@ -2221,6 +2300,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             if (d.success && d.has_duplicates && d.duplicates.length > 0) {
                 var dup = d.duplicates[0];
                 var vendorDisplay = dup.vendor_name || dup.vendor_name_raw || 'Unknown';
+
+                // Bug #11 fix: confirm() silently returns false on Android WebView (same class of
+                // bug as #4 where alert() hangs). The duplicate warning banner in the review panel
+                // already warned the user — don't block the save with a native dialog.
+                // On desktop, use confirm(); on mobile/Capacitor, toast a warning and allow the save.
+                var isMobileWebView = !!(window.Capacitor || /Android/i.test(navigator.userAgent));
+                if (isMobileWebView) {
+                    var warnMsg = 'Possible duplicate: ' + vendorDisplay + ' $' + parseFloat(dup.total).toFixed(2);
+                    if (typeof mobileToast === 'function') {
+                        mobileToast(warnMsg, true);
+                    }
+                    return true; // Allow save — user was already warned by the in-panel banner
+                }
+
                 var msg = 'Possible duplicate detected!\n\n' +
                     'Existing expense: ' + vendorDisplay + ' — $' + parseFloat(dup.total).toFixed(2) + ' on ' + dup.expense_date + ' (' + dup.status + ')';
                 if (d.duplicates.length > 1) {
@@ -2242,7 +2335,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('capturePrompt').style.display = 'block';
         document.getElementById('analyzeSpinner').style.display = 'none';
 
-        // Reset file inputs
+        // Clean up any pending ephemeral file input (Android WebView fix)
+        cleanupPendingReceiptInput();
+
+        // Reset static file inputs (fallback)
         document.getElementById('receiptFileInput').value = '';
         document.getElementById('receiptGalleryInput').value = '';
 
@@ -2376,7 +2472,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
             // Show profitability impact card
             showImpactCard(savedVendor, savedTotal, savedCat, savedJobId, d.expense_id, andSend);
-        } catch(e) { alert('Error: ' + e.message); }
+        } catch(e) {
+            var userMsg = (e.message && e.message.indexOf('SQLSTATE') !== -1)
+                ? 'Could not save — please try again or reload the page'
+                : ('Error: ' + e.message);
+            alert(userMsg);
+        }
     }
 
     // ── Post-Save Impact Card ─────────────────────────────────────
@@ -4255,19 +4356,22 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (activeBtn) { activeBtn.disabled = true; activeBtn.classList.add('mw-mc-expense-btn-loading'); }
 
         try {
-            var r = await fetch('/crm/api/expenses.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
+            var d = await withCSRFRetry(async function() {
+                var r = await fetch('/crm/api/expenses.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+                if (r.status === 401 || r.redirected) {
+                    window.location.href = '/loginAuth/login_secure.php';
+                    throw new Error('Session expired');
+                }
+                var result = await r.json().catch(function() {
+                    throw new Error('Session expired — please refresh the page and try again.');
+                });
+                if (!result.success) throw new Error(result.error);
+                return result;
             });
-            if (r.status === 401 || r.redirected) {
-                window.location.href = '/loginAuth/login_secure.php';
-                return;
-            }
-            var d = await r.json().catch(function() {
-                throw new Error('Session expired — please refresh the page and try again.');
-            });
-            if (!d.success) throw new Error(d.error);
 
             if (andSend && d.expense_id) {
                 var sr = await fetch('/crm/api/receipt-send.php', {
@@ -4294,7 +4398,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             }, 600);
         } catch(e) {
             haptic('error');
-            mobileToast('Error: ' + e.message, true);
+            var userMsg = (e.message && e.message.indexOf('SQLSTATE') !== -1)
+                ? 'Could not save — please try again or reload the page'
+                : ('Error: ' + e.message);
+            mobileToast(userMsg, true);
         } finally {
             if (activeBtn) { activeBtn.disabled = false; activeBtn.classList.remove('mw-mc-expense-btn-loading'); }
         }
@@ -4389,24 +4496,36 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     }
 
     // Mobile auto-calc total (amount + gst + pst + recycling = total)
+    // Also reverse-calcs subtotal when total is edited and subtotal is empty.
     (function() {
-        var mAmtEl = document.getElementById('mobileRvAmount');
-        var mGstEl = document.getElementById('mobileRvGst');
-        var mPstEl = document.getElementById('mobileRvPst');
-        var mRtEl  = document.getElementById('mobileRvRecyclingTax');
+        var mAmtEl   = document.getElementById('mobileRvAmount');
+        var mGstEl   = document.getElementById('mobileRvGst');
+        var mPstEl   = document.getElementById('mobileRvPst');
+        var mRtEl    = document.getElementById('mobileRvRecyclingTax');
+        var mTotalEl = document.getElementById('mobileRvTotal');
         if (mAmtEl && mGstEl) {
             function mCalc() {
                 var amt = parseFloat(mAmtEl.value) || 0;
                 var gst = parseFloat(mGstEl.value) || 0;
                 var pst = mPstEl ? (parseFloat(mPstEl.value) || 0) : 0;
                 var rt  = mRtEl  ? (parseFloat(mRtEl.value)  || 0) : 0;
-                var totalEl = document.getElementById('mobileRvTotal');
-                if (totalEl) totalEl.value = (amt + gst + pst + rt).toFixed(2);
+                if (mTotalEl) mTotalEl.value = (amt + gst + pst + rt).toFixed(2);
             }
             mAmtEl.addEventListener('input', mCalc);
             mGstEl.addEventListener('input', mCalc);
             if (mPstEl) mPstEl.addEventListener('input', mCalc);
             if (mRtEl)  mRtEl.addEventListener('input', mCalc);
+        }
+        // Reverse calc: total edited → back-fill subtotal if it's empty
+        if (mTotalEl && mAmtEl) {
+            mTotalEl.addEventListener('input', function() {
+                if (parseFloat(mAmtEl.value) > 0) return;
+                var sub = parseFloat(this.value || 0)
+                    - parseFloat(mGstEl ? (mGstEl.value || 0) : 0)
+                    - parseFloat(mPstEl ? (mPstEl.value || 0) : 0)
+                    - parseFloat(mRtEl  ? (mRtEl.value  || 0) : 0);
+                if (sub > 0) mAmtEl.value = sub.toFixed(2);
+            });
         }
     })();
 
@@ -4704,7 +4823,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         clearTimeout(toast._hideTimer);
         toast._hideTimer = setTimeout(function() {
             toast.classList.remove('mw-mc-expense-toast-show');
-        }, 2800);
+        }, isError ? 5000 : 2800);
     }
 
     // Update mobile stats from the stats API
@@ -5106,20 +5225,174 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     };
 
     // ── Add Line Item (manual) ──────────────────────────────────────
+    // ── Smart Add Item Panel ─────────────────────────────────────────
+    var _aipProductCache = {}; // vendorId → products[]
+
+    function _aipClearFields() {
+        ['newItemName','newItemQty','newItemUnitPrice','newItemTotal'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.value = id === 'newItemQty' ? '1' : '';
+        });
+        var badge = document.getElementById('expAipBadge');
+        if (badge) badge.style.display = 'none';
+        document.querySelectorAll('.mw-aip-chip.is-selected').forEach(function(c) { c.classList.remove('is-selected'); });
+    }
+
     window.showAddLineItemRow = function() {
-        var row = document.getElementById('expAddItemRow');
-        if (row) { row.style.display = 'flex'; document.getElementById('newItemName').focus(); }
+        var panel = document.getElementById('expAddItemPanel');
+        if (!panel) return;
+        panel.style.display = 'block';
+        _aipClearFields();
+        var searchEl = document.getElementById('expAipSearch');
+        if (searchEl) {
+            searchEl.value = '';
+            var vName = ((document.getElementById('vendorName') || {}).value || '').trim();
+            searchEl.placeholder = vName ? 'Search ' + vName + ' products\u2026' : 'Search products\u2026';
+            searchEl.focus();
+        }
+
+        var vendorId = parseInt((document.getElementById('vendorId') || {}).value) || 0;
+        if (vendorId) {
+            _aipLoadProducts(vendorId);
+        } else {
+            var catalog = document.getElementById('expAipCatalog');
+            if (catalog) catalog.style.display = 'none';
+        }
     };
 
     window.cancelAddLineItem = function() {
-        var row = document.getElementById('expAddItemRow');
-        if (row) {
-            row.style.display = 'none';
-            ['newItemName','newItemQty','newItemUnitPrice','newItemTotal'].forEach(function(id) {
-                var el = document.getElementById(id); if (el) el.value = id === 'newItemQty' ? '1' : '';
-            });
-        }
+        var panel = document.getElementById('expAddItemPanel');
+        if (panel) panel.style.display = 'none';
+        _aipClearFields();
     };
+
+    async function _aipLoadProducts(vendorId) {
+        var catalog = document.getElementById('expAipCatalog');
+        if (!catalog) return;
+        if (_aipProductCache[vendorId]) {
+            _aipRender(_aipProductCache[vendorId], '');
+            return;
+        }
+        catalog.innerHTML = '<div class="mw-aip-no-products">Loading catalog\u2026</div>';
+        catalog.style.display = 'block';
+        try {
+            var r = await fetch('/crm/api/vendors.php?action=get&id=' + vendorId, { credentials: 'same-origin' });
+            var d = await r.json();
+            if (d.success && d.vendor && d.vendor.products && d.vendor.products.length) {
+                _aipProductCache[vendorId] = d.vendor.products;
+                _aipRender(d.vendor.products, '');
+            } else {
+                catalog.innerHTML = '';
+                catalog.style.display = 'none';
+            }
+        } catch(e) {
+            catalog.innerHTML = '';
+            catalog.style.display = 'none';
+        }
+    }
+
+    function _aipRender(products, searchTerm) {
+        var catalog = document.getElementById('expAipCatalog');
+        if (!catalog) return;
+        var q = (searchTerm || '').toLowerCase().trim();
+        var filtered = products.filter(function(p) {
+            if (!q) return true;
+            return (p.name || '').toLowerCase().indexOf(q) !== -1 ||
+                   (p.category || '').toLowerCase().indexOf(q) !== -1 ||
+                   (p.ocr_aliases || '').toLowerCase().indexOf(q) !== -1;
+        });
+        if (!filtered.length) {
+            catalog.innerHTML = '<div class="mw-aip-no-products">No matches \u2014 type a custom name below.</div>';
+            catalog.style.display = 'block';
+            return;
+        }
+        // Group by category
+        var cats = {};
+        var catOrder = [];
+        filtered.forEach(function(p) {
+            var c = p.category || 'Other';
+            if (!cats[c]) { cats[c] = []; catOrder.push(c); }
+            cats[c].push(p);
+        });
+        var html = '';
+        catOrder.forEach(function(cat) {
+            html += '<div class="mw-aip-cat-label">' + escHtml(cat) + '</div><div class="mw-aip-chips">';
+            cats[cat].forEach(function(p) {
+                var price = p.price_per_unit
+                    ? '$' + parseFloat(p.price_per_unit).toFixed(0) + '/' + (p.unit || 'unit')
+                    : '';
+                // Serialize product as data-attr (safe via escHtml on individual fields)
+                html += '<button type="button" class="mw-aip-chip" data-pid="' + p.id + '"' +
+                    ' data-name="' + escHtml(p.name || '') + '"' +
+                    ' data-unit="' + escHtml(p.unit || '') + '"' +
+                    ' data-price="' + escHtml(String(p.price_per_unit || '')) + '"' +
+                    ' data-id="' + p.id + '"' +
+                    ' onclick="selectAipChip(this)">' +
+                    escHtml(p.name) +
+                    (price ? ' <span class="mw-aip-chip-price">' + price + '</span>' : '') +
+                    '</button>';
+            });
+            html += '</div>';
+        });
+        catalog.innerHTML = html;
+        catalog.style.display = 'block';
+    }
+
+    window.selectAipChip = function(chipEl) {
+        var name  = chipEl.dataset.name  || '';
+        var unit  = chipEl.dataset.unit  || '';
+        var price = parseFloat(chipEl.dataset.price) || 0;
+
+        var nameEl = document.getElementById('newItemName');
+        var qtyEl  = document.getElementById('newItemQty');
+        var upEl   = document.getElementById('newItemUnitPrice');
+        var totEl  = document.getElementById('newItemTotal');
+
+        if (nameEl) nameEl.value = name;
+        if (qtyEl)  qtyEl.value  = '1';
+        if (upEl)   upEl.value   = price ? price.toFixed(2) : '';
+        if (totEl)  totEl.value  = price ? price.toFixed(2) : '';
+
+        // Badge
+        var badge = document.getElementById('expAipBadge');
+        if (badge) {
+            badge.style.display = 'inline-flex';
+            badge.textContent = '\u2713 ' + name + (unit ? ' \u00b7 ' + unit : '');
+        }
+
+        // Highlight chip
+        document.querySelectorAll('.mw-aip-chip.is-selected').forEach(function(c) { c.classList.remove('is-selected'); });
+        chipEl.classList.add('is-selected');
+
+        // Auto-recalc total when qty or price changes
+        function recalc() {
+            var q = parseFloat(qtyEl.value) || 1;
+            var u = parseFloat(upEl.value) || 0;
+            if (totEl && u) totEl.value = (q * u).toFixed(2);
+        }
+        if (qtyEl) qtyEl.oninput = recalc;
+        if (upEl)  upEl.oninput  = recalc;
+
+        if (nameEl) nameEl.focus();
+    };
+
+    // Wire search input
+    (function() {
+        var searchEl = document.getElementById('expAipSearch');
+        if (!searchEl) return;
+        searchEl.addEventListener('input', function() {
+            var q = searchEl.value.trim();
+            var vendorId = parseInt((document.getElementById('vendorId') || {}).value) || 0;
+            if (vendorId && _aipProductCache[vendorId]) {
+                _aipRender(_aipProductCache[vendorId], q);
+            }
+            // Mirror typed text into name field so free-text entry works
+            var nameEl = document.getElementById('newItemName');
+            if (nameEl && !document.querySelector('.mw-aip-chip.is-selected')) {
+                nameEl.value = q;
+            }
+        });
+    }());
 
     window.commitAddLineItem = async function() {
         var expId = document.getElementById('expenseId').value;
