@@ -33,6 +33,7 @@ if (!$error) {
             COALESCE(ct.last_name, dc.last_name)   as contact_last,
             COALESCE(ct.email, dc.email)            as contact_email,
             COALESCE(ct.phone, dc.phone)            as contact_phone,
+            p.property_name,
             p.address   as property_address,
             p.city      as property_city,
             p.postal_code as property_postal
@@ -193,6 +194,19 @@ function fmtDate(string $d): string {
         </div>
     <?php endif; ?>
 
+    <!-- Download / Print actions (always available as a paper-trail backup) -->
+    <?php $pdfTokenUrl = '/customer/api/invoice-pdf.php?token=' . urlencode($token); ?>
+    <div class="mw-invoice-doc-actions" style="display:flex;flex-wrap:wrap;gap:10px;margin:10px 0 20px;">
+        <a href="<?php echo htmlspecialchars($pdfTokenUrl); ?>" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border:1px solid #2D8659;color:#2D8659;border-radius:6px;font-weight:600;font-size:14px;background:#fff;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download PDF
+        </a>
+        <a href="<?php echo htmlspecialchars($pdfTokenUrl . '&inline=1'); ?>" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border:1px solid #2D8659;color:#2D8659;border-radius:6px;font-weight:600;font-size:14px;background:#fff;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            View &amp; Print
+        </a>
+    </div>
+
     <!-- Billing Information -->
     <div class="portal-info-card">
         <div class="portal-info-card-header">Billing Information</div>
@@ -200,11 +214,34 @@ function fmtDate(string $d): string {
             <div class="portal-bill-grid">
                 <div class="portal-bill-section">
                     <h4>Bill To</h4>
-                    <?php if ($invoice['company_name']): ?>
-                        <div class="portal-bill-name"><?php echo htmlspecialchars($invoice['company_name']); ?></div>
-                    <?php endif; ?>
-                    <?php if ($contactName): ?>
-                        <div class="portal-bill-name"><?php echo htmlspecialchars($contactName); ?></div>
+                    <?php
+                    // Heading priority (matches PDF template):
+                    //   1. invoices.bill_to_name (manual override)
+                    //   2. properties.property_name
+                    //   3. companies.company_name
+                    //   4. contact first + last
+                    $propertyName = trim((string)($invoice['property_name'] ?? ''));
+                    $billToHeading   = trim((string)($invoice['bill_to_name'] ?? ''));
+                    $billToIsProperty = false;
+                    if ($billToHeading === '') {
+                        if ($propertyName !== '') {
+                            $billToHeading = $propertyName;
+                            $billToIsProperty = true;
+                        } else {
+                            $billToHeading = $invoice['company_name'] ?: $contactName;
+                        }
+                    }
+                    if ($billToHeading === '') { $billToHeading = 'Customer'; }
+                    ?>
+                    <div class="portal-bill-name"><?php echo htmlspecialchars($billToHeading); ?></div>
+                    <?php
+                    // If the heading is the property name, show the paying company beneath it.
+                    // Otherwise, if heading is an explicit override (bill_to_name), optionally
+                    // show the contact name for context.
+                    if ($billToIsProperty && !empty($invoice['company_name'])): ?>
+                        <div class="portal-bill-detail"><?php echo htmlspecialchars($invoice['company_name']); ?></div>
+                    <?php elseif (!empty($invoice['bill_to_name']) && $contactName && stripos($invoice['bill_to_name'], $contactName) === false): ?>
+                        <div class="portal-bill-detail"><?php echo htmlspecialchars($contactName); ?></div>
                     <?php endif; ?>
                     <?php
                     $email      = $invoice['contact_email'] ?: $invoice['billing_email'] ?: '';

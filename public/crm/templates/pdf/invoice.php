@@ -2,7 +2,7 @@
 /**
  * Invoice PDF Template
  * Rendered by PdfGenerator::generateInvoicePdf()
- * Variables: $invoice (array), $lineItems (array)
+ * Variables: $invoice (array), $lineItems (array), $business (array)
  *
  * This outputs HTML for mPDF rendering — NOT an AppStack CRM page.
  */
@@ -10,24 +10,44 @@
 $fmt = function($amount) { return '$' . number_format(floatval($amount), 2); };
 $esc = function($str) { return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8'); };
 
+// Business (our own company) info — loaded from business_settings by PdfGenerator
+$business = isset($business) && is_array($business) ? $business : [];
+$bizName    = trim((string)($business['company_name']    ?? 'Mowology'));
+$bizPhone   = trim((string)($business['company_phone']   ?? '(778) 846-9273'));
+$bizEmail   = trim((string)($business['company_email']   ?? 'office@mowology.ca'));
+$bizWebsite = trim((string)($business['company_website'] ?? 'mowology.ca'));
+$bizAddress = trim((string)($business['company_address'] ?? 'Vancouver, BC'));
+$bizGst     = trim((string)($business['gst_registration'] ?? ''));
+$bizTagline = trim((string)($business['company_tagline']  ?? ''));
+
+// Invoice messaging (configured in Settings → Invoices)
+$invoiceHeaderMsg    = trim((string)($business['invoice_message_header']      ?? ''));
+$invoiceTerms        = trim((string)($business['invoice_terms_text']          ?? ''));
+$invoicePaymentInstr = trim((string)($business['invoice_payment_instructions'] ?? ''));
+$invoiceFooterText   = trim((string)($business['invoice_footer_text']         ?? ''));
+
 $contactName = trim(($invoice['contact_first'] ?? '') . ' ' . ($invoice['contact_last'] ?? ''));
 $companyName = $invoice['company_name'] ?? '';
-// New priority (matches view.php + Edit Invoice page):
+$propertyName = trim((string)($invoice['property_name'] ?? ''));
+
+// Bill-to priority:
 //   1. invoices.bill_to_name  — per-invoice manual override
-//      (e.g. "VR14-50 C/O MACDONALD REALTY" set by the contract cron
-//       from property.billing_entity_name + company_name)
-//   2. companies.company_name  — the linked company
-//   3. contact first + last     — fallback to the rep's name
+//   2. properties.property_name — the property's friendly name
+//   3. companies.company_name  — the linked company
+//   4. contact first + last     — fallback to the rep's name
 $billToHeading = trim((string)($invoice['bill_to_name'] ?? ''));
+$billToIsProperty = false;
 if ($billToHeading === '') {
-    $billToHeading = $companyName ?: $contactName;
+    if ($propertyName !== '') {
+        $billToHeading = $propertyName;
+        $billToIsProperty = true;
+    } else {
+        $billToHeading = $companyName ?: $contactName;
+    }
 }
 if ($billToHeading === '') {
     $billToHeading = 'Customer';
 }
-// Show the contact as an "Attn:" sub-line only when it's different from
-// whatever we already put on the heading — avoids "Monica Nicule" twice.
-$showAttn = $contactName !== '' && strcasecmp($billToHeading, $contactName) !== 0;
 
 $billingLine = $esc($invoice['billing_address'] ?? '');
 if (!empty($invoice['billing_city'])) $billingLine .= ', ' . $esc($invoice['billing_city']);
@@ -61,42 +81,120 @@ $isOverdue = ($invoice['status'] === 'overdue');
         line-height: 1.5;
     }
 
-    .header-table { width: 100%; margin-bottom: 30px; }
+    .header-table { width: 100%; margin-bottom: 18px; }
 
     .brand-name {
-        font-size: 22pt;
+        font-size: 17pt;
         font-weight: bold;
         color: #2D8659;
-        letter-spacing: -0.5px;
+        letter-spacing: -0.3px;
+        white-space: nowrap;
+    }
+
+    .brand-tagline {
+        font-size: 9pt;
+        font-style: italic;
+        color: #7FD858;
+        margin-top: 2px;
+        margin-bottom: 6px;
+        letter-spacing: 0.2px;
     }
 
     .brand-info { font-size: 8.5pt; color: #64748b; line-height: 1.6; }
 
+    /* Invoice messaging blocks */
+    .invoice-header-msg {
+        background: #E8F3F0;
+        border-left: 3px solid #2D8659;
+        padding: 8px 12px;
+        margin: 0 0 12px 0;
+        font-size: 9pt;
+        color: #0D3B2E;
+        line-height: 1.45;
+        page-break-inside: avoid;
+    }
+
+    .invoice-messaging {
+        margin-top: 12px;
+        page-break-inside: avoid;
+    }
+
+    .invoice-messaging .block {
+        margin-top: 6px;
+        padding: 7px 12px;
+        background: #f8fafc;
+        border-left: 3px solid #E8F3F0;
+        font-size: 8pt;
+        color: #475569;
+        line-height: 1.45;
+    }
+
+    .invoice-messaging .block .label {
+        display: inline;
+        font-size: 7.5pt;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: #2D8659;
+        margin-right: 6px;
+    }
+
+    .invoice-messaging .block.payment {
+        background: #ecfdf5;
+        border-left-color: #2D8659;
+    }
+
     .doc-title {
-        font-size: 18pt;
+        font-size: 10pt;
+        font-weight: bold;
+        color: #64748b;
+        text-align: right;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        margin-bottom: 2px;
+    }
+
+    .doc-number {
+        font-size: 22pt;
         font-weight: bold;
         color: #0D3B2E;
         text-align: right;
+        letter-spacing: -0.5px;
+        line-height: 1.1;
+        margin-bottom: 8px;
     }
 
     .doc-meta {
         font-size: 9pt;
         color: #64748b;
         text-align: right;
-        line-height: 1.8;
+        line-height: 1.7;
     }
 
     .doc-meta strong { color: #1a1a1a; }
 
-    .divider { border: none; border-top: 1px solid #E8F3F0; margin: 20px 0; }
+    .divider { border: none; border-top: 1px solid #E8F3F0; margin: 14px 0; }
 
+    /* Primary section headings — for BILL TO, SERVICES, the ones the recipient anchors on */
+    .section-title.primary {
+        font-size: 10pt;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        color: #0D3B2E;
+        margin-bottom: 8px;
+        padding-bottom: 4px;
+        border-bottom: 2px solid #2D8659;
+    }
+
+    /* Secondary section headings — for NOTES, TERMS, supporting info */
     .section-title {
-        font-size: 8pt;
+        font-size: 7.5pt;
         font-weight: bold;
         text-transform: uppercase;
         letter-spacing: 1px;
-        color: #2D8659;
-        margin-bottom: 8px;
+        color: #64748b;
+        margin-bottom: 6px;
     }
 
     .client-info { font-size: 10pt; line-height: 1.7; }
@@ -125,28 +223,42 @@ $isOverdue = ($invoice['status'] === 'overdue');
     .items-table td.desc-col { font-weight: 600; color: #0D3B2E; }
     .items-table td.subdesc { color: #64748b; font-size: 9pt; }
 
-    /* Totals */
-    .totals-table { width: 280px; margin-left: auto; margin-top: 20px; }
-    .totals-table td { padding: 6px 0; font-size: 9.5pt; }
+    /* Totals — small subtotal/tax table */
+    .totals-table { width: 280px; margin-left: auto; margin-top: 12px; }
+    .totals-table td { padding: 5px 0; font-size: 9.5pt; }
     .totals-table td.label { color: #64748b; }
     .totals-table td.value { text-align: right; font-weight: 500; }
 
-    .totals-table tr.grand td {
-        padding-top: 12px; border-top: 2px solid #0D3B2E;
-        font-size: 14pt; font-weight: 700; color: #0D3B2E;
-    }
-
     .totals-table tr.paid td {
         color: #2D8659; font-weight: 600;
+        border-top: 1px solid #e2e8f0; padding-top: 8px;
     }
 
-    .totals-table tr.balance td {
-        padding-top: 8px; border-top: 1px solid #e2e8f0;
-        font-size: 12pt; font-weight: 700;
+    /* Big filled callout for the primary number the customer needs to see */
+    .total-callout {
+        width: 280px; margin-left: auto; margin-top: 10px;
+        background: #0D3B2E; color: #ffffff;
+        padding: 14px 18px;
+        page-break-inside: avoid;
+    }
+    .total-callout .tc-label {
+        font-size: 8pt; font-weight: bold;
+        text-transform: uppercase; letter-spacing: 1.2px;
+        color: #7FD858;
+    }
+    .total-callout .tc-value {
+        font-size: 20pt; font-weight: bold;
+        text-align: right; line-height: 1.1;
+        color: #ffffff;
     }
 
-    .balance-due { color: #dc2626; }
-    .balance-paid { color: #2D8659; }
+    /* Overdue variant — red instead of green */
+    .total-callout.overdue { background: #991b1b; }
+    .total-callout.overdue .tc-label { color: #fecaca; }
+
+    /* Paid variant — muted green with checkmark vibe */
+    .total-callout.paid { background: #166534; }
+    .total-callout.paid .tc-label { color: #bbf7d0; }
 
     /* Status badges */
     .status-badge {
@@ -169,7 +281,8 @@ $isOverdue = ($invoice['status'] === 'overdue');
 
     .footer {
         text-align: center; font-size: 8pt; color: #94a3b8;
-        margin-top: 40px; padding-top: 16px; border-top: 1px solid #E8F3F0;
+        margin-top: 16px; padding-top: 10px; border-top: 1px solid #E8F3F0;
+        page-break-inside: avoid;
     }
 </style>
 
@@ -186,26 +299,47 @@ $isOverdue = ($invoice['status'] === 'overdue');
                 }
                 $logoPath = $logoPath . '/assets/img/logo/mowology-logo.jpg';
             ?>
-            <img src="<?php echo $logoPath; ?>" alt="Mowology" style="max-height: 50px; margin-bottom: 8px;">
-            <div class="brand-name">MOWOLOGY</div>
+            <img src="<?php echo $logoPath; ?>" alt="<?php echo $esc($bizName); ?>" style="max-height: 50px; margin-bottom: 8px;">
+            <div class="brand-name"><?php echo $esc(strtoupper($bizName)); ?></div>
+            <?php if ($bizTagline !== ''): ?>
+                <div class="brand-tagline"><?php echo $esc($bizTagline); ?></div>
+            <?php endif; ?>
             <div class="brand-info">
-                Vancouver, BC<br>
-                (778) 846-9273<br>
-                office@mowology.ca<br>
-                mowology.ca
+                <?php if ($bizAddress !== ''): ?>
+                    <?php echo nl2br($esc($bizAddress)); ?><br>
+                <?php endif; ?>
+                <?php if ($bizPhone !== ''): ?>
+                    <?php echo $esc($bizPhone); ?><br>
+                <?php endif; ?>
+                <?php if ($bizEmail !== ''): ?>
+                    <?php echo $esc($bizEmail); ?><br>
+                <?php endif; ?>
+                <?php if ($bizWebsite !== ''): ?>
+                    <?php echo $esc($bizWebsite); ?><br>
+                <?php endif; ?>
+                <?php if ($bizGst !== ''): ?>
+                    GST Business #: <?php echo $esc($bizGst); ?>
+                <?php endif; ?>
             </div>
         </td>
         <td style="width: 50%; vertical-align: top;">
-            <div class="doc-title">INVOICE</div>
+            <div class="doc-title">Invoice</div>
+            <div class="doc-number"><?php echo $esc($invoice['invoice_number']); ?></div>
             <div class="doc-meta">
-                <strong><?php echo $esc($invoice['invoice_number']); ?></strong><br>
-                Date: <?php echo $issueDate; ?><br>
+                Date: <strong><?php echo $issueDate; ?></strong><br>
                 <?php if ($dueDate): ?>
-                    Due: <?php echo $dueDate; ?><br>
+                    Due: <strong><?php echo $dueDate; ?></strong><br>
                 <?php endif; ?>
+                <?php
+                    // Only show a status badge for outcomes the recipient cares about.
+                    // DRAFT / SENT / VIEWED are internal telemetry — don't surface on client-facing PDFs.
+                    $showStatus = in_array($invoice['status'] ?? '', ['paid', 'overdue'], true);
+                ?>
+                <?php if ($showStatus): ?>
                 <span class="status-badge status-<?php echo $esc($invoice['status']); ?>">
                     <?php echo strtoupper($esc($invoice['status'])); ?>
                 </span>
+                <?php endif; ?>
             </div>
         </td>
     </tr>
@@ -213,36 +347,49 @@ $isOverdue = ($invoice['status'] === 'overdue');
 
 <hr class="divider">
 
+<?php if ($invoiceHeaderMsg !== ''): ?>
+<div class="invoice-header-msg">
+    <?php echo nl2br($esc($invoiceHeaderMsg)); ?>
+</div>
+<?php endif; ?>
+
 <!-- Bill To / Property -->
 <table class="two-col" cellpadding="0" cellspacing="0">
     <tr>
         <td>
-            <div class="section-title">Bill To</div>
+            <div class="section-title primary">Bill To</div>
             <div class="client-info">
                 <div class="client-name"><?php echo $esc($billToHeading); ?></div>
-                <?php if ($showAttn): ?>
-                    Attn: <?php echo $esc($contactName); ?><br>
+                <?php
+                    // If the bill-to heading is the property name, show a company line
+                    // below it so the paying company is still visible.
+                    if ($billToIsProperty && $companyName !== ''):
+                ?>
+                    <?php echo $esc($companyName); ?><br>
                 <?php endif; ?>
-                <?php if ($billingLine): ?>
+                <?php if ($billingLine !== ''): ?>
                     <?php echo $billingLine; ?><br>
-                <?php endif; ?>
-                <?php if (!empty($invoice['contact_email'] ?: $invoice['billing_email'])): ?>
-                    <?php echo $esc($invoice['contact_email'] ?: $invoice['billing_email']); ?><br>
                 <?php endif; ?>
                 <?php if (!empty($invoice['contact_phone'] ?: $invoice['billing_phone'])): ?>
                     <?php echo $esc($invoice['contact_phone'] ?: $invoice['billing_phone']); ?>
                 <?php endif; ?>
             </div>
         </td>
-        <?php if ($propertyLine): ?>
+        <?php if ($propertyLine && !$billToIsProperty): ?>
         <td>
-            <div class="section-title">Service Location</div>
+            <div class="section-title primary">Service Location</div>
             <div class="client-info">
-                <?php echo $propertyLine; ?>
+                <?php if ($propertyName !== ''): ?>
+                    <div class="client-name"><?php echo $esc($propertyName); ?></div>
+                <?php endif; ?>
+                <?php echo $propertyLine; ?><br>
+                <?php if (!empty($contactName) && trim($contactName) !== ''): ?>
+                    Attn: <strong><?php echo $esc($contactName); ?></strong><br>
+                <?php endif; ?>
                 <?php if (!empty($invoice['plan_number'])): ?>
-                    <br>Job: <?php echo $esc($invoice['plan_number']); ?>
+                    Job: <strong><?php echo $esc($invoice['plan_number']); ?></strong>
                     <?php if (!empty($invoice['job_title'])): ?>
-                        - <?php echo $esc($invoice['job_title']); ?>
+                         — <?php echo $esc($invoice['job_title']); ?>
                     <?php endif; ?>
                 <?php endif; ?>
             </div>
@@ -254,7 +401,7 @@ $isOverdue = ($invoice['status'] === 'overdue');
 <hr class="divider">
 
 <!-- Line Items -->
-<div class="section-title">Services</div>
+<div class="section-title primary">Services</div>
 
 <table class="items-table">
     <thead>
@@ -277,7 +424,7 @@ $isOverdue = ($invoice['status'] === 'overdue');
     </tbody>
 </table>
 
-<!-- Totals -->
+<!-- Totals — Subtotal + tax in a small table -->
 <table class="totals-table">
     <tr>
         <td class="label">Subtotal</td>
@@ -287,22 +434,48 @@ $isOverdue = ($invoice['status'] === 'overdue');
         <td class="label">GST (<?php echo round($taxRate * 100); ?>%)</td>
         <td class="value"><?php echo $fmt($taxAmount); ?></td>
     </tr>
-    <tr class="grand">
+    <?php if ($amountPaid > 0): ?>
+    <tr>
         <td class="label">Total</td>
         <td class="value"><?php echo $fmt($total); ?></td>
     </tr>
-    <?php if ($amountPaid > 0): ?>
     <tr class="paid">
         <td class="label">Paid</td>
         <td class="value">-<?php echo $fmt($amountPaid); ?></td>
     </tr>
-    <tr class="balance">
-        <td class="label">Balance Due</td>
-        <td class="value <?php echo $balanceDue > 0 ? 'balance-due' : 'balance-paid'; ?>">
-            <?php echo $fmt($balanceDue); ?>
+    <?php endif; ?>
+</table>
+
+<!-- Primary amount callout — the one number the customer needs to see -->
+<?php
+    // Decide what to emphasize:
+    //   - unpaid invoices: show Total
+    //   - partial / overdue: show Balance Due (red if overdue)
+    //   - paid: show Paid In Full (muted green)
+    if ($isPaid) {
+        $calloutClass = 'paid';
+        $calloutLabel = 'Paid in Full';
+        $calloutValue = $fmt($total);
+    } elseif ($amountPaid > 0) {
+        $calloutClass = $isOverdue ? 'overdue' : '';
+        $calloutLabel = $isOverdue ? 'Balance Overdue' : 'Balance Due';
+        $calloutValue = $fmt($balanceDue);
+    } else {
+        $calloutClass = $isOverdue ? 'overdue' : '';
+        $calloutLabel = $isOverdue ? 'Amount Overdue' : 'Amount Due';
+        $calloutValue = $fmt($total);
+    }
+?>
+<table class="total-callout <?php echo $calloutClass; ?>" cellpadding="0" cellspacing="0" style="width: 280px; margin-left: auto; margin-top: 10px;">
+    <tr>
+        <td style="padding: 14px 18px; background: <?php
+            echo $calloutClass === 'overdue' ? '#991b1b'
+                : ($calloutClass === 'paid' ? '#166534' : '#0D3B2E');
+        ?>; color: #ffffff;">
+            <div class="tc-label"><?php echo $esc($calloutLabel); ?></div>
+            <div class="tc-value"><?php echo $calloutValue; ?></div>
         </td>
     </tr>
-    <?php endif; ?>
 </table>
 
 <!-- Payment info (if paid) -->
@@ -333,7 +506,36 @@ $isOverdue = ($invoice['status'] === 'overdue');
 </div>
 <?php endif; ?>
 
+<?php if ($invoicePaymentInstr !== '' || $invoiceTerms !== ''): ?>
+<div class="invoice-messaging">
+    <?php if ($invoicePaymentInstr !== ''): ?>
+    <div class="block payment">
+        <span class="label">How to Pay</span>
+        <?php echo nl2br($esc($invoicePaymentInstr)); ?>
+    </div>
+    <?php endif; ?>
+    <?php if ($invoiceTerms !== ''): ?>
+    <div class="block">
+        <span class="label">Terms &amp; Conditions</span>
+        <?php echo nl2br($esc($invoiceTerms)); ?>
+    </div>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
+
 <!-- Footer -->
 <div class="footer">
-    Mowology &bull; Vancouver, BC &bull; (778) 846-9273 &bull; mowology.ca
+    <?php if ($invoiceFooterText !== ''): ?>
+        <?php echo nl2br($esc($invoiceFooterText)); ?>
+    <?php else: ?>
+        <?php
+            $footerParts = array_filter([
+                $bizName ?: 'Mowology',
+                $bizAddress ?: 'Vancouver, BC',
+                $bizPhone,
+                $bizWebsite,
+            ], fn($p) => $p !== '');
+        ?>
+        <?php echo $esc(implode(' · ', $footerParts)); ?>
+    <?php endif; ?>
 </div>

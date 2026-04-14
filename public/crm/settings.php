@@ -151,6 +151,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <label for="company_address" class="form-label">Address</label>
                         <textarea class="form-control" id="company_address" rows="3" maxlength="1000"></textarea>
                     </div>
+                    <div class="mb-3">
+                        <label for="company_tagline" class="form-label">Tagline / Slogan <span class="mw-help-tooltip" data-help="A short, memorable line shown under your company name at the top of every invoice. Keep it fun, keep it brief.">?</span></label>
+                        <input type="text" class="form-control" id="company_tagline" maxlength="255" placeholder="e.g. Because your grass deserves better.">
+                        <small class="form-text text-muted">Shown under the company name on invoice PDFs. Max 255 chars.</small>
+                    </div>
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label for="office_latitude" class="form-label">Office Latitude <span class="mw-help-tooltip" data-help="GPS coordinates of your office/yard. Used for the dashboard map to show when crew are at the office.">?</span></label>
@@ -169,8 +174,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 <div class="card-body">
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label for="gst_registration" class="form-label">GST # (e.g., R123456789) <span class="mw-help-tooltip" data-help="Your CRA GST/HST registration number. Displayed on invoices and quotes for tax compliance.">?</span></label>
-                            <input type="text" class="form-control" id="gst_registration" maxlength="50">
+                            <label for="gst_registration" class="form-label">GST Business Number (e.g., 123456789 RT0001) <span class="mw-help-tooltip" data-help="Your CRA GST/HST registration number (Business Number). Displayed on invoices and quotes for tax compliance.">?</span></label>
+                            <input type="text" class="form-control" id="gst_registration" maxlength="50" placeholder="123456789 RT0001">
                         </div>
                         <div class="col-md-6">
                             <label for="pst_registration" class="form-label">PST #</label>
@@ -636,11 +641,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="row mb-3">
                         <div class="col-md-4">
                             <label for="holiday_date" class="form-label">Date <span class="text-danger">*</span></label>
-                            <input type="date" class="form-control" id="holiday_date" required>
+                            <input type="date" class="form-control" id="holiday_date">
                         </div>
                         <div class="col-md-4">
                             <label for="holiday_name" class="form-label">Holiday Name <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="holiday_name" maxlength="100" required>
+                            <input type="text" class="form-control" id="holiday_name" maxlength="100">
                         </div>
                         <div class="col-md-2">
                             <label class="form-label">Annual</label>
@@ -711,16 +716,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="row mb-3">
                         <div class="col-md-4">
                             <label for="tag_label" class="form-label">Label <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="tag_label" maxlength="100" required placeholder="e.g. Dog Warning">
+                            <input type="text" class="form-control" id="tag_label" maxlength="100" placeholder="e.g. Dog Warning">
                         </div>
                         <div class="col-md-4">
                             <label for="tag_key" class="form-label">Key <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="tag_key" maxlength="100" required placeholder="e.g. dog_warning">
+                            <input type="text" class="form-control" id="tag_key" maxlength="100" placeholder="e.g. dog_warning">
                             <small class="form-text text-muted">Lowercase, underscores only. Auto-generated from label.</small>
                         </div>
                         <div class="col-md-4">
                             <label for="tag_group" class="form-label">Group <span class="text-danger">*</span></label>
-                            <select class="form-control" id="tag_group" required>
+                            <select class="form-control" id="tag_group">
                                 <option value="">Select group...</option>
                                 <option value="property_access">Property Access</option>
                                 <option value="property_warning">Property Warning</option>
@@ -813,7 +818,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <div class="row mb-3">
                         <div class="col-md-4">
                             <label for="st_label" class="form-label">Label <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="st_label" maxlength="100" required placeholder="e.g. Lawn Care">
+                            <input type="text" class="form-control" id="st_label" maxlength="100" placeholder="e.g. Lawn Care">
                         </div>
                         <div class="col-md-3">
                             <label for="st_slug" class="form-label">Slug <span class="text-danger">*</span></label>
@@ -1970,6 +1975,7 @@ document.addEventListener('DOMContentLoaded', function () {
 <script>
 (function () {
     var formDirty = false;
+    var justSavedAt = 0; // epoch ms — suppresses beforeunload briefly after a save
     var formEl = document.getElementById('settingsForm');
     if (!formEl) return;
 
@@ -1977,11 +1983,33 @@ document.addEventListener('DOMContentLoaded', function () {
     formEl.addEventListener('input', function () { formDirty = true; });
     formEl.addEventListener('change', function () { formDirty = true; });
 
-    // Clear dirty flag on successful form submit
-    formEl.addEventListener('submit', function () { formDirty = false; });
+    // Clear dirty flag on submit (fires before business-settings.js kicks off AJAX save).
+    // Use capture phase so we win regardless of listener attach order.
+    formEl.addEventListener('submit', function () {
+        formDirty = false;
+        justSavedAt = Date.now();
+    }, true);
+
+    // Also clear on Save button click — defensive guard if submit event somehow doesn't fire
+    // (e.g., HTML5 validation blocks it, or setupFormSubmit failed to attach).
+    var saveBtn = formEl.querySelector('button[type="submit"]');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function () {
+            formDirty = false;
+            justSavedAt = Date.now();
+        });
+    }
+
+    // Listen for explicit "settings saved" custom event from business-settings.js
+    window.addEventListener('settings:saved', function () {
+        formDirty = false;
+        justSavedAt = Date.now();
+    });
 
     // Warn before leaving with unsaved changes
     window.addEventListener('beforeunload', function (e) {
+        // Suppress for 30s after a save — avoids nag when navigating away immediately after saving
+        if (Date.now() - justSavedAt < 30000) return;
         if (formDirty) {
             e.preventDefault();
             e.returnValue = '';

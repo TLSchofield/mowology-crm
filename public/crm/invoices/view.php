@@ -141,20 +141,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $stmt->execute([$invoiceId]);
         $recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Generate PDF once (used for all recipients)
+        // Generate PDF once (used for all recipients).
+        // We always regenerate on send so the PDF reflects the latest invoice state
+        // (line items, totals, bill-to) — caching stale PDFs confuses customers.
         $attachPath = null;
         require_once dirname(__DIR__) . '/includes/pdf_bootstrap.php';
         require_once dirname(__DIR__) . '/includes/PdfGenerator.php';
 
-        $pdfGen = new PdfGenerator();
-        $existingPath = $pdfGen->getPdfPath('invoice', $invoiceId);
-        if ($existingPath) {
-            $attachPath = $existingPath;
+        $pdfGen    = new PdfGenerator();
+        $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
+        if (!empty($pdfResult['success']) && !empty($pdfResult['path']) && file_exists($pdfResult['path'])) {
+            $attachPath = $pdfResult['path'];
         } else {
-            $pdfResult = $pdfGen->generateInvoicePdf($invoiceId);
-            if ($pdfResult['success']) {
-                $attachPath = $pdfResult['path'];
+            // Fall back to any cached copy so the email still has an attachment
+            $cached = $pdfGen->getPdfPath('invoice', $invoiceId);
+            if ($cached && file_exists($cached)) {
+                $attachPath = $cached;
             }
+            error_log("Invoice send: PDF generation failed for invoice {$invoiceId}: " . ($pdfResult['error'] ?? 'unknown') . ($attachPath ? ' — using cached copy' : ' — sending WITHOUT attachment'));
         }
 
         // Ensure the invoice has a valid (non-expired) access_token
@@ -172,7 +176,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $billToLines       = [];
         if ($billToCompany)     { $billToLines[] = '<strong>' . htmlspecialchars($billToCompany) . '</strong>'; }
         if ($billToContactName) { $billToLines[] = htmlspecialchars($billToContactName); }
-        $invoiceViewUrl = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+        $invoiceViewUrl   = 'https://mowology.ca/customer/invoice.php?token=' . urlencode($invoice['access_token']);
+        $invoicePdfUrl    = 'https://mowology.ca/customer/api/invoice-pdf.php?token=' . urlencode($invoice['access_token']);
+        $invoicePrintUrl  = $invoicePdfUrl . '&inline=1';
 
         // Send to each recipient
         $sentTo = [];
