@@ -63,12 +63,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'download') {
 }
 
 // ── GET: get_today ─────────────────────────────────────────────────────────────
+// Returns the driver's CURRENT trip for today. With multi-trip support,
+// "current" means the latest row — open (in progress) if one exists,
+// otherwise the most recently closed row so the caller can see what was
+// just filed.
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'get_today') {
     header('Content-Type: application/json');
     $today    = date('Y-m-d');
     $driverId = (int)$user['id'];
 
-    $stmt = $db->prepare("SELECT * FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ?");
+    $stmt = $db->prepare("
+        SELECT * FROM vehicle_trip_reports
+        WHERE driver_id = ? AND report_date = ?
+        ORDER BY id DESC
+        LIMIT 1
+    ");
     $stmt->execute([$driverId, $today]);
     $report = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -117,63 +126,131 @@ if ($action === 'save_pre_trip') {
     $safeToDrive    = empty($_POST['safe_to_drive'])  ? 0 : 1;
 
     try {
-        // INSERT ... ON DUPLICATE KEY UPDATE — idempotent for re-saves
-        $sql = "INSERT INTO vehicle_trip_reports
-            (driver_id, vehicle_id, report_date,
-             pre_trip_at, odometer_start,
-             chk_leaks, chk_hitch, chk_rear_gate, chk_loads_secure,
-             chk_trailer_lights, chk_truck_brakes, chk_truck_lights,
-             chk_mirrors, chk_tire_pressure, chk_washer_wipers,
-             defects_critical, defect_unhitch, defects_non_urgent,
-             safe_to_drive, status)
-        VALUES
-            (?, 'RAM3500-PF8865', ?,
-             NOW(), ?,
-             ?, ?, ?, ?,
-             ?, ?, ?,
-             ?, ?, ?,
-             ?, ?, ?,
-             ?, 'pre_complete')
-        ON DUPLICATE KEY UPDATE
-            pre_trip_at      = IF(pre_trip_at IS NULL, NOW(), pre_trip_at),
-            odometer_start   = VALUES(odometer_start),
-            chk_leaks        = VALUES(chk_leaks),
-            chk_hitch        = VALUES(chk_hitch),
-            chk_rear_gate    = VALUES(chk_rear_gate),
-            chk_loads_secure = VALUES(chk_loads_secure),
-            chk_trailer_lights = VALUES(chk_trailer_lights),
-            chk_truck_brakes = VALUES(chk_truck_brakes),
-            chk_truck_lights = VALUES(chk_truck_lights),
-            chk_mirrors      = VALUES(chk_mirrors),
-            chk_tire_pressure = VALUES(chk_tire_pressure),
-            chk_washer_wipers = VALUES(chk_washer_wipers),
-            defects_critical  = VALUES(defects_critical),
-            defect_unhitch    = VALUES(defect_unhitch),
-            defects_non_urgent = VALUES(defects_non_urgent),
-            safe_to_drive    = VALUES(safe_to_drive),
-            status           = IF(status = 'pre_pending', 'pre_complete', status)";
+        // Multi-trip state machine:
+        //   1. Find the latest row for today.
+        //   2. If it's "open" (pre set, post null) → UPDATE it in place.
+        //      Lets the driver re-save the same pre-trip for fixes.
+        //   3. If it's "closed" (post_trip_at set) OR doesn't exist →
+        //      INSERT a new row with the next trip_sequence.
+        $latestStmt = $db->prepare("
+            SELECT id, pre_trip_at, post_trip_at, trip_sequence
+            FROM vehicle_trip_reports
+            WHERE driver_id = ? AND report_date = ?
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $latestStmt->execute([$driverId, $today]);
+        $latest = $latestStmt->fetch(PDO::FETCH_ASSOC);
 
-        $stmt = $db->prepare($sql);
-        $stmt->execute([
-            $driverId, $today,
-            $odomStart,
-            $chkValues['chk_leaks'],
-            $chkValues['chk_hitch'],
-            $chkValues['chk_rear_gate'],
-            $chkValues['chk_loads_secure'],
-            $chkValues['chk_trailer_lights'],
-            $chkValues['chk_truck_brakes'],
-            $chkValues['chk_truck_lights'],
-            $chkValues['chk_mirrors'],
-            $chkValues['chk_tire_pressure'],
-            $chkValues['chk_washer_wipers'],
-            $defectsCrit,
-            $defectUnhitch,
-            $defectsNonUrg,
-            $safeToDrive,
+        $reuseRow = $latest && empty($latest['post_trip_at']);
+
+        if ($reuseRow) {
+            // UPDATE the existing open row.
+            $reportId = (int)$latest['id'];
+            $upd = $db->prepare("
+                UPDATE vehicle_trip_reports
+                SET pre_trip_at       = IF(pre_trip_at IS NULL, NOW(), pre_trip_at),
+                    odometer_start    = ?,
+                    chk_leaks         = ?,
+                    chk_hitch         = ?,
+                    chk_rear_gate     = ?,
+                    chk_loads_secure  = ?,
+                    chk_trailer_lights= ?,
+                    chk_truck_brakes  = ?,
+                    chk_truck_lights  = ?,
+                    chk_mirrors       = ?,
+                    chk_tire_pressure = ?,
+                    chk_washer_wipers = ?,
+                    defects_critical  = ?,
+                    defect_unhitch    = ?,
+                    defects_non_urgent= ?,
+                    safe_to_drive     = ?,
+                    status            = IF(status = 'pre_pending', 'pre_complete', status)
+                WHERE id = ?
+            ");
+            $upd->execute([
+                $odomStart,
+                $chkValues['chk_leaks'],
+                $chkValues['chk_hitch'],
+                $chkValues['chk_rear_gate'],
+                $chkValues['chk_loads_secure'],
+                $chkValues['chk_trailer_lights'],
+                $chkValues['chk_truck_brakes'],
+                $chkValues['chk_truck_lights'],
+                $chkValues['chk_mirrors'],
+                $chkValues['chk_tire_pressure'],
+                $chkValues['chk_washer_wipers'],
+                $defectsCrit,
+                $defectUnhitch,
+                $defectsNonUrg,
+                $safeToDrive,
+                $reportId,
+            ]);
+        } else {
+            // INSERT a new trip. trip_sequence = previous max + 1 for
+            // today's driver, or 1 if this is the first trip.
+            $nextSeq = 1;
+            if ($latest) {
+                $seqStmt = $db->prepare("
+                    SELECT COALESCE(MAX(trip_sequence), 0) + 1
+                    FROM vehicle_trip_reports
+                    WHERE driver_id = ? AND report_date = ?
+                ");
+                $seqStmt->execute([$driverId, $today]);
+                $nextSeq = (int)$seqStmt->fetchColumn();
+            }
+
+            $ins = $db->prepare("
+                INSERT INTO vehicle_trip_reports
+                    (driver_id, vehicle_id, report_date, trip_sequence,
+                     pre_trip_at, odometer_start,
+                     chk_leaks, chk_hitch, chk_rear_gate, chk_loads_secure,
+                     chk_trailer_lights, chk_truck_brakes, chk_truck_lights,
+                     chk_mirrors, chk_tire_pressure, chk_washer_wipers,
+                     defects_critical, defect_unhitch, defects_non_urgent,
+                     safe_to_drive, status)
+                VALUES
+                    (?, 'RAM3500-PF8865', ?, ?,
+                     NOW(), ?,
+                     ?, ?, ?, ?,
+                     ?, ?, ?,
+                     ?, ?, ?,
+                     ?, ?, ?,
+                     ?, 'pre_complete')
+            ");
+            $ins->execute([
+                $driverId, $today, $nextSeq,
+                $odomStart,
+                $chkValues['chk_leaks'],
+                $chkValues['chk_hitch'],
+                $chkValues['chk_rear_gate'],
+                $chkValues['chk_loads_secure'],
+                $chkValues['chk_trailer_lights'],
+                $chkValues['chk_truck_brakes'],
+                $chkValues['chk_truck_lights'],
+                $chkValues['chk_mirrors'],
+                $chkValues['chk_tire_pressure'],
+                $chkValues['chk_washer_wipers'],
+                $defectsCrit,
+                $defectUnhitch,
+                $defectsNonUrg,
+                $safeToDrive,
+            ]);
+            $reportId = (int)$db->lastInsertId();
+        }
+
+        $pdfResult = ['success' => false, 'error' => 'PDF not generated'];
+        if ($reportId) {
+            require_once APP_ROOT . '/Modules/Driver/TripReportPdf.php';
+            $pdfResult = TripReportPdf::generate($reportId, $db);
+        }
+
+        echo json_encode([
+            'success'   => true,
+            'message'   => 'Pre-trip inspection saved',
+            'pdf'       => $pdfResult,
+            'report_id' => $reportId,
         ]);
-
-        echo json_encode(['success' => true, 'message' => 'Pre-trip inspection saved']);
 
     } catch (Throwable $e) {
         error_log('[trip-report] save_pre_trip error: ' . $e->getMessage());
@@ -193,15 +270,42 @@ if ($action === 'save_post_trip') {
     $hosOffDuty    = trim($_POST['hos_off_duty']         ?? '');
 
     try {
-        // Ensure a pre_trip row exists first (edge case: driver missed pre-trip)
-        $check = $db->prepare("SELECT id FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ?");
-        $check->execute([$driverId, $today]);
-        $existing = $check->fetch(PDO::FETCH_ASSOC);
+        // Find the current open trip — the latest row for today where
+        // pre_trip_at is set but post_trip_at is null. That's the trip
+        // we're closing. If none exists (driver skipped pre-trip), fall
+        // back to creating a shell row so the post-trip data has
+        // somewhere to land — matches the legacy edge case.
+        $openStmt = $db->prepare("
+            SELECT id FROM vehicle_trip_reports
+            WHERE driver_id = ?
+              AND report_date = ?
+              AND pre_trip_at IS NOT NULL
+              AND post_trip_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $openStmt->execute([$driverId, $today]);
+        $reportId = (int)($openStmt->fetchColumn() ?: 0);
 
-        if (!$existing) {
-            // Create a blank record so we can update it
-            $ins = $db->prepare("INSERT INTO vehicle_trip_reports (driver_id, vehicle_id, report_date, status) VALUES (?, 'RAM3500-PF8865', ?, 'pre_complete')");
-            $ins->execute([$driverId, $today]);
+        if ($reportId === 0) {
+            // Edge case: driver somehow reached post-trip with no open
+            // trip. Create a shell row with next trip_sequence so the
+            // post-trip data still saves cleanly.
+            $seqStmt = $db->prepare("
+                SELECT COALESCE(MAX(trip_sequence), 0) + 1
+                FROM vehicle_trip_reports
+                WHERE driver_id = ? AND report_date = ?
+            ");
+            $seqStmt->execute([$driverId, $today]);
+            $nextSeq = (int)$seqStmt->fetchColumn() ?: 1;
+
+            $ins = $db->prepare("
+                INSERT INTO vehicle_trip_reports
+                    (driver_id, vehicle_id, report_date, trip_sequence, status)
+                VALUES (?, 'RAM3500-PF8865', ?, ?, 'pre_complete')
+            ");
+            $ins->execute([$driverId, $today, $nextSeq]);
+            $reportId = (int)$db->lastInsertId();
         }
 
         $upd = $db->prepare("
@@ -213,14 +317,9 @@ if ($action === 'save_post_trip') {
                 hos_on_duty_other  = ?,
                 hos_off_duty       = ?,
                 status             = 'complete'
-            WHERE driver_id = ? AND report_date = ?
+            WHERE id = ?
         ");
-        $upd->execute([$odomEnd, $remarks, $hosOnDutyDriv, $hosOnDutyOth, $hosOffDuty, $driverId, $today]);
-
-        // Fetch the report ID for PDF generation
-        $row = $db->prepare("SELECT id FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ?");
-        $row->execute([$driverId, $today]);
-        $reportId = (int)($row->fetchColumn() ?: 0);
+        $upd->execute([$odomEnd, $remarks, $hosOnDutyDriv, $hosOnDutyOth, $hosOffDuty, $reportId]);
 
         // Generate PDF
         $pdfResult = ['success' => false, 'error' => 'PDF not generated'];

@@ -1,0 +1,28 @@
+-- ═══════════════════════════════════════════════════════════════
+-- Migration 1014 — vehicle_trip_reports multi-trip-per-day support
+-- ═══════════════════════════════════════════════════════════════
+--
+-- The table was designed with UNIQUE KEY (driver_id, report_date) so
+-- every code path used that pair as a natural primary key. In practice
+-- drivers run multiple trips per day (split shifts, morning + afternoon
+-- routes), and the current design silently overwrites trip #1's data
+-- when trip #2 starts.
+--
+-- Fix:
+--   1. DROP UNIQUE KEY uq_driver_date  — lets multiple rows exist per
+--      (driver, date) pair
+--   2. ADD COLUMN trip_sequence INT NOT NULL DEFAULT 1
+--      — human-readable "Trip 1 / Trip 2 / Trip 3" label
+--   3. ADD INDEX idx_driver_date_seq (driver_id, report_date, trip_sequence)
+--      — keeps existing queries fast, plus lets the admin dashboard sort
+--        multi-trip days cleanly without a full scan
+--
+-- Backfill: existing rows all get trip_sequence = 1 (via the DEFAULT).
+--
+-- Rollback:
+--   ALTER TABLE vehicle_trip_reports DROP INDEX idx_driver_date_seq;
+--   ALTER TABLE vehicle_trip_reports DROP COLUMN trip_sequence;
+--   ALTER TABLE vehicle_trip_reports ADD UNIQUE KEY uq_driver_date (driver_id, report_date);
+-- (Rollback only safe if no driver has recorded >1 trip per day yet.)
+--
+-- Apply via /crm/api/run-migration-1014.php (idempotent).

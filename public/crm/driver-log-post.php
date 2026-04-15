@@ -44,16 +44,39 @@ if (!$activeClock) {
 $db    = getDB();
 $today = date('Y-m-d');
 
-// Load today's trip report (may be null if driver somehow skipped pre-trip)
-$tripStmt = $db->prepare("SELECT * FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ?");
+// Multi-trip-per-day state machine. The post-trip form ALWAYS targets
+// "the current open trip" — the most recent row where pre_trip_at is
+// set but post_trip_at is not. If no such row exists, the driver
+// either hasn't started any trip today (send them to pre-trip) or
+// has already closed the latest one (back to homebase — they're clear
+// to clock out).
+$tripStmt = $db->prepare("
+    SELECT * FROM vehicle_trip_reports
+    WHERE driver_id = ?
+      AND report_date = ?
+      AND pre_trip_at IS NOT NULL
+      AND post_trip_at IS NULL
+    ORDER BY id DESC
+    LIMIT 1
+");
 $tripStmt->execute([$user['id'], $today]);
 $tripReport = $tripStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
-$postComplete = $tripReport && $tripReport['post_trip_at'] !== null;
-
-// If post-trip already submitted today, head back to homebase
-if ($postComplete) {
-    header('Location: /crm/homebase.php');
+if (!$tripReport) {
+    // Either no trip is open, or the driver never filed a pre-trip
+    // today. Check which: if no rows at all, send to pre-trip first.
+    // Otherwise send home — the latest trip is already closed.
+    $anyRow = $db->prepare("
+        SELECT id FROM vehicle_trip_reports
+        WHERE driver_id = ? AND report_date = ?
+        ORDER BY id DESC LIMIT 1
+    ");
+    $anyRow->execute([$user['id'], $today]);
+    if ($anyRow->fetchColumn()) {
+        header('Location: /crm/homebase.php');
+    } else {
+        header('Location: /crm/driver-log.php');
+    }
     exit;
 }
 

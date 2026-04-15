@@ -178,12 +178,24 @@ $isDriver  = !empty($user['is_driver']);
 // ── Post-trip status (drivers only) — gates the clock-out button ──────────────
 // Drivers must fill out the end-of-shift vehicle check before clocking out.
 // Non-drivers always pass through.
+// Multi-trip-aware: $postComplete here means "no open trip to close".
+// Drivers can clock out when there's NO row for today (they never did a
+// pre-trip), OR when every row for today already has a post_trip_at set.
+// They CANNOT clock out while any row is in the open state
+// (pre_trip_at IS NOT NULL AND post_trip_at IS NULL) — that's the
+// current trip's post-trip form blocking the flow.
 $postComplete = true;
 if ($isDriver) {
-    $ptStmt = $db->prepare("SELECT post_trip_at FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ? LIMIT 1");
+    $ptStmt = $db->prepare("
+        SELECT COUNT(*) FROM vehicle_trip_reports
+        WHERE driver_id = ?
+          AND report_date = ?
+          AND pre_trip_at IS NOT NULL
+          AND post_trip_at IS NULL
+    ");
     $ptStmt->execute([$user['id'], $today]);
-    $ptRow = $ptStmt->fetch(PDO::FETCH_ASSOC);
-    $postComplete = $ptRow && $ptRow['post_trip_at'] !== null;
+    $openTripCount = (int)$ptStmt->fetchColumn();
+    $postComplete = ($openTripCount === 0);
 }
 
 $userName  = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));

@@ -44,12 +44,24 @@ if ($user['role'] === 'user') {
 
 $whereClause = implode(' AND ', $where);
 
+// Soft-check for migration 1014's trip_sequence column so old
+// deployments don't crash during partial rollout.
+$hasTripSequence = false;
+try {
+    $hasTripSequence = (bool)$db->query("SHOW COLUMNS FROM vehicle_trip_reports LIKE 'trip_sequence'")->fetch();
+} catch (Throwable $e) { /* column absent */ }
+
+// r.* already returns trip_sequence when the column exists, so only
+// alias a constant 1 when the column is missing (pre-1014 deployment).
+$seqSelect = $hasTripSequence ? '' : ', 1 AS trip_sequence';
+$seqOrder  = $hasTripSequence ? ', r.trip_sequence ASC' : '';
+
 $stmt = $db->prepare("
-    SELECT r.*, u.full_name as driver_name
+    SELECT r.*{$seqSelect}, u.full_name as driver_name
     FROM vehicle_trip_reports r
     JOIN users u ON r.driver_id = u.id
     WHERE {$whereClause}
-    ORDER BY r.report_date DESC, r.driver_id ASC
+    ORDER BY r.report_date DESC, r.driver_id ASC{$seqOrder}
 ");
 $stmt->execute($params);
 $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -176,6 +188,7 @@ $activePage = 'driver';
                     <tr>
                         <th>Date</th>
                         <th>Driver</th>
+                        <th style="width:56px;">Trip</th>
                         <th>Status</th>
                         <th>Pre-Trip</th>
                         <th>Post-Trip</th>
@@ -192,6 +205,11 @@ $activePage = 'driver';
                             <div class="small text-muted"><?php echo date('Y', strtotime($r['report_date'])); ?></div>
                         </td>
                         <td><?php echo htmlspecialchars($r['driver_name']); ?></td>
+                        <td>
+                            <span class="badge" style="background:var(--mw-light);color:var(--mw-dark);font-size:11px;padding:3px 7px;font-weight:700;">
+                                #<?php echo (int)($r['trip_sequence'] ?? 1); ?>
+                            </span>
+                        </td>
                         <td>
                             <?php if ($r['status'] === 'complete'): ?>
                                 <span class="badge" style="background:var(--mw-light);color:var(--mw-dark);font-size:11px;padding:4px 8px;">Complete</span>

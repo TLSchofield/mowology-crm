@@ -45,18 +45,37 @@ if (!$activeClock) {
 $db    = getDB();
 $today = date('Y-m-d');
 
-// Check today's trip report
-$tripStmt = $db->prepare("SELECT * FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ?");
+// Multi-trip-per-day state machine:
+//   • no rows for today OR latest row is fully closed → this is a NEW
+//     trip; render an empty pre-trip form (save will INSERT a new row
+//     with the next trip_sequence).
+//   • latest row has pre_trip_at set AND post_trip_at IS NULL →
+//     there's already an open trip whose pre-trip is complete; send
+//     the driver to homebase (they're between pre and post).
+//   • (legacy) latest row has no pre_trip_at yet → pre-fill any
+//     partially-saved fields so the driver can resume.
+$tripStmt = $db->prepare("
+    SELECT * FROM vehicle_trip_reports
+    WHERE driver_id = ? AND report_date = ?
+    ORDER BY id DESC
+    LIMIT 1
+");
 $tripStmt->execute([$user['id'], $today]);
-$tripReport = $tripStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+$latestRow = $tripStmt->fetch(PDO::FETCH_ASSOC) ?: null;
 
-$preComplete = $tripReport && $tripReport['pre_trip_at'] !== null;
+$latestIsOpen   = $latestRow && !empty($latestRow['pre_trip_at']) && empty($latestRow['post_trip_at']);
+$latestIsClosed = $latestRow && !empty($latestRow['pre_trip_at']) && !empty($latestRow['post_trip_at']);
 
-// If pre-trip already submitted today, head straight to homebase
-if ($preComplete) {
+if ($latestIsOpen) {
+    // Current trip's pre-trip already done — nothing to fill in here.
     header('Location: /crm/homebase.php');
     exit;
 }
+
+// Render an empty form for new trips (whether this is trip #1 or the
+// next trip in a split-shift day). Legacy in-progress rows (pre_trip_at
+// NULL) still pre-fill their partial state.
+$tripReport = $latestIsClosed ? null : $latestRow;
 
 $csrf      = generateCSRFToken();
 $firstName = $user['first_name'] ?? explode(' ', trim($user['full_name'] ?? 'Driver'))[0];

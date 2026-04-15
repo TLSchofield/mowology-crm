@@ -143,11 +143,41 @@ try {
                 logActivity($user['id'], null, 'Admin clock-in for user #' . $targetUserId, 'Clocked in by ' . ($user['name'] ?? 'admin'));
             }
 
+            // Trip-report gate: drivers must start a fresh pre-trip for
+            // every clock-in cycle (multi-trip-per-day support). We
+            // require pre-trip when there's no "open" trip row for
+            // today — meaning either no rows at all, or the latest row
+            // is already closed (previous shift's post-trip filed).
+            $preTripRequired = false;
+            try {
+                $drvStmt = $db->prepare("SELECT COALESCE(is_driver, 0) AS is_driver FROM users WHERE id = ? LIMIT 1");
+                $drvStmt->execute([$targetUserId]);
+                $isDriver = (int)($drvStmt->fetchColumn() ?: 0);
+                if ($isDriver) {
+                    $tripStmt = $db->prepare("
+                        SELECT COUNT(*) FROM vehicle_trip_reports
+                        WHERE driver_id = ?
+                          AND report_date = ?
+                          AND pre_trip_at IS NOT NULL
+                          AND post_trip_at IS NULL
+                    ");
+                    $tripStmt->execute([$targetUserId, date('Y-m-d')]);
+                    $openTripCount = (int)$tripStmt->fetchColumn();
+                    // No open trip → this is a new shift, pre-trip needed.
+                    if ($openTripCount === 0) {
+                        $preTripRequired = true;
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log('[time-clock] pre-trip gate check failed: ' . $e->getMessage());
+            }
+
             echo json_encode([
-                'success' => true,
-                'message' => 'Clocked in successfully',
-                'entry_id' => $entryId,
-                'clock_in' => date('Y-m-d H:i:s'),
+                'success'           => true,
+                'message'           => 'Clocked in successfully',
+                'entry_id'          => $entryId,
+                'clock_in'          => date('Y-m-d H:i:s'),
+                'pre_trip_required' => $preTripRequired,
             ]);
             break;
 
@@ -155,6 +185,49 @@ try {
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $notes = $input['notes'] ?? null;
+            $override = !empty($input['override_trip_report']);
+
+            // Trip-report gate: block clock-out if this driver has an
+            // OPEN trip for today (pre_trip_at set, post_trip_at null).
+            // Admin can force through with override_trip_report=1.
+            // Multi-trip-aware: each shift's trip must be closed before
+            // the matching clock-out.
+            if (!$override) {
+                try {
+                    $drvStmt = $db->prepare("SELECT COALESCE(is_driver, 0) AS is_driver FROM users WHERE id = ? LIMIT 1");
+                    $drvStmt->execute([$targetUserId]);
+                    $isDriver = (int)($drvStmt->fetchColumn() ?: 0);
+                    if ($isDriver) {
+                        $tripStmt = $db->prepare("
+                            SELECT id, trip_sequence
+                            FROM vehicle_trip_reports
+                            WHERE driver_id = ?
+                              AND report_date = ?
+                              AND pre_trip_at IS NOT NULL
+                              AND post_trip_at IS NULL
+                            ORDER BY id DESC
+                            LIMIT 1
+                        ");
+                        $tripStmt->execute([$targetUserId, date('Y-m-d')]);
+                        $tripRow = $tripStmt->fetch(PDO::FETCH_ASSOC);
+                        if ($tripRow) {
+                            http_response_code(409);
+                            echo json_encode([
+                                'success'             => false,
+                                'error'               => 'Complete your post-trip vehicle check before clocking out.',
+                                'error_code'          => 'post_trip_required',
+                                'post_trip_required'  => true,
+                                'trip_report_id'      => (int)$tripRow['id'],
+                                'trip_sequence'       => (int)($tripRow['trip_sequence'] ?? 1),
+                            ]);
+                            exit;
+                        }
+                    }
+                } catch (Throwable $e) {
+                    error_log('[time-clock] post-trip gate check failed: ' . $e->getMessage());
+                    // Fail open — never trap a driver because of a DB error.
+                }
+            }
 
             // If admin is clocking out someone else, add note
             if ($targetUserId !== $user['id']) {
