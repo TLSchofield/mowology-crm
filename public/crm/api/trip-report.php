@@ -104,6 +104,12 @@ if (!verifyCSRFToken($_POST['csrf_token'] ?? '')) {
 $driverId = (int)$user['id'];
 $today    = date('Y-m-d');
 
+// Soft-check: does the trip_sequence column exist yet? (migration 1014)
+$hasTripSequence = false;
+try {
+    $hasTripSequence = (bool)$db->query("SHOW COLUMNS FROM vehicle_trip_reports LIKE 'trip_sequence'")->fetch();
+} catch (Throwable $e) { /* column absent */ }
+
 // ── save_pre_trip ─────────────────────────────────────────────────────────────
 if ($action === 'save_pre_trip') {
     $odomStart = isset($_POST['odometer_start']) && $_POST['odometer_start'] !== ''
@@ -132,8 +138,9 @@ if ($action === 'save_pre_trip') {
         //      Lets the driver re-save the same pre-trip for fixes.
         //   3. If it's "closed" (post_trip_at set) OR doesn't exist →
         //      INSERT a new row with the next trip_sequence.
+        $seqCol = $hasTripSequence ? ', trip_sequence' : '';
         $latestStmt = $db->prepare("
-            SELECT id, pre_trip_at, post_trip_at, trip_sequence
+            SELECT id, pre_trip_at, post_trip_at{$seqCol}
             FROM vehicle_trip_reports
             WHERE driver_id = ? AND report_date = ?
             ORDER BY id DESC
@@ -190,7 +197,7 @@ if ($action === 'save_pre_trip') {
             // INSERT a new trip. trip_sequence = previous max + 1 for
             // today's driver, or 1 if this is the first trip.
             $nextSeq = 1;
-            if ($latest) {
+            if ($hasTripSequence && $latest) {
                 $seqStmt = $db->prepare("
                     SELECT COALESCE(MAX(trip_sequence), 0) + 1
                     FROM vehicle_trip_reports
@@ -200,9 +207,11 @@ if ($action === 'save_pre_trip') {
                 $nextSeq = (int)$seqStmt->fetchColumn();
             }
 
+            $seqInsCol = $hasTripSequence ? ', trip_sequence' : '';
+            $seqInsVal = $hasTripSequence ? ', ?' : '';
             $ins = $db->prepare("
                 INSERT INTO vehicle_trip_reports
-                    (driver_id, vehicle_id, report_date, trip_sequence,
+                    (driver_id, vehicle_id, report_date{$seqInsCol},
                      pre_trip_at, odometer_start,
                      chk_leaks, chk_hitch, chk_rear_gate, chk_loads_secure,
                      chk_trailer_lights, chk_truck_brakes, chk_truck_lights,
@@ -210,7 +219,7 @@ if ($action === 'save_pre_trip') {
                      defects_critical, defect_unhitch, defects_non_urgent,
                      safe_to_drive, status)
                 VALUES
-                    (?, 'RAM3500-PF8865', ?, ?,
+                    (?, 'RAM3500-PF8865', ?{$seqInsVal},
                      NOW(), ?,
                      ?, ?, ?, ?,
                      ?, ?, ?,
@@ -218,8 +227,9 @@ if ($action === 'save_pre_trip') {
                      ?, ?, ?,
                      ?, 'pre_complete')
             ");
-            $ins->execute([
-                $driverId, $today, $nextSeq,
+            $insParams = [$driverId, $today];
+            if ($hasTripSequence) $insParams[] = $nextSeq;
+            $insParams = array_merge($insParams, [
                 $odomStart,
                 $chkValues['chk_leaks'],
                 $chkValues['chk_hitch'],
@@ -236,6 +246,7 @@ if ($action === 'save_pre_trip') {
                 $defectsNonUrg,
                 $safeToDrive,
             ]);
+            $ins->execute($insParams);
             $reportId = (int)$db->lastInsertId();
         }
 
@@ -289,22 +300,28 @@ if ($action === 'save_post_trip') {
 
         if ($reportId === 0) {
             // Edge case: driver somehow reached post-trip with no open
-            // trip. Create a shell row with next trip_sequence so the
-            // post-trip data still saves cleanly.
-            $seqStmt = $db->prepare("
-                SELECT COALESCE(MAX(trip_sequence), 0) + 1
-                FROM vehicle_trip_reports
-                WHERE driver_id = ? AND report_date = ?
-            ");
-            $seqStmt->execute([$driverId, $today]);
-            $nextSeq = (int)$seqStmt->fetchColumn() ?: 1;
+            // trip. Create a shell row so the post-trip data still saves.
+            $nextSeq = 1;
+            if ($hasTripSequence) {
+                $seqStmt = $db->prepare("
+                    SELECT COALESCE(MAX(trip_sequence), 0) + 1
+                    FROM vehicle_trip_reports
+                    WHERE driver_id = ? AND report_date = ?
+                ");
+                $seqStmt->execute([$driverId, $today]);
+                $nextSeq = (int)$seqStmt->fetchColumn() ?: 1;
+            }
 
+            $seqInsCol2 = $hasTripSequence ? ', trip_sequence' : '';
+            $seqInsVal2 = $hasTripSequence ? ', ?' : '';
             $ins = $db->prepare("
                 INSERT INTO vehicle_trip_reports
-                    (driver_id, vehicle_id, report_date, trip_sequence, status)
-                VALUES (?, 'RAM3500-PF8865', ?, ?, 'pre_complete')
+                    (driver_id, vehicle_id, report_date{$seqInsCol2}, status)
+                VALUES (?, 'RAM3500-PF8865', ?{$seqInsVal2}, 'pre_complete')
             ");
-            $ins->execute([$driverId, $today, $nextSeq]);
+            $insParams2 = [$driverId, $today];
+            if ($hasTripSequence) $insParams2[] = $nextSeq;
+            $ins->execute($insParams2);
             $reportId = (int)$db->lastInsertId();
         }
 

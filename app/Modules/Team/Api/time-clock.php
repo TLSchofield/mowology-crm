@@ -199,7 +199,7 @@ try {
                     $isDriver = (int)($drvStmt->fetchColumn() ?: 0);
                     if ($isDriver) {
                         $tripStmt = $db->prepare("
-                            SELECT id, trip_sequence
+                            SELECT id
                             FROM vehicle_trip_reports
                             WHERE driver_id = ?
                               AND report_date = ?
@@ -218,7 +218,7 @@ try {
                                 'error_code'          => 'post_trip_required',
                                 'post_trip_required'  => true,
                                 'trip_report_id'      => (int)$tripRow['id'],
-                                'trip_sequence'       => (int)($tripRow['trip_sequence'] ?? 1),
+                                'trip_sequence'       => 1,
                             ]);
                             exit;
                         }
