@@ -40,19 +40,7 @@ function mig1014_column_exists(PDO $db, string $table, string $column): bool {
     return (int)$stmt->fetchColumn() > 0;
 }
 
-// ── 1. Drop the UNIQUE KEY so multiple rows per (driver, date) are allowed ──
-try {
-    if (mig1014_index_exists($db, 'vehicle_trip_reports', 'uq_driver_date')) {
-        $db->exec("ALTER TABLE vehicle_trip_reports DROP INDEX uq_driver_date");
-        $log[] = '✅ uq_driver_date — dropped';
-    } else {
-        $log[] = '⏭ uq_driver_date — already absent';
-    }
-} catch (\PDOException $e) {
-    $log[] = '❌ uq_driver_date — ERROR: ' . $e->getMessage();
-}
-
-// ── 2. Add trip_sequence column ─────────────────────────────────────────────
+// ── 1. Add trip_sequence column (needed before index creation) ──────────────
 try {
     if (mig1014_column_exists($db, 'vehicle_trip_reports', 'trip_sequence')) {
         $log[] = '⏭ vehicle_trip_reports.trip_sequence — already exists';
@@ -69,7 +57,8 @@ try {
     $log[] = '❌ trip_sequence — ERROR: ' . $e->getMessage();
 }
 
-// ── 3. Add supporting composite index ───────────────────────────────────────
+// ── 2. Add composite index (must exist before we drop uq_driver_date so FKs
+//       have a backing index on driver_id when we re-add them) ──────────────
 try {
     if (mig1014_index_exists($db, 'vehicle_trip_reports', 'idx_driver_date_seq')) {
         $log[] = '⏭ idx_driver_date_seq — already exists';
@@ -82,6 +71,44 @@ try {
     }
 } catch (\PDOException $e) {
     $log[] = '❌ idx_driver_date_seq — ERROR: ' . $e->getMessage();
+}
+
+// ── 3. Drop the UNIQUE KEY so multiple rows per (driver, date) are allowed ──
+// MySQL error 1553: can't drop an index used by a FK. We must drop the FK
+// first, drop the unique key, then re-add the FK. idx_driver_date_seq
+// (created above) starts with driver_id so MySQL will use it for the FK.
+try {
+    if (mig1014_index_exists($db, 'vehicle_trip_reports', 'uq_driver_date')) {
+        // Find FK constraints on driver_id that MySQL is using uq_driver_date for
+        $fkStmt = $db->prepare("
+            SELECT CONSTRAINT_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE table_schema         = DATABASE()
+              AND TABLE_NAME           = 'vehicle_trip_reports'
+              AND REFERENCED_TABLE_NAME IS NOT NULL
+              AND COLUMN_NAME          = 'driver_id'
+        ");
+        $fkStmt->execute();
+        $fkNames = $fkStmt->fetchAll(PDO::FETCH_COLUMN);
+
+        // Drop FKs → drop unique key → re-add FKs
+        foreach ($fkNames as $fkName) {
+            $db->exec("ALTER TABLE vehicle_trip_reports DROP FOREIGN KEY `{$fkName}`");
+            $log[] = "✅ FK {$fkName} — temporarily dropped";
+        }
+
+        $db->exec("ALTER TABLE vehicle_trip_reports DROP INDEX uq_driver_date");
+        $log[] = '✅ uq_driver_date — dropped';
+
+        foreach ($fkNames as $fkName) {
+            $db->exec("ALTER TABLE vehicle_trip_reports ADD CONSTRAINT `{$fkName}` FOREIGN KEY (driver_id) REFERENCES users(id)");
+            $log[] = "✅ FK {$fkName} — re-added";
+        }
+    } else {
+        $log[] = '⏭ uq_driver_date — already absent';
+    }
+} catch (\PDOException $e) {
+    $log[] = '❌ uq_driver_date — ERROR: ' . $e->getMessage();
 }
 
 $failed = array_filter($log, fn($l) => str_starts_with($l, '❌'));
