@@ -166,7 +166,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     var routeVisible = {}; // user_id -> boolean (toggle per crew)
     var routesEnabled = false;
     var STOP_MIN_MINUTES = 5; // minimum minutes to count as a stop
-    var STOP_RADIUS_METERS = 50; // max radius to count as same location
+    var STOP_RADIUS_METERS = 75; // max radius to count as same location (was 50; increased for truck GPS jitter near buildings)
 
     // Job overlay state
     var jobOverlays = []; // array of JobCardOverlay instances
@@ -697,49 +697,75 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
      * Detect stops: clusters of GPS points within STOP_RADIUS_METERS
      * that span >= STOP_MIN_MINUTES. Returns array of {lat, lng, startTime, endTime, duration}.
      */
+    /**
+     * Detect stops using a rolling-centroid algorithm.
+     *
+     * The old approach anchored on the first point and measured every
+     * subsequent point from that fixed anchor. A single GPS-jitter ping
+     * >50m from the anchor would break the cluster, even if the vehicle
+     * was clearly parked (the centroid barely moved).
+     *
+     * New approach: maintain a running centroid of the cluster.  Each new
+     * point is measured against the centroid — not the anchor.  A single
+     * outlier ping is tolerated (MAX_OUTLIERS consecutive pings allowed
+     * before the cluster breaks).  This handles typical truck GPS bounce
+     * near buildings and under tree canopy.
+     */
     function detectStops(points) {
         if (points.length < 2) return [];
         var stops = [];
+        var MAX_OUTLIERS = 3; // consecutive out-of-radius pings tolerated before breaking
+
         var i = 0;
-
         while (i < points.length) {
-            var anchorLat = points[i].lat;
-            var anchorLng = points[i].lng;
+            // Start a new candidate cluster
+            var sumLat = points[i].lat;
+            var sumLng = points[i].lng;
+            var count  = 1;
             var j = i + 1;
+            var outliers = 0;
 
-            // Expand cluster while points stay within radius of anchor
             while (j < points.length) {
-                var dist = google.maps.geometry.spherical.computeDistanceBetween(
-                    new google.maps.LatLng(anchorLat, anchorLng),
-                    new google.maps.LatLng(points[j].lat, points[j].lng)
-                );
-                if (dist > STOP_RADIUS_METERS) break;
+                var centroid = new google.maps.LatLng(sumLat / count, sumLng / count);
+                var candidate = new google.maps.LatLng(points[j].lat, points[j].lng);
+                var dist = google.maps.geometry.spherical.computeDistanceBetween(centroid, candidate);
+
+                if (dist > STOP_RADIUS_METERS) {
+                    outliers++;
+                    if (outliers > MAX_OUTLIERS) break;
+                    // Skip this outlier ping but keep scanning
+                    j++;
+                    continue;
+                }
+
+                // Point is inside the cluster — absorb it into the centroid
+                outliers = 0;
+                sumLat += points[j].lat;
+                sumLng += points[j].lng;
+                count++;
                 j++;
             }
 
-            // j is now first point outside the cluster (or end of array)
-            var clusterStart = parseTimestamp(points[i].time);
-            var clusterEnd = parseTimestamp(points[j - 1].time);
-            var durationSec = (clusterEnd - clusterStart) / 1000;
+            // Walk back past any trailing outliers — they aren't part of the stop
+            var clusterEnd = j - 1 - outliers;
+            if (clusterEnd < i) clusterEnd = i;
 
-            if (durationSec >= STOP_MIN_MINUTES * 60) {
-                // Compute centroid of the cluster
-                var sumLat = 0, sumLng = 0, count = j - i;
-                for (var k = i; k < j; k++) {
-                    sumLat += points[k].lat;
-                    sumLng += points[k].lng;
-                }
+            var startTs = parseTimestamp(points[i].time);
+            var endTs   = parseTimestamp(points[clusterEnd].time);
+            var durationSec = (endTs - startTs) / 1000;
+
+            if (durationSec >= STOP_MIN_MINUTES * 60 && count >= 2) {
                 stops.push({
                     lat: sumLat / count,
                     lng: sumLng / count,
                     startTime: points[i].time,
-                    endTime: points[j - 1].time,
-                    duration: durationSec
+                    endTime:   points[clusterEnd].time,
+                    duration:  durationSec
                 });
             }
 
-            // Move past this cluster
-            i = j;
+            // Move past this cluster (skip outlier tail too)
+            i = Math.max(j, clusterEnd + 1);
         }
 
         return stops;
