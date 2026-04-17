@@ -713,6 +713,16 @@ function dpShowHomeBase() {
     var logo = document.getElementById('dpLogoScreen');
     var quiz = document.getElementById('dpQuizScreen');
 
+    // Deep-link via ?open=pre or ?open=post (time-clock widget redirects here
+    // when a driver tries to clock in/out without completing the trip report).
+    var openParam = (new URLSearchParams(window.location.search)).get('open');
+    if (openParam === 'post' || openParam === 'pre') {
+        if (logo) logo.style.display = 'none';
+        dpShowHomeBase();
+        setTimeout(function(){ dpOpenForm(openParam); }, 200);
+        return;
+    }
+
     // Already clocked in but pre-trip not done — skip splash/quiz, go straight to the overlay
     if (DP.isClockedIn && !DP.preComplete) {
         if (logo) logo.style.display = 'none';

@@ -117,21 +117,58 @@ class PdfGenerator
     {
         try {
             // Fetch invoice with related data.
-            // Bill-to address falls back through:
-            //   invoices.billing_*  ->  companies.billing_*
-            //     ->  invoices.service_*        (the service address stored on this invoice)
-            //     ->  properties.address/city/postal_code
-            // so the Bill To section always has a usable address even when the company
-            // record has no billing address on file.
+            //
+            // Bill-to address resolution (in priority order):
+            //   1. invoices.billing_*    — but ONLY if it differs from invoices.service_*
+            //                              (historical invoices were created with
+            //                              billing_* defaulted to service_*, which is
+            //                              wrong — that's a property, not a payer)
+            //   2. companies.billing_*   — via i.company_id, OR if that's NULL,
+            //                              via the property's or direct contact's
+            //                              company link (cp / cc joins below)
+            //   3. invoices.service_*    — last-resort fallback (makes the PDF still
+            //                              render something sensible on fully-unlinked
+            //                              invoices)
+            //   4. properties.address    — final fallback
+            //
+            // Resolved company name follows the same cascade, so the Bill To heading
+            // always matches the address.
             $stmt = $this->db->prepare("
                 SELECT
                     i.*,
-                    c.company_name,
-                    c.payment_terms,
-                    COALESCE(NULLIF(i.billing_address,''),     NULLIF(c.billing_address,''),     NULLIF(i.service_address,''),     NULLIF(p.address,''))     as billing_address,
-                    COALESCE(NULLIF(i.billing_city,''),        NULLIF(c.billing_city,''),        NULLIF(i.service_city,''),        NULLIF(p.city,''))        as billing_city,
-                    COALESCE(NULLIF(i.billing_province,''),    NULLIF(c.billing_province,''),    NULLIF(i.service_province,''))                              as billing_province,
-                    COALESCE(NULLIF(i.billing_postal_code,''), NULLIF(c.billing_postal_code,''),NULLIF(i.service_postal_code,''), NULLIF(p.postal_code,''))   as billing_postal_code,
+                    COALESCE(c.company_name, cp.company_name, cc.company_name) as company_name,
+                    COALESCE(c.payment_terms, cp.payment_terms, cc.payment_terms) as payment_terms,
+                    COALESCE(
+                        NULLIF(IF(i.billing_address = i.service_address, '', i.billing_address), ''),
+                        NULLIF(c.billing_address, ''),
+                        NULLIF(cp.billing_address, ''),
+                        NULLIF(cc.billing_address, ''),
+                        NULLIF(i.service_address, ''),
+                        NULLIF(p.address, '')
+                    ) as billing_address,
+                    COALESCE(
+                        NULLIF(IF(i.billing_city = i.service_city, '', i.billing_city), ''),
+                        NULLIF(c.billing_city, ''),
+                        NULLIF(cp.billing_city, ''),
+                        NULLIF(cc.billing_city, ''),
+                        NULLIF(i.service_city, ''),
+                        NULLIF(p.city, '')
+                    ) as billing_city,
+                    COALESCE(
+                        NULLIF(IF(i.billing_province = i.service_province, '', i.billing_province), ''),
+                        NULLIF(c.billing_province, ''),
+                        NULLIF(cp.billing_province, ''),
+                        NULLIF(cc.billing_province, ''),
+                        NULLIF(i.service_province, '')
+                    ) as billing_province,
+                    COALESCE(
+                        NULLIF(IF(i.billing_postal_code = i.service_postal_code, '', i.billing_postal_code), ''),
+                        NULLIF(c.billing_postal_code, ''),
+                        NULLIF(cp.billing_postal_code, ''),
+                        NULLIF(cc.billing_postal_code, ''),
+                        NULLIF(i.service_postal_code, ''),
+                        NULLIF(p.postal_code, '')
+                    ) as billing_postal_code,
                     COALESCE(ct.first_name, dc.first_name) as contact_first,
                     COALESCE(ct.last_name,  dc.last_name)  as contact_last,
                     COALESCE(ct.email,      dc.email)      as contact_email,
@@ -147,6 +184,8 @@ class PdfGenerator
                 LEFT JOIN contacts ct  ON c.primary_contact_id = ct.id
                 LEFT JOIN contacts dc  ON i.contact_id = dc.id
                 LEFT JOIN properties p ON i.property_id = p.id
+                LEFT JOIN companies cp ON p.company_id = cp.id
+                LEFT JOIN companies cc ON dc.company_id = cc.id
                 LEFT JOIN users u      ON i.created_by = u.id
                 LEFT JOIN job_plans jp ON i.plan_id = jp.id
                 LEFT JOIN job_visits jv ON i.visit_id = jv.id

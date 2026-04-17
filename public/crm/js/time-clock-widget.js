@@ -675,6 +675,15 @@
                     // Re-fetch status to get tracking flag and render properly
                     fetchStatus();
                     showToast('Clocked in at ' + formatTime(new Date()), 'success');
+
+                    // Driver pre-trip enforcement: server flags drivers who haven't
+                    // filed a pre-trip vehicle inspection for today. Redirect them
+                    // to the Driver Portal so they can complete it immediately.
+                    if (data.pre_trip_required) {
+                        setTimeout(function() {
+                            window.location.href = '/crm/driver-portal.php?open=pre';
+                        }, 800);
+                    }
                 } else {
                     showToast(data.error || 'Clock in failed', 'error');
                     renderClockedOut();
@@ -723,13 +732,33 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'clock_out', lat: lat, lng: lng })
             })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.success) {
+            .then(function(r) {
+                return r.json().then(function(data) { return { status: r.status, data: data }; });
+            })
+            .then(function(res) {
+                var data = res.data;
+                // 409 + post_trip_required: driver must submit post-trip form first.
+                if (res.status === 409 && data && data.error_code === 'post_trip_required') {
+                    showToast('Complete the post-trip vehicle check first', 'error');
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = SVG_STOP + '<span class="mw-clock-label">Out</span>';
+                    }
+                    // Resume tracking we just stopped — the driver is still on the clock.
+                    if (deviceType !== 'truck') {
+                        startTracking();
+                    }
+                    setTimeout(function() {
+                        window.location.href = '/crm/driver-portal.php?open=post';
+                    }, 900);
+                    return;
+                }
+
+                if (data && data.success) {
                     renderClockedOut();
                     showToast('Clocked out — Total: ' + data.total_formatted, 'success');
                 } else {
-                    showToast(data.error || 'Clock out failed', 'error');
+                    showToast((data && data.error) || 'Clock out failed', 'error');
                     if (btn) btn.disabled = false;
                 }
             })

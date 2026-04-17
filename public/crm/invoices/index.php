@@ -42,8 +42,9 @@ if ($statusFilter) {
 }
 
 if ($searchQuery) {
-    $whereConditions[] = '(i.invoice_number LIKE ? OR c.company_name LIKE ? OR CONCAT(ct.first_name," ",ct.last_name) LIKE ?)';
+    $whereConditions[] = '(i.invoice_number LIKE ? OR p.property_name LIKE ? OR c.company_name LIKE ? OR CONCAT(ct.first_name," ",ct.last_name) LIKE ?)';
     $searchParam = "%{$searchQuery}%";
+    $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;
     $params[] = $searchParam;
@@ -55,8 +56,9 @@ $whereClause = implode(' AND ', $whereConditions);
 $countParams = $params;
 $cntStmt = $db->prepare("
     SELECT COUNT(*) FROM invoices i
-    LEFT JOIN companies c ON i.company_id = c.id
-    LEFT JOIN contacts ct ON i.contact_id = ct.id
+    LEFT JOIN companies  c  ON i.company_id = c.id
+    LEFT JOIN contacts   ct ON i.contact_id = ct.id
+    LEFT JOIN properties p  ON i.property_id = p.id
     WHERE {$whereClause}
 ");
 $cntStmt->execute($countParams);
@@ -68,17 +70,26 @@ $offset = ($page - 1) * $perPage;
 $stmt = $db->prepare("
     SELECT
         i.*,
-        COALESCE(c.company_name, CONCAT(ct.first_name,' ',ct.last_name)) as display_client,
+        COALESCE(
+            NULLIF(p.property_name, ''),
+            NULLIF(c.company_name, ''),
+            NULLIF(CONCAT(ct.first_name,' ',ct.last_name), ' ')
+        ) as display_client,
+        p.property_name,
         c.company_name,
         ct.first_name as contact_first,
         ct.last_name  as contact_last,
         jp.plan_number,
-        jp.title as plan_title
+        jp.title as plan_title,
+        ctr.contract_number,
+        ctr.title as contract_title
     FROM invoices i
-    LEFT JOIN companies  c  ON i.company_id = c.id
-    LEFT JOIN contacts   ct ON i.contact_id = ct.id
-    LEFT JOIN job_plans  jp ON i.plan_id    = jp.id
-    LEFT JOIN job_visits jv ON i.visit_id   = jv.id
+    LEFT JOIN companies  c   ON i.company_id = c.id
+    LEFT JOIN contacts   ct  ON i.contact_id = ct.id
+    LEFT JOIN properties p   ON i.property_id = p.id
+    LEFT JOIN job_plans  jp  ON i.plan_id    = jp.id
+    LEFT JOIN job_visits jv  ON i.visit_id   = jv.id
+    LEFT JOIN contracts  ctr ON i.contract_id = ctr.id
     WHERE {$whereClause}
     ORDER BY {$orderBy} {$sortDir}
     LIMIT {$perPage} OFFSET {$offset}
@@ -221,7 +232,7 @@ $activePage = 'invoices';
                                 </th>
                                 <th class="<?php echo invSortClass('invoice_number', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('invoice_number', $sortCol, $sortDir); ?>">Invoice #</a></th>
                                 <th class="<?php echo invSortClass('client', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('client', $sortCol, $sortDir); ?>">Client</a></th>
-                                <th>Plan</th>
+                                <th>Plan / Contract</th>
                                 <th class="text-right <?php echo invSortClass('amount', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('amount', $sortCol, $sortDir); ?>">Amount</a></th>
                                 <th class="text-right <?php echo invSortClass('balance', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('balance', $sortCol, $sortDir); ?>">Balance</a></th>
                                 <th class="<?php echo invSortClass('due_date', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('due_date', $sortCol, $sortDir); ?>">Due Date</a></th>
@@ -236,6 +247,14 @@ $activePage = 'invoices';
                                 $isPayable = in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue']);
                                 $balance   = floatval($invoice['balance_due']);
                                 $client    = htmlspecialchars($invoice['display_client'] ?? $invoice['company_name'] ?? 'N/A');
+                                // When we're showing a property name as the primary label, include the
+                                // paying company as a muted secondary line so the accountant still knows
+                                // who owes the money (e.g. "Oakridge Gardens" + "Vancouver Management Ltd").
+                                $clientSubtitle = '';
+                                if (!empty($invoice['property_name']) && !empty($invoice['company_name'])
+                                    && $invoice['property_name'] !== $invoice['company_name']) {
+                                    $clientSubtitle = htmlspecialchars($invoice['company_name']);
+                                }
                                 ?>
                                 <tr class="<?php echo $isPayable ? 'mw-payable-row' : ''; ?>"
                                     data-href="view.php?id=<?php echo (int)$invoice['id']; ?>"
@@ -258,11 +277,20 @@ $activePage = 'invoices';
                                             <?php echo htmlspecialchars($invoice['invoice_number']); ?>
                                         </a>
                                     </td>
-                                    <td><?php echo $client; ?></td>
+                                    <td>
+                                        <div><?php echo $client; ?></div>
+                                        <?php if ($clientSubtitle !== ''): ?>
+                                            <div class="text-muted" style="font-size: 11px;"><?php echo $clientSubtitle; ?></div>
+                                        <?php endif; ?>
+                                    </td>
                                     <td>
                                         <?php if (!empty($invoice['plan_number'])): ?>
-                                            <a href="../jobs/view.php?id=<?php echo $invoice['plan_id']; ?>">
+                                            <a href="../jobs/view.php?id=<?php echo (int)$invoice['plan_id']; ?>">
                                                 <?php echo htmlspecialchars($invoice['plan_number']); ?>
+                                            </a>
+                                        <?php elseif (!empty($invoice['contract_number'])): ?>
+                                            <a href="../contracts/view.php?id=<?php echo (int)$invoice['contract_id']; ?>" title="<?php echo htmlspecialchars($invoice['contract_title'] ?? ''); ?>">
+                                                <?php echo htmlspecialchars($invoice['contract_number']); ?>
                                             </a>
                                         <?php else: ?>
                                             <span class="text-muted">—</span>

@@ -633,10 +633,23 @@ async function syncLedger() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+// Silently sync the ledger in the background every time the dashboard loads.
+// Sync is idempotent (INSERT ... ON DUPLICATE KEY UPDATE) so it's safe to run
+// on every visit. Without this, the dashboard showed all $0.00 until the user
+// manually clicked "Sync Ledger".
+async function autoSyncThenLoad() {
+    try {
+        await fetch(API_TX + '?action=sync');
+    } catch (e) {
+        console.warn('Auto-sync failed (continuing with cached data):', e);
+    }
+    await loadDashboard();
+    await loadTrendChart();
+    await loadAlerts(false);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    loadDashboard();
-    loadTrendChart();
-    loadAlerts(false);   // load persisted alerts without re-running detection
+    autoSyncThenLoad();
 });
 </script>
 

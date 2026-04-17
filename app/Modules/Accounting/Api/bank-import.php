@@ -159,10 +159,23 @@ try {
             break;
 
         // ── Alerts ─────────────────────────────────────────────────────────────
+        // Response shape is always:
+        //   { ok: true, alerts: [ ...alert rows ], summary: { counts... } }
+        // so the dashboard JS can call `alerts.filter(...)` uniformly.
         case 'alerts':
-            $run    = ($_GET['run'] ?? '0') === '1';
-            $result = $run ? $alertEng->runAll() : $alertEng->getDashboardSummary();
-            echo json_encode(['ok' => true, 'alerts' => $result]);
+            $run = ($_GET['run'] ?? '0') === '1';
+            if ($run) {
+                $alertEng->runAll();
+            }
+            $summary = $alertEng->getDashboardSummary();
+            $alerts  = $summary['alerts'] ?? [];
+            unset($summary['alerts']);
+            $summary['total_detected'] = count($alerts);
+            echo json_encode([
+                'ok'      => true,
+                'alerts'  => $alerts,
+                'summary' => $summary,
+            ]);
             break;
 
         case 'dismiss_alert':

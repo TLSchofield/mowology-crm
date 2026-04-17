@@ -241,18 +241,24 @@ class AlertEngine
 
         $stmt = $this->db->prepare("
             SELECT
-                j.id   AS job_id,
-                j.job_number,
-                CONCAT(c.first_name, ' ', c.last_name) AS client_name,
+                jp.id          AS job_id,
+                jp.plan_number AS job_number,
+                COALESCE(
+                    NULLIF(p.property_name, ''),
+                    NULLIF(co.company_name, ''),
+                    NULLIF(CONCAT(c.first_name, ' ', c.last_name), ' ')
+                ) AS client_name,
                 SUM(CASE WHEN t.type = 'income'  THEN t.amount ELSE 0 END) AS revenue,
                 SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END) AS expenses
-            FROM jobs j
-            LEFT JOIN accounting_transactions t ON t.job_id = j.id
+            FROM job_plans jp
+            LEFT JOIN accounting_transactions t ON t.job_id = jp.id
               AND t.status IN ('cleared', 'reconciled')
-            LEFT JOIN contacts c ON c.id = j.contact_id
-            WHERE j.status = 'completed'
-              AND j.updated_at >= ?
-            GROUP BY j.id, j.job_number, c.first_name, c.last_name
+            LEFT JOIN properties p ON p.id = jp.property_id
+            LEFT JOIN companies  co ON co.id = jp.company_id
+            LEFT JOIN contacts   c  ON c.id = jp.contact_id
+            WHERE jp.status = 'completed'
+              AND jp.updated_at >= ?
+            GROUP BY jp.id, jp.plan_number, p.property_name, co.company_name, c.first_name, c.last_name
             HAVING revenue > 0
                AND (revenue - expenses) / revenue * 100 < ?
         ");

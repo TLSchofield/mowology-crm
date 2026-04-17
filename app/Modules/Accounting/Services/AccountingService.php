@@ -62,19 +62,21 @@ class AccountingService
         $synced  = 0;
         $updated = 0;
 
-        // Pull invoices: partial payments also included (amount_paid > 0)
+        // Pull invoices: partial payments also included (amount_paid > 0).
+        // job_id here maps to job_plans.id (the plan the invoice was generated from),
+        // since this codebase uses job_plans — there is no separate `jobs` table.
+        // NOTE: invoices table has no assigned_user_id column — attribution is
+        // implicit via the related job_plan / contact.
         $stmt = $this->db->query("
             SELECT
                 i.id,
                 COALESCE(i.paid_at, i.updated_at)   AS transaction_date,
                 COALESCE(i.amount_paid, i.total, 0) AS amount,
-                COALESCE(i.tax_amount, 0)            AS gst_amount,
+                COALESCE(i.tax_amount, 0)           AS gst_amount,
                 i.contact_id,
                 i.notes,
-                COALESCE(j.id, NULL)                 AS job_id,
-                COALESCE(i.assigned_user_id, NULL)   AS assigned_user_id
+                i.plan_id                           AS job_id
             FROM invoices i
-            LEFT JOIN jobs j ON j.invoice_id = i.id
             WHERE i.status IN ('paid', 'partial')
               AND COALESCE(i.amount_paid, 0) > 0
         ");
@@ -98,7 +100,7 @@ class AccountingService
                 'job_id'           => $row['job_id'] ? (int)$row['job_id'] : null,
                 'contact_id'       => $row['contact_id'] ? (int)$row['contact_id'] : null,
                 'vendor_id'        => null,
-                'assigned_user_id' => $row['assigned_user_id'] ? (int)$row['assigned_user_id'] : null,
+                'assigned_user_id' => null,
                 'status'           => 'cleared',
                 'needs_review'     => 0,
                 'is_auto_categorized' => 0,
@@ -136,16 +138,16 @@ class AccountingService
         $stmt = $this->db->query("
             SELECT
                 e.id,
-                e.expense_date          AS transaction_date,
-                e.total                 AS amount,
-                COALESCE(e.gst, 0)      AS gst_amount,
-                COALESCE(e.pst, 0)      AS pst_amount,
+                e.expense_date               AS transaction_date,
+                e.total                      AS amount,
+                COALESCE(e.gst_amount, 0)    AS gst_amount,
+                COALESCE(e.pst_amount, 0)    AS pst_amount,
                 e.description,
                 e.accounting_category,
                 e.vendor_id,
                 e.job_id,
                 e.contact_id,
-                COALESCE(e.created_by, NULL) AS assigned_user_id
+                e.created_by                 AS assigned_user_id
             FROM expenses e
             WHERE e.total > 0
         ");
@@ -361,28 +363,28 @@ class AccountingService
     }
 
     /**
-     * Job Profitability — revenue and expenses per job.
-     * Requires jobs to be linked to transactions via job_id.
+     * Job Profitability — revenue and expenses per job_plan (we use job_plans
+     * as the "job" entity on this codebase — there is no `jobs` table).
      */
     public function getJobProfitability(string $dateFrom, string $dateTo, int $limit = 25): array
     {
         $stmt = $this->db->prepare("
             SELECT
-                j.id        AS job_id,
-                j.job_number,
-                CONCAT(c.first_name, ' ', c.last_name) AS client_name,
-                p.address   AS property_address,
+                jp.id           AS job_id,
+                jp.plan_number  AS job_number,
+                COALESCE(co.company_name, p.property_name, p.address) AS client_name,
+                p.address       AS property_address,
                 SUM(CASE WHEN t.type = 'income'  THEN t.amount ELSE 0 END) AS revenue,
                 SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END) AS expenses
-            FROM jobs j
-            LEFT JOIN accounting_transactions t ON t.job_id = j.id
+            FROM job_plans jp
+            LEFT JOIN accounting_transactions t ON t.job_id = jp.id
               AND t.transaction_date BETWEEN ? AND ?
               AND t.status IN ('cleared', 'reconciled')
-            LEFT JOIN contacts c   ON c.id = j.contact_id
-            LEFT JOIN properties p ON p.id = j.property_id
-            WHERE j.status = 'completed'
-              AND j.created_at >= ?
-            GROUP BY j.id, j.job_number, c.first_name, c.last_name, p.address
+            LEFT JOIN companies  co ON co.id = jp.company_id
+            LEFT JOIN properties p  ON p.id  = jp.property_id
+            WHERE jp.status = 'completed'
+              AND jp.created_at >= ?
+            GROUP BY jp.id, jp.plan_number, co.company_name, p.property_name, p.address
             HAVING revenue > 0
             ORDER BY (revenue - expenses) DESC
             LIMIT ?
@@ -501,6 +503,7 @@ class AccountingService
         $countStmt->execute($params);
         $total = (int)$countStmt->fetchColumn();
 
+        // NOTE: t.job_id refers to job_plans.id on this codebase (see sync).
         $stmt = $this->db->prepare("
             SELECT
                 t.*,
@@ -509,12 +512,12 @@ class AccountingService
                 coa.type  AS account_type,
                 v.name    AS vendor_name,
                 CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
-                j.job_number
+                jp.plan_number AS job_number
             FROM accounting_transactions t
             JOIN chart_of_accounts coa ON coa.id = t.account_id
-            LEFT JOIN vendors  v ON v.id = t.vendor_id
-            LEFT JOIN contacts c ON c.id = t.contact_id
-            LEFT JOIN jobs     j ON j.id = t.job_id
+            LEFT JOIN vendors   v  ON v.id  = t.vendor_id
+            LEFT JOIN contacts  c  ON c.id  = t.contact_id
+            LEFT JOIN job_plans jp ON jp.id = t.job_id
             WHERE $whereClause
             ORDER BY t.transaction_date DESC, t.id DESC
             LIMIT ? OFFSET ?

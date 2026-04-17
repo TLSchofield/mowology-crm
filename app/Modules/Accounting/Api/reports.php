@@ -138,13 +138,13 @@ try {
                     t.status,
                     t.needs_review,
                     v.name     AS vendor_name,
-                    j.job_number,
+                    jp.plan_number AS job_number,
                     CONCAT(c.first_name, ' ', c.last_name) AS client_name
                 FROM accounting_transactions t
                 JOIN chart_of_accounts coa ON coa.id = t.account_id
-                LEFT JOIN vendors  v ON v.id  = t.vendor_id
-                LEFT JOIN jobs     j ON j.id  = t.job_id
-                LEFT JOIN contacts c ON c.id  = t.contact_id
+                LEFT JOIN vendors   v  ON v.id  = t.vendor_id
+                LEFT JOIN job_plans jp ON jp.id = t.job_id
+                LEFT JOIN contacts  c  ON c.id  = t.contact_id
                 WHERE t.transaction_date BETWEEN ? AND ?
                 ORDER BY t.transaction_date ASC, t.type ASC
             ");
