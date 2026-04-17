@@ -144,6 +144,20 @@ try {
             ")->execute([$lat, $lng, $svcType, $visitId]);
 
             addAuditLog($db, $visitId, (int)$user['id'], 'start', null, $ip);
+
+            // Mark calendar_stop as in_progress (drives amber styling on Schedule)
+            try {
+                $stopId = $visit['stop_id'] ?? null;
+                if ($stopId) {
+                    $db->prepare("
+                        UPDATE calendar_stops SET status = 'in_progress', updated_at = NOW()
+                        WHERE id = ? AND status = 'scheduled'
+                    ")->execute([$stopId]);
+                }
+            } catch (Throwable $e) {
+                error_log('[pow-actions] calendar_stops start propagation error: ' . $e->getMessage());
+            }
+
             echo json_encode(['success' => true, 'started_at' => date('c')]);
             break;
 
@@ -333,6 +347,36 @@ try {
             if (file_exists($refService)) {
                 require_once $refService;
                 ReferralRewardService::maybeAwardCompletion($visitId, $db, (int)$user['id']);
+            }
+
+            // Propagate to calendar_stops: if ALL visits in the same stop
+            // are now completed/skipped/cancelled, mark the stop as completed.
+            // This drives the green "done" styling on the Schedule page.
+            try {
+                $stopId = $visit['stop_id'] ?? null;
+                if ($stopId) {
+                    $pendingStmt = $db->prepare("
+                        SELECT COUNT(*) FROM job_visits
+                        WHERE stop_id = ? AND status NOT IN ('completed', 'skipped', 'cancelled')
+                    ");
+                    $pendingStmt->execute([$stopId]);
+                    $pending = (int)$pendingStmt->fetchColumn();
+                    if ($pending === 0) {
+                        $db->prepare("
+                            UPDATE calendar_stops SET status = 'completed', updated_at = NOW()
+                            WHERE id = ? AND status != 'completed'
+                        ")->execute([$stopId]);
+                    } else {
+                        // At least one visit is done — mark stop as in_progress
+                        // if it's still in 'scheduled' state.
+                        $db->prepare("
+                            UPDATE calendar_stops SET status = 'in_progress', updated_at = NOW()
+                            WHERE id = ? AND status = 'scheduled'
+                        ")->execute([$stopId]);
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log('[pow-actions] calendar_stops status propagation error: ' . $e->getMessage());
             }
 
             echo json_encode([

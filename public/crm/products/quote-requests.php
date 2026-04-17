@@ -47,10 +47,17 @@ $query = "
         p.city,
         p.postal_code,
         p.latitude,
-        p.longitude
+        p.longitude,
+        q.id             AS quote_id,
+        q.quote_number,
+        q.status         AS quote_status,
+        q.amount         AS quote_amount,
+        q.accepted_at,
+        q.accepted_by_name
     FROM quote_requests qr
     LEFT JOIN contacts c ON qr.contact_id = c.id
     LEFT JOIN properties p ON qr.property_id = p.id
+    LEFT JOIN quotes q ON q.id = qr.quote_id
     WHERE 1=1
 ";
 $params = [];
@@ -156,6 +163,9 @@ $activePage = 'products';
                       <a href="?status=quoted" class="mw-filter-tab <?php echo $status === 'quoted' ? 'active' : ''; ?>">
                           Quoted <span class="count"><?php echo $statusCounts['quoted'] ?? 0; ?></span>
                       </a>
+                      <a href="?status=accepted" class="mw-filter-tab <?php echo $status === 'accepted' ? 'active' : ''; ?>">
+                          Accepted <span class="count"><?php echo $statusCounts['accepted'] ?? 0; ?></span>
+                      </a>
                       <a href="?status=converted" class="mw-filter-tab <?php echo $status === 'converted' ? 'active' : ''; ?>">
                           Converted <span class="count"><?php echo $statusCounts['converted'] ?? 0; ?></span>
                       </a>
@@ -208,8 +218,12 @@ $activePage = 'products';
                               <div class="text-muted" style="font-size: 13px;">
                                   Submitted <?php echo date('M j, Y g:i A', strtotime($request['created_at'])); ?>
                                   | Request #<?php echo $request['id']; ?>
-                                  <?php if ($request['quote_id']): ?>
-                                      | Quote #<?php echo $request['quote_id']; ?>
+                                  <?php if (!empty($request['quote_number'])): ?>
+                                      | <a href="../quotes/view.php?id=<?php echo $request['quote_id']; ?>"><?php echo h($request['quote_number']); ?></a>
+                                      — $<?php echo number_format((float)($request['quote_amount'] ?? 0), 2); ?>
+                                      <?php if ($request['quote_status'] === 'accepted'): ?>
+                                          <span class="mw-status-badge accepted ml-1">Accepted<?php if ($request['accepted_by_name']): ?> by <?php echo h($request['accepted_by_name']); ?><?php endif; ?></span>
+                                      <?php endif; ?>
                                   <?php endif; ?>
                               </div>
                           </div>

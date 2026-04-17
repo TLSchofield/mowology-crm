@@ -667,6 +667,7 @@ a:hover {
 .mw-qr-card.mw-status-new { border-left-color: #3B82F6; }
 .mw-qr-card.mw-status-reviewing { border-left-color: #F59E0B; }
 .mw-qr-card.mw-status-quoted { border-left-color: #8B5CF6; }
+.mw-qr-card.mw-status-accepted { border-left-color: var(--mw-green); }
 .mw-qr-card.mw-status-converted { border-left-color: #10B981; }
 .mw-qr-card.mw-status-declined { border-left-color: #EF4444; }
 
@@ -743,6 +744,12 @@ a:hover {
 .mw-status-badge.converted {
   background: rgba(16, 185, 129, 0.15);
   color: #059669;
+}
+
+.mw-status-badge.accepted {
+  background: rgba(45, 134, 89, 0.15);
+  color: var(--mw-green);
+  font-weight: 700;
 }
 
 .mw-status-badge.declined {
@@ -7584,13 +7591,37 @@ textarea.font-monospace {
 /* Stop status variants */
 .mw-stop-status-progress {
   border-left-color: #F59E0B;
-  background: rgba(245, 158, 11, 0.04);
+  background: rgba(245, 158, 11, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.15);
+}
+.mw-stop-status-progress::after {
+  content: '⏱';
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 14px;
+  opacity: 0.7;
 }
 
 .mw-stop-status-done {
   border-left-color: #10B981;
-  background: rgba(16, 185, 129, 0.04);
-  opacity: 0.7;
+  background: rgba(16, 185, 129, 0.06);
+  opacity: 0.75;
+  position: relative;
+}
+.mw-stop-status-done .mw-stop-property {
+  text-decoration: line-through;
+  text-decoration-color: rgba(16, 185, 129, 0.5);
+}
+.mw-stop-status-done::after {
+  content: '✓';
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #10B981;
+  opacity: 0.8;
 }
 
 .mw-stop-status-skipped {
@@ -9273,8 +9304,39 @@ textarea.font-monospace {
 }
 
 /* Status variants */
-.mw-dv-card.mw-stop-status-progress { border-left-color: #F59E0B; }
-.mw-dv-card.mw-stop-status-done { border-left-color: #10B981; opacity: 0.7; }
+.mw-dv-card.mw-stop-status-progress {
+  border-left-color: #F59E0B;
+  background: rgba(245, 158, 11, 0.04);
+  position: relative;
+}
+.mw-dv-card.mw-stop-status-progress::after {
+  content: '⏱';
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 14px;
+  opacity: 0.7;
+}
+.mw-dv-card.mw-stop-status-done {
+  border-left-color: #10B981;
+  background: rgba(16, 185, 129, 0.06);
+  opacity: 0.75;
+  position: relative;
+}
+.mw-dv-card.mw-stop-status-done::after {
+  content: '✓';
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #10B981;
+  opacity: 0.8;
+}
+.mw-dv-card.mw-stop-status-done .mw-stop-property {
+  text-decoration: line-through;
+  text-decoration-color: rgba(16, 185, 129, 0.5);
+}
 .mw-dv-card.mw-stop-status-skipped { border-left-color: #6B7280; opacity: 0.6; }
 
 /* Pinned card highlight */

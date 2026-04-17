@@ -174,6 +174,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
                     $quote['id']
                 ]);
 
+                // Propagate acceptance back to the originating quote_request
+                // so the Quote Requests admin page reflects the real status.
+                try {
+                    $db->prepare("
+                        UPDATE quote_requests
+                        SET status = 'accepted', updated_at = NOW()
+                        WHERE quote_id = ?
+                    ")->execute([$quote['id']]);
+                } catch (Throwable $e) {
+                    // Non-critical — table/column may not exist yet
+                    error_log("Quote acceptance → quote_requests propagation error: " . $e->getMessage());
+                }
+
                 // Log activity
                 try {
                     $stmt = $db->prepare("
@@ -241,6 +254,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($quote) && $quote['status'] 
             WHERE id = ?
         ");
         $stmt->execute([$declineReason, $quote['id']]);
+
+        // Propagate decline back to quote_request
+        try {
+            $db->prepare("
+                UPDATE quote_requests
+                SET status = 'declined', updated_at = NOW()
+                WHERE quote_id = ?
+            ")->execute([$quote['id']]);
+        } catch (Throwable $e) {
+            error_log("Quote decline → quote_requests propagation error: " . $e->getMessage());
+        }
 
         $quote['status'] = 'declined';
         $success = 'Thank you for letting us know. If you change your mind or have questions, please contact us.';
