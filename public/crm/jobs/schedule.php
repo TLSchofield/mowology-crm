@@ -2112,6 +2112,11 @@ if ($apiKey) {
               <div class="mw-dv-map-panel">
                   <div class="mw-dv-map-topbar">
                       <span class="mw-dv-map-title" id="mwDvMapTitle">Route</span>
+                      <button type="button" class="mw-dv-map-team-toggle" id="mwDvMapTeamToggle"
+                              title="Show live team positions" aria-pressed="false">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><circle cx="17" cy="7" r="3"/><path d="M21 21v-2a4 4 0 00-3-3.87"/></svg>
+                          <span class="mw-dv-map-team-toggle-label">Team</span>
+                      </button>
                       <button type="button" class="mw-dv-map-external" id="mwDvMapExternal" title="Open in Google Maps">
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                       </button>
@@ -3281,6 +3286,7 @@ var MW_SCHEDULE_DATE = <?php echo json_encode($dayDate ?? $startDate); ?>;
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 </script>
 <script src="../js/schedule-day-map.js?v=20260306a" defer></script>
+<script src="../js/schedule-team-layer.js?v=20260418a" defer></script>
 <?php endif; ?>
 <?php if ($view === 'week'): ?>
 <script>

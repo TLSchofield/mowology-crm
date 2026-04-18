@@ -9235,6 +9235,44 @@ textarea.font-monospace {
   background: var(--mw-light);
 }
 
+/* Live-team toggle — pass 1 of unified-map plan */
+.mw-dv-map-team-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  margin-right: 4px;
+  border: 1px solid var(--mw-light);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--mw-green);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+
+.mw-dv-map-team-toggle:hover {
+  background: var(--mw-light);
+}
+
+.mw-dv-map-team-toggle.active {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  color: #fff;
+}
+
+.mw-dv-map-team-toggle.active:hover {
+  background: var(--mw-dark);
+  border-color: var(--mw-dark);
+}
+
+.mw-dv-map-team-toggle-label {
+  font-size: 12px;
+}
+
 .mw-dv-map {
   flex: 1;
   min-height: 400px;

@@ -870,7 +870,8 @@ var MwDayViewMap = (function() {
 
     return {
         recompute: computeRoute,
-        getPinnedStopId: function() { return pinnedStopId; }
+        getPinnedStopId: function() { return pinnedStopId; },
+        getMap: function() { return map; }
     };
 
 })();
