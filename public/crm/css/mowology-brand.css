@@ -9273,6 +9273,127 @@ textarea.font-monospace {
   font-size: 12px;
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   Unified Map (/crm/map.php) — preset bar + time scrubber
+   ════════════════════════════════════════════════════════════════════════ */
+
+.mw-map-presets {
+  display: inline-flex;
+  background: var(--mw-light);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.mw-map-preset {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  min-width: 92px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mw-forest);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.15;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.mw-map-preset > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 1px;
+}
+
+.mw-map-preset > small {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.65;
+  margin-top: 1px;
+}
+
+.mw-map-preset:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.mw-map-preset.active {
+  background: var(--mw-green);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.mw-map-preset.active > small {
+  opacity: 0.85;
+}
+
+.mw-map-scrubber {
+  margin-top: 10px;
+  padding: 8px 4px 2px;
+  border-top: 1px solid var(--mw-light);
+}
+
+.mw-map-scrubber-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mw-map-scrubber-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--mw-forest);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.mw-map-scrubber-input {
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--mw-light);
+  border-radius: 3px;
+  outline: none;
+  margin: 0;
+}
+
+.mw-map-scrubber-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--mw-green);
+  cursor: grab;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.mw-map-scrubber-input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--mw-green);
+  cursor: grab;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.mw-map-scrubber-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--mw-forest);
+  min-width: 64px;
+  text-align: center;
+}
+
 .mw-dv-map {
   flex: 1;
   min-height: 400px;

@@ -1,63 +1,100 @@
 <?php
 /**
- * Live Crew Map — Real-time employee location tracking + daily route trails
- * Admin/Manager access only.
- * Polls /crm/api/crew-location.php?action=live every 30 seconds.
- * Fetches day routes via ?action=day_routes&date=YYYY-MM-DD.
+ * Unified Map — single canonical map for the CRM.
+ *
+ * Replaces the historical split between /crm/jobs/schedule.php (day-view route map)
+ * and /crm/timeclock/crew-map.php (live crew map). Three URL-driven presets
+ * govern which layers default-on and whether the time scrubber appears:
+ *
+ *   ?preset=dispatch (default) — Live Crew + Today's Jobs · "Where is everyone now?"
+ *   ?preset=planning&date=…    — Jobs + Routes (no live)  · "Plan a future day"
+ *   ?preset=review&date=…      — Jobs + Routes + Scrubber · "Replay a past day"
+ *
+ * Layers:
+ *   - Live Crew (color-coded teardrops, 30s poll) — admin/manager only
+ *   - Today's Jobs (calendar_stops API)
+ *   - Routes (day_routes API — GPS breadcrumb polylines per crew)
+ *
+ * All endpoints already exist; this page is a presentation-layer consolidation.
  */
-require_once dirname(__DIR__) . '/../loginAuth/auth.php';
-require_once dirname(__DIR__) . '/includes/functions.php';
-require_once dirname(__DIR__) . '/includes/timeclock-functions.php';
-require_once dirname(__DIR__) . '/includes/plan-functions.php';
+require_once __DIR__ . '/../loginAuth/auth.php';
+require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/timeclock-functions.php';
+require_once __DIR__ . '/includes/plan-functions.php';
 
 requireLogin();
 $user = getCurrentUser();
 requirePermission('team.view');
 
-$pageTitle = 'Crew Map';
-$activePage = 'team';
+// ── URL-driven preset state ──────────────────────────────────────────────────
+// Validate preset against an allow-list so we can safely echo it into the
+// JS bootstrap object below.
+$validPresets = ['dispatch', 'planning', 'review'];
+$preset = $_GET['preset'] ?? 'dispatch';
+if (!in_array($preset, $validPresets, true)) $preset = 'dispatch';
+
+$today = (new DateTime('now', new DateTimeZone('America/Vancouver')))->format('Y-m-d');
+$paramDate = $_GET['date'] ?? '';
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $paramDate)) {
+    $paramDate = $today;
+}
+
+$pageTitle = 'Map';
+$activePage = 'map';
 $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=geometry" defer></script>';
 ?>
-<?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
+<?php include __DIR__ . '/includes/appstack_head.php'; ?>
 
-<!-- Pointer to the unified map. Legacy crew-map remains live for now so
-     existing bookmarks keep working; the canonical map is at /crm/map.php. -->
-<div class="alert alert-info d-flex justify-content-between align-items-center mb-3" role="alert">
-    <span>
-        <strong>New:</strong> The unified Map page combines live crew, scheduled jobs,
-        and route history with shareable Dispatch / Planning / Review presets.
-    </span>
-    <a href="/crm/map.php" class="btn btn-sm btn-success ml-3">Open new Map &rarr;</a>
-</div>
-
-<!-- Header -->
-<div class="d-flex justify-content-between align-items-center mb-3">
+<!-- ═════════════════════════════════════════════════════════════════════════
+     Header — title + preset switcher + status line
+     ═════════════════════════════════════════════════════════════════════════ -->
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap" style="gap:12px;">
     <div>
-        <h1 class="h3 mb-1">Crew Map</h1>
-        <p class="text-muted mb-0">
+        <h1 class="h3 mb-1">Map</h1>
+        <p class="text-muted mb-0" id="mwMapSubtitle">
             <span id="crewCount">0</span> tracked employee<span id="crewPlural">s</span> &mdash;
-            Last updated: <span id="lastUpdate">loading...</span>
+            <span id="mwMapStatus">Loading&hellip;</span>
         </p>
     </div>
-    <div class="d-flex align-items-center" style="gap: 8px;">
-        <a href="/crm/team/index.php" class="btn btn-sm btn-outline-secondary">
-            <i data-feather="users" style="width:14px;height:14px;"></i> Team
-        </a>
+
+    <!-- Preset switcher: drives layer defaults + scrubber visibility -->
+    <div class="mw-map-presets" role="tablist" aria-label="Map mode">
+        <button type="button" class="mw-map-preset" data-preset="dispatch" role="tab" aria-selected="false">
+            <i data-feather="radio" style="width:13px;height:13px;"></i>
+            <span>Dispatch</span>
+            <small>Now</small>
+        </button>
+        <button type="button" class="mw-map-preset" data-preset="planning" role="tab" aria-selected="false">
+            <i data-feather="calendar" style="width:13px;height:13px;"></i>
+            <span>Planning</span>
+            <small>Future day</small>
+        </button>
+        <button type="button" class="mw-map-preset" data-preset="review" role="tab" aria-selected="false">
+            <i data-feather="rewind" style="width:13px;height:13px;"></i>
+            <span>Review</span>
+            <small>Past day</small>
+        </button>
     </div>
 </div>
 
-<!-- Route Controls -->
+<!-- ═════════════════════════════════════════════════════════════════════════
+     Layer + date controls
+     ═════════════════════════════════════════════════════════════════════════ -->
 <div class="card mb-3">
     <div class="card-body py-2 px-3">
         <div class="mw-route-controls">
             <div class="mw-route-controls-left">
-                <label class="mw-route-toggle">
-                    <input type="checkbox" id="routeToggle">
-                    <span class="mw-route-toggle-label">Show Day Routes</span>
+                <label class="mw-route-toggle" id="liveToggleLabel">
+                    <input type="checkbox" id="liveToggle">
+                    <span class="mw-route-toggle-label">Live Crew</span>
                 </label>
                 <label class="mw-route-toggle">
                     <input type="checkbox" id="jobsToggle">
-                    <span class="mw-route-toggle-label">Show Day Jobs</span>
+                    <span class="mw-route-toggle-label">Jobs</span>
+                </label>
+                <label class="mw-route-toggle">
+                    <input type="checkbox" id="routeToggle">
+                    <span class="mw-route-toggle-label">Routes</span>
                 </label>
                 <div class="mw-route-date-wrap" id="routeDateWrap" style="display:none;">
                     <button type="button" class="btn btn-sm btn-outline-secondary mw-route-date-btn" id="routePrevDay">&lsaquo;</button>
@@ -68,6 +105,19 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             </div>
             <div class="mw-route-crew-filters" id="routeCrewFilters" style="display:none;">
                 <!-- Crew toggle chips rendered by JS -->
+            </div>
+        </div>
+
+        <!-- Time scrubber — Review preset only. Drag to snap each crew to
+             the position they held at that moment of the selected day. -->
+        <div class="mw-map-scrubber" id="mapScrubber" style="display:none;">
+            <div class="mw-map-scrubber-row">
+                <span class="mw-map-scrubber-label">Time</span>
+                <input type="range" min="0" max="1439" value="720" id="scrubberRange" class="mw-map-scrubber-input">
+                <span class="mw-map-scrubber-value" id="scrubberValue">12:00</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="scrubberReset" title="Jump back to start of day">
+                    <i data-feather="skip-back" style="width:12px;height:12px;"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -224,22 +274,32 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         }
     }
 
+    // ═══════════════════════════════════════════════════
+    //  PRESET / SCRUBBER STATE  (added for unified map)
+    // ═══════════════════════════════════════════════════
+
+    // Bootstrap state from PHP (URL ?preset and ?date)
+    var BOOT = {
+        preset: <?php echo json_encode($preset); ?>,
+        date:   <?php echo json_encode($paramDate); ?>,
+        today:  <?php echo json_encode($today); ?>
+    };
+
+    var liveEnabled = false;          // controls 30s crew poll + marker drawing
+    var scrubberMinute = null;        // null = "now", number = minute-of-day in Review
+
     waitForMaps(function() {
         initMap();
-        fetchCrew();
-        refreshTimer = setInterval(fetchCrew, REFRESH_MS);
         initRouteControls();
         initJobsControls();
+        initLiveControl();
+        initPresetBar();
+        initScrubber();
 
-        // Auto-enable routes on page load
-        var toggle = document.getElementById('routeToggle');
-        toggle.checked = true;
-        toggle.dispatchEvent(new Event('change'));
-
-        // Auto-enable jobs on page load
-        var jobsToggle = document.getElementById('jobsToggle');
-        jobsToggle.checked = true;
-        jobsToggle.dispatchEvent(new Event('change'));
+        // Apply the preset chosen by the URL — this drives every layer's
+        // initial state and scrubber visibility. No more "auto-enable
+        // everything" dance; preset is the single source of truth.
+        applyPreset(BOOT.preset, BOOT.date);
     });
 
     function initMap() {
@@ -258,6 +318,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     // ── Live Crew Tracking ─────────────────────────────
 
     function fetchCrew() {
+        // Gated by the Live Crew layer toggle — Planning preset turns this off
+        // entirely, and Review preset replaces live polling with scrubbed history.
+        if (!liveEnabled || scrubberMinute !== null) return;
+
         fetch('/crm/api/crew-location.php?action=live', { credentials: 'same-origin' })
             .then(function(r) { return r.json(); })
             .then(function(data) {
@@ -472,9 +536,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         var nextBtn = document.getElementById('routeNextDay');
         var todayBtn = document.getElementById('routeToday');
 
-        // Set default date to today
+        // Set default date to today. NOTE: no `max` cap — the Planning preset
+        // needs to be able to select future dates (e.g. plan tomorrow's route).
         dateInput.value = todayStr();
-        dateInput.max = todayStr();
 
         toggle.addEventListener('change', function() {
             routesEnabled = this.checked;
@@ -1306,7 +1370,248 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     }
 
     function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+    // ═══════════════════════════════════════════════════
+    //  UNIFIED-MAP ADDITIONS  (preset bar, live toggle, scrubber)
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * Apply a named preset. Single source of truth for layer states +
+     * scrubber visibility. Updates the URL so the view is shareable.
+     */
+    function applyPreset(preset, date) {
+        var liveOn, jobsOn, routesOn, showScrubber;
+
+        switch (preset) {
+            case 'planning':
+                // Future-day planning — no live, no historical breadcrumbs.
+                liveOn = false; jobsOn = true;  routesOn = false; showScrubber = false;
+                break;
+            case 'review':
+                // Past-day replay — historical routes, scrubber lets you
+                // snap to any moment of the day.
+                liveOn = false; jobsOn = true;  routesOn = true;  showScrubber = true;
+                break;
+            case 'dispatch':
+            default:
+                // "Where is everyone right now?" — live + today's planned work.
+                liveOn = true;  jobsOn = true;  routesOn = false; showScrubber = false;
+                date = BOOT.today;
+                break;
+        }
+
+        // Date input — the source of truth for jobs + routes fetches.
+        var dateInput = document.getElementById('routeDate');
+        if (dateInput) dateInput.value = date || BOOT.today;
+
+        // Toggle states + dispatch change events so the existing handlers
+        // wire up legends, side panels, fetches, etc.
+        setToggle('liveToggle',  liveOn);
+        setToggle('jobsToggle',  jobsOn);
+        setToggle('routeToggle', routesOn);
+
+        // Scrubber UI visibility
+        var scrubberEl = document.getElementById('mapScrubber');
+        if (scrubberEl) scrubberEl.style.display = showScrubber ? '' : 'none';
+
+        // Reset scrubber to "now" when leaving Review preset
+        if (!showScrubber) {
+            scrubberMinute = null;
+            var rng = document.getElementById('scrubberRange');
+            if (rng) rng.value = nowMinuteOfDay();
+        }
+
+        // Update preset button visual state
+        document.querySelectorAll('.mw-map-preset').forEach(function(b) {
+            var on = b.getAttribute('data-preset') === preset;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+
+        // Update header status text
+        var status = document.getElementById('mwMapStatus');
+        if (status) {
+            if (preset === 'dispatch') status.textContent = 'Live · updating every 30s';
+            else if (preset === 'planning') status.textContent = 'Planning ' + (date || BOOT.today);
+            else if (preset === 'review')  status.textContent = 'Reviewing ' + (date || BOOT.today);
+        }
+
+        // Reflect in URL without reloading (back button still works)
+        updateUrl(preset, date || BOOT.today);
+    }
+
+    function setToggle(id, on) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (el.checked === !!on) {
+            // Re-dispatch even if unchanged so handlers re-init (e.g. preset switch
+            // back to dispatch should re-start crew polling).
+            el.dispatchEvent(new Event('change'));
+        } else {
+            el.checked = !!on;
+            el.dispatchEvent(new Event('change'));
+        }
+    }
+
+    function updateUrl(preset, date) {
+        if (!window.history || !window.history.replaceState) return;
+        var qs = '?preset=' + encodeURIComponent(preset);
+        if (preset !== 'dispatch') qs += '&date=' + encodeURIComponent(date);
+        window.history.replaceState({}, '', window.location.pathname + qs);
+    }
+
+    /**
+     * Live Crew layer toggle — gates the polling loop. When turned off we
+     * also clear any markers already on the map so the user sees a clean
+     * planning canvas.
+     */
+    function initLiveControl() {
+        var t = document.getElementById('liveToggle');
+        if (!t) return;
+        t.addEventListener('change', function() {
+            liveEnabled = this.checked;
+            if (liveEnabled) {
+                fetchCrew();
+                if (!refreshTimer) {
+                    refreshTimer = setInterval(fetchCrew, REFRESH_MS);
+                }
+            } else {
+                if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+                clearLiveMarkers();
+                updateHeader([]);
+                updateList([]);
+            }
+        });
+    }
+
+    function clearLiveMarkers() {
+        Object.keys(crewMarkers).forEach(function(uid) {
+            crewMarkers[uid].marker.setMap(null);
+            if (crewMarkers[uid].infoWindow) crewMarkers[uid].infoWindow.close();
+        });
+        crewMarkers = {};
+    }
+
+    /**
+     * Wire the Dispatch / Planning / Review preset buttons. Planning
+     * defaults to today + 1; Review defaults to yesterday. The user can
+     * adjust the date via the existing date picker after switching.
+     */
+    function initPresetBar() {
+        document.querySelectorAll('.mw-map-preset').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var p = btn.getAttribute('data-preset');
+                var d = BOOT.today;
+                if (p === 'planning') d = shiftDate(BOOT.today, +1);
+                else if (p === 'review') d = shiftDate(BOOT.today, -1);
+                applyPreset(p, d);
+            });
+        });
+    }
+
+    function shiftDate(ymd, days) {
+        var d = new Date(ymd + 'T12:00:00');
+        d.setDate(d.getDate() + days);
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    /**
+     * Time scrubber — Review preset only. Drag to a minute of the day and
+     * each crew's marker jumps to the GPS position they held at that
+     * moment, derived from routeData (already loaded for the Routes layer).
+     */
+    function initScrubber() {
+        var rng = document.getElementById('scrubberRange');
+        var lbl = document.getElementById('scrubberValue');
+        var rst = document.getElementById('scrubberReset');
+        if (!rng || !lbl) return;
+
+        rng.value = nowMinuteOfDay();
+        lbl.textContent = formatMinute(parseInt(rng.value, 10));
+
+        rng.addEventListener('input', function() {
+            var min = parseInt(this.value, 10);
+            lbl.textContent = formatMinute(min);
+            scrubberMinute = min;
+            applyScrubber(min);
+        });
+
+        if (rst) {
+            rst.addEventListener('click', function() {
+                rng.value = 360; // 6:00 AM — reasonable start of day
+                rng.dispatchEvent(new Event('input'));
+            });
+        }
+    }
+
+    /**
+     * For each crew route loaded in routeData, find the GPS point whose
+     * timestamp is closest to the scrubbed minute and snap that crew's
+     * teardrop marker to it. Crew with no points before that minute are
+     * hidden until they "appear" later in the day.
+     */
+    function applyScrubber(minuteOfDay) {
+        if (!routeData || !routeData.length) return;
+
+        var targetEpoch = scrubberDateEpoch(minuteOfDay);
+        var snapped = [];
+
+        routeData.forEach(function(route) {
+            var pts = route.points || [];
+            if (!pts.length) return;
+
+            // Find latest point with timestamp <= targetEpoch
+            var bestIdx = -1;
+            for (var i = 0; i < pts.length; i++) {
+                var ts = parseInt(pts[i].epoch || pts[i].timestamp_epoch, 10);
+                if (isNaN(ts)) ts = Date.parse(pts[i].timestamp) / 1000;
+                if (ts <= targetEpoch) bestIdx = i; else break;
+            }
+            if (bestIdx === -1) return; // crew hadn't started by this minute
+
+            var p = pts[bestIdx];
+            snapped.push({
+                user_id:        route.user_id,
+                full_name:      route.full_name,
+                role:           route.role || 'crew',
+                lat:            p.lat,
+                lng:            p.lng,
+                accuracy_meters: p.accuracy_meters || null,
+                seconds_ago:    0,           // historical — pretend "fresh"
+                is_clocked_in:  1,           // they were clocked in at that moment
+                last_update:    p.timestamp || ''
+            });
+        });
+
+        // Reuse the live update path so we get the same teardrops + InfoWindows.
+        updateMap(snapped);
+        updateList(snapped);
+        updateHeader(snapped);
+    }
+
+    function scrubberDateEpoch(minuteOfDay) {
+        var dateInput = document.getElementById('routeDate');
+        var ymd = (dateInput && dateInput.value) ? dateInput.value : BOOT.today;
+        // Build a Pacific-time epoch for that date + minute.
+        var d = new Date(ymd + 'T00:00:00');
+        d.setMinutes(d.getMinutes() + minuteOfDay);
+        return Math.floor(d.getTime() / 1000);
+    }
+
+    function nowMinuteOfDay() {
+        var d = new Date();
+        return d.getHours() * 60 + d.getMinutes();
+    }
+
+    function formatMinute(m) {
+        var h = Math.floor(m / 60);
+        var min = m % 60;
+        var ampm = h >= 12 ? 'PM' : 'AM';
+        var h12 = h % 12; if (h12 === 0) h12 = 12;
+        return h12 + ':' + pad(min) + ' ' + ampm;
+    }
+
 })();
 </script>
 
-<?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
+<?php include __DIR__ . '/includes/appstack_footer.php'; ?>
