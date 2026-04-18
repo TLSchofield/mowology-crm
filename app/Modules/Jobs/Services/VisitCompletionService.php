@@ -93,10 +93,24 @@ class VisitCompletionService
 
             // ── 7. Get quoted revenue for this visit ──────────────────────────
             // Try invoice line items first, then fall back to plan's quote total / visit count.
-            $quotedAmount = self::resolveQuotedAmount($db, $visitId, (int)$visit['plan_id']);
+            $quotedAmount = null;
+            try {
+                $quotedAmount = self::resolveQuotedAmount($db, $visitId, (int)$visit['plan_id']);
+            } catch (Throwable $qaErr) {
+                // Fallback: use plan's price_per_visit directly
+                $ppvStmt = $db->prepare("SELECT price_per_visit FROM job_plans WHERE id = ?");
+                $ppvStmt->execute([(int)$visit['plan_id']]);
+                $ppv = $ppvStmt->fetchColumn();
+                $quotedAmount = $ppv ? (float)$ppv : null;
+            }
 
             // ── 8. Get actual material cost ───────────────────────────────────
-            $materialCost = self::resolveMaterialCost($db, $visitId);
+            $materialCost = null;
+            try {
+                $materialCost = self::resolveMaterialCost($db, $visitId);
+            } catch (Throwable $matErr) {
+                // expenses.visit_id or total_amount may not exist — graceful skip
+            }
 
             // ── 9. Compute gross margin ───────────────────────────────────────
             $grossMargin = null;
