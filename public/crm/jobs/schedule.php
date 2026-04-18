@@ -3285,8 +3285,8 @@ var MW_SCHEDULE_DATE = <?php echo json_encode($dayDate ?? $startDate); ?>;
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 </script>
-<script src="../js/schedule-day-map.js?v=20260306a" defer></script>
-<script src="../js/schedule-team-layer.js?v=20260418a" defer></script>
+<script src="../js/schedule-day-map.js?v=20260418b" defer></script>
+<script src="../js/schedule-team-layer.js?v=20260418b" defer></script>
 <?php endif; ?>
 <?php if ($view === 'week'): ?>
 <script>
