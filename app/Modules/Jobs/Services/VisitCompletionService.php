@@ -30,6 +30,8 @@ class VisitCompletionService
             $db = getDB();
 
             // ── 1. Load visit data ────────────────────────────────────────────
+            // Note: jp.contact_id may not exist on all deployments — use
+            // LEFT JOIN contacts via property's site_contact_id as fallback
             $stmt = $db->prepare("
                 SELECT
                     jv.id,
@@ -39,11 +41,12 @@ class VisitCompletionService
                     jv.scheduled_date,
                     jv.drive_time_minutes,
                     jp.property_id,
-                    jp.contact_id,
                     jp.service_type,
-                    jp.estimated_duration_minutes
+                    jp.estimated_duration_minutes,
+                    COALESCE(p.site_contact_id, NULL) AS contact_id
                 FROM job_visits jv
                 JOIN job_plans jp ON jp.id = jv.plan_id
+                LEFT JOIN properties p ON p.id = jp.property_id
                 WHERE jv.id = ?
             ");
             $stmt->execute([$visitId]);
@@ -291,19 +294,26 @@ class VisitCompletionService
             return (float)$row['total'];
         }
 
-        // Fallback: plan's accepted quote total ÷ estimated visit count
+        // Fallback: plan's price_per_visit or quote total ÷ completed visits
         $stmt = $db->prepare("
             SELECT
+                jp.price_per_visit,
                 q.total_amount,
-                jp.total_visits_planned
+                (SELECT COUNT(*) FROM job_visits jv2
+                 WHERE jv2.plan_id = jp.id AND jv2.status = 'completed') AS completed_count
             FROM job_plans jp
             LEFT JOIN quotes q ON q.id = jp.quote_id
             WHERE jp.id = ?
         ");
         $stmt->execute([$planId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row && $row['total_amount'] > 0 && $row['total_visits_planned'] > 0) {
-            return round((float)$row['total_amount'] / (int)$row['total_visits_planned'], 2);
+        if ($row) {
+            if ($row['price_per_visit'] > 0) {
+                return (float)$row['price_per_visit'];
+            }
+            if ($row['total_amount'] > 0 && $row['completed_count'] > 0) {
+                return round((float)$row['total_amount'] / (int)$row['completed_count'], 2);
+            }
         }
 
         return null;
