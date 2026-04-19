@@ -396,6 +396,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm'])) {
                     error_log('[jobFlow-confirm] sendQuoteRequestNotifications failed: ' . $t->getMessage());
                 }
 
+                // Customer confirmation email (non-blocking, CASL-compliant)
+                if (!empty($data['email'])) {
+                    try {
+                        sendQuoteConfirmationEmail($data, $servicesCsv);
+                    } catch (Throwable $t) {
+                        error_log('[jobFlow-confirm] sendQuoteConfirmationEmail failed: ' . $t->getMessage());
+                    }
+                }
+
                 // ── 10. Session cleanup & success redirect ─────────────────
                 // Set success flag BEFORE unsetting quote_data (success.php reads it)
                 $_SESSION['quote_submitted'] = true;
