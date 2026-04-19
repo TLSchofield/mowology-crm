@@ -1119,7 +1119,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260401c" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260418a" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -1146,8 +1146,8 @@ if ($apiKey) {
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
           <div class="mw-page-header">
-              <div>
-                  <h1 class="h3">Schedule</h1>
+              <div class="mw-page-header-left">
+                  <h1 class="mw-page-title">Schedule</h1>
               </div>
 
               <div class="mw-header-nav">

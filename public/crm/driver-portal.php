@@ -146,7 +146,7 @@ $csrf = generateCSRFToken();
 $pageTitle  = 'Driver Portal';
 $activePage = 'driver';
 $bodyClass  = 'mw-page-driver'; // Suppresses global mobile nav bars — driver portal has its own UI
-$extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260303n" rel="stylesheet">';
+$extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260418a" rel="stylesheet">';
 
 ?>
 <?php include 'includes/appstack_head.php'; ?>
