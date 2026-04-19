@@ -61,12 +61,32 @@ if ($search) {
 
 $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
-// Counts for tabs
-$cStmt = $db->prepare("SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status != 'completed' AND (task_type = 'general' OR task_type IS NULL)");
+// ── Schema capability detection (idempotent — runs once per request) ────────
+// Migration 970 adds vendor/purchase columns. Gracefully degrade if not yet run.
+$hasVendorCols   = false;
+$hasTaskItems    = false;
+$hasPurchaseCols = false;
+try {
+    $cols = $db->query("SHOW COLUMNS FROM tasks LIKE 'vendor_id'")->fetchAll();
+    $hasVendorCols = !empty($cols);
+    $pcols = $db->query("SHOW COLUMNS FROM tasks LIKE 'task_type'")->fetchAll();
+    $hasPurchaseCols = !empty($pcols);
+    $ti = $db->query("SHOW TABLES LIKE 'task_items'")->fetchAll();
+    $hasTaskItems = !empty($ti);
+    $vt = $db->query("SHOW TABLES LIKE 'vendors'")->fetchAll();
+    $hasVendorCols = $hasVendorCols && !empty($vt);
+} catch (PDOException $e) { /* ignore */ }
+
+// Counts for tabs (use simple queries that survive both schemas)
+$baseCond = $hasPurchaseCols
+    ? "(task_type = 'general' OR task_type IS NULL)"
+    : "1=1";
+
+$cStmt = $db->prepare("SELECT COUNT(*) FROM tasks WHERE assigned_to = ? AND status != 'completed' AND {$baseCond}");
 $cStmt->execute([$user['id']]);
 $tabCounts['my'] = (int)$cStmt->fetchColumn();
 
-$cStmt = $db->query("SELECT COUNT(*) FROM tasks WHERE status != 'completed' AND (task_type = 'general' OR task_type IS NULL)");
+$cStmt = $db->query("SELECT COUNT(*) FROM tasks WHERE status != 'completed' AND {$baseCond}");
 $tabCounts['all'] = (int)$cStmt->fetchColumn();
 
 $cStmt = $db->query("SELECT COUNT(*) FROM tasks WHERE status != 'completed' AND due_date IS NOT NULL AND due_date < CURDATE()");
@@ -75,13 +95,33 @@ $tabCounts['overdue'] = (int)$cStmt->fetchColumn();
 $cStmt = $db->query("SELECT COUNT(*) FROM tasks WHERE status = 'completed'");
 $tabCounts['completed'] = (int)$cStmt->fetchColumn();
 
-$cStmt = $db->query("SELECT COUNT(*) FROM tasks WHERE task_type = 'purchase' AND (purchase_status IS NULL OR purchase_status NOT IN ('verified'))");
-$tabCounts['purchases'] = (int)$cStmt->fetchColumn();
+if ($hasPurchaseCols) {
+    $cStmt = $db->query("SELECT COUNT(*) FROM tasks WHERE task_type = 'purchase' AND (purchase_status IS NULL OR purchase_status NOT IN ('verified'))");
+    $tabCounts['purchases'] = (int)$cStmt->fetchColumn();
+    $cStmt = $db->query("SELECT COUNT(*) FROM tasks WHERE task_type = 'purchase' AND purchase_status = 'verified'");
+    $tabCounts['verified'] = (int)$cStmt->fetchColumn();
+} else {
+    $tabCounts['purchases'] = 0;
+    $tabCounts['verified']  = 0;
+}
 
-$cStmt = $db->query("SELECT COUNT(*) FROM tasks WHERE task_type = 'purchase' AND purchase_status = 'verified'");
-$tabCounts['verified'] = (int)$cStmt->fetchColumn();
+// ── Build main query defensively ─────────────────────────────────────────────
+$vendorSelect = $hasVendorCols
+    ? ",\n           v.name AS vendor_name,\n           vl.label AS vendor_location_label,\n           vl.address AS vendor_location_address"
+    : ",\n           NULL AS vendor_name, NULL AS vendor_location_label, NULL AS vendor_location_address";
+$vendorJoins = $hasVendorCols
+    ? "\n    LEFT JOIN vendors v ON t.vendor_id = v.id\n    LEFT JOIN vendor_locations vl ON t.vendor_location_id = vl.id"
+    : '';
+$itemsSubquery = $hasTaskItems
+    ? ",\n           (SELECT COUNT(*) FROM task_items ti WHERE ti.task_id = t.id) AS items_count"
+    : ",\n           0 AS items_count";
 
-// Fetch tasks
+// Rebuild WHERE if task_type column doesn't exist (drop task_type conditions)
+if (!$hasPurchaseCols) {
+    $safeWhere  = array_filter($where, fn($w) => strpos($w, 'task_type') === false && strpos($w, 'purchase_status') === false);
+    $whereClause = $safeWhere ? 'WHERE ' . implode(' AND ', $safeWhere) : '';
+}
+
 $stmt = $db->prepare("
     SELECT t.*,
            u_assigned.full_name AS assigned_to_name,
@@ -89,20 +129,14 @@ $stmt = $db->prepare("
            c.first_name AS contact_first, c.last_name AS contact_last,
            q.quote_number,
            jp.plan_number,
-           inv.invoice_number,
-           v.name AS vendor_name,
-           vl.label AS vendor_location_label,
-           vl.address AS vendor_location_address,
-           (SELECT COUNT(*) FROM task_items ti WHERE ti.task_id = t.id) AS items_count
+           inv.invoice_number{$vendorSelect}{$itemsSubquery}
     FROM tasks t
     LEFT JOIN users u_assigned ON t.assigned_to = u_assigned.id
     LEFT JOIN users u_created ON t.created_by = u_created.id
     LEFT JOIN contacts c ON t.contact_id = c.id
     LEFT JOIN quotes q ON t.quote_id = q.id
     LEFT JOIN job_plans jp ON t.plan_id = jp.id
-    LEFT JOIN invoices inv ON t.invoice_id = inv.id
-    LEFT JOIN vendors v ON t.vendor_id = v.id
-    LEFT JOIN vendor_locations vl ON t.vendor_location_id = vl.id
+    LEFT JOIN invoices inv ON t.invoice_id = inv.id{$vendorJoins}
     {$whereClause}
     ORDER BY
         CASE t.status WHEN 'in_progress' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,

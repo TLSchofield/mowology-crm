@@ -17,6 +17,36 @@
  *   3. Google Fonts (Montserrat + Open Sans — matches public site)
  *   4. Favicon set from /assets/favicon/
  */
+
+// ── DEV ERROR MODE — show all errors inline for fast debugging ───────────────
+// Single-user system; remove or gate on IP if external users are added.
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+error_reporting(E_ALL);
+
+// Capture uncaught exceptions and show a top-of-page banner instead of a blank screen
+set_exception_handler(function (Throwable $e) {
+    // Flush any partial output
+    if (ob_get_level()) ob_end_clean();
+    echo '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
+       . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+       . '<title>Error — Mowology CRM</title>'
+       . '<style>body{font-family:system-ui,sans-serif;margin:0;background:#fff1f2;}'
+       . '.mw-err{background:#fee2e2;border-bottom:3px solid #dc2626;padding:20px 28px;}'
+       . '.mw-err h2{margin:0 0 8px;color:#991b1b;font-size:1.1rem;}'
+       . '.mw-err pre{background:#fff;border:1px solid #fca5a5;border-radius:6px;padding:14px;'
+       . 'font-size:0.78rem;overflow-x:auto;color:#1f2937;line-height:1.5;margin:8px 0 0;}'
+       . '.mw-err-meta{font-size:0.8rem;color:#7f1d1d;margin-top:6px;}'
+       . '</style></head><body>'
+       . '<div class="mw-err">'
+       . '<h2>🔴 ' . htmlspecialchars(get_class($e)) . ': ' . htmlspecialchars($e->getMessage()) . '</h2>'
+       . '<pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>'
+       . '<p class="mw-err-meta">in <strong>' . htmlspecialchars($e->getFile()) . '</strong> on line <strong>' . $e->getLine() . '</strong></p>'
+       . '</div></body></html>';
+    exit(1);
+});
+// ── END DEV ERROR MODE ────────────────────────────────────────────────────────
+
 if (!isset($pageTitle)) $pageTitle = 'Mowology CRM';
 $extraHead  = $extraHead  ?? '';
 $bodyClass  = $bodyClass  ?? '';

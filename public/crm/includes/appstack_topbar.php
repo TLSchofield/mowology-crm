@@ -3,7 +3,10 @@
  * Shared AppStack Top Navigation Bar.
  *
  * Layout (left → right):
- *   sidebar toggle | tracking dot | clock widget | snap receipt   [spacer]   search ⌘K | settings icon ▾
+ *   sidebar toggle | tracking dot | clock widget | snap receipt  [auto-spacer]  search ⌘K | user icon ▾
+ *
+ * Right cluster lives OUTSIDE navbar-collapse so Bootstrap dropdown/Popper.js
+ * can position menus correctly without flex-container interference.
  *
  * Expected variable:
  *   $user — array with at least 'name' key
@@ -15,14 +18,14 @@ if (!isset($user)) $user = ['name' => 'Admin'];
         <i class="hamburger align-self-center"></i>
     </a>
 
-    <!-- Location Tracking Status Indicator (always visible) -->
+    <!-- Location Tracking Status Indicator -->
     <div class="mw-tracking-dot-wrapper" id="trackingDotWrapper" title="Loading...">
         <span class="mw-tracking-dot" id="trackingDot">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49"></path><path d="M7.76 16.24a6 6 0 0 1 0-8.49"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M4.93 19.07a10 10 0 0 1 0-14.14"></path></svg>
         </span>
     </div>
 
-    <!-- Time Clock Widget (JS enhances this default button) -->
+    <!-- Time Clock Widget -->
     <div class="mw-clock-widget" id="clockWidget">
         <button class="mw-clock-btn mw-clock-in" id="btnClockIn" title="Clock In" style="opacity:0.6" disabled>
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
@@ -40,44 +43,43 @@ if (!isset($user)) $user = ['name' => 'Admin'];
     </a>
     <?php endif; ?>
 
-    <!-- Right cluster: search + settings icon — pushed to far right via CSS -->
-    <div class="navbar-collapse collapse">
-        <ul class="navbar-nav mw-topbar-right">
+    <!-- Right cluster — margin-left:auto pushes to far right.
+         Kept OUTSIDE .navbar-collapse so Bootstrap/Popper dropdown positioning works correctly. -->
+    <div class="mw-topbar-right-cluster">
 
-            <!-- Global Search Trigger -->
-            <li class="nav-item mw-search-nav-item">
-                <button class="mw-spotlight-trigger" data-spotlight-open title="Search (<?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘' : 'Ctrl'; ?>+K)">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                    <span class="mw-spotlight-trigger-text">Search...</span>
-                    <kbd class="mw-spotlight-trigger-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
-                </button>
-            </li>
+        <!-- Global Search Trigger -->
+        <button class="mw-spotlight-trigger" data-spotlight-open title="Search (<?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘' : 'Ctrl'; ?>+K)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <span class="mw-spotlight-trigger-text">Search...</span>
+            <kbd class="mw-spotlight-trigger-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
+        </button>
 
-            <!-- Settings / Profile icon dropdown -->
-            <li class="nav-item dropdown">
-                <a class="mw-topbar-settings-btn dropdown-toggle" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="<?php echo htmlspecialchars($user['name'] ?? 'Admin'); ?>">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"></path></svg>
-                </a>
-                <div class="dropdown-menu dropdown-menu-right">
-                    <div class="dropdown-header px-3 py-2 border-bottom mb-1">
-                        <div style="font-weight:600;font-size:0.85rem;color:var(--mw-ink-900);"><?php echo htmlspecialchars($user['name'] ?? 'Admin'); ?></div>
-                        <div style="font-size:0.75rem;color:var(--mw-ink-500);"><?php echo htmlspecialchars($user['email'] ?? ''); ?></div>
-                    </div>
-                    <a class="dropdown-item" href="/crm/profile.php">
-                        <i class="align-middle mr-1" data-feather="user"></i> Profile
-                    </a>
-                    <a class="dropdown-item" href="/crm/settings.php">
-                        <i class="align-middle mr-1" data-feather="settings"></i> Settings
-                    </a>
-                    <div class="dropdown-divider"></div>
-                    <a class="dropdown-item" href="/crm/logout_secure.php">
-                        <i class="align-middle mr-1" data-feather="log-out"></i> Log out
-                    </a>
+        <!-- User / Settings icon dropdown -->
+        <div class="dropdown">
+            <button class="mw-topbar-settings-btn dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="<?php echo htmlspecialchars($user['name'] ?? 'Admin'); ?>">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"></path></svg>
+            </button>
+            <div class="dropdown-menu dropdown-menu-right">
+                <div class="px-3 py-2 border-bottom mb-1">
+                    <div style="font-weight:600;font-size:0.85rem;color:var(--mw-ink-900);"><?php echo htmlspecialchars($user['name'] ?? 'Admin'); ?></div>
+                    <?php if (!empty($user['email'])): ?>
+                    <div style="font-size:0.75rem;color:var(--mw-ink-500);"><?php echo htmlspecialchars($user['email']); ?></div>
+                    <?php endif; ?>
                 </div>
-            </li>
+                <a class="dropdown-item" href="/crm/profile.php">
+                    <i class="align-middle mr-1" data-feather="user"></i> Profile
+                </a>
+                <a class="dropdown-item" href="/crm/settings.php">
+                    <i class="align-middle mr-1" data-feather="settings"></i> Settings
+                </a>
+                <div class="dropdown-divider"></div>
+                <a class="dropdown-item" href="/crm/logout_secure.php">
+                    <i class="align-middle mr-1" data-feather="log-out"></i> Log out
+                </a>
+            </div>
+        </div>
 
-        </ul>
-    </div>
+    </div><!-- /.mw-topbar-right-cluster -->
 </nav>
 
 <!-- Spotlight Search Overlay -->
