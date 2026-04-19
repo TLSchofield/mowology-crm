@@ -293,6 +293,8 @@ try {
                     SUM(CASE WHEN jrq.status = 'skipped' THEN 1 ELSE 0 END) AS skipped_count,
                     SUM(CASE WHEN jrq.status = 'queued' THEN 1 ELSE 0 END) AS queued_count,
                     SUM(CASE WHEN jrq.status = 'sent' THEN 1 ELSE 0 END) AS sent_count,
+                    SUM(CASE WHEN jrq.is_current_client = 1 THEN 1 ELSE 0 END) AS current_client_count,
+                    MIN(jrq.sort_priority) AS best_priority,
                     GROUP_CONCAT(DISTINCT CONCAT(c.first_name, ' ', c.last_name) ORDER BY c.last_name SEPARATOR ', ') AS all_names,
                     MIN(p.city) AS city
                 FROM jobber_reconsent_queue jrq
@@ -300,7 +302,7 @@ try {
                 LEFT JOIN properties p ON p.site_contact_id = c.id
                 WHERE 1=1 $batchWhere
                 GROUP BY COALESCE(jrq.fsa, '---')
-                ORDER BY contact_count DESC
+                ORDER BY best_priority ASC, contact_count DESC
             ");
             $stmt->execute($params);
             $fsaBlocks = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -806,26 +808,37 @@ function isCurrentClient(PDO $db, int $contactId): bool
 
 /**
  * Compute sort_priority for a queue entry based on current-client status and FSA.
- * Lower number = higher priority.
- *   Current client + core FSA = 1
- *   Current client + near FSA = 2
- *   Current client + extended FSA = 3
- *   Current client + other FSA = 4
- *   Inactive + core FSA = 11
- *   Inactive + near FSA = 12
- *   Inactive + extended FSA = 13
- *   Inactive + other/no FSA = 14
+ * Lower number = higher priority. North Van (V7G-R) and West Van (V7S-W) are
+ * no longer serviced — deprioritized.
+ *   Current client + Vancouver east (core) = 1
+ *   Current client + Vancouver west        = 2
+ *   Current client + Burnaby/Richmond      = 3
+ *   Current client + elsewhere (still BC)  = 4
+ *   Inactive + same tiers                  = 11..14
+ *   Any North/West Vancouver (not serviced)= 90..91
  */
 function computeSortPriority(bool $isCurrent, ?string $fsa): int
 {
-    $coreFsas     = ['V5K','V5L','V5M','V5N','V5R','V5S','V5T'];
-    $nearFsas     = ['V5V','V5W','V5X','V5Y','V5Z','V6A','V6B'];
-    $extendedFsas = ['V6E','V6G','V6H','V6Z','V7L','V7M','V7N','V7P'];
+    // Vancouver east (core service hub, Main/Knight/Fraser corridors)
+    $coreFsas = ['V5K','V5L','V5M','V5N','V5P','V5R','V5S','V5T','V5V','V5W','V5X'];
+    // Vancouver west (Kitsilano, Point Grey, Kerrisdale, Marpole)
+    $nearFsas = ['V6H','V6J','V6K','V6L','V6M','V6N','V6P','V6R','V6S','V6T'];
+    // Inner Burnaby + Richmond (still serviceable)
+    $extendedFsas = ['V5A','V5B','V5C','V5E','V5G','V5H','V5J','V6A','V6B','V6C','V6E','V6G','V6Z','V7C','V7E','V7Y'];
+    // No longer serviced — North Van (V7G-V7R) + West Van (V7S-V7W)
+    $noService = ['V7G','V7H','V7J','V7K','V7L','V7M','V7N','V7P','V7R','V7S','V7T','V7V','V7W'];
+
+    $fsaUp = $fsa ? strtoupper($fsa) : null;
+
+    // Deprioritize non-serviced areas heavily (even if current-ish)
+    if ($fsaUp && in_array($fsaUp, $noService)) {
+        return $isCurrent ? 90 : 91;
+    }
 
     $base = $isCurrent ? 0 : 10;
 
-    if ($fsa && in_array(strtoupper($fsa), $coreFsas))     return $base + 1;
-    if ($fsa && in_array(strtoupper($fsa), $nearFsas))     return $base + 2;
-    if ($fsa && in_array(strtoupper($fsa), $extendedFsas)) return $base + 3;
+    if ($fsaUp && in_array($fsaUp, $coreFsas))     return $base + 1;
+    if ($fsaUp && in_array($fsaUp, $nearFsas))     return $base + 2;
+    if ($fsaUp && in_array($fsaUp, $extendedFsas)) return $base + 3;
     return $base + 4;
 }
