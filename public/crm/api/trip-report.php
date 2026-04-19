@@ -32,26 +32,76 @@ session_write_close(); // release session lock ASAP
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 $db     = getDB();
 
+/**
+ * Render a styled HTML error page for download failures.
+ */
+function renderTripReportError(int $code, string $heading, string $message): void
+{
+    http_response_code($code);
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>' . htmlspecialchars($heading) . ' — Mowology</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+       background: #f4f4f4; display: flex; justify-content: center; align-items: center;
+       min-height: 100vh; padding: 1rem; }
+.err-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            max-width: 480px; width: 100%; overflow: hidden; }
+.err-header { background: #1A5F4A; padding: 24px 32px; text-align: center; }
+.err-header h1 { color: #fff; font-size: 22px; font-weight: 700; }
+.err-header p { color: #7FD858; font-size: 13px; letter-spacing: 0.5px; margin-top: 4px; }
+.err-body { padding: 32px; text-align: center; }
+.err-icon { font-size: 48px; margin-bottom: 16px; color: #dc3545; }
+.err-body h2 { font-size: 20px; margin-bottom: 12px; color: #1a202c; }
+.err-body p { color: #64748b; font-size: 14px; line-height: 1.6; margin-bottom: 16px; }
+.err-footer { border-top: 1px solid #e2e8f0; padding: 16px 32px; text-align: center; }
+.err-footer a { color: #2D8659; text-decoration: none; font-size: 14px; font-weight: 500; }
+.err-footer a:hover { text-decoration: underline; }
+</style></head><body>
+<div class="err-card">
+  <div class="err-header"><h1>Mowology</h1><p>CRM</p></div>
+  <div class="err-body">
+    <div class="err-icon">&#9888;</div>
+    <h2>' . htmlspecialchars($heading) . '</h2>
+    <p>' . htmlspecialchars($message) . '</p>
+  </div>
+  <div class="err-footer">
+    <a href="javascript:history.back()">&larr; Go back</a>
+    &nbsp;&middot;&nbsp;
+    <a href="/crm/dashboard_appstack.php">Dashboard</a>
+  </div>
+</div>
+</body></html>';
+    exit;
+}
+
 // ── GET: download ─────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'download') {
     $id = (int)($_GET['id'] ?? 0);
-    if (!$id) { http_response_code(400); die('Missing id'); }
+    if (!$id) { renderTripReportError(400, 'Missing Report ID', 'The download link is missing the report ID.'); }
 
     $stmt = $db->prepare("SELECT * FROM vehicle_trip_reports WHERE id = ?");
     $stmt->execute([$id]);
     $report = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$report) { http_response_code(404); die('Report not found'); }
+    if (!$report) { renderTripReportError(404, 'Report Not Found', 'This trip report does not exist or has been deleted.'); }
 
     // Only admin/manager or the driver themselves can download
     if ($user['role'] === 'user' && (int)$report['driver_id'] !== (int)$user['id']) {
-        http_response_code(403); die('Access denied');
+        renderTripReportError(403, 'Access Denied', 'You do not have permission to download this trip report.');
     }
 
-    if (empty($report['pdf_path'])) { http_response_code(404); die('PDF not yet generated'); }
+    if (empty($report['pdf_path'])) {
+        renderTripReportError(404, 'PDF Not Yet Generated', 'The PDF for this trip report has not been generated yet. Please try again in a few moments, or contact support if this persists.');
+    }
 
     $fullPath = PROJECT_ROOT . '/' . $report['pdf_path'];
-    if (!file_exists($fullPath)) { http_response_code(404); die('PDF file not found on disk'); }
+    if (!file_exists($fullPath)) {
+        renderTripReportError(404, 'PDF File Missing', 'The PDF file is no longer on disk. It may have been moved or cleaned up. Please regenerate the report or contact support.');
+    }
 
     $filename = 'trip_report_' . $report['report_date'] . '.pdf';
     header('Content-Type: application/pdf');
