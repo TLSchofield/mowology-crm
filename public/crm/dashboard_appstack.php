@@ -571,18 +571,28 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
                 <div class="card-body py-3">
                   <?php if (empty($recentActivity)): ?>
                     <div class="text-center text-muted py-4">
-                      <i data-feather="inbox" style="width: 36px; height: 36px;"></i>
+                      <i data-feather="inbox" style="width:36px;height:36px;"></i>
                       <p class="mt-2 mb-0">No activity yet</p>
                     </div>
                   <?php else: ?>
-                    <div class="timeline">
-                      <?php foreach ($recentActivity as $activity): ?>
-                        <div class="timeline-item">
-                          <strong><?php echo htmlspecialchars($activity['full_name'] ?? 'System'); ?></strong>
-                          <span class="float-right text-muted text-sm">
-                            <?php echo formatDateTime($activity['created_at'], 'M j, g:i A'); ?>
-                          </span>
-                          <p><?php echo ucfirst($activity['type']); ?> created: <strong><?php echo htmlspecialchars($activity['name']); ?></strong></p>
+                    <div class="mw-activity-feed">
+                      <?php foreach ($recentActivity as $activity):
+                        $nameParts = explode(' ', trim($activity['full_name'] ?? 'System'));
+                        $initials  = strtoupper(
+                          substr($nameParts[0], 0, 1) .
+                          (isset($nameParts[1]) ? substr($nameParts[1], 0, 1) : '')
+                        );
+                        $action = $activity['type'] === 'plan' ? 'created job plan' : 'created quote';
+                      ?>
+                        <div class="mw-activity-item">
+                          <div class="mw-activity-avatar"><?php echo $initials; ?></div>
+                          <div class="mw-activity-content">
+                            <div class="mw-activity-line">
+                              <span class="mw-activity-name"><?php echo htmlspecialchars($activity['full_name'] ?? 'System'); ?></span>
+                              <span class="mw-activity-action"><?php echo $action; ?> <strong><?php echo htmlspecialchars($activity['name']); ?></strong></span>
+                            </div>
+                            <div class="mw-activity-time"><?php echo formatDateTime($activity['created_at'], 'M j, g:i A'); ?></div>
+                          </div>
                         </div>
                       <?php endforeach; ?>
                     </div>
