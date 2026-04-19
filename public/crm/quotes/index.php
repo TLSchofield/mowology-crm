@@ -167,14 +167,16 @@ $activePage = 'quotes';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-4">
-              <div>
-                  <h1 class="h3 mb-0">Quotes</h1>
-                  <p class="text-muted mb-0">Manage and send quotes to customers</p>
+          <div class="mw-page-header">
+              <div class="mw-page-header-left">
+                  <h1 class="mw-page-title">Quotes</h1>
+                  <p class="mw-page-subtitle">Manage and send quotes to customers</p>
               </div>
-              <a href="create.php" class="btn btn-primary">
-                  <i data-feather="plus"></i> Create Quote
-              </a>
+              <div class="mw-page-actions">
+                  <a href="create.php" class="btn btn-primary">
+                      <i data-feather="plus"></i> Create Quote
+                  </a>
+              </div>
           </div>
 
           <div class="d-flex flex-wrap align-items-center mb-3" style="gap: 16px;">

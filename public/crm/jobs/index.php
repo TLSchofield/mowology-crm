@@ -295,16 +295,16 @@ $activePage = 'jobs';
               <?php unset($_SESSION['alert']); ?>
           <?php endif; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-4">
-              <div>
-                  <h1 class="h3 mb-1">Job Plans</h1>
-                  <p class="text-muted mb-0">Manage service agreements, schedules, and visit tracking</p>
+          <div class="mw-page-header">
+              <div class="mw-page-header-left">
+                  <h1 class="mw-page-title">Job Plans</h1>
+                  <p class="mw-page-subtitle">Manage service agreements, schedules, and visit tracking</p>
               </div>
-              <div class="d-flex" style="gap: 12px;">
-                  <a href="/crm/api/export-jobs.php" class="btn btn-outline-secondary btn-sm" style="align-self:center;"><i data-feather="download" class="mr-1"></i> Export CSV</a>
-                  <a href="schedule.php" class="btn btn-secondary"><i data-feather="calendar" class="mr-1"></i> Calendar View</a>
-                  <a href="new-contract.php" class="btn btn-outline-success"><i data-feather="file-plus" class="mr-1"></i> New Contract</a>
-                  <a href="create.php" class="btn btn-primary"><i data-feather="plus" class="mr-1"></i> Create Plan</a>
+              <div class="mw-page-actions">
+                  <a href="/crm/api/export-jobs.php" class="btn btn-outline-secondary btn-sm"><i data-feather="download"></i> Export CSV</a>
+                  <a href="schedule.php" class="btn btn-secondary"><i data-feather="calendar"></i> Calendar View</a>
+                  <a href="new-contract.php" class="btn btn-outline-success"><i data-feather="file-plus"></i> New Contract</a>
+                  <a href="create.php" class="btn btn-primary"><i data-feather="plus"></i> Create Plan</a>
               </div>
           </div>
 

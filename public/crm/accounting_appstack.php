@@ -10,12 +10,12 @@ $activePage = 'accounting';
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
-<div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <div>
-        <h1 class="h3 mb-0">Accounting</h1>
-        <p class="text-muted mb-0 small">Real-time financial intelligence</p>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Accounting</h1>
+        <p class="mw-page-subtitle">Real-time financial intelligence</p>
     </div>
-    <div class="d-flex gap-2 flex-wrap">
+    <div class="mw-page-actions">
         <button class="btn btn-sm btn-outline-secondary" id="btn-run-analysis" onclick="runAnalysis()">
             <i data-feather="cpu" class="mw-btn-icon"></i> Run Analysis
         </button>

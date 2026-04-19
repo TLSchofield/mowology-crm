@@ -17,9 +17,13 @@ $csrfToken = generateCSRFToken();
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-3">
-              <h1 class="h3 mb-0">Import Contacts</h1>
-              <a href="/crm/clients_appstack.php" class="btn btn-outline-secondary btn-sm">Back to Contacts</a>
+          <div class="mw-page-header">
+              <div class="mw-page-header-left">
+                  <h1 class="mw-page-title">Import Contacts</h1>
+              </div>
+              <div class="mw-page-actions">
+                  <a href="/crm/clients_appstack.php" class="btn btn-outline-secondary btn-sm">Back to Contacts</a>
+              </div>
           </div>
 
           <!-- Step Indicator -->

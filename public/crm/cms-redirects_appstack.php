@@ -116,15 +116,16 @@ $activeCount = count(array_filter($redirects, fn($r) => $r['is_active']));
               <?php endif; ?>
           </ul>
 
-          <div class="d-flex justify-content-between align-items-center mb-4">
-              <h1 class="h3 mb-0">Redirect Rules
-                  <small class="text-muted" style="font-size:0.75rem; font-weight:400; display:block; margin-top:2px;">
-                      301/302 redirects — auto-registered when page slugs change
-                  </small>
-              </h1>
-              <button class="btn btn-primary" data-toggle="modal" data-target="#newRedirectModal">
-                  <i data-feather="plus" class="mr-1" style="width:14px;height:14px;"></i> Add Redirect
-              </button>
+          <div class="mw-page-header">
+              <div class="mw-page-header-left">
+                  <h1 class="mw-page-title">Redirect Rules</h1>
+                  <p class="mw-page-subtitle">301/302 redirects — auto-registered when page slugs change</p>
+              </div>
+              <div class="mw-page-actions">
+                  <button class="btn btn-primary" data-toggle="modal" data-target="#newRedirectModal">
+                      <i data-feather="plus"></i> Add Redirect
+                  </button>
+              </div>
           </div>
 
           <?php if ($message): ?>

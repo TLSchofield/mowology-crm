@@ -45,21 +45,21 @@ $activePage = 'team';
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
 <!-- Header -->
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h1 class="h3 mb-1">Team</h1>
-        <p class="text-muted mb-0"><?php echo count($employees); ?> employee<?php echo count($employees) !== 1 ? 's' : ''; ?></p>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Team</h1>
+        <p class="mw-page-subtitle"><?php echo count($employees); ?> employee<?php echo count($employees) !== 1 ? 's' : ''; ?></p>
     </div>
-    <div class="d-flex" style="gap: 8px;">
+    <div class="mw-page-actions">
         <a href="/crm/timeclock/crew-map.php" class="btn btn-sm btn-outline-secondary">
-            <i data-feather="map-pin" style="width:14px;height:14px;"></i> Crew Map
+            <i data-feather="map-pin"></i> Crew Map
         </a>
         <a href="/crm/timeclock/timesheets.php" class="btn btn-sm btn-outline-secondary">
-            <i data-feather="file-text" style="width:14px;height:14px;"></i> Timesheets
+            <i data-feather="file-text"></i> Timesheets
         </a>
         <?php if ($user['role'] === 'admin'): ?>
-        <a href="onboard.php" class="btn btn-sm" style="background: var(--mw-green); color:#fff;">
-            <i data-feather="user-plus" style="width:14px;height:14px;"></i> Add Employee
+        <a href="onboard.php" class="btn btn-sm btn-success">
+            <i data-feather="user-plus"></i> Add Employee
         </a>
         <?php endif; ?>
     </div>

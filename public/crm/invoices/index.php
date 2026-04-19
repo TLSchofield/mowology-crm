@@ -134,17 +134,14 @@ $activePage = 'invoices';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h1 class="h3 mb-1">Invoices</h1>
-                    <p class="text-muted mb-0">Track payments and manage billing</p>
+            <div class="mw-page-header">
+                <div class="mw-page-header-left">
+                    <h1 class="mw-page-title">Invoices</h1>
+                    <p class="mw-page-subtitle">Track payments and manage billing</p>
                 </div>
-                <div class="d-flex" style="gap: 12px;">
-                    <a href="/crm/api/export-invoices.php" class="btn btn-outline-secondary btn-sm" style="align-self:center;"><i data-feather="download" class="mr-1"></i> Export CSV</a>
-                    <a href="create.php" class="btn btn-primary">
-                        <i data-feather="plus" style="width:16px;height:16px;margin-right:4px;vertical-align:middle;"></i>
-                        Create Invoice
-                    </a>
+                <div class="mw-page-actions">
+                    <a href="/crm/api/export-invoices.php" class="btn btn-outline-secondary btn-sm"><i data-feather="download"></i> Export CSV</a>
+                    <a href="create.php" class="btn btn-primary"><i data-feather="plus"></i> Create Invoice</a>
                 </div>
             </div>
 

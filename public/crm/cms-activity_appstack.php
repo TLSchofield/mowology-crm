@@ -160,14 +160,16 @@ function cmsActivityBadge(string $action): string
 <div class="container-fluid p-0">
 
     <!-- Page header -->
-    <div class="mw-page-header d-flex align-items-center justify-content-between mb-4">
-        <div>
-            <h1 class="h3 mb-1">CMS Activity Log</h1>
-            <p class="text-muted mb-0">All content edits across pages, blocks, and media.</p>
+    <div class="mw-page-header">
+        <div class="mw-page-header-left">
+            <h1 class="mw-page-title">CMS Activity Log</h1>
+            <p class="mw-page-subtitle">All content edits across pages, blocks, and media.</p>
         </div>
-        <a href="/crm/cms-pages_appstack.php" class="btn btn-outline-secondary">
-            <i data-feather="arrow-left" class="feather-sm mr-1"></i> Back to Pages
-        </a>
+        <div class="mw-page-actions">
+            <a href="/crm/cms-pages_appstack.php" class="btn btn-outline-secondary">
+                <i data-feather="arrow-left"></i> Back to Pages
+            </a>
+        </div>
     </div>
 
     <!-- Filters -->

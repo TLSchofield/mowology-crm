@@ -152,14 +152,16 @@ $activePage = 'sites';
 <?php include 'includes/appstack_head.php'; ?>
 
 <!-- ── Page Header ────────────────────────────────────────────────────────── -->
-<div class="mw-page-header d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h1 class="h3 mb-1">Tenant Sites</h1>
-        <p class="text-muted mb-0">Manage all sites on the platform. Each site has its own login, admin, and brand.</p>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Tenant Sites</h1>
+        <p class="mw-page-subtitle">Manage all sites on the platform. Each site has its own login, admin, and brand.</p>
     </div>
-    <button class="btn btn-primary" onclick="document.getElementById('newSiteModal').style.display='flex'">
-        <i data-feather="plus" style="width:16px;height:16px"></i> New Tenant
-    </button>
+    <div class="mw-page-actions">
+        <button class="btn btn-primary" onclick="document.getElementById('newSiteModal').style.display='flex'">
+            <i data-feather="plus"></i> New Tenant
+        </button>
+    </div>
 </div>
 
 <?php if ($flash): ?>

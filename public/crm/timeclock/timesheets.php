@@ -59,11 +59,15 @@ $activePage = 'timeclock';
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1 class="h3 mb-0">Timesheets</h1>
-    <a href="/crm/timeclock/my-schedule.php" class="btn btn-sm btn-outline-secondary">
-        <i data-feather="arrow-left" style="width:14px;height:14px;"></i> My Schedule
-    </a>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Timesheets</h1>
+    </div>
+    <div class="mw-page-actions">
+        <a href="/crm/timeclock/my-schedule.php" class="btn btn-sm btn-outline-secondary">
+            <i data-feather="arrow-left"></i> My Schedule
+        </a>
+    </div>
 </div>
 
 <!-- Filters -->

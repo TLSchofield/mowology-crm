@@ -25,14 +25,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 <?php include 'includes/appstack_head.php'; ?>
 
 <!-- Page Header -->
-<div class="mw-page-header d-flex justify-content-between align-items-center mb-3">
-    <div>
-        <h1 class="h3 mb-1">Database Manager</h1>
-        <p class="text-muted mb-0">Schema authority, migrations, and drift detection.</p>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">Database Manager</h1>
+        <p class="mw-page-subtitle">Schema authority, migrations, and drift detection.</p>
     </div>
-    <button class="btn btn-primary" id="btnGenerateSnapshot" onclick="generateSnapshot()">
-        <i data-feather="refresh-cw" style="width:16px;height:16px;"></i> Generate Snapshot
-    </button>
+    <div class="mw-page-actions">
+        <button class="btn btn-primary" id="btnGenerateSnapshot" onclick="generateSnapshot()">
+            <i data-feather="refresh-cw"></i> Generate Snapshot
+        </button>
+    </div>
 </div>
 
 <!-- Tab Navigation -->

@@ -102,14 +102,16 @@ $csrfToken = generateCSRFToken();
               <?php endif; ?>
           </ul>
 
-          <div class="d-flex justify-content-between align-items-center mb-4">
-              <h1 class="h3 mb-0">CMS Pages</h1>
-              <div>
+          <div class="mw-page-header">
+              <div class="mw-page-header-left">
+                  <h1 class="mw-page-title">CMS Pages</h1>
+              </div>
+              <div class="mw-page-actions">
                   <a href="/crm/cms/cms-page-edit.php" class="btn btn-primary">
-                      <i data-feather="plus" class="mr-1"></i> New Page
+                      <i data-feather="plus"></i> New Page
                   </a>
-                  <a href="/crm/cms/cms-page-generator-wizard.php" class="btn btn-outline-secondary ml-2">
-                      <i data-feather="zap" class="mr-1"></i> Generate
+                  <a href="/crm/cms/cms-page-generator-wizard.php" class="btn btn-outline-secondary">
+                      <i data-feather="zap"></i> Generate
                   </a>
               </div>
           </div>

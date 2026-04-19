@@ -122,21 +122,20 @@ $extraHead  = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken)
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
-<div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-    <div>
-        <h1 class="h3 mb-0">
-            <i data-feather="camera" class="align-middle mr-2" style="width:24px;height:24px;"></i>
-            <?php echo $propertyLabel ? 'Photos — ' . $propertyLabel : 'Photo Timeline'; ?>
+<div class="mw-page-header">
+    <div class="mw-page-header-left">
+        <h1 class="mw-page-title">
+            <?php echo $propertyLabel ? 'Photos — ' . htmlspecialchars($propertyLabel) : 'Photo Timeline'; ?>
         </h1>
-        <p class="text-muted mb-0 mt-1">
+        <p class="mw-page-subtitle">
             <?php echo number_format($totalPhotos); ?> photo<?php echo $totalPhotos !== 1 ? 's' : ''; ?>
             <?php if ($propertyId): ?>across all visits<?php endif; ?>
         </p>
     </div>
     <?php if ($isAdmin && !empty($groups)): ?>
-    <div class="d-flex gap-2">
+    <div class="mw-page-actions">
         <button id="btnSelectMode" class="btn btn-sm btn-outline-secondary" onclick="toggleSelectMode()">
-            <i data-feather="check-square" style="width:14px;height:14px;"></i> Select
+            <i data-feather="check-square"></i> Select
         </button>
     </div>
     <?php endif; ?>
