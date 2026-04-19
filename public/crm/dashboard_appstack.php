@@ -106,6 +106,47 @@ try {
         $crewToday = $crewStmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) { $crewToday = []; }
 
+    // Re-consent queue: next batch for review + progress totals
+    $reconsentBatch = [];
+    $reconsentTotals = null;
+    try {
+        $rcStmt = $db->query("
+            SELECT
+                jrq.id AS queue_id,
+                jrq.contact_id,
+                jrq.fsa,
+                jrq.is_current_client,
+                jrq.sort_priority,
+                c.first_name,
+                c.last_name,
+                c.email,
+                p.address AS service_address,
+                p.city AS service_city
+            FROM jobber_reconsent_queue jrq
+            JOIN contacts c ON jrq.contact_id = c.id
+            LEFT JOIN properties p ON p.site_contact_id = c.id
+            WHERE jrq.status = 'queued'
+              AND c.email IS NOT NULL AND c.email != ''
+              AND c.is_active = 1
+              AND jrq.attempts < 3
+            ORDER BY jrq.sort_priority ASC, jrq.created_at ASC
+            LIMIT 10
+        ");
+        $reconsentBatch = $rcStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $reconsentTotals = $db->query("
+            SELECT
+                COUNT(*) AS total,
+                SUM(status = 'queued') AS queued,
+                SUM(status = 'sent') AS sent,
+                SUM(status = 'skipped') AS skipped,
+                SUM(status = 'failed') AS failed,
+                SUM(status = 'expired') AS expired,
+                SUM(status = 'pending_approval') AS pending_approval
+            FROM jobber_reconsent_queue
+        ")->fetch(PDO::FETCH_ASSOC);
+    } catch (Exception $e) { /* table may not exist yet */ }
+
 } catch(PDOException $e) {
     $errorHandler->logDatabaseError($e, '', [], 'Unable to load dashboard data. Please refresh the page.');
     $stats = [];
@@ -637,6 +678,85 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             </div>
           </div>
 
+          <!-- Re-Consent Review Card (only shows when there are queued contacts) -->
+          <?php if (!empty($reconsentBatch)): ?>
+          <?php
+            $rcTotal   = (int)($reconsentTotals['total'] ?? 0);
+            $rcSent    = (int)($reconsentTotals['sent'] ?? 0);
+            $rcQueued  = (int)($reconsentTotals['queued'] ?? 0);
+            $rcSkipped = (int)($reconsentTotals['skipped'] ?? 0);
+            $rcPct     = $rcTotal > 0 ? round(($rcSent / $rcTotal) * 100, 0) : 0;
+          ?>
+          <div class="row mt-2">
+            <div class="col-12">
+              <div class="card mw-reconsent-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h5 class="card-title mb-0">
+                    <i data-feather="mail" class="mw-reconsent-header-icon"></i>
+                    Re-Consent Review
+                    <span class="badge badge-primary ml-2"><?php echo $rcQueued; ?> queued</span>
+                  </h5>
+                  <div class="d-flex align-items-center" style="gap:8px;">
+                    <a href="/crm/marketing/jobber-reconsent.php" class="mw-reconsent-view-all">
+                      Full queue <i data-feather="arrow-right"></i>
+                    </a>
+                    <button class="btn btn-sm btn-success mw-reconsent-send-btn" onclick="mwReconsentSendBatch()" id="mw-reconsent-send-btn">
+                      <i data-feather="send" style="width:14px;height:14px;"></i> Send Batch
+                    </button>
+                  </div>
+                </div>
+                <div class="card-body p-0">
+                  <!-- Progress bar -->
+                  <div class="mw-reconsent-progress">
+                    <div class="mw-reconsent-progress-bar" style="width:<?php echo $rcPct; ?>%"></div>
+                    <span class="mw-reconsent-progress-text"><?php echo $rcSent; ?> sent / <?php echo $rcTotal; ?> total (<?php echo $rcPct; ?>%)</span>
+                  </div>
+
+                  <!-- Batch table -->
+                  <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" id="mw-reconsent-table">
+                      <thead>
+                        <tr>
+                          <th style="width:30px;"></th>
+                          <th>Name</th>
+                          <th>Email</th>
+                          <th>Address</th>
+                          <th>FSA</th>
+                          <th style="width:70px;"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <?php foreach ($reconsentBatch as $rc): ?>
+                        <tr id="mw-rc-row-<?php echo (int)$rc['queue_id']; ?>">
+                          <td>
+                            <?php if ($rc['is_current_client']): ?>
+                              <span class="badge badge-success mw-rc-badge" title="Current client">Active</span>
+                            <?php else: ?>
+                              <span class="badge badge-secondary mw-rc-badge" title="Inactive">Past</span>
+                            <?php endif; ?>
+                          </td>
+                          <td class="mw-rc-name"><?php echo h(trim($rc['first_name'] . ' ' . $rc['last_name'])); ?></td>
+                          <td class="mw-rc-email"><?php echo h($rc['email']); ?></td>
+                          <td class="mw-rc-addr"><?php echo h(trim(($rc['service_address'] ?? '') . ($rc['service_city'] ? ', ' . $rc['service_city'] : ''))); ?></td>
+                          <td><span class="mw-rc-fsa"><?php echo h($rc['fsa'] ?? '—'); ?></span></td>
+                          <td>
+                            <button class="btn btn-sm btn-outline-danger mw-rc-skip-btn"
+                                    onclick="mwReconsentSkip(<?php echo (int)$rc['queue_id']; ?>, this)"
+                                    title="Skip this contact">
+                              Skip
+                            </button>
+                          </td>
+                        </tr>
+                        <?php endforeach; ?>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <?php endif; ?>
+
 <!-- ── Dashboard Live Operations Map ───────────────────────────────────── -->
 <script>
 (function() {
@@ -997,5 +1117,85 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 })();
 </script>
 <?php endif; ?>
+
+<!-- ── Re-Consent Review JS ──────────────────────────────────────────── -->
+<script>
+function mwReconsentSkip(queueId, btn) {
+    if (!confirm('Skip this contact? They won\'t be emailed.')) return;
+    btn.disabled = true;
+    btn.textContent = '...';
+    fetch('/crm/api/jobber-reconsent.php?action=skip', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queue_id: queueId })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            var row = document.getElementById('mw-rc-row-' + queueId);
+            if (row) {
+                row.style.transition = 'opacity 0.3s';
+                row.style.opacity = '0.3';
+                setTimeout(function() { row.remove(); }, 300);
+            }
+        } else {
+            btn.disabled = false;
+            btn.textContent = 'Skip';
+            alert('Error: ' + (data.error || 'Unknown'));
+        }
+    })
+    .catch(function() {
+        btn.disabled = false;
+        btn.textContent = 'Skip';
+        alert('Network error');
+    });
+}
+
+function mwReconsentSendBatch() {
+    var btn = document.getElementById('mw-reconsent-send-btn');
+    var remaining = document.querySelectorAll('#mw-reconsent-table tbody tr').length;
+    if (remaining === 0) {
+        alert('No contacts in batch. Refresh to load more.');
+        return;
+    }
+    if (!confirm('Send re-consent emails to the ' + remaining + ' contacts shown below?')) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sending...';
+    fetch('/crm/api/jobber-reconsent.php?action=trigger-send', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: remaining })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            btn.className = 'btn btn-sm btn-outline-success';
+            btn.innerHTML = '<i data-feather="check"></i> Sent ' + data.sent;
+            if (typeof feather !== 'undefined') feather.replace();
+            // Fade out the table rows
+            var rows = document.querySelectorAll('#mw-reconsent-table tbody tr');
+            rows.forEach(function(r) {
+                r.style.transition = 'opacity 0.5s';
+                r.style.opacity = '0.2';
+            });
+            // Reload after 2s to show next batch
+            setTimeout(function() { location.reload(); }, 2000);
+        } else {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-feather="send" style="width:14px;height:14px;"></i> Send Batch';
+            if (typeof feather !== 'undefined') feather.replace();
+            alert('Error: ' + (data.error || 'Unknown'));
+        }
+    })
+    .catch(function() {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-feather="send" style="width:14px;height:14px;"></i> Send Batch';
+        if (typeof feather !== 'undefined') feather.replace();
+        alert('Network error — check console');
+    });
+}
+</script>
 
 <?php include 'includes/appstack_footer.php'; ?>
