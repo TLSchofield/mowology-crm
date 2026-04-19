@@ -479,18 +479,33 @@ if (!empty($quote)) {
             </div>
         </div>
 
-        <!-- Upsell Section (hidden, populated by JS when upsells available) -->
-        <?php if ($quote['status'] === 'sent'): ?>
+        <!-- Upsell Section — 2-col grid on desktop (sidebar), stacked on mobile -->
+        <?php if (in_array($quote['status'], ['sent', 'accepted'])): ?>
             <div class="portal-info-card" id="upsellSection" style="display:none;">
-                <div class="portal-info-card-header">Enhance Your Service</div>
+                <div class="portal-info-card-header" id="upsellHeader">
+                    <?php echo $quote['status'] === 'sent' ? 'Enhance Your Service — Save by Bundling' : 'Add-On Services'; ?>
+                </div>
                 <div class="portal-info-card-body">
-                    <p style="font-size:0.85rem;color:var(--p-text-mid);margin-bottom:14px;">
-                        Add recommended services to get the most out of your visit.
+                    <div class="portal-savings-banner" id="savingsBanner">
+                        💰 You're saving <strong id="savingsAmount">$0</strong> with bundle pricing!
+                    </div>
+                    <p style="font-size:0.85rem;color:var(--p-text-mid);margin-bottom:14px;" id="upsellIntro">
+                        <?php if ($quote['status'] === 'sent'): ?>
+                            Add recommended services now and get bundle pricing. Prices go up if booked after.
+                        <?php else: ?>
+                            Want to add more? Regular pricing applies after acceptance.
+                        <?php endif; ?>
                     </p>
                     <div id="upsellOptions"></div>
                 </div>
             </div>
         <?php endif; ?>
+
+        <!-- Undo toast (for post-accept adds) -->
+        <div class="portal-undo-toast" id="undoToast">
+            <span id="undoToastMsg">Added to your order</span>
+            <button type="button" onclick="mwUndoLastAdd()">Undo</button>
+        </div>
 
         <!-- Terms & Conditions -->
         <?php if (!empty($quote['terms'])): ?>
@@ -609,12 +624,14 @@ if (!empty($quote)) {
 
 </div>
 
-<?php if (!empty($quote) && $quote['status'] === 'sent'): ?>
+<?php if (!empty($quote) && in_array($quote['status'], ['sent', 'accepted'])): ?>
 <script>
     // ── Signature Pad ─────────────────────────────────────────────────────────
     <?php if (!$isAdminPreview): ?>
     var canvas = document.getElementById('signaturePad');
     var placeholder = document.getElementById('sigPlaceholder');
+    // Skip signature setup on accepted quotes (no pad rendered)
+    if (canvas) {
     var signaturePad = new SignaturePad(canvas, {
         backgroundColor: 'rgb(255, 255, 255)',
         penColor: 'rgb(13, 59, 46)'
@@ -643,25 +660,107 @@ if (!empty($quote)) {
         placeholder.style.display = 'block';
     });
 
-    document.getElementById('acceptForm').addEventListener('submit', function(e) {
-        if (signaturePad.isEmpty()) {
-            e.preventDefault();
-            alert('Please sign the quote before submitting.');
-            return;
-        }
-        document.getElementById('signatureData').value = signaturePad.toDataURL();
-    });
+    var acceptForm = document.getElementById('acceptForm');
+    if (acceptForm) {
+        acceptForm.addEventListener('submit', function(e) {
+            if (signaturePad.isEmpty()) {
+                e.preventDefault();
+                alert('Please sign the quote before submitting.');
+                return;
+            }
+            document.getElementById('signatureData').value = signaturePad.toDataURL();
+        });
+    }
+    } // end: if (canvas)
     <?php endif; ?>
 
-    // ── Upsell Management ─────────────────────────────────────────────────────
+    // ── Upsell Management (FOMO bundle pricing + live savings counter + popular) ──
     (function() {
         var quoteToken = <?php echo json_encode($token ?? ''); ?>;
         var upsellSection = document.getElementById('upsellSection');
         var upsellContainer = document.getElementById('upsellOptions');
+        var savingsBanner = document.getElementById('savingsBanner');
+        var savingsAmount = document.getElementById('savingsAmount');
         if (!upsellSection || !upsellContainer || !quoteToken) return;
 
+        // Cache of upsell metadata for savings calc
+        window._mwUpsells = {};
+        window._mwIsPostAccept = false;
+
         function fmtMoney(amount) {
-            return '$' + parseFloat(amount).toFixed(2);
+            var n = parseFloat(amount) || 0;
+            return '$' + n.toFixed(2);
+        }
+
+        function updateSavingsBanner() {
+            if (window._mwIsPostAccept) return; // no banner in post-accept mode
+            var total = 0;
+            document.querySelectorAll('.portal-upsell-card input[type=checkbox]:checked').forEach(function(cb) {
+                var card = cb.closest('.portal-upsell-card');
+                var pid = card && card.getAttribute('data-product-id');
+                var meta = window._mwUpsells[pid];
+                if (meta) total += (parseFloat(meta.savings) || 0);
+            });
+            if (total > 0) {
+                savingsAmount.textContent = fmtMoney(total);
+                savingsBanner.classList.add('show');
+            } else {
+                savingsBanner.classList.remove('show');
+            }
+        }
+
+        function renderCard(up, isPostAccept) {
+            var text    = up.display_text || up.upsell_product_name;
+            var desc    = up.upsell_description || '';
+            var regular = parseFloat(up.regular_price) || 0;
+            var bundled = parseFloat(up.bundled_price) || regular;
+            var savings = parseFloat(up.savings) || (regular - bundled);
+            var checked = up.is_added;
+            var popular = up.is_popular;
+
+            // Cache for savings calc
+            window._mwUpsells[up.upsell_product_id] = {
+                regular: regular, bundled: bundled, savings: savings
+            };
+
+            var escText = String(text).replace(/</g, '&lt;');
+            var escDesc = String(desc).replace(/</g, '&lt;');
+
+            // In post-accept mode, render as action-card (Add button instead of checkbox)
+            if (isPostAccept) {
+                // Skip showing already-added upsells in the post-accept sheet
+                if (checked) return '';
+                return '<div class="portal-post-accept-card" data-product-id="' + up.upsell_product_id + '">' +
+                    (popular ? '<span class="portal-upsell-badge">⭐ Popular</span>' : '') +
+                    '<div style="flex:1;">' +
+                        '<strong>' + escText + '</strong>' +
+                        (desc ? '<span class="portal-post-accept-missed">' + escDesc + '</span>' : '') +
+                        (savings > 0 ? '<span class="portal-post-accept-missed">You missed ' + fmtMoney(savings) + ' in bundle savings.</span>' : '') +
+                    '</div>' +
+                    '<div style="text-align:right;">' +
+                        '<div style="font-weight:700;color:var(--p-text-dark, #1a202c);">' + fmtMoney(regular) + '</div>' +
+                        '<button type="button" class="portal-post-accept-add-btn" onclick="mwAddUpsell(' + up.upsell_product_id + ', this)">+ Add</button>' +
+                    '</div>' +
+                '</div>';
+            }
+
+            // Pre-accept: rich FOMO card with both prices
+            return '<div class="portal-upsell-card' + (checked ? ' is-added' : '') + (popular ? ' is-popular' : '') + '" data-product-id="' + up.upsell_product_id + '">' +
+                (popular ? '<span class="portal-upsell-badge">⭐ Most popular</span>' : '') +
+                '<label class="portal-upsell-toggle">' +
+                    '<input type="checkbox" ' + (checked ? 'checked' : '') +
+                    ' onchange="mwToggleUpsell(' + up.upsell_product_id + ', this.checked)">' +
+                    '<div class="portal-upsell-info">' +
+                        '<strong>' + escText + '</strong>' +
+                        (desc ? '<span class="portal-upsell-desc">' + escDesc + '</span>' : '') +
+                    '</div>' +
+                '</label>' +
+                '<div class="portal-upsell-pricing">' +
+                    '<span class="portal-upsell-price-bundled">' + fmtMoney(bundled) + '</span>' +
+                    (savings > 0.01 ? '<span class="portal-upsell-price-regular">' + fmtMoney(regular) + '</span>' : '') +
+                    (savings > 0.01 ? '<span class="portal-upsell-savings-chip">Save ' + fmtMoney(savings) + '</span>' : '') +
+                '</div>' +
+            '</div>';
         }
 
         fetch('api/quote-upsell.php?action=get-upsells&token=' + encodeURIComponent(quoteToken))
@@ -669,59 +768,145 @@ if (!empty($quote)) {
             .then(function(data) {
                 if (!data.success || !data.upsells || data.upsells.length === 0) return;
 
+                window._mwIsPostAccept = !!data.is_post_accept;
                 upsellSection.style.display = '';
 
-                upsellContainer.innerHTML = data.upsells.map(function(up) {
-                    var text    = up.display_text || up.upsell_product_name;
-                    var desc    = up.upsell_description || '';
-                    var price   = up.calculated_price || up.upsell_price;
-                    var checked = up.is_added;
-
-                    return '<div class="portal-upsell-card" data-product-id="' + up.upsell_product_id + '">' +
-                        '<label class="portal-upsell-toggle">' +
-                            '<input type="checkbox" ' + (checked ? 'checked' : '') +
-                            ' onchange="toggleUpsell(' + up.upsell_product_id + ', this.checked)">' +
-                            '<div class="portal-upsell-info">' +
-                                '<strong>' + text + '</strong>' +
-                                (desc ? '<br><span style="font-size:0.75rem;color:var(--p-text-muted);">' + desc + '</span>' : '') +
-                            '</div>' +
-                            '<div class="portal-upsell-price">+ ' + fmtMoney(price) + '</div>' +
-                        '</label>' +
-                    '</div>';
-                }).join('');
+                var html = data.upsells.map(function(up) { return renderCard(up, window._mwIsPostAccept); }).join('');
+                if (!html.trim()) {
+                    // Post-accept and all already added — hide section
+                    upsellSection.style.display = 'none';
+                    return;
+                }
+                upsellContainer.innerHTML = html;
+                updateSavingsBanner();
             })
             .catch(function() { /* silently fail */ });
     })();
 
-    function toggleUpsell(productId, add) {
+    // Pre-accept: toggle via checkbox
+    function mwToggleUpsell(productId, add) {
         var formData = new FormData();
         formData.append('token', <?php echo json_encode($token ?? ''); ?>);
         formData.append('action', add ? 'add-upsell' : 'remove-upsell');
         formData.append('upsell_product_id', productId);
 
+        var card = document.querySelector('.portal-upsell-card[data-product-id="' + productId + '"]');
+        var cb = card && card.querySelector('input[type=checkbox]');
+
         fetch('api/quote-upsell.php', { method: 'POST', body: formData })
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.success && data.totals) {
-                    // Update displayed totals
                     var sub = document.getElementById('q-subtotal-val');
                     var tax = document.getElementById('q-tax-val');
                     var tot = document.getElementById('q-total-val');
                     if (sub) sub.textContent = '$' + parseFloat(data.totals.subtotal).toFixed(2);
                     if (tax) tax.textContent = '$' + parseFloat(data.totals.tax_amount).toFixed(2);
                     if (tot) tot.textContent = '$' + parseFloat(data.totals.total).toFixed(2);
+                    if (card) card.classList.toggle('is-added', add);
+                    // Update savings banner
+                    if (typeof updateSavingsBanner === 'undefined') {
+                        // rebuild banner inline
+                        var total = 0;
+                        document.querySelectorAll('.portal-upsell-card input[type=checkbox]:checked').forEach(function(icb) {
+                            var c = icb.closest('.portal-upsell-card');
+                            var pid = c && c.getAttribute('data-product-id');
+                            var meta = window._mwUpsells[pid];
+                            if (meta) total += (parseFloat(meta.savings) || 0);
+                        });
+                        var banner = document.getElementById('savingsBanner');
+                        var amt = document.getElementById('savingsAmount');
+                        if (total > 0 && banner && amt) {
+                            amt.textContent = '$' + total.toFixed(2);
+                            banner.classList.add('show');
+                        } else if (banner) {
+                            banner.classList.remove('show');
+                        }
+                    }
                 } else if (!data.success) {
                     alert(data.error || 'Could not update quote');
-                    var card = document.querySelector('.portal-upsell-card[data-product-id="' + productId + '"] input');
-                    if (card) card.checked = !add;
+                    if (cb) cb.checked = !add;
                 }
             })
             .catch(function(err) {
                 alert('Error: ' + err.message);
-                var card = document.querySelector('.portal-upsell-card[data-product-id="' + productId + '"] input');
-                if (card) card.checked = !add;
+                if (cb) cb.checked = !add;
             });
     }
+
+    // Post-accept: one-click add with undo toast (no confirmation modal — friction kills conversion)
+    window._mwLastAdd = null;
+    function mwAddUpsell(productId, btn) {
+        if (btn) { btn.disabled = true; btn.textContent = '...'; }
+        var formData = new FormData();
+        formData.append('token', <?php echo json_encode($token ?? ''); ?>);
+        formData.append('action', 'add-upsell');
+        formData.append('upsell_product_id', productId);
+
+        fetch('api/quote-upsell.php', { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    var sub = document.getElementById('q-subtotal-val');
+                    var tax = document.getElementById('q-tax-val');
+                    var tot = document.getElementById('q-total-val');
+                    if (sub && data.totals) sub.textContent = '$' + parseFloat(data.totals.subtotal).toFixed(2);
+                    if (tax && data.totals) tax.textContent = '$' + parseFloat(data.totals.tax_amount).toFixed(2);
+                    if (tot && data.totals) tot.textContent = '$' + parseFloat(data.totals.total).toFixed(2);
+
+                    // Remove the card from the post-accept sheet
+                    var card = document.querySelector('.portal-post-accept-card[data-product-id="' + productId + '"]');
+                    window._mwLastAdd = productId;
+                    if (card) {
+                        card.style.transition = 'opacity 0.3s';
+                        card.style.opacity = '0.3';
+                        setTimeout(function() { card.remove(); }, 300);
+                    }
+                    // Show undo toast for 5s
+                    var toast = document.getElementById('undoToast');
+                    var msg = document.getElementById('undoToastMsg');
+                    if (msg) msg.textContent = 'Added — ' + (data.line_total ? '$' + parseFloat(data.line_total).toFixed(2) : '');
+                    if (toast) {
+                        toast.classList.add('show');
+                        clearTimeout(window._mwToastTimer);
+                        window._mwToastTimer = setTimeout(function() { toast.classList.remove('show'); }, 5000);
+                    }
+                } else {
+                    if (btn) { btn.disabled = false; btn.textContent = '+ Add'; }
+                    alert(data.error || 'Could not add item');
+                }
+            })
+            .catch(function(err) {
+                if (btn) { btn.disabled = false; btn.textContent = '+ Add'; }
+                alert('Error: ' + err.message);
+            });
+    }
+
+    function mwUndoLastAdd() {
+        var productId = window._mwLastAdd;
+        if (!productId) return;
+        var toast = document.getElementById('undoToast');
+
+        var formData = new FormData();
+        formData.append('token', <?php echo json_encode($token ?? ''); ?>);
+        formData.append('action', 'remove-upsell');
+        formData.append('upsell_product_id', productId);
+
+        fetch('api/quote-upsell.php', { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (toast) toast.classList.remove('show');
+                if (data.success) {
+                    // Reload to re-render the post-accept sheet with the item back
+                    location.reload();
+                } else {
+                    alert(data.error || 'Could not undo');
+                }
+            });
+    }
+
+    // Legacy function name kept for backwards compatibility
+    function toggleUpsell(productId, add) { return mwToggleUpsell(productId, add); }
 </script>
 <?php endif; ?>
 

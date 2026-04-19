@@ -51,9 +51,11 @@ try {
         throw new Exception('Invalid or expired quote token');
     }
 
-    if ($quote['status'] !== 'sent') {
+    // Allow upsell modification on both 'sent' (bundled price) and 'accepted' (regular price)
+    if (!in_array($quote['status'], ['sent', 'accepted'])) {
         throw new Exception('This quote can no longer be modified');
     }
+    $isPostAccept = ($quote['status'] === 'accepted');
 
     $quoteId    = (int)$quote['id'];
     $propertyId = (int)$quote['property_id'];
@@ -72,7 +74,7 @@ try {
             exit;
         }
 
-        // Get upsells for these products
+        // Get upsells for these products — include bundled_price + is_popular (migration 1020)
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $upsellStmt = $db->prepare("
             SELECT u.*, p.name as upsell_product_name, p.base_price as upsell_price,
@@ -81,7 +83,7 @@ try {
             JOIN products p ON u.upsell_product_id = p.id
             WHERE u.base_product_id IN ({$placeholders})
             AND u.is_active = 1 AND p.active = 1 AND p.is_archived = 0
-            ORDER BY u.sort_order
+            ORDER BY u.is_popular DESC, u.sort_order ASC
         ");
         $upsellStmt->execute($ids);
         $upsells = $upsellStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -93,7 +95,9 @@ try {
         $existingUpsells->execute([$quoteId]);
         $alreadyAdded = $existingUpsells->fetchAll(PDO::FETCH_COLUMN, 0);
 
-        // For each upsell, calculate price based on measurements if a pricing rule exists
+        // For each upsell, calculate regular (full) price using pricing rule if available,
+        // then derive bundled_price. bundled_price may be explicitly set on product_upsells
+        // (from admin UI) OR fall back to 85% of regular price.
         foreach ($upsells as &$upsell) {
             $upsell['is_added'] = in_array($upsell['upsell_product_id'], $alreadyAdded);
 
@@ -108,6 +112,7 @@ try {
             $ruleStmt->execute([$upsell['upsell_product_id']]);
             $rule = $ruleStmt->fetch(PDO::FETCH_ASSOC);
 
+            $regularPrice = (float)$upsell['upsell_price'];
             if ($rule) {
                 $measurementTotals = getMeasurementTotalsForProperty($propertyId);
                 $groupKey = $rule['group_key'];
@@ -124,17 +129,32 @@ try {
                     ];
 
                     $calcItem = calculateLineItemFromRule($rule, $totalUnits, $product);
-                    $upsell['calculated_price'] = $calcItem['line_total'];
-                } else {
-                    $upsell['calculated_price'] = (float)$upsell['upsell_price'];
+                    $regularPrice = (float)$calcItem['line_total'];
                 }
-            } else {
-                $upsell['calculated_price'] = (float)$upsell['upsell_price'];
             }
+
+            // Bundled price — admin-set override, else 85% default
+            $bundledPrice = isset($upsell['bundled_price']) && $upsell['bundled_price'] !== null
+                ? (float)$upsell['bundled_price']
+                : round($regularPrice * 0.85, 2);
+
+            // Ensure bundled is never more than regular
+            if ($bundledPrice > $regularPrice) $bundledPrice = $regularPrice;
+
+            $upsell['regular_price']    = $regularPrice;
+            $upsell['bundled_price']    = $bundledPrice;
+            $upsell['savings']          = round($regularPrice - $bundledPrice, 2);
+            $upsell['is_popular']       = !empty($upsell['is_popular']) ? 1 : 0;
+            // Backwards-compat for existing frontend code
+            $upsell['calculated_price'] = $isPostAccept ? $regularPrice : $bundledPrice;
         }
         unset($upsell);
 
-        echo json_encode(['success' => true, 'upsells' => $upsells]);
+        echo json_encode([
+            'success'          => true,
+            'upsells'          => $upsells,
+            'is_post_accept'   => $isPostAccept,
+        ]);
 
     } elseif ($action === 'add-upsell') {
         $upsellProductId = intval($_POST['upsell_product_id'] ?? 0);
@@ -155,7 +175,18 @@ try {
             throw new Exception('This upsell is already added to the quote');
         }
 
-        // Calculate price using pricing rule if available
+        // Look up the product_upsells row for admin-set bundled_price
+        $upsellMetaStmt = $db->prepare("
+            SELECT bundled_price FROM product_upsells
+            WHERE upsell_product_id = ? AND is_active = 1
+            LIMIT 1
+        ");
+        $upsellMetaStmt->execute([$upsellProductId]);
+        $upsellMeta = $upsellMetaStmt->fetch(PDO::FETCH_ASSOC);
+        $adminBundledPrice = $upsellMeta && $upsellMeta['bundled_price'] !== null
+            ? (float)$upsellMeta['bundled_price'] : null;
+
+        // Calculate regular (full) price using pricing rule if available
         $ruleStmt = $db->prepare("
             SELECT r.*, mg.group_key, mg.group_label, mg.unit
             FROM product_pricing_rules r
@@ -194,47 +225,103 @@ try {
             ];
         }
 
+        // Apply bundled pricing discount if pre-accept
+        $regularTotal = (float)$lineItem['line_total'];
+        if (!$isPostAccept) {
+            // Pre-accept: use bundled price (admin override or 85% default)
+            $bundledTotal = $adminBundledPrice !== null ? $adminBundledPrice : round($regularTotal * 0.85, 2);
+            if ($bundledTotal > $regularTotal) $bundledTotal = $regularTotal;
+            $lineItem['line_total']  = $bundledTotal;
+            $lineItem['unit_price']  = $bundledTotal / max(1, (float)($lineItem['quantity'] ?? 1));
+            // Record the discount in pricing_snapshot for audit
+            $snapshot = json_decode($lineItem['pricing_snapshot'] ?? '{}', true) ?: [];
+            $snapshot['bundled_discount'] = [
+                'regular_price' => $regularTotal,
+                'bundled_price' => $bundledTotal,
+                'savings'       => round($regularTotal - $bundledTotal, 2),
+                'applied_at'    => date('Y-m-d H:i:s'),
+            ];
+            $lineItem['pricing_snapshot'] = json_encode($snapshot);
+        }
+        // Post-accept: keep regularTotal as the line_total (already set)
+
         // Get next sort_order
         $maxSort = $db->prepare("SELECT MAX(sort_order) as m FROM quote_line_items WHERE quote_id = ?");
         $maxSort->execute([$quoteId]);
         $nextSort = ($maxSort->fetch()['m'] ?? 0) + 1;
 
-        // Insert line item
-        $insertStmt = $db->prepare("
-            INSERT INTO quote_line_items
-                (quote_id, product_id, pricing_rule_id, measurement_group_key, service_type,
-                 description, quantity, unit_type, unit_price, line_total,
-                 units_used, price_per_unit, minimum_applied, included_units,
-                 pricing_snapshot, sort_order, is_optional, is_upsell)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
-        ");
-        $insertStmt->execute([
-            $quoteId,
-            $lineItem['product_id'] ?? null,
-            $lineItem['pricing_rule_id'] ?? null,
-            $lineItem['measurement_group_key'] ?? null,
-            $lineItem['service_type'],
-            $lineItem['description'] ?? '',
-            $lineItem['quantity'] ?? 1,
-            $lineItem['unit_type'] ?? 'each',
-            $lineItem['unit_price'],
-            $lineItem['line_total'],
-            $lineItem['units_used'] ?? null,
-            $lineItem['price_per_unit'] ?? null,
-            $lineItem['minimum_applied'] ?? 0,
-            $lineItem['included_units'] ?? null,
-            $lineItem['pricing_snapshot'] ?? null,
-            $nextSort,
-        ]);
+        // Insert line item — tag added_post_accept so we can audit/price differently
+        // (column added by migration 1020; fall back gracefully if column missing)
+        try {
+            $insertStmt = $db->prepare("
+                INSERT INTO quote_line_items
+                    (quote_id, product_id, pricing_rule_id, measurement_group_key, service_type,
+                     description, quantity, unit_type, unit_price, line_total,
+                     units_used, price_per_unit, minimum_applied, included_units,
+                     pricing_snapshot, sort_order, is_optional, is_upsell, added_post_accept)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?)
+            ");
+            $insertStmt->execute([
+                $quoteId,
+                $lineItem['product_id'] ?? null,
+                $lineItem['pricing_rule_id'] ?? null,
+                $lineItem['measurement_group_key'] ?? null,
+                $lineItem['service_type'],
+                $lineItem['description'] ?? '',
+                $lineItem['quantity'] ?? 1,
+                $lineItem['unit_type'] ?? 'each',
+                $lineItem['unit_price'],
+                $lineItem['line_total'],
+                $lineItem['units_used'] ?? null,
+                $lineItem['price_per_unit'] ?? null,
+                $lineItem['minimum_applied'] ?? 0,
+                $lineItem['included_units'] ?? null,
+                $lineItem['pricing_snapshot'] ?? null,
+                $nextSort,
+                $isPostAccept ? 1 : 0,
+            ]);
+        } catch (PDOException $e) {
+            // Fallback for envs without migration 1020 yet — omit added_post_accept
+            $insertStmt = $db->prepare("
+                INSERT INTO quote_line_items
+                    (quote_id, product_id, pricing_rule_id, measurement_group_key, service_type,
+                     description, quantity, unit_type, unit_price, line_total,
+                     units_used, price_per_unit, minimum_applied, included_units,
+                     pricing_snapshot, sort_order, is_optional, is_upsell)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)
+            ");
+            $insertStmt->execute([
+                $quoteId,
+                $lineItem['product_id'] ?? null,
+                $lineItem['pricing_rule_id'] ?? null,
+                $lineItem['measurement_group_key'] ?? null,
+                $lineItem['service_type'],
+                $lineItem['description'] ?? '',
+                $lineItem['quantity'] ?? 1,
+                $lineItem['unit_type'] ?? 'each',
+                $lineItem['unit_price'],
+                $lineItem['line_total'],
+                $lineItem['units_used'] ?? null,
+                $lineItem['price_per_unit'] ?? null,
+                $lineItem['minimum_applied'] ?? 0,
+                $lineItem['included_units'] ?? null,
+                $lineItem['pricing_snapshot'] ?? null,
+                $nextSort,
+            ]);
+        }
 
         // Recalculate quote totals
         $newTotals = recalculateQuoteTotals($quoteId);
 
         echo json_encode([
-            'success' => true,
-            'message' => 'Upsell added',
-            'line_item_id' => $db->lastInsertId(),
-            'totals' => $newTotals,
+            'success'        => true,
+            'message'        => 'Upsell added',
+            'line_item_id'   => $db->lastInsertId(),
+            'totals'         => $newTotals,
+            'is_post_accept' => $isPostAccept,
+            'line_total'     => (float)$lineItem['line_total'],
+            'regular_total'  => $regularTotal,
+            'savings_applied'=> $isPostAccept ? 0 : round($regularTotal - (float)$lineItem['line_total'], 2),
         ]);
 
     } elseif ($action === 'remove-upsell') {
