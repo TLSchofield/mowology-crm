@@ -22,6 +22,7 @@
   // ── Category meta ─────────────────────────────────
   var categoryMeta = {
     'Contacts':   { icon: 'user',        color: '#2D8659' },
+    'Companies':  { icon: 'briefcase',   color: '#0d6efd' },
     'Properties': { icon: 'map-pin',     color: '#17a2b8' },
     'Quotes':     { icon: 'file-text',   color: '#4a90d9' },
     'Jobs':       { icon: 'briefcase',   color: '#e85d04' },
@@ -31,7 +32,7 @@
 
   // ── Avatar helpers ────────────────────────────────
   // Categories that get initials-based circular avatars (like Jobber)
-  var avatarCategories = { 'Contacts': true, 'Team': true };
+  var avatarCategories = { 'Contacts': true, 'Companies': true, 'Team': true };
 
   // Deterministic color from name — stays consistent across searches
   var avatarPalette = [
@@ -238,7 +239,7 @@
 
     var html = '';
     var itemIdx = 0;
-    var categoryOrder = ['Contacts', 'Properties', 'Quotes', 'Jobs', 'Invoices', 'Team'];
+    var categoryOrder = ['Contacts', 'Companies', 'Properties', 'Quotes', 'Jobs', 'Invoices', 'Team'];
 
     categoryOrder.forEach(function(cat) {
       if (!groups[cat]) return;

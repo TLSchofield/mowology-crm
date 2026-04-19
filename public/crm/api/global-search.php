@@ -44,6 +44,30 @@ try {
     }
 } catch (PDOException $e) { /* skip silently */ }
 
+// ── Companies ─────────────────────────────────────────
+try {
+    $stmt = $db->prepare("
+        SELECT id, company_name, company_type, billing_city, account_status
+        FROM companies
+        WHERE account_status = 'active'
+          AND (company_name LIKE ? OR billing_city LIKE ? OR billing_email LIKE ?)
+        ORDER BY company_name
+        LIMIT 5
+    ");
+    $stmt->execute([$term, $term, $term]);
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $sublabel = ucfirst(str_replace('_', ' ', $r['company_type'] ?? ''));
+        if ($r['billing_city']) $sublabel .= ($sublabel ? ' · ' : '') . $r['billing_city'];
+        $results[] = [
+            'category' => 'Companies',
+            'icon'     => 'briefcase',
+            'label'    => $r['company_name'],
+            'sublabel' => $sublabel,
+            'url'      => '/crm/companies/view.php?id=' . $r['id'],
+        ];
+    }
+} catch (PDOException $e) { /* skip silently */ }
+
 // ── Properties ────────────────────────────────────────
 try {
     $stmt = $db->prepare("
