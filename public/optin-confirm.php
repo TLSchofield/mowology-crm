@@ -13,15 +13,20 @@
 declare(strict_types=1);
 
 // ── Bootstrap ──────────────────────────────────────────────────────────
-$__dir = __DIR__;
-for ($__i = 0; $__i < 5; $__i++) {
-    $__dir = dirname($__dir);
-    if (is_file($__dir . '/app/Core/paths.php')) {
-        require_once $__dir . '/app/Core/paths.php';
-        break;
+// Check current dir first (production: app/ is child of web root)
+if (is_file(__DIR__ . '/app/Core/paths.php')) {
+    require_once __DIR__ . '/app/Core/paths.php';
+} else {
+    $__dir = __DIR__;
+    for ($__i = 0; $__i < 5; $__i++) {
+        $__dir = dirname($__dir);
+        if (is_file($__dir . '/app/Core/paths.php')) {
+            require_once $__dir . '/app/Core/paths.php';
+            break;
+        }
     }
+    unset($__dir, $__i);
 }
-unset($__dir, $__i);
 
 if (defined('APP_ROOT')) {
     require_once APP_ROOT . '/Core/config.php';
@@ -77,18 +82,22 @@ if (empty($token)) {
                 $db->prepare("UPDATE marketing_optin_tokens SET status='confirmed', confirmed_at=NOW(), ip_address=? WHERE id=?")->execute([$ip, $record['id']]);
                 $db->prepare("UPDATE contacts SET receive_marketing=1 WHERE id=?")->execute([$record['contact_id']]);
 
-                // Upsert preferences
-                $db->prepare("
-                    INSERT INTO client_marketing_preferences (contact_id, email_opt_in, confirmed_at, confirmation_method)
-                    VALUES (?, 1, NOW(), 'optin_email')
-                    ON DUPLICATE KEY UPDATE email_opt_in=1, confirmed_at=NOW(), confirmation_method='optin_email'
-                ")->execute([$record['contact_id']]);
+                // Upsert preferences (non-critical — don't block confirmation)
+                try {
+                    $db->prepare("
+                        INSERT INTO client_marketing_preferences (contact_id, email_opt_in, confirmed_at, confirmation_method)
+                        VALUES (?, 1, NOW(), 'optin_email')
+                        ON DUPLICATE KEY UPDATE email_opt_in=1, confirmed_at=NOW(), confirmation_method='optin_email'
+                    ")->execute([$record['contact_id']]);
+                } catch (\Throwable $e) { /* table may not exist yet */ }
 
-                // Add tag
-                $db->prepare("
-                    INSERT IGNORE INTO contact_tags (contact_id, tag, added_at)
-                    VALUES (?, 'Marketing Confirmed', NOW())
-                ")->execute([$record['contact_id']]);
+                // Add tag (non-critical)
+                try {
+                    $db->prepare("
+                        INSERT IGNORE INTO contact_tags (contact_id, tag, added_at)
+                        VALUES (?, 'Marketing Confirmed', NOW())
+                    ")->execute([$record['contact_id']]);
+                } catch (\Throwable $e) { /* table may not exist yet */ }
 
                 $success = true;
                 $heading = 'You\'re Subscribed!';
