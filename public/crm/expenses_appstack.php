@@ -34,7 +34,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 </div>
 
 <div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <h1 class="h3 mb-0">Expenses</h1>
+    <h1 class="mw-page-title">Expenses</h1>
     <!-- Team score widget — populated by loadTeamScoreWidget() -->
     <div id="mw-team-score-widget" style="display:none;" class="mw-team-score-widget">
         <a href="/crm/leaderboard_appstack.php" class="mw-tsw-link" title="View full leaderboard">

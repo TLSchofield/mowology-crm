@@ -413,10 +413,10 @@ $extraHead  = $view === 'spectrum'
 <?php include __DIR__ . '/includes/appstack_head.php'; ?>
 
 <!-- ── Header ──────────────────────────────────────────────────────────────── -->
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap" style="gap:8px;">
-    <div>
-        <h1 class="h3 mb-1">Profitability</h1>
-        <p class="text-muted mb-0" style="font-size:0.85rem;">
+<div class="mw-page-header">
+  <div class="mw-page-header-left">
+    <h1 class="mw-page-title">Profitability</h1>
+    <p class="mw-page-subtitle" style="font-size:0.85rem;">
             <?php echo htmlspecialchars($periodLabel); ?>
             <?php if ($totalCompleted > 0 && $snapshotCoverage < 100): ?>
             &mdash; <span class="badge badge-<?php echo $snapshotCoverage < 50 ? 'warning' : 'info'; ?>" style="font-size:0.7rem;">
@@ -425,7 +425,7 @@ $extraHead  = $view === 'spectrum'
             <?php endif; ?>
         </p>
     </div>
-    <div class="d-flex flex-wrap" style="gap:8px;">
+    <div class="mw-page-actions flex-wrap" style="gap:8px;">
         <div class="btn-group btn-group-sm">
             <?php foreach (['this_month' => 'This Month', 'last_month' => 'Last Month', 'last_90' => 'Last 90d', 'ytd' => 'YTD'] as $p => $l): ?>
             <a href="?period=<?php echo $p; ?><?php echo $serviceFilter ? '&service=' . urlencode($serviceFilter) : ''; ?><?php echo $view === 'spectrum' ? '&view=spectrum' : ''; ?>"

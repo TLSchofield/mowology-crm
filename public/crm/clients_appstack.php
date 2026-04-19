@@ -1921,13 +1921,16 @@ $unconvertedRequests = $db->query("
           <?php endif; ?>
 
           <?php if (!in_array($action, ['view_contact', 'view_company'])): ?>
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h1 class="h3 mb-0"><?php echo (($_GET['view'] ?? '') === 'duplicates') ? 'Review Duplicate Contacts' : 'Client Management'; ?></h1>
+          <div class="mw-page-header">
+            <div class="mw-page-header-left">
+              <h1 class="mw-page-title"><?php echo (($_GET['view'] ?? '') === 'duplicates') ? 'Review Duplicate Contacts' : 'Client Management'; ?></h1>
+              <p class="mw-page-subtitle">Contacts, companies &amp; prospects</p>
+            </div>
             <?php if (!in_array($action, ['edit', 'new', 'edit_contact', 'edit_company']) && ($_GET['view'] ?? '') !== 'duplicates'): ?>
-              <div>
-                <a href="/crm/api/export-contacts.php" class="btn btn-outline-secondary mr-1" title="Export CSV"><i data-feather="download" style="width:16px;height:16px;"></i> Export</a>
-                <button class="btn btn-primary" onclick="location.href='?action=new'"><i data-feather="plus"></i> Add New Client</button>
-              </div>
+            <div class="mw-page-actions">
+              <a href="/crm/api/export-contacts.php" class="btn btn-outline-secondary" title="Export CSV"><i data-feather="download"></i> Export</a>
+              <button class="btn btn-primary" onclick="location.href='?action=new'"><i data-feather="plus"></i> Add New Client</button>
+            </div>
             <?php endif; ?>
           </div>
           <?php endif; ?>
@@ -5802,7 +5805,7 @@ $unconvertedRequests = $db->query("
                         </thead>
                         <tbody>
                           <?php foreach ($clients as $c): ?>
-                          <tr class="mw-client-row" data-search="<?php echo h(strtolower(trim(($c['primary_contact_name'] ?? '') . ' ' . $c['company_name'] . ' ' . ($c['billing_email'] ?? '') . ' ' . ($c['primary_contact_phone'] ?? '')))); ?>" data-href="?action=view_company&id=<?php echo (int)$c['id']; ?>" <?php echo $c['source_type'] === 'prospect' ? 'style="background: #fef3c7; opacity: 0.9;"' : ''; ?>>
+                          <tr class="mw-client-row<?php echo $c['source_type'] === 'prospect' ? ' mw-row-prospect' : ''; ?>" data-search="<?php echo h(strtolower(trim(($c['primary_contact_name'] ?? '') . ' ' . $c['company_name'] . ' ' . ($c['billing_email'] ?? '') . ' ' . ($c['primary_contact_phone'] ?? '')))); ?>" data-href="?action=view_company&id=<?php echo (int)$c['id']; ?>">
                             <td class="mw-bulk-checkbox-cell">
                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$c['id']; ?>">
                             </td>
@@ -5859,7 +5862,7 @@ $unconvertedRequests = $db->query("
                   <!-- Standalone Contacts (not linked to a company) -->
                   <?php if (!empty($standaloneContacts)): ?>
                     <h6 class="mb-2 mt-2" id="mw-standalone-header">
-                      <i data-feather="user" style="width: 18px; height: 18px; display: inline; margin-right: 4px;"></i>
+                      <i data-feather="user" class="feather-inline"></i>
                       Standalone Contacts
                       <span class="badge badge-secondary ml-1"><?php echo count($standaloneContacts); ?></span>
                     </h6>
@@ -5909,7 +5912,7 @@ $unconvertedRequests = $db->query("
                   <?php if (!empty($unconvertedRequests)): ?>
                     <div class="alert alert-info">
                       <h6 class="mb-2">
-                        <i data-feather="inbox" style="width: 18px; height: 18px; display: inline; margin-right: 4px;"></i>
+                        <i data-feather="inbox" class="feather-inline"></i>
                         New Quote Requests (<?php echo count($unconvertedRequests); ?>)
                       </h6>
                       <p class="mb-2 small">These are new inquiries that haven't been converted to clients yet.</p>
@@ -5929,7 +5932,7 @@ $unconvertedRequests = $db->query("
                         </thead>
                         <tbody>
                           <?php foreach ($unconvertedRequests as $req): ?>
-                          <tr style="background: #fef9e7;">
+                          <tr class="mw-row-quote-request">
                             <td>
                               <strong><?php echo h($req['contact_name'] ?? 'Unknown'); ?></strong>
                             </td>

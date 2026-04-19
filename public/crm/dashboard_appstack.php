@@ -180,9 +180,10 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
               <?php unset($_SESSION['alert']); ?>
           <?php endif; ?>
 
-          <div class="row mb-2 mb-xl-3">
-            <div class="col-auto d-none d-sm-block">
-              <h3><strong>Dashboard</strong></h3>
+          <div class="mw-page-header">
+            <div class="mw-page-header-left">
+              <h1 class="mw-page-title">Dashboard</h1>
+              <p class="mw-page-subtitle">Operations overview &amp; work queue</p>
             </div>
           </div>
 

@@ -139,16 +139,18 @@ $modeLabels = [
 ?>
 <?php include 'includes/appstack_head.php'; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-3">
-              <h1 class="h3 mb-0">Tasks</h1>
-              <div>
-                  <button class="btn btn-outline-primary mr-1" onclick="mwPurchaseModal()">
-                      <i data-feather="shopping-bag" style="width:16px;height:16px;"></i> New Purchase
-                  </button>
-                  <button class="btn btn-primary" onclick="mwTaskModal()">
-                      <i data-feather="plus" style="width:16px;height:16px;"></i> New Task
-                  </button>
-              </div>
+          <div class="mw-page-header">
+            <div class="mw-page-header-left">
+              <h1 class="mw-page-title">Tasks</h1>
+            </div>
+            <div class="mw-page-actions">
+              <button class="btn btn-outline-primary" onclick="mwPurchaseModal()">
+                <i data-feather="shopping-bag"></i> New Purchase
+              </button>
+              <button class="btn btn-primary" onclick="mwTaskModal()">
+                <i data-feather="plus"></i> New Task
+              </button>
+            </div>
           </div>
 
           <!-- Filter Tabs -->

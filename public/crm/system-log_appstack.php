@@ -68,14 +68,16 @@ function levelBadge(string $level): string {
 include __DIR__ . '/includes/appstack_head.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h2 class="mb-0" style="font-family: 'Montserrat', sans-serif; font-weight:700; color: var(--mw-forest);">System Log</h2>
-        <p class="text-muted mb-0" style="font-size:.85rem;">Internal errors, warnings, and events recorded by the system</p>
-    </div>
+<div class="mw-page-header">
+  <div class="mw-page-header-left">
+    <h1 class="mw-page-title">System Log</h1>
+    <p class="mw-page-subtitle">Internal errors, warnings, and events recorded by the system</p>
+  </div>
+  <div class="mw-page-actions">
     <button class="btn btn-outline-danger btn-sm" onclick="clearLog()" title="Clear all log entries">
-        <i data-feather="trash-2" class="mr-1"></i> Clear Log
+      <i data-feather="trash-2"></i> Clear Log
     </button>
+  </div>
 </div>
 
 <?php if (!empty($tableError)): ?>

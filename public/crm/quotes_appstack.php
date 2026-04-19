@@ -183,19 +183,19 @@ $activePage = 'quotes';
               <?php unset($_SESSION['alert']); ?>
           <?php endif; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-4">
-              <div>
-                  <h1 class="h3 mb-0">Quotes</h1>
-                  <p class="text-muted mb-0">Incoming requests &amp; quote management</p>
-              </div>
-              <div>
-                  <a href="/crm/api/export-quotes.php" class="btn btn-outline-secondary mr-1" title="Export CSV">
-                      <i data-feather="download" style="width:16px;height:16px;"></i> Export
-                  </a>
-                  <a href="quotes/create.php" class="btn btn-primary">
-                      <i data-feather="plus"></i> Create Quote
-                  </a>
-              </div>
+          <div class="mw-page-header">
+            <div class="mw-page-header-left">
+              <h1 class="mw-page-title">Quotes</h1>
+              <p class="mw-page-subtitle">Incoming requests &amp; quote management</p>
+            </div>
+            <div class="mw-page-actions">
+              <a href="/crm/api/export-quotes.php" class="btn btn-outline-secondary" title="Export CSV">
+                <i data-feather="download"></i> Export
+              </a>
+              <a href="quotes/create.php" class="btn btn-primary">
+                <i data-feather="plus"></i> Create Quote
+              </a>
+            </div>
           </div>
 
           <!-- Pipeline Summary Bar -->

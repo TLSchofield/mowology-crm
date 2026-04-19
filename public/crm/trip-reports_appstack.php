@@ -90,15 +90,16 @@ $activePage = 'driver';
 <?php include 'includes/appstack_head.php'; ?>
 
 <!-- Page header -->
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h1 class="h3 mb-1">Vehicle Trip Reports</h1>
-        <p class="text-muted mb-0">RAM 3500 PF8865 &mdash; Daily pre/post trip inspection records</p>
-    </div>
+<div class="mw-page-header">
+  <div class="mw-page-header-left">
+    <h1 class="mw-page-title">Vehicle Trip Reports</h1>
+    <p class="mw-page-subtitle">RAM 3500 PF8865 &mdash; Daily pre/post trip inspection records</p>
+  </div>
+  <div class="mw-page-actions">
     <a href="/crm/driver-portal.php" class="btn btn-success">
-        <i data-feather="truck" class="mr-1" style="width:16px;height:16px;"></i>
-        Driver Portal
+      <i data-feather="truck"></i> Driver Portal
     </a>
+  </div>
 </div>
 
 <!-- Stats row -->

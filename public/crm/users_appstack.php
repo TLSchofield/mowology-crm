@@ -186,14 +186,16 @@ $csrfToken = generateCSRFToken();
           </div>
           <?php endif; ?>
 
-          <div class="d-flex justify-content-between align-items-center mb-4">
-            <div>
-              <h1 class="h3 mb-0">User Management</h1>
-              <p class="text-muted mb-0">Auth & access control — roles, passwords, account status</p>
+          <div class="mw-page-header">
+            <div class="mw-page-header-left">
+              <h1 class="mw-page-title">User Management</h1>
+              <p class="mw-page-subtitle">Auth &amp; access control — roles, passwords, account status</p>
             </div>
-            <a href="/crm/team/" class="btn btn-outline-secondary">
-              <i data-feather="users" style="width:16px;height:16px;vertical-align:middle"></i> Add users via Team
-            </a>
+            <div class="mw-page-actions">
+              <a href="/crm/team/" class="btn btn-outline-secondary">
+                <i data-feather="users"></i> Add users via Team
+              </a>
+            </div>
           </div>
 
           <!-- Users Table -->
