@@ -72,7 +72,7 @@ try {
         // Build SMS — max 160 chars, no URLs (CASL/carrier rule)
         $sms = "REMINDER{$urgent}: {$name}";
         if ($phone !== '') $sms .= " {$phone}";
-        $sms .= " — quote req {$hours}h old, no quote raised. Call (778) 846-9273";
+        $sms .= " — quote req {$hours}h old, no quote raised. Check CRM.";
         $sms  = substr($sms, 0, 160);
 
         $sent = sendSMSNotification($sms);
