@@ -103,16 +103,29 @@ try {
                 }
             }
 
-            // Group importable by FSA for preview
+            // Group importable by FSA for preview — sort by proximity priority
             $fsaPreview = [];
             foreach ($importable as $row) {
                 $fsa = extractFsa($row['postal_code']) ?? 'No postal code';
                 if (!isset($fsaPreview[$fsa])) $fsaPreview[$fsa] = 0;
                 $fsaPreview[$fsa]++;
             }
-            arsort($fsaPreview);
+            // Sort: proximity priority first, then count descending
+            uksort($fsaPreview, function($a, $b) use ($fsaPreview) {
+                $pa = computeSortPriority(false, $a === 'No postal code' ? null : $a);
+                $pb = computeSortPriority(false, $b === 'No postal code' ? null : $b);
+                if ($pa !== $pb) return $pa <=> $pb;
+                return $fsaPreview[$b] <=> $fsaPreview[$a];
+            });
 
-            // Sample rows for preview (first 20)
+            // Sort importable rows by priority for sample (so service-area shows first)
+            usort($importable, function($a, $b) {
+                $pa = computeSortPriority(false, extractFsa($a['postal_code']));
+                $pb = computeSortPriority(false, extractFsa($b['postal_code']));
+                return $pa <=> $pb;
+            });
+
+            // Sample rows for preview (first 20) — now ordered by proximity
             $sampleRows = array_slice($importable, 0, 20);
             $sampleData = array_map(fn($r) => [
                 'name' => trim($r['first_name'] . ' ' . $r['last_name']),
