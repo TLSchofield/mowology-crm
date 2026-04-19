@@ -2,6 +2,9 @@
 /**
  * Shared AppStack Top Navigation Bar.
  *
+ * Layout (left → right):
+ *   sidebar toggle | tracking dot | clock widget | snap receipt   [spacer]   search ⌘K | settings icon ▾
+ *
  * Expected variable:
  *   $user — array with at least 'name' key
  */
@@ -37,24 +40,29 @@ if (!isset($user)) $user = ['name' => 'Admin'];
     </a>
     <?php endif; ?>
 
-    <!-- Global Search Trigger -->
-    <button class="mw-spotlight-trigger" data-spotlight-open title="Search (<?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘' : 'Ctrl'; ?>+K)">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-        <span class="mw-spotlight-trigger-text">Search...</span>
-        <kbd class="mw-spotlight-trigger-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
-    </button>
-
+    <!-- Right cluster: search + settings icon — pushed to far right via CSS -->
     <div class="navbar-collapse collapse">
-        <ul class="navbar-nav navbar-align">
-            <li class="nav-item dropdown">
-                <a class="nav-icon dropdown-toggle d-inline-block d-sm-none" href="#" data-toggle="dropdown">
-                    <i class="align-middle" data-feather="settings"></i>
-                </a>
+        <ul class="navbar-nav mw-topbar-right">
 
-                <a class="nav-link dropdown-toggle d-none d-sm-inline-block" href="#" data-toggle="dropdown">
-                    <span class="text-dark"><?php echo htmlspecialchars($user['name'] ?? 'Admin'); ?></span>
+            <!-- Global Search Trigger -->
+            <li class="nav-item mw-search-nav-item">
+                <button class="mw-spotlight-trigger" data-spotlight-open title="Search (<?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘' : 'Ctrl'; ?>+K)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <span class="mw-spotlight-trigger-text">Search...</span>
+                    <kbd class="mw-spotlight-trigger-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
+                </button>
+            </li>
+
+            <!-- Settings / Profile icon dropdown -->
+            <li class="nav-item dropdown">
+                <a class="mw-topbar-settings-btn dropdown-toggle" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="<?php echo htmlspecialchars($user['name'] ?? 'Admin'); ?>">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"></path></svg>
                 </a>
                 <div class="dropdown-menu dropdown-menu-right">
+                    <div class="dropdown-header px-3 py-2 border-bottom mb-1">
+                        <div style="font-weight:600;font-size:0.85rem;color:var(--mw-ink-900);"><?php echo htmlspecialchars($user['name'] ?? 'Admin'); ?></div>
+                        <div style="font-size:0.75rem;color:var(--mw-ink-500);"><?php echo htmlspecialchars($user['email'] ?? ''); ?></div>
+                    </div>
                     <a class="dropdown-item" href="/crm/profile.php">
                         <i class="align-middle mr-1" data-feather="user"></i> Profile
                     </a>
@@ -67,6 +75,7 @@ if (!isset($user)) $user = ['name' => 'Admin'];
                     </a>
                 </div>
             </li>
+
         </ul>
     </div>
 </nav>

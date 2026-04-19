@@ -233,6 +233,7 @@ $activePage = 'invoices';
                                 <th class="text-right <?php echo invSortClass('amount', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('amount', $sortCol, $sortDir); ?>">Amount</a></th>
                                 <th class="text-right <?php echo invSortClass('balance', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('balance', $sortCol, $sortDir); ?>">Balance</a></th>
                                 <th class="<?php echo invSortClass('due_date', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('due_date', $sortCol, $sortDir); ?>">Due Date</a></th>
+                                <th>Due</th>
                                 <th class="<?php echo invSortClass('status', $sortCol, $sortDir); ?>"><a href="<?php echo invSortUrl('status', $sortCol, $sortDir); ?>">Status</a></th>
                                 <th>Tracking</th>
                                 <th>Actions</th>
@@ -243,6 +244,28 @@ $activePage = 'invoices';
                                 <?php
                                 $isPayable = in_array($invoice['status'], ['sent', 'viewed', 'partial', 'overdue']);
                                 $balance   = floatval($invoice['balance_due']);
+                                // Aging / due column
+                                $agingLabel = ''; $agingClass = '';
+                                $isPaidStatus = in_array($invoice['status'], ['paid', 'draft', 'cancelled']);
+                                if (!empty($invoice['due_date']) && !$isPaidStatus) {
+                                    $dueDate  = new DateTime($invoice['due_date']);
+                                    $todayDt  = new DateTime('today');
+                                    $diff     = $todayDt->diff($dueDate);
+                                    $days     = (int)$diff->days;
+                                    if ($dueDate < $todayDt) {
+                                        $agingLabel = $days === 1 ? '1 day overdue' : "{$days} days overdue";
+                                        $agingClass = 'mw-due-overdue';
+                                    } elseif ($days === 0) {
+                                        $agingLabel = 'Due today';
+                                        $agingClass = 'mw-due-today';
+                                    } elseif ($days <= 7) {
+                                        $agingLabel = "Due in {$days}d";
+                                        $agingClass = 'mw-due-soon';
+                                    } else {
+                                        $agingLabel = "Due in {$days}d";
+                                        $agingClass = 'mw-due-ok';
+                                    }
+                                }
                                 $client    = htmlspecialchars($invoice['display_client'] ?? $invoice['company_name'] ?? 'N/A');
                                 // When we're showing a property name as the primary label, include the
                                 // paying company as a muted secondary line so the accountant still knows
@@ -298,6 +321,13 @@ $activePage = 'invoices';
                                         <?php echo formatCurrency($balance); ?>
                                     </td>
                                     <td><?php echo formatDate($invoice['due_date']); ?></td>
+                                    <td>
+                                        <?php if ($agingLabel !== ''): ?>
+                                            <span class="mw-due-badge <?php echo $agingClass; ?>"><?php echo htmlspecialchars($agingLabel); ?></span>
+                                        <?php else: ?>
+                                            <span class="text-muted" style="font-size:12px;">—</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td><?php echo getStatusBadge($invoice['status'], 'invoice'); ?></td>
                                     <td class="mw-tracking-cell">
                                         <?php if ($invoice['status'] !== 'draft'): ?>

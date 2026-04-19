@@ -398,41 +398,35 @@ function formatPhone(?string $phone): string {
  * Get status badge HTML
  */
 function getStatusBadge($status, $type = 'quote') {
-    $colors = [
-        // Quote statuses
-        'draft' => ['bg' => '#6B7280', 'text' => '#FFFFFF'],
-        'sent' => ['bg' => '#3B82F6', 'text' => '#FFFFFF'],
-        'accepted' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
-        'declined' => ['bg' => '#DC2626', 'text' => '#FFFFFF'],
-        'expired' => ['bg' => '#F59E0B', 'text' => '#000000'],
-
-        // Job / Visit statuses
-        'scheduled' => ['bg' => '#3B82F6', 'text' => '#FFFFFF'],
-        'in_progress' => ['bg' => '#F59E0B', 'text' => '#000000'],
-        'completed' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
-        'cancelled' => ['bg' => '#6B7280', 'text' => '#FFFFFF'],
-        'on_hold' => ['bg' => '#8B5CF6', 'text' => '#FFFFFF'],
-        'skipped' => ['bg' => '#9CA3AF', 'text' => '#FFFFFF'],
-        'weather' => ['bg' => '#60A5FA', 'text' => '#FFFFFF'],
-
-        // Plan statuses
-        'active' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
-        'paused' => ['bg' => '#F59E0B', 'text' => '#000000'],
-
-        // Invoice statuses
-        'paid' => ['bg' => '#2D8659', 'text' => '#FFFFFF'],
-        'partial' => ['bg' => '#F59E0B', 'text' => '#000000'],
-        'overdue' => ['bg' => '#DC2626', 'text' => '#FFFFFF'],
-        'viewed' => ['bg' => '#8B5CF6', 'text' => '#FFFFFF'],
+    // Map raw status values to display labels
+    $labels = [
+        'draft'       => 'Draft',
+        'sent'        => 'Sent',
+        'accepted'    => 'Accepted',
+        'declined'    => 'Declined',
+        'expired'     => 'Expired',
+        'viewed'      => 'Viewed',
+        'scheduled'   => 'Scheduled',
+        'in_progress' => 'In Progress',
+        'completed'   => 'Completed',
+        'cancelled'   => 'Cancelled',
+        'on_hold'     => 'On Hold',
+        'skipped'     => 'Skipped',
+        'weather'     => 'Weather',
+        'active'      => 'Active',
+        'paused'      => 'Paused',
+        'paid'        => 'Paid',
+        'partial'     => 'Partial',
+        'overdue'     => 'Overdue',
     ];
 
-    $color = $colors[$status] ?? ['bg' => '#6B7280', 'text' => '#FFFFFF'];
-    $label = ucfirst(str_replace('_', ' ', $status));
+    $label = $labels[$status] ?? ucfirst(str_replace('_', ' ', $status));
+    // CSS class: mw-status-{status} — styled in mowology-brand.css Section 39
+    $slug  = preg_replace('/[^a-z0-9]+/', '-', strtolower($status));
 
     return sprintf(
-        '<span class="mw-badge-status" style="background: %s; color: %s;">%s</span>',
-        $color['bg'],
-        $color['text'],
+        '<span class="mw-status-badge mw-status-%s">%s</span>',
+        htmlspecialchars($slug),
         htmlspecialchars($label)
     );
 }
