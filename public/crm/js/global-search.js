@@ -67,7 +67,10 @@
     } else {
       input.value = '';
     }
-    input.focus();
+    // Defer focus by one frame so the browser processes visibility: visible
+    // before we call focus() — otherwise the first click lands on the overlay
+    // and a second click is needed to land in the input.
+    requestAnimationFrame(function() { input.focus(); });
     if (prefill && prefill.length >= 2) {
       showLoading();
       fetchResults(prefill);
