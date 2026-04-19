@@ -29,6 +29,33 @@
     'Team':       { icon: 'users',       color: '#6c757d' }
   };
 
+  // ── Avatar helpers ────────────────────────────────
+  // Categories that get initials-based circular avatars (like Jobber)
+  var avatarCategories = { 'Contacts': true, 'Team': true };
+
+  // Deterministic color from name — stays consistent across searches
+  var avatarPalette = [
+    '#2D8659', '#1A5F4A', '#4a90d9', '#7c3aed',
+    '#e85d04', '#17a2b8', '#d97706', '#0891b2',
+    '#be185d', '#0d6efd'
+  ];
+
+  function avatarColor(name) {
+    var code = 0;
+    for (var i = 0; i < Math.min(name.length, 4); i++) {
+      code += name.charCodeAt(i);
+    }
+    return avatarPalette[code % avatarPalette.length];
+  }
+
+  function avatarInitials(name) {
+    var parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  }
+
   // ── Open / Close ──────────────────────────────────
   function open(prefill) {
     overlay.classList.add('mw-spotlight--open');
@@ -227,9 +254,17 @@
                 'data-label="' + escapeHtml(r.label) + '" ' +
                 'data-category="' + escapeHtml(r.category) + '" ' +
                 'data-index="' + itemIdx + '">';
-        html += '<span class="mw-spotlight-item-icon" style="color:' + meta.color + '">';
-        html += featherIcon(r.icon || meta.icon);
-        html += '</span>';
+        if (avatarCategories[r.category]) {
+          // Initials-based circular avatar (Contacts, Team)
+          html += '<span class="mw-spotlight-avatar" style="background:' + avatarColor(r.label) + '">';
+          html += avatarInitials(r.label);
+          html += '</span>';
+        } else {
+          // Icon badge for non-person categories
+          html += '<span class="mw-spotlight-item-icon" style="color:' + meta.color + '">';
+          html += featherIcon(r.icon || meta.icon);
+          html += '</span>';
+        }
         html += '<span class="mw-spotlight-item-content">';
         html += '<span class="mw-spotlight-item-label">' + highlightMatch(r.label, query) + '</span>';
         if (r.sublabel) {
@@ -306,9 +341,15 @@
               'data-label="' + escapeHtml(r.label) + '" ' +
               'data-category="' + escapeHtml(r.category || '') + '" ' +
               'data-index="' + i + '">';
-      html += '<span class="mw-spotlight-item-icon" style="color:' + meta.color + '">';
-      html += '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
-      html += '</span>';
+      if (avatarCategories[r.category]) {
+        html += '<span class="mw-spotlight-avatar" style="background:' + avatarColor(r.label) + '">';
+        html += avatarInitials(r.label);
+        html += '</span>';
+      } else {
+        html += '<span class="mw-spotlight-item-icon" style="color:' + meta.color + '">';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>';
+        html += '</span>';
+      }
       html += '<span class="mw-spotlight-item-content">';
       html += '<span class="mw-spotlight-item-label">' + escapeHtml(r.label) + '</span>';
       html += '</span>';
