@@ -4793,3 +4793,71 @@
 .mw-mc-card-hero .mw-mc-or-tile {
     height: 110px;
 }
+
+/* ══ Desktop schedule stop card — OR badge ════════════════════════════════ */
+
+/* Base badge container on desktop stop cards */
+.mw-stop-or-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: filter 0.2s, opacity 0.2s;
+}
+.mw-stop-or-badge img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: filter 0.2s, opacity 0.2s;
+}
+
+/* Enrolled: full colour, green ring */
+.mw-stop-or-badge.or-icon-full {
+    box-shadow: 0 0 0 2px rgba(45,134,89,0.35);
+    background: #f0faf4;
+}
+.mw-stop-or-badge.or-icon-full img {
+    filter: none;
+    opacity: 1;
+}
+
+/* Offer: amber ring */
+.mw-stop-or-badge.or-icon-sell {
+    box-shadow: 0 0 0 2px rgba(245,158,11,0.4);
+    background: #fffbeb;
+}
+.mw-stop-or-badge.or-icon-sell img {
+    filter: saturate(0.5) sepia(0.3) brightness(1.05);
+    opacity: 0.85;
+}
+
+/* Not enrolled: greyed out, no ring */
+.mw-stop-or-badge.or-icon-grey {
+    background: #f0f0f0;
+}
+.mw-stop-or-badge.or-icon-grey img {
+    filter: grayscale(100%) brightness(1.1);
+    opacity: 0.35;
+}
+
+/* ══ Compact inline indicator — stronger visual distinction at 20px ═══════ */
+
+/* Entire compact fades when not enrolled */
+.mw-mc-fert-compact[data-or-status="none"] {
+    opacity: 0.45;
+}
+.mw-mc-fert-compact[data-or-status="enrolled"] .or-icon img {
+    filter: none;
+    opacity: 1;
+}
+/* Extra aggression on grey at small sizes — opacity alone not enough */
+.mw-mc-fert-compact[data-or-status="none"] .or-icon-grey img,
+.mw-mc-fert-compact .or-icon-grey img {
+    filter: grayscale(100%) brightness(1.15);
+    opacity: 0.4;
+}

@@ -19,7 +19,7 @@ $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
-           . '<link href="/crm/css/mobile-cards.css?v=20260418a" rel="stylesheet">'
+           . '<link href="/crm/css/mobile-cards.css?v=20260418b" rel="stylesheet">'
            . '<script src="/crm/js/offline-receipts.js?v=20260227b" defer></script>'
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" async defer></script>';
 ?>

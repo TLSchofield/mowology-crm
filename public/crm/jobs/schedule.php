@@ -1119,7 +1119,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260418a" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260418b" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -1891,18 +1891,16 @@ if ($apiKey) {
                                       <?php endif; ?>
 
                                       <?php
-                                      // Obsidian Root™ enrollment badge
-                                      $orStatus = $stop['or_status'] ?? 'none';
-                                      if ($orStatus !== 'none'):
-                                          $orVariant = ($orStatus === 'enrolled') ? 'full' : 'sell';
-                                          $orTitle   = ($orStatus === 'enrolled') ? 'Obsidian Root™ — Active Program' : 'Obsidian Root™ — Offer to client';
+                                      // Obsidian Root™ enrollment badge — always shown; grey when not enrolled
+                                      $orStatus  = $stop['or_status'] ?? 'none';
+                                      $orVariant = ($orStatus === 'enrolled') ? 'full' : (($orStatus === 'offer') ? 'sell' : 'grey');
+                                      $orTitle   = ($orStatus === 'enrolled') ? 'Obsidian Root™ — Active Program' : (($orStatus === 'offer') ? 'Obsidian Root™ — Offer to client' : 'Obsidian Root™ — Not Enrolled');
                                       ?>
                                       <div class="mw-stop-or-badge or-icon or-icon-<?php echo $orVariant; ?>" title="<?php echo $orTitle; ?>">
                                           <img src="/assets/images/programs/obsidian-root-logo.png"
                                                width="24" height="24"
                                                alt="Obsidian Root™">
                                       </div>
-                                      <?php endif; ?>
                                   </div>
                               <?php endforeach; ?>
                           <?php endif; ?>
