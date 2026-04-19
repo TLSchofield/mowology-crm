@@ -875,9 +875,16 @@ label {
 /* ══ 18. WORK QUEUE LANES (.mw-wq-*) ══════════════════════════════════════ */
 
 .mw-wq-lanes {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+@media (max-width: 767px) {
+  .mw-wq-lanes {
+    grid-template-columns: 1fr;
+  }
 }
 
 .mw-wq-lane {
