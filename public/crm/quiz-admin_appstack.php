@@ -64,9 +64,15 @@ $activePage = 'quiz';
                 <option value="">All Categories</option>
             </select>
         </div>
-        <button class="btn mw-btn-green btn-sm" onclick="openQuestionModal(null)">
-            <i data-feather="plus" style="width:14px;height:14px;"></i> Add Question
-        </button>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-success" onclick="$('#bulkSeedModal').modal('show')"
+                    title="Auto-attach Wikipedia images to questions that have none">
+                <i data-feather="image" style="width:14px;height:14px;"></i> Bulk Seed Images
+            </button>
+            <button class="btn mw-btn-green btn-sm" onclick="openQuestionModal(null)">
+                <i data-feather="plus" style="width:14px;height:14px;"></i> Add Question
+            </button>
+        </div>
     </div>
 
     <div class="card">
@@ -648,6 +654,9 @@ $activePage = 'quiz';
                             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addImageByUrl()">
                                 <i data-feather="link" style="width:13px;height:13px;"></i> Add by URL
                             </button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="openWikiSearch()">
+                                <i data-feather="search" style="width:13px;height:13px;"></i> Find Image (Wikimedia)
+                            </button>
                         </div>
                         <div class="text-muted" style="font-size:11px;margin-top:5px;">First image is primary. Crew sees all images as a rotating stack during the quiz and study mode.</div>
                     </div>
@@ -719,6 +728,88 @@ $activePage = 'quiz';
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
                 <button type="button" class="btn mw-btn-green" onclick="saveCategory()">Save Category</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL: Wikimedia Commons Image Search
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="wikiSearchModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title mb-0">🔍 Find Image — Wikimedia Commons</h5>
+                    <small class="text-muted">Open-licence images (CC BY-SA / public domain)</small>
+                </div>
+                <button type="button" class="btn-close" data-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Search bar -->
+                <div class="input-group mb-3">
+                    <input type="text" id="wikiSearchInput" class="form-control"
+                           placeholder="e.g. Dandelion, Creeping buttercup, String trimmer…"
+                           onkeydown="if(event.key==='Enter') runWikiSearch()">
+                    <button class="btn mw-btn-green" onclick="runWikiSearch()" id="wikiSearchBtn">Search</button>
+                </div>
+                <div id="wikiSearchStatus" class="text-muted small mb-2" style="display:none;"></div>
+                <!-- Results grid -->
+                <div id="wikiSearchResults" class="row g-2"></div>
+                <!-- Attribution notice -->
+                <div class="mt-3 p-2 rounded" style="background:#f0f7f4;font-size:11px;color:#555;">
+                    <strong>Licence:</strong> Images are from Wikimedia Commons and are available under open licences
+                    (Creative Commons CC BY-SA or public domain). By adding an image you confirm it will be used
+                    for educational purposes within this app.
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     MODAL: Bulk Image Seed
+═══════════════════════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="bulkSeedModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <div>
+                    <h5 class="modal-title mb-0">🌿 Bulk Seed Images from Wikipedia</h5>
+                    <small class="text-muted">Auto-attaches open-licence Wikipedia images to all questions that have none</small>
+                </div>
+                <button type="button" class="btn-close" data-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2 small mb-3">
+                    <strong>How it works:</strong> For each question without an image, this tool looks up the
+                    correct answer on Wikipedia and attaches the article's main photo. Images are CC BY-SA
+                    (Wikimedia Commons). Takes ~30–60 seconds depending on how many questions need images.
+                </div>
+                <div class="d-flex gap-2 mb-3">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="runBulkSeed(true)" id="bulkDryBtn">
+                        <i data-feather="eye" style="width:13px;height:13px;"></i> Dry Run (preview only)
+                    </button>
+                    <button class="btn btn-sm mw-btn-green" onclick="runBulkSeed(false)" id="bulkRunBtn">
+                        <i data-feather="download-cloud" style="width:13px;height:13px;"></i> Run &amp; Seed Images
+                    </button>
+                </div>
+                <div id="bulkSeedStatus" style="display:none;">
+                    <div class="d-flex align-items-center gap-2 text-muted mb-2" id="bulkSeedSpinner">
+                        <div class="spinner-border spinner-border-sm"></div>
+                        <span id="bulkSeedStatusText">Running…</span>
+                    </div>
+                    <div id="bulkSeedStats" class="mb-2" style="display:none;"></div>
+                    <pre id="bulkSeedLog" class="small p-2 rounded"
+                         style="max-height:320px;overflow-y:auto;background:#f8f9fa;font-size:11px;line-height:1.4;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -1950,6 +2041,154 @@ setTimeout(() => {
 <?php if ($activeTab !== 'campaigns'): ?>
 // Load campaigns silently for the campaigns tab when navigating to it
 <?php endif; ?>
+
+// ══ Wikimedia Image Search ════════════════════════════════════════════════════
+
+let wikiSearchCallback = null; // function(url) called when user picks an image
+
+function openWikiSearch() {
+    // Pre-populate from the correct answer in the question modal if available
+    const correctOpt = document.querySelector('#qmOptions input[type="radio"]:checked');
+    let hint = '';
+    if (correctOpt) {
+        const row   = correctOpt.closest('.mw-option-row');
+        const input = row ? row.querySelector('input[type="text"]') : null;
+        if (input) hint = input.value.trim();
+    }
+    document.getElementById('wikiSearchInput').value = hint;
+    document.getElementById('wikiSearchResults').innerHTML = '';
+    document.getElementById('wikiSearchStatus').style.display = 'none';
+
+    wikiSearchCallback = (url) => {
+        // Push directly into the question modal image list
+        if (typeof addWikiImageToQuestion === 'function') addWikiImageToQuestion(url);
+        $('#wikiSearchModal').modal('hide');
+    };
+
+    $('#wikiSearchModal').modal('show');
+
+    if (hint) {
+        setTimeout(runWikiSearch, 300);
+    }
+}
+
+async function runWikiSearch() {
+    const q   = document.getElementById('wikiSearchInput').value.trim();
+    const btn = document.getElementById('wikiSearchBtn');
+    const res = document.getElementById('wikiSearchResults');
+    const st  = document.getElementById('wikiSearchStatus');
+    if (!q) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Searching…';
+    res.innerHTML = '<div class="col-12 text-center text-muted py-3"><div class="spinner-border spinner-border-sm me-2"></div>Searching Wikimedia Commons…</div>';
+    st.style.display = 'none';
+
+    try {
+        const r = await fetch(`/crm/api/quiz-image-search.php?action=search&q=${encodeURIComponent(q)}&limit=9`);
+        const d = await r.json();
+
+        if (!d.success || !d.images || !d.images.length) {
+            res.innerHTML = `<div class="col-12 text-center text-muted py-4">No images found for "<strong>${escHtml(q)}</strong>". Try a scientific name or shorter term.</div>`;
+        } else {
+            st.textContent = `${d.images.length} result${d.images.length !== 1 ? 's' : ''} from Wikimedia Commons`;
+            st.style.display = '';
+            res.innerHTML = d.images.map(img => `
+                <div class="col-4">
+                    <div class="mw-wiki-thumb" onclick="pickWikiImage('${escHtml(img.thumb_url)}')"
+                         title="${escHtml(img.attribution)}">
+                        <img src="${escHtml(img.thumb_url)}" alt="${escHtml(img.title)}"
+                             onerror="this.closest('.mw-wiki-thumb').style.display='none'">
+                        <div class="mw-wiki-caption">${escHtml(img.license)}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+    } catch (e) {
+        res.innerHTML = '<div class="col-12 text-danger small py-3">Search failed — check your connection.</div>';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Search';
+}
+
+function pickWikiImage(url) {
+    if (wikiSearchCallback) wikiSearchCallback(url);
+}
+
+// Called by the search callback — pushes the Wikimedia URL into qmImages
+function addWikiImageToQuestion(url) {
+    if (!url) return;
+    if (!Array.isArray(window.qmImages)) window.qmImages = [];
+    if (window.qmImages.length >= 5) {
+        alert('Maximum 5 images per question. Remove one first.');
+        return;
+    }
+    window.qmImages.push({ image_path: url, caption: 'Source: Wikimedia Commons (CC BY-SA)', sort_order: window.qmImages.length });
+    if (typeof renderImageManager === 'function') renderImageManager();
+}
+
+// ══ Bulk Image Seed ═══════════════════════════════════════════════════════════
+
+async function runBulkSeed(dry) {
+    const dryBtn  = document.getElementById('bulkDryBtn');
+    const runBtn  = document.getElementById('bulkRunBtn');
+    const status  = document.getElementById('bulkSeedStatus');
+    const spinner = document.getElementById('bulkSeedSpinner');
+    const stText  = document.getElementById('bulkSeedStatusText');
+    const stats   = document.getElementById('bulkSeedStats');
+    const logEl   = document.getElementById('bulkSeedLog');
+
+    dryBtn.disabled = true;
+    runBtn.disabled = true;
+    status.style.display = '';
+    spinner.style.display = 'flex';
+    stats.style.display   = 'none';
+    logEl.textContent     = '';
+    stText.textContent    = dry ? 'Running dry-run preview…' : 'Fetching images from Wikipedia… (this may take ~60s)';
+
+    try {
+        const url  = '/crm/api/run-migration-quiz-images.php' + (dry ? '?dry=1' : '');
+        const r    = await fetch(url);
+        const d    = await r.json();
+
+        spinner.style.display = 'none';
+
+        if (!d.success) {
+            stText.textContent = 'Error: ' + (d.error || 'Unknown error');
+            stText.style.color = '#dc3545';
+        } else {
+            const s = d.stats;
+            stats.style.display = '';
+            stats.innerHTML = `
+                <div class="d-flex gap-3 flex-wrap small">
+                    <span class="badge bg-secondary">Found: ${s.found}</span>
+                    <span class="badge bg-success">Seeded: ${s.seeded}</span>
+                    <span class="badge bg-warning text-dark">No image: ${s.no_image}</span>
+                    <span class="badge bg-danger">Errors: ${s.failed}</span>
+                    ${d.dry_run ? '<span class="badge bg-info text-dark">DRY RUN — nothing written</span>' : ''}
+                </div>
+            `;
+            stText.textContent = d.dry_run
+                ? `Preview complete. ${s.seeded} image(s) would be seeded.`
+                : `Done! ${s.seeded} image(s) attached. Reload questions to see them.`;
+
+            logEl.textContent = (d.log || []).join('\n');
+
+            if (!d.dry_run && s.seeded > 0) {
+                // Refresh question list in background
+                if (typeof loadQuestions === 'function') setTimeout(loadQuestions, 1500);
+            }
+        }
+    } catch (e) {
+        spinner.style.display = 'none';
+        stText.textContent    = 'Request failed: ' + e.message;
+        stText.style.color    = '#dc3545';
+    }
+
+    dryBtn.disabled = false;
+    runBtn.disabled = false;
+}
 </script>
 
 <?php include __DIR__ . '/includes/appstack_footer.php'; ?>
