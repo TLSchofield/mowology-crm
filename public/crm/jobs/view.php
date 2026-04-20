@@ -1492,6 +1492,85 @@ if ($hasPropCoords) {
             </div>
 
             <!-- ══════════════════════════════════════════════════════
+                 Photos Section — all photos from this plan's visits
+                 ══════════════════════════════════════════════════════ -->
+            <?php
+            $planPhotos = [];
+            try {
+                $pStmt = $db->prepare("
+                    SELECT vp.id, vp.visit_id, vp.photo_type, vp.filename, vp.caption,
+                           vp.thumb_path, vp.grid_path, vp.view_path,
+                           vp.uploaded_at, vp.uploaded_by_name,
+                           jv.scheduled_date, jv.status AS visit_status
+                    FROM visit_photos vp
+                    JOIN job_visits jv ON jv.id = vp.visit_id
+                    WHERE jv.plan_id = ?
+                      AND vp.deleted_at IS NULL
+                    ORDER BY jv.scheduled_date DESC, vp.uploaded_at ASC
+                    LIMIT 60
+                ");
+                $pStmt->execute([$planId]);
+                $planPhotos = $pStmt->fetchAll(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) { $planPhotos = []; }
+
+            // Group by visit date for visual grouping
+            $photosByDate = [];
+            foreach ($planPhotos as $ph) {
+                $date = $ph['scheduled_date'] ?: 'undated';
+                if (!isset($photosByDate[$date])) $photosByDate[$date] = [];
+                $photosByDate[$date][] = $ph;
+            }
+            ?>
+            <div class="card mb-4" id="planPhotosCard">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i data-feather="camera" style="width:15px;height:15px;vertical-align:-2px;margin-right:4px;"></i>
+                        Photos
+                        <?php if (!empty($planPhotos)): ?>
+                            <span class="badge badge-secondary ml-2"><?php echo count($planPhotos); ?></span>
+                        <?php endif; ?>
+                    </h5>
+                    <?php if (!empty($planPhotos)): ?>
+                    <a href="/crm/photos_appstack.php?plan_id=<?php echo (int)$planId; ?>" class="btn btn-sm btn-outline-secondary">
+                        <i data-feather="external-link" style="width:13px;height:13px;"></i> View all
+                    </a>
+                    <?php endif; ?>
+                </div>
+                <div class="card-body">
+                    <?php if (empty($planPhotos)): ?>
+                        <div class="text-center text-muted py-3">
+                            <i data-feather="image" style="width:28px;height:28px;opacity:0.5;"></i>
+                            <p class="mt-2 mb-0 small">No photos uploaded for this job yet.</p>
+                            <p class="small text-muted">Photos taken by crew during visits will appear here.</p>
+                        </div>
+                    <?php else: ?>
+                        <?php foreach ($photosByDate as $date => $dayPhotos): ?>
+                            <div class="mw-plan-photo-day mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <strong class="text-muted small text-uppercase" style="letter-spacing:0.5px;">
+                                        <?php echo $date === 'undated' ? 'No date' : date('D, M j, Y', strtotime($date)); ?>
+                                    </strong>
+                                    <span class="text-muted small"><?php echo count($dayPhotos); ?> photo<?php echo count($dayPhotos) === 1 ? '' : 's'; ?></span>
+                                </div>
+                                <div class="mw-plan-photo-grid">
+                                    <?php foreach ($dayPhotos as $ph):
+                                        $url = $ph['thumb_path'] ?: $ph['grid_path'] ?: ('/uploads/photos/' . $ph['filename']);
+                                        $fullUrl = $ph['view_path'] ?: ('/uploads/photos/' . $ph['filename']);
+                                        $typeLabel = ucfirst($ph['photo_type'] ?? 'other');
+                                    ?>
+                                    <a href="<?php echo h($fullUrl); ?>" target="_blank" class="mw-plan-photo-tile" title="<?php echo h($typeLabel); ?> &middot; <?php echo h($ph['uploaded_by_name'] ?? 'Crew'); ?>">
+                                        <img src="<?php echo h($url); ?>" alt="" loading="lazy">
+                                        <span class="mw-plan-photo-badge mw-pp-<?php echo h($ph['photo_type']); ?>"><?php echo h($typeLabel); ?></span>
+                                    </a>
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- ══════════════════════════════════════════════════════
                  Expenses Section
                  ══════════════════════════════════════════════════════ -->
 

@@ -342,6 +342,13 @@ try {
                 ReviewRequestService::maybeSend($visitId, $db);
             }
 
+            // Send photo-portfolio consent request (fire-and-forget, 90-day cooldown)
+            $pcService = APP_ROOT . '/Modules/Photos/Services/PhotoConsentRequestService.php';
+            if (file_exists($pcService)) {
+                require_once $pcService;
+                PhotoConsentRequestService::maybeSend($visitId, $db);
+            }
+
             // Award referral reward if this is a referred client's first completed visit
             $refService = APP_ROOT . '/Modules/Referrals/Services/ReferralRewardService.php';
             if (file_exists($refService)) {

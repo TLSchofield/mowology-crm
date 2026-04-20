@@ -170,20 +170,27 @@ if ($contact && !$error) {
         $completedVisits = [];
     }
 
-    // Photos for all completed visits
-    $visitPhotos = [];
+    // Photos for all completed visits (+ soft-delete exclusion + thumb/view paths)
+    $visitPhotos  = [];
+    $recentPhotos = []; // flat, most recent first, for top-level card
+    $photoTotal   = 0;
     if (!empty($completedVisits)) {
         $visitIds = array_column($completedVisits, 'id');
         $placeholders = implode(',', array_fill(0, count($visitIds), '?'));
         try {
             $stmt = $db->prepare("
-                SELECT visit_id, id, filename, photo_type, caption
+                SELECT visit_id, id, filename, photo_type, caption,
+                       thumb_path, grid_path, view_path, uploaded_at
                 FROM visit_photos
                 WHERE visit_id IN ($placeholders)
-                ORDER BY photo_type, uploaded_at
+                  AND deleted_at IS NULL
+                ORDER BY uploaded_at DESC
             ");
             $stmt->execute($visitIds);
-            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $photo) {
+            $allRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $photoTotal = count($allRows);
+            $recentPhotos = array_slice($allRows, 0, 4); // 4 most recent for the summary card
+            foreach ($allRows as $photo) {
                 $visitPhotos[$photo['visit_id']][] = $photo;
             }
         } catch (Exception $e) {
@@ -324,6 +331,27 @@ function statusBadge(string $status, bool $overdue = false): string {
       </div>
       <?php endforeach; ?>
     </div>
+    <?php endif; ?>
+
+    <?php if ($photoTotal > 0): ?>
+    <?php
+        $galleryUrl = !empty($contact['portal_token'])
+            ? '/customer/gallery.php?token=' . urlencode($contact['portal_token'])
+            : '/customer/gallery.php';
+    ?>
+    <a href="<?php echo htmlspecialchars($galleryUrl); ?>" class="portal-photos-summary">
+      <div class="portal-photos-thumbs">
+        <?php foreach ($recentPhotos as $rp):
+            $url = $rp['thumb_path'] ?: $rp['grid_path'] ?: ('/uploads/photos/' . $rp['filename']);
+        ?>
+          <img src="<?php echo htmlspecialchars($url); ?>" alt="" loading="lazy">
+        <?php endforeach; ?>
+      </div>
+      <div class="portal-photos-summary-text">
+        <div class="portal-photos-summary-count"><?php echo $photoTotal; ?> photo<?php echo $photoTotal === 1 ? '' : 's'; ?></div>
+        <div class="portal-photos-summary-sub">View your property gallery →</div>
+      </div>
+    </a>
     <?php endif; ?>
 
     <?php if (!$hasAnything): ?>

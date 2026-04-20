@@ -105,9 +105,11 @@ try {
     $allowedTypes = ['before', 'after', 'additional', 'during', 'issue', 'other'];
     $photoType    = in_array($rawCategory, $allowedTypes, true) ? $rawCategory : 'other';
 
-    // Optional GPS
-    $gpsLat = isset($_POST['gps_lat']) ? (float)$_POST['gps_lat'] : null;
-    $gpsLng = isset($_POST['gps_lng']) ? (float)$_POST['gps_lng'] : null;
+    // Optional GPS + capture time (from EXIF or phone clock)
+    $gpsLat      = isset($_POST['gps_lat']) && $_POST['gps_lat'] !== '' ? (float)$_POST['gps_lat'] : null;
+    $gpsLng      = isset($_POST['gps_lng']) && $_POST['gps_lng'] !== '' ? (float)$_POST['gps_lng'] : null;
+    $gpsAccuracy = isset($_POST['gps_accuracy_m']) && $_POST['gps_accuracy_m'] !== '' ? (float)$_POST['gps_accuracy_m'] : null;
+    $capturedAt  = !empty($_POST['captured_at']) ? date('Y-m-d H:i:s', strtotime($_POST['captured_at'])) : null;
 
     // Property + service type for denormalization
     $propStmt = $db->prepare("
@@ -195,21 +197,40 @@ try {
         $variants    = vphGenerateVariants($fullPath, $visitId, $base, $realMime);
         $photoSha256 = hash_file('sha256', $fullPath);
 
-        $db->prepare("
-            INSERT INTO visit_photos
-                (visit_id, photo_type, filename, original_filename, file_size,
-                 mime_type, caption, sort_order, thumb_path, grid_path, view_path,
-                 uploaded_by, work_zone_id,
-                 property_id, uploaded_by_name, service_type, sha256)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ")->execute([
-            $visitId, $photoType, $filename, $file['name'],
-            $file['size'], $realMime, '', 0,
-            $variants['thumb_path'], $variants['grid_path'], $variants['view_path'],
-            $user['id'], $photoWorkZoneId,
-            $photoPropertyId, $user['full_name'] ?? $user['name'] ?? null,
-            $photoServiceType, $photoSha256,
-        ]);
+        // Try full INSERT with all new columns (migration 1025). Fall back gracefully.
+        try {
+            $db->prepare("
+                INSERT INTO visit_photos
+                    (visit_id, photo_type, filename, original_filename, file_size,
+                     mime_type, caption, sort_order, thumb_path, grid_path, view_path,
+                     uploaded_by, work_zone_id,
+                     property_id, uploaded_by_name, service_type, sha256,
+                     gps_lat, gps_lng, gps_accuracy_m, captured_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ")->execute([
+                $visitId, $photoType, $filename, $file['name'],
+                $file['size'], $realMime, '', 0,
+                $variants['thumb_path'], $variants['grid_path'], $variants['view_path'],
+                $user['id'], $photoWorkZoneId,
+                $photoPropertyId, $user['full_name'] ?? $user['name'] ?? null,
+                $photoServiceType, $photoSha256,
+                $gpsLat, $gpsLng, $gpsAccuracy, $capturedAt,
+            ]);
+        } catch (PDOException $insErr) {
+            // Pre-migration 1025 fallback — omit new columns
+            $db->prepare("
+                INSERT INTO visit_photos
+                    (visit_id, photo_type, filename, original_filename, file_size,
+                     mime_type, caption, sort_order, thumb_path, grid_path, view_path,
+                     uploaded_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ")->execute([
+                $visitId, $photoType, $filename, $file['name'],
+                $file['size'], $realMime, '', 0,
+                $variants['thumb_path'], $variants['grid_path'], $variants['view_path'],
+                $user['id'],
+            ]);
+        }
         $photoId = (int)$db->lastInsertId();
 
         // Audit log — non-fatal

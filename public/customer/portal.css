@@ -1115,6 +1115,53 @@ a:hover { text-decoration: underline; }
 .portal-decline-form { display: none; margin-top: 14px; }
 .portal-decline-form.show { display: block; }
 
+/* ─── Portal Photos Summary Card ──────────────────────────────────────── */
+.portal-photos-summary {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    background: #fff;
+    border: 1.5px solid var(--p-border);
+    border-radius: var(--p-radius-md, 12px);
+    margin-bottom: 18px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.portal-photos-summary:hover {
+    border-color: var(--p-green);
+    box-shadow: 0 4px 12px rgba(45, 134, 89, 0.08);
+    text-decoration: none;
+    transform: translateY(-1px);
+}
+.portal-photos-thumbs {
+    display: flex;
+    flex-shrink: 0;
+}
+.portal-photos-thumbs img {
+    width: 46px;
+    height: 46px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    margin-left: -10px;
+}
+.portal-photos-thumbs img:first-child { margin-left: 0; }
+.portal-photos-summary-text { flex: 1; min-width: 0; }
+.portal-photos-summary-count {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--p-text-dark, #1a202c);
+    margin-bottom: 2px;
+}
+.portal-photos-summary-sub {
+    font-size: 0.82rem;
+    color: var(--p-green);
+    font-weight: 500;
+}
+
 /* ─── Quote 2-col layout (desktop sidebar, stacked mobile) ─────────────── */
 .portal-quote-grid {
   display: block; /* mobile default: stacked in source order */

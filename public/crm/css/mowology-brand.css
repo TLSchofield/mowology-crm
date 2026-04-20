@@ -289,6 +289,26 @@ a:hover {
   color: var(--mw-ink-500);
 }
 
+/* ── Select: remove native arrow, inject brand chevron ── */
+select.form-control,
+select.custom-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 2.25rem;
+  cursor: pointer;
+}
+select.form-control:focus,
+select.custom-select:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%232D8659' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+select.form-control:disabled {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23D1D5DB' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  cursor: not-allowed;
+}
+
 label {
   font-size: var(--mw-text-sm);
   font-weight: var(--mw-weight-medium);
@@ -2521,14 +2541,31 @@ a.mw-clock-timer-nav:hover {
   display:flex;
   align-items:center;
   gap:8px;
-  flex:none;
-  flex-wrap:nowrap
+  flex:1 1 auto;
+  flex-wrap:wrap;
+  justify-content:flex-end;
 }
 .mw-schedule-filters .form-control-sm {
   width:auto;
-  max-width:160px;
-  flex-shrink:1;
-  min-width:0
+  min-width:140px;
+  max-width:200px;
+  flex:0 0 auto;
+  padding-right:28px; /* room for chevron */
+}
+.mw-schedule-filters .mw-dv-view-toggle,
+.mw-schedule-filters > .btn {
+  flex:0 0 auto;
+}
+@media (max-width: 640px) {
+  .mw-schedule-filters {
+    width:100%;
+    justify-content:flex-start;
+  }
+  .mw-schedule-filters .form-control-sm {
+    flex:1 1 auto;
+    min-width:0;
+    max-width:none;
+  }
 }
 .mw-day-breakdown {
   padding:10px 16px 12px;
@@ -3838,11 +3875,45 @@ a.mw-clock-timer-nav:hover {
   background:#c44d03!important
 }
 .mw-dp-toolbar {
-  border:1px solid var(--mw-light)
+  border: 1px solid var(--mw-ink-200);
+  border-radius: var(--mw-radius-md);
+  box-shadow: var(--mw-shadow-xs);
 }
 .mw-dp-select {
-  min-width:160px;
-  max-width:220px
+  /* Nuke native browser arrow */
+  appearance: none;
+  -webkit-appearance: none;
+  /* Custom chevron */
+  background-color: var(--mw-ink-0);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  /* Layout */
+  display: inline-flex;
+  min-width: 170px;
+  max-width: 240px;
+  height: 34px;
+  padding: 0 34px 0 12px;
+  /* Type */
+  font-family: var(--mw-font-sans);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--mw-ink-900);
+  /* Border */
+  border: 1px solid var(--mw-ink-200);
+  border-radius: var(--mw-radius-sm);
+  /* Interaction */
+  cursor: pointer;
+  transition: border-color var(--mw-dur-fast) var(--mw-ease-out),
+              box-shadow var(--mw-dur-fast) var(--mw-ease-out);
+}
+.mw-dp-select:hover {
+  border-color: var(--mw-green);
+}
+.mw-dp-select:focus {
+  outline: none;
+  border-color: var(--mw-green);
+  box-shadow: var(--mw-shadow-ring);
 }
 .mw-dp-badge-sw {
   display:inline-flex;
@@ -23943,6 +24014,51 @@ a.mw-clock-timer-nav:hover {
   gap: 4px;
 }
 .mw-crew-view-all svg { width: 12px; height: 12px; }
+
+/* ── Plan / Visit Photo Grid ───────────────────────────────────── */
+.mw-plan-photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+}
+.mw-plan-photo-tile {
+    position: relative;
+    display: block;
+    aspect-ratio: 1;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+.mw-plan-photo-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    border-color: var(--mw-green);
+}
+.mw-plan-photo-tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.mw-plan-photo-badge {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(26, 32, 44, 0.78);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.mw-plan-photo-badge.mw-pp-before  { background: #2196F3; }
+.mw-plan-photo-badge.mw-pp-after   { background: var(--mw-green); }
+.mw-plan-photo-badge.mw-pp-issue   { background: #dc3545; }
+.mw-plan-photo-badge.mw-pp-during  { background: #FF9800; }
 
 /* Re-consent Marketing Card */
 .mw-reconsent-card {
