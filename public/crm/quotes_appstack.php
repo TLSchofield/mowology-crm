@@ -530,11 +530,11 @@ $activePage = 'quotes';
                                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$quote['id']; ?>">
                                           </td>
                                           <td>
-                                              <strong><?php echo htmlspecialchars($quote['quote_number']); ?></strong>
+                                              <span class="mw-cell-primary"><?php echo htmlspecialchars($quote['quote_number']); ?></span>
                                           </td>
                                           <td>
-                                              <div class="font-weight-bold"><?php echo htmlspecialchars($clientName); ?></div>
-                                              <small class="text-muted"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></small>
+                                              <span class="mw-cell-primary"><?php echo htmlspecialchars($clientName); ?></span>
+                                              <span class="mw-cell-secondary"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></span>
                                           </td>
                                           <td><?php echo ucfirst(str_replace('_', ' ', $quote['service_types'] ?? '')); ?></td>
                                           <td><strong><?php echo formatCurrency($quote['total_amount']); ?></strong></td>

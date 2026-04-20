@@ -5788,17 +5788,15 @@ $unconvertedRequests = $db->query("
                   <!-- Clients & Prospects Table -->
                   <?php if (!empty($clients)): ?>
                     <div class="table-responsive mb-4">
-                      <table class="table table-hover" id="mw-clients-table">
+                      <table class="mw-table" id="mw-clients-table">
                         <thead>
                           <tr>
                             <th class="mw-bulk-checkbox-cell">
                               <input type="checkbox" class="mw-bulk-checkbox" id="mw-clients-select-all" title="Select all">
                             </th>
-                            <th>Contact</th>
-                            <th>Company</th>
+                            <th>Client</th>
                             <th>Type</th>
-                            <th>Email</th>
-                            <th>Phone</th>
+                            <th>Contact</th>
                             <th>Status</th>
                             <th>Actions</th>
                           </tr>
@@ -5810,34 +5808,29 @@ $unconvertedRequests = $db->query("
                               <input type="checkbox" class="mw-bulk-checkbox mw-bulk-row-select" data-id="<?php echo (int)$c['id']; ?>">
                             </td>
                             <td>
-                              <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="mw-client-name-link">
+                              <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="mw-client-name-link" style="text-decoration:none;">
+                                <span class="mw-cell-primary"><?php echo h($c['company_name']); ?></span>
                                 <?php if (!empty(trim($c['primary_contact_name'] ?? ''))): ?>
-                                  <strong><?php echo h($c['primary_contact_name']); ?></strong>
-                                <?php else: ?>
-                                  <span class="text-muted">—</span>
+                                  <span class="mw-cell-secondary"><?php echo h($c['primary_contact_name']); ?><?php echo $c['source_type'] === 'prospect' ? ' · Prospect' : ''; ?></span>
+                                <?php elseif ($c['source_type'] === 'prospect'): ?>
+                                  <span class="mw-cell-secondary">Prospect</span>
                                 <?php endif; ?>
                               </a>
                             </td>
                             <td>
-                              <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="mw-client-name-link">
-                                <?php echo h($c['company_name']); ?>
-                              </a>
-                              <?php if ($c['source_type'] === 'prospect'): ?>
-                                <br><small class="text-warning">Prospect</small>
-                              <?php endif; ?>
-                            </td>
-                            <td>
-                              <span class="badge badge-light">
+                              <span class="badge badge-secondary">
                                 <?php echo ucwords(str_replace('_', ' ', $c['company_type'])); ?>
                               </span>
                             </td>
-                            <td><?php echo h($c['billing_email'] ?? '—'); ?></td>
-                            <td><?php echo ($c['primary_contact_phone'] ?? '') ? formatPhone($c['primary_contact_phone']) : '—'; ?></td>
+                            <td>
+                              <span class="mw-cell-primary"><?php echo h($c['billing_email'] ?? '—'); ?></span>
+                              <span class="mw-cell-secondary"><?php echo ($c['primary_contact_phone'] ?? '') ? formatPhone($c['primary_contact_phone']) : ''; ?></span>
+                            </td>
                             <td>
                               <?php
                                 if ($c['source_type'] === 'prospect') {
                                   $statusColor = 'info';
-                                  $statusText = 'Prospect - ' . ucfirst($c['qr_status'] ?? 'new');
+                                  $statusText = 'Prospect';
                                 } else {
                                   $statusColor = $c['account_status'] === 'active' ? 'success' : ($c['account_status'] === 'inactive' ? 'secondary' : 'danger');
                                   $statusText = ucfirst($c['account_status']);
@@ -5848,9 +5841,7 @@ $unconvertedRequests = $db->query("
                               </span>
                             </td>
                             <td>
-                              <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="btn btn-sm btn-primary">
-                                <i data-feather="eye"></i> View
-                              </a>
+                              <a href="?action=view_company&id=<?php echo (int)$c['id']; ?>" class="mw-action-btn mw-action-btn-view">View</a>
                             </td>
                           </tr>
                           <?php endforeach; ?>

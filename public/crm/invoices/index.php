@@ -293,14 +293,14 @@ $activePage = 'invoices';
                                         <?php endif; ?>
                                     </td>
                                     <td>
-                                        <a href="view.php?id=<?php echo $invoice['id']; ?>" class="invoice-number">
+                                        <a href="view.php?id=<?php echo $invoice['id']; ?>" class="mw-cell-primary invoice-number">
                                             <?php echo htmlspecialchars($invoice['invoice_number']); ?>
                                         </a>
                                     </td>
                                     <td>
-                                        <div><?php echo $client; ?></div>
+                                        <span class="mw-cell-primary"><?php echo $client; ?></span>
                                         <?php if ($clientSubtitle !== ''): ?>
-                                            <div class="text-muted" style="font-size: 11px;"><?php echo $clientSubtitle; ?></div>
+                                            <span class="mw-cell-secondary"><?php echo $clientSubtitle; ?></span>
                                         <?php endif; ?>
                                     </td>
                                     <td>
