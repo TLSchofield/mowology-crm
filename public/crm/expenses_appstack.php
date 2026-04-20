@@ -19,7 +19,7 @@ $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
-           . '<link href="/crm/css/mobile-cards.css?v=20260418b" rel="stylesheet">'
+           . '<link href="/crm/css/mobile-cards.css?v=20260418c" rel="stylesheet">'
            . '<script src="/crm/js/offline-receipts.js?v=20260227b" defer></script>'
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" async defer></script>';
 ?>
@@ -422,7 +422,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         </div>
         <?php endif; ?>
         <div class="table-responsive">
-            <table class="table table-hover mb-0">
+            <table class="mw-table">
                 <thead>
                     <tr>
                         <?php if ($canEdit): ?>
@@ -468,7 +468,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     <div class="card">
         <div class="table-responsive">
-            <table class="table table-hover mb-0">
+            <table class="mw-table">
                 <thead>
                     <tr>
                         <th>Vendor</th>
@@ -502,7 +502,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     <div class="card">
         <div class="card-header"><h5 class="card-title mb-0">Receipt Forwarding Log</h5></div>
         <div class="table-responsive">
-            <table class="table table-hover mb-0">
+            <table class="mw-table">
                 <thead>
                     <tr>
                         <th>Date</th>
@@ -530,7 +530,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             <small class="text-muted">High-risk expenses auto-routed for review</small>
         </div>
         <div class="table-responsive">
-            <table class="table table-hover mb-0">
+            <table class="mw-table">
                 <thead>
                     <tr>
                         <th>Date</th>
@@ -569,7 +569,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             </div>
         </div>
         <div class="table-responsive">
-            <table class="table table-hover mb-0">
+            <table class="mw-table">
                 <thead>
                     <tr>
                         <th style="width:36px;"><input type="checkbox" id="rqSelectAll" onchange="rqToggleAll(this.checked)" title="Select all"></th>

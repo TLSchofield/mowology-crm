@@ -217,7 +217,7 @@ $activePage = 'work-zones';
     </div>
 
     <div class="table-responsive">
-        <table class="table table-hover mb-0">
+        <table class="mw-table">
             <thead class="table-light">
                 <tr>
                     <th>Zone</th>

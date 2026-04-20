@@ -1289,7 +1289,7 @@ if ($hasPropCoords) {
                         </div>
                     <?php else: ?>
                         <div class="table-responsive">
-                            <table class="table table-hover mb-0" id="visitsTable">
+                            <table class="mw-table" id="visitsTable">
                                 <thead>
                                     <tr>
                                         <th>Visit #</th>
@@ -3115,7 +3115,7 @@ if ($hasPropCoords) {
                     // JSON.stringify uses raw " which breaks HTML attribute parsing — replace with &quot;
                     function qj(v) { return JSON.stringify(String(v == null ? '' : v)).replace(/"/g, '&quot;'); }
 
-                    var html = '<div class="table-responsive"><table class="table table-sm mb-0">' +
+                    var html = '<div class="table-responsive"><table class="mw-table">' +
                         '<thead class="thead-light"><tr>' +
                         '<th>Visit</th><th>Crew Member</th><th>Clock In</th><th>Clock Out</th><th class="text-right">Duration</th><th>Status</th>' +
                         (CAN_EDIT ? '<th></th>' : '') +
@@ -3379,7 +3379,7 @@ if ($hasPropCoords) {
                                 '</tr>';
                         }).join('');
 
-                        body.innerHTML = '<div class="table-responsive"><table class="table table-sm mb-0">' +
+                        body.innerHTML = '<div class="table-responsive"><table class="mw-table">' +
                             '<thead class="thead-light"><tr>' +
                             '<th>Date</th><th>Vendor</th><th>Category</th>' +
                             '<th class="text-right">Total</th><th>Status</th>' +

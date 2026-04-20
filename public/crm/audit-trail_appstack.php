@@ -136,7 +136,7 @@ $entityTypes = ['contact', 'quote', 'job_plan', 'invoice', 'task'];
           <!-- Changes Table -->
           <div class="card">
               <div class="table-responsive">
-                  <table class="table table-sm table-hover mb-0">
+                  <table class="mw-table">
                       <thead>
                           <tr>
                               <th>When</th>

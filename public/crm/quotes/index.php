@@ -264,11 +264,11 @@ $activePage = 'quotes';
                                   ?>
                                   <tr class="<?php echo $rowClass; ?>" data-href="view.php?id=<?php echo (int)$quote['id']; ?>">
                                       <td>
-                                          <strong><?php echo htmlspecialchars($quote['quote_number']); ?></strong>
+                                          <span class="mw-cell-primary"><?php echo htmlspecialchars($quote['quote_number']); ?></span>
                                       </td>
                                       <td>
-                                          <div class="font-weight-bold"><?php echo htmlspecialchars($quote['client_display_name'] ?? 'N/A'); ?></div>
-                                          <small class="text-muted"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></small>
+                                          <span class="mw-cell-primary"><?php echo htmlspecialchars($quote['client_display_name'] ?? 'N/A'); ?></span>
+                                          <span class="mw-cell-secondary"><?php echo htmlspecialchars($quote['property_address'] ?? ''); ?></span>
                                       </td>
                                       <td><?php echo ucfirst(str_replace('_', ' ', $quote['service_types'] ?? '')); ?></td>
                                       <td><strong><?php echo formatCurrency($quote['amount']); ?></strong></td>

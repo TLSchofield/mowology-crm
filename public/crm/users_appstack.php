@@ -229,7 +229,7 @@ $csrfToken = generateCSRFToken();
                   ?>
                   <tr<?php echo !$u['is_active'] ? ' class="text-muted"' : ''; ?>>
                     <td>
-                      <strong><?php echo h($u['full_name'] ?: '(unnamed)'); ?></strong>
+                      <span class="mw-cell-primary"><?php echo h($u['full_name'] ?: '(unnamed)'); ?></span>
                       <?php if ($uid === $user['id']): ?>
                         <span class="badge badge-info ml-1">You</span>
                       <?php endif; ?>

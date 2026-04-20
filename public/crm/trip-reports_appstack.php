@@ -184,7 +184,7 @@ $activePage = 'driver';
         </div>
         <?php else: ?>
         <div class="table-responsive">
-            <table class="table table-hover mb-0">
+            <table class="mw-table">
                 <thead class="thead-light">
                     <tr>
                         <th>Date</th>

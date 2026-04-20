@@ -41,7 +41,7 @@ $activePage = 'accounting';
 <div class="card">
     <div class="card-body p-0">
         <div class="table-responsive">
-            <table class="table table-hover mw-acct-table mb-0">
+            <table class="mw-table mw-acct-table">
                 <thead>
                     <tr>
                         <th style="width:90px">Code</th>
