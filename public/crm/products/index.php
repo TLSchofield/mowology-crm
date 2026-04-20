@@ -61,6 +61,13 @@ $activePage = 'products';
                   <span class="mw-badge-tag">Sales Engine</span>
               </a>
 
+              <a href="upsells.php" class="mw-tool-card">
+                  <span class="mw-tool-icon">⭐</span>
+                  <h3>Quote Upsells</h3>
+                  <p>Configure add-on services shown to customers on quotes — with FOMO bundle pricing and "Most popular" badges to lift average order size.</p>
+                  <span class="mw-badge-tag">Revenue Lift</span>
+              </a>
+
               <a href="/crm/marketing/campaigns.php" class="mw-tool-card">
                   <span class="mw-tool-icon">📧</span>
                   <h3>Marketing Campaigns</h3>

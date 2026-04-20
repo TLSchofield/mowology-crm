@@ -51,28 +51,51 @@ try {
     switch ($action) {
 
         case 'create':
-            $baseId   = (int)($input['base_product_id'] ?? 0);
-            $upsellId = (int)($input['upsell_product_id'] ?? 0);
-            $type     = $input['type'] ?? 'addon';
-            $text     = trim($input['display_text'] ?? '');
-            $bundled  = isset($input['bundled_price']) && $input['bundled_price'] !== null
+            $baseId     = (int)($input['base_product_id'] ?? 0);
+            $upsellId   = isset($input['upsell_product_id']) && $input['upsell_product_id']
+                ? (int)$input['upsell_product_id'] : null;
+            $bundleId   = isset($input['upsell_bundle_id']) && $input['upsell_bundle_id']
+                ? (int)$input['upsell_bundle_id'] : null;
+            $type       = $input['type'] ?? 'addon';
+            $text       = trim($input['display_text'] ?? '');
+            $bundledPrc = isset($input['bundled_price']) && $input['bundled_price'] !== null
                 ? (float)$input['bundled_price'] : null;
-            $popular  = !empty($input['is_popular']) ? 1 : 0;
+            $popular    = !empty($input['is_popular']) ? 1 : 0;
 
-            if (!$baseId || !$upsellId) throw new Exception('base_product_id and upsell_product_id required');
-            if ($baseId === $upsellId) throw new Exception('Base and upsell must be different products');
+            if (!$baseId) throw new Exception('base_product_id required');
+            if (!$upsellId && !$bundleId) throw new Exception('Either upsell_product_id or upsell_bundle_id required');
+            if ($upsellId && $bundleId)  throw new Exception('Use either product OR bundle, not both');
+            if ($upsellId && $upsellId === $baseId) throw new Exception('Base and upsell must be different');
             if (!in_array($type, ['addon', 'recommended', 'upgrade'])) $type = 'addon';
 
-            // Check uniqueness
-            $exists = $db->prepare("SELECT id FROM product_upsells WHERE base_product_id = ? AND upsell_product_id = ?");
-            $exists->execute([$baseId, $upsellId]);
-            if ($exists->fetch()) throw new Exception('This base→upsell relationship already exists');
+            // Uniqueness check
+            if ($upsellId) {
+                $exists = $db->prepare("SELECT id FROM product_upsells WHERE base_product_id = ? AND upsell_product_id = ?");
+                $exists->execute([$baseId, $upsellId]);
+            } else {
+                $exists = $db->prepare("SELECT id FROM product_upsells WHERE base_product_id = ? AND upsell_bundle_id = ?");
+                $exists->execute([$baseId, $bundleId]);
+            }
+            if ($exists->fetch()) throw new Exception('This upsell relationship already exists for that base product');
 
-            $db->prepare("
-                INSERT INTO product_upsells
-                    (base_product_id, upsell_product_id, type, display_text, bundled_price, is_popular, is_active, sort_order, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, 1, 0, NOW())
-            ")->execute([$baseId, $upsellId, $type, $text ?: null, $bundled, $popular]);
+            // Try with bundle column (migration 1021), fall back if missing
+            try {
+                $db->prepare("
+                    INSERT INTO product_upsells
+                        (base_product_id, upsell_product_id, upsell_bundle_id, type, display_text,
+                         bundled_price, is_popular, is_active, sort_order, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, NOW())
+                ")->execute([$baseId, $upsellId, $bundleId, $type, $text ?: null, $bundledPrc, $popular]);
+            } catch (PDOException $e) {
+                if ($bundleId) throw new Exception('Bundle upsells require migration 1021 — please run it first');
+                // Fall back to product-only insert
+                $db->prepare("
+                    INSERT INTO product_upsells
+                        (base_product_id, upsell_product_id, type, display_text,
+                         bundled_price, is_popular, is_active, sort_order, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 1, 0, NOW())
+                ")->execute([$baseId, $upsellId, $type, $text ?: null, $bundledPrc, $popular]);
+            }
 
             echo json_encode(['success' => true, 'id' => (int)$db->lastInsertId()]);
             break;

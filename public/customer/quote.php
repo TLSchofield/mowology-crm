@@ -718,9 +718,15 @@ if (!empty($quote)) {
             var checked = up.is_added;
             var popular = up.is_popular;
 
+            // Unified ID for the DOM — use product id if present, else bundle id with 'b' prefix
+            var domId = up.upsell_product_id || ('b' + up.upsell_bundle_id);
+
             // Cache for savings calc
-            window._mwUpsells[up.upsell_product_id] = {
-                regular: regular, bundled: bundled, savings: savings
+            window._mwUpsells[domId] = {
+                regular: regular, bundled: bundled, savings: savings,
+                is_bundle: !!up.is_bundle,
+                product_id: up.upsell_product_id || null,
+                bundle_id: up.upsell_bundle_id || null
             };
 
             var escText = String(text).replace(/</g, '&lt;');
@@ -730,26 +736,26 @@ if (!empty($quote)) {
             if (isPostAccept) {
                 // Skip showing already-added upsells in the post-accept sheet
                 if (checked) return '';
-                return '<div class="portal-post-accept-card" data-product-id="' + up.upsell_product_id + '">' +
+                return '<div class="portal-post-accept-card" data-product-id="' + domId + '">' +
                     (popular ? '<span class="portal-upsell-badge">⭐ Popular</span>' : '') +
                     '<div style="flex:1;">' +
-                        '<strong>' + escText + '</strong>' +
+                        '<strong>' + escText + (up.is_bundle ? ' <small style="color:#64748b;">(bundle)</small>' : '') + '</strong>' +
                         (desc ? '<span class="portal-post-accept-missed">' + escDesc + '</span>' : '') +
                         (savings > 0 ? '<span class="portal-post-accept-missed">You missed ' + fmtMoney(savings) + ' in bundle savings.</span>' : '') +
                     '</div>' +
                     '<div style="text-align:right;">' +
                         '<div style="font-weight:700;color:var(--p-text-dark, #1a202c);">' + fmtMoney(regular) + '</div>' +
-                        '<button type="button" class="portal-post-accept-add-btn" onclick="mwAddUpsell(' + up.upsell_product_id + ', this)">+ Add</button>' +
+                        '<button type="button" class="portal-post-accept-add-btn" onclick="mwAddUpsell(\'' + domId + '\', this)">+ Add</button>' +
                     '</div>' +
                 '</div>';
             }
 
             // Pre-accept: rich FOMO card with both prices
-            return '<div class="portal-upsell-card' + (checked ? ' is-added' : '') + (popular ? ' is-popular' : '') + '" data-product-id="' + up.upsell_product_id + '">' +
+            return '<div class="portal-upsell-card' + (checked ? ' is-added' : '') + (popular ? ' is-popular' : '') + '" data-product-id="' + domId + '">' +
                 (popular ? '<span class="portal-upsell-badge">⭐ Most popular</span>' : '') +
                 '<label class="portal-upsell-toggle">' +
                     '<input type="checkbox" ' + (checked ? 'checked' : '') +
-                    ' onchange="mwToggleUpsell(' + up.upsell_product_id + ', this.checked)">' +
+                    ' onchange="mwToggleUpsell(\'' + domId + '\', this.checked)">' +
                     '<div class="portal-upsell-info">' +
                         '<strong>' + escText + '</strong>' +
                         (desc ? '<span class="portal-upsell-desc">' + escDesc + '</span>' : '') +
@@ -784,13 +790,15 @@ if (!empty($quote)) {
     })();
 
     // Pre-accept: toggle via checkbox
-    function mwToggleUpsell(productId, add) {
+    function mwToggleUpsell(domId, add) {
+        var meta = window._mwUpsells[domId] || {};
         var formData = new FormData();
         formData.append('token', <?php echo json_encode($token ?? ''); ?>);
         formData.append('action', add ? 'add-upsell' : 'remove-upsell');
-        formData.append('upsell_product_id', productId);
+        if (meta.is_bundle) formData.append('upsell_bundle_id', meta.bundle_id);
+        else formData.append('upsell_product_id', meta.product_id || domId);
 
-        var card = document.querySelector('.portal-upsell-card[data-product-id="' + productId + '"]');
+        var card = document.querySelector('.portal-upsell-card[data-product-id="' + domId + '"]');
         var cb = card && card.querySelector('input[type=checkbox]');
 
         fetch('api/quote-upsell.php', { method: 'POST', body: formData })
@@ -836,12 +844,14 @@ if (!empty($quote)) {
 
     // Post-accept: one-click add with undo toast (no confirmation modal — friction kills conversion)
     window._mwLastAdd = null;
-    function mwAddUpsell(productId, btn) {
+    function mwAddUpsell(domId, btn) {
         if (btn) { btn.disabled = true; btn.textContent = '...'; }
+        var meta = window._mwUpsells[domId] || {};
         var formData = new FormData();
         formData.append('token', <?php echo json_encode($token ?? ''); ?>);
         formData.append('action', 'add-upsell');
-        formData.append('upsell_product_id', productId);
+        if (meta.is_bundle) formData.append('upsell_bundle_id', meta.bundle_id);
+        else formData.append('upsell_product_id', meta.product_id || domId);
 
         fetch('api/quote-upsell.php', { method: 'POST', body: formData })
             .then(function(r) { return r.json(); })
@@ -855,8 +865,8 @@ if (!empty($quote)) {
                     if (tot && data.totals) tot.textContent = '$' + parseFloat(data.totals.total).toFixed(2);
 
                     // Remove the card from the post-accept sheet
-                    var card = document.querySelector('.portal-post-accept-card[data-product-id="' + productId + '"]');
-                    window._mwLastAdd = productId;
+                    var card = document.querySelector('.portal-post-accept-card[data-product-id="' + domId + '"]');
+                    window._mwLastAdd = domId;
                     if (card) {
                         card.style.transition = 'opacity 0.3s';
                         card.style.opacity = '0.3';
@@ -883,14 +893,16 @@ if (!empty($quote)) {
     }
 
     function mwUndoLastAdd() {
-        var productId = window._mwLastAdd;
-        if (!productId) return;
+        var domId = window._mwLastAdd;
+        if (!domId) return;
+        var meta = window._mwUpsells[domId] || {};
         var toast = document.getElementById('undoToast');
 
         var formData = new FormData();
         formData.append('token', <?php echo json_encode($token ?? ''); ?>);
         formData.append('action', 'remove-upsell');
-        formData.append('upsell_product_id', productId);
+        if (meta.is_bundle) formData.append('upsell_bundle_id', meta.bundle_id);
+        else formData.append('upsell_product_id', meta.product_id || domId);
 
         fetch('api/quote-upsell.php', { method: 'POST', body: formData })
             .then(function(r) { return r.json(); })
