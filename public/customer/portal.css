@@ -1115,6 +1115,52 @@ a:hover { text-decoration: underline; }
 .portal-decline-form { display: none; margin-top: 14px; }
 .portal-decline-form.show { display: block; }
 
+/* ─── Hero action link (Update my details) ──────────────────────────── */
+.portal-hero-link {
+    display: inline-block;
+    margin-top: 10px;
+    color: rgba(255,255,255,0.9);
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(255,255,255,0.4);
+    padding-bottom: 2px;
+}
+.portal-hero-link:hover {
+    color: #fff;
+    border-bottom-color: #fff;
+    text-decoration: none;
+}
+
+/* ─── Rebook Button (Book again on completed visits) ─────────────────── */
+.portal-visit-rebook-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    color: var(--p-green);
+    border: 1.5px solid var(--p-green);
+    border-radius: 14px;
+    padding: 4px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: auto;
+    transition: background 0.15s, color 0.15s, transform 0.15s;
+    font-family: inherit;
+    line-height: 1.2;
+    letter-spacing: 0.2px;
+}
+.portal-visit-rebook-btn:hover {
+    background: var(--p-green);
+    color: #fff;
+    transform: translateY(-1px);
+}
+.portal-visit-rebook-btn:disabled {
+    opacity: 0.7;
+    cursor: wait;
+}
+
 /* ─── Portal Photos Summary Card ──────────────────────────────────────── */
 .portal-photos-summary {
     display: flex;
