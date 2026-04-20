@@ -19,7 +19,7 @@
  * URL so the WebView can use a service worker just like a browser can).
  */
 
-var CACHE_VERSION = 'mw-v37';
+var CACHE_VERSION = 'mw-v38';
 var SHELL_CACHE  = 'mw-shell-' + CACHE_VERSION;
 var PAGE_CACHE   = 'mw-pages-' + CACHE_VERSION;
 var IMG_CACHE    = 'mw-images-' + CACHE_VERSION;
@@ -37,9 +37,9 @@ var APP_SHELL = [
   /* ── Core AppStack frame ── */
   '/crm/css/classic.css',
   '/crm/css/tokens.min.css',
-  '/crm/css/mowology-brand.min.css?v=20260401b',
+  '/crm/css/mowology-brand.min.css?v=20260419a',
   '/crm/css/mowology-a11y.min.css',
-  '/crm/css/mobile-cards.min.css?v=20260401b',
+  '/crm/css/mobile-cards.min.css?v=20260419a',
   '/crm/css/mobile-nav.min.css?v=20260318a',
   '/crm/css/mw-sync-status.min.css',
   '/crm/css/mw-skeleton.min.css',
@@ -54,7 +54,7 @@ var APP_SHELL = [
   '/crm/js/sw-register.min.js',
 
   /* ── Schedule page JS ── */
-  '/crm/js/time-clock-widget.min.js?v=20260401b',
+  '/crm/js/time-clock-widget.min.js?v=20260419a',
   '/crm/js/capacitor-bridge.min.js?v=20260304',
   '/crm/js/navigation-launcher.min.js?v=20260225c',
   '/crm/js/schedule-route-map.min.js?v=20260226b',
