@@ -9,7 +9,7 @@
  * Active page keys: 'dashboard', 'clients', 'companies', 'quotes', 'jobs',
  *                   'invoices', 'schedule', 'timeclock', 'expenses',
  *                   'profitability', 'cost-factors', 'intel', 'marketing', 'social', 'cms', 'media',
- *                   'team', 'leaderboard', 'quiz', 'map', 'photos', 'products', 'portfolio',
+ *                   'team', 'leaderboard', 'quiz', 'map', 'live-map', 'photos', 'products', 'portfolio',
  *                   'work-zones', 'users', 'settings', 'privacy', 'certification'
  *
  * Nav items support two types:
@@ -69,7 +69,7 @@ $navItems = [
     // ── Schedule ──────────────────────────────────────────────────────────────
     ['type' => 'header', 'label' => 'Schedule'],
     ['key' => 'schedule',    'label' => 'Schedule',    'icon' => 'calendar', 'href' => '/crm/jobs/schedule.php',          'perm' => 'schedule.view'],
-    ['key' => 'map',         'label' => 'Map',         'icon' => 'map',      'href' => '/crm/map.php',                    'perm' => 'team.view'],
+    ['key' => 'live-map',    'label' => 'Map',         'icon' => 'map',      'href' => '/crm/map.php',                    'perm' => 'team.view'],
     ['key' => 'timeclock',   'label' => 'Time Clock',  'icon' => 'clock',    'href' => '/crm/timeclock/my-schedule.php',  'perm' => 'schedule.view'],
     ['key' => 'work-zones',  'label' => 'Work Zones',  'icon' => 'map-pin',  'href' => '/crm/zone-report_appstack.php',   'perm' => 'jobs.view'],
 

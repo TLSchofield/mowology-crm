@@ -40,7 +40,7 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $paramDate)) {
 }
 
 $pageTitle = 'Map';
-$activePage = 'map';
+$activePage = 'live-map';
 $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars(GOOGLE_MAPS_API_KEY, ENT_QUOTES, 'UTF-8') . '&libraries=geometry" defer></script>';
 ?>
 <?php include __DIR__ . '/includes/appstack_head.php'; ?>
