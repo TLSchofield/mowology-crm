@@ -1119,7 +1119,7 @@ $pageTitle = 'Schedule';
 $activePage = 'schedule';
 $bodyClass  = 'mw-page-schedule'; // Hides global mobile nav bars — schedule has its own
 $apiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
-$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260418b" rel="stylesheet">';
+$extraHead = '<link href="/crm/css/mobile-cards.css?v=20260418c" rel="stylesheet">';
 $extraHead .= '<script src="/crm/js/offline-queue.js?v=20260303a" defer></script>';
 // Prefetch every day visible in the strip so any day tap is instant
 foreach ($stripDays as $_sd) {
@@ -3277,6 +3277,7 @@ var MW_SCHEDULE_DATE = <?php echo json_encode($dayDate ?? $startDate); ?>;
 <script src="../js/navigation-launcher.js?v=20260225c" defer></script>
 <script src="../js/route-engine.js?v=20260219a" defer></script>
 <script src="../js/schedule-route-map.js?v=20260226b" defer></script>
+<script src="../js/batch-camera.js?v=20260421a" defer></script>
 <script src="../js/schedule-pill-workflow.js?v=20260401a" defer></script>
 <script src="../js/schedule-drag-drop.js" defer></script>
 <?php if ($view === 'day'): ?>

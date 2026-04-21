@@ -294,18 +294,22 @@ select.form-control,
 select.custom-select {
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  padding-right: 2.25rem;
+  background-color: #fff !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 16px 16px !important;
+  padding-right: 2.5rem;
   cursor: pointer;
+  outline: none;
 }
 select.form-control:focus,
 select.custom-select:focus {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%232D8659' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232D8659' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
 }
 select.form-control:disabled {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23D1D5DB' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-color: var(--mw-ink-50) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23D1D5DB' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
   cursor: not-allowed;
 }
 
@@ -24734,6 +24738,634 @@ a.mw-clock-timer-nav:hover {
 #mw-acct-alerts:not(:empty) { display: block; }
 
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   DRIVER PORTAL — Full-screen app shell (driver-portal.php)
+   Body carries class .mw-page-driver.
+   Three layered screens: logo splash → quiz → home base.
+   Overlays (pre/post trip) slide up over home base.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Hide AppStack chrome when on driver portal */
+body.mw-page-driver .wrapper > .sidebar,
+body.mw-page-driver .main > .navbar {
+  display: none !important;
+}
+body.mw-page-driver .main {
+  margin-left: 0 !important;
+  padding-top: 0 !important;
+}
+body.mw-page-driver main.content {
+  padding: 0 !important;
+  min-height: 100dvh;
+  background: #f4f1ec;
+}
+body.mw-page-driver .container-fluid {
+  padding: 0 !important;
+  max-width: 100% !important;
+  background: #f4f1ec;
+}
+
+/* ── Shared full-screen screen base ─────────────────────────────────────── */
+.dp-logo-screen,
+.dp-quiz-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
+
+/* ── Logo / Splash Screen ────────────────────────────────────────────────── */
+.dp-logo-screen {
+  background: var(--mw-forest);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+}
+
+/* Quiz screen hidden until JS activates it */
+.dp-quiz-screen {
+  display: none;
+}
+.dp-logo-screen.dp-logo-out {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.dp-logo-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.dp-logo-leaf {
+  width: 72px;
+  height: 72px;
+}
+.dp-logo-wordmark {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 800;
+  font-size: 1.6rem;
+  color: #fff;
+  letter-spacing: 0.12em;
+}
+.dp-logo-sub {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,.5);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* ── Pre-Shift Quiz Screen ───────────────────────────────────────────────── */
+.dp-quiz-screen {
+  background: var(--mw-forest);
+  flex-direction: column;
+}
+.dp-quiz-screen.dp-screen-fadein {
+  display: flex;
+  animation: dp-fadein 0.35s ease forwards;
+}
+.dp-quiz-screen.dp-screen-fadeout {
+  animation: dp-fadeout 0.4s ease forwards;
+}
+.dp-quiz-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.dp-quiz-header {
+  background: var(--mw-forest);
+  padding: 16px 20px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+/* ── Home Base Page ──────────────────────────────────────────────────────── */
+.dp-page {
+  padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 20px);
+  min-height: 100dvh;
+  background: #f4f1ec;
+}
+.dp-page.dp-screen-fadein {
+  animation: dp-fadein 0.35s ease forwards;
+}
+
+/* ── Day Summary Wrap ────────────────────────────────────────────────────── */
+.mw-ds-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 16px 0;
+}
+
+/* Summary / greeting card */
+.mw-ds-card {
+  background: var(--mw-forest);
+  border-radius: 20px;
+  padding: 20px 20px 16px;
+  color: #fff;
+}
+.mw-ds-greeting {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.mw-ds-hi {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.mw-ds-date-lbl {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.55);
+  margin-top: 2px;
+}
+.mw-ds-metrics {
+  display: flex;
+  gap: 20px;
+}
+.mw-ds-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mw-ds-mval {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--mw-lime);
+}
+.mw-ds-mlbl {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.5);
+}
+.mw-ds-metric-done .mw-ds-mval { color: rgba(255,255,255,.7); }
+
+/* Weather row */
+.mw-ds-weather-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.mw-ds-wx {
+  background: #fff;
+  border-radius: 16px;
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-top: 3px solid transparent;
+}
+.mw-ds-wx-am { border-top-color: #f5a623; }
+.mw-ds-wx-pm { border-top-color: #4a90d9; }
+.mw-ds-wx-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #aaa;
+}
+.mw-ds-wx-icon { font-size: 1.6rem; line-height: 1; margin: 4px 0 2px; }
+.mw-ds-wx-temp {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #1a1a1a;
+  line-height: 1;
+}
+.mw-ds-wx-cond {
+  font-size: 0.73rem;
+  color: #666;
+  margin-top: 2px;
+}
+.mw-ds-wx-precip {
+  font-size: 0.7rem;
+  color: #4a90d9;
+  margin-top: 2px;
+}
+
+/* Clock-in card */
+.mw-ds-clock-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mw-ds-clock-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mw-ds-clock-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ccc;
+  flex-shrink: 0;
+}
+.mw-ds-clock-status {
+  font-size: 0.85rem;
+  color: #555;
+}
+.mw-ds-clock-btn {
+  border: none;
+  border-radius: 12px;
+  padding: 10px 22px;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.mw-ds-clock-btn-in {
+  background: var(--mw-green);
+  color: #fff;
+}
+.mw-ds-clock-btn-in:disabled {
+  background: #aaa;
+  cursor: not-allowed;
+}
+.mw-ds-clock-btn-out {
+  background: #dc3545;
+  color: #fff;
+}
+.mw-ds-clock-btn-out:disabled {
+  background: #aaa;
+  cursor: not-allowed;
+}
+
+/* ── Vehicle check card ──────────────────────────────────────────────────── */
+.dp-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  margin: 12px 16px 0;
+  box-shadow: 0 2px 12px rgba(0,0,0,.05);
+}
+.dp-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--mw-dark);
+  margin-bottom: 12px;
+}
+.dp-card-title svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--mw-green);
+  flex-shrink: 0;
+}
+.dp-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.dp-check-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.dp-check-badge svg { width: 14px; height: 14px; flex-shrink: 0; }
+.dp-check-badge.done {
+  background: rgba(45,134,89,.1);
+  color: var(--mw-dark);
+  border: 1px solid rgba(45,134,89,.25);
+}
+.dp-check-badge.pending {
+  background: rgba(232,93,4,.08);
+  color: #c84b00;
+  border: 1px solid rgba(232,93,4,.2);
+}
+.dp-check-badge.not-done {
+  background: #f0f0f0;
+  color: #888;
+  border: 1px solid #ddd;
+}
+.dp-check-time { opacity: .65; }
+.dp-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 14px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  margin-top: 8px;
+}
+.dp-action-btn svg:first-child { width: 20px; height: 20px; flex-shrink: 0; }
+.dp-action-btn.primary {
+  background: var(--mw-green);
+  color: #fff;
+}
+.dp-action-btn.secondary {
+  background: var(--mw-light);
+  color: var(--mw-dark);
+}
+.dp-action-btn-label {
+  flex: 1;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+.dp-action-btn-sub {
+  font-size: 0.72rem;
+  font-weight: 400;
+  opacity: .7;
+  margin-top: 2px;
+}
+
+/* ── Full-screen overlays (pre-trip / post-trip) ─────────────────────────── */
+.dp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: #f4f1ec;
+  transform: translateY(100%);
+  transition: transform 0.32s cubic-bezier(.25,.8,.25,1);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.dp-overlay.active {
+  transform: translateY(0);
+}
+.dp-overlay-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--mw-forest);
+  padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.dp-overlay-back {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.12);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+}
+.dp-overlay-back svg { width: 20px; height: 20px; }
+.dp-overlay-title {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  color: #fff;
+}
+.dp-overlay-subtitle {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,.6);
+  margin-top: 1px;
+}
+.dp-overlay-body {
+  padding: 20px 16px env(safe-area-inset-bottom, 20px);
+  max-width: 540px;
+  margin: 0 auto;
+}
+
+/* ── Form sections ───────────────────────────────────────────────────────── */
+.dp-form-section {
+  background: #fff;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.04);
+}
+.dp-form-section-title {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mw-dark);
+  margin-bottom: 12px;
+}
+.dp-field {
+  margin-bottom: 12px;
+}
+.dp-field:last-child { margin-bottom: 0; }
+.dp-field label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #666;
+  margin-bottom: 5px;
+}
+.dp-field input,
+.dp-field textarea {
+  width: 100%;
+  border: 1.5px solid #e0ddd7;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  background: #fafaf8;
+  color: #1a1a1a;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color .15s;
+}
+.dp-field input:focus,
+.dp-field textarea:focus {
+  outline: none;
+  border-color: var(--mw-green);
+  background: #fff;
+}
+
+/* ── Custom checkbox items ───────────────────────────────────────────────── */
+.dp-check-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0ece5;
+  cursor: pointer;
+  user-select: none;
+}
+.dp-check-item:last-child { border-bottom: none; padding-bottom: 0; }
+.dp-check-item input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+.dp-check-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 2px solid #d0ccc5;
+  background: #fff;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color .15s, background .15s;
+}
+.dp-check-item input:checked ~ .dp-check-icon {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+}
+.dp-check-item input:checked ~ .dp-check-icon::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 7px;
+  width: 5px;
+  height: 9px;
+  border: 2px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+.dp-check-label {
+  font-size: 0.92rem;
+  color: #2a2a2a;
+  flex: 1;
+}
+.dp-check-item input:checked ~ .dp-check-label {
+  color: #888;
+  text-decoration: line-through;
+}
+
+/* ── Safe-to-drive acknowledgment ───────────────────────────────────────── */
+.dp-ack-box {
+  border: 2px solid #e0ddd7;
+  border-radius: 12px;
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  margin-bottom: 12px;
+  user-select: none;
+}
+.dp-ack-box.checked {
+  border-color: var(--mw-green);
+  background: rgba(45,134,89,.05);
+}
+.dp-ack-text {
+  font-size: 0.8rem;
+  color: #555;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.dp-ack-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dp-ack-indicator {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid #d0ccc5;
+  background: #fff;
+  flex-shrink: 0;
+  transition: border-color .15s, background .15s;
+}
+.dp-ack-box.checked .dp-ack-indicator {
+  background: var(--mw-green);
+  border-color: var(--mw-green);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+  background-size: 14px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.dp-ack-text-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #333;
+}
+.dp-ack-box.checked .dp-ack-text-label { color: var(--mw-dark); }
+
+/* ── Submit button ───────────────────────────────────────────────────────── */
+.dp-submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 20px;
+  background: var(--mw-green);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 800;
+  font-size: 0.95rem;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: background .15s, opacity .15s;
+}
+.dp-submit-btn:hover { background: var(--mw-dark); }
+.dp-submit-btn:disabled { opacity: .6; cursor: not-allowed; }
+.dp-submit-btn svg { width: 18px; height: 18px; }
+
+/* ── Toast ───────────────────────────────────────────────────────────────── */
+.dp-toast {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: #1a1a1a;
+  color: #fff;
+  padding: 11px 20px;
+  border-radius: 24px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 5000;
+  opacity: 0;
+  transition: opacity .25s, transform .25s;
+  pointer-events: none;
+  max-width: calc(100vw - 40px);
+  text-align: center;
+}
+.dp-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.dp-toast.error { background: #dc3545; }
+
+/* ── Fade animations ─────────────────────────────────────────────────────── */
+@keyframes dp-fadein {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes dp-fadeout {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
 /* ── Wikimedia Image Search (Quiz Admin) ───────────────────────────────────── */
 .mw-wiki-thumb {
   position: relative;
@@ -24769,3 +25401,239 @@ a.mw-clock-timer-nav:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ============================================================
+   SEO / Content Engine
+   ============================================================ */
+.mw-rank-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  min-width: 38px;
+  text-align: center;
+}
+.mw-rank-pill.top   { background: var(--mw-lime);  color: var(--mw-forest); }
+.mw-rank-pill.page1 { background: #fff3cd;          color: #856404; }
+.mw-rank-pill.page2 { background: #f8d7da;          color: #842029; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Batch Camera Overlay
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.mw-batch-camera-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: #000;
+  display: flex;
+  flex-direction: column;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Header: Cancel | Counter | Done */
+.mw-batch-camera-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.75);
+  flex-shrink: 0;
+  gap: 8px;
+  /* Safe-area for notched phones */
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+}
+
+.mw-bc-cancel,
+.mw-bc-done {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 8px;
+  transition: background 0.15s;
+  min-width: 64px;
+}
+
+.mw-bc-cancel {
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mw-bc-cancel:hover  { background: rgba(255,255,255,0.12); }
+.mw-bc-cancel:active { background: rgba(255,255,255,0.2); }
+
+.mw-bc-done {
+  color: var(--mw-lime);
+  text-align: right;
+}
+.mw-bc-done:hover:not(:disabled)  { background: rgba(127, 216, 88, 0.15); }
+.mw-bc-done:active:not(:disabled) { background: rgba(127, 216, 88, 0.25); }
+.mw-bc-done:disabled {
+  color: rgba(255,255,255,0.3);
+  cursor: default;
+}
+
+.mw-bc-counter {
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex: 1;
+  text-align: center;
+}
+
+/* Viewfinder */
+.mw-batch-camera-viewfinder {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #111;
+  min-height: 0;
+}
+
+.mw-bc-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Camera-starting status label */
+.mw-bc-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.7);
+  font-size: 0.9rem;
+  pointer-events: none;
+  background: rgba(0,0,0,0.5);
+}
+
+/* White flash on capture */
+.mw-bc-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0s;
+}
+.mw-bc-flash-active {
+  opacity: 0.55;
+  transition: opacity 0.12s ease-out;
+}
+
+/* Shutter button row */
+.mw-batch-camera-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 0 10px;
+  background: rgba(0, 0, 0, 0.75);
+  flex-shrink: 0;
+}
+
+.mw-bc-shutter {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.mw-bc-shutter:disabled { opacity: 0.4; cursor: default; }
+
+.mw-bc-shutter-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 4px solid var(--mw-lime);
+  background: rgba(255,255,255,0.08);
+  transition: border-color 0.15s, background 0.15s;
+}
+.mw-bc-shutter:active:not(:disabled) .mw-bc-shutter-ring {
+  background: rgba(127, 216, 88, 0.2);
+  border-color: #fff;
+}
+
+.mw-bc-shutter-dot {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.1s;
+}
+.mw-bc-shutter:active:not(:disabled) .mw-bc-shutter-dot {
+  transform: scale(0.88);
+  background: var(--mw-lime);
+}
+
+/* Thumbnail strip */
+.mw-batch-camera-strip {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  overflow-x: auto;
+  background: rgba(0, 0, 0, 0.85);
+  min-height: 76px;
+  flex-shrink: 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.mw-batch-camera-strip::-webkit-scrollbar { display: none; }
+
+/* Individual thumbnail */
+.mw-batch-camera-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.3);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.mw-batch-camera-thumb:hover  { border-color: rgba(255,255,255,0.7); }
+.mw-batch-camera-thumb:active { border-color: var(--mw-lime); }
+
+.mw-batch-camera-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Number badge */
+.mw-bc-thumb-num {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  background: rgba(0,0,0,0.65);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.mw-rank-pill.none  { background: var(--mw-light);  color: #6c757d; }

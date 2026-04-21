@@ -851,6 +851,58 @@
     }
 
     /**
+     * Open the in-app batch camera overlay (getUserMedia).
+     * Each snap is saved to the IDB queue immediately so photos survive
+     * navigation or a crash before "Done" is tapped.
+     * Falls back to triggerCamera() if getUserMedia is unavailable.
+     */
+    function triggerBatchCamera(visitId) {
+        var v = visits[visitId];
+        if (!v) return;
+
+        if (typeof BatchCamera === 'undefined' ||
+            !navigator.mediaDevices ||
+            !navigator.mediaDevices.getUserMedia) {
+            triggerCamera(visitId, 'additional');
+            return;
+        }
+
+        var cam = new BatchCamera({
+            maxPhotos: 10,
+
+            onCapture: function (file) {
+                // Save to IDB immediately — photo survives crash/navigation before Done
+                saveToPhotoQueue(visitId, file, 'additional', function (queueId) {
+                    if (queueId !== null) {
+                        console.log('[PillWorkflow] Batch photo persisted to queue id=' + queueId);
+                    }
+                });
+            },
+
+            onDone: function (count) {
+                if (count === 0) return;
+                showToast(count + ' photo' + (count !== 1 ? 's' : '') + ' saved — uploading…');
+                // All captured photos are already 'pending' in IDB — kick the queue runner
+                processPhotoQueue();
+            },
+
+            onCancel: function (count, reason) {
+                if (reason === 'unsupported' || reason === 'denied' || reason === 'error') {
+                    // getUserMedia unavailable/denied — fall back to OS camera
+                    triggerCamera(visitId, 'additional');
+                    return;
+                }
+                if (count > 0) {
+                    showToast(count + ' photo' + (count !== 1 ? 's' : '') + ' saved — will upload when connected.');
+                    processPhotoQueue();
+                }
+            }
+        });
+
+        cam.open();
+    }
+
+    /**
      * Open the device photo gallery for multi-select additional photos.
      * Unlike triggerCamera(), this does NOT set capture="environment", so the
      * OS presents the full gallery/files picker. All selected images are
@@ -1375,12 +1427,12 @@
             });
         });
 
-        // Wire add-photo button → camera (additional)
+        // Wire add-photo button → batch camera overlay (additional)
         var addBtn = strip.querySelector('.mw-mc-add-photo-btn');
         if (addBtn) {
             addBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                triggerCamera(visitId, 'additional');
+                triggerBatchCamera(visitId);
             });
         }
 
