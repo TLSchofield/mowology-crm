@@ -32,6 +32,14 @@ $preshiftLen     = 3;
         "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_enabled'"
     )->fetch(PDO::FETCH_ASSOC);
     if (!$row || $row['setting_value'] != '1') return;
+    // Per-user override — defensive until migration 1015 runs
+    try {
+        $skipRow = $db->prepare("SELECT quiz_preshift_skip FROM users WHERE id = ?");
+        $skipRow->execute([$user['id']]);
+        if ($skipRow->fetchColumn()) return;
+    } catch (Throwable $e) {
+        // Column not yet migrated — ignore
+    }
     $preshiftEnabled = true;
     $lrow = $db->query(
         "SELECT setting_value FROM ops_settings WHERE setting_key='quiz_preshift_session_length'"
@@ -146,7 +154,7 @@ $csrf = generateCSRFToken();
 $pageTitle  = 'Driver Portal';
 $activePage = 'driver';
 $bodyClass  = 'mw-page-driver'; // Suppresses global mobile nav bars — driver portal has its own UI
-$extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260418b" rel="stylesheet">';
+$extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260420a" rel="stylesheet">';
 
 ?>
 <?php include 'includes/appstack_head.php'; ?>

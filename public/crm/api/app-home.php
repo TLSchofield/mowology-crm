@@ -50,6 +50,18 @@ $enabledRow = $db->query(
 )->fetch(PDO::FETCH_ASSOC);
 $quizEnabled = ($enabledRow && $enabledRow['setting_value'] == '1');
 
+// Per-user override: if the user has quiz_preshift_skip set, treat quiz as disabled for them.
+// Wrapped defensively — column may not exist until migration 1015 runs.
+if ($quizEnabled) {
+    try {
+        $skipRow = $db->prepare("SELECT quiz_preshift_skip FROM users WHERE id = ?");
+        $skipRow->execute([$user['id']]);
+        if ($skipRow->fetchColumn()) $quizEnabled = false;
+    } catch (Throwable $e) {
+        // Column not yet migrated — ignore, quiz stays enabled
+    }
+}
+
 $quizDone = false;
 $quizSessionLength = 3;
 if ($quizEnabled) {
@@ -151,6 +163,7 @@ try {
          JOIN quiz_options o    ON o.question_id = q.id AND o.is_correct = 1
          WHERE q.is_active = 1
            AND c.name IN ($placeholders)
+           AND q.question_text IS NOT NULL AND TRIM(q.question_text) != ''
            AND (q.learn_notes IS NOT NULL AND q.learn_notes != '')
          ORDER BY (q.id + ?) % 10000
          LIMIT 1"

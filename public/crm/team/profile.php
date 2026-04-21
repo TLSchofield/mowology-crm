@@ -419,6 +419,16 @@ if ($apiKey) {
                                 <label class="mw-hr-label">Notes</label>
                                 <p class="mw-hr-value"><?php echo h($emp['notes'] ?? '—'); ?></p>
                             </div>
+                            <div class="col-sm-12 mb-3">
+                                <label class="mw-hr-label">Pre-Shift Quiz</label>
+                                <p class="mw-hr-value">
+                                <?php if (!empty($emp['quiz_preshift_skip'])): ?>
+                                    <span class="badge badge-secondary">Skipped (exempt)</span>
+                                <?php else: ?>
+                                    <span class="badge badge-success">Required</span>
+                                <?php endif; ?>
+                                </p>
+                            </div>
                         </div>
                         <hr>
                         <div class="row">
@@ -551,6 +561,20 @@ if ($apiKey) {
                                         <label>New Password <span class="text-muted">(leave blank to keep current)</span></label>
                                         <input type="password" class="form-control" name="password" minlength="8"
                                                placeholder="Min. 8 characters">
+                                    </div>
+                                </div>
+                                <div class="col-sm-12">
+                                    <div class="form-group">
+                                        <div class="custom-control custom-switch">
+                                            <input type="hidden" name="quiz_preshift_skip" value="0">
+                                            <input type="checkbox" class="custom-control-input" id="quiz_preshift_skip"
+                                                   name="quiz_preshift_skip" value="1"
+                                                   <?php echo !empty($emp['quiz_preshift_skip']) ? 'checked' : ''; ?>>
+                                            <label class="custom-control-label" for="quiz_preshift_skip">
+                                                Exempt from pre-shift quiz
+                                                <span class="text-muted small d-block">When on, this person skips the quiz even when it's globally enabled.</span>
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
