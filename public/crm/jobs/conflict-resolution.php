@@ -247,17 +247,33 @@ $timeStmt = $db->prepare("
 $timeStmt->execute([$visitId]);
 $timeEntries = $timeStmt->fetchAll(PDO::FETCH_ASSOC);
 
-// --- Load visit photos ---
+// --- Load visit photos (from unified media system) ---
+// Query by property + date (not just visit_id) so photos from any visit at
+// this property on this day appear — conflict resolution may show a different
+// visit record than the one crew clocked into.
+$photoPropertyId = (int)($visit['property_id'] ?? 0);
 $photoStmt = $db->prepare("
-    SELECT vp.id, vp.photo_type, vp.filename, vp.caption,
-           vp.thumb_path, vp.grid_path, vp.view_path,
-           vp.uploaded_at, u.full_name AS uploader
-    FROM visit_photos vp
-    LEFT JOIN users u ON vp.uploaded_by = u.id
-    WHERE vp.visit_id = ? AND vp.deleted_at IS NULL
-    ORDER BY vp.sort_order ASC, vp.uploaded_at DESC
+    SELECT ma.id,
+           COALESCE(ml.category, 'other') AS photo_type,
+           ma.file_path AS filename,
+           ma.alt_text AS caption,
+           mv_t.file_path AS thumb_path,
+           ma.file_path AS view_path,
+           ma.created_at AS uploaded_at,
+           u.full_name AS uploader
+    FROM media_links ml
+    JOIN media_assets ma ON ma.id = ml.media_id
+    JOIN job_visits jv ON jv.id = ml.context_id
+    JOIN job_plans jp ON jp.id = jv.plan_id
+    LEFT JOIN media_variants mv_t ON mv_t.media_id = ma.id
+        AND mv_t.variant_type = 'thumb_square' AND mv_t.format = 'jpeg'
+    LEFT JOIN users u ON u.id = ma.created_by
+    WHERE ml.context_type = 'job_visit'
+      AND jp.property_id = ?
+      AND DATE(ma.created_at) = ?
+    ORDER BY ml.sort_order ASC, ma.created_at DESC
 ");
-$photoStmt->execute([$visitId]);
+$photoStmt->execute([$photoPropertyId, $date]);
 $photos = $photoStmt->fetchAll(PDO::FETCH_ASSOC);
 
 // --- Load assigned crew IDs for this stop on this date ---
@@ -456,8 +472,8 @@ $extraHead = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">'
                     </div>
                     <div class="d-flex flex-wrap" style="gap:6px;">
                         <?php foreach ($photos as $photo):
-                            $thumbUrl = $photo['thumb_path'] ?: '/uploads/visits/' . $photo['filename'];
-                            $viewUrl  = $photo['view_path'] ?: '/uploads/visits/' . $photo['filename'];
+                            $thumbUrl = $photo['thumb_path'] ?: $photo['filename'];
+                            $viewUrl  = $photo['view_path'] ?: $photo['filename'];
                         ?>
                             <a href="<?= htmlspecialchars($viewUrl) ?>" target="_blank" class="mw-cr-thumb-link">
                                 <img src="<?= htmlspecialchars($thumbUrl) ?>"
