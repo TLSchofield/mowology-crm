@@ -3278,7 +3278,7 @@ var MW_SCHEDULE_DATE = <?php echo json_encode($dayDate ?? $startDate); ?>;
 <script src="../js/route-engine.js?v=20260219a" defer></script>
 <script src="../js/schedule-route-map.js?v=20260226b" defer></script>
 <script src="../js/batch-camera.js?v=20260421a" defer></script>
-<script src="../js/schedule-pill-workflow.js?v=20260401a" defer></script>
+<script src="../js/schedule-pill-workflow.js?v=20260421a" defer></script>
 <script src="../js/schedule-drag-drop.js" defer></script>
 <?php if ($view === 'day'): ?>
 <script>

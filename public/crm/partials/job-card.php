@@ -42,6 +42,18 @@ if (!empty($stop['visits'])) {
     $visitStatus = $stop['visits'][0]['visit_status'] ?? 'scheduled';
 }
 
+// Footer targets the first schedulable visit (in_progress or scheduled).
+// If $stop['visits'][0] is already completed, the "Complete Job" button would
+// call end_visit on a completed visit and fail with "cannot be ended" error.
+$footerVisitId = $visitId;
+foreach ($stop['visits'] as $_fv) {
+    $_fvStatus = $_fv['visit_status'] ?? 'scheduled';
+    if ($_fvStatus === 'scheduled' || $_fvStatus === 'in_progress') {
+        $footerVisitId = (int)($_fv['visit_id'] ?? $visitId);
+        break;
+    }
+}
+
 // Job type color mapping — use $serviceColors if passed from parent, else DB with hardcoded fallback
 if (!isset($serviceColors) || !is_array($serviceColors)) {
     $serviceColors = [
@@ -304,8 +316,7 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                 <!-- Pill action drawer (JS populates based on tapped pill) -->
                 <div class="mw-mc-pill-drawer" style="display: none;"></div>
                 <!-- Persistent photo strip (JS populates after photo capture) -->
-                <!-- OR icon tile sits here when enrolled/offer so it lines up with photo placeholders -->
-                <div class="mw-mc-photo-strips"><?php if ($orStatus !== 'none'): ?><div class="mw-mc-or-tile or-icon-<?php echo $orIconVariant; ?>"><img src="/assets/images/programs/obsidian-root-logo.png" alt="Obsidian Root™" decoding="async"></div><?php endif; ?></div>
+                <div class="mw-mc-photo-strips"></div>
             <?php endif; ?>
 
             <?php $stopProfitMargin = $stop['profit_margin'] ?? null; ?>
@@ -316,23 +327,27 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
             <?php endif; ?>
         </div>
 
-        <!-- ── Fertilizer / Obsidian Root™ Row ── -->
-        <div class="mw-mc-fert-row" data-or-status="<?php echo htmlspecialchars($orStatus); ?>">
-            <button type="button" class="mw-mc-fert-flip-btn" data-flip-card="<?php echo (int)$stop['stop_id']; ?>">
-                <span class="or-icon or-icon-<?php echo $orIconVariant; ?>" style="width:44px;height:44px;">
-                    <img src="/assets/images/programs/obsidian-root-logo.png" width="44" height="44" alt="Obsidian Root™">
-                </span>
-                <span class="mw-mc-fert-label">Obsidian Root™</span>
-                <span class="mw-mc-fert-status-label"><?php echo htmlspecialchars($orStatusLabel); ?></span>
-            </button>
-            <span class="mw-mc-fert-flip-arrow">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-            </span>
-        </div>
+        <!-- ── Obsidian Root™ Program Tile (matches Before/After tile dimensions) ── -->
+        <button type="button"
+                class="mw-mc-or-full-tile or-icon-<?php echo $orIconVariant; ?>"
+                data-or-status="<?php echo htmlspecialchars($orStatus); ?>"
+                data-flip-card="<?php echo (int)$stop['stop_id']; ?>">
+            <img src="/assets/images/programs/obsidian-root-logo.png"
+                 width="56" height="56"
+                 alt="Obsidian Root™"
+                 decoding="async">
+            <div class="mw-mc-or-full-tile-text">
+                <span class="mw-mc-or-tile-name">Obsidian Root™</span>
+                <span class="mw-mc-or-tile-status"><?php echo htmlspecialchars($orStatusLabel); ?></span>
+            </div>
+            <?php if ($orStatus !== 'none'): ?>
+            <svg class="mw-mc-or-tile-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            <?php endif; ?>
+        </button>
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
         <!-- ── Card Action Footer: Clock In / Timer + Complete ── -->
-        <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $visitId; ?>">
+        <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $footerVisitId; ?>">
             <div class="mw-mc-footer-timer" data-footer-timer="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <span class="mw-mc-footer-elapsed" data-footer-elapsed="<?php echo (int)$stop['stop_id']; ?>">0:00</span>
@@ -522,13 +537,17 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
                 </div>
             <?php endif; ?>
 
-            <!-- Obsidian Root™ inline indicator -->
-            <div class="mw-mc-fert-compact" data-or-status="<?php echo htmlspecialchars($orStatus); ?>">
-                <span class="or-icon or-icon-<?php echo $orIconVariant; ?>" style="width:20px;height:20px;">
-                    <img src="/assets/images/programs/obsidian-root-logo.png" width="20" height="20" alt="Obsidian Root™">
-                </span>
-                <span class="mw-mc-fert-compact-label">Obsidian Root™</span>
-                <span class="mw-mc-fert-compact-status"><?php echo htmlspecialchars($orStatusLabel); ?></span>
+            <!-- Obsidian Root™ tile — matches Before/After photo tile dimensions -->
+            <div class="mw-mc-or-full-tile or-icon-<?php echo $orIconVariant; ?>"
+                 data-or-status="<?php echo htmlspecialchars($orStatus); ?>">
+                <img src="/assets/images/programs/obsidian-root-logo.png"
+                     width="56" height="56"
+                     alt="Obsidian Root™"
+                     decoding="async">
+                <div class="mw-mc-or-full-tile-text">
+                    <span class="mw-mc-or-tile-name">Obsidian Root™</span>
+                    <span class="mw-mc-or-tile-status"><?php echo htmlspecialchars($orStatusLabel); ?></span>
+                </div>
             </div>
 
             <?php if (!empty($stop['visits'])): ?>
@@ -584,7 +603,7 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
 
         <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
         <!-- ── Card Action Footer: Clock In / Timer + Complete ── -->
-        <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $visitId; ?>">
+        <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $footerVisitId; ?>">
             <div class="mw-mc-footer-timer" data-footer-timer="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 <span class="mw-mc-footer-elapsed" data-footer-elapsed="<?php echo (int)$stop['stop_id']; ?>">0:00</span>

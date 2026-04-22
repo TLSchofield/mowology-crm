@@ -2447,7 +2447,7 @@
                     completeBtn.innerHTML = '<span>Completing…</span>';
 
                     var v = visits[visitId];
-                    var isRunning = v && v.status === 'in_progress' && v.startTime;
+                    var isRunning = v && v.startTime && v.status !== 'completed';
 
                     if (isRunning) {
                         // Stop the timer → automatically marks visit complete
@@ -2591,7 +2591,9 @@
         pills.forEach(function(p) {
             if (result) return;
             var vid = parseInt(p.dataset.visitId, 10);
-            if (vid && visits[vid] && visits[vid].status === 'in_progress' && visits[vid].startTime) {
+            // Any status with a startTime means a timer is actively running (includes
+        // 'in_progress', 'prompt_before', 'prompt_after'). Skip already-completed visits.
+        if (vid && visits[vid] && visits[vid].startTime && visits[vid].status !== 'completed') {
                 result = vid;
             }
         });
