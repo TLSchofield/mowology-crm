@@ -80,16 +80,24 @@ try {
         }
     }
 
-    // Get tracking flag, device type, and per-user ping rate from database
-    $trackStmt = $db->prepare("SELECT location_tracking_enabled, IFNULL(device_type, 'personal') AS device_type, IFNULL(location_ping_rate, 'high') AS location_ping_rate FROM users WHERE id = ?");
+    // Get tracking flag and device type from database
+    $trackStmt = $db->prepare("SELECT location_tracking_enabled, IFNULL(device_type, 'personal') AS device_type FROM users WHERE id = ?");
     $trackStmt->execute([$user['id']]);
     $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
     $locationTrackingEnabled = $trackRow ? (bool)$trackRow['location_tracking_enabled'] : false;
     $deviceType = $trackRow ? $trackRow['device_type'] : 'personal';
 
-    // Per-user ping rate overrides global setting
+    // Per-user ping rate — column added in migration 1016; fall back to 'high' if missing.
     $pingRateMap = ['low' => 600000, 'medium' => 120000, 'high' => 30000];
-    $userPingRate = $trackRow ? ($trackRow['location_ping_rate'] ?? 'high') : 'high';
+    $userPingRate = 'high';
+    try {
+        $rateStmt = $db->prepare("SELECT location_ping_rate FROM users WHERE id = ?");
+        $rateStmt->execute([$user['id']]);
+        $rateRow = $rateStmt->fetch(PDO::FETCH_ASSOC);
+        $userPingRate = $rateRow['location_ping_rate'] ?? 'high';
+    } catch (PDOException $e) {
+        // Column does not exist yet (migration 1016 not run) — use default 'high' (30 s)
+    }
     $gpsIntervalStandard = $pingRateMap[$userPingRate] ?? 30000;
 
     // Heightened interval from global settings (used during high-risk jobs)

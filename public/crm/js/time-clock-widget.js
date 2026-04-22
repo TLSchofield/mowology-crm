@@ -102,11 +102,9 @@
 
             // Start GPS based on device profile
             if (trackingEnabled) {
-                if (deviceType === 'truck') {
+                if (deviceType === 'truck' || data.clocked_in) {
                     // Truck: always track when app is open
-                    startTracking();
-                } else if (hasActiveJobTimer) {
-                    // Personal: track only during active job timer
+                    // Personal: track whenever clocked in (not just during job timers)
                     startTracking();
                 } else {
                     probeGPSStatus();
@@ -926,8 +924,8 @@
     document.addEventListener('visibilitychange', function() {
         if (window.MwNative) return; // Native plugin handles background GPS
         if (document.visibilityState !== 'visible' || !trackingEnabled) return;
-        // Truck: always restart. Personal: only if job timer is active.
-        if (deviceType === 'truck' || hasActiveJobTimer) {
+        // Truck: always restart. Personal: restart whenever clocked in.
+        if (deviceType === 'truck' || clockInTime !== null) {
             stopTracking();
             startTracking();
         }
@@ -936,7 +934,7 @@
     window.addEventListener('pageshow', function(event) {
         if (window.MwNative) return; // Native plugin handles background GPS
         if (!event.persisted || !trackingEnabled) return;
-        if (deviceType === 'truck' || hasActiveJobTimer) {
+        if (deviceType === 'truck' || clockInTime !== null) {
             stopTracking();
             startTracking();
         }
@@ -981,13 +979,13 @@
         },
         /**
          * Called by pill workflow when a job timer stops.
-         * For personal devices, this stops GPS tracking.
+         * Tracking continues as long as the user is clocked in —
+         * only stops on explicit clock-out (renderClockedOut).
          */
         notifyJobTimerStopped: function() {
             hasActiveJobTimer = false;
-            if (deviceType === 'personal') {
-                stopTracking();
-            }
+            // Do not stop tracking here — crew are still clocked in and
+            // moving between jobs. Tracking stops when they clock out.
         },
         /**
          * Dynamically adjust GPS send interval.
