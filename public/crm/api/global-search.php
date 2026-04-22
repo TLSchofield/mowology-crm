@@ -7,6 +7,7 @@
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
 requireLogin();
+session_write_close(); // release session lock — search fires on every keypress
 
 $db = getDB();
 header('Content-Type: application/json');

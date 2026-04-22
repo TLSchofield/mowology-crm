@@ -30,6 +30,7 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
+    session_write_close(); // release session lock before DB queries
     requirePermission('expenses.view');
 
     $canEdit = userHasPermission('expenses.edit');
