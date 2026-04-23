@@ -294,6 +294,7 @@ select.form-control,
 select.custom-select {
   appearance: none;
   -webkit-appearance: none;
+  height: auto !important; /* Bootstrap fixed heights clip text when brand padding is applied */
   background-color: #fff !important;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
@@ -21196,6 +21197,11 @@ a.mw-clock-timer-nav:hover {
 }
 .mw-filter-bar .form-group { min-width:120px; }
 .mw-filter-bar .form-control-sm { font-size:12px; }
+.mw-filter-bar input[type="date"].form-control-sm {
+  height: calc(1.5em + 0.5rem + 2px);
+  line-height: 1.5;
+  min-width: 130px;
+}
 .mw-lightbox {
   position:fixed;
   inset:0;
@@ -25417,6 +25423,25 @@ body.mw-page-driver .container-fluid {
 .mw-rank-pill.top   { background: var(--mw-lime);  color: var(--mw-forest); }
 .mw-rank-pill.page1 { background: #fff3cd;          color: #856404; }
 .mw-rank-pill.page2 { background: #f8d7da;          color: #842029; }
+.mw-rank-pill.none  { background: var(--mw-light);  color: #6c757d; }
+
+/* Step wizard */
+.mw-ce-steps { display:flex; align-items:center; }
+.mw-ce-step { display:flex; align-items:center; gap:8px; opacity:0.4; transition:opacity 0.2s; }
+.mw-ce-step.active { opacity:1; }
+.mw-ce-step-num {
+  width:28px; height:28px; border-radius:50%; background:var(--mw-light);
+  color:var(--mw-forest); font-size:0.8rem; font-weight:700;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.mw-ce-step.active .mw-ce-step-num { background:var(--mw-green); color:#fff; }
+.mw-ce-step-label { font-size:0.85rem; font-weight:600; color:var(--mw-forest); white-space:nowrap; }
+.mw-ce-step-line { flex:1; height:2px; background:var(--mw-light); margin:0 12px; min-width:24px; }
+.mw-cascade-channel {
+  border:1px solid var(--mw-light); border-radius:8px;
+  padding:14px 16px; margin-bottom:10px; transition:border-color 0.15s, background 0.15s;
+}
+.mw-cascade-channel:has(input:checked) { border-color:var(--mw-green); background:#f0faf5; }
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Batch Camera Overlay
