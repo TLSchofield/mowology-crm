@@ -50,10 +50,28 @@ header('Content-Type: application/json');
 requireLogin();
 $user = getCurrentUser();
 
-if (!in_array($user['role'], ['admin', 'staff'])) {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Access denied']);
-    exit;
+$isAdminOrStaff = in_array($user['role'], ['admin', 'staff']);
+$isCrew         = ($user['role'] === 'crew');
+$requestContext = $_POST['context_type'] ?? '';
+$requestId      = (int)($_POST['context_id'] ?? 0);
+
+// Crew may only upload job_visit photos for visits assigned to them
+if (!$isAdminOrStaff) {
+    if (!$isCrew || $requestContext !== 'job_visit' || $requestId < 1) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Access denied']);
+        exit;
+    }
+    // Verify this visit is actually assigned to this crew member
+    $db = getDB();
+    $vs = $db->prepare("SELECT assigned_crew_id FROM job_visits WHERE id = ? LIMIT 1");
+    $vs->execute([$requestId]);
+    $vrow = $vs->fetch(PDO::FETCH_ASSOC);
+    if (!$vrow || (int)$vrow['assigned_crew_id'] !== (int)$user['id']) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Access denied']);
+        exit;
+    }
 }
 
 // --- CSRF ---
@@ -72,8 +90,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // --- Parse context fields ---
-$contextType = $_POST['context_type'] ?? 'marketing_general';
-$contextId = (int)($_POST['context_id'] ?? 0);
+$contextType = $requestContext ?: 'marketing_general';
+$contextId   = $requestId;
 $category = $_POST['category'] ?? null;
 $visibility = $_POST['visibility'] ?? 'internal';
 $altText = $_POST['alt_text'] ?? null;
