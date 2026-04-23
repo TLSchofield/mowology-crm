@@ -114,13 +114,26 @@
         input.focus();
     });
 
-    // Re-index when schedule JS replaces cards (e.g. pull-to-refresh,
-    // route reordering). Observe once for any childList mutation inside
-    // the container and rebuild.
+    // Re-index when schedule JS replaces cards (e.g. route reordering).
+    // IMPORTANT: the pill-workflow setInterval fires every second and
+    // mutates innerHTML inside each .mw-mc-card (live timer display).
+    // If we re-index on every mutation the card index rebuilds every
+    // second while the search box has text, stalling the mobile thread
+    // and making the keyboard feel frozen after one keystroke.
+    // Only react to structural mutations whose target is NOT inside an
+    // existing card — those represent actual card adds/removes.
     if (typeof MutationObserver !== 'undefined') {
-        var mo = new MutationObserver(function () {
-            cards = null; // lazy rebuild on next filter
-            if (input.value) applyFilter(input.value);
+        var mo = new MutationObserver(function (mutations) {
+            var isStructural = mutations.some(function (m) {
+                return typeof m.target.closest !== 'function' ||
+                       !m.target.closest('.mw-mc-card');
+            });
+            if (!isStructural) return;
+            cards = null;
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function () {
+                if (input.value) applyFilter(input.value);
+            }, 120);
         });
         mo.observe(container, { childList: true, subtree: true });
     }

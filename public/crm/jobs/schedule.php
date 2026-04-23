@@ -3273,7 +3273,7 @@ var MW_ROUTE_STOPS = <?php
 var MW_CSRF          = <?php echo json_encode($csrfToken); ?>;
 var MW_SCHEDULE_DATE = <?php echo json_encode($dayDate ?? $startDate); ?>;
 </script>
-<script src="../js/mw-schedule-search.js?v=20260410a" defer></script>
+<script src="../js/mw-schedule-search.js?v=20260422a" defer></script>
 <script src="../js/mw-pull-refresh.js?v=20260410a" defer></script>
 <script src="../js/navigation-launcher.js?v=20260225c" defer></script>
 <script src="../js/route-engine.js?v=20260219a" defer></script>
