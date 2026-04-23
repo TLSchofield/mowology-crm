@@ -887,8 +887,13 @@
             },
 
             onCancel: function (count, reason) {
-                if (reason === 'unsupported' || reason === 'denied' || reason === 'error') {
-                    // getUserMedia unavailable/denied — fall back to OS camera
+                if (reason === 'denied') {
+                    showCameraPermissionBanner();
+                    triggerCamera(visitId, 'additional');
+                    return;
+                }
+                if (reason === 'unsupported' || reason === 'error') {
+                    // getUserMedia unavailable — fall back to OS camera silently
                     triggerCamera(visitId, 'additional');
                     return;
                 }
@@ -1980,6 +1985,41 @@
     /**
      * Simple toast notification (top of scroll area)
      */
+    function showCameraPermissionBanner() {
+        var existing = document.getElementById('mw-cam-permission-banner');
+        if (existing) return; // already visible
+
+        var banner = document.createElement('div');
+        banner.id = 'mw-cam-permission-banner';
+        banner.style.cssText =
+            'position: fixed; top: 70px; left: 12px; right: 12px; z-index: 10000; ' +
+            'background: #1a1a2e; color: #fff; border-radius: 12px; ' +
+            'padding: 14px 16px 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.35); ' +
+            'font-size: 0.84rem; line-height: 1.5;';
+
+        banner.innerHTML =
+            '<div style="display:flex;align-items:flex-start;gap:10px;">' +
+                '<span style="font-size:1.3rem;flex-shrink:0;">📷</span>' +
+                '<div>' +
+                    '<strong style="display:block;margin-bottom:4px;">Camera access blocked</strong>' +
+                    'To enable multi-shot mode, open your phone\'s <strong>Settings</strong> &rarr; ' +
+                    '<strong>Apps</strong> &rarr; find this app &rarr; <strong>Permissions</strong> ' +
+                    '&rarr; turn on <strong>Camera</strong>.' +
+                    '<div style="margin-top:6px;color:#aaa;">Using your device\'s camera app for now.</div>' +
+                '</div>' +
+            '</div>' +
+            '<button id="mw-cam-perm-dismiss" style="' +
+                'margin-top:12px;width:100%;padding:8px;border:none;border-radius:8px;' +
+                'background:#2d8659;color:#fff;font-weight:700;font-size:0.85rem;cursor:pointer;">' +
+                'Got it' +
+            '</button>';
+
+        document.body.appendChild(banner);
+        document.getElementById('mw-cam-perm-dismiss').addEventListener('click', function() {
+            banner.remove();
+        });
+    }
+
     function showToast(msg) {
         var existing = document.querySelector('.mw-mc-toast');
         if (existing) existing.remove();
