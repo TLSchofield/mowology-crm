@@ -871,6 +871,13 @@
             maxPhotos: 10,
 
             onCapture: function (file) {
+                // Show on the card strip immediately via blob URL so the user
+                // sees each photo appear as they snap it.
+                var blobUrl = URL.createObjectURL(file);
+                if (!visits[visitId].additionalThumbs) visits[visitId].additionalThumbs = [];
+                visits[visitId].additionalThumbs.push(blobUrl);
+                renderPhotoStrip(visitId);
+
                 // Save to IDB immediately — photo survives crash/navigation before Done
                 saveToPhotoQueue(visitId, file, 'additional', function (queueId) {
                     if (queueId !== null) {
@@ -1913,8 +1920,24 @@
                                 if (!visits[item.visitId].additionalThumbs) {
                                     visits[item.visitId].additionalThumbs = [];
                                 }
+                                var thumbs = visits[item.visitId].additionalThumbs;
+                                // Swap the oldest blob: URL placeholder for the real server URL,
+                                // or push if no blob placeholder exists.
+                                var blobIdx = -1;
+                                for (var bi = 0; bi < thumbs.length; bi++) {
+                                    if (thumbs[bi] && thumbs[bi].substr(0, 5) === 'blob:') {
+                                        blobIdx = bi; break;
+                                    }
+                                }
                                 if (thumbUrl !== '__uploaded__') {
-                                    visits[item.visitId].additionalThumbs.push(thumbUrl);
+                                    if (blobIdx >= 0) {
+                                        URL.revokeObjectURL(thumbs[blobIdx]);
+                                        thumbs[blobIdx] = thumbUrl;
+                                    } else {
+                                        thumbs.push(thumbUrl);
+                                    }
+                                } else if (blobIdx < 0) {
+                                    // No real URL and no placeholder — mark done silently
                                 }
                             }
                             renderPhotoStrip(item.visitId);

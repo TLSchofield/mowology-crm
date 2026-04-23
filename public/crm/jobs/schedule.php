@@ -901,9 +901,10 @@ if (!empty($allVisitIds)) {
     $vPlaceholders = implode(',', array_fill(0, count($allVisitIds), '?'));
     $photoStmt = $db->prepare("
         SELECT ml.context_id AS visit_id, ml.category,
-               mv.file_path AS thumb_url
+               COALESCE(mv.file_path, ma.file_path) AS thumb_url
         FROM media_links ml
-        JOIN media_variants mv ON mv.media_id = ml.media_id
+        JOIN media_assets ma ON ma.id = ml.media_id
+        LEFT JOIN media_variants mv ON mv.media_id = ml.media_id
             AND mv.variant_type = 'thumb_square' AND mv.format = 'jpeg'
         WHERE ml.context_type = 'job_visit'
             AND ml.context_id IN ({$vPlaceholders})

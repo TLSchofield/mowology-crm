@@ -1680,13 +1680,11 @@
     .mw-mc-photo-additionals {
         display: flex;
         flex-direction: row;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         gap: 6px;
-        align-items: center;
+        align-items: flex-start;
         width: 100%;
         padding: 4px 0 0 0;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
     }
 
     /* Additional photo thumbs: compact squares */
@@ -4861,3 +4859,108 @@
     filter: grayscale(100%) brightness(1.15);
     opacity: 0.4;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   OBSIDIAN ROOT™ FULL-WIDTH TILE
+   Replaces the thin fert-row and tiny compact indicator.
+   Matches Before/After photo tile height so the crew sees it
+   at the same visual prominence as the camera action tiles.
+   ══════════════════════════════════════════════════════════════════ */
+.mw-mc-or-full-tile {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    height: 80px;
+    border-radius: 8px;
+    border: 2px dashed #ccc;
+    background: #f5f5f5;
+    padding: 0 16px;
+    margin: 8px 0 0;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+    text-align: left;
+    box-sizing: border-box;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+/* Button reset — active card uses <button type="button"> */
+button.mw-mc-or-full-tile {
+    font-family: inherit;
+    cursor: pointer;
+}
+button.mw-mc-or-full-tile:active { opacity: 0.82; }
+
+.mw-mc-or-full-tile img {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+    flex-shrink: 0;
+    display: block;
+    transition: filter 0.2s, opacity 0.2s;
+}
+.mw-mc-or-full-tile-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+}
+.mw-mc-or-tile-name {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #6B7280;
+}
+.mw-mc-or-tile-status {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    color: #9CA3AF;
+}
+.mw-mc-or-tile-chevron {
+    flex-shrink: 0;
+    color: #D1D5DB;
+}
+
+/* ── Enrolled — green solid border, full-colour logo ── */
+.mw-mc-or-full-tile.or-icon-full {
+    border-color: var(--mw-green, #2D8659);
+    border-style: solid;
+    background: #f0faf4;
+    cursor: pointer;
+}
+.mw-mc-or-full-tile.or-icon-full img {
+    filter: none;
+    opacity: 1;
+}
+.mw-mc-or-full-tile.or-icon-full .mw-mc-or-tile-name  { color: var(--mw-green, #2D8659); }
+.mw-mc-or-full-tile.or-icon-full .mw-mc-or-tile-status { color: var(--mw-green, #2D8659); }
+.mw-mc-or-full-tile.or-icon-full .mw-mc-or-tile-chevron { color: var(--mw-green, #2D8659); }
+
+/* ── Offer — red dashed border, full-colour logo ── */
+.mw-mc-or-full-tile.or-icon-sell {
+    border-color: #CC0000;
+    border-style: dashed;
+    background: #fff8f8;
+    cursor: pointer;
+}
+.mw-mc-or-full-tile.or-icon-sell img {
+    filter: none;
+    opacity: 1;
+}
+.mw-mc-or-full-tile.or-icon-sell .mw-mc-or-tile-name  { color: #CC0000; }
+.mw-mc-or-full-tile.or-icon-sell .mw-mc-or-tile-status { color: #CC0000; }
+.mw-mc-or-full-tile.or-icon-sell .mw-mc-or-tile-chevron { color: #CC0000; }
+
+/* ── Not enrolled — grey dashed, greyscale logo ── */
+.mw-mc-or-full-tile.or-icon-grey img {
+    filter: grayscale(100%) brightness(1.05);
+    opacity: 0.4;
+}
+.mw-mc-or-full-tile.or-icon-grey .mw-mc-or-tile-name  { color: #9CA3AF; }
+.mw-mc-or-full-tile.or-icon-grey .mw-mc-or-tile-status { color: #B0B8C1; }
+
+/* Hero card: match 110px photo tile height */
+.mw-mc-card-hero .mw-mc-or-full-tile { height: 110px; }
