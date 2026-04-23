@@ -43,6 +43,17 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0D3B2E">
     <title>Mowology</title>
+    <script>
+        // Industry-standard client-based routing: only the native Capacitor app
+        // runs through the pre-shift flow. Any browser (desktop or mobile) goes
+        // to the full CRM. Runs sync before any resources load — no splash flash.
+        (function () {
+            var isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+            if (!isNative) {
+                window.location.replace('/crm/jobs/schedule.php');
+            }
+        })();
+    </script>
     <link rel="icon" href="/assets/favicon/favicon.ico">
     <link rel="apple-touch-icon" href="/assets/favicon/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
