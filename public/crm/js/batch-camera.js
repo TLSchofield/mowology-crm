@@ -73,7 +73,26 @@
                 self._stream   = stream;
                 self._videoEl.srcObject = stream;
                 self._setStatus('');
-                self._videoEl.play().catch(function () {});
+
+                var attemptPlay = function () {
+                    return self._videoEl.play().then(function () {
+                        self._setStatus('');
+                    }).catch(function (playErr) {
+                        // Autoplay blocked — show tap-to-start prompt and wire one-shot
+                        // listeners that retry on the next user gesture.
+                        console.warn('[BatchCamera] video.play() rejected:', playErr && playErr.name, playErr && playErr.message);
+                        self._setStatus('Tap to start camera');
+                        var resume = function () {
+                            self._videoEl.play().catch(function () {});
+                            self._setStatus('');
+                            self._overlay.removeEventListener('click', resume, true);
+                            self._overlay.removeEventListener('touchend', resume, true);
+                        };
+                        self._overlay.addEventListener('click', resume, true);
+                        self._overlay.addEventListener('touchend', resume, true);
+                    });
+                };
+                attemptPlay();
             })
             .catch(function (err) {
                 console.warn('[BatchCamera] getUserMedia error:', err && err.name, err && err.message);
@@ -124,9 +143,16 @@
         vf.className = 'mw-batch-camera-viewfinder';
 
         var video = document.createElement('video');
-        video.setAttribute('autoplay', '');
-        video.setAttribute('playsinline', '');   // iOS Safari requires this
+        // Properties (not just attributes) — required by Android Chrome / iOS Safari
+        // for autoplay to be permitted. Attributes alone are not always honored in
+        // PWAs and WebViews, which causes a black viewfinder after permission grant.
+        video.muted        = true;
+        video.playsInline  = true;
+        video.autoplay     = true;
         video.setAttribute('muted', '');
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.setAttribute('autoplay', '');
         video.className = 'mw-bc-video';
         vf.appendChild(video);
         self._videoEl = video;
