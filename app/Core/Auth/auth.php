@@ -23,6 +23,22 @@ if (!defined('APP_ROOT')) {
 require_once APP_ROOT . '/Core/session_config.php';
 require_once APP_ROOT . '/Core/config.php';
 
+// Temporary debug logger — writes to standard PHP error log AND to a
+// file inside /storage/ so we can retrieve it via FTP.
+// TODO: remove after the Capacitor Nigel login issue is resolved.
+if (!function_exists('_loginDebugLog')) {
+    function _loginDebugLog(string $msg): void {
+        error_log($msg);
+        try {
+            $path = (defined('PUBLIC_ROOT') ? PUBLIC_ROOT : dirname(__DIR__, 3) . '/public') . '/storage/login-debug.log';
+            $line = '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n";
+            @file_put_contents($path, $line, FILE_APPEND | LOCK_EX);
+        } catch (\Throwable $e) {
+            // never let logging break auth
+        }
+    }
+}
+
 // Backwards-compatible DB accessor (legacy pages call getDB())
 if (!function_exists('getDB')) {
     if (class_exists('Database') && method_exists('Database', 'pdo')) {
@@ -132,7 +148,7 @@ function isLoginRateLimited(string $email, ?string $ip = null): bool {
         return (int)$stmt->fetchColumn() >= LOGIN_MAX_ATTEMPTS;
     } catch (Throwable $e) {
         // If the table doesn't exist yet, fail open (don't block logins)
-        error_log("isLoginRateLimited() error: " . $e->getMessage());
+        _loginDebugLog("isLoginRateLimited() error: " . $e->getMessage());
         return false;
     }
 }
@@ -147,7 +163,7 @@ function recordFailedLogin(string $email, ?string $ip = null): void {
         $stmt = $db->prepare("INSERT INTO login_attempts (email, ip_address) VALUES (?, ?)");
         $stmt->execute([$email, $ip]);
     } catch (Throwable $e) {
-        error_log("recordFailedLogin() error: " . $e->getMessage());
+        _loginDebugLog("recordFailedLogin() error: " . $e->getMessage());
     }
 }
 
@@ -161,7 +177,7 @@ function clearLoginAttempts(string $email, ?string $ip = null): void {
         $stmt = $db->prepare("DELETE FROM login_attempts WHERE email = ? AND ip_address = ?");
         $stmt->execute([$email, $ip]);
     } catch (Throwable $e) {
-        error_log("clearLoginAttempts() error: " . $e->getMessage());
+        _loginDebugLog("clearLoginAttempts() error: " . $e->getMessage());
     }
 }
 
@@ -176,7 +192,7 @@ function purgeExpiredLoginAttempts(): int {
         $stmt->execute([LOGIN_WINDOW_SECONDS]);
         return $stmt->rowCount();
     } catch (Throwable $e) {
-        error_log("purgeExpiredLoginAttempts() error: " . $e->getMessage());
+        _loginDebugLog("purgeExpiredLoginAttempts() error: " . $e->getMessage());
         return 0;
     }
 }
@@ -186,14 +202,29 @@ function purgeExpiredLoginAttempts(): int {
 function loginUser(string $email, string $password): bool {
     $db = getDB();
 
+    $rawInput = $email;
+
     // Normalize input: trim, lowercase, strip invisible chars
     $email = strtolower(trim($email));
     $email = preg_replace('/[\x00-\x1F\x7F\xC2\xA0]/u', '', $email);
 
+    $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
+    $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    _loginDebugLog(sprintf(
+        '[login-debug] attempt raw=%s normalized=%s rawLen=%d normLen=%d pwLen=%d ip=%s ua=%s',
+        json_encode($rawInput),
+        json_encode($email),
+        strlen((string)$rawInput),
+        strlen($email),
+        strlen($password),
+        $ip,
+        substr($ua, 0, 120)
+    ));
+
     try {
         // Accept username OR email — drivers use short usernames (e.g. "nigel", "dodgeram")
         $stmt = $db->prepare("
-            SELECT id, email, password_hash, full_name, first_name, last_name, role, is_active, is_driver
+            SELECT id, email, username, password_hash, full_name, first_name, last_name, role, is_active, is_driver
             FROM users
             WHERE LOWER(email) = ? OR (username IS NOT NULL AND LOWER(username) = ?)
             LIMIT 1
@@ -201,9 +232,34 @@ function loginUser(string $email, string $password): bool {
         $stmt->execute([$email, $email]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        if (!$user) {
+            _loginDebugLog('[login-debug] no user row matched input=' . json_encode($email));
+        } else {
+            _loginDebugLog(sprintf(
+                '[login-debug] row found id=%d email=%s username=%s is_active=%s is_driver=%s hashPresent=%s hashLen=%d',
+                (int)$user['id'],
+                json_encode($user['email'] ?? null),
+                json_encode($user['username'] ?? null),
+                var_export($user['is_active'] ?? null, true),
+                var_export($user['is_driver'] ?? null, true),
+                !empty($user['password_hash']) ? 'yes' : 'no',
+                strlen((string)($user['password_hash'] ?? ''))
+            ));
+        }
+
         // Explicitly deactivated users (is_active = 0) cannot log in; NULL/1 are both OK
         if ($user && isset($user['is_active']) && (int)$user['is_active'] === 0) {
+            _loginDebugLog('[login-debug] rejecting — is_active=0 for user id=' . (int)$user['id']);
             $user = false;
+        }
+
+        if ($user && isset($user['password_hash'])) {
+            $pwOk = password_verify($password, (string)$user['password_hash']);
+            _loginDebugLog(sprintf(
+                '[login-debug] password_verify result=%s for user id=%d',
+                $pwOk ? 'PASS' : 'FAIL',
+                (int)$user['id']
+            ));
         }
 
         if ($user && isset($user['password_hash']) && password_verify($password, (string)$user['password_hash'])) {
@@ -225,6 +281,12 @@ function loginUser(string $email, string $password): bool {
             $_SESSION['user_is_driver']  = !empty($user['is_driver']);
             $_SESSION['login_time']      = time();
             $_SESSION['last_activity']   = time();
+
+            // Release the session file lock now — all session writes are done.
+            // Without this the lock is held through the DB calls below, and the
+            // redirect target (app-launch.php) blocks at session_start() until
+            // this script exits, causing a race that shows the user as not-logged-in.
+            session_write_close();
 
             // Update last login
             $upd = $db->prepare("UPDATE users SET last_login = NOW() WHERE id = ? LIMIT 1");
@@ -249,7 +311,7 @@ function loginUser(string $email, string $password): bool {
 
         return false;
     } catch (Throwable $e) {
-        error_log("loginUser() error: " . $e->getMessage());
+        _loginDebugLog("loginUser() error: " . $e->getMessage());
         return false;
     }
 }
@@ -306,7 +368,7 @@ function logActivity(int $user_id, $client_id, string $action, ?string $details 
     try {
         $db = getDB();
         $stmt = $db->prepare("
-            INSERT INTO activity_log (user_id, client_id, action, details, ip_address)
+            INSERT INTO activity_log (user_id, contact_id, action, details, ip_address)
             VALUES (?, ?, ?, ?, ?)
         ");
         $stmt->execute([
@@ -317,7 +379,7 @@ function logActivity(int $user_id, $client_id, string $action, ?string $details 
             $_SERVER['REMOTE_ADDR'] ?? null
         ]);
     } catch (Throwable $e) {
-        error_log("logActivity() error: " . $e->getMessage());
+        _loginDebugLog("logActivity() error: " . $e->getMessage());
     }
 }
 
@@ -382,7 +444,7 @@ set_exception_handler(function (Throwable $e): void {
     $loc  = $e->getFile() . ':' . $e->getLine();
     $user = (isset($_SESSION['user_email']) ? $_SESSION['user_email'] : 'guest');
 
-    error_log("[CRM FATAL] $msg | $loc | user=$user | uri=$uri");
+    _loginDebugLog("[CRM FATAL] $msg | $loc | user=$user | uri=$uri");
 
     if (headers_sent()) {
         exit(1);

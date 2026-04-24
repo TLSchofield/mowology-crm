@@ -300,7 +300,8 @@ $activePage = 'team';
                         <div class="form-group">
                             <label>Password <span class="text-danger">*</span></label>
                             <input type="password" class="form-control" name="password" id="empPassword"
-                                   minlength="8" placeholder="Min. 8 characters">
+                                   minlength="8" placeholder="Min. 8 characters"
+                                   autocomplete="new-password" data-lpignore="true" data-1p-ignore>
                             <small class="form-text text-muted">Employee will use this to log in.</small>
                         </div>
                     </div>
@@ -532,7 +533,10 @@ $activePage = 'team';
         document.getElementById('empId').value = '';
         document.getElementById('passwordSection').style.display = '';
         document.getElementById('activeSection').style.display = 'none';
-        document.getElementById('empPassword').required = true;
+        var pw = document.getElementById('empPassword');
+        pw.disabled = false;
+        pw.required = true;
+        pw.value = '';
         $(modal).modal('show');
     };
 
@@ -559,10 +563,16 @@ $activePage = 'team';
                 document.getElementById('empDeviceType').value = emp.device_type || 'personal';
                 document.getElementById('empPingRate').value = emp.location_ping_rate || 'high';
 
-                // Hide password for edit, show active toggle
+                // Hide password for edit, show active toggle.
+                // CRITICAL: disable the password input so (a) FormData skips it
+                // and (b) browser password managers cannot silently autofill it,
+                // which would otherwise overwrite the employee's real password.
                 document.getElementById('passwordSection').style.display = 'none';
                 document.getElementById('activeSection').style.display = '';
-                document.getElementById('empPassword').required = false;
+                var pw = document.getElementById('empPassword');
+                pw.required = false;
+                pw.value = '';
+                pw.disabled = true;
 
                 $(modal).modal('show');
             })
