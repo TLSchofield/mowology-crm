@@ -13,8 +13,8 @@
 
 -- Track pre-trip bypasses on vehicle_trip_reports
 ALTER TABLE vehicle_trip_reports
-    ADD COLUMN IF NOT EXISTS pre_trip_skipped TINYINT(1) NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS skip_reason VARCHAR(100) NULL;
+    ADD COLUMN pre_trip_skipped TINYINT(1) NOT NULL DEFAULT 0,
+    ADD COLUMN skip_reason VARCHAR(100) NULL;
 
 -- Manager override PIN (admin sets this in Settings → Staff)
 INSERT INTO ops_settings (setting_key, setting_value, updated_at)
