@@ -16,9 +16,10 @@ $csrfToken = generateCSRFToken();
 
 // Load quiz preshift settings server-side so they're always correct on render
 $db = getDB();
-$_quizRows = $db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('quiz_preshift_enabled','quiz_preshift_session_length')")->fetchAll(PDO::FETCH_KEY_PAIR);
-$_quizEnabled = ($_quizRows['quiz_preshift_enabled'] ?? '0') === '1';
-$_quizLen     = (int)($_quizRows['quiz_preshift_session_length'] ?? 3);
+$_quizRows = $db->query("SELECT setting_key, setting_value FROM ops_settings WHERE setting_key IN ('quiz_preshift_enabled','quiz_preshift_session_length','manager_override_pin')")->fetchAll(PDO::FETCH_KEY_PAIR);
+$_quizEnabled     = ($_quizRows['quiz_preshift_enabled'] ?? '0') === '1';
+$_quizLen         = (int)($_quizRows['quiz_preshift_session_length'] ?? 3);
+$_managerPinSet   = !empty($_quizRows['manager_override_pin']);
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
            . '<script src="/crm/js/email-templates.js?v=1" defer></script>';
 ?>
@@ -1114,6 +1115,42 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </a>
                 </div>
             </div>
+
+            <div class="card mb-3">
+                <div class="card-header"><h5 class="card-title mb-0">Manager Override PIN</h5></div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">
+                        A 4-digit PIN that allows a manager to bypass the pre-trip inspection overlay on the Driver Portal in exceptional cases (office day, vehicle not used, etc.).
+                        Every bypass is logged. Leave blank to disable the bypass option entirely.
+                    </p>
+                    <?php if ($_managerPinSet): ?>
+                    <div class="alert alert-success py-2 mb-3" style="font-size:13px;">
+                        <i data-feather="check-circle" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;"></i>
+                        A PIN is currently set. Enter a new value below to change it, or clear the field and save to remove it.
+                    </div>
+                    <?php else: ?>
+                    <div class="alert alert-warning py-2 mb-3" style="font-size:13px;">
+                        <i data-feather="alert-triangle" style="width:14px;height:14px;margin-right:4px;vertical-align:-2px;"></i>
+                        No PIN set — the bypass option is hidden on the Driver Portal.
+                    </div>
+                    <?php endif; ?>
+                    <div class="form-group row mb-3">
+                        <label class="col-sm-3 col-form-label">4-Digit PIN</label>
+                        <div class="col-sm-3">
+                            <input type="password" class="form-control" id="managerOverridePin"
+                                   maxlength="4" inputmode="numeric" pattern="[0-9]*"
+                                   autocomplete="new-password"
+                                   placeholder="<?php echo $_managerPinSet ? '(set — enter new to change)' : '0000'; ?>">
+                            <small class="form-text text-muted">Digits only. Clear to disable the bypass.</small>
+                        </div>
+                    </div>
+                    <div id="managerPinSaveResult" class="alert" style="display:none;"></div>
+                    <button type="button" class="btn btn-primary" id="saveManagerPinBtn">
+                        <i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i>
+                        Save PIN
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Database / Migrations Tab -->
@@ -2202,6 +2239,63 @@ document.addEventListener('DOMContentLoaded', function () {
     document.addEventListener('DOMContentLoaded', function () {
         var saveBtn = document.getElementById('saveQuizPreshiftBtn');
         if (saveBtn) saveBtn.addEventListener('click', saveQuizPreshiftSettings);
+    });
+})();
+
+// MANAGER OVERRIDE PIN — save to ops_settings
+// ─────────────────────────────────────────────────────────────────────────────
+(function () {
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var btn = document.getElementById('saveManagerPinBtn');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+            var pinInput = document.getElementById('managerOverridePin');
+            var res      = document.getElementById('managerPinSaveResult');
+            var pin      = pinInput.value.trim();
+
+            if (pin && (!/^\d{4}$/.test(pin))) {
+                res.className = 'alert alert-danger';
+                res.textContent = 'PIN must be exactly 4 digits.';
+                res.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+            res.style.display = 'none';
+
+            fetch('/crm/api/ops-settings.php?action=save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csrf_token: csrf(), key: 'manager_override_pin', value: pin, description: '4-digit manager PIN to bypass pre-trip inspection' })
+            })
+            .then(r => r.json())
+            .then(function (data) {
+                if (data.success) {
+                    res.className = 'alert alert-success';
+                    res.textContent = pin ? 'PIN saved.' : 'PIN cleared — bypass disabled.';
+                    pinInput.value = '';
+                    pinInput.placeholder = pin ? '(set — enter new to change)' : '0000';
+                } else {
+                    res.className = 'alert alert-danger';
+                    res.textContent = data.error || 'Failed to save PIN.';
+                }
+                res.style.display = 'block';
+                setTimeout(() => { res.style.display = 'none'; }, 3000);
+            })
+            .catch(() => {
+                res.className = 'alert alert-danger';
+                res.textContent = 'Network error. Please try again.';
+                res.style.display = 'block';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="save" style="width:15px;height:15px;margin-right:4px;vertical-align:-2px;"></i> Save PIN';
+                if (typeof feather !== 'undefined') feather.replace();
+            });
+        });
     });
 })();
 </script>
