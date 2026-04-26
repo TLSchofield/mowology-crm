@@ -144,6 +144,9 @@ try {
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
 
+            // Clear any stale entry from a prior day before attempting clock-in.
+            resolveStaleClockEntry($targetUserId);
+
             $entryId = clockIn($targetUserId, $lat, $lng);
 
             // Log if admin clocked in someone else
@@ -295,9 +298,43 @@ try {
             ]);
             break;
 
+        case 'admin_void':
+            // Admin/manager only: force-complete an active clock entry for any user.
+            if (!in_array($user['role'], ['admin', 'manager'])) {
+                http_response_code(403);
+                echo json_encode(['error' => 'Admin or manager role required']);
+                exit;
+            }
+            if (empty($input['user_id'])) {
+                http_response_code(400);
+                echo json_encode(['error' => 'user_id required']);
+                exit;
+            }
+            $voidUserId = (int)$input['user_id'];
+            $voidReason = trim($input['reason'] ?? 'admin override');
+            $voidEntry  = getActiveClockEntry($voidUserId);
+            if (!$voidEntry) {
+                http_response_code(404);
+                echo json_encode(['error' => 'No active clock entry for this user']);
+                exit;
+            }
+            $autoHours = max(1, (int)getTimeClockSetting('auto_clock_out_hours', 10));
+            $db->prepare("
+                UPDATE time_clock_entries
+                SET clock_out     = NOW(),
+                    total_minutes = TIMESTAMPDIFF(MINUTE, clock_in, NOW()),
+                    status        = 'completed',
+                    notes         = CONCAT(COALESCE(notes,''), ' [admin voided by #', ?, ': ', ?, ']'),
+                    edited_at     = NOW()
+                WHERE id = ?
+            ")->execute([$user['id'], $voidReason, $voidEntry['id']]);
+            logActivity($user['id'], null, 'Admin void clock entry #' . $voidEntry['id'] . ' for user #' . $voidUserId, $voidReason);
+            echo json_encode(['success' => true, 'message' => 'Clock entry voided']);
+            break;
+
         default:
             http_response_code(400);
-            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out']);
+            echo json_encode(['error' => 'Invalid action. Use: status, clock_in, clock_out, admin_void']);
     }
 
 } catch (Exception $e) {

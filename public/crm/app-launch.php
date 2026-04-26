@@ -24,10 +24,14 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+require_once APP_ROOT . '/Modules/Team/Services/TimeclockFunctions.php';
 requireLogin();
 $user = getCurrentUser();
 $csrfToken = generateCSRFToken();
 session_write_close();
+
+// Resolve any stale active clock entry from a prior day before the JS checks state.
+resolveStaleClockEntry((int)$user['id']);
 $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0];
 ?>
 <!-- app-launch v20260313b -->

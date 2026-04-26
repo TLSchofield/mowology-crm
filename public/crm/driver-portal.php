@@ -86,6 +86,8 @@ foreach ($jobs as $j) {
 $summaryMinutes += $totalStops > 0 ? (max(0, $totalStops - 1) * 8 + 10) : 0;
 
 // ── Clock status ──────────────────────────────────────────────────────────────
+// Auto-resolve any stale clock entry from a prior day before evaluating state.
+resolveStaleClockEntry($user['id']);
 $activeClock = getActiveClockEntry($user['id']);
 $isClockedIn = (bool)$activeClock;
 
@@ -332,10 +334,7 @@ $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260420a" rel="styleshee
      PRE-TRIP OVERLAY
      ════════════════════════════════════════════════════════════════════════════ -->
 <div class="dp-overlay" id="dpPreTripOverlay">
-    <div class="dp-overlay-header">
-        <button class="dp-overlay-back" onclick="dpCloseForm('pre')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-        </button>
+    <div class="dp-overlay-header" style="justify-content:center;">
         <div>
             <div class="dp-overlay-title">Pre-Trip Inspection</div>
             <div class="dp-overlay-subtitle">RAM 3500 PF8865 &bull; <?php echo date('M j, Y'); ?></div>
@@ -433,6 +432,26 @@ $extraHead  = '<link href="/crm/css/mobile-cards.css?v=20260420a" rel="styleshee
                 Save Pre-Trip Inspection
             </button>
         </form>
+
+        <!-- Manager PIN bypass — last resort for edge cases (office day, truck not used, etc.) -->
+        <div id="dpPinBypassSection" style="margin-top:24px;padding-top:16px;border-top:1px solid rgba(0,0,0,.08);text-align:center;">
+            <button type="button" onclick="dpTogglePinBypass()" style="background:none;border:none;color:#888;font-size:12px;cursor:pointer;text-decoration:underline;padding:4px 8px;">
+                Skip &mdash; Manager Override
+            </button>
+            <div id="dpPinBypassForm" style="display:none;margin-top:12px;">
+                <p style="font-size:12px;color:#666;margin-bottom:10px;">Enter the manager PIN to bypass today&rsquo;s pre-trip. This is logged.</p>
+                <div style="display:flex;gap:8px;justify-content:center;align-items:center;">
+                    <input type="password" id="dpManagerPin" maxlength="4" inputmode="numeric" pattern="[0-9]*"
+                           style="width:90px;text-align:center;font-size:20px;letter-spacing:6px;padding:8px;border:1px solid #ccc;border-radius:6px;"
+                           placeholder="••••">
+                    <button type="button" onclick="dpSubmitPinBypass()"
+                            style="background:#2D8659;color:#fff;border:none;border-radius:6px;padding:10px 16px;font-size:14px;cursor:pointer;">
+                        Confirm
+                    </button>
+                </div>
+                <div id="dpPinError" style="color:#c00;font-size:12px;margin-top:6px;display:none;">Incorrect PIN</div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -541,18 +560,64 @@ function dpOpenForm(type) {
     document.body.style.overflow = 'hidden';
 }
 function dpCloseForm(type) {
-    var id = type === 'pre' ? 'dpPreTripOverlay' : 'dpPostTripOverlay';
+    // Pre-trip is mandatory — cannot be dismissed without submitting or PIN bypass.
+    if (type === 'pre') return;
+    var id = 'dpPostTripOverlay';
     document.getElementById(id).classList.remove('active');
     document.body.style.overflow = '';
 }
 
-// Close overlays on back button
+// Close overlays on back button — pre-trip is undismissable, only close post-trip.
 window.addEventListener('popstate', function() {
-    document.querySelectorAll('.dp-overlay.active').forEach(function(el) {
-        el.classList.remove('active');
+    var postTrip = document.getElementById('dpPostTripOverlay');
+    if (postTrip && postTrip.classList.contains('active')) {
+        postTrip.classList.remove('active');
         document.body.style.overflow = '';
-    });
+    }
 });
+
+// ── Manager PIN bypass ────────────────────────────────────────────────────────
+function dpTogglePinBypass() {
+    var form = document.getElementById('dpPinBypassForm');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    if (form.style.display === 'block') {
+        setTimeout(function(){ document.getElementById('dpManagerPin').focus(); }, 100);
+    }
+}
+
+function dpSubmitPinBypass() {
+    var pin = document.getElementById('dpManagerPin').value.trim();
+    var errEl = document.getElementById('dpPinError');
+    errEl.style.display = 'none';
+
+    if (!pin || pin.length < 4) {
+        errEl.textContent = 'Enter the 4-digit manager PIN';
+        errEl.style.display = 'block';
+        return;
+    }
+
+    fetch('/crm/api/manager-pin-verify.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pin: pin, bypass_reason: 'manager_override', csrf_token: DP.csrf})
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            dpToast('Pre-trip bypassed. Starting your day…');
+            setTimeout(function(){ window.location.href = '/crm/homebase.php'; }, 900);
+        } else {
+            document.getElementById('dpManagerPin').value = '';
+            errEl.textContent = data.error || 'Incorrect PIN';
+            errEl.style.display = 'block';
+        }
+    })
+    .catch(function(){
+        errEl.textContent = 'Network error — try again';
+        errEl.style.display = 'block';
+    });
+}
 
 // ── Safe-to-drive acknowledgment toggle ──────────────────────────────────────
 function dpToggleAck() {
