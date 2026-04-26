@@ -1001,6 +1001,8 @@
         flex-direction: column;
         flex: 1;
         min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
         /* Override the base border-top/margin-top so hero has clean top spacing */
         border-top: none;
         margin-top: 0;
@@ -4127,11 +4129,12 @@
    Each section: [service pill] → [photo strip] → [action footer]
    ══════════════════════════════════════════════════════════ */
 
-/* Hide the shared card-footer when expanded — per-visit footers take over.
-   Hero cards are always expanded via CSS (never get .mw-mc-expanded), so
-   target both cases here. */
-.mw-mc-card-compact.mw-mc-expanded .mw-mc-card-footer,
-.mw-mc-card-hero .mw-mc-card-footer {
+/* Hide the shared card-footer when a compact card is manually expanded —
+   per-visit footers inside expand-detail take over for that case.
+   Hero cards keep their card-footer visible at the bottom (expand-detail
+   content can be taller than the card height and gets clipped by
+   overflow:hidden, so per-visit footers inside it are not reliably visible). */
+.mw-mc-card-compact.mw-mc-expanded .mw-mc-card-footer {
     display: none;
 }
 
