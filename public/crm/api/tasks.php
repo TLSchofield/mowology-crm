@@ -301,6 +301,13 @@ try {
 
             // Save items if provided (purchase tasks)
             if ($taskType === 'purchase' && !empty($input['items']) && is_array($input['items'])) {
+                $tableExists = !empty($db->query("SHOW TABLES LIKE 'task_items'")->fetchAll());
+                if (!$tableExists) {
+                    $db->prepare("DELETE FROM tasks WHERE id = ?")->execute([$taskId]);
+                    http_response_code(500);
+                    echo json_encode(['error' => 'Migration 970 not complete — task_items table is missing. Ask admin to visit /crm/api/run-migration-970.php']);
+                    exit;
+                }
                 $itemStmt = $db->prepare("
                     INSERT INTO task_items (task_id, vendor_product_id, product_id, name, description,
                                             quantity, unit, estimated_unit_price, sort_order)
