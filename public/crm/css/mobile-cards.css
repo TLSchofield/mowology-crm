@@ -128,7 +128,7 @@
         width: 44px;    /* widened from 28px — glove-safe touch target */
         height: 48px;   /* raised from 44px — meets 48px minimum */
         flex-shrink: 0;
-        color: #bbb;
+        color: var(--mw-ink-300, #bbb);
         text-decoration: none;
         touch-action: manipulation;
         -webkit-tap-highlight-color: transparent;
