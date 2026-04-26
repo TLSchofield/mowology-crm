@@ -29,15 +29,17 @@ try {
 
     requireLogin();
     $user = getCurrentUser();
-    session_write_close();
 
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
+    // CSRF must be verified before session_write_close() — closing the session clears $_SESSION
     if (empty($input['csrf_token']) || !verifyCSRFToken($input['csrf_token'])) {
         http_response_code(403);
         echo json_encode(['error' => 'Invalid request']);
         exit;
     }
+
+    session_write_close();
 
     // Only drivers use this endpoint
     if (empty($user['is_driver'])) {
@@ -59,7 +61,7 @@ try {
     $db = getDB();
 
     // Fetch stored PIN — empty means PIN bypasses are disabled
-    $pinRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'manager_override_pin'")->fetch(PDO::FETCH_ASSOC);
+    $pinRow    = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'manager_override_pin'")->fetch(PDO::FETCH_ASSOC);
     $storedPin = $pinRow['setting_value'] ?? '';
 
     if (empty($storedPin)) {
@@ -78,24 +80,36 @@ try {
     $userId = (int)$user['id'];
     $today  = date('Y-m-d');
 
-    // Upsert vehicle_trip_reports to mark pre-trip as skipped
+    // Upsert vehicle_trip_reports to mark pre-trip as skipped.
+    // Uses try/catch fallback in case migration 1017 hasn't run yet
+    // (pre_trip_skipped / skip_reason columns may not exist).
     $existingStmt = $db->prepare("SELECT id FROM vehicle_trip_reports WHERE driver_id = ? AND report_date = ? LIMIT 1");
     $existingStmt->execute([$userId, $today]);
     $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
 
-    if ($existing) {
-        $db->prepare("
-            UPDATE vehicle_trip_reports
-            SET pre_trip_at      = NOW(),
-                pre_trip_skipped = 1,
-                skip_reason      = ?
-            WHERE id = ?
-        ")->execute([$reason, $existing['id']]);
-    } else {
-        $db->prepare("
-            INSERT INTO vehicle_trip_reports (driver_id, report_date, pre_trip_at, pre_trip_skipped, skip_reason)
-            VALUES (?, ?, NOW(), 1, ?)
-        ")->execute([$userId, $today, $reason]);
+    try {
+        if ($existing) {
+            $db->prepare("
+                UPDATE vehicle_trip_reports
+                SET pre_trip_at      = NOW(),
+                    pre_trip_skipped = 1,
+                    skip_reason      = ?
+                WHERE id = ?
+            ")->execute([$reason, $existing['id']]);
+        } else {
+            $db->prepare("
+                INSERT INTO vehicle_trip_reports (driver_id, report_date, pre_trip_at, pre_trip_skipped, skip_reason)
+                VALUES (?, ?, NOW(), 1, ?)
+            ")->execute([$userId, $today, $reason]);
+        }
+    } catch (Throwable $colErr) {
+        // Migration 1017 not yet run — fall back to minimal write without new columns
+        error_log('[manager-pin-verify] new columns missing, using fallback: ' . $colErr->getMessage());
+        if ($existing) {
+            $db->prepare("UPDATE vehicle_trip_reports SET pre_trip_at = NOW() WHERE id = ?")->execute([$existing['id']]);
+        } else {
+            $db->prepare("INSERT INTO vehicle_trip_reports (driver_id, report_date, pre_trip_at) VALUES (?, ?, NOW())")->execute([$userId, $today]);
+        }
     }
 
     // Audit log
@@ -105,6 +119,6 @@ try {
 
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['error' => 'Server error']);
+    echo json_encode(['error' => 'Server error: ' . $e->getMessage()]);
     error_log('[manager-pin-verify] ' . $e->getMessage());
 }
