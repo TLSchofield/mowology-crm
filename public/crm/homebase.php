@@ -861,6 +861,10 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
                     hbToast('Clocked out. Great work today! 👊');
                     setTimeout(function () { window.location.href = '/crm/app-launch.php'; }, 1200);
                 } else {
+                    if (d.post_trip_required) {
+                        window.location.href = '/crm/driver-portal.php?open=post';
+                        return;
+                    }
                     hbToast(d.error || 'Clock out failed', true);
                     if (btn) { btn.disabled = false; btn.textContent = 'Clock Out'; }
                 }

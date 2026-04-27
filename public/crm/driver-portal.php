@@ -647,6 +647,12 @@ function dpClockIn() {
         .then(function(data) {
             if (data.success || data.clocked_in) {
                 dpToast('Clocked in! Complete your vehicle inspection.');
+                if (window.MwNative && window.MwNative.tracking) {
+                    window.MwNative.tracking.startSession(
+                        <?= (int)$user['id'] ?>,
+                        String(data.entry_id || Date.now())
+                    );
+                }
                 // Open pre-trip form (Driver Portal Form) — redirect to schedule after completion
                 setTimeout(function(){ dpOpenForm('pre'); }, 600);
             } else {
@@ -672,9 +678,7 @@ function dpClockIn() {
 // ── Clock Out ─────────────────────────────────────────────────────────────────
 function dpClockOut() {
     if (!DP.postComplete) {
-        dpToast('Complete the post-trip vehicle check first', true);
-        // Scroll to vehicle check card
-        document.querySelector('.dp-card:last-of-type').scrollIntoView({behavior:'smooth'});
+        dpOpenForm('post');
         return;
     }
 

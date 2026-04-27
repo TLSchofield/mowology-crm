@@ -749,6 +749,15 @@ $firstName = $user['first_name'] ?? explode(' ', $user['full_name'] ?? 'Team')[0
                 txt.textContent = 'Clocked in ✓';
                 // Start continuous GPS tracker after successful clock-in
                 startGpsTracker(lat, lng);
+                // Start native WorkManager sync service so positions are synced while
+                // the driver is on standalone pages (driver-portal, homebase) that don't
+                // load the topbar widget.
+                if (window.MwNative && window.MwNative.tracking) {
+                    window.MwNative.tracking.startSession(
+                        <?= (int)$user['id'] ?>,
+                        String(res.entry_id || Date.now())
+                    );
+                }
                 // Drivers: pre-trip log form first. Crew: straight to homebase.
                 const dest = IS_DRIVER ? '/crm/driver-log.php' : '/crm/homebase.php';
                 setTimeout(() => { window.location.href = dest; }, 700);
