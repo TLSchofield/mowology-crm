@@ -16,6 +16,8 @@
  *  lock_visit        — Admin: lock the visit (makes PDF final)
  *  unlock_visit      — Admin: unlock for edits (logged in audit)
  *  upload_photo      — Save a photo to visit_photos, generate variants
+ *  complete_stop     — Desktop: mark all visits for a stop complete + optional invoice
+ *  reopen_visit      — Desktop: revert a completed visit to scheduled (admin or same-day crew)
  *
  * Returns: { "success": bool, "error"?: string, ... }
  */
@@ -73,7 +75,243 @@ try {
 
     $action  = $input['action'] ?? '';
     $visitId = isset($input['visit_id']) ? (int)$input['visit_id'] : 0;
+    $isAdmin = ($user['role'] ?? '') === 'admin' || userHasPermission('jobs.edit');
+    $ip      = $_SERVER['REMOTE_ADDR'] ?? null;
 
+    // ── Actions that use stop_id instead of visit_id ──────────────────────
+    if ($action === 'complete_stop') {
+        $stopId      = isset($input['stop_id']) ? (int)$input['stop_id'] : 0;
+        $withInvoice = !empty($input['invoice']);
+        $notes       = trim($input['notes'] ?? '');
+        $extrasMins  = max(0, (int)($input['extras_minutes'] ?? 0));
+
+        if ($stopId < 1) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'stop_id is required']);
+            exit;
+        }
+
+        // Auth: admin, or crew assigned to this stop
+        if (!$isAdmin) {
+            $stopCrewStmt = $db->prepare("
+                SELECT 1 FROM calendar_stops
+                WHERE id = ? AND (crew_id = ? OR id IN (
+                    SELECT stop_id FROM calendar_stop_crew WHERE user_id = ?
+                ))
+            ");
+            $stopCrewStmt->execute([$stopId, (int)$user['id'], (int)$user['id']]);
+            if (!$stopCrewStmt->fetch()) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Not authorized for this stop.']);
+                exit;
+            }
+        }
+
+        // Fetch all completable visits for this stop
+        $vsStmt = $db->prepare("
+            SELECT jv.id AS visit_id, jv.plan_id, jv.assigned_crew_id,
+                   jp.price_per_visit, jp.title AS plan_title, jp.service_type,
+                   p.address AS service_address, p.city AS service_city,
+                   p.province AS service_province, p.postal_code AS service_postal,
+                   p.id AS property_id, ct.id AS contact_id,
+                   CONCAT(ct.first_name, ' ', ct.last_name) AS contact_name
+            FROM job_visits jv
+            JOIN job_plans jp ON jv.plan_id = jp.id
+            JOIN calendar_stops cs ON jv.stop_id = cs.id
+            JOIN properties p ON cs.property_id = p.id
+            LEFT JOIN contacts ct ON p.site_contact_id = ct.id
+            WHERE jv.stop_id = ? AND jv.status IN ('scheduled','in_progress')
+        ");
+        $vsStmt->execute([$stopId]);
+        $completableVisits = $vsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($completableVisits)) {
+            echo json_encode(['success' => false, 'error' => 'No completable visits found for this stop.']);
+            exit;
+        }
+
+        // Extras rate
+        $extrasAmount = 0.00;
+        if ($extrasMins > 0) {
+            try {
+                $rateRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'extras_rate_per_5min' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+                $ratePerBlock = floatval($rateRow['setting_value'] ?? 5.00);
+                $blocks = (int)ceil($extrasMins / 5);
+                $extrasAmount = round($blocks * $ratePerBlock, 2);
+            } catch (Exception $e) {}
+        }
+
+        $completedVisitIds = [];
+        foreach ($completableVisits as $cv) {
+            $cvId = (int)$cv['visit_id'];
+            $db->prepare("
+                UPDATE job_visits SET
+                    status = 'completed',
+                    completed_at = NOW(),
+                    gps_confirmed_at = NOW(),
+                    completion_notes = CASE WHEN ? != '' THEN ? ELSE completion_notes END,
+                    extras_minutes = ?,
+                    extras_amount  = ?
+                WHERE id = ?
+            ")->execute([$notes, $notes, $extrasMins, $extrasAmount, $cvId]);
+            addAuditLog($db, $cvId, (int)$user['id'], 'complete', null, $ip);
+
+            $vcService = APP_ROOT . '/Modules/Jobs/Services/VisitCompletionService.php';
+            if (file_exists($vcService)) {
+                require_once $vcService;
+                VisitCompletionService::capture($cvId, (int)$user['id']);
+            }
+            $completedVisitIds[] = $cvId;
+        }
+
+        // Propagate stop status
+        $db->prepare("UPDATE calendar_stops SET status = 'completed', updated_at = NOW() WHERE id = ?")
+           ->execute([$stopId]);
+
+        $invoiceId     = null;
+        $invoiceNumber = null;
+
+        if ($withInvoice && !empty($completableVisits)) {
+            require_once APP_ROOT . '/Services/CrmFunctions.php';
+            $firstVisit = $completableVisits[0];
+            $contactId  = (int)($firstVisit['contact_id'] ?? 0);
+            $propertyId = (int)($firstVisit['property_id'] ?? 0);
+            $subtotal   = round(array_sum(array_column($completableVisits, 'price_per_visit')), 2);
+            if ($subtotal <= 0) $subtotal = 0.00;
+
+            $taxRate   = 0.05; // GST default
+            try {
+                $taxRow = $db->query("SELECT setting_value FROM ops_settings WHERE setting_key = 'tax_rate' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+                if ($taxRow) $taxRate = (float)$taxRow['setting_value'];
+            } catch (Exception $e) {}
+
+            $taxAmount  = round($subtotal * $taxRate, 2);
+            $total      = round($subtotal + $taxAmount, 2);
+            $invNumber  = generateInvoiceNumber();
+            $accToken   = generateAccessToken();
+            $dueDate    = date('Y-m-d', strtotime('+14 days'));
+
+            $db->prepare("
+                INSERT INTO invoices
+                    (invoice_number, contact_id, property_id, invoice_date, issue_date, due_date,
+                     subtotal, tax_rate, tax_amount, total_amount, total, balance_due,
+                     status, access_token, token_expires_at,
+                     service_address, service_city, service_province, service_postal_code, created_by)
+                VALUES
+                    (?, ?, ?, CURDATE(), CURDATE(), ?,
+                     ?, ?, ?, ?, ?, ?,
+                     'draft', ?, DATE_ADD(NOW(), INTERVAL 90 DAY),
+                     ?, ?, ?, ?, ?)
+            ")->execute([
+                $invNumber, $contactId, $propertyId ?: null, $dueDate,
+                $subtotal, $taxRate, $taxAmount, $total, $total, $total,
+                $accToken,
+                $firstVisit['service_address'] ?? '', $firstVisit['service_city'] ?? '',
+                $firstVisit['service_province'] ?? 'BC', $firstVisit['service_postal'] ?? '',
+                (int)$user['id'],
+            ]);
+            $invoiceId = (int)$db->lastInsertId();
+            $invoiceNumber = $invNumber;
+
+            // Line items — one per visit
+            foreach ($completableVisits as $cv) {
+                $lineDesc  = $cv['plan_title'] ?: ucfirst(str_replace('_', ' ', $cv['service_type'] ?? 'Service'));
+                $linePrice = round((float)($cv['price_per_visit'] ?? 0), 2);
+                $db->prepare("
+                    INSERT INTO invoice_line_items (invoice_id, description, quantity, unit_price, line_total)
+                    VALUES (?, ?, 1, ?, ?)
+                ")->execute([$invoiceId, $lineDesc, $linePrice, $linePrice]);
+            }
+
+            // Link visits to invoice
+            $db->prepare("
+                UPDATE job_visits SET is_invoiced = 1, invoice_id = ?
+                WHERE id IN (" . implode(',', array_fill(0, count($completedVisitIds), '?')) . ")
+            ")->execute(array_merge([$invoiceId], $completedVisitIds));
+
+            addAuditLog($db, $completedVisitIds[0], (int)$user['id'], 'invoice_created', ['invoice_id' => $invoiceId], $ip);
+        }
+
+        echo json_encode([
+            'success'        => true,
+            'invoice_id'     => $invoiceId,
+            'invoice_number' => $invoiceNumber,
+        ]);
+        exit;
+    }
+
+    // ── Reopen Visit ─────────────────────────────────────────────────────────
+    if ($action === 'reopen_visit') {
+        if ($visitId < 1) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'visit_id is required']);
+            exit;
+        }
+        $rvVisit = $db->prepare("
+            SELECT jv.id, jv.status, jv.locked_at, jv.invoice_id, jv.stop_id,
+                   jv.assigned_crew_id, cs.stop_date
+            FROM job_visits jv
+            LEFT JOIN calendar_stops cs ON jv.stop_id = cs.id
+            WHERE jv.id = ?
+        ");
+        $rvVisit->execute([$visitId]);
+        $rvRow = $rvVisit->fetch(PDO::FETCH_ASSOC);
+
+        if (!$rvRow) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Visit not found.']);
+            exit;
+        }
+        if ($rvRow['locked_at'] !== null) {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'error' => 'This visit is locked and cannot be reopened. Ask an admin to unlock it first.']);
+            exit;
+        }
+
+        // Auth: admin always; crew only if stop_date = today
+        $isSameDayCrew = (int)($rvRow['assigned_crew_id'] ?? 0) === (int)$user['id']
+                         && $rvRow['stop_date'] === date('Y-m-d');
+        if (!$isAdmin && !$isSameDayCrew) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Only admins can reopen visits from previous days.']);
+            exit;
+        }
+
+        // Unlink visit from invoice (leave invoice intact as draft for manual review)
+        $db->prepare("
+            UPDATE job_visits SET
+                status = 'scheduled',
+                completed_at = NULL,
+                started_at = NULL,
+                proof_complete = 0,
+                gps_departure_lat = NULL,
+                gps_departure_lng = NULL,
+                is_invoiced = 0,
+                invoice_id = NULL
+            WHERE id = ?
+        ")->execute([$visitId]);
+        addAuditLog($db, $visitId, (int)$user['id'], 'reopen', null, $ip);
+
+        // Recalculate stop status
+        $stopId = (int)($rvRow['stop_id'] ?? 0);
+        if ($stopId) {
+            $pendingStmt = $db->prepare("
+                SELECT COUNT(*) FROM job_visits
+                WHERE stop_id = ? AND status NOT IN ('completed','skipped','cancelled')
+            ");
+            $pendingStmt->execute([$stopId]);
+            $pending = (int)$pendingStmt->fetchColumn();
+            if ($pending > 0) {
+                $db->prepare("UPDATE calendar_stops SET status = 'scheduled', updated_at = NOW() WHERE id = ?")
+                   ->execute([$stopId]);
+            }
+        }
+
+        echo json_encode(['success' => true]);
+        exit;
+    }
+
+    // All other actions require a valid visit_id
     if ($visitId < 1) {
         throw new InvalidArgumentException('visit_id is required');
     }
@@ -91,7 +329,6 @@ try {
         exit;
     }
 
-    $isAdmin = ($user['role'] ?? '') === 'admin' || userHasPermission('jobs.edit');
     $isCrew  = (int)($visit['assigned_crew_id'] ?? 0) === (int)$user['id'];
 
     if (!$isAdmin && !$isCrew) {
@@ -117,8 +354,6 @@ try {
         ]);
         exit;
     }
-
-    $ip = $_SERVER['REMOTE_ADDR'] ?? null;
 
     switch ($action) {
 

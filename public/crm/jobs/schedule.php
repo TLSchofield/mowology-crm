@@ -727,6 +727,25 @@ if ($view === 'day') {
         }
     }
 
+    // Batch-fetch invoice numbers for all invoiced visits in this day's stops
+    $dayInvoiceMap = []; // invoice_id => invoice_number
+    $dayInvoiceIds = [];
+    foreach (array_merge($assignedStops, $unassignedStops) as $stop) {
+        foreach (($stop['visits'] ?? []) as $v) {
+            if (!empty($v['invoice_id'])) {
+                $dayInvoiceIds[(int)$v['invoice_id']] = true;
+            }
+        }
+    }
+    if (!empty($dayInvoiceIds)) {
+        $ph = implode(',', array_fill(0, count($dayInvoiceIds), '?'));
+        $invStmt = $db->prepare("SELECT id, invoice_number FROM invoices WHERE id IN ({$ph})");
+        $invStmt->execute(array_keys($dayInvoiceIds));
+        foreach ($invStmt->fetchAll(PDO::FETCH_ASSOC) as $inv) {
+            $dayInvoiceMap[(int)$inv['id']] = $inv['invoice_number'];
+        }
+    }
+
     // Build JS data for the day view map
     foreach (array_merge($assignedStops, $unassignedStops) as $stop) {
         $isAssigned = !empty($stop['crew_ids']) || !empty($stop['crew_id']);
@@ -1982,7 +2001,16 @@ if ($apiKey) {
                           $dvVisitsJson = [];
                           if (!empty($stop['visits'])) {
                               foreach ($stop['visits'] as $v) {
-                                  $dvVisitsJson[] = ['plan_id' => (int)($v['plan_id'] ?? 0), 'plan_number' => $v['plan_number'] ?? '', 'service_type' => $v['service_type'] ?? ''];
+                                  $dvVisitsJson[] = [
+                                      'visit_id'     => (int)($v['visit_id'] ?? 0),
+                                      'visit_status' => $v['visit_status'] ?? 'scheduled',
+                                      'is_invoiced'  => (int)($v['is_invoiced'] ?? 0),
+                                      'invoice_id'   => (int)($v['invoice_id'] ?? 0),
+                                      'plan_id'      => (int)($v['plan_id'] ?? 0),
+                                      'plan_number'  => $v['plan_number'] ?? '',
+                                      'service_type' => $v['service_type'] ?? '',
+                                      'price'        => (float)($v['price_per_visit'] ?? 0),
+                                  ];
                               }
                           }
                       ?>
@@ -2056,6 +2084,53 @@ if ($apiKey) {
                               </button>
                               <?php endif; ?>
                           </div>
+                          <?php
+                          // ── Per-card completion footer ──────────────────────
+                          $dvFooterVisitIds = array_filter(array_column($stop['visits'] ?? [], 'visit_id'));
+                          $dvInvoiceId      = 0;
+                          $dvInvoiceNumber  = '';
+                          foreach (($stop['visits'] ?? []) as $v) {
+                              if (!empty($v['invoice_id'])) {
+                                  $dvInvoiceId     = (int)$v['invoice_id'];
+                                  $dvInvoiceNumber = $dayInvoiceMap[$dvInvoiceId] ?? '';
+                                  break;
+                              }
+                          }
+                          $dvStopDone = ($stop['stop_status'] ?? 'scheduled') === 'completed';
+                          ?>
+                          <?php if ($dvStopDone): ?>
+                          <div class="mw-dv-card-footer mw-dv-footer-done">
+                              <span class="mw-dv-done-badge">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                  Completed
+                              </span>
+                              <?php if ($dvInvoiceId && $dvInvoiceNumber): ?>
+                              <a class="mw-dv-invoice-link" href="/crm/invoices/view.php?id=<?php echo $dvInvoiceId; ?>">
+                                  <?php echo htmlspecialchars($dvInvoiceNumber); ?> &rarr;
+                              </a>
+                              <?php endif; ?>
+                              <?php if (!empty($dvFooterVisitIds)): ?>
+                              <button class="mw-dv-btn-reopen"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-visit-ids="<?php echo htmlspecialchars(implode(',', $dvFooterVisitIds)); ?>"
+                                      title="Reopen this stop">Reopen</button>
+                              <?php endif; ?>
+                          </div>
+                          <?php else: ?>
+                          <div class="mw-dv-card-footer mw-dv-footer-pending">
+                              <button class="mw-dv-btn-complete mw-dv-btn-complete-invoice"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-invoice="1">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                  Complete &amp; Invoice
+                              </button>
+                              <button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-invoice="0">
+                                  Complete &#8212; No Invoice
+                              </button>
+                          </div>
+                          <?php endif; ?>
                       </div>
                       <?php endforeach; ?>
                   </div>
@@ -2074,7 +2149,16 @@ if ($apiKey) {
                           $unVisitsJson = [];
                           if (!empty($stop['visits'])) {
                               foreach ($stop['visits'] as $v) {
-                                  $unVisitsJson[] = ['plan_id' => (int)($v['plan_id'] ?? 0), 'plan_number' => $v['plan_number'] ?? '', 'service_type' => $v['service_type'] ?? ''];
+                                  $unVisitsJson[] = [
+                                      'visit_id'     => (int)($v['visit_id'] ?? 0),
+                                      'visit_status' => $v['visit_status'] ?? 'scheduled',
+                                      'is_invoiced'  => (int)($v['is_invoiced'] ?? 0),
+                                      'invoice_id'   => (int)($v['invoice_id'] ?? 0),
+                                      'plan_id'      => (int)($v['plan_id'] ?? 0),
+                                      'plan_number'  => $v['plan_number'] ?? '',
+                                      'service_type' => $v['service_type'] ?? '',
+                                      'price'        => (float)($v['price_per_visit'] ?? 0),
+                                  ];
                               }
                           }
                       ?>
@@ -2119,6 +2203,53 @@ if ($apiKey) {
                               <?php endif; ?>
                               <div class="mw-dv-card-crew" style="color: #adb5bd;">Unassigned</div>
                           </div>
+                          <?php
+                          // ── Per-card completion footer (unassigned) ─────────
+                          $dvFooterVisitIds = array_filter(array_column($stop['visits'] ?? [], 'visit_id'));
+                          $dvInvoiceId      = 0;
+                          $dvInvoiceNumber  = '';
+                          foreach (($stop['visits'] ?? []) as $v) {
+                              if (!empty($v['invoice_id'])) {
+                                  $dvInvoiceId     = (int)$v['invoice_id'];
+                                  $dvInvoiceNumber = $dayInvoiceMap[$dvInvoiceId] ?? '';
+                                  break;
+                              }
+                          }
+                          $dvStopDone = ($stop['stop_status'] ?? 'scheduled') === 'completed';
+                          ?>
+                          <?php if ($dvStopDone): ?>
+                          <div class="mw-dv-card-footer mw-dv-footer-done">
+                              <span class="mw-dv-done-badge">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                  Completed
+                              </span>
+                              <?php if ($dvInvoiceId && $dvInvoiceNumber): ?>
+                              <a class="mw-dv-invoice-link" href="/crm/invoices/view.php?id=<?php echo $dvInvoiceId; ?>">
+                                  <?php echo htmlspecialchars($dvInvoiceNumber); ?> &rarr;
+                              </a>
+                              <?php endif; ?>
+                              <?php if (!empty($dvFooterVisitIds)): ?>
+                              <button class="mw-dv-btn-reopen"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-visit-ids="<?php echo htmlspecialchars(implode(',', $dvFooterVisitIds)); ?>"
+                                      title="Reopen this stop">Reopen</button>
+                              <?php endif; ?>
+                          </div>
+                          <?php else: ?>
+                          <div class="mw-dv-card-footer mw-dv-footer-pending">
+                              <button class="mw-dv-btn-complete mw-dv-btn-complete-invoice"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-invoice="1">
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                                  Complete &amp; Invoice
+                              </button>
+                              <button class="mw-dv-btn-complete mw-dv-btn-complete-noinvoice"
+                                      data-stop-id="<?php echo (int)$stop['stop_id']; ?>"
+                                      data-invoice="0">
+                                  Complete &#8212; No Invoice
+                              </button>
+                          </div>
+                          <?php endif; ?>
                       </div>
                       <?php endforeach; ?>
                   </div>
