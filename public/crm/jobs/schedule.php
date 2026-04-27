@@ -143,6 +143,9 @@ for ($i = 0; $i < 7; $i++) {
 // ─── Calendar stop data ─────────────────────────────────────────────
 $calendarData = getCalendarStops($startDate, $endDate, $crewFilter, $serviceFilter);
 
+// ─── Purchase tasks for schedule ────────────────────────────────────
+$purchaseTasksByDate = getPurchaseTasksForSchedule($db, $startDate, $endDate, $crewFilter);
+
 // ─── Profitability batch data for all plans this week ───────────────
 $allPlanIds = [];
 foreach ($calendarData as $dateStops) {
@@ -1905,6 +1908,29 @@ if ($apiKey) {
                                   </div>
                               <?php endforeach; ?>
                           <?php endif; ?>
+
+                          <?php
+                          // Purchase task mini-cards for this day column (week view)
+                          $dtPurchaseTasks = $purchaseTasksByDate[$ds] ?? [];
+                          foreach ($dtPurchaseTasks as $ptMini):
+                              $_ptMiniStatus = $ptMini['purchase_status'] ?? 'requested';
+                              $_ptMiniStatusLabels = ['requested'=>'Requested','assigned'=>'Assigned','en_route'=>'En Route','at_vendor'=>'At Vendor','purchased'=>'Purchased','delivered'=>'Delivered','verified'=>'Verified'];
+                              $_ptMiniStatusLabel = $_ptMiniStatusLabels[$_ptMiniStatus] ?? ucfirst($_ptMiniStatus);
+                          ?>
+                              <div class="mw-pt-mini-card"
+                                   data-task-id="<?php echo (int)$ptMini['id']; ?>"
+                                   data-purchase-status="<?php echo htmlspecialchars($_ptMiniStatus); ?>"
+                                   data-vendor="<?php echo htmlspecialchars($ptMini['vendor_name'] ?? ''); ?>"
+                                   data-address="<?php echo htmlspecialchars($ptMini['location_address'] ?? ''); ?>"
+                                   data-items="<?php echo (int)($ptMini['items_count'] ?? 0); ?>"
+                                   data-total="<?php echo $ptMini['estimated_total'] !== null ? number_format((float)$ptMini['estimated_total'], 2) : ''; ?>"
+                                   data-assigned="<?php echo htmlspecialchars($ptMini['assigned_to_name'] ?? ''); ?>">
+                                  <svg class="mw-pt-mini-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+                                  <span class="mw-pt-mini-vendor"><?php echo htmlspecialchars($ptMini['vendor_name'] ?? 'Vendor'); ?></span>
+                                  <span class="mw-pt-mini-status"><?php echo $_ptMiniStatusLabel; ?></span>
+                              </div>
+                          <?php endforeach; ?>
+
                       </div>
                   <?php
                       $currentDate->modify('+1 day');
@@ -2098,7 +2124,26 @@ if ($apiKey) {
                   </div>
                   <?php endif; ?>
 
-                  <?php if (empty($assignedStops) && empty($unassignedStops)): ?>
+                  <?php
+                  // Purchase tasks for this day — desktop day view
+                  $dvPurchaseTasks = $purchaseTasksByDate[$dayDate] ?? [];
+                  if (!empty($dvPurchaseTasks)):
+                  ?>
+                  <div class="mw-dv-section mw-dv-section-procurement">
+                      <div class="mw-dv-section-header">
+                          <span class="mw-dv-section-title">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="margin-right:4px;vertical-align:middle;color:var(--mw-orange)"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+                              Procurement
+                          </span>
+                          <span class="mw-dv-section-count"><?php echo count($dvPurchaseTasks); ?> task<?php echo count($dvPurchaseTasks) !== 1 ? 's' : ''; ?></span>
+                      </div>
+                      <?php foreach ($dvPurchaseTasks as $task):
+                          include dirname(__DIR__) . '/partials/purchase-task-card.php';
+                      endforeach; ?>
+                  </div>
+                  <?php endif; ?>
+
+                  <?php if (empty($assignedStops) && empty($unassignedStops) && empty($dvPurchaseTasks)): ?>
                   <div class="mw-dv-empty">
                       <div class="mw-dv-empty-icon">&#128197;</div>
                       <div class="mw-dv-empty-text">No stops scheduled</div>
@@ -2475,6 +2520,20 @@ if ($apiKey) {
 
               <?php endif; // empty mobileStops ?>
               <?php endif; // isClockedIn gate ?>
+
+              <?php
+              // Purchase tasks — always shown regardless of clock-in status
+              $mobilePurchaseTasks = $purchaseTasksByDate[$mobileDate] ?? [];
+              if (!empty($mobilePurchaseTasks)):
+              ?>
+              <div class="mw-mc-section-label mw-pt-section-label">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>
+                  Procurement
+              </div>
+              <?php foreach ($mobilePurchaseTasks as $task):
+                  include dirname(__DIR__) . '/partials/purchase-task-card.php';
+              endforeach; ?>
+              <?php endif; ?>
 
               </div><!-- /.mw-mc-scroll-area -->
 
@@ -3244,7 +3303,30 @@ var MW_SCHEDULE_STATE = {
     activeTimer: <?php echo json_encode($activeTimerData); ?>,
     visitPhotos: <?php echo json_encode($visitPhotoMap, JSON_FORCE_OBJECT); ?>,
     autoArrivalEnabled: <?php echo json_encode((bool)(int)getTimeClockSetting('auto_arrival_enabled', '1')); ?>,
-    autoArrivalServiceTypes: <?php echo json_encode(array_filter(array_map('trim', explode(',', getTimeClockSetting('auto_arrival_service_types', ''))))); ?>
+    autoArrivalServiceTypes: <?php echo json_encode(array_filter(array_map('trim', explode(',', getTimeClockSetting('auto_arrival_service_types', ''))))); ?>,
+    purchaseTasks: <?php
+        // Flatten purchase tasks for current mobile date (map pins + JS workflow)
+        $ptForJs = [];
+        foreach (($purchaseTasksByDate[$mobileDate] ?? []) as $pt) {
+            $ptForJs[] = [
+                'id'             => (int)$pt['id'],
+                'task_number'    => $pt['task_number'] ?? '',
+                'title'          => $pt['title'] ?? '',
+                'vendor_name'    => $pt['vendor_name'] ?? '',
+                'location_label' => $pt['location_label'] ?? '',
+                'location_address'=> $pt['location_address'] ?? '',
+                'lat'            => $pt['lat'] !== null ? (float)$pt['lat'] : null,
+                'lng'            => $pt['lng'] !== null ? (float)$pt['lng'] : null,
+                'purchase_status'=> $pt['purchase_status'] ?? 'requested',
+                'procurement_mode'=> $pt['procurement_mode'] ?? 'asap',
+                'items_count'    => (int)($pt['items_count'] ?? 0),
+                'assigned_to_name'=> $pt['assigned_to_name'] ?? '',
+                'estimated_total'=> $pt['estimated_total'] !== null ? (float)$pt['estimated_total'] : null,
+                'priority'       => $pt['priority'] ?? 'normal',
+            ];
+        }
+        echo json_encode($ptForJs);
+    ?>
 };
 
 /**
@@ -3273,6 +3355,132 @@ var MW_ROUTE_STOPS = <?php
 var MW_CSRF          = <?php echo json_encode($csrfToken); ?>;
 var MW_SCHEDULE_DATE = <?php echo json_encode($dayDate ?? $startDate); ?>;
 </script>
+<script>
+/**
+ * Purchase Task workflow action — advance purchase_status from schedule cards.
+ * Optionally captures GPS for start_run, arrive_vendor, deliver.
+ */
+function mwPurchaseTaskAction(taskId, action) {
+    var btn = document.querySelector('[data-task-id="' + taskId + '"] .mw-pt-action-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+
+    var body = { csrf_token: MW_SCHEDULE_STATE.csrf, task_id: taskId };
+
+    var doPost = function(lat, lng) {
+        if (lat) body.lat = lat;
+        if (lng) body.lng = lng;
+
+        fetch('/crm/api/tasks.php?action=' + action, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                var newStatus = data.purchase_status || '';
+                // Update card data-attribute and re-render button
+                var card = document.querySelector('[data-task-id="' + taskId + '"]');
+                if (card) {
+                    card.dataset.purchaseStatus = newStatus;
+                    var footer = card.querySelector('.mw-pt-card-footer');
+                    if (footer) {
+                        var nextLabel = { en_route: 'At Vendor', at_vendor: 'Mark Purchased', purchased: 'Mark Delivered' }[newStatus];
+                        var nextAction = { en_route: 'arrive_vendor', at_vendor: 'complete_purchase', purchased: 'deliver' }[newStatus];
+                        if (nextLabel && nextAction) {
+                            if (btn) { btn.disabled = false; btn.textContent = nextLabel; btn.dataset.action = nextAction; btn.setAttribute('onclick', 'mwPurchaseTaskAction(' + taskId + ', \'' + nextAction + '\')'); }
+                        } else {
+                            footer.remove(); // delivered — no more actions
+                        }
+                    }
+                    // Update status badge
+                    var badge = card.querySelector('.mw-pt-status-badge');
+                    var statusLabels = { requested: 'Requested', assigned: 'Assigned', en_route: 'En Route', at_vendor: 'At Vendor', purchased: 'Purchased', delivered: 'Delivered', verified: 'Verified' };
+                    var statusClasses = ['mw-pt-badge-gray','mw-pt-badge-blue','mw-pt-badge-orange','mw-pt-badge-yellow','mw-pt-badge-green','mw-pt-badge-teal','mw-pt-badge-darkgreen'];
+                    if (badge && newStatus in statusLabels) {
+                        badge.textContent = statusLabels[newStatus];
+                        statusClasses.forEach(function(c){ badge.classList.remove(c); });
+                        var classMap = { requested: 'mw-pt-badge-gray', assigned: 'mw-pt-badge-blue', en_route: 'mw-pt-badge-orange', at_vendor: 'mw-pt-badge-yellow', purchased: 'mw-pt-badge-green', delivered: 'mw-pt-badge-teal', verified: 'mw-pt-badge-darkgreen' };
+                        if (classMap[newStatus]) badge.classList.add(classMap[newStatus]);
+                    }
+                }
+            } else {
+                if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
+                alert(data.error || 'Action failed');
+            }
+        })
+        .catch(function() {
+            if (btn) { btn.disabled = false; btn.textContent = 'Retry'; }
+        });
+    };
+
+    // Capture GPS for location-tracking actions
+    if (action === 'start_run' || action === 'arrive_vendor' || action === 'deliver') {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(pos) { doPost(pos.coords.latitude, pos.coords.longitude); },
+                function()    { doPost(null, null); },
+                { timeout: 5000 }
+            );
+        } else {
+            doPost(null, null);
+        }
+    } else {
+        doPost(null, null);
+    }
+}
+
+/**
+ * Expand/collapse a purchase task card on tap/click.
+ * Interactive children call event.stopPropagation() to prevent this firing.
+ */
+function mwExpandPurchaseTask(el, event) {
+    var expanded = el.dataset.expanded === 'true';
+    el.dataset.expanded = expanded ? 'false' : 'true';
+    el.classList.toggle('mw-pt-card-expanded', !expanded);
+    if (!expanded) {
+        // Scroll into view after CSS shows the body
+        setTimeout(function() {
+            var rect = el.getBoundingClientRect();
+            var vp = window.innerHeight || document.documentElement.clientHeight;
+            if (rect.bottom > vp - 60) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }, 150);
+    }
+}
+
+/**
+ * Toggle is_purchased on a task item checkbox with optimistic UI.
+ */
+function mwTogglePurchaseItem(checkbox) {
+    var itemId  = parseInt(checkbox.dataset.itemId, 10);
+    var checked = checkbox.checked;
+    var row     = checkbox.closest('.mw-pt-item-row');
+    if (row) row.classList.toggle('mw-pt-item-done', checked);
+
+    fetch('/crm/api/tasks.php?action=toggle_item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            csrf_token:   MW_SCHEDULE_STATE.csrf,
+            item_id:      itemId,
+            is_purchased: checked ? 1 : 0
+        })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (!d.success) {
+            checkbox.checked = !checked;
+            if (row) row.classList.toggle('mw-pt-item-done', !checked);
+        }
+    })
+    .catch(function() {
+        checkbox.checked = !checked;
+        if (row) row.classList.toggle('mw-pt-item-done', !checked);
+    });
+}
+</script>
 <script src="../js/mw-schedule-search.js?v=20260422a" defer></script>
 <script src="../js/mw-pull-refresh.js?v=20260410a" defer></script>
 <script src="../js/navigation-launcher.js?v=20260225c" defer></script>
@@ -3285,7 +3493,7 @@ var MW_SCHEDULE_DATE = <?php echo json_encode($dayDate ?? $startDate); ?>;
 <script>
 var MW_DAY_VIEW_STOPS = <?php echo json_encode($dayViewMapStops); ?>;
 </script>
-<script src="../js/schedule-day-map.js?v=20260418b" defer></script>
+<script src="../js/schedule-day-map.js?v=20260426b" defer></script>
 <script src="../js/schedule-team-layer.js?v=20260418b" defer></script>
 <?php endif; ?>
 <?php if ($view === 'week'): ?>
@@ -3304,6 +3512,59 @@ document.querySelectorAll('.mw-calendar-date-cell').forEach(function(cell) {
         }
     });
 });
+
+// Purchase task mini-card tooltip + click-to-day
+(function() {
+    var tip = document.createElement('div');
+    tip.className = 'mw-pt-tooltip';
+    tip.style.display = 'none';
+    document.body.appendChild(tip);
+
+    function esc(s) {
+        var d = document.createElement('div');
+        d.appendChild(document.createTextNode(s || ''));
+        return d.innerHTML;
+    }
+
+    function positionTip(e) {
+        var x  = e.clientX + 14;
+        var y  = e.clientY + 14;
+        var tw = tip.offsetWidth;
+        var vw = window.innerWidth;
+        if (x + tw > vw - 16) { x = e.clientX - tw - 8; }
+        tip.style.left = x + 'px';
+        tip.style.top  = (y + window.scrollY) + 'px';
+    }
+
+    document.querySelectorAll('.mw-pt-mini-card').forEach(function(card) {
+        card.addEventListener('mouseenter', function(e) {
+            var d = card.dataset;
+            var html = '<div class="mw-pt-tooltip-vendor">' + esc(d.vendor || '') + '</div>';
+            if (d.address)  html += '<div class="mw-pt-tooltip-row">' + esc(d.address) + '</div>';
+            if (parseInt(d.items, 10) > 0)
+                html += '<div class="mw-pt-tooltip-row">' + d.items + ' item' + (d.items === '1' ? '' : 's') + '</div>';
+            if (d.total)    html += '<div class="mw-pt-tooltip-row">$' + d.total + ' est.</div>';
+            if (d.assigned) html += '<div class="mw-pt-tooltip-row">' + esc(d.assigned) + '</div>';
+            html += '<div class="mw-pt-tooltip-row" style="margin-top:4px;color:var(--mw-orange);font-size:0.7rem">Click to view day</div>';
+            tip.innerHTML = html;
+            tip.style.display = 'block';
+            positionTip(e);
+        });
+        card.addEventListener('mousemove', positionTip);
+        card.addEventListener('mouseleave', function() { tip.style.display = 'none'; });
+        card.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var col = card.closest('[data-date]');
+            if (col && col.dataset.date) {
+                var params = new URLSearchParams(window.location.search);
+                params.set('view', 'day');
+                params.set('date', col.dataset.date);
+                params.delete('start');
+                window.location.search = params.toString();
+            }
+        });
+    });
+})();
 </script>
 <?php endif; ?>
 

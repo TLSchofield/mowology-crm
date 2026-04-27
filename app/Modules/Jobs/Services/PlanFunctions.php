@@ -1375,6 +1375,39 @@ function updateVisitStatus(int $visitId, string $newStatus, int $userId, ?string
                     error_log("Job complete notification failed for visit {$visitId}: " . $e->getMessage());
                 }
             }
+
+            // Propagate to calendar_stops so the stop reflects completion without
+            // requiring a page refresh. This mirrors the logic in pow-actions.php
+            // end_visit, which only runs via the direct-complete path — the clock-out
+            // path (stopJobTimer → updateVisitStatus) previously left stops stuck in
+            // 'scheduled'/'in_progress' after a page reload, causing "cannot be ended"
+            // errors when Complete Job was tapped again.
+            try {
+                $stopRow = $db->prepare("SELECT stop_id FROM job_visits WHERE id = ?");
+                $stopRow->execute([$visitId]);
+                $stopId = $stopRow->fetchColumn();
+                if ($stopId) {
+                    $pendingStmt = $db->prepare("
+                        SELECT COUNT(*) FROM job_visits
+                        WHERE stop_id = ? AND status NOT IN ('completed', 'skipped', 'cancelled')
+                    ");
+                    $pendingStmt->execute([$stopId]);
+                    $pending = (int)$pendingStmt->fetchColumn();
+                    if ($pending === 0) {
+                        $db->prepare("
+                            UPDATE calendar_stops SET status = 'completed', updated_at = NOW()
+                            WHERE id = ? AND status != 'completed'
+                        ")->execute([$stopId]);
+                    } else {
+                        $db->prepare("
+                            UPDATE calendar_stops SET status = 'in_progress', updated_at = NOW()
+                            WHERE id = ? AND status = 'scheduled'
+                        ")->execute([$stopId]);
+                    }
+                }
+            } catch (Throwable $e) {
+                error_log("updateVisitStatus stop propagation error for visit {$visitId}: " . $e->getMessage());
+            }
         }
 
         return true;
@@ -2808,4 +2841,157 @@ function calculateMaterialsForVisit(int $planId): ?string {
     ]];
 
     return json_encode($materials, JSON_UNESCAPED_UNICODE);
+}
+
+// ============================================================================
+// PURCHASE TASK SCHEDULE INTEGRATION
+// ============================================================================
+
+/**
+ * Fetch purchase tasks that should appear on the schedule for a date range.
+ *
+ * Appearance rules (any one is sufficient):
+ *   - procurement_mode = 'asap' and not yet delivered/verified
+ *   - scheduled_date <= endDate and not yet delivered/verified
+ *   - No scheduled_date and DATE(created_at) <= endDate and not delivered/verified
+ *
+ * Returns a flat array of task rows, each keyed by the date(s) they should
+ * appear on within [startDate, endDate]. Tasks with no fixed date (asap or
+ * no scheduled_date) are duplicated across every date in the range so they
+ * show up as persistent reminders.
+ *
+ * @param PDO    $db
+ * @param string $startDate  Y-m-d
+ * @param string $endDate    Y-m-d
+ * @param int|null $crewId   Filter by assigned_to, or null for all
+ * @return array  [dateStr => [task, ...], ...]
+ */
+function getPurchaseTasksForSchedule(PDO $db, string $startDate, string $endDate, ?int $crewId = null): array
+{
+    // Check task_type column exists before querying (migration 970 guard)
+    try {
+        $colCheck = $db->query("SHOW COLUMNS FROM tasks LIKE 'task_type'")->fetch();
+        if (!$colCheck) return [];
+    } catch (Exception $e) {
+        return [];
+    }
+
+    try {
+        $sql = "
+            SELECT t.*,
+                   v.name  AS vendor_name,
+                   vl.label   AS location_label,
+                   vl.address AS location_address,
+                   vl.lat,
+                   vl.lng,
+                   vl.city           AS location_city,
+                   vl.phone          AS location_phone,
+                   vl.hours_weekday,
+                   vl.hours_saturday,
+                   vl.hours_sunday,
+                   vl.notes          AS location_notes,
+                   vl.is_preferred,
+                   (SELECT COUNT(*) FROM task_items WHERE task_id = t.id) AS items_count,
+                   u.full_name AS assigned_to_name,
+                   jp.plan_number,
+                   jp.title          AS plan_title,
+                   CONCAT(c.first_name, ' ', c.last_name) AS contact_name
+            FROM tasks t
+            LEFT JOIN vendors v  ON t.vendor_id = v.id
+            LEFT JOIN vendor_locations vl ON t.vendor_location_id = vl.id
+            LEFT JOIN users u ON t.assigned_to = u.id
+            LEFT JOIN job_plans jp ON t.plan_id = jp.id
+            LEFT JOIN contacts c   ON t.contact_id = c.id
+            WHERE t.task_type = 'purchase'
+              AND (t.purchase_status IS NULL OR t.purchase_status NOT IN ('delivered', 'verified'))
+              AND (
+                  (t.scheduled_date IS NOT NULL AND t.scheduled_date <= ?)
+                  OR (t.scheduled_date IS NULL AND DATE(t.created_at) <= ?)
+                  OR t.procurement_mode = 'asap'
+              )
+        ";
+        $params = [$endDate, $endDate];
+
+        if ($crewId !== null) {
+            $sql .= " AND t.assigned_to = ?";
+            $params[] = $crewId;
+        }
+
+        $sql .= " ORDER BY
+            CASE t.priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
+            COALESCE(t.scheduled_date, DATE(t.created_at)) ASC,
+            t.id ASC";
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+        $tasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        error_log('[getPurchaseTasksForSchedule] ' . $e->getMessage());
+        return [];
+    }
+
+    // Batch-fetch task_items to avoid N+1 queries
+    $taskIds = array_column($tasks, 'id');
+    $itemsByTask = [];
+    if (!empty($taskIds)) {
+        try {
+            $ph = implode(',', array_fill(0, count($taskIds), '?'));
+            $iStmt = $db->prepare(
+                "SELECT id, task_id, name, quantity, unit, estimated_unit_price, is_purchased, sort_order
+                 FROM task_items
+                 WHERE task_id IN ($ph)
+                 ORDER BY task_id, sort_order, id"
+            );
+            $iStmt->execute($taskIds);
+            foreach ($iStmt->fetchAll(PDO::FETCH_ASSOC) as $item) {
+                $itemsByTask[(int)$item['task_id']][] = $item;
+            }
+        } catch (Exception $e) {
+            // task_items table may not exist pre-migration 970
+        }
+    }
+    foreach ($tasks as &$task) {
+        $task['items'] = $itemsByTask[(int)$task['id']] ?? [];
+    }
+    unset($task);
+
+    // Build date range array
+    $dates = [];
+    $cur = new DateTime($startDate);
+    $end = new DateTime($endDate);
+    while ($cur <= $end) {
+        $dates[] = $cur->format('Y-m-d');
+        $cur->modify('+1 day');
+    }
+
+    $byDate = [];
+    foreach ($dates as $d) {
+        $byDate[$d] = [];
+    }
+
+    foreach ($tasks as $task) {
+        $scheduledDate = $task['scheduled_date'] ?? null;
+        $procMode      = $task['procurement_mode'] ?? null;
+        $createdDate   = $task['created_at'] ? substr($task['created_at'], 0, 10) : $startDate;
+
+        // Determine which dates this task appears on
+        if ($procMode === 'asap' || $scheduledDate === null) {
+            // Persistent — show on every date in range from earliest applicable date
+            $earliestDate = ($scheduledDate !== null) ? $scheduledDate : $createdDate;
+            foreach ($dates as $d) {
+                if ($d >= $earliestDate) {
+                    $byDate[$d][] = $task;
+                }
+            }
+        } else {
+            // Fixed-date — show on scheduled_date and every day after (overdue reminder)
+            foreach ($dates as $d) {
+                if ($d >= $scheduledDate) {
+                    $byDate[$d][] = $task;
+                }
+            }
+        }
+    }
+
+    return $byDate;
 }

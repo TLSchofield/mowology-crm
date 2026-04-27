@@ -25917,3 +25917,212 @@ body.mw-page-driver .container-fluid {
 }
 
 .mw-pt-icon { color: var(--mw-orange); flex-shrink: 0; }
+
+/* ─── Purchase Task Card: Expandable (replaces compact/active split) ─── */
+
+.mw-pt-card-expandable {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Compact row — always visible summary */
+.mw-pt-compact-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  color: #444;
+}
+.mw-pt-compact-icon { color: var(--mw-orange); flex-shrink: 0; }
+.mw-pt-compact-vendor { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mw-pt-compact-loc {
+  color: #888;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.mw-pt-compact-items { color: #888; font-size: 0.75rem; white-space: nowrap; flex-shrink: 0; }
+
+/* Expand chevron */
+.mw-pt-expand-chevron {
+  color: var(--mw-orange);
+  font-size: 0.6rem;
+  transition: transform 0.18s ease;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.mw-pt-card-expanded .mw-pt-expand-chevron {
+  transform: rotate(90deg);
+}
+
+/* Expanded body: hidden by default */
+.mw-pt-expanded-body {
+  display: none;
+  border-top: 1px solid rgba(232,93,4,0.12);
+}
+.mw-pt-card-expanded .mw-pt-expanded-body {
+  display: block;
+}
+.mw-pt-card-expanded {
+  box-shadow: 0 1px 4px rgba(232,93,4,0.15);
+}
+
+/* Navigate button */
+.mw-pt-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--mw-orange);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 4px;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.mw-pt-nav-btn:hover { background: #c94e00; color: #fff; text-decoration: none; }
+
+/* Address row */
+.mw-pt-address-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 0 5px;
+  font-size: 0.8rem;
+  color: #555;
+}
+.mw-pt-address-text { flex: 1; min-width: 0; }
+
+/* Phone row */
+.mw-pt-phone-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 3px 0;
+  font-size: 0.8rem;
+}
+.mw-pt-phone-link { color: var(--mw-green); font-weight: 500; }
+.mw-pt-phone-link:hover { color: var(--mw-dark); text-decoration: underline; }
+
+/* Store hours */
+.mw-pt-hours {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 3px 0;
+  font-size: 0.78rem;
+  color: #666;
+}
+.mw-pt-hours-text { flex: 1; }
+
+.mw-pt-open-badge {
+  background: #d1e7dd;
+  color: #0a3622;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.mw-pt-closed-badge {
+  background: #f8d7da;
+  color: #842029;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* Plan context */
+.mw-pt-plan-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 3px 0;
+  font-size: 0.78rem;
+  color: #666;
+}
+.mw-pt-plan-link { color: var(--mw-green); font-weight: 600; }
+.mw-pt-plan-link:hover { color: var(--mw-dark); text-decoration: underline; }
+
+/* Item checklist */
+.mw-pt-items-list {
+  margin: 7px 0 4px;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 0.8rem;
+}
+.mw-pt-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.1s;
+}
+.mw-pt-item-row:last-child { border-bottom: none; }
+.mw-pt-item-row:hover { background: #fafafa; }
+.mw-pt-item-row.mw-pt-item-done .mw-pt-item-name {
+  text-decoration: line-through;
+  color: #aaa;
+}
+.mw-pt-item-check-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  margin: 0;
+  cursor: pointer;
+  min-width: 0;
+}
+.mw-pt-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mw-pt-item-qty  { color: #888; white-space: nowrap; font-size: 0.75rem; flex-shrink: 0; }
+.mw-pt-item-price { color: #555; white-space: nowrap; font-size: 0.75rem; min-width: 40px; text-align: right; flex-shrink: 0; }
+
+/* Location notes (info icon row) */
+.mw-pt-loc-notes {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  color: #888;
+}
+
+/* Mini card in desktop week view: make clickable */
+.mw-pt-mini-card { cursor: pointer; }
+.mw-pt-mini-card:hover { background: #fff0e8; }
+
+/* Week view tooltip */
+.mw-pt-tooltip {
+  position: absolute;
+  z-index: 9999;
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-left: 3px solid var(--mw-orange);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  color: #333;
+  min-width: 180px;
+  max-width: 260px;
+  pointer-events: none;
+  line-height: 1.45;
+}
+.mw-pt-tooltip-vendor { font-weight: 700; margin-bottom: 3px; }
+.mw-pt-tooltip-row { color: #666; }

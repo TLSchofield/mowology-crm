@@ -651,6 +651,25 @@ try {
             echo json_encode(['success' => true, 'items_count' => count($items), 'estimated_total' => $estimatedTotal]);
             break;
 
+        case 'toggle_item':
+            $itemId      = (int)($input['item_id'] ?? 0);
+            $isPurchased = !empty($input['is_purchased']) ? 1 : 0;
+            if (!$itemId) {
+                http_response_code(400);
+                echo json_encode(['error' => 'item_id required']);
+                exit;
+            }
+            $chk = $db->prepare("SELECT task_id FROM task_items WHERE id = ?");
+            $chk->execute([$itemId]);
+            if (!$chk->fetch()) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Item not found']);
+                exit;
+            }
+            $db->prepare("UPDATE task_items SET is_purchased = ? WHERE id = ?")->execute([$isPurchased, $itemId]);
+            echo json_encode(['success' => true, 'item_id' => $itemId, 'is_purchased' => $isPurchased]);
+            break;
+
         default:
             http_response_code(400);
             echo json_encode(['error' => 'Unknown action']);
