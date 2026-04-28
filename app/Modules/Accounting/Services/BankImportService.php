@@ -330,6 +330,14 @@ class BankImportService
         $pdf    = $parser->parseFile($filePath);
         $text   = $pdf->getText();
 
+        // Some bank PDFs (e.g. Vancity) use custom font encodings without a
+        // ToUnicode map. smalot returns garbled high-byte characters instead of
+        // readable text. Detect this by measuring the non-ASCII ratio and fall
+        // back to pdftotext (poppler) which handles font encoding natively.
+        if ($this->isGarbledText($text)) {
+            $text = $this->extractTextViaPdftotext($filePath);
+        }
+
         $rows = $this->parsePdfText($text);
 
         if (empty($rows)) {
@@ -404,8 +412,8 @@ class BankImportService
         $datePatterns = [
             // Month-name day (no year) — Jan 15, Jan. 15
             '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}',
-            // Day Month-name — 15 Jan, 15 MAR (Vancity/credit union style)
-            '\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?',
+            // Day Month-name — 15 Jan, 15MAR, 15 MAR (Vancity omits space inconsistently)
+            '\d{1,2}\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?',
             // MM/DD or MM-DD
             '\d{1,2}[\/\-]\d{1,2}',
             // YYYY-MM-DD
@@ -540,6 +548,58 @@ class BankImportService
     // ══════════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Returns true if the extracted text looks like garbled font encoding
+     * rather than readable ASCII — e.g. Vancity PDFs with no ToUnicode map.
+     * Threshold: >25% of printable characters are outside ASCII 0x20–0x7E.
+     */
+    private function isGarbledText(string $text): bool
+    {
+        $printable = preg_replace('/\s/', '', $text);
+        if (strlen($printable) < 20) return false;
+        $nonAscii = preg_match_all('/[^\x20-\x7E]/', $printable);
+        return ($nonAscii / strlen($printable)) > 0.25;
+    }
+
+    /**
+     * Extract text from a PDF using the system pdftotext binary (poppler).
+     * Falls back gracefully with a descriptive message if not installed.
+     * Uses -layout mode to preserve column spacing for amount detection.
+     */
+    private function extractTextViaPdftotext(string $filePath): string
+    {
+        // Common install paths on macOS (Homebrew) and Linux (cPanel/Ubuntu)
+        $candidates = [
+            '/usr/bin/pdftotext',
+            '/usr/local/bin/pdftotext',
+            '/opt/homebrew/bin/pdftotext',
+        ];
+        $bin = null;
+        foreach ($candidates as $c) {
+            if (is_executable($c)) { $bin = $c; break; }
+        }
+
+        if ($bin === null) {
+            // Try PATH lookup as last resort
+            $found = trim((string)shell_exec('which pdftotext 2>/dev/null'));
+            if ($found !== '' && is_executable($found)) $bin = $found;
+        }
+
+        if ($bin === null) {
+            throw new RuntimeException(
+                'This PDF uses a custom font encoding that cannot be decoded automatically. ' .
+                'Please export a CSV from your online banking instead, or contact support.'
+            );
+        }
+
+        $escaped = escapeshellarg($filePath);
+        $out = shell_exec("{$bin} -layout {$escaped} - 2>/dev/null");
+        if ($out === null || trim($out) === '') {
+            throw new RuntimeException('pdftotext failed to extract text from this PDF.');
+        }
+        return $out;
+    }
 
     /**
      * Parse a raw CSV string into normalized row arrays.
