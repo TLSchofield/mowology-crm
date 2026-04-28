@@ -3,7 +3,8 @@
     "description": "Mowology Landscaping CRM",
     "require": {
         "mpdf/mpdf": "^8.2",
-        "stripe/stripe-php": "^19.3"
+        "stripe/stripe-php": "^19.3",
+        "smalot/pdfparser": "^2.12"
     },
     "config": {
         "vendor-dir": "vendor"
