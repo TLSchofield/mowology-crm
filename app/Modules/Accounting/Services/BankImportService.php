@@ -622,8 +622,10 @@ class BankImportService
      */
     private function extractTextViaImagickOcr(string $filePath): string
     {
+        // OCR.space free key limit: 1 MB per request (base64 adds ~33% overhead).
+        // At 150 DPI, a letter page is 1275×1650 px — well under 700 KB at q70.
         $im = new \Imagick();
-        $im->setResolution(200, 200); // 200 DPI — good OCR quality, ~200KB JPEG/page
+        $im->setResolution(150, 150);
         $im->readImage('pdf:' . $filePath);
 
         $numPages = $im->getNumberImages();
@@ -636,13 +638,28 @@ class BankImportService
             $im->setIteratorIndex($i);
             $page = $im->getImage();
             $page->setImageFormat('jpeg');
-            $page->setImageCompressionQuality(82);
+            $page->setImageCompressionQuality(70);
             // Flatten to white background (PDFs may have transparency)
             $page->setImageBackgroundColor('white');
             $flat = $page->flattenImages();
             $jpegData = $flat->getImageBlob();
             $flat->destroy();
             $page->destroy();
+
+            // If still over ~700 KB (leaving headroom for base64 expansion to 1 MB),
+            // re-render at 100 DPI — readable but much smaller.
+            if (strlen($jpegData) > 700000) {
+                $im2 = new \Imagick();
+                $im2->setResolution(100, 100);
+                $im2->readImage('pdf:' . $filePath . '[' . $i . ']');
+                $p2 = $im2->getImage();
+                $p2->setImageFormat('jpeg');
+                $p2->setImageCompressionQuality(65);
+                $p2->setImageBackgroundColor('white');
+                $f2 = $p2->flattenImages();
+                $jpegData = $f2->getImageBlob();
+                $f2->destroy(); $p2->destroy(); $im2->destroy();
+            }
 
             $allText .= $this->ocrImageBytes($jpegData, 'jpeg') . "\n";
         }
@@ -700,13 +717,27 @@ class BankImportService
             throw new RuntimeException('OCR processing failed: ' . $msg);
         }
 
+        // Check OCR exit code for specific failure modes
+        $exitCode = (int)($data['OCRExitCode'] ?? 0);
+        if ($exitCode === 6) {
+            throw new RuntimeException('OCR API rate limit reached. Please sign up for a free OCR.space key at ocr.space/ocrapi and add it to your config.');
+        }
+        if ($exitCode >= 3 && empty($data['ParsedResults'])) {
+            $msg = isset($data['ErrorMessage'])
+                ? (is_array($data['ErrorMessage']) ? implode('; ', $data['ErrorMessage']) : $data['ErrorMessage'])
+                : ('OCR exit code ' . $exitCode);
+            throw new RuntimeException('OCR processing failed: ' . $msg);
+        }
+
         $text = '';
         foreach ($data['ParsedResults'] ?? [] as $result) {
             $text .= ($result['ParsedText'] ?? '') . "\n";
         }
 
         if (trim($text) === '') {
-            throw new RuntimeException('OCR returned no text. The image may be too dark, blurry, or low-resolution.');
+            // Include a fragment of the raw response to help diagnose unexpected failures
+            $hint = substr(json_encode($data), 0, 200);
+            throw new RuntimeException('OCR returned no text. API response: ' . $hint);
         }
 
         return $text;
