@@ -102,29 +102,34 @@ $activePage = 'accounting';
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 <div id="step-preview" style="display:none">
     <div class="card mb-3">
-        <div class="card-header d-flex justify-content-between align-items-center">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h5 class="card-title mb-0">Step 2 — Review Transactions</h5>
-            <div class="d-flex gap-2">
-                <span id="preview-summary" class="text-muted small"></span>
-            </div>
+            <span id="preview-summary" class="text-muted small"></span>
         </div>
         <div class="card-body py-2">
-            <div class="d-flex gap-3 flex-wrap align-items-center mb-2">
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="skip-duplicates" checked>
-                    <label class="form-check-label small" for="skip-duplicates">Skip probable duplicates</label>
+            <!-- Filter tabs -->
+            <div class="d-flex gap-2 flex-wrap align-items-center mb-2">
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-secondary active" onclick="setFilter('all',this)">All <span id="count-all" class="badge bg-secondary ms-1">0</span></button>
+                    <button type="button" class="btn btn-outline-success" onclick="setFilter('matched',this)">✓ Receipts matched <span id="count-matched" class="badge bg-success ms-1">0</span></button>
+                    <button type="button" class="btn btn-outline-primary" onclick="setFilter('unmatched',this)">Unmatched <span id="count-unmatched" class="badge bg-primary ms-1">0</span></button>
+                    <button type="button" class="btn btn-outline-warning" onclick="setFilter('duplicate',this)">Already imported <span id="count-dupe" class="badge bg-warning text-dark ms-1">0</span></button>
                 </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="checkbox" id="hide-duplicates">
-                    <label class="form-check-label small" for="hide-duplicates">Hide duplicates from preview</label>
+                <div class="form-check form-check-inline ms-2 mb-0">
+                    <input class="form-check-input" type="checkbox" id="skip-duplicates" checked>
+                    <label class="form-check-label small" for="skip-duplicates">Skip already imported</label>
                 </div>
                 <button class="btn btn-xs btn-outline-secondary ms-auto" onclick="resetUpload()">← Back</button>
             </div>
 
-            <!-- Alert: Duplicate count -->
+            <!-- Alerts -->
             <div id="dupe-alert" class="alert alert-warning py-2 small d-none">
                 <i data-feather="alert-triangle" style="width:14px;height:14px"></i>
                 <span id="dupe-msg"></span>
+            </div>
+            <div id="match-alert" class="alert alert-success py-2 small d-none">
+                <i data-feather="check-circle" style="width:14px;height:14px"></i>
+                <span id="match-msg"></span>
             </div>
         </div>
 
@@ -139,7 +144,7 @@ $activePage = 'accounting';
                         <th style="width:80px">Type</th>
                         <th style="width:90px" class="text-end">Amount</th>
                         <th style="width:200px">Account</th>
-                        <th style="width:70px">Status</th>
+                        <th style="width:140px">Receipt / Status</th>
                     </tr>
                 </thead>
                 <tbody id="preview-tbody"></tbody>
@@ -352,18 +357,49 @@ async function uploadAndPreview() {
     }
 }
 
-function renderPreview(preview) {
-    const totals = preview.totals;
-    document.getElementById('preview-summary').textContent =
-        `${totals.rows} rows · +${fmtMoney(totals.income)} income · −${fmtMoney(totals.expense)} expenses · ${totals.duplicates} duplicates`;
+let activeFilter = 'all';
 
-    const dupeAlert = document.getElementById('dupe-alert');
-    if (totals.duplicates > 0) {
+function setFilter(filter, btn) {
+    activeFilter = filter;
+    document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    renderPreviewTable(previewRows);
+}
+
+function renderPreview(preview) {
+    const totals  = preview.totals;
+    const matched = totals.matched  || 0;
+    const dupes   = totals.duplicates || 0;
+    const unmatched = totals.rows - dupes - matched;
+
+    // Summary bar
+    document.getElementById('preview-summary').innerHTML =
+        `${totals.rows} rows &nbsp;·&nbsp; <span class="text-success">+${fmtMoney(totals.income)}</span> &nbsp;·&nbsp; <span class="text-danger">−${fmtMoney(totals.expense)}</span>` +
+        (matched > 0  ? ` &nbsp;·&nbsp; <span class="text-success fw-bold">✓ ${matched} receipts matched</span>` : '') +
+        (dupes   > 0  ? ` &nbsp;·&nbsp; <span class="text-warning">${dupes} already imported</span>` : '');
+
+    // Filter tab counts
+    document.getElementById('count-all').textContent      = totals.rows;
+    document.getElementById('count-matched').textContent  = matched;
+    document.getElementById('count-unmatched').textContent= unmatched;
+    document.getElementById('count-dupe').textContent     = dupes;
+
+    // Alerts
+    const dupeAlert  = document.getElementById('dupe-alert');
+    const matchAlert = document.getElementById('match-alert');
+    if (dupes > 0) {
         document.getElementById('dupe-msg').textContent =
-            `${totals.duplicates} transaction${totals.duplicates > 1 ? 's' : ''} may already exist in the ledger and will be skipped.`;
+            `${dupes} transaction${dupes > 1 ? 's were' : ' was'} already imported — unchecked by default.`;
         dupeAlert.classList.remove('d-none');
     } else {
         dupeAlert.classList.add('d-none');
+    }
+    if (matched > 0) {
+        document.getElementById('match-msg').textContent =
+            `${matched} bank transaction${matched > 1 ? 's' : ''} matched to existing expense receipts — importing will mark them as reconciled ✓`;
+        matchAlert.classList.remove('d-none');
+    } else {
+        matchAlert.classList.add('d-none');
     }
 
     renderPreviewTable(preview.rows);
@@ -371,8 +407,7 @@ function renderPreview(preview) {
 }
 
 function renderPreviewTable(rows) {
-    const hideDupes = document.getElementById('hide-duplicates').checked;
-    const tbody     = document.getElementById('preview-tbody');
+    const tbody = document.getElementById('preview-tbody');
 
     const accountOptions = allAccounts
         .filter(a => a.sub_type !== 'header')
@@ -380,28 +415,50 @@ function renderPreviewTable(rows) {
         .join('');
 
     tbody.innerHTML = rows.map((row, i) => {
-        if (hideDupes && row.is_duplicate) return '';
-        const isDupe = row.is_duplicate;
-        const rowClass = isDupe ? 'mw-acct-row-review' : '';
-        const typeClass = row.type === 'income' ? 'mw-acct-badge-income' : 'mw-acct-badge-expense';
-        const dupeTag = isDupe ? '<span class="badge bg-warning text-dark" style="font-size:9px">Probable duplicate</span>' : '';
-        const autoTag = row.auto_cat ? '<span class="badge bg-light text-secondary" style="font-size:9px;border:1px solid #dee2e6">auto</span>' : '';
+        const isDupe    = row.is_duplicate;
+        const isMatched = !isDupe && row.match_candidate;
 
-        return `<tr class="${rowClass}" data-idx="${i}">
+        // Filter
+        if (activeFilter === 'matched'   && !isMatched)  return '';
+        if (activeFilter === 'duplicate' && !isDupe)      return '';
+        if (activeFilter === 'unmatched' && (isDupe || isMatched)) return '';
+
+        const typeClass = row.type === 'income' ? 'mw-acct-badge-income' : 'mw-acct-badge-expense';
+        const autoTag   = row.auto_cat ? '<span class="badge bg-light text-secondary" style="font-size:9px;border:1px solid #dee2e6">auto</span>' : '';
+        const amtClass  = row.type === 'income' ? 'mw-acct-color-income' : 'mw-acct-color-expense';
+
+        // Receipt / Status column
+        let statusCell = '';
+        if (isDupe) {
+            statusCell = '<span class="badge bg-warning text-dark" style="font-size:9px">Already imported</span>';
+        } else if (isMatched) {
+            const exp   = row.matched_expense || {};
+            const conf  = row.match_confidence || 0;
+            const thumb = exp.receipt_path
+                ? `<img src="${esc(exp.receipt_path)}" style="height:30px;border-radius:3px;margin-top:3px;display:block">`
+                : '';
+            statusCell = `<span class="badge bg-success" style="font-size:9px">✓ Receipt matched</span>
+                          <span class="badge bg-light text-secondary border ms-1" style="font-size:9px">${conf}%</span>
+                          <div class="small text-muted mt-1" style="font-size:10px">${esc(exp.vendor_name||'')}</div>${thumb}`;
+        } else {
+            statusCell = '<span class="text-success small">Import</span>';
+        }
+
+        return `<tr class="${isDupe ? 'mw-acct-row-review' : isMatched ? 'table-success' : ''}" data-idx="${i}">
             <td><input type="checkbox" class="row-check" data-idx="${i}" ${isDupe ? '' : 'checked'} onchange="updateSelectedCount()"></td>
             <td class="small">${row.date}</td>
             <td>
                 <div class="small fw-bold">${esc(row.description)}</div>
-                <div class="d-flex gap-1 mt-1">${dupeTag}${autoTag}</div>
+                <div class="d-flex gap-1 mt-1">${autoTag}</div>
             </td>
             <td><span class="badge ${typeClass}">${row.type}</span></td>
-            <td class="text-end small fw-bold ${row.type === 'income' ? 'mw-acct-color-income' : 'mw-acct-color-expense'}">${fmtMoney(row.amount)}</td>
+            <td class="text-end small fw-bold ${amtClass}">${fmtMoney(row.amount)}</td>
             <td>
-                <select class="form-select form-select-sm account-sel" data-idx="${i}" onchange="updateRowAccount(this)">
+                <select class="form-select form-select-sm account-sel" data-idx="${i}" onchange="updateRowAccount(this)" ${isDupe ? 'disabled' : ''}>
                     ${accountOptions}
                 </select>
             </td>
-            <td class="small text-muted">${isDupe ? '<i class="text-warning">Skip</i>' : '<span class="text-success">Import</span>'}</td>
+            <td class="small">${statusCell}</td>
         </tr>`;
     }).join('');
 
@@ -411,7 +468,6 @@ function renderPreviewTable(rows) {
         sel.value = previewRows[idx]?.account_id || '';
     });
 
-    // Re-init feather if present
     if (typeof feather !== 'undefined') feather.replace();
 }
 
@@ -462,8 +518,10 @@ async function commitImport() {
     document.getElementById('step-preview').style.display = 'none';
     document.getElementById('step-done').style.display    = '';
     document.getElementById('done-title').textContent     = '✓ Import Complete';
+    const reconciledLine = res.reconciled > 0
+        ? ` &nbsp;·&nbsp; <strong class="text-success">${res.reconciled} reconciled ✓</strong>` : '';
     document.getElementById('done-body').innerHTML =
-        `<strong>${res.imported}</strong> transactions imported &nbsp;·&nbsp; <strong>${res.duplicates}</strong> duplicates skipped<br>
+        `<strong>${res.imported}</strong> transactions imported${reconciledLine} &nbsp;·&nbsp; <strong>${res.duplicates}</strong> skipped<br>
          <a href="/crm/accounting/transactions.php" class="text-muted small">View all transactions →</a>`;
 
     loadSessions();
@@ -548,9 +606,9 @@ function esc(s) {
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// Hide-duplicates toggle
+// Skip-duplicates toggle: re-render to reflect checkbox state
 document.addEventListener('change', e => {
-    if (e.target.id === 'hide-duplicates') renderPreviewTable(previewRows);
+    if (e.target.id === 'skip-duplicates') updateSelectedCount();
 });
 </script>
 

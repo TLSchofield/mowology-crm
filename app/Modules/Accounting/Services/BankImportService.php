@@ -95,7 +95,7 @@ class BankImportService
         $engine = new RulesEngine($this->db);
 
         $rows   = $this->parseCSV($content, $mapping, $skipRows);
-        $totals = ['income' => 0, 'expense' => 0, 'duplicates' => 0, 'rows' => count($rows)];
+        $totals = ['income' => 0, 'expense' => 0, 'duplicates' => 0, 'matched' => 0, 'rows' => count($rows)];
 
         // Load account IDs for defaults
         $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
@@ -119,12 +119,49 @@ class BankImportService
                 $row['auto_cat']     = false;
             }
 
-            // Duplicate detection
-            $dupCheck = $this->checkDuplicate($row['date'], $row['amount'], $row['type']);
-            $row['is_duplicate']   = $dupCheck !== null;
-            $row['duplicate_tx_id'] = $dupCheck;
+            // Two-stage duplicate / match detection (same logic as enrichRows)
+            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type']);
+            if ($trueDupe) {
+                $row['is_duplicate']    = true;
+                $row['duplicate_type']  = 'true_duplicate';
+                $row['duplicate_tx_id'] = $trueDupe;
+                $row['match_candidate'] = false;
+                $totals['duplicates']++;
+            } else {
+                $expenseMatch = $this->findExpenseMatch(
+                    $row['date'], $row['amount'], $row['type'], $row['description']
+                );
+                if ($expenseMatch) {
+                    $exp = $expenseMatch['expense'];
+                    $row['is_duplicate']       = false;
+                    $row['duplicate_type']     = null;
+                    $row['duplicate_tx_id']    = null;
+                    $row['match_candidate']    = true;
+                    $row['matched_expense_id'] = (int)$exp['id'];
+                    $row['match_confidence']   = (int)$expenseMatch['confidence'];
+                    $row['matched_expense'] = [
+                        'id'          => (int)$exp['id'],
+                        'vendor_name' => $exp['vendor_name_raw'] ?? '',
+                        'expense_date'=> $exp['expense_date'] ?? '',
+                        'receipt_path'=> $exp['receipt_path'] ?? null,
+                    ];
+                    if (!empty($exp['accounting_category'])) {
+                        $catId = $this->resolveAccountFromCategory($exp['accounting_category']);
+                        if ($catId) { $row['account_id'] = $catId; $row['auto_cat'] = true; }
+                    }
+                    $row['gst_amount'] = (float)($exp['tax_amount'] ?? 0);
+                    $row['vendor_id']  = $exp['vendor_id'] ? (int)$exp['vendor_id'] : null;
+                    $row['job_id']     = $exp['job_id']    ? (int)$exp['job_id']    : null;
+                    if (!isset($totals['matched'])) $totals['matched'] = 0;
+                    $totals['matched']++;
+                } else {
+                    $row['is_duplicate']    = false;
+                    $row['duplicate_type']  = null;
+                    $row['duplicate_tx_id'] = null;
+                    $row['match_candidate'] = false;
+                }
+            }
 
-            if ($row['is_duplicate']) $totals['duplicates']++;
             if ($row['type'] === 'income')  $totals['income']  += $row['amount'];
             if ($row['type'] === 'expense') $totals['expense'] += $row['amount'];
         }
@@ -167,64 +204,152 @@ class BankImportService
             'created_by'    => $userId,
         ]);
 
-        $imported  = 0;
-        $skipped   = 0;
-        $dupes     = 0;
+        $imported   = 0;
+        $skipped    = 0;
+        $dupes      = 0;
+        $reconciled = 0;
 
         $this->db->beginTransaction();
         try {
+            // Standard bank-import INSERT (for unmatched rows)
             $txStmt = $this->db->prepare("
                 INSERT INTO accounting_transactions
                     (transaction_date, type, account_id, amount, gst_amount, pst_amount,
                      description, reference_type, status, is_auto_categorized, rule_id,
                      bank_account, import_session_id, created_by)
-                VALUES (?, ?, ?, ?, 0, 0, ?, 'bank_import', 'cleared', ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 'bank_import', 'cleared', ?, ?, ?, ?, ?)
             ");
 
+            // Staging row INSERT — includes new match_status + matched_expense_id columns
             $rowStmt = $this->db->prepare("
                 INSERT INTO bank_import_rows
                     (session_id, transaction_date, description, raw_amount, type, amount,
-                     account_id, transaction_id, is_duplicate, duplicate_of_id, rule_id, raw_row)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     account_id, transaction_id, is_duplicate, duplicate_of_id, rule_id, raw_row,
+                     match_status, matched_expense_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             foreach ($rows as $row) {
-                if ($skipDuplicates && $row['is_duplicate']) {
+                $rawAmount  = $row['type'] === 'expense' ? -$row['amount'] : $row['amount'];
+                $matchStatus = 'unmatched';
+                $matchExpId  = null;
+
+                // ── Skip true duplicates ───────────────────────────────────────
+                if ($skipDuplicates && !empty($row['is_duplicate'])) {
                     $dupes++;
-                    // Still log the row in staging as a skipped duplicate
+                    $matchStatus = 'true_duplicate';
                     $rowStmt->execute([
-                        $sessionId, $row['date'], $row['description'],
-                        $row['type'] === 'expense' ? -$row['amount'] : $row['amount'],
-                        $row['type'], $row['amount'],
-                        $row['account_id'], null, 1, $row['duplicate_tx_id'],
+                        $sessionId, $row['date'], $row['description'], $rawAmount,
+                        $row['type'], $row['amount'], $row['account_id'],
+                        null, 1, $row['duplicate_tx_id'] ?? null,
                         $row['rule_id'] ?? null, json_encode($row),
+                        $matchStatus, null,
                     ]);
                     continue;
                 }
 
-                // Insert the transaction
+                // ── Reconcile matched expense receipts ────────────────────────
+                if (!empty($row['match_candidate']) && !empty($row['matched_expense_id'])) {
+                    $expenseId  = (int)$row['matched_expense_id'];
+                    $confidence = (int)($row['match_confidence'] ?? 0);
+                    $matchStatus = 'auto_matched';
+                    $matchExpId  = $expenseId;
+
+                    // Find the expense's existing accounting_transactions row
+                    $existingStmt = $this->db->prepare("
+                        SELECT id FROM accounting_transactions
+                        WHERE reference_type = 'expense' AND reference_id = ?
+                        LIMIT 1
+                    ");
+                    $existingStmt->execute([$expenseId]);
+                    $existingTxId = $existingStmt->fetchColumn();
+
+                    if ($existingTxId) {
+                        // Update existing expense transaction: mark reconciled + bank metadata
+                        $this->db->prepare("
+                            UPDATE accounting_transactions SET
+                              status             = 'reconciled',
+                              bank_account       = ?,
+                              import_session_id  = ?,
+                              matched_expense_id = ?,
+                              match_confidence   = ?,
+                              matched_at         = NOW(),
+                              matched_by         = 'auto',
+                              gst_amount         = CASE WHEN gst_amount = 0 THEN ? ELSE gst_amount END,
+                              vendor_id          = COALESCE(vendor_id, ?),
+                              job_id             = COALESCE(job_id, ?)
+                            WHERE id = ?
+                        ")->execute([
+                            $accountName, $sessionId,
+                            $expenseId, $confidence,
+                            (float)($row['gst_amount'] ?? 0),
+                            !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
+                            !empty($row['job_id'])    ? (int)$row['job_id']    : null,
+                            (int)$existingTxId,
+                        ]);
+                        $txId = (int)$existingTxId;
+                    } else {
+                        // No accounting tx exists yet for this expense — create one as reconciled
+                        $txStmt->execute([
+                            $row['date'], $row['type'], $row['account_id'], $row['amount'],
+                            (float)($row['gst_amount'] ?? 0),
+                            $row['description'],
+                            $row['auto_cat'] ? 1 : 0,
+                            $row['rule_id'] ?? null,
+                            $accountName, $sessionId, $userId,
+                        ]);
+                        $txId = (int)$this->db->lastInsertId();
+                        // Upgrade to reconciled with match metadata
+                        $this->db->prepare("
+                            UPDATE accounting_transactions SET
+                              reference_type     = 'expense',
+                              reference_id       = ?,
+                              status             = 'reconciled',
+                              matched_expense_id = ?,
+                              match_confidence   = ?,
+                              matched_at         = NOW(),
+                              matched_by         = 'auto',
+                              vendor_id          = COALESCE(vendor_id, ?),
+                              job_id             = COALESCE(job_id, ?)
+                            WHERE id = ?
+                        ")->execute([
+                            $expenseId, $expenseId, $confidence,
+                            !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
+                            !empty($row['job_id'])    ? (int)$row['job_id']    : null,
+                            $txId,
+                        ]);
+                    }
+
+                    $rowStmt->execute([
+                        $sessionId, $row['date'], $row['description'], $rawAmount,
+                        $row['type'], $row['amount'], $row['account_id'],
+                        $txId, 0, null,
+                        $row['rule_id'] ?? null, json_encode($row),
+                        $matchStatus, $matchExpId,
+                    ]);
+
+                    $reconciled++;
+                    $imported++;
+                    continue;
+                }
+
+                // ── Standard bank-import transaction (no expense match) ────────
                 $txStmt->execute([
-                    $row['date'],
-                    $row['type'],
-                    $row['account_id'],
-                    $row['amount'],
+                    $row['date'], $row['type'], $row['account_id'], $row['amount'],
+                    (float)($row['gst_amount'] ?? 0),
                     $row['description'],
                     $row['auto_cat'] ? 1 : 0,
                     $row['rule_id'] ?? null,
-                    $accountName,
-                    $sessionId,
-                    $userId,
+                    $accountName, $sessionId, $userId,
                 ]);
-
                 $txId = (int)$this->db->lastInsertId();
 
-                // Log the staged row
                 $rowStmt->execute([
-                    $sessionId, $row['date'], $row['description'],
-                    $row['type'] === 'expense' ? -$row['amount'] : $row['amount'],
-                    $row['type'], $row['amount'],
-                    $row['account_id'], $txId, 0, null,
+                    $sessionId, $row['date'], $row['description'], $rawAmount,
+                    $row['type'], $row['amount'], $row['account_id'],
+                    $txId, 0, null,
                     $row['rule_id'] ?? null, json_encode($row),
+                    'unmatched', null,
                 ]);
 
                 $imported++;
@@ -248,10 +373,11 @@ class BankImportService
         }
 
         return [
-            'session_id' => $sessionId,
-            'imported'   => $imported,
-            'skipped'    => $skipped,
-            'duplicates' => $dupes,
+            'session_id'  => $sessionId,
+            'imported'    => $imported,
+            'skipped'     => $skipped,
+            'duplicates'  => $dupes,
+            'reconciled'  => $reconciled,
         ];
     }
 
@@ -551,15 +677,22 @@ class BankImportService
 
         $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
         $defaultExpenseId = $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
-        $totals = ['income' => 0.0, 'expense' => 0.0, 'duplicates' => 0, 'rows' => count($rows)];
+        $totals = [
+            'income'     => 0.0,
+            'expense'    => 0.0,
+            'duplicates' => 0,   // true bank duplicates (same import twice)
+            'matched'    => 0,   // matched to existing expense receipts
+            'rows'       => count($rows),
+        ];
 
         foreach ($rows as &$row) {
-            $match = $engine->previewMatch($row['description'], '', $row['type']);
-            if ($match) {
-                $row['account_id']   = $match['account_id'];
-                $row['account_name'] = $match['account_name'];
-                $row['account_code'] = $match['account_code'];
-                $row['rule_id']      = $match['rule_id'];
+            // ── Auto-categorize via rules engine ──────────────────────────────
+            $ruleMatch = $engine->previewMatch($row['description'], '', $row['type']);
+            if ($ruleMatch) {
+                $row['account_id']   = $ruleMatch['account_id'];
+                $row['account_name'] = $ruleMatch['account_name'];
+                $row['account_code'] = $ruleMatch['account_code'];
+                $row['rule_id']      = $ruleMatch['rule_id'];
                 $row['auto_cat']     = true;
             } else {
                 $id = $row['type'] === 'income' ? $defaultIncomeId : $defaultExpenseId;
@@ -570,11 +703,58 @@ class BankImportService
                 $row['auto_cat']     = false;
             }
 
-            $dupCheck = $this->checkDuplicate($row['date'], $row['amount'], $row['type']);
-            $row['is_duplicate']    = $dupCheck !== null;
-            $row['duplicate_tx_id'] = $dupCheck;
+            // ── Two-stage duplicate / match detection ─────────────────────────
+            // Stage 1: same transaction already imported from a bank statement?
+            $trueDupe = $this->checkTrueDuplicate($row['date'], $row['amount'], $row['type']);
 
-            if ($row['is_duplicate'])       $totals['duplicates']++;
+            if ($trueDupe) {
+                // Real duplicate — same bank import done twice
+                $row['is_duplicate']    = true;
+                $row['duplicate_type']  = 'true_duplicate';
+                $row['duplicate_tx_id'] = $trueDupe;
+                $row['match_candidate'] = false;
+                $totals['duplicates']++;
+            } else {
+                // Stage 2: does an approved expense receipt match this bank tx?
+                $expenseMatch = $this->findExpenseMatch(
+                    $row['date'], $row['amount'], $row['type'], $row['description']
+                );
+
+                if ($expenseMatch) {
+                    $exp = $expenseMatch['expense'];
+                    $row['is_duplicate']       = false;
+                    $row['duplicate_type']     = null;
+                    $row['duplicate_tx_id']    = null;
+                    $row['match_candidate']    = true;
+                    $row['matched_expense_id'] = (int)$exp['id'];
+                    $row['match_confidence']   = (int)$expenseMatch['confidence'];
+                    // Enrich from the matched expense
+                    $row['matched_expense'] = [
+                        'id'          => (int)$exp['id'],
+                        'vendor_name' => $exp['vendor_name_raw'] ?? '',
+                        'expense_date'=> $exp['expense_date'] ?? '',
+                        'receipt_path'=> $exp['receipt_path'] ?? null,
+                    ];
+                    // Override account/category/job from receipt data
+                    if (!empty($exp['accounting_category'])) {
+                        $catId = $this->resolveAccountFromCategory($exp['accounting_category']);
+                        if ($catId) {
+                            $row['account_id'] = $catId;
+                            $row['auto_cat']   = true;
+                        }
+                    }
+                    $row['gst_amount'] = (float)($exp['tax_amount'] ?? 0);
+                    $row['vendor_id']  = $exp['vendor_id'] ? (int)$exp['vendor_id'] : null;
+                    $row['job_id']     = $exp['job_id']    ? (int)$exp['job_id']    : null;
+                    $totals['matched']++;
+                } else {
+                    $row['is_duplicate']    = false;
+                    $row['duplicate_type']  = null;
+                    $row['duplicate_tx_id'] = null;
+                    $row['match_candidate'] = false;
+                }
+            }
+
             if ($row['type'] === 'income')  $totals['income']  += $row['amount'];
             if ($row['type'] === 'expense') $totals['expense'] += $row['amount'];
         }
@@ -932,22 +1112,119 @@ class BankImportService
     }
 
     /**
-     * Check if a transaction already exists in the ledger.
-     * Matches on date ± 1 day + same amount + same type.
-     * Returns the matching transaction id, or null if no duplicate found.
+     * Stage 1 — True duplicate: the same bank transaction was already imported.
+     * Checks bank_import_rows (not all of accounting_transactions) so that
+     * expense-backed transactions are NOT falsely flagged as duplicates.
+     * Returns the existing transaction_id, or null.
      */
-    private function checkDuplicate(string $date, float $amount, string $type): ?int
+    private function checkTrueDuplicate(string $date, float $amount, string $type): ?int
     {
         $stmt = $this->db->prepare("
-            SELECT id FROM accounting_transactions
-            WHERE type = ?
-              AND ABS(amount - ?) < 0.01
-              AND ABS(DATEDIFF(transaction_date, ?)) <= 1
+            SELECT r.transaction_id
+            FROM bank_import_rows r
+            JOIN accounting_transactions t ON t.id = r.transaction_id
+            WHERE t.type = ?
+              AND ABS(t.amount - ?) < 0.01
+              AND ABS(DATEDIFF(t.transaction_date, ?)) <= 1
+              AND t.reference_type = 'bank_import'
             LIMIT 1
         ");
         $stmt->execute([$type, $amount, $date]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $row ? (int)$row['id'] : null;
+        return $row ? (int)$row['transaction_id'] : null;
+    }
+
+    /**
+     * Stage 2 — Expense match: does this bank transaction correspond to an
+     * existing approved expense receipt?
+     *
+     * Confidence scoring (max 100):
+     *   Amount match (±$0.01)  : 50 pts (always present if this query returns rows)
+     *   Date proximity         : same day=20, ±1=12, ±2=6, ±3=2
+     *   Vendor name overlap    : 20 pts if any 4-char word from bank description
+     *                            appears in expense vendor_name_raw
+     *
+     * Returns ['expense' => row, 'confidence' => int] or null.
+     */
+    private function findExpenseMatch(string $date, float $amount, string $type, string $description): ?array
+    {
+        if ($type !== 'expense') return null;
+
+        // Only find expenses not already claimed by a previous bank import
+        $stmt = $this->db->prepare("
+            SELECT e.id, e.expense_date, e.vendor_name_raw, e.vendor_id,
+                   e.total, e.tax_amount, e.job_id, e.contact_id,
+                   e.accounting_category, e.receipt_media_id,
+                   ma.file_path AS receipt_path,
+                   ABS(DATEDIFF(e.expense_date, ?)) AS day_diff
+            FROM expenses e
+            LEFT JOIN media_assets ma ON ma.id = e.receipt_media_id
+            LEFT JOIN accounting_transactions bt
+                   ON bt.matched_expense_id = e.id
+                  AND bt.reference_type = 'bank_import'
+            WHERE ABS(e.total - ?) < 0.01
+              AND e.expense_date BETWEEN DATE_SUB(?, INTERVAL 3 DAY)
+                                    AND DATE_ADD(?, INTERVAL 3 DAY)
+              AND e.status IN ('approved','forwarded')
+              AND bt.id IS NULL
+            ORDER BY day_diff ASC, e.expense_date DESC
+            LIMIT 5
+        ");
+        $stmt->execute([$date, $amount, $date, $date]);
+        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($candidates)) return null;
+
+        // Score each candidate and pick the best
+        $descWords = array_filter(
+            array_map('strtolower', preg_split('/[\s\-\/]+/', $description)),
+            function($w) { return strlen($w) >= 4; }
+        );
+
+        $best      = null;
+        $bestScore = 0;
+
+        foreach ($candidates as $c) {
+            $dayDiff = (int)$c['day_diff'];
+            $score   = 50; // base: amount matched
+            $score  += $dayDiff === 0 ? 20 : ($dayDiff === 1 ? 12 : ($dayDiff === 2 ? 6 : 2));
+
+            // Vendor name overlap
+            $vendorLower = strtolower($c['vendor_name_raw'] ?? '');
+            foreach ($descWords as $word) {
+                if (strpos($vendorLower, $word) !== false) {
+                    $score += 20;
+                    break;
+                }
+            }
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best      = $c;
+            }
+        }
+
+        if (!$best) return null;
+
+        return ['expense' => $best, 'confidence' => min($bestScore, 100)];
+    }
+
+    /**
+     * Resolve a COA account_id from an expense accounting_category string.
+     * Uses the expense_category_alias column on chart_of_accounts.
+     * Falls back to the default expense account (6900).
+     */
+    private function resolveAccountFromCategory(string $category): int
+    {
+        if (!$category) return $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
+        $stmt = $this->db->prepare(
+            "SELECT id FROM chart_of_accounts
+             WHERE expense_category_alias = ? AND is_active = 1
+             LIMIT 1"
+        );
+        $stmt->execute([$category]);
+        $id = $stmt->fetchColumn();
+        return $id ? (int)$id : $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
     }
 
     private function getAccountId(string $code): int
