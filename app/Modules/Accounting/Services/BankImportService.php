@@ -60,7 +60,7 @@ class BankImportService
     {
         $lower = strtolower($filename);
         foreach (array_keys(self::BANK_PRESETS) as $key) {
-            if (str_contains($lower, $key)) return $key;
+            if (strpos($lower, $key) !== false) return $key;
         }
         return 'generic';
     }
@@ -580,8 +580,8 @@ class BankImportService
             if (is_executable($c)) { $bin = $c; break; }
         }
 
-        if ($bin === null) {
-            // Try PATH lookup as last resort
+        if ($bin === null && function_exists('shell_exec')) {
+            // Try PATH lookup as last resort (only if shell_exec is available)
             $found = trim((string)shell_exec('which pdftotext 2>/dev/null'));
             if ($found !== '' && is_executable($found)) $bin = $found;
         }
@@ -593,6 +593,13 @@ class BankImportService
             );
         }
 
+        if (!function_exists('shell_exec')) {
+            throw new RuntimeException(
+                'This PDF uses a custom font encoding that requires pdftotext, ' .
+                'but shell execution is disabled on this server. ' .
+                'Please export a CSV from your online banking instead.'
+            );
+        }
         $escaped = escapeshellarg($filePath);
         $out = shell_exec("{$bin} -layout {$escaped} - 2>/dev/null");
         if ($out === null || trim($out) === '') {
@@ -692,7 +699,7 @@ class BankImportService
         if ($s === '' || $s === '-' || $s === '—') return null;
 
         // Handle parentheses as negative (accounting convention): (100.00) = -100.00
-        $negative = str_starts_with($s, '(') && str_ends_with($s, ')');
+        $negative = (isset($s[0]) && $s[0] === '(') && (substr($s, -1) === ')');
         $s = str_replace(['(', ')'], '', $s);
 
         // Remove currency symbols and spaces

@@ -267,7 +267,16 @@ async function uploadAndPreview() {
 
     try {
         const r = await fetch(API, { method: 'POST', body: form });
-        const d = await r.json();
+        if (!r.ok && r.status === 0) throw new Error('Network error — check your connection.');
+        const text = await r.text();
+        let d;
+        try { d = JSON.parse(text); } catch (_) {
+            // Server returned non-JSON (e.g. login redirect HTML or PHP fatal)
+            if (r.redirected || text.trim().startsWith('<')) {
+                throw new Error('Session expired — please refresh the page and log in again.');
+            }
+            throw new Error('Server returned an unexpected response (HTTP ' + r.status + ').');
+        }
 
         if (!d.ok) throw new Error(d.error);
 
