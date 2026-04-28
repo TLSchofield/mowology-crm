@@ -56,39 +56,6 @@ try {
 
     switch ($action) {
 
-        // ── Server PDF/image capabilities probe ──────────────────────────────
-        case 'pdf_caps':
-            $probe = [
-                'imagick'     => class_exists('Imagick'),
-                'gd'          => extension_loaded('gd'),
-                'shell_exec'  => function_exists('shell_exec'),
-                'curl'        => function_exists('curl_init'),
-                'php_version' => PHP_VERSION,
-            ];
-            // Imagick PDF support — check independently of shell_exec
-            if (class_exists('Imagick')) {
-                try {
-                    $im = new \Imagick();
-                    $formats = $im->queryFormats();
-                    $probe['imagick_pdf'] = in_array('PDF', $formats, true);
-                    $probe['imagick_png'] = in_array('PNG', $formats, true);
-                } catch (\Throwable $e) {
-                    $probe['imagick_pdf'] = false;
-                    $probe['imagick_err'] = $e->getMessage();
-                }
-            }
-            if (function_exists('shell_exec')) {
-                foreach ([
-                    'ghostscript' => 'which gs',
-                    'tesseract'   => 'which tesseract',
-                    'pdftotext'   => 'which pdftotext',
-                ] as $key => $cmd) {
-                    $probe[$key] = trim((string)shell_exec($cmd . ' 2>/dev/null'));
-                }
-            }
-            echo json_encode(['ok' => true, 'caps' => $probe]);
-            break;
-
         // ── Bank presets ──────────────────────────────────────────────────────
         case 'presets':
             echo json_encode(['ok' => true, 'presets' => $importer->getPresets()]);
