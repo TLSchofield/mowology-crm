@@ -332,59 +332,50 @@ class BankImportService
 
         // Some bank PDFs (e.g. Vancity) use custom font encodings without a
         // ToUnicode map. smalot returns garbled high-byte characters instead of
-        // readable text. Detect this by measuring the non-ASCII ratio and fall
-        // back to pdftotext (poppler) which handles font encoding natively.
+        // readable text. Cascade through available fallback extractors.
         if ($this->isGarbledText($text)) {
-            $text = $this->extractTextViaPdftotext($filePath);
+            $text = $this->extractTextFallback($filePath);
         }
 
         $rows = $this->parsePdfText($text);
 
         if (empty($rows)) {
-            throw new RuntimeException('No transactions could be extracted from this PDF. The format may not be supported — try exporting a CSV from your bank instead.');
+            throw new RuntimeException(
+                'No transactions could be extracted from this PDF. ' .
+                'The format may not be supported. Try uploading a photo or scan of the statement instead.'
+            );
         }
 
-        // Run same enrichment as CSV preview (categorization + duplicate detection)
-        require_once __DIR__ . '/RulesEngine.php';
-        $engine = new RulesEngine($this->db);
+        return $this->enrichRows($rows, $bankName, 'pdf');
+    }
 
-        $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
-        $defaultExpenseId = $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
-        $totals = ['income' => 0.0, 'expense' => 0.0, 'duplicates' => 0, 'rows' => count($rows)];
-
-        foreach ($rows as &$row) {
-            $match = $engine->previewMatch($row['description'], '', $row['type']);
-            if ($match) {
-                $row['account_id']   = $match['account_id'];
-                $row['account_name'] = $match['account_name'];
-                $row['account_code'] = $match['account_code'];
-                $row['rule_id']      = $match['rule_id'];
-                $row['auto_cat']     = true;
-            } else {
-                $id = $row['type'] === 'income' ? $defaultIncomeId : $defaultExpenseId;
-                $row['account_id']   = $id;
-                $row['account_name'] = $row['type'] === 'income' ? 'Other Services' : 'Miscellaneous Expenses';
-                $row['account_code'] = $row['type'] === 'income' ? self::DEFAULT_INCOME_CODE : self::DEFAULT_EXPENSE_CODE;
-                $row['rule_id']      = null;
-                $row['auto_cat']     = false;
-            }
-
-            $dupCheck = $this->checkDuplicate($row['date'], $row['amount'], $row['type']);
-            $row['is_duplicate']    = $dupCheck !== null;
-            $row['duplicate_tx_id'] = $dupCheck;
-
-            if ($row['is_duplicate'])       $totals['duplicates']++;
-            if ($row['type'] === 'income')  $totals['income']  += $row['amount'];
-            if ($row['type'] === 'expense') $totals['expense'] += $row['amount'];
+    /**
+     * Parse an image file (JPEG/PNG/WEBP) — a photo or scan of a bank statement.
+     * Sends the image to the OCR pipeline and parses the resulting text.
+     *
+     * @param string $filePath   Absolute path to the uploaded image
+     * @param string $mimeType   e.g. 'image/jpeg', 'image/png'
+     * @param string $bankName   Label for the bank account
+     */
+    public function previewImage(string $filePath, string $mimeType, string $bankName = ''): array
+    {
+        $imageData = file_get_contents($filePath);
+        if ($imageData === false || strlen($imageData) < 100) {
+            throw new RuntimeException('Could not read uploaded image file.');
         }
-        unset($row);
 
-        return [
-            'rows'   => $rows,
-            'totals' => $totals,
-            'bank'   => $bankName,
-            'source' => 'pdf',
-        ];
+        $subtype = strpos($mimeType, 'png') !== false ? 'png' : 'jpeg';
+        $text    = $this->ocrImageBytes($imageData, $subtype);
+
+        $rows = $this->parsePdfText($text);
+        if (empty($rows)) {
+            throw new RuntimeException(
+                'No transactions could be extracted from this image. ' .
+                'Ensure the photo is well-lit, in focus, and shows the full statement page.'
+            );
+        }
+
+        return $this->enrichRows($rows, $bankName, 'image');
     }
 
     /**
@@ -548,6 +539,178 @@ class BankImportService
     // ══════════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Shared enrichment: categorize rows with RulesEngine, flag duplicates,
+     * compute totals. Returns the final preview result array.
+     */
+    private function enrichRows(array $rows, string $bankName, string $source): array
+    {
+        require_once __DIR__ . '/RulesEngine.php';
+        $engine = new RulesEngine($this->db);
+
+        $defaultIncomeId  = $this->getAccountId(self::DEFAULT_INCOME_CODE);
+        $defaultExpenseId = $this->getAccountId(self::DEFAULT_EXPENSE_CODE);
+        $totals = ['income' => 0.0, 'expense' => 0.0, 'duplicates' => 0, 'rows' => count($rows)];
+
+        foreach ($rows as &$row) {
+            $match = $engine->previewMatch($row['description'], '', $row['type']);
+            if ($match) {
+                $row['account_id']   = $match['account_id'];
+                $row['account_name'] = $match['account_name'];
+                $row['account_code'] = $match['account_code'];
+                $row['rule_id']      = $match['rule_id'];
+                $row['auto_cat']     = true;
+            } else {
+                $id = $row['type'] === 'income' ? $defaultIncomeId : $defaultExpenseId;
+                $row['account_id']   = $id;
+                $row['account_name'] = $row['type'] === 'income' ? 'Other Services' : 'Miscellaneous Expenses';
+                $row['account_code'] = $row['type'] === 'income' ? self::DEFAULT_INCOME_CODE : self::DEFAULT_EXPENSE_CODE;
+                $row['rule_id']      = null;
+                $row['auto_cat']     = false;
+            }
+
+            $dupCheck = $this->checkDuplicate($row['date'], $row['amount'], $row['type']);
+            $row['is_duplicate']    = $dupCheck !== null;
+            $row['duplicate_tx_id'] = $dupCheck;
+
+            if ($row['is_duplicate'])       $totals['duplicates']++;
+            if ($row['type'] === 'income')  $totals['income']  += $row['amount'];
+            if ($row['type'] === 'expense') $totals['expense'] += $row['amount'];
+        }
+        unset($row);
+
+        return [
+            'rows'   => $rows,
+            'totals' => $totals,
+            'bank'   => $bankName,
+            'source' => $source,
+        ];
+    }
+
+    /**
+     * Fallback text extraction cascade for PDFs with garbled smalot output:
+     *   1. pdftotext (poppler) — works if binary is on PATH
+     *   2. Imagick page rendering + OCR.space API — works if Imagick+curl present
+     *
+     * Throws RuntimeException with a clear user-facing message if all fail.
+     */
+    private function extractTextFallback(string $filePath): string
+    {
+        // 1 — pdftotext
+        try {
+            return $this->extractTextViaPdftotext($filePath);
+        } catch (RuntimeException $e) {
+            // Not available — continue to next option
+        }
+
+        // 2 — Imagick (PDF rendering) + OCR.space
+        if (class_exists('Imagick') && function_exists('curl_init')) {
+            return $this->extractTextViaImagickOcr($filePath);
+        }
+
+        throw new RuntimeException(
+            'This PDF uses a custom font encoding that cannot be decoded on this server. ' .
+            'Please upload a photo or scan of your statement instead.'
+        );
+    }
+
+    /**
+     * Render each PDF page to a JPEG via Imagick (needs Ghostscript in the
+     * Imagick build) then run each image through OCR.space to get plain text.
+     * Images are processed one page at a time to keep memory manageable.
+     */
+    private function extractTextViaImagickOcr(string $filePath): string
+    {
+        $im = new \Imagick();
+        $im->setResolution(200, 200); // 200 DPI — good OCR quality, ~200KB JPEG/page
+        $im->readImage('pdf:' . $filePath);
+
+        $numPages = $im->getNumberImages();
+        if ($numPages === 0) {
+            throw new RuntimeException('Imagick could not render any pages from this PDF.');
+        }
+
+        $allText = '';
+        for ($i = 0; $i < $numPages; $i++) {
+            $im->setIteratorIndex($i);
+            $page = $im->getImage();
+            $page->setImageFormat('jpeg');
+            $page->setImageCompressionQuality(82);
+            // Flatten to white background (PDFs may have transparency)
+            $page->setImageBackgroundColor('white');
+            $flat = $page->flattenImages();
+            $jpegData = $flat->getImageBlob();
+            $flat->destroy();
+            $page->destroy();
+
+            $allText .= $this->ocrImageBytes($jpegData, 'jpeg') . "\n";
+        }
+        $im->destroy();
+
+        return $allText;
+    }
+
+    /**
+     * Send raw image bytes to OCR.space and return the extracted plain text.
+     * Uses OCR_SPACE_API_KEY from config if defined, otherwise the demo key.
+     *
+     * Docs: https://ocr.space/ocrapi
+     */
+    private function ocrImageBytes(string $imageData, string $subtype = 'jpeg'): string
+    {
+        if (!function_exists('curl_init')) {
+            throw new RuntimeException('cURL is not available — cannot call OCR API.');
+        }
+
+        $apiKey = defined('OCR_SPACE_API_KEY') ? OCR_SPACE_API_KEY : 'helloworld';
+        $b64    = 'data:image/' . $subtype . ';base64,' . base64_encode($imageData);
+
+        $ch = curl_init('https://api.ocr.space/parse/image');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_POSTFIELDS     => [
+                'apikey'              => $apiKey,
+                'base64Image'         => $b64,
+                'language'            => 'eng',
+                'isTable'             => 'true',
+                'scale'               => 'true',
+                'isOverlayRequired'   => 'false',
+                'detectOrientation'   => 'true',
+                'OCREngine'           => '2',
+            ],
+        ]);
+
+        $raw      = curl_exec($ch);
+        $curlErr  = curl_error($ch);
+        curl_close($ch);
+
+        if ($raw === false || $raw === '') {
+            throw new RuntimeException('OCR API request failed: ' . $curlErr);
+        }
+
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            throw new RuntimeException('OCR API returned an unexpected response.');
+        }
+        if (!empty($data['IsErroredOnProcessing'])) {
+            $msg = isset($data['ErrorMessage']) ? (is_array($data['ErrorMessage']) ? implode('; ', $data['ErrorMessage']) : $data['ErrorMessage']) : 'Unknown OCR error';
+            throw new RuntimeException('OCR processing failed: ' . $msg);
+        }
+
+        $text = '';
+        foreach ($data['ParsedResults'] ?? [] as $result) {
+            $text .= ($result['ParsedText'] ?? '') . "\n";
+        }
+
+        if (trim($text) === '') {
+            throw new RuntimeException('OCR returned no text. The image may be too dark, blurry, or low-resolution.');
+        }
+
+        return $text;
+    }
 
     /**
      * Returns true if the extracted text looks like garbled font encoding
