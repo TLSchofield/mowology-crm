@@ -47,7 +47,7 @@ try {
         // ── Full list ──────────────────────────────────────────────────────
         case 'list':
             $activeOnly = ($_GET['active_only'] ?? '1') !== '0';
-            $where      = $activeOnly ? 'WHERE is_active = 1' : '';
+            $where      = $activeOnly ? 'WHERE coa.is_active = 1' : '';
 
             $rows = $db->query("
                 SELECT
