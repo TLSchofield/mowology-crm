@@ -404,7 +404,7 @@ class BankImportService
         $datePatterns = [
             // Month-name day (no year) — Jan 15, Jan. 15
             '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}',
-            // Day Month-name — 15 Jan
+            // Day Month-name — 15 Jan, 15 MAR (Vancity/credit union style)
             '\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?',
             // MM/DD or MM-DD
             '\d{1,2}[\/\-]\d{1,2}',
@@ -414,6 +414,7 @@ class BankImportService
             '\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}',
         ];
         $datePat = '(' . implode('|', $datePatterns) . ')';
+        $dateStartPat = '/^' . $datePat . '\s+/i';
 
         // Amount pattern: optional sign or CR/DR, digits with optional comma-separators and decimal
         $amtPat = '([\-\+]?\$?\s*[\d,]+\.\d{2})';
@@ -426,6 +427,27 @@ class BankImportService
         if (preg_match('/\b(20\d{2})\b/', $text, $ym)) {
             $statementYear = $ym[1];
         }
+
+        // Join wrapped lines: some banks (Vancity, BMO) wrap long descriptions onto
+        // the next line. The continuation line doesn't start with a date — merge it
+        // with the preceding line so the full row can be parsed in one pass.
+        $joined = [];
+        $buf    = '';
+        foreach ($lines as $raw) {
+            $l = trim($raw);
+            if ($l === '') {
+                if ($buf !== '') { $joined[] = $buf; $buf = ''; }
+                continue;
+            }
+            if (preg_match($dateStartPat, $l)) {
+                if ($buf !== '') $joined[] = $buf;
+                $buf = $l;
+            } else {
+                $buf = $buf !== '' ? rtrim($buf) . ' ' . $l : $l;
+            }
+        }
+        if ($buf !== '') $joined[] = $buf;
+        $lines = $joined;
 
         foreach ($lines as $line) {
             $line = trim($line);
@@ -457,18 +479,21 @@ class BankImportService
             $amount = null;
 
             if ($amt2Raw !== '') {
-                // Two amount columns: treat amt1 as debit (expense), amt2 as credit (income)
-                // But if amt2 looks like a running balance (much larger), it's balance — use amt1
+                // Two amount columns: either (debit | credit) or (transaction | running-balance).
+                // Running-balance detection: if amt2 is much larger than amt1, it's a balance
+                // column (Vancity / credit-union 3-column format: withdrawal | deposit | balance).
                 $a1 = $this->parseNumber($amt1Raw);
                 $a2 = $this->parseNumber($amt2Raw);
+                $isCredit = (bool)preg_match('/\bCR\b|DEPOSIT|CREDIT|PAYROLL|SALARY|TRANSFER IN|REFUND/i', $desc);
                 if ($a1 !== null && $a1 > 0 && ($a2 === null || $a2 > $a1 * 5)) {
-                    $type   = 'expense';
+                    // a2 is a running balance — a1 is the transaction amount
+                    $type   = $isCredit ? 'income' : 'expense';
                     $amount = $a1;
                 } elseif ($a2 !== null && $a2 > 0) {
                     $type   = 'income';
                     $amount = $a2;
                 } elseif ($a1 !== null && $a1 > 0) {
-                    $type   = 'expense';
+                    $type   = $isCredit ? 'income' : 'expense';
                     $amount = $a1;
                 }
             } else {
