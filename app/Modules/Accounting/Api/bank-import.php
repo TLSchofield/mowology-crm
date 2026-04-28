@@ -76,7 +76,7 @@ try {
             if ($ext === 'pdf') {
                 // PDF path — extract text and parse transactions automatically
                 $result = $importer->previewPdf($file['tmp_name'], $bankName);
-                echo json_encode(['ok' => true] + $result);
+                echo json_encode(['ok' => true, 'preview' => $result]);
                 break;
             }
 
@@ -84,7 +84,7 @@ try {
                 // Image path — photo or scan of a bank statement
                 $mime   = $file['type'] ?: 'image/jpeg';
                 $result = $importer->previewImage($file['tmp_name'], $mime, $bankName);
-                echo json_encode(['ok' => true] + $result);
+                echo json_encode(['ok' => true, 'preview' => $result]);
                 break;
             }
 
