@@ -80,6 +80,20 @@ $activePage = 'accounting';
                 <i data-feather="upload" class="mw-btn-icon"></i> Upload &amp; Preview
             </button>
         </div>
+
+        <!-- Processing indicator — shown during upload/OCR -->
+        <div id="processing-indicator" class="d-none mt-3 p-3 border rounded" style="background:var(--bs-light)">
+            <div class="d-flex align-items-center gap-3">
+                <div class="spinner-border spinner-border-sm text-primary flex-shrink-0" role="status"></div>
+                <div>
+                    <div class="fw-semibold small" id="processing-status">Uploading file…</div>
+                    <div class="text-muted" style="font-size:0.78rem" id="processing-detail">Please wait — PDF extraction can take up to 60 seconds</div>
+                </div>
+            </div>
+            <div class="progress mt-2" style="height:4px">
+                <div id="processing-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:5%"></div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -241,7 +255,6 @@ function onFileSelected() {
     }
 
     // CSV — auto-detect preset from filename
-    const name = file.name.toLowerCase();
     const keys = ['td', 'rbc', 'bmo', 'cibc', 'scotiabank'];
     for (const k of keys) {
         if (name.includes(k)) {
@@ -274,9 +287,35 @@ async function uploadAndPreview() {
         form.append('skip_rows', document.getElementById('skip-rows').value);
     }
 
-    const btn = document.getElementById('btn-preview');
+    const btn       = document.getElementById('btn-preview');
+    const indicator = document.getElementById('processing-indicator');
+    const statusEl  = document.getElementById('processing-status');
+    const detailEl  = document.getElementById('processing-detail');
+    const barEl     = document.getElementById('processing-bar');
+    const isPdfOrImg = /\.(pdf|jpe?g|png|webp|heic)$/i.test(file.name);
+
     btn.disabled = true;
-    btn.textContent = 'Analyzing…';
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Analyzing…';
+    indicator.classList.remove('d-none');
+    statusEl.textContent = 'Uploading file…';
+    detailEl.textContent = isPdfOrImg
+        ? 'PDF/image extraction can take up to 60 seconds — hang tight'
+        : 'Parsing CSV…';
+    barEl.style.width = '8%';
+
+    // Animate progress bar to give a sense of forward motion
+    let pct = 8;
+    const progressTimer = setInterval(() => {
+        // Slow crawl: 8% → 85% over ~55s, never reaches 100 until done
+        const increment = pct < 30 ? 3 : pct < 60 ? 1.5 : pct < 80 ? 0.5 : 0.1;
+        pct = Math.min(pct + increment, 85);
+        barEl.style.width = pct + '%';
+        if (pct > 20 && pct < 60) {
+            statusEl.textContent = isPdfOrImg ? 'Running OCR on statement pages…' : 'Parsing rows…';
+        } else if (pct >= 60) {
+            statusEl.textContent = isPdfOrImg ? 'Categorizing transactions…' : 'Checking for duplicates…';
+        }
+    }, 1000);
 
     try {
         const r = await fetch(API, { method: 'POST', body: form });
@@ -284,7 +323,6 @@ async function uploadAndPreview() {
         const text = await r.text();
         let d;
         try { d = JSON.parse(text); } catch (_) {
-            // Server returned non-JSON (e.g. login redirect HTML or PHP fatal)
             if (r.redirected || text.trim().startsWith('<')) {
                 throw new Error('Session expired — please refresh the page and log in again.');
             }
@@ -292,6 +330,9 @@ async function uploadAndPreview() {
         }
 
         if (!d.ok) throw new Error(d.error);
+
+        barEl.style.width = '100%';
+        statusEl.textContent = 'Done — loading preview…';
 
         previewRows = d.preview.rows;
         renderPreview(d.preview);
@@ -303,8 +344,11 @@ async function uploadAndPreview() {
     } catch (err) {
         alert('Preview failed: ' + err.message);
     } finally {
+        clearInterval(progressTimer);
+        indicator.classList.add('d-none');
         btn.disabled = false;
-        btn.textContent = 'Upload & Preview';
+        btn.innerHTML = '<i data-feather="upload" class="mw-btn-icon"></i> Upload &amp; Preview';
+        if (typeof feather !== 'undefined') feather.replace();
     }
 }
 
