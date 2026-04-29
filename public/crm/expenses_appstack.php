@@ -997,30 +997,30 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                         <input type="number" class="form-control" id="expAmount" step="0.01" min="0" placeholder="0.00">
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-md-4">
                                     <label class="form-label">GST (5%)</label>
                                     <div class="input-group">
                                         <span class="input-group-text">$</span>
                                         <input type="number" class="form-control" id="expGst" step="0.01" min="0" value="0" placeholder="0.00">
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-4">
                                     <label class="form-label">PST</label>
                                     <div class="input-group">
                                         <span class="input-group-text">$</span>
                                         <input type="number" class="form-control" id="expPst" step="0.01" min="0" value="0" placeholder="0.00">
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-4">
                                     <label class="form-label">Recycling Tax</label>
                                     <div class="input-group">
                                         <span class="input-group-text">$</span>
                                         <input type="number" class="form-control" id="expRecyclingTax" step="0.01" min="0" value="0" placeholder="0.00">
                                     </div>
                                 </div>
-                                <div class="col-md-3">
+                                <div class="col-12">
                                     <label class="form-label fw-bold">Total <span class="text-danger">*</span></label>
-                                    <div class="input-group">
+                                    <div class="input-group mw-total-input-group">
                                         <span class="input-group-text">$</span>
                                         <input type="number" class="form-control fw-bold" id="expTotal" step="0.01" min="0" required placeholder="0.00">
                                     </div>

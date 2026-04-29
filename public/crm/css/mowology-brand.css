@@ -13077,10 +13077,19 @@ a.mw-clock-timer-nav:hover {
 }
 #expTotal {
   font-weight:700;
-  font-size:.975rem;
+  font-size:1.05rem;
   color:var(--mw-dark);
   background:#f0f9f4;
   border-color:rgba(45,134,89,.45) !important;
+}
+.mw-total-input-group {
+  max-width:200px;
+}
+.mw-total-input-group .input-group-text {
+  background:#e4f2ea;
+  color:var(--mw-dark);
+  font-weight:700;
+  border-color:rgba(45,134,89,.45);
 }
 .mw-expense-modal .form-label.fw-bold {
   color:var(--mw-dark);
@@ -24143,6 +24152,8 @@ a.mw-clock-timer-nav:hover {
   border-bottom:1px solid rgba(45,134,89,.15)!important;
   padding:7px 14px 7px 22px!important;
 }
+.mw-tx-detail-row.mw-tx-detail-nav { cursor:pointer; }
+.mw-tx-detail-row.mw-tx-detail-nav:hover td { background:rgba(45,134,89,.09)!important; }
 .mw-tx-detail-strip {
   display:flex;
   align-items:center;
