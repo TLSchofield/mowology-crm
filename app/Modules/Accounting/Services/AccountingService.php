@@ -150,6 +150,7 @@ class AccountingService
                 e.created_by                 AS assigned_user_id
             FROM expenses e
             WHERE e.total > 0
+              AND e.status IN ('approved', 'forwarded')
         ");
 
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -504,6 +505,7 @@ class AccountingService
         $total = (int)$countStmt->fetchColumn();
 
         // NOTE: t.job_id refers to job_plans.id on this codebase (see sync).
+        // For invoice rows the meaningful label is property/company, not the contact.
         $stmt = $this->db->prepare("
             SELECT
                 t.*,
@@ -513,17 +515,15 @@ class AccountingService
                 v.name    AS vendor_name,
                 CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
                 jp.plan_number AS job_number,
-                COALESCE(prop.property_name, prop.address) AS property_name,
-                me.vendor_name_raw AS matched_expense_vendor,
-                me.expense_date    AS matched_expense_date,
-                me.total           AS matched_expense_amount
+                COALESCE(co.company_name, prop.property_name, prop.address) AS client_name,
+                prop.address   AS property_address
             FROM accounting_transactions t
             JOIN chart_of_accounts coa ON coa.id = t.account_id
             LEFT JOIN vendors    v    ON v.id    = t.vendor_id
             LEFT JOIN contacts   c    ON c.id    = t.contact_id
             LEFT JOIN job_plans  jp   ON jp.id   = t.job_id
             LEFT JOIN properties prop ON prop.id = jp.property_id
-            LEFT JOIN expenses   me   ON me.id   = t.matched_expense_id
+            LEFT JOIN companies  co   ON co.id   = jp.company_id
             WHERE $whereClause
             ORDER BY t.transaction_date DESC, t.id DESC
             LIMIT ? OFFSET ?
@@ -661,6 +661,7 @@ class AccountingService
                 gst_amount          = VALUES(gst_amount),
                 pst_amount          = VALUES(pst_amount),
                 description         = VALUES(description),
+                account_id          = VALUES(account_id),
                 job_id              = VALUES(job_id),
                 contact_id          = VALUES(contact_id),
                 vendor_id           = VALUES(vendor_id),
