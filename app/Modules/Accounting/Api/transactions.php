@@ -2,8 +2,9 @@
 /**
  * Accounting Transactions API
  *
- * GET  ?action=list[&type=&date_from=&date_to=&account_id=&status=&search=&page=]
+ * GET  ?action=list[&type=&date_from=&date_to=&account_id=&status=&source=&search=&page=]
  * GET  ?action=get&id=X
+ * GET  ?action=find_match&id=X  — find matching expense/invoice for a bank import tx
  * GET  ?action=sync          — sync invoices + expenses into ledger
  * GET  ?action=dashboard     — real-time dashboard metrics
  * POST {action: 'create', ...}
@@ -64,6 +65,7 @@ try {
                 'date_to'      => $_GET['date_to']      ?? '',
                 'account_id'   => $_GET['account_id']   ?? '',
                 'status'       => $_GET['status']       ?? '',
+                'source'       => $_GET['source']       ?? '',
                 'needs_review' => $_GET['needs_review'] ?? '',
                 'job_id'       => $_GET['job_id']       ?? '',
                 'search'       => $_GET['search']       ?? '',
@@ -72,6 +74,14 @@ try {
             $perPage = min(100, max(10, (int)($_GET['per_page'] ?? 50)));
 
             echo json_encode(['ok' => true, 'result' => $svc->listTransactions($filters, $page, $perPage)]);
+            break;
+
+        // ── Find match for a bank import row ────────────────────────────────────
+        case 'find_match':
+            $id = (int)($_GET['id'] ?? 0);
+            if (!$id) throw new Exception('Missing id', 400);
+            $match = $svc->findMatchForBankTransaction($id);
+            echo json_encode(['ok' => true, 'match' => $match]);
             break;
 
         // ── Single record ────────────────────────────────────────────────────

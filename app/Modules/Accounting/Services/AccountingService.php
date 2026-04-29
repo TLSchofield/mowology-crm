@@ -534,6 +534,10 @@ class AccountingService
             $where[]  = 't.description LIKE ?';
             $params[] = '%' . $filters['search'] . '%';
         }
+        if (!empty($filters['source'])) {
+            $where[] = 't.reference_type = ?';
+            $params[] = $filters['source'];
+        }
 
         $whereClause = implode(' AND ', $where);
         $offset      = ($page - 1) * $perPage;
@@ -567,7 +571,17 @@ class AccountingService
                     prop.property_name,
                     prop.address
                 ) AS client_name,
-                COALESCE(ip.address, prop.address) AS property_address
+                COALESCE(ip.address, prop.address) AS property_address,
+                (CASE WHEN t.reference_type = 'bank_import' THEN
+                    (SELECT 1 FROM accounting_transactions sys
+                     WHERE sys.reference_type IN ('expense', 'invoice')
+                       AND sys.type = t.type
+                       AND ABS(sys.amount - t.amount) < 0.02
+                       AND sys.transaction_date BETWEEN
+                           DATE_SUB(t.transaction_date, INTERVAL 3 DAY) AND
+                           DATE_ADD(t.transaction_date, INTERVAL 3 DAY)
+                     LIMIT 1)
+                ELSE NULL END) AS bank_match_exists
             FROM accounting_transactions t
             JOIN chart_of_accounts coa ON coa.id = t.account_id
             LEFT JOIN vendors    v    ON v.id    = t.vendor_id
@@ -770,6 +784,60 @@ class AccountingService
         return (int)$this->db->query(
             "SELECT COUNT(*) FROM accounting_transactions WHERE needs_review = 1"
         )->fetchColumn();
+    }
+
+    /**
+     * Find the best matching expense or invoice for a bank import transaction.
+     * Used by the expand-row feature in the transaction ledger.
+     */
+    public function findMatchForBankTransaction(int $txId): ?array
+    {
+        // Fetch the bank import transaction
+        $stmt = $this->db->prepare("
+            SELECT id, type, amount, transaction_date, description, bank_account
+            FROM accounting_transactions
+            WHERE id = ? AND reference_type = 'bank_import'
+        ");
+        $stmt->execute([$txId]);
+        $bankTx = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$bankTx) return null;
+
+        // Find the closest match by date, then amount
+        $stmt = $this->db->prepare("
+            SELECT
+                t.id, t.reference_type, t.reference_id, t.type,
+                t.amount, t.gst_amount, t.transaction_date,
+                t.description, t.account_id,
+                coa.code  AS account_code,
+                coa.name  AS account_name,
+                v.name    AS vendor_name,
+                CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
+                COALESCE(ico.company_name, ip.property_name, ip.address) AS client_name,
+                inv.invoice_number
+            FROM accounting_transactions t
+            LEFT JOIN chart_of_accounts coa ON coa.id = t.account_id
+            LEFT JOIN vendors   v   ON v.id   = t.vendor_id
+            LEFT JOIN contacts  c   ON c.id   = t.contact_id
+            LEFT JOIN invoices  inv ON inv.id = t.reference_id AND t.reference_type = 'invoice'
+            LEFT JOIN properties ip  ON ip.id  = inv.property_id
+            LEFT JOIN companies  ico ON ico.id = inv.company_id
+            WHERE t.reference_type IN ('expense', 'invoice')
+              AND t.type = ?
+              AND ABS(t.amount - ?) < 0.02
+              AND t.transaction_date BETWEEN
+                  DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY)
+            ORDER BY ABS(DATEDIFF(t.transaction_date, ?)) ASC, t.id ASC
+            LIMIT 1
+        ");
+        $stmt->execute([
+            $bankTx['type'],
+            $bankTx['amount'],
+            $bankTx['transaction_date'],
+            $bankTx['transaction_date'],
+            $bankTx['transaction_date'],
+        ]);
+        $match = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $match ?: null;
     }
 
     private function getRecentTransactions(int $limit): array

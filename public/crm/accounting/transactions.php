@@ -60,12 +60,13 @@ $csrfToken  = generateCSRFToken();
                 </select>
             </div>
             <div class="col-6 col-md-2">
-                <label class="form-label small mb-1">Status</label>
-                <select id="f-status" class="form-select form-select-sm" onchange="loadTransactions()">
-                    <option value="">All</option>
-                    <option value="cleared">Cleared</option>
-                    <option value="pending">Pending</option>
-                    <option value="reconciled">Reconciled</option>
+                <label class="form-label small mb-1">Source</label>
+                <select id="f-source" class="form-select form-select-sm" onchange="loadTransactions()">
+                    <option value="">All Sources</option>
+                    <option value="invoice">Invoices</option>
+                    <option value="expense">Expenses</option>
+                    <option value="bank_import">Bank Import</option>
+                    <option value="manual">Manual Entries</option>
                 </select>
             </div>
             <div class="col-6 col-md-2">
@@ -327,7 +328,7 @@ async function loadTransactions(page) {
         date_from:   document.getElementById('f-date-from').value,
         date_to:     document.getElementById('f-date-to').value,
         account_id:  document.getElementById('f-account').value,
-        status:      document.getElementById('f-status').value,
+        source:      document.getElementById('f-source').value,
         search:      document.getElementById('f-search').value,
         needs_review:document.getElementById('f-review').checked ? '1' : '',
     });
@@ -360,28 +361,36 @@ function renderTable(rows) {
         const typeLabel = isIncome ? 'Revenue' : 'Expense';
         const amtClass  = isIncome ? 'mw-acct-color-income' : 'mw-acct-color-expense';
 
-        // Left-side stripe — encodes data quality, not ledger status (everything is 'cleared')
-        // Green  = properly identified (has real vendor, or is a confirmed invoice/bank import)
-        // Amber  = needs review flag set
-        // Blue   = auto-categorized by rules engine (category may need confirming)
-        // Grey   = no vendor, no category match (misc / uncategorized)
+        // Left-side stripe:
+        // Bank import rows: green = matched to system entry, red = unmatched
+        // Other rows: amber = needs review, green = has vendor/is invoice, blue = auto-cat only
         let stripeClass = '';
         if (tx.needs_review == 1) {
             stripeClass = 'mw-tx-stripe-pending';   // amber — needs attention
+        } else if (tx.reference_type === 'bank_import') {
+            stripeClass = tx.bank_match_exists == 1 ? 'mw-tx-stripe-cleared' : 'mw-tx-stripe-unmatched';
         } else if (tx.vendor_id || tx.reference_type === 'invoice') {
-            stripeClass = 'mw-tx-stripe-cleared';   // green — vendor known or invoice confirmed
+            stripeClass = 'mw-tx-stripe-cleared';   // green — vendor known or confirmed invoice
         } else if (tx.is_auto_categorized == 1) {
-            stripeClass = 'mw-tx-stripe-reconciled'; // blue — rules engine guessed category
+            stripeClass = 'mw-tx-stripe-reconciled'; // blue — rules engine guessed
         }
         // else no stripe — uncategorized misc
 
         // Badges — don't show auto-cat on invoices (it's a system artefact, not meaningful)
         const isInvoice  = tx.reference_type === 'invoice';
+        const isBankImport = tx.reference_type === 'bank_import';
         const flagBtn    = tx.needs_review == 1
             ? `<span class="badge bg-warning text-dark" title="Needs Review" style="font-size:9px">Review</span> ` : '';
-        const matchBadge = (!isInvoice && tx.is_auto_categorized == 1)
+        const matchBadge = (!isInvoice && !isBankImport && tx.is_auto_categorized == 1)
             ? `<span class="mw-badge-autocat" title="Category set automatically by rules engine">auto-cat</span> `
             : '';
+        // For bank import rows: show matched/unmatched badge instead of auto-cat
+        let sourceBadge = '';
+        if (isBankImport) {
+            sourceBadge = tx.bank_match_exists == 1
+                ? `<span class="mw-badge-receipt" title="Matched to a system entry — click to expand">✓ matched</span> `
+                : `<span class="mw-badge-unmatched" title="No matching expense or invoice found">unmatched</span> `;
+        }
 
         // Primary label:
         //   expenses  → vendor name
@@ -399,13 +408,18 @@ function renderTable(rows) {
                 ? `<strong>${esc(client)}</strong>${addr ? `<span class="text-muted ms-1" style="font-size:11px">· ${esc(addr)}</span>` : ''}`
                 : esc((tx.description || '').substring(0, 60));
             subLine = inv ? `<span class="text-muted" style="font-size:10px">${esc(inv)} · click to expand</span>` : '';
+        } else if (isBankImport) {
+            label   = esc((tx.description || '').substring(0, 60));
+            subLine = tx.bank_match_exists == 1
+                ? `<span class="text-muted" style="font-size:10px">click to expand</span>`
+                : '';
         } else {
             label   = esc((tx.description || '').substring(0, 60));
             subLine = '';
         }
 
-        // Invoice rows are expandable (show invoice # / client / property / link)
-        const isExpandable = isInvoice && tx.reference_id;
+        // Expandable rows: invoices with a reference_id, or matched bank import rows
+        const isExpandable = (isInvoice && tx.reference_id) || (isBankImport && tx.bank_match_exists == 1);
         const rowClass  = [
             tx.needs_review == 1 ? 'mw-acct-row-review' : '',
             isExpandable         ? 'mw-tx-main-row'      : '',
@@ -417,7 +431,7 @@ function renderTable(rows) {
             <td><span class="badge ${typeClass}">${typeLabel}</span></td>
             <td>
                 <div>${label}</div>
-                <div class="text-muted" style="font-size:11px">${flagBtn}${matchBadge}${subLine}</div>
+                <div class="text-muted" style="font-size:11px">${flagBtn}${sourceBadge || matchBadge}${subLine}</div>
             </td>
             <td class="small">${esc(tx.account_code)} <span class="text-muted">${esc(tx.account_name)}</span></td>
             <td class="text-end ${amtClass} fw-bold">${fmtMoney(tx.amount)}</td>
@@ -436,32 +450,42 @@ function renderTable(rows) {
             </td>
         </tr>`];
 
-        // Invoice expand detail row
+        // Expand detail row
         if (isExpandable) {
-            const client = tx.client_name    || tx.contact_name || '—';
-            const addr   = tx.property_address || '';
-            const inv    = tx.invoice_number   || '—';
-            html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
-                <td colspan="7">
-                    <div class="d-flex gap-3 align-items-start">
-                        <div class="mw-tx-panel flex-fill">
-                            <div class="mw-tx-panel-label">🧾 Invoice ${esc(inv)}</div>
-                            <div class="fw-bold">${esc(client)}</div>
-                            ${addr ? `<div class="text-muted">${esc(addr)}</div>` : ''}
+            if (isBankImport) {
+                // Bank import: lazy-load the match via API on first expand
+                html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
+                    <td colspan="7">
+                        <div id="det-content-${tx.id}" class="text-muted small">Loading match…</div>
+                    </td>
+                </tr>`);
+            } else {
+                // Invoice: all data is already in the row
+                const client = tx.client_name    || tx.contact_name || '—';
+                const addr   = tx.property_address || '';
+                const inv    = tx.invoice_number   || '—';
+                html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
+                    <td colspan="7">
+                        <div class="d-flex gap-3 align-items-start">
+                            <div class="mw-tx-panel flex-fill">
+                                <div class="mw-tx-panel-label">🧾 Invoice ${esc(inv)}</div>
+                                <div class="fw-bold">${esc(client)}</div>
+                                ${addr ? `<div class="text-muted">${esc(addr)}</div>` : ''}
+                            </div>
+                            <div class="mw-tx-panel" style="min-width:140px;text-align:right">
+                                <div class="mw-tx-panel-label">Revenue</div>
+                                <div class="fw-bold ${amtClass}" style="font-size:15px">${fmtMoney(tx.amount)}</div>
+                                ${tx.gst_amount > 0 ? `<div class="text-muted" style="font-size:11px">GST ${fmtMoney(tx.gst_amount)}</div>` : ''}
+                            </div>
+                            <div class="mw-tx-panel d-flex align-items-center" style="padding:10px 14px">
+                                <a href="/crm/invoices/view.php?id=${tx.reference_id}"
+                                   class="btn btn-sm btn-outline-success"
+                                   onclick="event.stopPropagation()">View Invoice →</a>
+                            </div>
                         </div>
-                        <div class="mw-tx-panel" style="min-width:140px;text-align:right">
-                            <div class="mw-tx-panel-label">Revenue</div>
-                            <div class="fw-bold ${amtClass}" style="font-size:15px">${fmtMoney(tx.amount)}</div>
-                            ${tx.gst_amount > 0 ? `<div class="text-muted" style="font-size:11px">GST ${fmtMoney(tx.gst_amount)}</div>` : ''}
-                        </div>
-                        <div class="mw-tx-panel d-flex align-items-center" style="padding:10px 14px">
-                            <a href="/crm/invoices/view.php?id=${tx.reference_id}"
-                               class="btn btn-sm btn-outline-success"
-                               onclick="event.stopPropagation()">View Invoice →</a>
-                        </div>
-                    </div>
-                </td>
-            </tr>`);
+                    </td>
+                </tr>`);
+            }
         }
 
         return html.join('');
@@ -567,10 +591,47 @@ async function saveRecat() {
     loadTransactions();
 }
 
-// ── Expand invoice detail row ─────────────────────────────────────────────────
+// ── Expand detail row (invoice or bank import match) ──────────────────────────
 function toggleTxDetail(id) {
     const row = document.getElementById('det-' + id);
-    if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+    if (!row) return;
+    const isHidden = row.style.display === 'none';
+    row.style.display = isHidden ? '' : 'none';
+    // Lazy-load bank import match on first expand
+    const contentEl = document.getElementById('det-content-' + id);
+    if (isHidden && contentEl && contentEl.textContent === 'Loading match…') {
+        fetchAndShowMatch(id, contentEl);
+    }
+}
+
+async function fetchAndShowMatch(txId, contentEl) {
+    try {
+        const r = await fetch(API_TX + '?action=find_match&id=' + txId);
+        const d = await r.json();
+        if (!d.ok || !d.match) {
+            contentEl.innerHTML = '<span class="text-muted">No match found</span>';
+            return;
+        }
+        const m = d.match;
+        const isInv = m.reference_type === 'invoice';
+        const label = m.vendor_name || m.client_name || m.contact_name || m.description || '—';
+        const invLink = isInv
+            ? `<a href="/crm/invoices/view.php?id=${m.reference_id}" class="btn btn-xs btn-outline-success ms-2" onclick="event.stopPropagation()">View Invoice →</a>`
+            : `<a href="/crm/expenses_appstack.php?highlight=${m.reference_id}" class="btn btn-xs btn-outline-success ms-2" onclick="event.stopPropagation()">View Receipt →</a>`;
+        contentEl.innerHTML = `
+            <div class="d-flex gap-3">
+                <div class="mw-tx-panel flex-fill">
+                    <div class="mw-tx-panel-label">${isInv ? '🧾 Matched Invoice' : '🧾 Matched Receipt'}</div>
+                    <div class="fw-bold">${esc(label)}</div>
+                    <div class="text-muted mt-1">${esc(m.transaction_date)} · ${esc(m.account_code || '')} ${esc(m.account_name || '')}</div>
+                </div>
+                <div class="mw-tx-panel d-flex align-items-center">
+                    ${invLink}
+                </div>
+            </div>`;
+    } catch (e) {
+        contentEl.innerHTML = '<span class="text-danger">Error loading match</span>';
+    }
 }
 
 // ── Review Flag ───────────────────────────────────────────────────────────────
@@ -623,7 +684,7 @@ function clearFilters() {
     document.getElementById('f-date-from').value = '<?= date('Y-m-01') ?>';
     document.getElementById('f-date-to').value   = '<?= date('Y-m-d') ?>';
     document.getElementById('f-account').value   = '';
-    document.getElementById('f-status').value    = '';
+    document.getElementById('f-source').value    = '';
     document.getElementById('f-search').value    = '';
     document.getElementById('f-review').checked  = false;
     loadTransactions(1);
