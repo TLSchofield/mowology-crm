@@ -493,6 +493,13 @@ class BankImportService
             throw $e;
         }
 
+        // Learn from confirmed categorizations — non-critical, runs after commit.
+        try {
+            $this->learnFromCommit($rows, $userId);
+        } catch (Throwable $ignored) {
+            // Learning failure must never surface to the user or undo the import.
+        }
+
         return [
             'session_id'  => $sessionId,
             'imported'    => $imported,
@@ -1858,5 +1865,141 @@ class BankImportService
             $data['created_by'],
         ]);
         return (int)$this->db->lastInsertId();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // SELF-LEARNING — description → account rule generation
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * After a successful import, write back learned categorization rules.
+     *
+     * For every committed (non-duplicate) row that had NO existing rule match
+     * (rule_id === null) but does have an account assigned, we upsert a
+     * 'learned' rule in transaction_rules keyed on the normalized description.
+     *
+     * Learned rules sit at priority 9000+ so they never override manual rules.
+     * They are applied automatically on future imports by the existing RulesEngine,
+     * and will continue to work identically when the bank API replaces PDF/OCR.
+     *
+     * Rows that already fired a rule (rule_id set) are skipped — the rule's
+     * match_count is updated by RulesEngine when applyAll() runs.
+     */
+    private function learnFromCommit(array $rows, int $userId): void
+    {
+        // Preload all learned rules for fast duplicate detection (key → id mapping)
+        $existing = $this->db->query("
+            SELECT id, condition_value, account_id
+            FROM transaction_rules
+            WHERE source = 'learned' AND condition_field = 'description'
+        ")->fetchAll(PDO::FETCH_ASSOC);
+
+        $learnedMap = [];
+        foreach ($existing as $r) {
+            $learnedMap[$r['condition_value'] . '|' . $r['account_id']] = (int)$r['id'];
+        }
+
+        // Highest priority among learned rules (so new ones append after existing)
+        $maxPriority = (int)$this->db->query("
+            SELECT COALESCE(MAX(priority), 8999) FROM transaction_rules WHERE source = 'learned'
+        ")->fetchColumn();
+
+        foreach ($rows as $row) {
+            // Skip duplicates and rows without a confirmed account
+            if (!empty($row['is_duplicate']))   continue;
+            if (empty($row['account_id']))       continue;
+            if (!empty($row['rule_id']))         continue; // existing rule already covers this
+
+            $desc      = trim($row['description'] ?? '');
+            $accountId = (int)$row['account_id'];
+            $type      = $row['type'] === 'income' ? 'income' : 'expense';
+
+            $key = $this->normalizeDescriptionKey($desc);
+            if (strlen($key) < 4) continue;
+
+            $mapKey = $key . '|' . $accountId;
+
+            if (isset($learnedMap[$mapKey])) {
+                // Already have a rule for this key+account — increment training count
+                $this->db->prepare("
+                    UPDATE transaction_rules
+                    SET learned_count = learned_count + 1, last_learned_at = NOW()
+                    WHERE id = ?
+                ")->execute([$learnedMap[$mapKey]]);
+            } else {
+                // New pattern — create a low-priority learned rule
+                $maxPriority++;
+                $this->db->prepare("
+                    INSERT INTO transaction_rules
+                        (name, priority, applies_to, condition_field, condition_operator,
+                         condition_value, account_id, transaction_type,
+                         is_active, source, learned_count, last_learned_at, created_by, created_at)
+                    VALUES (?, ?, ?, 'description', 'contains', ?, ?, ?, 1, 'learned', 1, NOW(), ?, NOW())
+                ")->execute([
+                    'Learned: ' . mb_substr($desc, 0, 80),
+                    $maxPriority,
+                    $type,
+                    $key,
+                    $accountId,
+                    $type,
+                    $userId,
+                ]);
+                $learnedMap[$mapKey] = (int)$this->db->lastInsertId();
+            }
+        }
+    }
+
+    /**
+     * Produce a stable, bank-agnostic key from a raw transaction description.
+     *
+     * Strategy:
+     *  1. Remove parentheses delimiters (keep content — it has vendor names)
+     *  2. Strip transaction/reference IDs (alphanumeric codes with 5+ digits)
+     *  3. Strip standalone numbers (amounts, dates accidentally included)
+     *  4. Strip Canadian province codes and common city names
+     *  5. Discard tokens shorter than 3 chars, keep first 5 meaningful words
+     *
+     * Examples:
+     *  "POINT OF SALE (SHELL CO1303 VANCOUVER BCCA)"  → "point of sale shell"
+     *  "POINT OF SALE (STARBUCKS COFFEE 04591VANCOUVER BCCA)" → "point of sale starbucks coffee"
+     *  "INTERAC e-TRF 8884523901 SMITH JOHN"         → "interac trf smith john"
+     *  "CHARGES APPLIED TO ACCOUNT (PER ITEM FEES)"  → "charges applied account per item"
+     *  "MONTHLY MAINTENANCE FEE"                      → "monthly maintenance fee"
+     */
+    private function normalizeDescriptionKey(string $desc): string
+    {
+        $s = strtoupper(trim($desc));
+
+        // Replace parenthesis delimiters with spaces (preserve inner text)
+        $s = str_replace(['(', ')'], ' ', $s);
+
+        // Strip alphanumeric reference IDs — tokens containing 5+ consecutive digits
+        $s = preg_replace('/\b[A-Z0-9]*\d{5,}[A-Z0-9]*\b/', ' ', $s);
+
+        // Strip standalone numeric tokens (e.g. "16" in a street address suffix)
+        $s = preg_replace('/\b\d+\b/', ' ', $s);
+
+        // Strip Canadian province abbreviations and frequent city tokens
+        $s = preg_replace(
+            '/\b(BC|AB|ON|QC|MB|SK|NS|NB|NL|PEI?|YT|NT|NU|BCCA|ABCA|ONCA'
+            . '|VANCOUVER|BURNABY|SURREY|VICTORIA|TORONTO|CALGARY|EDMONTON'
+            . '|WINNIPEG|MONTREAL|OTTAWA|RICHMOND|LANGLEY|KELOWNA|NANAIMO)\b/',
+            ' ',
+            $s
+        );
+
+        // Keep only letters and spaces
+        $s = preg_replace('/[^A-Z\s]/', ' ', $s);
+
+        // Lowercase and collapse whitespace
+        $s = strtolower(trim(preg_replace('/\s+/', ' ', $s)));
+
+        // Keep the first 5 tokens of at least 3 characters each
+        $words = array_values(array_filter(
+            explode(' ', $s),
+            function (string $w) { return strlen($w) >= 3; }
+        ));
+
+        return implode(' ', array_slice($words, 0, 5));
     }
 }
