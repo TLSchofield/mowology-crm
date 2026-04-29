@@ -935,7 +935,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <h5 class="modal-title fw-bold mb-0" id="expenseModalTitle">Edit Expense</h5>
                     <small class="text-muted" id="expenseModalSubtitle"></small>
                 </div>
-                <div class="d-flex align-items-center gap-2">
+                <div class="mw-modal-header-actions">
                     <?php if ($canEdit): ?>
                     <button type="button" class="mw-modal-ghost-btn" id="expRescanBtn" onclick="rescanReceipt()" title="Re-run OCR on the receipt image to detect items" style="display:none;">
                         <i data-feather="refresh-cw" style="width:12px;height:12px;"></i> Rescan

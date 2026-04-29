@@ -12998,6 +12998,13 @@ a.mw-clock-timer-nav:hover {
   font-size:.75rem;
   color:#7a9b8a;
 }
+/* Standard gap for header action button groups — 12px across all modals */
+.mw-modal-header-actions {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex-shrink:0;
+}
 .mw-modal-ghost-btn {
   display:inline-flex;
   align-items:center;
