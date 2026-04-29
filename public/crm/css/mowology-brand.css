@@ -13075,14 +13075,16 @@ a.mw-clock-timer-nav:hover {
   background:var(--mw-dark);
   border-color:var(--mw-dark);
 }
-.mw-expense-modal .modal-footer .btn-outline-secondary {
-  border-color:#ccd8d2;
-  color:#4e6b5c;
+.mw-btn-dismiss {
+  border:1.5px solid rgba(45,134,89,.18);
+  background:none;
+  color:rgba(45,134,89,.65);
+  transition:background .15s,border-color .15s,color .15s;
 }
-.mw-expense-modal .modal-footer .btn-outline-secondary:hover {
-  background:#edf4f0;
-  border-color:#a8c0b4;
-  color:#2e4a3c;
+.mw-btn-dismiss:hover {
+  background:rgba(45,134,89,.06);
+  border-color:rgba(45,134,89,.35);
+  color:var(--mw-dark);
 }
 .mw-expense-modal .form-label {
   font-weight:500;
@@ -13506,11 +13508,11 @@ a.mw-clock-timer-nav:hover {
   font-size:.75rem;
   border-radius:6px;
   padding:.25rem .6rem;
-  border-color:#ccd8d2;
-  color:#4e6b5c;
+  border-color:rgba(45,134,89,.25);
+  color:rgba(45,134,89,.7);
 }
 .mw-add-item-btn:hover {
-  background:#edf4f0;
+  background:var(--mw-light);
   border-color:var(--mw-green);
   color:var(--mw-green);
 }

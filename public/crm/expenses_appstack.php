@@ -1041,21 +1041,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-expense-form-section">
                             <h6 class="mw-expense-form-section-title"><i data-feather="tag"></i> Classification</h6>
                             <div class="row g-3">
-                                <div class="col-md-8">
+                                <div class="col-md-4">
                                     <label class="form-label">Accounting Category</label>
                                     <select class="form-select" id="expAcctCategory"></select>
                                 </div>
                                 <input type="hidden" id="expGbpCategory">
-                                <div class="col-md-4" style="position:relative;">
-                                    <label class="form-label">Link to Job</label>
-                                    <input type="text" class="form-control" id="expJobSearch" placeholder="Search by #, service, or address…" autocomplete="off">
-                                    <input type="hidden" id="expJobId">
-                                    <div class="dropdown-menu w-100" id="jobSearchDropdown" style="max-height:220px;overflow-y:auto;font-size:.85rem;"></div>
-                                    <div id="expJobLinked" class="mt-1" style="display:none;">
-                                        <span class="badge bg-success" id="expJobLinkedBadge"></span>
-                                        <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-danger" onclick="clearJobLink()" title="Remove job link" style="line-height:1;">×</button>
-                                    </div>
-                                </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Status</label>
                                     <div class="mw-status-toggle-wrap">
@@ -1066,6 +1056,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                                 <span class="mw-status-toggle-text">Approved</span>
                                             </span>
                                         </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4" style="position:relative;">
+                                    <label class="form-label">Link to Job</label>
+                                    <input type="text" class="form-control" id="expJobSearch" placeholder="Search by #, service, or address…" autocomplete="off">
+                                    <input type="hidden" id="expJobId">
+                                    <div class="dropdown-menu w-100" id="jobSearchDropdown" style="max-height:220px;overflow-y:auto;font-size:.85rem;"></div>
+                                    <div id="expJobLinked" class="mt-1" style="display:none;">
+                                        <span class="badge bg-success" id="expJobLinkedBadge"></span>
+                                        <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-danger" onclick="clearJobLink()" title="Remove job link" style="line-height:1;">×</button>
                                     </div>
                                 </div>
                             </div>
@@ -1175,7 +1175,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                             <input type="number" class="form-control form-control-sm" id="newItemUnitPrice" placeholder="$/unit" min="0" step="0.01" style="width:80px;">
                                             <input type="number" class="form-control form-control-sm" id="newItemTotal"     placeholder="Total" min="0" step="0.01" style="width:80px;">
                                             <button type="button" class="btn btn-sm btn-success"          onclick="commitAddLineItem()"><i data-feather="check" style="width:12px;height:12px;"></i></button>
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelAddLineItem()"><i data-feather="x" style="width:12px;height:12px;"></i></button>
+                                            <button type="button" class="mw-modal-close" onclick="cancelAddLineItem()" title="Cancel"><i data-feather="x"></i></button>
                                         </div>
                                     </div>
                                 </div>
@@ -1185,9 +1185,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 </div>
             </div>
             <div class="modal-footer border-0 pt-0">
-                <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancel</button>
+                <button type="button" class="btn mw-btn-dismiss" data-dismiss="modal">Cancel</button>
                 <?php if ($canEdit): ?>
-                <button type="button" class="btn btn-outline-secondary" id="expAttachReceiptBtn" onclick="document.getElementById('expReceiptUploadInput').click()" title="Upload a receipt image for this expense">
+                <button type="button" class="btn btn-outline-primary" id="expAttachReceiptBtn" onclick="document.getElementById('expReceiptUploadInput').click()" title="Upload a receipt image for this expense">
                     <i data-feather="upload" style="width:16px;height:16px;margin-right:4px;"></i> Attach Receipt
                 </button>
                 <button type="button" class="btn btn-primary px-4" onclick="saveExpense()">
