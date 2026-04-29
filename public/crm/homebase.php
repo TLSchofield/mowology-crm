@@ -863,7 +863,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
                     setTimeout(function () { window.location.href = '/crm/app-launch.php'; }, 1200);
                 } else {
                     if (d.post_trip_required) {
-                        window.location.href = '/crm/driver-portal.php?open=post';
+                        window.location.href = '/crm/driver-log-post.php';
                         return;
                     }
                     hbToast(d.error || 'Clock out failed', true);

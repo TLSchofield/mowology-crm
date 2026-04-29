@@ -737,7 +737,6 @@
                 var data = res.data;
                 // 409 + post_trip_required: driver must submit post-trip form first.
                 if (res.status === 409 && data && data.error_code === 'post_trip_required') {
-                    showToast('Complete the post-trip vehicle check first', 'error');
                     if (btn) {
                         btn.disabled = false;
                         btn.innerHTML = SVG_STOP + '<span class="mw-clock-label">Out</span>';
@@ -746,9 +745,7 @@
                     if (deviceType !== 'truck') {
                         startTracking();
                     }
-                    setTimeout(function() {
-                        window.location.href = '/crm/driver-portal.php?open=post';
-                    }, 900);
+                    window.location.href = '/crm/driver-log-post.php';
                     return;
                 }
 

@@ -38,9 +38,37 @@
 
   <script src="/crm/js/feather-helper.js"></script>
   <script src="/crm/js/app.js"></script>
+
+  <!-- Global modal helpers: openMwModal(id) / closeMwModal(id)
+       Use these for .mw-modal-overlay dialogs. All new modals should use
+       .mw-modal-overlay rather than Bootstrap .modal. -->
+  <script>
+  function openMwModal(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.add('show');
+  }
+  function closeMwModal(id) {
+    var el = document.getElementById(id);
+    if (el) el.classList.remove('show');
+  }
+  // Close any mw-modal-overlay when clicking the backdrop
+  document.addEventListener('click', function(e) {
+    if (e.target.classList && e.target.classList.contains('mw-modal-overlay')) {
+      e.target.classList.remove('show');
+    }
+  });
+  // Close on Escape key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.mw-modal-overlay.show').forEach(function(el) {
+        el.classList.remove('show');
+      });
+    }
+  });
+  </script>
   <script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script>
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
-  <script src="/crm/js/time-clock-widget.min.js?v=20260422a"></script>
+  <script src="/crm/js/time-clock-widget.min.js?v=20260429a"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20260309a"></script>
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->
   <script src="/crm/js/photo-queue.js?v=20260401a"></script>

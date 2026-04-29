@@ -712,6 +712,8 @@ function dpClockOut() {
             if (data.success || !data.clocked_in) {
                 dpToast('Clocked out. Good work today!');
                 setTimeout(function(){ location.reload(); }, 1000);
+            } else if (data.post_trip_required) {
+                window.location.href = '/crm/driver-log-post.php';
             } else {
                 dpToast(data.error || 'Clock out failed', true);
                 btn.disabled = false;
