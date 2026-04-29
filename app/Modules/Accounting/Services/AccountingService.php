@@ -505,7 +505,9 @@ class AccountingService
         $total = (int)$countStmt->fetchColumn();
 
         // NOTE: t.job_id refers to job_plans.id on this codebase (see sync).
-        // For invoice rows the meaningful label is property/company, not the contact.
+        // For invoice rows we look up property/company directly from the invoices
+        // table (inv.property_id / inv.company_id) because some invoices have no
+        // plan_id and the job_plans route would return nothing.
         $stmt = $this->db->prepare("
             SELECT
                 t.*,
@@ -515,8 +517,17 @@ class AccountingService
                 v.name    AS vendor_name,
                 CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
                 jp.plan_number AS job_number,
-                COALESCE(co.company_name, prop.property_name, prop.address) AS client_name,
-                prop.address   AS property_address
+                -- Invoice-specific client lookup (property/company on the invoice itself)
+                inv.invoice_number,
+                COALESCE(
+                    ico.company_name,
+                    ip.property_name,
+                    ip.address,
+                    co.company_name,
+                    prop.property_name,
+                    prop.address
+                ) AS client_name,
+                COALESCE(ip.address, prop.address) AS property_address
             FROM accounting_transactions t
             JOIN chart_of_accounts coa ON coa.id = t.account_id
             LEFT JOIN vendors    v    ON v.id    = t.vendor_id
@@ -524,6 +535,11 @@ class AccountingService
             LEFT JOIN job_plans  jp   ON jp.id   = t.job_id
             LEFT JOIN properties prop ON prop.id = jp.property_id
             LEFT JOIN companies  co   ON co.id   = jp.company_id
+            -- Invoice-direct joins (used when plan_id is not set on the invoice)
+            LEFT JOIN invoices   inv  ON inv.id  = t.reference_id
+                                    AND t.reference_type = 'invoice'
+            LEFT JOIN properties ip   ON ip.id   = inv.property_id
+            LEFT JOIN companies  ico  ON ico.id  = inv.company_id
             WHERE $whereClause
             ORDER BY t.transaction_date DESC, t.id DESC
             LIMIT ? OFFSET ?
@@ -656,18 +672,19 @@ class AccountingService
                  vendor_id, assigned_user_id, status, needs_review, is_auto_categorized)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
-                transaction_date    = VALUES(transaction_date),
-                amount              = VALUES(amount),
-                gst_amount          = VALUES(gst_amount),
-                pst_amount          = VALUES(pst_amount),
-                description         = VALUES(description),
-                account_id          = VALUES(account_id),
-                job_id              = VALUES(job_id),
-                contact_id          = VALUES(contact_id),
-                vendor_id           = VALUES(vendor_id),
-                assigned_user_id    = VALUES(assigned_user_id),
-                status              = VALUES(status),
-                updated_at          = CURRENT_TIMESTAMP
+                transaction_date      = VALUES(transaction_date),
+                amount                = VALUES(amount),
+                gst_amount            = VALUES(gst_amount),
+                pst_amount            = VALUES(pst_amount),
+                description           = VALUES(description),
+                account_id            = VALUES(account_id),
+                job_id                = VALUES(job_id),
+                contact_id            = VALUES(contact_id),
+                vendor_id             = VALUES(vendor_id),
+                assigned_user_id      = VALUES(assigned_user_id),
+                is_auto_categorized   = VALUES(is_auto_categorized),
+                status                = VALUES(status),
+                updated_at            = CURRENT_TIMESTAMP
         ");
 
         $stmt->execute([

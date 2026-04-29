@@ -375,56 +375,96 @@ function renderTable(rows) {
         }
         // else no stripe — uncategorized misc
 
-        // Badges
+        // Badges — don't show auto-cat on invoices (it's a system artefact, not meaningful)
+        const isInvoice  = tx.reference_type === 'invoice';
         const flagBtn    = tx.needs_review == 1
             ? `<span class="badge bg-warning text-dark" title="Needs Review" style="font-size:9px">Review</span> ` : '';
-        const matchBadge = tx.is_auto_categorized == 1
+        const matchBadge = (!isInvoice && tx.is_auto_categorized == 1)
             ? `<span class="mw-badge-autocat" title="Category set automatically by rules engine">auto-cat</span> `
             : '';
 
         // Primary label:
         //   expenses  → vendor name
-        //   invoices  → client name (company > property name > address) + optional address sub-line
+        //   invoices  → client (company > property name > address) — expandable, so show inv# in sub-line
         //   bank/misc → raw description
-        let label;
+        let label, subLine;
         if (tx.vendor_name) {
-            label = `<strong>${esc(tx.vendor_name)}</strong>`;
-        } else if (tx.reference_type === 'invoice') {
+            label   = `<strong>${esc(tx.vendor_name)}</strong>`;
+            subLine = esc(tx.description || '').substring(0, 80);
+        } else if (isInvoice) {
             const client = tx.client_name || '';
             const addr   = tx.property_address || '';
-            if (client) {
-                label = `<strong>${esc(client)}</strong>`
-                      + (addr ? `<span class="text-muted ms-1" style="font-size:11px">· ${esc(addr)}</span>` : '');
-            } else {
-                label = esc((tx.description || '').substring(0, 60));
-            }
+            const inv    = tx.invoice_number   || '';
+            label   = client
+                ? `<strong>${esc(client)}</strong>${addr ? `<span class="text-muted ms-1" style="font-size:11px">· ${esc(addr)}</span>` : ''}`
+                : esc((tx.description || '').substring(0, 60));
+            subLine = inv ? `<span class="text-muted" style="font-size:10px">${esc(inv)} · click to expand</span>` : '';
         } else {
-            label = esc((tx.description || '').substring(0, 60));
+            label   = esc((tx.description || '').substring(0, 60));
+            subLine = '';
         }
 
-        return `<tr class="${tx.needs_review == 1 ? 'mw-acct-row-review' : ''}">
+        // Invoice rows are expandable (show invoice # / client / property / link)
+        const isExpandable = isInvoice && tx.reference_id;
+        const rowClass  = [
+            tx.needs_review == 1 ? 'mw-acct-row-review' : '',
+            isExpandable         ? 'mw-tx-main-row'      : '',
+        ].filter(Boolean).join(' ');
+        const expandAttr = isExpandable ? `onclick="toggleTxDetail(${tx.id})"` : '';
+
+        const html = [`<tr class="${rowClass}" ${expandAttr}>
             <td class="text-nowrap small ${stripeClass}">${tx.transaction_date}</td>
             <td><span class="badge ${typeClass}">${typeLabel}</span></td>
             <td>
                 <div>${label}</div>
-                <div class="text-muted" style="font-size:11px">${flagBtn}${matchBadge}${esc(tx.description || '').substring(0, 80)}</div>
+                <div class="text-muted" style="font-size:11px">${flagBtn}${matchBadge}${subLine}</div>
             </td>
             <td class="small">${esc(tx.account_code)} <span class="text-muted">${esc(tx.account_name)}</span></td>
             <td class="text-end ${amtClass} fw-bold">${fmtMoney(tx.amount)}</td>
             <td class="text-end text-muted small">${tx.gst_amount > 0 ? fmtMoney(tx.gst_amount) : '—'}</td>
             <td class="text-center">
                 <div class="dropdown">
-                    <button class="btn btn-xs btn-outline-secondary" data-bs-toggle="dropdown">⋯</button>
+                    <button class="btn btn-xs btn-outline-secondary" data-bs-toggle="dropdown" onclick="event.stopPropagation()">⋯</button>
                     <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item small" href="#" onclick="openRecat(${tx.id}, ${tx.account_id})">Change Account</a></li>
-                        ${tx.reference_type === 'invoice' ? `<li><a class="dropdown-item small" href="/crm/invoices/view.php?id=${tx.reference_id}">View Invoice</a></li>` : ''}
+                        <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();openRecat(${tx.id}, ${tx.account_id})">Change Account</a></li>
+                        ${isInvoice ? `<li><a class="dropdown-item small" href="/crm/invoices/view.php?id=${tx.reference_id}" onclick="event.stopPropagation()">View Invoice</a></li>` : ''}
                         ${tx.reference_type === 'expense' ? `<li><a class="dropdown-item small" href="/crm/expenses_appstack.php?highlight=${tx.reference_id}">View Expense</a></li>` : ''}
-                        <li><a class="dropdown-item small" href="#" onclick="toggleReview(${tx.id}, ${tx.needs_review == 1 ? 0 : 1})">${tx.needs_review == 1 ? 'Clear Review Flag' : 'Flag for Review'}</a></li>
-                        ${tx.reference_type === 'manual' ? `<li><hr class="dropdown-divider"></li><li><a class="dropdown-item small text-danger" href="#" onclick="deleteTx(${tx.id})">Delete</a></li>` : ''}
+                        <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();toggleReview(${tx.id}, ${tx.needs_review == 1 ? 0 : 1})">${tx.needs_review == 1 ? 'Clear Review Flag' : 'Flag for Review'}</a></li>
+                        ${tx.reference_type === 'manual' ? `<li><hr class="dropdown-divider"></li><li><a class="dropdown-item small text-danger" href="#" onclick="event.stopPropagation();deleteTx(${tx.id})">Delete</a></li>` : ''}
                     </ul>
                 </div>
             </td>
-        </tr>`;
+        </tr>`];
+
+        // Invoice expand detail row
+        if (isExpandable) {
+            const client = tx.client_name    || tx.contact_name || '—';
+            const addr   = tx.property_address || '';
+            const inv    = tx.invoice_number   || '—';
+            html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
+                <td colspan="7">
+                    <div class="d-flex gap-3 align-items-start">
+                        <div class="mw-tx-panel flex-fill">
+                            <div class="mw-tx-panel-label">🧾 Invoice ${esc(inv)}</div>
+                            <div class="fw-bold">${esc(client)}</div>
+                            ${addr ? `<div class="text-muted">${esc(addr)}</div>` : ''}
+                        </div>
+                        <div class="mw-tx-panel" style="min-width:140px;text-align:right">
+                            <div class="mw-tx-panel-label">Revenue</div>
+                            <div class="fw-bold ${amtClass}" style="font-size:15px">${fmtMoney(tx.amount)}</div>
+                            ${tx.gst_amount > 0 ? `<div class="text-muted" style="font-size:11px">GST ${fmtMoney(tx.gst_amount)}</div>` : ''}
+                        </div>
+                        <div class="mw-tx-panel d-flex align-items-center" style="padding:10px 14px">
+                            <a href="/crm/invoices/view.php?id=${tx.reference_id}"
+                               class="btn btn-sm btn-outline-success"
+                               onclick="event.stopPropagation()">View Invoice →</a>
+                        </div>
+                    </div>
+                </td>
+            </tr>`);
+        }
+
+        return html.join('');
     }).join('');
 }
 
@@ -525,6 +565,12 @@ async function saveRecat() {
     if (!d.ok) { alert('Error: ' + d.error); return; }
     bootstrap.Modal.getInstance(document.getElementById('recatModal'))?.hide();
     loadTransactions();
+}
+
+// ── Expand invoice detail row ─────────────────────────────────────────────────
+function toggleTxDetail(id) {
+    const row = document.getElementById('det-' + id);
+    if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
 }
 
 // ── Review Flag ───────────────────────────────────────────────────────────────
