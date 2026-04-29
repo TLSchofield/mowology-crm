@@ -271,17 +271,17 @@ class RulesEngine
                 return (float)$tx['amount'] < (float)$rule['condition_value'];
         }
 
-        // String matching
+        // String matching — PHP 7.4 compatible
         switch ($operator) {
             case 'contains':
                 // Empty condition_value = match all (default fallback rule)
-                return $value === '' || str_contains($haystack, $value);
+                return $value === '' || strpos($haystack, $value) !== false;
             case 'equals':
                 return $haystack === $value;
             case 'starts_with':
-                return str_starts_with($haystack, $value);
+                return substr($haystack, 0, strlen($value)) === $value;
             case 'ends_with':
-                return str_ends_with($haystack, $value);
+                return $value === '' || substr($haystack, -strlen($value)) === $value;
         }
 
         return false;
