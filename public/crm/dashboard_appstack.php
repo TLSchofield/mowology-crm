@@ -792,6 +792,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         if (!mapEl) return;
 
         map = new google.maps.Map(mapEl, {
+            gestureHandling: 'greedy',
             center: { lat: 49.2827, lng: -123.1207 }, // Vancouver default
             zoom: 11,
             mapTypeControl: false,
@@ -1132,80 +1133,80 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 <!-- ── Re-Consent Review JS ──────────────────────────────────────────── -->
 <script>
 function mwReconsentSkip(queueId, btn) {
-    if (!confirm('Skip this contact? They won\'t be emailed.')) return;
-    btn.disabled = true;
-    btn.textContent = '...';
-    fetch('/crm/api/jobber-reconsent.php?action=skip', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ queue_id: queueId })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.success) {
-            var row = document.getElementById('mw-rc-row-' + queueId);
-            if (row) {
-                row.style.transition = 'opacity 0.3s';
-                row.style.opacity = '0.3';
-                setTimeout(function() { row.remove(); }, 300);
+    mwConfirm('Skip this contact? They won\'t receive a re-consent email.', function() {
+        btn.disabled = true;
+        btn.textContent = '...';
+        fetch('/crm/api/jobber-reconsent.php?action=skip', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ queue_id: queueId })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                var row = document.getElementById('mw-rc-row-' + queueId);
+                if (row) {
+                    row.style.transition = 'opacity 0.3s';
+                    row.style.opacity = '0.3';
+                    setTimeout(function() { row.remove(); }, 300);
+                }
+            } else {
+                btn.disabled = false;
+                btn.textContent = 'Skip';
+                mwToast('Error: ' + (data.error || 'Unknown'), 'error');
             }
-        } else {
+        })
+        .catch(function() {
             btn.disabled = false;
             btn.textContent = 'Skip';
-            alert('Error: ' + (data.error || 'Unknown'));
-        }
-    })
-    .catch(function() {
-        btn.disabled = false;
-        btn.textContent = 'Skip';
-        alert('Network error');
-    });
+            mwToast('Network error', 'error');
+        });
+    }, { title: 'Skip Contact', confirmText: 'Skip' });
 }
 
 function mwReconsentSendBatch() {
     var btn = document.getElementById('mw-reconsent-send-btn');
     var remaining = document.querySelectorAll('#mw-reconsent-table tbody tr').length;
     if (remaining === 0) {
-        alert('No contacts in batch. Refresh to load more.');
+        mwToast('No contacts in batch. Refresh to load more.', 'warning');
         return;
     }
-    if (!confirm('Send re-consent emails to the ' + remaining + ' contacts shown below?')) return;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sending...';
-    fetch('/crm/api/jobber-reconsent.php?action=trigger-send', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ limit: remaining })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.success) {
-            btn.className = 'btn btn-sm btn-outline-success';
-            btn.innerHTML = '<i data-feather="check"></i> Sent ' + data.sent;
-            if (typeof feather !== 'undefined') feather.replace();
-            // Fade out the table rows
-            var rows = document.querySelectorAll('#mw-reconsent-table tbody tr');
-            rows.forEach(function(r) {
-                r.style.transition = 'opacity 0.5s';
-                r.style.opacity = '0.2';
-            });
-            // Reload after 2s to show next batch
-            setTimeout(function() { location.reload(); }, 2000);
-        } else {
+    mwConfirm('Send re-consent emails to the ' + remaining + ' contacts shown below?', function() {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sending...';
+        fetch('/crm/api/jobber-reconsent.php?action=trigger-send', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ limit: remaining })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                btn.className = 'btn btn-sm btn-outline-success';
+                btn.innerHTML = '<i data-feather="check"></i> Sent ' + data.sent;
+                if (typeof feather !== 'undefined') feather.replace();
+                var rows = document.querySelectorAll('#mw-reconsent-table tbody tr');
+                rows.forEach(function(r) {
+                    r.style.transition = 'opacity 0.5s';
+                    r.style.opacity = '0.2';
+                });
+                setTimeout(function() { location.reload(); }, 2000);
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-feather="send" style="width:14px;height:14px;"></i> Send Batch';
+                if (typeof feather !== 'undefined') feather.replace();
+                mwToast('Error: ' + (data.error || 'Unknown'), 'error');
+            }
+        })
+        .catch(function() {
             btn.disabled = false;
             btn.innerHTML = '<i data-feather="send" style="width:14px;height:14px;"></i> Send Batch';
             if (typeof feather !== 'undefined') feather.replace();
-            alert('Error: ' + (data.error || 'Unknown'));
-        }
-    })
-    .catch(function() {
-        btn.disabled = false;
-        btn.innerHTML = '<i data-feather="send" style="width:14px;height:14px;"></i> Send Batch';
-        if (typeof feather !== 'undefined') feather.replace();
-        alert('Network error — check console');
-    });
+            mwToast('Network error — check console', 'error');
+        });
+    }, { title: 'Send Re-Consent Batch', confirmText: 'Send ' + remaining });
 }
 </script>
 

@@ -65,6 +65,52 @@
       });
     }
   });
+
+  // ── Global branded confirm dialog — replaces browser confirm() ──────────
+  // Usage: mwConfirm('Message', function(){ /* on confirm */ }, { title, confirmText, danger })
+  (function() {
+    var _cb = null;
+    function _inject() {
+      if (document.getElementById('mwGlobalConfirm')) return;
+      var el = document.createElement('div');
+      el.id = 'mwGlobalConfirm';
+      el.className = 'mw-modal-overlay';
+      el.innerHTML =
+        '<div class="mw-modal mw-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="mwConfirmTitle">' +
+          '<div class="mw-confirm-icon-wrap" id="mwConfirmIconWrap"><i data-feather="alert-triangle" id="mwConfirmIcon"></i></div>' +
+          '<h6 class="mw-confirm-title" id="mwConfirmTitle">Confirm</h6>' +
+          '<p class="mw-confirm-msg" id="mwConfirmMsg"></p>' +
+          '<div class="mw-confirm-actions">' +
+            '<button type="button" class="btn mw-btn-dismiss" id="mwConfirmCancel">Cancel</button>' +
+            '<button type="button" class="btn btn-danger" id="mwConfirmOk">Confirm</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(el);
+      document.getElementById('mwConfirmCancel').addEventListener('click', _close);
+      document.getElementById('mwConfirmOk').addEventListener('click', function() { _close(); if (_cb) _cb(); });
+      el.addEventListener('click', function(e) { if (e.target === el) _close(); });
+      if (typeof feather !== 'undefined') feather.replace();
+    }
+    function _close() {
+      var el = document.getElementById('mwGlobalConfirm');
+      if (el) el.classList.remove('show');
+      _cb = null;
+    }
+    window.mwConfirm = function(message, onConfirm, opts) {
+      _inject();
+      opts = opts || {};
+      document.getElementById('mwConfirmMsg').textContent = message;
+      document.getElementById('mwConfirmTitle').textContent = opts.title || 'Are you sure?';
+      var okBtn = document.getElementById('mwConfirmOk');
+      okBtn.textContent = opts.confirmText || 'Confirm';
+      okBtn.className = 'btn ' + (opts.danger === false ? 'btn-primary' : 'btn-danger');
+      var iconWrap = document.getElementById('mwConfirmIconWrap');
+      iconWrap.style.display = opts.danger === false ? 'none' : 'flex';
+      _cb = onConfirm || null;
+      document.getElementById('mwGlobalConfirm').classList.add('show');
+      if (typeof feather !== 'undefined') feather.replace();
+    };
+  })();
   </script>
   <script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script>
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
