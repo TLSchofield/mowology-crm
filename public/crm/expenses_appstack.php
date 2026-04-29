@@ -5312,25 +5312,19 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var catalog = document.getElementById('expAipCatalog');
         if (!catalog) return;
         if (_aipProductCache[vendorId]) {
-            _aipRender(_aipProductCache[vendorId], '');
+            // Already cached \u2014 catalog stays hidden until user types
             return;
         }
-        catalog.innerHTML = '<div class="mw-aip-no-products">Loading catalog\u2026</div>';
-        catalog.style.display = 'block';
         try {
             var r = await fetch('/crm/api/vendors.php?action=get&id=' + vendorId, { credentials: 'same-origin' });
             var d = await r.json();
             if (d.success && d.vendor && d.vendor.products && d.vendor.products.length) {
                 _aipProductCache[vendorId] = d.vendor.products;
-                _aipRender(d.vendor.products, '');
-            } else {
-                catalog.innerHTML = '';
-                catalog.style.display = 'none';
+                // Update search placeholder with product count
+                var srch = document.getElementById('expAipSearch');
+                if (srch) srch.placeholder = 'Search ' + d.vendor.products.length + ' products\u2026';
             }
-        } catch(e) {
-            catalog.innerHTML = '';
-            catalog.style.display = 'none';
-        }
+        } catch(e) { /* silent */ }
     }
 
     function _aipRender(products, searchTerm) {
@@ -5382,9 +5376,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     window.selectAipChip = function(chipEl) {
         var name  = chipEl.dataset.name  || '';
-        var unit  = chipEl.dataset.unit  || '';
         var price = parseFloat(chipEl.dataset.price) || 0;
 
+        // Fill form fields then commit immediately \u2014 no extra button click needed
         var nameEl = document.getElementById('newItemName');
         var qtyEl  = document.getElementById('newItemQty');
         var upEl   = document.getElementById('newItemUnitPrice');
@@ -5395,27 +5389,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (upEl)   upEl.value   = price ? price.toFixed(2) : '';
         if (totEl)  totEl.value  = price ? price.toFixed(2) : '';
 
-        // Badge
-        var badge = document.getElementById('expAipBadge');
-        if (badge) {
-            badge.style.display = 'inline-flex';
-            badge.textContent = '\u2713 ' + name + (unit ? ' \u00b7 ' + unit : '');
-        }
-
-        // Highlight chip
-        document.querySelectorAll('.mw-aip-chip.is-selected').forEach(function(c) { c.classList.remove('is-selected'); });
-        chipEl.classList.add('is-selected');
-
-        // Auto-recalc total when qty or price changes
-        function recalc() {
-            var q = parseFloat(qtyEl.value) || 1;
-            var u = parseFloat(upEl.value) || 0;
-            if (totEl && u) totEl.value = (q * u).toFixed(2);
-        }
-        if (qtyEl) qtyEl.oninput = recalc;
-        if (upEl)  upEl.oninput  = recalc;
-
-        if (nameEl) nameEl.focus();
+        commitAddLineItem();
     };
 
     // Wire search input
@@ -5435,8 +5409,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             }
 
             if (vendorProducts.length) {
-                // Vendor catalog loaded — filter and render it
-                _aipRender(vendorProducts, q);
+                // Vendor catalog loaded — show only when user is typing
+                if (q.length >= 1) {
+                    _aipRender(vendorProducts, q);
+                } else {
+                    var catalog = document.getElementById('expAipCatalog');
+                    if (catalog) { catalog.innerHTML = ''; catalog.style.display = 'none'; }
+                }
             } else if (q.length >= 2) {
                 // No vendor catalog — fall back to global product search
                 clearTimeout(_aipGlobalTimer);
@@ -6322,7 +6301,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     }
 
     function escHtml(s) {
-        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
     if (document.readyState === 'loading') {
