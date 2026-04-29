@@ -792,6 +792,7 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
     var clockIn       = <?php echo (int)$clockInTs; ?>; // unix timestamp
     var IS_DRIVER     = <?php echo $isDriver ? 'true' : 'false'; ?>;
     var POST_COMPLETE = <?php echo $postComplete ? 'true' : 'false'; ?>;
+    var USER_ID       = <?php echo (int)$user['id']; ?>;
 
     // ── Running clock ──────────────────────────────────────────────────
     function formatElapsed(secs) {
@@ -970,6 +971,46 @@ $initials  = strtoupper(substr($userParts[0] ?? 'U', 0, 1) . substr($userParts[1
         el.classList.add('show');
         setTimeout(function () { el.classList.remove('show'); }, 3000);
     };
+
+    // ── GPS tracking startup ───────────────────────────────────────────
+    // homebase.php has no time-clock-widget.js, so we must start GPS collection
+    // here. capacitor-bridge.js is defer-loaded and runs before DOMContentLoaded,
+    // so MwNative is available by the time this listener fires.
+    window.addEventListener('DOMContentLoaded', function () {
+        if (!IS_DRIVER) return;
+
+        if (window.MwNative) {
+            // Ensure WorkManager sync loop is running (idempotent in the plugin)
+            window.MwNative.tracking.startSession(USER_ID, String(clockIn));
+
+            // Start GPS collection — feeds Room DB (WorkManager) + JS pings
+            if (window.MwNative.geo && !window.MwNative.geo.watchId) {
+                window.MwNative.geo.startBackgroundTracking(function (pos) {
+                    if (!pos) return;
+                    fetch('/crm/api/crew-location.php', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy })
+                    }).catch(function () {});
+                });
+            }
+        } else if (navigator.geolocation) {
+            // Browser fallback for non-native environments
+            navigator.geolocation.watchPosition(function (p) {
+                fetch('/crm/api/crew-location.php', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        lat: p.coords.latitude,
+                        lng: p.coords.longitude,
+                        accuracy: p.coords.accuracy
+                    })
+                }).catch(function () {});
+            }, null, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+        }
+    });
 }());
 </script>
 </body>

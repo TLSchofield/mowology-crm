@@ -653,6 +653,19 @@ function dpClockIn() {
                         String(data.entry_id || Date.now())
                     );
                 }
+                // Start GPS collection immediately so Room DB has points to sync
+                // during the pre-trip overlay and before homebase.php loads.
+                if (window.MwNative && window.MwNative.geo && !window.MwNative.geo.watchId) {
+                    window.MwNative.geo.startBackgroundTracking(function (pos) {
+                        if (!pos) return;
+                        fetch('/crm/api/crew-location.php', {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy })
+                        }).catch(function () {});
+                    });
+                }
                 // Open pre-trip form (Driver Portal Form) — redirect to schedule after completion
                 setTimeout(function(){ dpOpenForm('pre'); }, 600);
             } else {
