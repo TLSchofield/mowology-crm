@@ -13059,6 +13059,12 @@ a.mw-clock-timer-nav:hover {
   color:#1c2a24;
   transition:border-color .15s,box-shadow .15s;
 }
+.mw-expense-modal .form-control:not(textarea),
+.mw-expense-modal .form-select {
+  padding-top:.4rem;
+  padding-bottom:.4rem;
+  min-height:36px;
+}
 .mw-expense-modal .form-control:focus,
 .mw-expense-modal .form-select:focus {
   border-color:var(--mw-green);
@@ -13121,6 +13127,35 @@ a.mw-clock-timer-nav:hover {
   height:12px;
   opacity:.85;
 }
+/* Status pill toggle */
+.mw-status-toggle-wrap { display:block; }
+.mw-status-toggle-input { display:none; }
+.mw-status-toggle-label { cursor:pointer; display:block; margin:0; }
+.mw-status-toggle-pill {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  width:100%;
+  padding:.4rem .9rem;
+  border:1.5px solid #d5e2da;
+  border-radius:7px;
+  font-size:.855rem;
+  font-weight:500;
+  color:#8ea99a;
+  background:#f8faf9;
+  transition:background .18s,border-color .18s,color .18s;
+  user-select:none;
+  min-height:36px;
+}
+.mw-status-check-icon { width:14px; height:14px; opacity:0; transition:opacity .18s; }
+.mw-status-toggle-input:checked + .mw-status-toggle-label .mw-status-toggle-pill {
+  border-color:var(--mw-green);
+  background:#e8f7ef;
+  color:var(--mw-dark);
+  font-weight:600;
+}
+.mw-status-toggle-input:checked + .mw-status-toggle-label .mw-status-check-icon { opacity:1; }
 .mw-vendor-autocomplete-item:hover,.mw-vendor-autocomplete-item.active { background:var(--mw-light); }
 .mw-vendor-autocomplete-item .vendor-aliases {
   font-size:.75rem;
@@ -26537,3 +26572,141 @@ body.mw-page-driver .container-fluid {
   line-height: 1;
   pointer-events: none;
 }
+
+/* ══ SETTINGS PAGE ═════════════════════════════════════════════════════════ */
+
+/* Template variable chips in email template editor */
+.mw-template-chip {
+  font-family: monospace;
+  font-size: 11px;
+  padding: 3px 9px;
+  background: var(--mw-light);
+  border: 1px solid #c8ddd6;
+  color: var(--mw-dark);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background var(--mw-dur-fast) var(--mw-ease-out),
+              border-color var(--mw-dur-fast) var(--mw-ease-out);
+}
+.mw-template-chip:hover {
+  background: #d4e9e2;
+  border-color: var(--mw-green);
+}
+
+/* Accordion accordion header label (email templates, collapsible sections) */
+.mw-accordion-label {
+  font-weight: var(--mw-weight-semibold);
+  color: var(--mw-forest);
+  flex: 1;
+  min-width: 0;
+}
+
+/* Accordion chevron (rotates on expand) */
+.mw-accordion-chevron {
+  color: var(--mw-ink-400);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.collapsed .mw-accordion-chevron { transform: rotate(-90deg); }
+
+/* Monospace code inputs (template body textarea, code fields) */
+.mw-input-mono {
+  font-family: monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+
+/* ══ UTILITY CLASSES ═══════════════════════════════════════════════════════ */
+
+/* ── Icon size helpers ──
+   Replace style="width:NNpx;height:NNpx;vertical-align:middle" on SVG/img
+   elements with one of these classes.
+   Usage: <svg class="mw-icon-xs ...">  <i data-feather="..." class="mw-icon-sm">
+*/
+.mw-icon-xs { width: 12px !important; height: 12px !important; vertical-align: middle; flex-shrink: 0; }
+.mw-icon-sm { width: 16px !important; height: 16px !important; vertical-align: middle; flex-shrink: 0; }
+.mw-icon-md { width: 20px !important; height: 20px !important; vertical-align: middle; flex-shrink: 0; }
+.mw-icon-lg { width: 24px !important; height: 24px !important; vertical-align: middle; flex-shrink: 0; }
+.mw-icon-xl { width: 32px !important; height: 32px !important; vertical-align: middle; flex-shrink: 0; }
+
+/* Margin helpers for icons sitting beside text */
+.mw-icon-mr { margin-right: 5px; }
+.mw-icon-ml { margin-left: 4px; }
+
+/* ── Whitespace helpers ── */
+.mw-pre-line { white-space: pre-line; }
+.mw-pre-wrap { white-space: pre-wrap; }
+
+/* ── Flex shorthands ── */
+.mw-flex-1 { flex: 1; min-width: 0; }
+
+/* ══ BOOTSTRAP MODAL — VISUAL UNIFICATION ══════════════════════════════════
+   AppStack ships with Bootstrap 4 modals throughout the codebase (data-toggle="modal").
+   These overrides make them look identical to .mw-modal so both systems are
+   visually consistent without requiring a full modal conversion.
+*/
+
+/* Backdrop */
+.modal-backdrop { background: #000; }
+.modal-backdrop.show { opacity: 0.5; }
+
+/* Dialog card */
+.modal-content {
+  border: none;
+  border-radius: 0.5rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+/* Header */
+.modal-header {
+  background: transparent;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 1.25rem 1.5rem 1rem;
+  align-items: center;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--mw-ink-900);
+  line-height: 1.3;
+}
+
+/* Close button */
+.modal-header .close {
+  padding: 0;
+  margin: 0;
+  color: var(--mw-ink-400);
+  opacity: 1;
+  font-size: 22px;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.modal-header .close:hover { color: var(--mw-ink-900); }
+
+/* Body */
+.modal-body {
+  padding: 1.25rem 1.5rem;
+  color: var(--mw-ink-900);
+  font-size: var(--mw-text-sm);
+}
+
+/* Footer */
+.modal-footer {
+  background: transparent;
+  border-top: 1px solid #e2e8f0;
+  padding: 0.875rem 1.5rem;
+  gap: 0.5rem;
+}
+
+/* Form groups inside modals use tighter spacing */
+.modal-body .form-group { margin-bottom: 1rem; }
+.modal-body label { font-size: var(--mw-text-sm); font-weight: var(--mw-weight-medium); color: var(--mw-ink-700); }
+
+/* Make modals feel less wide by default */
+.modal-dialog { margin: 1.75rem auto; }
+.modal-dialog:not(.modal-lg):not(.modal-xl) { max-width: 520px; }

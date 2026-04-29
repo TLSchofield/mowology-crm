@@ -1059,10 +1059,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label">Status</label>
-                                    <select class="form-select" id="expStatus">
-                                        <option value="draft">Draft</option>
-                                        <option value="approved">Approved</option>
-                                    </select>
+                                    <div class="mw-status-toggle-wrap">
+                                        <input type="checkbox" id="expApproved" class="mw-status-toggle-input">
+                                        <label for="expApproved" class="mw-status-toggle-label">
+                                            <span class="mw-status-toggle-pill">
+                                                <i data-feather="check" class="mw-status-check-icon"></i>
+                                                <span class="mw-status-toggle-text">Approved</span>
+                                            </span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -3274,7 +3279,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             // Job link — populate the search field display and hidden ID
             var jobSub = [e.job_service_type, e.job_contact_name, e.job_address].filter(Boolean).join(' · ');
             setJobLink(e.job_id || null, e.job_plan_number || (e.job_id ? '#' + e.job_id : null), null, jobSub || null);
-            document.getElementById('expStatus').value = e.status || 'draft';
+            document.getElementById('expApproved').checked = (e.status === 'approved');
             document.getElementById('expDescription').value = e.description || '';
             document.getElementById('expNotes').value = e.notes || '';
 
@@ -3372,7 +3377,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 accounting_category: document.getElementById('expAcctCategory').value,
                 gbp_category: document.getElementById('expGbpCategory').value,
                 job_id: document.getElementById('expJobId').value || null,
-                status: document.getElementById('expStatus').value,
+                status: document.getElementById('expApproved').checked ? 'approved' : 'draft',
                 description: document.getElementById('expDescription').value,
                 notes: document.getElementById('expNotes').value,
                 odometer_start: document.getElementById('expOdometerStart')?.value || null,
