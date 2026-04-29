@@ -100,7 +100,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'download') {
 
     $fullPath = PROJECT_ROOT . '/' . $report['pdf_path'];
     if (!file_exists($fullPath)) {
-        renderTripReportError(404, 'PDF File Missing', 'The PDF file is no longer on disk. It may have been moved or cleaned up. Please regenerate the report or contact support.');
+        // File missing (e.g. wrong stored path or server cleanup) — attempt regeneration
+        require_once APP_ROOT . '/Services/Pdf/pdf_bootstrap.php';
+        require_once APP_ROOT . '/Modules/Driver/TripReportPdf.php';
+        $regen = TripReportPdf::generate($id, $db);
+        if (!$regen['success'] || empty($regen['path']) || !file_exists($regen['path'])) {
+            renderTripReportError(404, 'PDF File Missing', 'The PDF file could not be found or regenerated. Please contact support.');
+        }
+        $fullPath = $regen['path'];
+        $filename = 'trip_report_' . $report['report_date'] . '.pdf';
     }
 
     $filename = 'trip_report_' . $report['report_date'] . '.pdf';
