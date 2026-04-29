@@ -1239,7 +1239,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <input type="hidden" id="vendorLocId" value="">
                     <input type="hidden" id="vendorLocLat" value="">
                     <input type="hidden" id="vendorLocLng" value="">
-                    <input type="text" class="form-control mb-2" id="vendorAddress" placeholder="123 Main St">
+                    <input type="text" class="form-control mb-1" id="vendorAddress" placeholder="123 Main St" autocomplete="off">
+                    <div id="vendorGeoStatus" style="font-size:0.75rem;margin-bottom:6px;"></div>
                     <input type="text" class="form-control" id="vendorCity" placeholder="City">
                 </div>
                 <div class="mb-3">
@@ -1443,6 +1444,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Initialize offline receipt queue
         if (window.OfflineReceipts) OfflineReceipts.init();
 
+        bindVendorModalAc();
         await loadCategories();
         loadExpenses();
         loadVendors();
@@ -2962,13 +2964,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (!confirm('Merge expense #' + expMergeDiscardId + ' into #' + expMergeKeepId + '? The discarded expense will be permanently deleted.')) return;
 
         var btn = document.getElementById('expMergeConfirmBtn');
+        var footer = document.getElementById('expMergeModalFooter');
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Merging...';
+
+        var prevErr = footer.querySelector('.mw-merge-error');
+        if (prevErr) prevErr.remove();
+
+        var controller = new AbortController();
+        var timeoutId = setTimeout(function() { controller.abort(); }, 20000);
 
         try {
             var r = await fetch('/crm/api/expenses.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
                 body: JSON.stringify({
                     action: 'merge',
                     csrf_token: CSRF,
@@ -2977,13 +2987,23 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     fields: fields
                 }),
             });
+            clearTimeout(timeoutId);
             var d = await r.json();
-            if (!d.success) throw new Error(d.error);
+            if (!d.success) throw new Error(d.error || 'Unknown error');
             $('#expenseMergeModal').modal('hide');
             loadExpenses(currentPage);
             loadStats();
         } catch(e) {
-            alert('Merge failed: ' + e.message);
+            clearTimeout(timeoutId);
+            var msg = e.name === 'AbortError'
+                ? 'Merge timed out — please try again.'
+                : 'Merge failed: ' + e.message;
+            var errEl = document.createElement('div');
+            errEl.className = 'mw-merge-error alert alert-danger mb-0 mt-2 w-100';
+            errEl.style.cssText = 'font-size:0.85rem;';
+            errEl.textContent = msg;
+            footer.appendChild(errEl);
+        } finally {
             btn.disabled = false;
             btn.innerHTML = '<i data-feather="git-merge" style="width:14px;height:14px;"></i> Merge Expenses';
             if (window.feather) feather.replace();
@@ -3618,8 +3638,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vendorLocId').value = preferred?.id || '';
         document.getElementById('vendorAddress').value = preferred?.address || '';
         document.getElementById('vendorCity').value = preferred?.city || '';
-        document.getElementById('vendorLocLat').value = preferred?.lat || '';
-        document.getElementById('vendorLocLng').value = preferred?.lng || '';
+        var existingLat = (preferred?.lat != null && preferred.lat !== '') ? preferred.lat : '';
+        var existingLng = (preferred?.lng != null && preferred.lng !== '') ? preferred.lng : '';
+        document.getElementById('vendorLocLat').value = existingLat;
+        document.getElementById('vendorLocLng').value = existingLng;
+        window._vendorPlacesFired = false;
+        var geoStatus = document.getElementById('vendorGeoStatus');
+        if (geoStatus) {
+            if (existingLat && existingLng) {
+                geoStatus.innerHTML = '<span style="color:#2D8659">✓ Geocoded (' + parseFloat(existingLat).toFixed(4) + ', ' + parseFloat(existingLng).toFixed(4) + ')</span>';
+            } else if (preferred?.address) {
+                geoStatus.innerHTML = '<span style="color:#e85d04">⚠ No GPS — select address from dropdown to geocode</span>';
+            } else {
+                geoStatus.innerHTML = '';
+            }
+        }
         var delBtn = document.getElementById('vendorDeleteBtn');
         if (delBtn) delBtn.style.display = data?.id ? '' : 'none';
         $('#vendorModal').modal('show');
@@ -3672,6 +3705,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     label: 'Main',
                     address: address,
                     city: city,
+                    // Only send lat/lng if Places fired OR if existing coords were loaded —
+                    // passing null would overwrite good coordinates already in the DB
                     lat: locLat !== '' ? parseFloat(locLat) : null,
                     lng: locLng !== '' ? parseFloat(locLng) : null,
                     is_preferred: 1
@@ -3800,12 +3835,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 var notesHtml = loc.notes ? '<div class="text-muted small fst-italic">' + esc(loc.notes) + '</div>' : '';
                 var prefHtml = loc.is_preferred == 1 ? ' <span class="badge bg-success" style="font-size:9px;">Preferred</span>' : '';
                 var editBtn = CAN_EDIT ? ' <a href="#" class="text-muted small" onclick="event.preventDefault();mwEditLocation(' + loc.id + ')"><i data-feather="edit-2" style="width:10px;height:10px;"></i></a>' : '';
+                var noGeoWarn = (!loc.lat || !loc.lng) && (loc.address || loc.city)
+                    ? ' <span title="No GPS coordinates — map pin won\'t show. Edit and re-select address." style="color:#e85d04;cursor:help;font-size:10px;">⚠ no GPS</span>'
+                    : '';
                 return '<div class="mw-vd-location-item" data-loc-id="' + loc.id + '" data-loc=\'' + JSON.stringify(loc).replace(/'/g, '&#39;') + '\'>' +
-                    '<div class="d-flex align-items-center gap-1">' +
+                    '<div class="d-flex align-items-center gap-1 flex-wrap">' +
                         '<i data-feather="map-pin" style="width:12px;height:12px;"></i> ' +
                         '<span>' + esc(loc.label || loc.address || 'Unnamed') + '</span>' +
                         (loc.city ? ' <small class="text-muted">(' + esc(loc.city) + ')</small>' : '') +
-                        prefHtml + editBtn +
+                        prefHtml + noGeoWarn + editBtn +
                     '</div>' +
                     phoneHtml + hoursHtml + notesHtml +
                 '</div>';
@@ -6027,8 +6065,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         document.getElementById('vdLocationForm').style.display = 'none';
     };
 
-    // Google Places Autocomplete for vendor edit/create modal — attached once on load
+    // Google Places Autocomplete for vendor edit/create modal
+    var _vendorAddressAcReady = false;
+    var _vendorModalAcBound  = false;
     function initVendorAddressAutocomplete() {
+        if (_vendorAddressAcReady) return;
         var input = document.getElementById('vendorAddress');
         if (!input) return;
         if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
@@ -6054,10 +6095,23 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var cityEl = document.getElementById('vendorCity');
             if (cityEl && city) cityEl.value = city;
             if (place.geometry && place.geometry.location) {
-                document.getElementById('vendorLocLat').value = place.geometry.location.lat();
-                document.getElementById('vendorLocLng').value = place.geometry.location.lng();
+                var lat = place.geometry.location.lat();
+                var lng = place.geometry.location.lng();
+                document.getElementById('vendorLocLat').value = lat;
+                document.getElementById('vendorLocLng').value = lng;
+                window._vendorPlacesFired = true;
+                var geoStatus = document.getElementById('vendorGeoStatus');
+                if (geoStatus) {
+                    geoStatus.innerHTML = '<span style="color:#2D8659">✓ Geocoded (' + lat.toFixed(4) + ', ' + lng.toFixed(4) + ')</span>';
+                }
             }
         });
+        _vendorAddressAcReady = true;
+    }
+    function bindVendorModalAc() {
+        if (_vendorModalAcBound) return;
+        _vendorModalAcBound = true;
+        $('#vendorModal').on('shown.bs.modal', initVendorAddressAutocomplete);
     }
 
     // Google Places Autocomplete for vendor location address field

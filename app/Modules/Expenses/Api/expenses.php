@@ -179,7 +179,7 @@ try {
             throw new Exception('Invalid action: ' . htmlspecialchars($action));
     }
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }
