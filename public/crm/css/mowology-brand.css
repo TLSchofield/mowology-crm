@@ -23918,6 +23918,73 @@ a.mw-clock-timer-nav:hover {
   font-weight:600;
   font-size:13px;
 }
+
+/* ── Transaction Ledger — status stripe, badges, expand row ──────────────── */
+/* Left-side coloured stripe on the Date <td> via ::before pseudo-element    */
+.mw-tx-stripe-cleared,
+.mw-tx-stripe-reconciled,
+.mw-tx-stripe-pending {
+  position:relative;
+  padding-left:10px!important;
+}
+.mw-tx-stripe-cleared::before,
+.mw-tx-stripe-reconciled::before,
+.mw-tx-stripe-pending::before {
+  content:'';
+  position:absolute;
+  left:0;top:0;bottom:0;
+  width:3px;
+  border-radius:0 2px 2px 0;
+}
+.mw-tx-stripe-cleared::before    { background:var(--mw-green); }
+.mw-tx-stripe-reconciled::before { background:#0d6efd; }
+.mw-tx-stripe-pending::before    { background:#f59e0b; }
+
+/* Inline tag badges inside description cell */
+.mw-badge-autocat {
+  display:inline-block;
+  font-size:9px;
+  border:1px solid #dee2e6;
+  background:#f8f9fa;
+  color:#6c757d;
+  padding:1px 5px;
+  border-radius:3px;
+  vertical-align:middle;
+}
+.mw-badge-receipt {
+  display:inline-block;
+  font-size:9px;
+  background:rgba(45,134,89,.12);
+  color:var(--mw-green);
+  padding:1px 5px;
+  border-radius:3px;
+  font-weight:600;
+  vertical-align:middle;
+}
+
+/* Expandable receipt-match detail row */
+.mw-tx-main-row { cursor:pointer; }
+.mw-tx-main-row:hover td { background:rgba(45,134,89,.03); }
+.mw-tx-detail-row td {
+  background:var(--mw-light)!important;
+  border-bottom:2px solid var(--mw-green)!important;
+  padding:10px 16px!important;
+}
+.mw-tx-panel {
+  background:#fff;
+  border-radius:6px;
+  padding:10px 14px;
+  font-size:12px;
+  border:1px solid #e8f3f0;
+}
+.mw-tx-panel-label {
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.5px;
+  color:var(--mw-dark);
+  font-weight:700;
+  margin-bottom:4px;
+}
 .mw-intel-grid {
   display:grid;
   gap:10px;
@@ -26235,3 +26302,49 @@ body.mw-page-driver .container-fluid {
 }
 .mw-pt-tooltip-vendor { font-weight: 700; margin-bottom: 3px; }
 .mw-pt-tooltip-row { color: #666; }
+
+/* ── Debug Panel Toggle (topbar) ───────────────────────────────────────────── */
+.mw-debug-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--mw-ink-400, #999);
+  opacity: 0.4;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  line-height: 1;
+}
+.mw-debug-toggle:hover {
+  opacity: 0.75;
+  background: rgba(0,0,0,0.06);
+}
+.mw-debug-toggle--on {
+  opacity: 1;
+  color: var(--mw-orange);
+}
+.mw-debug-toggle--on:hover {
+  opacity: 1;
+  background: rgba(232,93,4,0.1);
+}
+.mw-debug-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #dc2626;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 8px;
+  font-weight: 700;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  pointer-events: none;
+}

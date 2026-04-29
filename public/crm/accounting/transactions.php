@@ -355,31 +355,63 @@ function renderTable(rows) {
         return;
     }
 
-    tbody.innerHTML = rows.map(tx => {
-        const isIncome = tx.type === 'income';
+    const html = [];
+    rows.forEach(tx => {
+        const isIncome  = tx.type === 'income';
         const typeClass = isIncome ? 'mw-acct-badge-income' : 'mw-acct-badge-expense';
         const typeLabel = isIncome ? 'Revenue' : 'Expense';
         const amtClass  = isIncome ? 'mw-acct-color-income' : 'mw-acct-color-expense';
-        const flagBtn   = tx.needs_review == 1
+
+        // Left-side coloured stripe — shows cleared/reconciled/pending at a glance
+        const stripeClass = {
+            cleared:    'mw-tx-stripe-cleared',
+            reconciled: 'mw-tx-stripe-reconciled',
+            pending:    'mw-tx-stripe-pending',
+        }[tx.status] || '';
+
+        // Matched receipt: bank import linked to an expense record
+        const hasReceiptMatch = tx.matched_expense_id && parseInt(tx.matched_expense_id) > 0;
+
+        // Badge: receipt match takes precedence over auto-cat rule
+        const flagBtn    = tx.needs_review == 1
             ? `<span class="badge bg-warning text-dark" title="Needs Review" style="font-size:9px">Review</span> ` : '';
-        const autoTag   = tx.is_auto_categorized == 1
-            ? `<span class="badge bg-light text-secondary" style="font-size:9px;border:1px solid #dee2e6">auto</span> ` : '';
-        const label     = tx.vendor_name
-            ? `<strong>${esc(tx.vendor_name)}</strong>`
-            : esc((tx.description || '').substring(0, 60));
+        const matchBadge = hasReceiptMatch
+            ? `<span class="mw-badge-receipt" title="Matched to a receipt — click row to expand">✓ receipt</span> `
+            : (tx.is_auto_categorized == 1
+                ? `<span class="mw-badge-autocat" title="Category set automatically by rules engine">auto-cat</span> `
+                : '');
+
+        // Primary label — vendor > client+property (invoices) > description
+        let label;
+        if (tx.vendor_name) {
+            label = `<strong>${esc(tx.vendor_name)}</strong>`;
+        } else if (tx.reference_type === 'invoice' && tx.contact_name && tx.contact_name.trim() !== ' ') {
+            const prop = tx.property_name || '';
+            label = `<strong>${esc(tx.contact_name.trim())}</strong>`
+                  + (prop ? `<span class="text-muted ms-1" style="font-size:11px">· ${esc(prop)}</span>` : '');
+        } else {
+            label = esc((tx.description || '').substring(0, 60));
+        }
 
         const statusBadge = {
             cleared:    '<span class="badge bg-success bg-opacity-10 text-success">Cleared</span>',
             pending:    '<span class="badge bg-warning bg-opacity-10 text-warning">Pending</span>',
             reconciled: '<span class="badge bg-primary bg-opacity-10 text-primary">Reconciled</span>',
-        }[tx.status] || tx.status;
+        }[tx.status] || `<span class="text-muted small">${esc(tx.status)}</span>`;
 
-        return `<tr class="${tx.needs_review == 1 ? 'mw-acct-row-review' : ''}">
-            <td class="text-nowrap small">${tx.transaction_date}</td>
+        const rowClasses = [
+            tx.needs_review == 1 ? 'mw-acct-row-review' : '',
+            hasReceiptMatch      ? 'mw-tx-main-row'      : '',
+        ].filter(Boolean).join(' ');
+
+        const expandAttr = hasReceiptMatch ? `onclick="toggleTxDetail(${tx.id})"` : '';
+
+        html.push(`<tr class="${rowClasses}" ${expandAttr}>
+            <td class="text-nowrap small ${stripeClass}">${tx.transaction_date}</td>
             <td><span class="badge ${typeClass}">${typeLabel}</span></td>
             <td>
                 <div>${label}</div>
-                <div class="text-muted" style="font-size:11px">${flagBtn}${autoTag}${esc(tx.description || '').substring(0, 80)}</div>
+                <div class="text-muted" style="font-size:11px">${flagBtn}${matchBadge}${esc(tx.description || '').substring(0, 80)}</div>
             </td>
             <td class="small">${esc(tx.account_code)} <span class="text-muted">${esc(tx.account_name)}</span></td>
             <td class="text-end ${amtClass} fw-bold">${fmtMoney(tx.amount)}</td>
@@ -387,18 +419,55 @@ function renderTable(rows) {
             <td>${statusBadge}</td>
             <td class="text-center">
                 <div class="dropdown">
-                    <button class="btn btn-xs btn-outline-secondary" data-bs-toggle="dropdown">⋯</button>
+                    <button class="btn btn-xs btn-outline-secondary" data-bs-toggle="dropdown" onclick="event.stopPropagation()">⋯</button>
                     <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item small" href="#" onclick="openRecat(${tx.id}, ${tx.account_id})">Change Account</a></li>
+                        <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();openRecat(${tx.id}, ${tx.account_id})">Change Account</a></li>
                         ${tx.reference_type === 'invoice' ? `<li><a class="dropdown-item small" href="/crm/invoices/view.php?id=${tx.reference_id}">View Invoice</a></li>` : ''}
                         ${tx.reference_type === 'expense' ? `<li><a class="dropdown-item small" href="/crm/expenses_appstack.php?highlight=${tx.reference_id}">View Expense</a></li>` : ''}
-                        <li><a class="dropdown-item small" href="#" onclick="toggleReview(${tx.id}, ${tx.needs_review == 1 ? 0 : 1})">${tx.needs_review == 1 ? 'Clear Review Flag' : 'Flag for Review'}</a></li>
-                        ${tx.reference_type === 'manual' ? `<li><hr class="dropdown-divider"><li><a class="dropdown-item small text-danger" href="#" onclick="deleteTx(${tx.id})">Delete</a></li>` : ''}
+                        <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();toggleReview(${tx.id}, ${tx.needs_review == 1 ? 0 : 1})">${tx.needs_review == 1 ? 'Clear Review Flag' : 'Flag for Review'}</a></li>
+                        ${tx.reference_type === 'manual' ? `<li><hr class="dropdown-divider"></li><li><a class="dropdown-item small text-danger" href="#" onclick="event.stopPropagation();deleteTx(${tx.id})">Delete</a></li>` : ''}
                     </ul>
                 </div>
             </td>
-        </tr>`;
-    }).join('');
+        </tr>`);
+
+        // Receipt-match detail row — hidden until user clicks the main row
+        if (hasReceiptMatch) {
+            const expVendor = tx.matched_expense_vendor ? esc(tx.matched_expense_vendor) : '—';
+            const expDate   = tx.matched_expense_date   || '—';
+            const expAmt    = tx.matched_expense_amount  ? fmtMoney(tx.matched_expense_amount) : '—';
+            const confLabel = tx.match_confidence        ? `<span class="text-success fw-bold">${tx.match_confidence}%</span> match confidence` : '';
+
+            html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
+                <td colspan="8">
+                    <div class="d-flex gap-3">
+                        <div class="mw-tx-panel flex-fill">
+                            <div class="mw-tx-panel-label">📄 Bank Transaction</div>
+                            <div class="fw-bold">${esc(tx.description || '')}</div>
+                            <div class="text-muted mt-1">${tx.transaction_date} · ${esc(tx.bank_account || 'Bank import')} · ${fmtMoney(tx.amount)}</div>
+                        </div>
+                        <div class="mw-tx-panel flex-fill">
+                            <div class="mw-tx-panel-label">🧾 Matched Receipt ${confLabel ? `· ${confLabel}` : ''}</div>
+                            <div class="fw-bold">${expVendor}</div>
+                            <div class="text-muted mt-1">${expDate} · ${expAmt}</div>
+                            <div class="mt-2">
+                                <a href="/crm/expenses_appstack.php?highlight=${tx.matched_expense_id}"
+                                   class="btn btn-xs btn-outline-success"
+                                   onclick="event.stopPropagation()">View Receipt →</a>
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            </tr>`);
+        }
+    });
+
+    tbody.innerHTML = html.join('');
+}
+
+function toggleTxDetail(id) {
+    const row = document.getElementById('det-' + id);
+    if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
 }
 
 function updateSummary(rows) {

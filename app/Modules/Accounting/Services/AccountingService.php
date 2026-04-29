@@ -512,12 +512,18 @@ class AccountingService
                 coa.type  AS account_type,
                 v.name    AS vendor_name,
                 CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
-                jp.plan_number AS job_number
+                jp.plan_number AS job_number,
+                COALESCE(prop.property_name, prop.address) AS property_name,
+                me.vendor_name_raw AS matched_expense_vendor,
+                me.expense_date    AS matched_expense_date,
+                me.total           AS matched_expense_amount
             FROM accounting_transactions t
             JOIN chart_of_accounts coa ON coa.id = t.account_id
-            LEFT JOIN vendors   v  ON v.id  = t.vendor_id
-            LEFT JOIN contacts  c  ON c.id  = t.contact_id
-            LEFT JOIN job_plans jp ON jp.id = t.job_id
+            LEFT JOIN vendors    v    ON v.id    = t.vendor_id
+            LEFT JOIN contacts   c    ON c.id    = t.contact_id
+            LEFT JOIN job_plans  jp   ON jp.id   = t.job_id
+            LEFT JOIN properties prop ON prop.id = jp.property_id
+            LEFT JOIN expenses   me   ON me.id   = t.matched_expense_id
             WHERE $whereClause
             ORDER BY t.transaction_date DESC, t.id DESC
             LIMIT ? OFFSET ?
