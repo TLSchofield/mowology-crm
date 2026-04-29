@@ -5291,7 +5291,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             searchEl.focus();
         }
 
-        var vendorId = parseInt((document.getElementById('vendorId') || {}).value) || 0;
+        var vendorId = parseInt((document.getElementById('expVendorId') || {}).value) || 0;
         if (vendorId) {
             _aipLoadProducts(vendorId);
         } else {
@@ -5417,22 +5417,52 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     };
 
     // Wire search input
+    var _aipGlobalTimer = null;
     (function() {
         var searchEl = document.getElementById('expAipSearch');
         if (!searchEl) return;
         searchEl.addEventListener('input', function() {
             var q = searchEl.value.trim();
-            var vendorId = parseInt((document.getElementById('vendorId') || {}).value) || 0;
-            if (vendorId && _aipProductCache[vendorId]) {
-                _aipRender(_aipProductCache[vendorId], q);
-            }
+            var vendorId = parseInt((document.getElementById('expVendorId') || {}).value) || 0;
+            var vendorProducts = vendorId ? (_aipProductCache[vendorId] || []) : [];
+
             // Mirror typed text into name field so free-text entry works
             var nameEl = document.getElementById('newItemName');
             if (nameEl && !document.querySelector('.mw-aip-chip.is-selected')) {
                 nameEl.value = q;
             }
+
+            if (vendorProducts.length) {
+                // Vendor catalog loaded — filter and render it
+                _aipRender(vendorProducts, q);
+            } else if (q.length >= 2) {
+                // No vendor catalog — fall back to global product search
+                clearTimeout(_aipGlobalTimer);
+                _aipGlobalTimer = setTimeout(function() { _aipGlobalSearch(q); }, 220);
+            } else {
+                var catalog = document.getElementById('expAipCatalog');
+                if (catalog) { catalog.innerHTML = ''; catalog.style.display = 'none'; }
+            }
         });
     }());
+
+    async function _aipGlobalSearch(q) {
+        var catalog = document.getElementById('expAipCatalog');
+        if (!catalog) return;
+        try {
+            var r = await fetch('/crm/products/api-products.php?action=list-products&search=' + encodeURIComponent(q));
+            var d = await r.json();
+            if (d.success && d.products && d.products.length) {
+                _aipRender(d.products, q);
+            } else {
+                catalog.innerHTML = '<div class="mw-aip-no-products">No matches — type a custom name below.</div>';
+                catalog.style.display = 'block';
+            }
+        } catch(e) {
+            catalog.innerHTML = '';
+            catalog.style.display = 'none';
+        }
+    }
 
     window.commitAddLineItem = async function() {
         var expId = document.getElementById('expenseId').value;
