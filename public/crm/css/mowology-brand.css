@@ -22689,32 +22689,36 @@ a.mw-clock-timer-nav:hover {
   display:none;
   align-items:flex-start;
   justify-content:flex-start;
-  padding:6px;
+  padding:7px;
   background:rgb(0 0 0 / 0);
   cursor:pointer;
-  transition:background .12s;
+  transition:background .15s;
 }
 .is-select-mode .mw-select-overlay { display:flex; }
+.mw-timeline-photo.is-selected .mw-select-overlay {
+  background:rgba(45,134,89,.28);
+}
 .mw-select-check {
-  width:22px;
-  height:22px;
+  width:24px;
+  height:24px;
   border-radius:50%;
-  border:2px solid rgb(255 255 255 / .8);
-  background:rgb(0 0 0 / .35);
+  border:2.5px solid rgb(255 255 255 / .9);
+  background:rgb(0 0 0 / .4);
   display:flex;
   align-items:center;
   justify-content:center;
   color:#fff0;
-  transition:all .12s;
+  transition:all .15s;
+  flex-shrink:0;
 }
 .mw-timeline-photo.is-selected .mw-select-check {
   background:var(--mw-green);
-  border-color:var(--mw-green);
+  border-color:#fff;
   color:#fff;
+  box-shadow:0 0 0 2px var(--mw-green);
 }
 .mw-timeline-photo.is-selected {
-  outline:3px solid var(--mw-green);
-  outline-offset:1px;
+  box-shadow:0 0 0 3px var(--mw-green), 0 0 0 5px rgba(45,134,89,.25);
 }
 .is-select-mode .mw-timeline-photo { cursor:default; }
 .is-select-mode .mw-timeline-photo:hover { transform:none; }
