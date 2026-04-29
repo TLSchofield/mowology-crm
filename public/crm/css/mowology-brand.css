@@ -12974,10 +12974,19 @@ a.mw-clock-timer-nav:hover {
   background:#ffc107;
   color:#333;
 }
-.mw-expense-modal .modal-content {
+.modal-content.mw-expense-modal {
   border:none;
   box-shadow:none;
   border-radius:0;
+  max-height:92vh;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.mw-expense-modal .modal-body {
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
 }
 .mw-expense-modal .form-label {
   font-weight:500;
@@ -13261,6 +13270,11 @@ a.mw-clock-timer-nav:hover {
   justify-content:center;
   color:#ccc;
 }
+#expReceiptCol {
+  align-self:flex-start;
+  position:sticky;
+  top:0;
+}
 .mw-modal-receipt-preview {
   border:1px solid #dee2e6;
   border-radius:.375rem;
@@ -13274,6 +13288,7 @@ a.mw-clock-timer-nav:hover {
   display:flex;
   align-items:center;
   justify-content:center;
+  max-height:calc(92vh - 160px);
 }
 .mw-modal-receipt-preview img {
   max-width:100%;
