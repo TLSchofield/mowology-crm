@@ -159,6 +159,36 @@ class BankImportService
                     $row['duplicate_type']  = null;
                     $row['duplicate_tx_id'] = null;
                     $row['match_candidate'] = false;
+
+                    // Invoice matching for income rows (same as enrichRows)
+                    if ($row['type'] === 'income') {
+                        $invMatch = null;
+                        if ($this->isPaymentProcessor($row['description'])) {
+                            $invMatch = $this->findInvoiceMatchForProcessor(
+                                $row['date'], $row['amount'], $row['description']
+                            );
+                        } elseif ($this->isETransfer($row['description'])) {
+                            $invMatch = $this->findInvoiceMatchForETransfer(
+                                $row['date'], $row['amount'], $row['description']
+                            );
+                        }
+                        if ($invMatch) {
+                            $row['match_candidate']       = true;
+                            $row['matched_invoice_tx_id'] = $invMatch['tx_id'];
+                            $row['matched_invoice_id']    = $invMatch['invoice_id'];
+                            $row['match_confidence']      = $invMatch['confidence'];
+                            $row['match_method']          = $invMatch['match_method'] ?? 'amount';
+                            $row['processing_fee']        = $invMatch['processing_fee'];
+                            $row['matched_invoice'] = [
+                                'invoice_number'   => $invMatch['invoice_number'],
+                                'client_name'      => $invMatch['client_name'],
+                                'property_address' => $invMatch['property_address'],
+                                'invoice_amount'   => $invMatch['invoice_amount'],
+                                'payment_reference'=> $invMatch['payment_reference'] ?? '',
+                            ];
+                            $totals['matched']++;
+                        }
+                    }
                 }
             }
 
@@ -193,15 +223,17 @@ class BankImportService
         int $userId,
         string $bankName = '',
         string $accountName = '',
-        bool $skipDuplicates = true
+        bool $skipDuplicates = true,
+        int $bankAccountId = 0
     ): array {
 
         $sessionId = $this->createSession([
-            'filename'      => $bankName ?: 'bank_import',
-            'bank_name'     => $bankName,
-            'account_name'  => $accountName,
-            'row_count'     => count($rows),
-            'created_by'    => $userId,
+            'filename'        => $bankName ?: 'bank_import',
+            'bank_name'       => $bankName,
+            'account_name'    => $accountName,
+            'bank_account_id' => $bankAccountId ?: null,
+            'row_count'       => count($rows),
+            'created_by'      => $userId,
         ]);
 
         $imported   = 0;
@@ -216,8 +248,8 @@ class BankImportService
                 INSERT INTO accounting_transactions
                     (transaction_date, type, account_id, amount, gst_amount, pst_amount,
                      description, reference_type, status, is_auto_categorized, rule_id,
-                     bank_account, import_session_id, created_by)
-                VALUES (?, ?, ?, ?, ?, 0, ?, 'bank_import', 'cleared', ?, ?, ?, ?, ?)
+                     bank_account, bank_account_id, import_session_id, created_by)
+                VALUES (?, ?, ?, ?, ?, 0, ?, 'bank_import', 'cleared', ?, ?, ?, ?, ?, ?)
             ");
 
             // Staging row INSERT — includes new match_status + matched_expense_id columns
@@ -270,6 +302,7 @@ class BankImportService
                             UPDATE accounting_transactions SET
                               status             = 'reconciled',
                               bank_account       = ?,
+                              bank_account_id    = COALESCE(bank_account_id, ?),
                               import_session_id  = ?,
                               matched_expense_id = ?,
                               match_confidence   = ?,
@@ -280,7 +313,7 @@ class BankImportService
                               job_id             = COALESCE(job_id, ?)
                             WHERE id = ?
                         ")->execute([
-                            $accountName, $sessionId,
+                            $accountName, $bankAccountId ?: null, $sessionId,
                             $expenseId, $confidence,
                             (float)($row['gst_amount'] ?? 0),
                             !empty($row['vendor_id']) ? (int)$row['vendor_id'] : null,
@@ -296,7 +329,7 @@ class BankImportService
                             $row['description'],
                             $row['auto_cat'] ? 1 : 0,
                             $row['rule_id'] ?? null,
-                            $accountName, $sessionId, $userId,
+                            $accountName, $bankAccountId ?: null, $sessionId, $userId,
                         ]);
                         $txId = (int)$this->db->lastInsertId();
                         // Upgrade to reconciled with match metadata
@@ -333,6 +366,94 @@ class BankImportService
                     continue;
                 }
 
+                // ── Reconcile processor payment (Stripe/PayPal/etc) to invoice ─
+                if (!empty($row['match_candidate']) && !empty($row['matched_invoice_tx_id'])) {
+                    $invTxId       = (int)$row['matched_invoice_tx_id'];
+                    $processingFee = (float)($row['processing_fee'] ?? 0);
+                    $confidence    = (int)($row['match_confidence'] ?? 88);
+                    $payRef        = $row['matched_invoice']['payment_reference'] ?? '';
+
+                    // Mark the invoice's accounting_transactions row as reconciled
+                    $this->db->prepare("
+                        UPDATE accounting_transactions SET
+                          status            = 'reconciled',
+                          bank_account      = ?,
+                          bank_account_id   = COALESCE(bank_account_id, ?),
+                          import_session_id = ?,
+                          match_confidence  = ?,
+                          matched_at        = NOW(),
+                          matched_by        = 'auto'
+                        WHERE id = ?
+                    ")->execute([$accountName, $bankAccountId ?: null, $sessionId, $confidence, $invTxId]);
+
+                    // Insert the bank deposit as a bank_import transaction (actual cash received)
+                    $txStmt->execute([
+                        $row['date'], 'income', $row['account_id'], $row['amount'],
+                        0, $row['description'],
+                        0, null, $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                    ]);
+                    $txId = (int)$this->db->lastInsertId();
+
+                    // Store payment reference on the bank deposit row (audit trail)
+                    if ($payRef) {
+                        $this->db->prepare("
+                            UPDATE accounting_transactions SET payment_reference = ? WHERE id = ?
+                        ")->execute([$payRef, $txId]);
+                    }
+
+                    // Close the invoice if this was an e-Transfer (Stripe closes via webhook)
+                    $matchMethod   = $row['match_method'] ?? '';
+                    $invoiceId     = (int)($row['matched_invoice_id'] ?? 0);
+                    if ($matchMethod === 'etransfer' && $invoiceId) {
+                        // Fetch invoice total so we can set amount_paid correctly
+                        $invRow = $this->db->prepare("
+                            SELECT total, amount_paid FROM invoices
+                            WHERE id = ? AND status NOT IN ('paid','cancelled')
+                            LIMIT 1
+                        ");
+                        $invRow->execute([$invoiceId]);
+                        $inv = $invRow->fetch(PDO::FETCH_ASSOC);
+                        if ($inv) {
+                            $this->db->prepare("
+                                UPDATE invoices SET
+                                    status           = 'paid',
+                                    amount_paid      = total,
+                                    balance_due      = 0,
+                                    payment_method   = 'e_transfer',
+                                    paid_at          = COALESCE(paid_at, ?)
+                                WHERE id = ?
+                            ")->execute([$row['date'], $invoiceId]);
+                        }
+                    }
+
+                    // Auto-create the processing fee as an expense
+                    if ($processingFee > 0.01) {
+                        $feeAcctId = $this->getProcessingFeesAccountId();
+                        $this->db->prepare("
+                            INSERT INTO accounting_transactions
+                                (transaction_date, type, account_id, amount, description,
+                                 reference_type, status, is_auto_categorized,
+                                 bank_account, bank_account_id, import_session_id, created_by)
+                            VALUES (?, 'expense', ?, ?, ?, 'bank_import', 'cleared', 1, ?, ?, ?, ?)
+                        ")->execute([
+                            $row['date'], $feeAcctId, $processingFee,
+                            'Payment processing fee — ' . substr($row['description'], 0, 100),
+                            $accountName, $bankAccountId ?: null, $sessionId, $userId,
+                        ]);
+                    }
+
+                    $rowStmt->execute([
+                        $sessionId, $row['date'], $row['description'], $rawAmount,
+                        'income', $row['amount'], $row['account_id'],
+                        $txId, 0, null, null, json_encode($row),
+                        'auto_matched', null,
+                    ]);
+
+                    $reconciled++;
+                    $imported++;
+                    continue;
+                }
+
                 // ── Standard bank-import transaction (no expense match) ────────
                 $txStmt->execute([
                     $row['date'], $row['type'], $row['account_id'], $row['amount'],
@@ -340,7 +461,7 @@ class BankImportService
                     $row['description'],
                     $row['auto_cat'] ? 1 : 0,
                     $row['rule_id'] ?? null,
-                    $accountName, $sessionId, $userId,
+                    $accountName, $bankAccountId ?: null, $sessionId, $userId,
                 ]);
                 $txId = (int)$this->db->lastInsertId();
 
@@ -463,7 +584,9 @@ class BankImportService
             $text = $this->extractTextFallback($filePath);
         }
 
-        $rows = $this->parsePdfText($text);
+        $parsed = $this->parsePdfText($text);
+        $rows   = $parsed['rows'];
+        $balMeta = $parsed['balance_meta'];
 
         if (empty($rows)) {
             throw new RuntimeException(
@@ -472,7 +595,9 @@ class BankImportService
             );
         }
 
-        return $this->enrichRows($rows, $bankName, 'pdf');
+        $result = $this->enrichRows($rows, $bankName, 'pdf');
+        $result['balance_check'] = $this->computeBalanceCheck($balMeta, $result['totals']);
+        return $result;
     }
 
     /**
@@ -493,7 +618,10 @@ class BankImportService
         $subtype = strpos($mimeType, 'png') !== false ? 'png' : 'jpeg';
         $text    = $this->ocrImageBytes($imageData, $subtype);
 
-        $rows = $this->parsePdfText($text);
+        $parsed  = $this->parsePdfText($text);
+        $rows    = $parsed['rows'];
+        $balMeta = $parsed['balance_meta'];
+
         if (empty($rows)) {
             throw new RuntimeException(
                 'No transactions could be extracted from this image. ' .
@@ -501,7 +629,9 @@ class BankImportService
             );
         }
 
-        return $this->enrichRows($rows, $bankName, 'image');
+        $result = $this->enrichRows($rows, $bankName, 'image');
+        $result['balance_check'] = $this->computeBalanceCheck($balMeta, $result['totals']);
+        return $result;
     }
 
     /**
@@ -519,43 +649,74 @@ class BankImportService
      *
      * Returns normalized rows identical in shape to parseCSV() output.
      */
+    /**
+     * Parse PDF/OCR text into transaction rows.
+     * Returns ['rows' => [...], 'balance_meta' => ['opening'=>?, 'closing'=>?]].
+     *
+     * Layout detection:
+     *   3-column (WITHDRAWALS | DEPOSITS | BALANCE — Vancity, most credit unions):
+     *     Every transaction line ends with: amount  running_balance
+     *     → use first amount as the transaction; discard second (it is the balance).
+     *
+     *   2-column (DEBIT | CREDIT — RBC, some TD):
+     *     Lines have either a debit amount or a credit amount, never both.
+     *     When both appear it means (debit=0, credit>0) — use the non-zero one.
+     */
     private function parsePdfText(string $text): array
     {
         $rows  = [];
-        $lines = preg_split('/\r?\n/', $text);
+        $lines = preg_split('/\r?\n|\x0c/', $text);
 
-        // Regex: date (various formats) + description + amount(s) at end of line
-        // Handles: Jan 15, 15 Jan, 01/15, 01-15, 2024-01-15, etc.
+        // ── Date patterns ─────────────────────────────────────────────────────
         $datePatterns = [
-            // Month-name day (no year) — Jan 15, Jan. 15
             '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}',
-            // Day Month-name — 15 Jan, 15MAR, 15 MAR (Vancity omits space inconsistently)
             '\d{1,2}\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?',
-            // MM/DD or MM-DD
             '\d{1,2}[\/\-]\d{1,2}',
-            // YYYY-MM-DD
             '\d{4}-\d{2}-\d{2}',
-            // MM/DD/YYYY or DD/MM/YYYY
             '\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}',
         ];
-        $datePat = '(' . implode('|', $datePatterns) . ')';
+        $datePat      = '(' . implode('|', $datePatterns) . ')';
         $dateStartPat = '/^' . $datePat . '\s+/i';
+        $amtPat       = '([\-\+]?\$?\s*[\d,]+\s*\.\d{2})';
+        $pattern      = '/^' . $datePat . '\s+(.+?)\s+' . $amtPat . '(?:\s+' . $amtPat . ')?$/i';
 
-        // Amount pattern: optional sign or CR/DR, digits with optional comma-separators and decimal
-        $amtPat = '([\-\+]?\$?\s*[\d,]+\.\d{2})';
-
-        // Full line pattern: date | description (anything) | one or two amounts
-        $pattern = '/^' . $datePat . '\s+(.+?)\s+' . $amtPat . '(?:\s+' . $amtPat . ')?$/i';
-
-        // Detect year from surrounding text (statement year)
+        // ── Statement year ────────────────────────────────────────────────────
         $statementYear = date('Y');
         if (preg_match('/\b(20\d{2})\b/', $text, $ym)) {
             $statementYear = $ym[1];
         }
 
-        // Join wrapped lines: some banks (Vancity, BMO) wrap long descriptions onto
-        // the next line. The continuation line doesn't start with a date — merge it
-        // with the preceding line so the full row can be parsed in one pass.
+        // ── 3-column format detection (WITHDRAWALS | DEPOSITS | BALANCE) ─────
+        // When true, every line with two amounts has: transaction_amount  running_balance.
+        // The running balance MUST be discarded — it is not a second transaction.
+        // The old "a2 > a1 * 5" heuristic fails for large transactions (e.g. $9,590
+        // deposit with $20,145 balance → ratio only 2.1x, not caught).
+        $is3Col = (bool)preg_match(
+            '/WITHDRAWALS?\s+DEPOSITS?\s+BALANCE|DEBIT\s+CREDIT\s+BALANCE/i',
+            $text
+        );
+
+        // ── Opening / closing balance extraction ──────────────────────────────
+        $openingBalance = null;
+        $closingBalance = null;
+
+        // Look for explicit labels (most bank statement formats).
+        // Use .*? + /s so the regex skips over embedded dates like "BALANCE ON 31 MAR 2026"
+        // without stopping at the digits in the date.
+        if (preg_match(
+            '/(?:opening|previous|beginning|prior)\s+balance\b.*?(\d{1,3}(?:,\d{3})*\.\d{2})/is',
+            $text, $bm
+        )) {
+            $openingBalance = $this->parseNumber($bm[1]);
+        }
+        if (preg_match(
+            '/(?:closing|ending|end\s+of\s+period)\s+balance\b.*?(\d{1,3}(?:,\d{3})*\.\d{2})/is',
+            $text, $bm
+        )) {
+            $closingBalance = $this->parseNumber($bm[1]);
+        }
+
+        // ── Join wrapped lines ────────────────────────────────────────────────
         $joined = [];
         $buf    = '';
         foreach ($lines as $raw) {
@@ -574,10 +735,16 @@ class BankImportService
         if ($buf !== '') $joined[] = $buf;
         $lines = $joined;
 
+        // Track running balance column values (a2) to derive opening balance if
+        // no explicit label was found.
+        // Also track previous balance for 3-col income/expense type detection.
+        $runningBalances    = [];
+        $prevRunningBalance = $openingBalance;
+
+        // ── Parse transaction lines ───────────────────────────────────────────
         foreach ($lines as $line) {
             $line = trim($line);
             if (strlen($line) < 10) continue;
-
             if (!preg_match($pattern, $line, $m)) continue;
 
             $dateRaw = trim($m[1]);
@@ -585,12 +752,15 @@ class BankImportService
             $amt1Raw = trim($m[3]);
             $amt2Raw = isset($m[4]) ? trim($m[4]) : '';
 
-            // Skip lines that look like balance/total rows
+            // Skip balance / summary rows
             $descLower = strtolower($desc);
-            if (preg_match('/\b(balance|total|opening|closing|brought forward|carried forward)\b/', $descLower)) continue;
+            if (preg_match(
+                '/\b(balance|total|opening|closing|brought forward|carried forward|subtotal)\b/',
+                $descLower
+            )) continue;
             if (strlen($desc) < 3) continue;
 
-            // Parse date — append statement year if no year in date string
+            // Parse date
             $dateStr = $dateRaw;
             if (!preg_match('/\d{4}/', $dateRaw)) {
                 $dateStr = $dateRaw . ' ' . $statementYear;
@@ -598,37 +768,55 @@ class BankImportService
             $date = $this->parseDate($dateStr);
             if (!$date) continue;
 
-            // Determine type and amount
-            // If two amounts: first is debit (expense), second is credit (income), ignore balance col
+            // ── Determine type + amount ───────────────────────────────────────
             $type   = null;
             $amount = null;
 
+            // Keywords that identify a credit/income transaction
+            $isCredit = (bool)preg_match(
+                '/\bCR\b|DEPOSIT|CREDIT|PAYROLL|SALARY|TRANSFER\s+IN|REFUND|PREAUTH\s+CREDIT/i',
+                $desc
+            );
+
             if ($amt2Raw !== '') {
-                // Two amount columns: either (debit | credit) or (transaction | running-balance).
-                // Running-balance detection: if amt2 is much larger than amt1, it's a balance
-                // column (Vancity / credit-union 3-column format: withdrawal | deposit | balance).
                 $a1 = $this->parseNumber($amt1Raw);
                 $a2 = $this->parseNumber($amt2Raw);
-                $isCredit = (bool)preg_match('/\bCR\b|DEPOSIT|CREDIT|PAYROLL|SALARY|TRANSFER IN|REFUND/i', $desc);
-                if ($a1 !== null && $a1 > 0 && ($a2 === null || $a2 > $a1 * 5)) {
-                    // a2 is a running balance — a1 is the transaction amount
-                    $type   = $isCredit ? 'income' : 'expense';
-                    $amount = $a1;
-                } elseif ($a2 !== null && $a2 > 0) {
-                    $type   = 'income';
-                    $amount = $a2;
-                } elseif ($a1 !== null && $a1 > 0) {
-                    $type   = $isCredit ? 'income' : 'expense';
-                    $amount = $a1;
+
+                if ($is3Col) {
+                    // 3-column: a1 = transaction amount, a2 = running balance.
+                    // Use the running balance delta (a2 vs previous balance) as the primary
+                    // income/expense signal — it's reliable even when description keywords are
+                    // absent (e.g. a POINT OF SALE reversal that is actually a deposit).
+                    if ($a1 !== null && $a1 > 0) {
+                        if ($a2 !== null && $prevRunningBalance !== null) {
+                            $type = ($a2 > $prevRunningBalance) ? 'income' : 'expense';
+                        } else {
+                            $type = $isCredit ? 'income' : 'expense';
+                        }
+                        $amount = $a1;
+                        if ($a2 !== null) {
+                            $runningBalances[]   = $a2;
+                            $prevRunningBalance  = $a2;
+                        }
+                    }
+                } else {
+                    // 2-column or unknown: use ratio heuristic as fallback
+                    if ($a1 !== null && $a1 > 0 && ($a2 === null || $a2 > $a1 * 3)) {
+                        // a2 is likely a running balance
+                        $type   = $isCredit ? 'income' : 'expense';
+                        $amount = $a1;
+                        if ($a2 !== null) $runningBalances[] = $a2;
+                    } elseif ($a2 !== null && $a2 > 0) {
+                        $type   = 'income';
+                        $amount = $a2;
+                    } elseif ($a1 !== null && $a1 > 0) {
+                        $type   = $isCredit ? 'income' : 'expense';
+                        $amount = $a1;
+                    }
                 }
             } else {
                 $raw = $this->parseNumber($amt1Raw);
                 if ($raw === null || $raw == 0) continue;
-
-                // Sign-based: negative = expense, positive = income
-                // But PDF bank statements often show all amounts as positive with
-                // CR/DR markers or description keywords
-                $isCredit = preg_match('/\bCR\b|DEPOSIT|CREDIT|PAYROLL|SALARY|TRANSFER IN|REFUND/i', $desc);
                 if ($raw < 0) {
                     $type   = 'expense';
                     $amount = abs($raw);
@@ -659,7 +847,38 @@ class BankImportService
             ];
         }
 
-        return $rows;
+        // ── Derive opening balance from running balance column if not explicit ─
+        // In 3-column format: balance_after_row_1 = opening ± row_1_amount.
+        if ($openingBalance === null && !empty($runningBalances) && !empty($rows)) {
+            $firstBalance = $runningBalances[0];
+            $firstRow     = $rows[0];
+            if ($firstRow['type'] === 'income') {
+                $openingBalance = round($firstBalance - $firstRow['amount'], 2);
+            } else {
+                $openingBalance = round($firstBalance + $firstRow['amount'], 2);
+            }
+        }
+        if ($closingBalance === null && !empty($runningBalances)) {
+            // Walk backwards and skip subsidiary-account balances (e.g. a $8.59 savings
+            // account interest entry that appears after the main account's $19,203 CHARGES
+            // line).  Any balance that is < 1% of the statement's peak is almost certainly
+            // from a minor linked account, not the primary chequing account.
+            $maxBal = max($runningBalances);
+            for ($i = count($runningBalances) - 1; $i >= 0; $i--) {
+                if ($runningBalances[$i] >= $maxBal * 0.01) {
+                    $closingBalance = $runningBalances[$i];
+                    break;
+                }
+            }
+        }
+
+        return [
+            'rows'         => $rows,
+            'balance_meta' => [
+                'opening' => $openingBalance,
+                'closing' => $closingBalance,
+            ],
+        ];
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -670,6 +889,38 @@ class BankImportService
      * Shared enrichment: categorize rows with RulesEngine, flag duplicates,
      * compute totals. Returns the final preview result array.
      */
+    /**
+     * Verify parsed transaction totals against the statement's opening/closing balances.
+     * Returns a balance_check array included in the preview result for display in the UI.
+     */
+    private function computeBalanceCheck(array $balMeta, array $totals): array
+    {
+        $opening = $balMeta['opening'];
+        $closing = $balMeta['closing'];
+
+        if ($opening === null && $closing === null) {
+            return ['available' => false];
+        }
+
+        $income  = round((float)$totals['income'],  2);
+        $expense = round((float)$totals['expense'], 2);
+
+        $computed    = $opening !== null ? round($opening + $income - $expense, 2) : null;
+        $discrepancy = ($computed !== null && $closing !== null)
+            ? round($computed - $closing, 2)
+            : null;
+        $matches     = $discrepancy !== null && abs($discrepancy) < 0.02;
+
+        return [
+            'available'   => true,
+            'opening'     => $opening,
+            'closing'     => $closing,
+            'computed'    => $computed,
+            'discrepancy' => $discrepancy,
+            'matches'     => $matches,
+        ];
+    }
+
     private function enrichRows(array $rows, string $bankName, string $source): array
     {
         require_once __DIR__ . '/RulesEngine.php';
@@ -752,6 +1003,45 @@ class BankImportService
                     $row['duplicate_type']  = null;
                     $row['duplicate_tx_id'] = null;
                     $row['match_candidate'] = false;
+
+                    // For unmatched income rows — try to match to an existing invoice.
+                    // Priority order:
+                    //   1. Payment processor (Stripe/PayPal/etc) — net-of-fee amount
+                    //   2. Interac e-Transfer — exact amount, sender name extracted
+                    if ($row['type'] === 'income') {
+                        $invMatch = null;
+
+                        if ($this->isPaymentProcessor($row['description'])) {
+                            $invMatch = $this->findInvoiceMatchForProcessor(
+                                $row['date'],
+                                $row['amount'],
+                                $row['description']
+                            );
+                        } elseif ($this->isETransfer($row['description'])) {
+                            $invMatch = $this->findInvoiceMatchForETransfer(
+                                $row['date'],
+                                $row['amount'],
+                                $row['description']
+                            );
+                        }
+
+                        if ($invMatch) {
+                            $row['match_candidate']       = true;
+                            $row['matched_invoice_tx_id'] = $invMatch['tx_id'];
+                            $row['matched_invoice_id']    = $invMatch['invoice_id'];
+                            $row['match_confidence']      = $invMatch['confidence'];
+                            $row['match_method']          = $invMatch['match_method'] ?? 'amount';
+                            $row['processing_fee']        = $invMatch['processing_fee'];
+                            $row['matched_invoice'] = [
+                                'invoice_number'   => $invMatch['invoice_number'],
+                                'client_name'      => $invMatch['client_name'],
+                                'property_address' => $invMatch['property_address'],
+                                'invoice_amount'   => $invMatch['invoice_amount'],
+                                'payment_reference'=> $invMatch['payment_reference'] ?? '',
+                            ];
+                            $totals['matched']++;
+                        }
+                    }
                 }
             }
 
@@ -1112,6 +1402,291 @@ class BankImportService
     }
 
     /**
+     * Returns true if this bank description is a payment processor settlement.
+     * These deposits are net-of-fee — the invoice amount is 1-6% higher than the deposit.
+     */
+    private function isPaymentProcessor(string $description): bool
+    {
+        return (bool)preg_match(
+            '/\b(STRIPE|PAYPAL|PAY\s*PAL|SQUARE|MONERIS|PAYMENTECH|BRAINTREE|HELCIM|BAMBORA|PAYFIRMA)\b/i',
+            $description
+        );
+    }
+
+    /**
+     * Returns true if this bank description is an Interac e-Transfer.
+     * These deposits are full-amount — no processing fee is deducted.
+     */
+    private function isETransfer(string $description): bool
+    {
+        return (bool)preg_match(
+            '/\b(INTERAC|E-TRANSFER|E\s*TRF|ETRANSFER|ETRF|INTERAC\s+E-TRF|IDP\s+PURCHASE|e-TRF)\b/i',
+            $description
+        );
+    }
+
+    /**
+     * Extract sender name from an Interac e-transfer bank description.
+     *
+     * Typical formats:
+     *   "INTERAC E-TRF 1234 GARY HUGHES"
+     *   "INTERAC E-TRANSFER FROM GARY HUGHES REF#12345"
+     *   "E-TRANSFER GARY HUGHES"
+     *
+     * Returns an array of name words (lowercased, filtered), or [].
+     */
+    private function extractETransferSenderName(string $description): array
+    {
+        // Strip leading processor keywords + numeric tokens
+        $clean = preg_replace(
+            '/\b(INTERAC|E-TRANSFER|ETRANSFER|E-TRF|ETRF|IDP\s+PURCHASE|FROM|REF#?\s*\w+|\d+)\b/i',
+            ' ',
+            $description
+        );
+        $clean = trim(preg_replace('/\s+/', ' ', $clean));
+
+        // Words of ≥3 chars that are not pure numbers
+        $words = [];
+        foreach (preg_split('/\s+/', strtolower($clean)) as $w) {
+            if (strlen($w) >= 3 && !is_numeric($w)) {
+                $words[] = $w;
+            }
+        }
+        return $words;
+    }
+
+    /**
+     * Match an Interac e-Transfer deposit to an unreconciled invoice.
+     *
+     * Confidence scoring (max 100):
+     *   Exact amount match (±$0.01): 50 pts  — required
+     *   Same day: 20 | ±1 day: 12 | ±2 days: 6 | ±3 days: 2
+     *   Sender name word overlaps client/contact name: +25 pts
+     *
+     * Requires ≥60 pts to return a result (amount + date match, no name needed;
+     * or amount + partial name if the date is older).
+     */
+    private function findInvoiceMatchForETransfer(
+        string $date,
+        float  $bankAmount,
+        string $description
+    ): ?array {
+
+        $stmt = $this->db->prepare("
+            SELECT
+                t.id           AS tx_id,
+                t.reference_id AS invoice_id,
+                t.amount       AS invoice_amount,
+                t.transaction_date,
+                inv.invoice_number,
+                inv.payment_reference,
+                COALESCE(
+                    CONCAT(c.first_name, ' ', c.last_name),
+                    co.company_name,
+                    ip.property_name,
+                    ip.address
+                ) AS client_name,
+                ip.address AS property_address,
+                ABS(DATEDIFF(t.transaction_date, ?)) AS day_diff
+            FROM accounting_transactions t
+            JOIN invoices inv ON inv.id = t.reference_id
+            LEFT JOIN properties ip  ON ip.id  = inv.property_id
+            LEFT JOIN contacts   c   ON c.id   = inv.contact_id
+            LEFT JOIN companies  co  ON co.id  = inv.company_id
+            WHERE t.reference_type = 'invoice'
+              AND t.type = 'income'
+              AND t.status != 'reconciled'
+              AND ABS(t.amount - ?) < 0.02
+              AND t.transaction_date BETWEEN
+                  DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY)
+            ORDER BY day_diff ASC, t.id DESC
+            LIMIT 5
+        ");
+        $stmt->execute([$date, $bankAmount, $date, $date]);
+        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($candidates)) return null;
+
+        $senderWords = $this->extractETransferSenderName($description);
+
+        $best      = null;
+        $bestScore = 0;
+
+        foreach ($candidates as $c) {
+            $score   = 50; // amount matched
+            $dayDiff = (int)$c['day_diff'];
+            $score  += $dayDiff === 0 ? 20 : ($dayDiff === 1 ? 12 : ($dayDiff === 2 ? 6 : 2));
+
+            // Sender name overlap with client name
+            if (!empty($senderWords) && !empty($c['client_name'])) {
+                $clientLower = strtolower($c['client_name']);
+                foreach ($senderWords as $word) {
+                    if (strpos($clientLower, $word) !== false) {
+                        $score += 25;
+                        break;
+                    }
+                }
+            }
+
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = $c;
+            }
+        }
+
+        // Require at least amount + date (score ≥ 60)
+        if (!$best || $bestScore < 60) return null;
+
+        return [
+            'tx_id'            => (int)$best['tx_id'],
+            'invoice_id'       => (int)$best['invoice_id'],
+            'invoice_number'   => $best['invoice_number']   ?? '',
+            'client_name'      => $best['client_name']      ?? '',
+            'property_address' => $best['property_address'] ?? '',
+            'invoice_amount'   => (float)$best['invoice_amount'],
+            'processing_fee'   => 0.0,  // e-transfers have no fee
+            'payment_reference'=> $best['payment_reference'] ?? '',
+            'confidence'       => min($bestScore, 100),
+            'match_method'     => 'etransfer',
+        ];
+    }
+
+    /**
+     * Match a payment processor bank deposit to an unreconciled invoice.
+     *
+     * Two-stage matching:
+     *   1. Reference match — if the bank description contains a pi_/ch_ Stripe ID
+     *      that is stored on an invoice, it's a deterministic 100% confidence match.
+     *   2. Amount range match — invoice amount in [bankAmount, bankAmount × 1.065]
+     *      within a 7-day lookback window (processor fee is at most ~6.5%).
+     *
+     * @param string $bankDescription  Raw bank description (e.g. "STRIPE TRANSFER")
+     */
+    private function findInvoiceMatchForProcessor(
+        string $date,
+        float  $bankAmount,
+        string $bankDescription = ''
+    ): ?array {
+
+        // ── Stage 1: Reference-based deterministic match ──────────────────────
+        // Extract any Stripe payment intent ID (pi_XXX) or charge ID (ch_XXX)
+        // that might appear in the bank description.
+        $refMatch = null;
+        if (preg_match('/\b(pi_[A-Za-z0-9]{10,}|ch_[A-Za-z0-9]{10,})\b/', $bankDescription, $rm)) {
+            $ref = $rm[1];
+            $stmt = $this->db->prepare("
+                SELECT
+                    t.id           AS tx_id,
+                    t.reference_id AS invoice_id,
+                    t.amount       AS invoice_amount,
+                    t.transaction_date,
+                    inv.invoice_number,
+                    inv.payment_reference,
+                    inv.stripe_charge_id,
+                    COALESCE(ico.company_name, ip.property_name, ip.address) AS client_name,
+                    ip.address AS property_address
+                FROM accounting_transactions t
+                JOIN invoices inv ON inv.id = t.reference_id
+                LEFT JOIN properties ip  ON ip.id  = inv.property_id
+                LEFT JOIN companies  ico ON ico.id = inv.company_id
+                WHERE t.reference_type = 'invoice'
+                  AND t.type = 'income'
+                  AND t.status != 'reconciled'
+                  AND (inv.stripe_payment_intent_id = ? OR inv.stripe_charge_id = ?)
+                LIMIT 1
+            ");
+            $stmt->execute([$ref, $ref]);
+            $refMatch = $stmt->fetch(PDO::FETCH_ASSOC);
+        }
+
+        if ($refMatch) {
+            return [
+                'tx_id'            => (int)$refMatch['tx_id'],
+                'invoice_id'       => (int)$refMatch['invoice_id'],
+                'invoice_number'   => $refMatch['invoice_number']   ?? '',
+                'client_name'      => $refMatch['client_name']      ?? '',
+                'property_address' => $refMatch['property_address'] ?? '',
+                'invoice_amount'   => (float)$refMatch['invoice_amount'],
+                'processing_fee'   => round((float)$refMatch['invoice_amount'] - $bankAmount, 2),
+                'payment_reference'=> $refMatch['payment_reference'] ?? $refMatch['stripe_charge_id'] ?? '',
+                'confidence'       => 100,
+                'match_method'     => 'reference',
+            ];
+        }
+
+        // ── Stage 2: Amount-range match ───────────────────────────────────────
+        $maxGross = round($bankAmount * 1.065, 2);
+
+        $stmt = $this->db->prepare("
+            SELECT
+                t.id           AS tx_id,
+                t.reference_id AS invoice_id,
+                t.amount       AS invoice_amount,
+                t.transaction_date,
+                inv.invoice_number,
+                inv.payment_reference,
+                inv.stripe_charge_id,
+                COALESCE(ico.company_name, ip.property_name, ip.address) AS client_name,
+                ip.address AS property_address,
+                ABS(DATEDIFF(t.transaction_date, ?)) AS day_diff
+            FROM accounting_transactions t
+            JOIN invoices inv ON inv.id = t.reference_id
+            LEFT JOIN properties ip  ON ip.id  = inv.property_id
+            LEFT JOIN companies  ico ON ico.id = inv.company_id
+            WHERE t.reference_type = 'invoice'
+              AND t.type = 'income'
+              AND t.status != 'reconciled'
+              AND t.amount >= ?
+              AND t.amount <= ?
+              AND t.transaction_date BETWEEN
+                  DATE_SUB(?, INTERVAL 7 DAY) AND DATE_ADD(?, INTERVAL 1 DAY)
+            ORDER BY day_diff ASC, t.id DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$date, $bankAmount, $maxGross, $date, $date]);
+        $match = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$match) return null;
+
+        return [
+            'tx_id'            => (int)$match['tx_id'],
+            'invoice_id'       => (int)$match['invoice_id'],
+            'invoice_number'   => $match['invoice_number']   ?? '',
+            'client_name'      => $match['client_name']      ?? '',
+            'property_address' => $match['property_address'] ?? '',
+            'invoice_amount'   => (float)$match['invoice_amount'],
+            'processing_fee'   => round((float)$match['invoice_amount'] - $bankAmount, 2),
+            'payment_reference'=> $match['payment_reference'] ?? $match['stripe_charge_id'] ?? '',
+            'confidence'       => 88,
+            'match_method'     => 'amount',
+        ];
+    }
+
+    /**
+     * Get (or create) the Payment Processing Fees expense account.
+     */
+    private function getProcessingFeesAccountId(): int
+    {
+        $stmt = $this->db->query("
+            SELECT id FROM chart_of_accounts
+            WHERE (code = '6850'
+                   OR name LIKE '%processing fee%'
+                   OR name LIKE '%payment processing%'
+                   OR name LIKE '%bank charge%')
+              AND type = 'expense' AND is_active = 1
+            ORDER BY CASE WHEN code = '6850' THEN 0 ELSE 1 END
+            LIMIT 1
+        ");
+        $id = $stmt->fetchColumn();
+        if ($id) return (int)$id;
+
+        $this->db->prepare("
+            INSERT INTO chart_of_accounts
+                (code, name, type, sub_type, normal_balance, is_active, display_order)
+            VALUES ('6850', 'Payment Processing Fees', 'expense', 'operating', 'debit', 1, 685)
+        ")->execute();
+        return (int)$this->db->lastInsertId();
+    }
+
+    /**
      * Stage 1 — True duplicate: the same bank transaction was already imported.
      * Checks bank_import_rows (not all of accounting_transactions) so that
      * expense-backed transactions are NOT falsely flagged as duplicates.
@@ -1237,13 +1812,14 @@ class BankImportService
     private function createSession(array $data): int
     {
         $stmt = $this->db->prepare("
-            INSERT INTO bank_import_sessions (filename, bank_name, account_name, row_count, created_by)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO bank_import_sessions (filename, bank_name, account_name, bank_account_id, row_count, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
         ");
         $stmt->execute([
             $data['filename'],
-            $data['bank_name'] ?? null,
-            $data['account_name'] ?? null,
+            $data['bank_name']       ?? null,
+            $data['account_name']    ?? null,
+            $data['bank_account_id'] ?? null,
             $data['row_count'],
             $data['created_by'],
         ]);
