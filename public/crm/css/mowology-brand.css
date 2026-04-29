@@ -22718,7 +22718,7 @@ a.mw-clock-timer-nav:hover {
   box-shadow:0 0 0 2px var(--mw-green);
 }
 .mw-timeline-photo.is-selected {
-  box-shadow:0 0 0 3px var(--mw-green), 0 0 0 5px rgba(45,134,89,.25);
+  box-shadow:inset 0 0 0 4px var(--mw-green), inset 0 0 0 6px rgba(255,255,255,.5);
 }
 .is-select-mode .mw-timeline-photo { cursor:default; }
 .is-select-mode .mw-timeline-photo:hover { transform:none; }
