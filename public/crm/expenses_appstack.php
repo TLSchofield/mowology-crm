@@ -937,11 +937,13 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 </div>
                 <div class="d-flex align-items-center gap-2">
                     <?php if ($canEdit): ?>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" id="expRescanBtn" onclick="rescanReceipt()" title="Re-run OCR on the receipt image to detect items" style="display:none;">
-                        <i data-feather="refresh-cw" style="width:13px;height:13px;margin-right:4px;"></i> Rescan
+                    <button type="button" class="mw-modal-ghost-btn" id="expRescanBtn" onclick="rescanReceipt()" title="Re-run OCR on the receipt image to detect items" style="display:none;">
+                        <i data-feather="refresh-cw" style="width:12px;height:12px;"></i> Rescan
                     </button>
                     <?php endif; ?>
-                    <button type="button" class="btn-close" data-dismiss="modal"></button>
+                    <button type="button" class="mw-modal-close" data-dismiss="modal" aria-label="Close">
+                        <i data-feather="x"></i>
+                    </button>
                 </div>
             </div>
             <div class="modal-body pt-3">
