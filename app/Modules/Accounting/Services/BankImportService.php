@@ -1153,7 +1153,7 @@ class BankImportService
         // Only find expenses not already claimed by a previous bank import
         $stmt = $this->db->prepare("
             SELECT e.id, e.expense_date, e.vendor_name_raw, e.vendor_id,
-                   e.total, e.tax_amount, e.job_id, e.contact_id,
+                   e.total, e.gst_amount AS tax_amount, e.job_id, e.contact_id,
                    e.accounting_category, e.receipt_media_id,
                    ma.file_path AS receipt_path,
                    ABS(DATEDIFF(e.expense_date, ?)) AS day_diff

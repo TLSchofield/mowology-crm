@@ -57,6 +57,9 @@ try {
                      WHERE t.account_id = coa.id) AS transaction_count
                 FROM chart_of_accounts coa
                 LEFT JOIN chart_of_accounts p ON p.id = coa.parent_id
+                -- Guard against duplicate codes until migration 986 cleanup runs
+                INNER JOIN (SELECT MIN(id) AS min_id FROM chart_of_accounts GROUP BY code) dedup
+                        ON dedup.min_id = coa.id
                 $where
                 ORDER BY coa.display_order, coa.code
             ")->fetchAll(PDO::FETCH_ASSOC);

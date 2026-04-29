@@ -24,12 +24,14 @@ if (!defined('APP_ROOT')) {
     unset($__dir, $__i);
 }
 
+
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
     require_once CRM_INCLUDES . '/functions.php';
     requireLogin();
     $user = getCurrentUser();
     requirePermission('expenses.edit');
+
 
     $db = getDB();
     session_write_close();
@@ -218,7 +220,8 @@ try {
     }
 
 } catch (Throwable $e) {
-    $code = ($e->getCode() >= 400 && $e->getCode() < 600) ? $e->getCode() : 500;
+    $rawCode = (int)$e->getCode(); // PDOException::getCode() returns SQLSTATE string; cast to int first
+    $code    = ($rawCode >= 400 && $rawCode < 600) ? $rawCode : 500;
     http_response_code($code);
     echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
 }

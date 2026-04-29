@@ -334,7 +334,7 @@ async function uploadAndPreview() {
             throw new Error('Server returned an unexpected response (HTTP ' + r.status + ').');
         }
 
-        if (!d.ok) throw new Error(d.error);
+        if (!d.ok) throw new Error(d.error || 'Unknown error');
 
         barEl.style.width = '100%';
         statusEl.textContent = 'Done — loading preview…';
