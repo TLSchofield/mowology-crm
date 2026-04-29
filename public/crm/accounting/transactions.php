@@ -603,7 +603,8 @@ async function syncLedger() {
     const d = await r.json();
     if (d.ok) {
         const res = d.result;
-        alert(`Sync complete.\n\nInvoices: ${res.invoices_synced} added, ${res.invoices_updated} updated\nExpenses: ${res.expenses_synced} added, ${res.expenses_updated} updated\nAuto-categorized: ${res.rules_applied}`);
+        const removedNote = res.removed_orphans > 0 ? `\nRemoved stale entries: ${res.removed_orphans}` : '';
+        alert(`Sync complete.\n\nInvoices: ${res.invoices_synced} added, ${res.invoices_updated} updated\nExpenses: ${res.expenses_synced} added, ${res.expenses_updated} updated\nAuto-categorized: ${res.rules_applied}${removedNote}`);
         loadTransactions();
     } else {
         alert('Sync failed: ' + d.error);

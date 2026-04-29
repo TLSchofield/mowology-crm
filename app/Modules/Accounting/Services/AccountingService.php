@@ -41,6 +41,7 @@ class AccountingService
         $invoiceResult  = $this->syncFromInvoices();
         $expenseResult  = $this->syncFromExpenses();
         $ruleResult     = $this->applyRulesToUncategorized();
+        $removed        = $this->removeOrphanedTransactions();
 
         return [
             'invoices_synced'  => $invoiceResult['synced'],
@@ -48,7 +49,46 @@ class AccountingService
             'expenses_synced'  => $expenseResult['synced'],
             'expenses_updated' => $expenseResult['updated'],
             'rules_applied'    => $ruleResult,
+            'removed_orphans'  => $removed,
         ];
+    }
+
+    /**
+     * Remove accounting_transactions that reference expenses or invoices which
+     * no longer qualify for the ledger (deleted, merged, status changed, etc.).
+     * Safe to run on every sync — only touches non-manual reference_type rows.
+     */
+    public function removeOrphanedTransactions(): int
+    {
+        $removed = 0;
+
+        // Expenses that have been deleted, merged, rejected, or reverted to draft
+        $stmt = $this->db->query("
+            DELETE FROM accounting_transactions
+            WHERE reference_type = 'expense'
+              AND reference_id IS NOT NULL
+              AND reference_id NOT IN (
+                  SELECT id FROM expenses
+                  WHERE status IN ('approved', 'forwarded')
+                    AND total > 0
+              )
+        ");
+        $removed += $stmt->rowCount();
+
+        // Invoices that are no longer paid/partial
+        $stmt = $this->db->query("
+            DELETE FROM accounting_transactions
+            WHERE reference_type = 'invoice'
+              AND reference_id IS NOT NULL
+              AND reference_id NOT IN (
+                  SELECT id FROM invoices
+                  WHERE status IN ('paid', 'partial')
+                    AND COALESCE(amount_paid, 0) > 0
+              )
+        ");
+        $removed += $stmt->rowCount();
+
+        return $removed;
     }
 
     /**
