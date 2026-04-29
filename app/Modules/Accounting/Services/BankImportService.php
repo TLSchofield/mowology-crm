@@ -700,9 +700,8 @@ class BankImportService
         $openingBalance = null;
         $closingBalance = null;
 
-        // Look for explicit labels (most bank statement formats).
-        // Use .*? + /s so the regex skips over embedded dates like "BALANCE ON 31 MAR 2026"
-        // without stopping at the digits in the date.
+        // Strategy 1 — explicit "OPENING BALANCE" / "CLOSING BALANCE" label regex.
+        // Uses .*? + /s to skip embedded dates (e.g. "BALANCE ON 31 MAR 2026").
         if (preg_match(
             '/(?:opening|previous|beginning|prior)\s+balance\b.*?(\d{1,3}(?:,\d{3})*\.\d{2})/is',
             $text, $bm
@@ -714,6 +713,41 @@ class BankImportService
             $text, $bm
         )) {
             $closingBalance = $this->parseNumber($bm[1]);
+        }
+
+        // If the closing regex matched the same value as opening — this happens when
+        // the statement table puts the opening column before the closing column in text
+        // order (e.g. Vancity multi-column headers), so .*? finds the opening amount
+        // first.  Discard and let Strategy 2 correct it.
+        if ($closingBalance !== null && $openingBalance !== null &&
+            abs($closingBalance - $openingBalance) < 0.02) {
+            $closingBalance = null;
+        }
+
+        // Strategy 2 — Account-summary math: find 4 consecutive decimal amounts in the
+        // first 8 KB of text where n1 − n2 + n3 ≈ n4 (opening − withdrawals + deposits
+        // = closing).  Works for Vancity and any bank whose table header splits "CLOSING"
+        // and "BALANCE" across separate lines, defeating the label regex.
+        if ($openingBalance === null || $closingBalance === null) {
+            $summaryWindow = substr($text, 0, 8000);
+            $summaryNums   = [];
+            if (preg_match_all('/(\d{1,3}(?:,\d{3})*\.\d{2})/', $summaryWindow, $sm)) {
+                foreach ($sm[1] as $n) {
+                    $summaryNums[] = $this->parseNumber($n);
+                }
+            }
+            for ($i = 0; $i <= count($summaryNums) - 4; $i++) {
+                $n1 = $summaryNums[$i];       // opening
+                $n2 = $summaryNums[$i + 1];   // total withdrawals
+                $n3 = $summaryNums[$i + 2];   // total deposits
+                $n4 = $summaryNums[$i + 3];   // closing
+                if ($n1 < 50.0 || $n4 < 0.01) continue;
+                if (abs(round($n1 - $n2 + $n3, 2) - $n4) < 0.02) {
+                    if ($openingBalance === null) $openingBalance = $n1;
+                    if ($closingBalance === null) $closingBalance = $n4;
+                    break;
+                }
+            }
         }
 
         // ── Join wrapped lines ────────────────────────────────────────────────

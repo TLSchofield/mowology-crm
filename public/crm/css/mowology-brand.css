@@ -24204,6 +24204,160 @@ a.mw-clock-timer-nav:hover {
   font-size:13px;
 }
 
+/* ── Bank Import — Stepper, Drop Zone, Balance Strip ────────────────────── */
+.mw-bi-steps {
+  display:flex;
+  align-items:center;
+  gap:0;
+  margin-bottom:1.25rem;
+  background:var(--bs-card-bg,#fff);
+  border:1px solid var(--bs-border-color,#dee2e6);
+  border-radius:8px;
+  overflow:hidden;
+}
+.mw-bi-step {
+  flex:1;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px 16px;
+  font-size:13px;
+  color:#6b7280;
+  position:relative;
+  transition:background .15s;
+}
+.mw-bi-step + .mw-bi-step {
+  border-left:1px solid var(--bs-border-color,#dee2e6);
+}
+.mw-bi-step--active {
+  background:var(--mw-light);
+  color:var(--mw-forest);
+  font-weight:600;
+}
+.mw-bi-step--done {
+  color:var(--mw-green);
+}
+.mw-bi-step-num {
+  width:24px;
+  height:24px;
+  border-radius:50%;
+  border:2px solid currentColor;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+  font-weight:700;
+  flex-shrink:0;
+}
+.mw-bi-step--active .mw-bi-step-num {
+  background:var(--mw-green);
+  border-color:var(--mw-green);
+  color:#fff;
+}
+.mw-bi-step--done .mw-bi-step-num {
+  background:var(--mw-green);
+  border-color:var(--mw-green);
+  color:#fff;
+}
+.mw-bi-dropzone {
+  border:2px dashed var(--bs-border-color,#dee2e6);
+  border-radius:8px;
+  padding:24px;
+  text-align:center;
+  transition:border-color .15s, background .15s;
+  cursor:pointer;
+}
+.mw-bi-dropzone:hover,
+.mw-bi-dropzone--over {
+  border-color:var(--mw-green);
+  background:var(--mw-light);
+}
+.mw-bi-dropzone-icon {
+  width:44px;
+  height:44px;
+  background:var(--mw-light);
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin:0 auto 10px;
+  color:var(--mw-green);
+}
+.mw-bi-dropzone-label {
+  font-size:14px;
+  font-weight:600;
+  color:var(--mw-forest);
+  margin-bottom:3px;
+}
+.mw-bi-dropzone-sub {
+  font-size:12px;
+  color:#6b7280;
+}
+.mw-bi-notice {
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  padding:10px 14px;
+  border-radius:6px;
+  font-size:13px;
+  margin-top:12px;
+}
+.mw-bi-notice--info {
+  background:rgb(59 130 246 / .08);
+  border:1px solid rgb(59 130 246 / .2);
+  color:#1d4ed8;
+}
+.mw-bi-balance-strip {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:10px 14px;
+  border-radius:6px;
+  font-size:12.5px;
+  margin-bottom:8px;
+}
+.mw-bi-balance-strip--ok {
+  background:rgb(45 134 89 / .07);
+  border:1px solid rgb(45 134 89 / .2);
+  color:#1a5f4a;
+}
+.mw-bi-balance-strip--warn {
+  background:rgb(245 158 11 / .08);
+  border:1px solid rgb(245 158 11 / .25);
+  color:#92400e;
+}
+.mw-bi-balance-strip--err {
+  background:rgb(220 38 38 / .07);
+  border:1px solid rgb(220 38 38 / .2);
+  color:#991b1b;
+}
+.mw-bi-balance-icon {
+  width:20px;
+  height:20px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  font-size:11px;
+}
+.mw-bi-balance-strip--ok .mw-bi-balance-icon    { background:var(--mw-green); color:#fff; }
+.mw-bi-balance-strip--warn .mw-bi-balance-icon  { background:#f59e0b; color:#fff; }
+.mw-bi-balance-strip--err .mw-bi-balance-icon   { background:#dc2626; color:#fff; }
+.mw-acct-done-icon {
+  width:56px;
+  height:56px;
+  background:rgb(45 134 89 / .1);
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:24px;
+  color:var(--mw-green);
+  margin:0 auto;
+  line-height:1;
+}
+
 /* ── Transaction Ledger — status stripe, badges, expand row ──────────────── */
 /* Left-side coloured stripe on the Date <td> via ::before pseudo-element    */
 .mw-tx-stripe-cleared,

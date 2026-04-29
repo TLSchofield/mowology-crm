@@ -13,20 +13,67 @@ $activePage = 'accounting';
 <div class="mw-page-header d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
         <h1 class="h3 mb-0">Bank Import</h1>
-        <p class="text-muted mb-0 small">Upload a bank CSV — transactions are auto-categorized and de-duplicated</p>
+        <p class="text-muted mb-0 small">Upload a bank statement — transactions are auto-categorized and de-duplicated</p>
     </div>
-    <a href="/crm/accounting_appstack.php" class="btn btn-sm btn-outline-secondary">← Dashboard</a>
+    <a href="/crm/accounting_appstack.php" class="btn btn-sm btn-outline-secondary">← Accounting</a>
+</div>
+
+<!-- ── Accounting Sub-Nav ─────────────────────────────────────────────────── -->
+<div class="mw-filter-tabs mb-3">
+    <a href="/crm/accounting_appstack.php"       class="mw-filter-tab">Dashboard</a>
+    <a href="/crm/accounting/transactions.php"   class="mw-filter-tab">Transactions</a>
+    <a href="/crm/accounting/bank-import.php"    class="mw-filter-tab active">Bank Import</a>
+    <a href="/crm/accounting/reports.php"        class="mw-filter-tab">Reports</a>
+    <a href="/crm/accounting/chart-of-accounts.php" class="mw-filter-tab">Chart of Accounts</a>
+</div>
+
+<!-- ── Step Indicator ────────────────────────────────────────────────────── -->
+<div class="mw-bi-steps mb-3" id="step-indicator">
+    <div class="mw-bi-step mw-bi-step--active" id="ind-1">
+        <div class="mw-bi-step-num">1</div>
+        <div>
+            <div>Upload</div>
+            <div class="small text-muted fw-normal" style="font-size:11px">Choose file &amp; account</div>
+        </div>
+    </div>
+    <div class="mw-bi-step" id="ind-2">
+        <div class="mw-bi-step-num">2</div>
+        <div>
+            <div>Review</div>
+            <div class="small text-muted fw-normal" style="font-size:11px">Categorize &amp; confirm</div>
+        </div>
+    </div>
+    <div class="mw-bi-step" id="ind-3">
+        <div class="mw-bi-step-num">3</div>
+        <div>
+            <div>Done</div>
+            <div class="small text-muted fw-normal" style="font-size:11px">Transactions added</div>
+        </div>
+    </div>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
-<!-- STEP 1 — Upload CSV                                                        -->
+<!-- STEP 1 — Upload                                                            -->
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 <div id="step-upload" class="card mb-3">
-    <div class="card-header"><h5 class="card-title mb-0">Step 1 — Upload Bank CSV</h5></div>
     <div class="card-body">
+
+        <!-- Drop zone -->
+        <div class="mw-bi-dropzone mb-3" id="drop-zone" onclick="document.getElementById('csv-file').click()">
+            <div class="mw-bi-dropzone-icon">
+                <i data-feather="upload-cloud" style="width:22px;height:22px"></i>
+            </div>
+            <div class="mw-bi-dropzone-label" id="dropzone-label">Click to choose a file, or drag &amp; drop</div>
+            <div class="mw-bi-dropzone-sub" id="dropzone-sub">CSV, PDF, or photo of your statement</div>
+            <input type="file" id="csv-file" class="d-none"
+                   accept=".csv,.txt,.pdf,.jpg,.jpeg,.png,.webp,.heic"
+                   onchange="onFileSelected()">
+        </div>
+
+        <!-- Options row -->
         <div class="row g-3">
-            <div class="col-md-4">
-                <label class="form-label small">Bank / Format</label>
+            <div class="col-md-4" id="preset-col">
+                <label class="form-label small fw-semibold">Bank / Format</label>
                 <select id="preset" class="form-select" onchange="updatePresetHint()">
                     <option value="td">TD Bank</option>
                     <option value="rbc">RBC</option>
@@ -39,32 +86,28 @@ $activePage = 'accounting';
                 <div id="preset-hint" class="form-text mt-1"></div>
             </div>
             <div class="col-md-4">
-                <label class="form-label small">Account Name <span class="text-muted">(optional label)</span></label>
-                <input type="text" id="account-name" class="form-control" placeholder="e.g. TD Business Chequing">
-            </div>
-            <div class="col-md-4">
-                <label class="form-label small">File <span class="text-muted">(CSV, PDF, or photo)</span></label>
-                <input type="file" id="csv-file" class="form-control" accept=".csv,.txt,.pdf,.jpg,.jpeg,.png,.webp,.heic" onchange="onFileSelected()">
+                <label class="form-label small fw-semibold">Bank Account <span class="text-danger">*</span></label>
+                <select id="bank-account-id" class="form-select">
+                    <option value="">— Select account —</option>
+                </select>
             </div>
         </div>
 
-        <!-- PDF notice (shown when PDF is selected) -->
-        <div id="pdf-notice" class="alert alert-info py-2 mt-3 d-none small">
-            <i data-feather="file-text" style="width:14px;height:14px;"></i>
-            <strong>PDF detected.</strong> Transactions will be extracted automatically — no column mapping needed.
-            Results may vary depending on your bank's PDF format.
+        <!-- Notices -->
+        <div id="pdf-notice" class="mw-bi-notice mw-bi-notice--info d-none">
+            <i data-feather="file-text" style="width:16px;height:16px;flex-shrink:0;margin-top:1px"></i>
+            <div><strong>PDF detected.</strong> Transactions will be extracted automatically — no column mapping needed.
+            Results may vary depending on your bank's PDF format.</div>
+        </div>
+        <div id="image-notice" class="mw-bi-notice mw-bi-notice--info d-none">
+            <i data-feather="camera" style="width:16px;height:16px;flex-shrink:0;margin-top:1px"></i>
+            <div><strong>Image detected.</strong> The statement will be scanned with OCR.
+            For best results: flat, well-lit, text in focus.</div>
         </div>
 
-        <!-- Image/scan notice (shown when a photo or scan is selected) -->
-        <div id="image-notice" class="alert alert-info py-2 mt-3 d-none small">
-            <i data-feather="camera" style="width:14px;height:14px;"></i>
-            <strong>Image detected.</strong> The statement will be scanned automatically using OCR.
-            For best results: ensure the page is flat, well-lit, and the text is in focus.
-        </div>
-
-        <!-- Custom mapping panel (hidden by default, CSV only) -->
+        <!-- Custom mapping -->
         <div id="custom-mapping" class="mt-3 p-3 border rounded" style="display:none; background:var(--bs-light)">
-            <p class="small text-muted mb-2">Enter zero-based column index for each field (0 = first column):</p>
+            <p class="small text-muted mb-2">Zero-based column indices (0 = first column):</p>
             <div class="row g-2">
                 <div class="col-4 col-md-2"><label class="form-label small">Date</label><input type="number" id="col-date" class="form-control form-control-sm" value="0" min="0"></div>
                 <div class="col-4 col-md-2"><label class="form-label small">Description</label><input type="number" id="col-desc" class="form-control form-control-sm" value="1" min="0"></div>
@@ -75,13 +118,7 @@ $activePage = 'accounting';
             </div>
         </div>
 
-        <div class="mt-3">
-            <button class="btn btn-primary" onclick="uploadAndPreview()" id="btn-preview">
-                <i data-feather="upload" class="mw-btn-icon"></i> Upload &amp; Preview
-            </button>
-        </div>
-
-        <!-- Processing indicator — shown during upload/OCR -->
+        <!-- Processing indicator -->
         <div id="processing-indicator" class="d-none mt-3 p-3 border rounded" style="background:var(--bs-light)">
             <div class="d-flex align-items-center gap-3">
                 <div class="spinner-border spinner-border-sm text-primary flex-shrink-0" role="status"></div>
@@ -94,6 +131,12 @@ $activePage = 'accounting';
                 <div id="processing-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width:5%"></div>
             </div>
         </div>
+
+        <div class="mt-3">
+            <button class="btn btn-primary" onclick="uploadAndPreview()" id="btn-preview">
+                <i data-feather="upload" class="mw-btn-icon"></i> Upload &amp; Preview
+            </button>
+        </div>
     </div>
 </div>
 
@@ -103,33 +146,54 @@ $activePage = 'accounting';
 <div id="step-preview" style="display:none">
     <div class="card mb-3">
         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <h5 class="card-title mb-0">Step 2 — Review Transactions</h5>
-            <span id="preview-summary" class="text-muted small"></span>
+            <div class="d-flex align-items-center gap-3">
+                <h5 class="card-title mb-0">Review Transactions</h5>
+                <span id="preview-summary" class="text-muted small"></span>
+            </div>
+            <button class="btn btn-xs btn-outline-secondary" onclick="resetUpload()">← Back</button>
         </div>
-        <div class="card-body py-2">
-            <!-- Filter tabs -->
-            <div class="d-flex gap-2 flex-wrap align-items-center mb-2">
-                <div class="btn-group btn-group-sm" role="group">
-                    <button type="button" class="btn btn-outline-secondary active" onclick="setFilter('all',this)">All <span id="count-all" class="badge bg-secondary ms-1">0</span></button>
-                    <button type="button" class="btn btn-outline-success" onclick="setFilter('matched',this)">✓ Receipts matched <span id="count-matched" class="badge bg-success ms-1">0</span></button>
-                    <button type="button" class="btn btn-outline-primary" onclick="setFilter('unmatched',this)">Unmatched <span id="count-unmatched" class="badge bg-primary ms-1">0</span></button>
-                    <button type="button" class="btn btn-outline-warning" onclick="setFilter('duplicate',this)">Already imported <span id="count-dupe" class="badge bg-warning text-dark ms-1">0</span></button>
+        <div class="card-body pb-0">
+
+            <!-- Balance self-check -->
+            <div id="balance-check-ok" class="mw-bi-balance-strip mw-bi-balance-strip--ok d-none">
+                <div class="mw-bi-balance-icon">✓</div>
+                <span id="balance-check-ok-msg"></span>
+            </div>
+            <div id="balance-check-warn" class="mw-bi-balance-strip mw-bi-balance-strip--warn d-none">
+                <div class="mw-bi-balance-icon">!</div>
+                <span id="balance-check-warn-msg"></span>
+            </div>
+
+            <!-- Match / dupe alerts -->
+            <div id="dupe-alert" class="mw-bi-notice mw-bi-notice--info d-none mb-2">
+                <i data-feather="info" style="width:15px;height:15px;flex-shrink:0;margin-top:1px"></i>
+                <span id="dupe-msg"></span>
+            </div>
+            <div id="match-alert" class="mw-bi-notice mw-bi-notice--info d-none mb-2" style="background:rgb(45 134 89 / .07);border-color:rgb(45 134 89 / .2);color:#1a5f4a">
+                <i data-feather="check-circle" style="width:15px;height:15px;flex-shrink:0;margin-top:1px"></i>
+                <span id="match-msg"></span>
+            </div>
+
+            <!-- Filter tabs + skip-dupes control -->
+            <div class="d-flex align-items-center gap-3 flex-wrap py-2 border-bottom mb-0">
+                <div class="mw-filter-tabs" style="margin-bottom:0">
+                    <button type="button" class="mw-filter-tab active" onclick="setFilter('all',this)">
+                        All <span id="count-all" class="badge bg-secondary ms-1">0</span>
+                    </button>
+                    <button type="button" class="mw-filter-tab" onclick="setFilter('matched',this)">
+                        Receipts matched <span id="count-matched" class="badge bg-success ms-1">0</span>
+                    </button>
+                    <button type="button" class="mw-filter-tab" onclick="setFilter('unmatched',this)">
+                        Unmatched <span id="count-unmatched" class="badge bg-primary ms-1">0</span>
+                    </button>
+                    <button type="button" class="mw-filter-tab" onclick="setFilter('duplicate',this)">
+                        Already imported <span id="count-dupe" class="badge bg-warning text-dark ms-1">0</span>
+                    </button>
                 </div>
-                <div class="form-check form-check-inline ms-2 mb-0">
+                <div class="form-check form-check-inline ms-auto mb-0">
                     <input class="form-check-input" type="checkbox" id="skip-duplicates" checked>
                     <label class="form-check-label small" for="skip-duplicates">Skip already imported</label>
                 </div>
-                <button class="btn btn-xs btn-outline-secondary ms-auto" onclick="resetUpload()">← Back</button>
-            </div>
-
-            <!-- Alerts -->
-            <div id="dupe-alert" class="alert alert-warning py-2 small d-none">
-                <i data-feather="alert-triangle" style="width:14px;height:14px"></i>
-                <span id="dupe-msg"></span>
-            </div>
-            <div id="match-alert" class="alert alert-success py-2 small d-none">
-                <i data-feather="check-circle" style="width:14px;height:14px"></i>
-                <span id="match-msg"></span>
             </div>
         </div>
 
@@ -178,14 +242,14 @@ $activePage = 'accounting';
     </div>
 </div>
 
-<!-- ── Past Import Sessions ──────────────────────────────────────────────────── -->
+<!-- ── Import History ─────────────────────────────────────────────────────── -->
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="card-title mb-0">Import History</h5>
         <button class="btn btn-sm btn-outline-secondary" onclick="loadSessions()">Refresh</button>
     </div>
     <div class="card-body p-0">
-        <table class="table table-sm mb-0">
+        <table class="table table-sm mw-acct-table mb-0">
             <thead>
                 <tr>
                     <th>Date</th>
@@ -205,12 +269,12 @@ $activePage = 'accounting';
 </div>
 
 <script>
-const API = '/crm/api/accounting-bank-import.php';
+const API     = '/crm/api/accounting-bank-import.php';
 const API_ACC = '/crm/api/accounting-accounts.php';
 
-let previewRows    = [];
-let lastSessionId  = null;
-let allAccounts    = [];
+let previewRows   = [];
+let lastSessionId = null;
+let allAccounts   = [];
 
 const PRESET_HINTS = {
     td:         'Columns: Date, Description, Debit, Credit, Balance',
@@ -226,12 +290,34 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAccounts();
     loadSessions();
     updatePresetHint();
+    initDropZone();
 });
+
+function initDropZone() {
+    const zone = document.getElementById('drop-zone');
+    zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('mw-bi-dropzone--over'); });
+    zone.addEventListener('dragleave', e => { zone.classList.remove('mw-bi-dropzone--over'); });
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('mw-bi-dropzone--over');
+        const dt = e.dataTransfer;
+        if (dt && dt.files.length) {
+            document.getElementById('csv-file').files = dt.files;
+            onFileSelected();
+        }
+    });
+}
 
 async function loadAccounts() {
     const r = await fetch(API_ACC + '?action=list');
     const d = await r.json();
-    if (d.ok) allAccounts = d.accounts;
+    if (!d.ok) return;
+    allAccounts = d.accounts;
+    const sel = document.getElementById('bank-account-id');
+    d.accounts.filter(a => a.sub_type === 'bank').forEach(a => {
+        sel.insertAdjacentHTML('beforeend',
+            `<option value="${a.id}">${a.code} – ${a.name}</option>`);
+    });
 }
 
 function updatePresetHint() {
@@ -249,9 +335,17 @@ function onFileSelected() {
     const isImg  = /\.(jpe?g|png|webp|heic)$/.test(name);
     const isAuto = isPdf || isImg;
 
+    // Update drop zone label
+    document.getElementById('dropzone-label').textContent = file.name;
+    document.getElementById('dropzone-sub').textContent = isPdf
+        ? 'PDF bank statement — auto-extracted'
+        : isImg
+            ? 'Statement photo — will be scanned with OCR'
+            : 'CSV file — select your bank format below';
+
     document.getElementById('pdf-notice').classList.toggle('d-none', !isPdf);
     document.getElementById('image-notice').classList.toggle('d-none', !isImg);
-    document.getElementById('preset').closest('.col-md-4').style.display = isAuto ? 'none' : '';
+    document.getElementById('preset-col').style.display = isAuto ? 'none' : '';
 
     if (isAuto) {
         document.getElementById('custom-mapping').style.display = 'none';
@@ -259,7 +353,6 @@ function onFileSelected() {
         return;
     }
 
-    // CSV — auto-detect preset from filename
     const keys = ['td', 'rbc', 'bmo', 'cibc', 'scotiabank'];
     for (const k of keys) {
         if (name.includes(k)) {
@@ -272,17 +365,18 @@ function onFileSelected() {
 
 async function uploadAndPreview() {
     const file = document.getElementById('csv-file').files[0];
-    if (!file) { alert('Please select a CSV file.'); return; }
+    if (!file) { mwToast('Please choose a file first.', 'warning'); return; }
 
-    const preset      = document.getElementById('preset').value;
-    const accountName = document.getElementById('account-name').value;
+    const preset        = document.getElementById('preset').value;
+    const bankAccountId = parseInt(document.getElementById('bank-account-id').value);
+    if (!bankAccountId) { mwToast('Please select which bank account this statement is for.', 'warning'); return; }
 
     const form = new FormData();
-    form.append('action',       'preview');
-    form.append('csv',          file);
-    form.append('preset',       preset);
-    form.append('bank_name',    preset);
-    form.append('account_name', accountName);
+    form.append('action',          'preview');
+    form.append('csv',             file);
+    form.append('preset',          preset);
+    form.append('bank_name',       preset);
+    form.append('bank_account_id', bankAccountId);
 
     if (preset === 'custom') {
         ['date','desc','debit','credit','amount'].forEach(k => {
@@ -308,10 +402,8 @@ async function uploadAndPreview() {
         : 'Parsing CSV…';
     barEl.style.width = '8%';
 
-    // Animate progress bar to give a sense of forward motion
     let pct = 8;
     const progressTimer = setInterval(() => {
-        // Slow crawl: 8% → 85% over ~55s, never reaches 100 until done
         const increment = pct < 30 ? 3 : pct < 60 ? 1.5 : pct < 80 ? 0.5 : 0.1;
         pct = Math.min(pct + increment, 85);
         barEl.style.width = pct + '%';
@@ -333,7 +425,6 @@ async function uploadAndPreview() {
             }
             throw new Error('Server returned an unexpected response (HTTP ' + r.status + ').');
         }
-
         if (!d.ok) throw new Error(d.error || 'Unknown error');
 
         barEl.style.width = '100%';
@@ -345,9 +436,10 @@ async function uploadAndPreview() {
         document.getElementById('step-upload').style.display  = 'none';
         document.getElementById('step-preview').style.display = '';
         document.getElementById('step-done').style.display    = 'none';
+        setStepIndicator(2);
 
     } catch (err) {
-        alert('Preview failed: ' + err.message);
+        mwToast('Preview failed: ' + err.message, 'error');
     } finally {
         clearInterval(progressTimer);
         indicator.classList.add('d-none');
@@ -357,53 +449,94 @@ async function uploadAndPreview() {
     }
 }
 
+function setStepIndicator(active) {
+    [1, 2, 3].forEach(n => {
+        const el = document.getElementById('ind-' + n);
+        el.classList.remove('mw-bi-step--active', 'mw-bi-step--done');
+        if (n < active)      el.classList.add('mw-bi-step--done');
+        else if (n === active) el.classList.add('mw-bi-step--active');
+    });
+}
+
 let activeFilter = 'all';
 
 function setFilter(filter, btn) {
     activeFilter = filter;
-    document.querySelectorAll('.btn-group .btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.mw-filter-tab[onclick]').forEach(b => b.classList.remove('active'));
     if (btn) btn.classList.add('active');
     renderPreviewTable(previewRows);
 }
 
 function renderPreview(preview) {
-    const totals  = preview.totals;
-    const matched = totals.matched  || 0;
-    const dupes   = totals.duplicates || 0;
+    const totals    = preview.totals;
+    const matched   = totals.matched  || 0;
+    const dupes     = totals.duplicates || 0;
     const unmatched = totals.rows - dupes - matched;
 
-    // Summary bar
-    document.getElementById('preview-summary').innerHTML =
-        `${totals.rows} rows &nbsp;·&nbsp; <span class="text-success">+${fmtMoney(totals.income)}</span> &nbsp;·&nbsp; <span class="text-danger">−${fmtMoney(totals.expense)}</span>` +
-        (matched > 0  ? ` &nbsp;·&nbsp; <span class="text-success fw-bold">✓ ${matched} receipts matched</span>` : '') +
-        (dupes   > 0  ? ` &nbsp;·&nbsp; <span class="text-warning">${dupes} already imported</span>` : '');
+    const rows           = preview.rows || [];
+    const receiptMatches   = rows.filter(r => !r.is_duplicate && r.match_candidate && r.matched_expense).length;
+    const etransferMatches = rows.filter(r => !r.is_duplicate && r.match_candidate && r.matched_invoice && r.match_method === 'etransfer').length;
+    const processorMatches = rows.filter(r => !r.is_duplicate && r.match_candidate && r.matched_invoice && r.match_method !== 'etransfer').length;
 
-    // Filter tab counts
-    document.getElementById('count-all').textContent      = totals.rows;
-    document.getElementById('count-matched').textContent  = matched;
-    document.getElementById('count-unmatched').textContent= unmatched;
-    document.getElementById('count-dupe').textContent     = dupes;
+    let summaryHtml = `${totals.rows} rows &nbsp;·&nbsp; <span class="text-success">+${fmtMoney(totals.income)}</span> &nbsp;·&nbsp; <span class="text-danger">−${fmtMoney(totals.expense)}</span>`;
+    if (etransferMatches > 0) summaryHtml += ` &nbsp;·&nbsp; <span class="text-success fw-bold">✓ ${etransferMatches} e-Transfer${etransferMatches > 1 ? 's' : ''} matched</span>`;
+    if (processorMatches > 0) summaryHtml += ` &nbsp;·&nbsp; <span class="text-success fw-bold">✓ ${processorMatches} payment${processorMatches > 1 ? 's' : ''} matched</span>`;
+    if (receiptMatches   > 0) summaryHtml += ` &nbsp;·&nbsp; <span class="text-success fw-bold">✓ ${receiptMatches} receipt${receiptMatches > 1 ? 's' : ''} matched</span>`;
+    if (dupes            > 0) summaryHtml += ` &nbsp;·&nbsp; <span class="text-warning">${dupes} already imported</span>`;
+    document.getElementById('preview-summary').innerHTML = summaryHtml;
 
-    // Alerts
-    const dupeAlert  = document.getElementById('dupe-alert');
-    const matchAlert = document.getElementById('match-alert');
+    document.getElementById('count-all').textContent       = totals.rows;
+    document.getElementById('count-matched').textContent   = matched;
+    document.getElementById('count-unmatched').textContent = unmatched;
+    document.getElementById('count-dupe').textContent      = dupes;
+
+    // Balance self-check
+    const bc    = preview.balance_check || {};
+    const bcOk  = document.getElementById('balance-check-ok');
+    const bcW   = document.getElementById('balance-check-warn');
+    bcOk.classList.add('d-none');
+    bcW.classList.add('d-none');
+    if (bc.available) {
+        const fmt = v => v != null
+            ? '$' + parseFloat(v).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2})
+            : '?';
+        if (bc.matches) {
+            document.getElementById('balance-check-ok-msg').innerHTML =
+                `Balances verified &nbsp;·&nbsp; Opening <strong>${fmt(bc.opening)}</strong> → Closing <strong>${fmt(bc.closing)}</strong> &nbsp;·&nbsp; Computed ${fmt(bc.computed)} ✓`;
+            bcOk.classList.remove('d-none');
+        } else {
+            const discAbs = Math.abs(parseFloat(bc.discrepancy || 0));
+            const isLarge = discAbs > 50;
+            bcW.className = 'mw-bi-balance-strip ' + (isLarge ? 'mw-bi-balance-strip--err' : 'mw-bi-balance-strip--warn');
+            document.getElementById('balance-check-warn-msg').innerHTML =
+                `Balance mismatch: Opening <strong>${fmt(bc.opening)}</strong>, closing <strong>${fmt(bc.closing)}</strong>, computed <strong>${fmt(bc.computed)}</strong> (off by <strong>${fmt(bc.discrepancy)}</strong>).`
+                + (isLarge ? ' Some transactions may not have been parsed — review before importing.' : '');
+            bcW.classList.remove('d-none');
+        }
+    }
+
     if (dupes > 0) {
         document.getElementById('dupe-msg').textContent =
             `${dupes} transaction${dupes > 1 ? 's were' : ' was'} already imported — unchecked by default.`;
-        dupeAlert.classList.remove('d-none');
+        document.getElementById('dupe-alert').classList.remove('d-none');
     } else {
-        dupeAlert.classList.add('d-none');
+        document.getElementById('dupe-alert').classList.add('d-none');
     }
     if (matched > 0) {
-        document.getElementById('match-msg').textContent =
-            `${matched} bank transaction${matched > 1 ? 's' : ''} matched to existing expense receipts — importing will mark them as reconciled ✓`;
-        matchAlert.classList.remove('d-none');
+        let matchMsg = '';
+        if (etransferMatches > 0) matchMsg += `${etransferMatches} e-Transfer${etransferMatches > 1 ? 's' : ''} matched to invoice${etransferMatches > 1 ? 's' : ''}. `;
+        if (processorMatches > 0) matchMsg += `${processorMatches} processor payment${processorMatches > 1 ? 's' : ''} matched to invoice${processorMatches > 1 ? 's' : ''} (net of fees). `;
+        if (receiptMatches   > 0) matchMsg += `${receiptMatches} bank transaction${receiptMatches > 1 ? 's' : ''} matched to expense receipts. `;
+        matchMsg += 'Importing will mark them as reconciled ✓';
+        document.getElementById('match-msg').textContent = matchMsg;
+        document.getElementById('match-alert').classList.remove('d-none');
     } else {
-        matchAlert.classList.add('d-none');
+        document.getElementById('match-alert').classList.add('d-none');
     }
 
     renderPreviewTable(preview.rows);
     updateSelectedCount();
+    if (typeof feather !== 'undefined') feather.replace();
 }
 
 function renderPreviewTable(rows) {
@@ -418,22 +551,50 @@ function renderPreviewTable(rows) {
         const isDupe    = row.is_duplicate;
         const isMatched = !isDupe && row.match_candidate;
 
-        // Filter
-        if (activeFilter === 'matched'   && !isMatched)  return '';
-        if (activeFilter === 'duplicate' && !isDupe)      return '';
+        if (activeFilter === 'matched'   && !isMatched)            return '';
+        if (activeFilter === 'duplicate' && !isDupe)               return '';
         if (activeFilter === 'unmatched' && (isDupe || isMatched)) return '';
 
         const typeClass = row.type === 'income' ? 'mw-acct-badge-income' : 'mw-acct-badge-expense';
         const autoTag   = row.auto_cat ? '<span class="badge bg-light text-secondary" style="font-size:9px;border:1px solid #dee2e6">auto</span>' : '';
         const amtClass  = row.type === 'income' ? 'mw-acct-color-income' : 'mw-acct-color-expense';
 
-        // Receipt / Status column
         let statusCell = '';
         if (isDupe) {
             statusCell = '<span class="badge bg-warning text-dark" style="font-size:9px">Already imported</span>';
-        } else if (isMatched) {
-            const exp   = row.matched_expense || {};
-            const conf  = row.match_confidence || 0;
+        } else if (isMatched && row.matched_invoice) {
+            const inv    = row.matched_invoice;
+            const conf   = row.match_confidence || 0;
+            const fee    = row.processing_fee || 0;
+            const method = row.match_method || '';
+
+            let mainBadge;
+            if (method === 'reference') {
+                mainBadge = '<span class="badge bg-success" style="font-size:9px">✓ Exact match</span>';
+            } else if (method === 'etransfer') {
+                mainBadge = `<span class="badge bg-success" style="font-size:9px">✓ e-Transfer matched</span>
+                             <span class="badge bg-light text-secondary border ms-1" style="font-size:9px">${conf}%</span>`;
+            } else {
+                mainBadge = `<span class="badge bg-success" style="font-size:9px">✓ Invoice matched</span>
+                             <span class="badge bg-light text-secondary border ms-1" style="font-size:9px">${conf}%</span>`;
+            }
+
+            const refChip = inv.payment_reference
+                ? `<span class="mw-tx-detail-docref ms-1" style="font-size:9px">${esc(inv.payment_reference.slice(0,14))}</span>`
+                : '';
+            const feeNote = fee > 0
+                ? ` &nbsp;·&nbsp; <span class="text-secondary">−${fmtMoney(fee)} fee</span>` : '';
+
+            statusCell = `<div class="d-flex flex-wrap align-items-center gap-1">
+                            ${mainBadge}${refChip}
+                          </div>
+                          <div class="small fw-bold mt-1">${esc(inv.invoice_number||'')}</div>
+                          <div class="small text-muted" style="font-size:10px">${esc(inv.client_name||'')}
+                            &nbsp;·&nbsp; ${fmtMoney(inv.invoice_amount||0)}${feeNote}
+                          </div>`;
+        } else if (isMatched && row.matched_expense) {
+            const exp  = row.matched_expense || {};
+            const conf = row.match_confidence || 0;
             const thumb = exp.receipt_path
                 ? `<img src="${esc(exp.receipt_path)}" style="height:30px;border-radius:3px;margin-top:3px;display:block">`
                 : '';
@@ -462,7 +623,6 @@ function renderPreviewTable(rows) {
         </tr>`;
     }).join('');
 
-    // Set selected accounts
     tbody.querySelectorAll('.account-sel').forEach(sel => {
         const idx = parseInt(sel.dataset.idx);
         sel.value = previewRows[idx]?.account_id || '';
@@ -492,8 +652,7 @@ function updateSelectedCount() {
 async function commitImport() {
     const selectedIdxs = [];
     document.querySelectorAll('.row-check:checked').forEach(cb => selectedIdxs.push(parseInt(cb.dataset.idx)));
-
-    if (!selectedIdxs.length) { alert('Select at least one transaction to import.'); return; }
+    if (!selectedIdxs.length) { mwToast('Select at least one transaction to import.', 'warning'); return; }
 
     const rowsToImport   = selectedIdxs.map(i => previewRows[i]).filter(Boolean);
     const skipDuplicates = document.getElementById('skip-duplicates').checked;
@@ -502,24 +661,26 @@ async function commitImport() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            action:           'commit',
-            rows:             rowsToImport,
-            bank_name:        document.getElementById('preset').value,
-            account_name:     document.getElementById('account-name').value,
-            skip_duplicates:  skipDuplicates,
+            action:          'commit',
+            rows:            rowsToImport,
+            bank_name:       document.getElementById('preset').value,
+            bank_account_id: parseInt(document.getElementById('bank-account-id').value) || 0,
+            skip_duplicates: skipDuplicates,
         }),
     });
     const d = await r.json();
-    if (!d.ok) { alert('Import failed: ' + d.error); return; }
+    if (!d.ok) { mwToast('Import failed: ' + d.error, 'error'); return; }
 
     lastSessionId = d.result.session_id;
     const res     = d.result;
 
     document.getElementById('step-preview').style.display = 'none';
     document.getElementById('step-done').style.display    = '';
-    document.getElementById('done-title').textContent     = '✓ Import Complete';
+    setStepIndicator(3);
+
     const reconciledLine = res.reconciled > 0
         ? ` &nbsp;·&nbsp; <strong class="text-success">${res.reconciled} reconciled ✓</strong>` : '';
+    document.getElementById('done-title').textContent   = 'Import Complete';
     document.getElementById('done-body').innerHTML =
         `<strong>${res.imported}</strong> transactions imported${reconciledLine} &nbsp;·&nbsp; <strong>${res.duplicates}</strong> skipped<br>
          <a href="/crm/accounting/transactions.php" class="text-muted small">View all transactions →</a>`;
@@ -536,19 +697,22 @@ async function undoImport() {
     });
     const d = await r.json();
     if (d.ok) {
-        alert(`Rolled back — ${d.deleted} transactions removed.`);
+        mwToast(`Rolled back — ${d.deleted} transactions removed.`, 'success');
         resetUpload();
         loadSessions();
     } else {
-        alert('Rollback failed: ' + d.error);
+        mwToast('Rollback failed: ' + d.error, 'error');
     }
 }
 
 function resetUpload() {
     document.getElementById('csv-file').value = '';
+    document.getElementById('dropzone-label').textContent = 'Click to choose a file, or drag & drop';
+    document.getElementById('dropzone-sub').textContent   = 'CSV, PDF, or photo of your statement';
     document.getElementById('step-upload').style.display  = '';
     document.getElementById('step-preview').style.display = 'none';
     document.getElementById('step-done').style.display    = 'none';
+    setStepIndicator(1);
     previewRows   = [];
     lastSessionId = null;
 }
@@ -566,23 +730,19 @@ async function loadSessions() {
 
     tbody.innerHTML = d.sessions.map(s => {
         const badge = {
-            imported:     '<span class="badge bg-success">Imported</span>',
-            pending:      '<span class="badge bg-warning text-dark">Pending</span>',
-            rolled_back:  '<span class="badge bg-secondary">Rolled Back</span>',
+            imported:    '<span class="badge bg-success">Imported</span>',
+            pending:     '<span class="badge bg-warning text-dark">Pending</span>',
+            rolled_back: '<span class="badge bg-secondary">Rolled Back</span>',
         }[s.status] || s.status;
 
         return `<tr>
-            <td class="small">${s.created_at?.substring(0, 10) || ''}</td>
-            <td class="small">${esc(s.bank_name || '')} ${s.account_name ? '<span class="text-muted">(' + esc(s.account_name) + ')</span>' : ''}</td>
+            <td class="small">${s.created_at?.substring(0,10)||''}</td>
+            <td class="small">${esc(s.bank_name||'')} ${s.account_name?'<span class="text-muted">('+esc(s.account_name)+')</span>':''}</td>
             <td class="small">${s.row_count}</td>
             <td class="small text-success">${s.imported_count}</td>
             <td class="small text-warning">${s.duplicate_count}</td>
             <td>${badge}</td>
-            <td>
-                ${s.status === 'imported'
-                    ? `<button class="btn btn-xs btn-outline-danger" onclick="rollbackSession(${s.id})">Undo</button>`
-                    : ''}
-            </td>
+            <td>${s.status==='imported'?`<button class="btn btn-xs btn-outline-danger" onclick="rollbackSession(${s.id})">Undo</button>`:''}</td>
         </tr>`;
     }).join('');
 }
@@ -595,30 +755,20 @@ async function rollbackSession(sessionId) {
         body: JSON.stringify({ action: 'rollback', session_id: sessionId }),
     });
     const d = await r.json();
-    alert(d.ok ? `Rolled back — ${d.deleted} transactions removed.` : 'Error: ' + d.error);
+    mwToast(d.ok ? `Rolled back — ${d.deleted} transactions removed.` : 'Error: ' + d.error, d.ok ? 'success' : 'error');
     loadSessions();
 }
 
 function fmtMoney(v) {
-    return '$' + parseFloat(v || 0).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2});
+    return '$' + parseFloat(v||0).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
 function esc(s) {
     return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// Skip-duplicates toggle: re-render to reflect checkbox state
 document.addEventListener('change', e => {
     if (e.target.id === 'skip-duplicates') updateSelectedCount();
 });
 </script>
-
-<style>
-.mw-acct-done-icon {
-    width: 64px; height: 64px; border-radius: 50%;
-    background: var(--mw-green); color: #fff;
-    font-size: 2rem; line-height: 64px; text-align: center;
-    margin: 0 auto;
-}
-</style>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
