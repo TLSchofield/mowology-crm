@@ -1039,14 +1039,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-expense-form-section">
                             <h6 class="mw-expense-form-section-title"><i data-feather="tag"></i> Classification</h6>
                             <div class="row g-3">
-                                <div class="col-md-6">
+                                <div class="col-md-8">
                                     <label class="form-label">Accounting Category</label>
                                     <select class="form-select" id="expAcctCategory"></select>
                                 </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">GBP Category</label>
-                                    <select class="form-select" id="expGbpCategory"></select>
-                                </div>
+                                <input type="hidden" id="expGbpCategory">
                                 <div class="col-md-4" style="position:relative;">
                                     <label class="form-label">Link to Job</label>
                                     <input type="text" class="form-control" id="expJobSearch" placeholder="Search by #, service, or address…" autocomplete="off">
@@ -2597,7 +2594,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     function populateCategoryDropdowns() {
         var acctSelects = ['expAcctCategory', 'vendorAcctCategory', 'filterCategory', 'rvAcctCategory', 'mobileRvCategory'];
-        var gbpSelects = ['expGbpCategory', 'vendorGbpCategory', 'rvGbpCategory'];
+        var gbpSelects = ['vendorGbpCategory', 'rvGbpCategory'];
 
         acctSelects.forEach(function(id) {
             var el = document.getElementById(id);
