@@ -1146,9 +1146,7 @@ class BankImportService
             throw new RuntimeException('Imagick could not render any pages from this PDF.');
         }
 
-        // Vision returns structurally different text layout for multi-column bank
-        // statement tables — use OCR.space until the parser is tuned for Vision output.
-        $useVision = false;
+        $useVision = $this->isGoogleVisionAvailable();
 
         $allText = '';
         for ($i = 0; $i < $numPages; $i++) {
@@ -1208,6 +1206,11 @@ class BankImportService
      * OCR a JPEG image using Google Cloud Vision DOCUMENT_TEXT_DETECTION.
      * Writes bytes to a temp file, calls the shared ReceiptOCR service, cleans up.
      * Returns null if the call fails (caller should fall back to OCR.space).
+     *
+     * Uses bounding-box reconstruction instead of Vision's fullTextAnnotation.text.
+     * Vision reads multi-column tables column-first (all dates, then all descriptions,
+     * then all amounts), which breaks transaction regexes.  Grouping words by Y-centre
+     * rebuilds the natural row-first order that the parser expects.
      */
     private function ocrPageViaGoogleVision(string $jpegData): ?string
     {
@@ -1230,8 +1233,110 @@ class BankImportService
         }
         @unlink($tmp);
 
-        if (!$result['success'] || $result['text'] === null) return null;
-        return $result['text'];
+        if (!$result['success']) return null;
+
+        // Reconstruct row-first text from word bounding boxes.
+        // Fall back to Vision's plain text only if no bounding box data is present.
+        if (!empty($result['raw_response'])) {
+            $reconstructed = $this->reconstructTextFromVisionBoundingBoxes($result['raw_response']);
+            if ($reconstructed !== '') return $reconstructed;
+        }
+
+        return $result['text'] ?? null;
+    }
+
+    /**
+     * Reconstruct page text from Google Vision DOCUMENT_TEXT_DETECTION bounding boxes.
+     *
+     * Vision annotates every word with pixel coordinates.  For multi-column documents
+     * (bank statements), fullTextAnnotation.text is column-first — all dates, then all
+     * descriptions, then all amounts — which breaks the transaction parser regex.
+     *
+     * This method groups words by Y-centre instead, producing row-first output:
+     *   "01 MAR POINT OF SALE (SHELL) 22.50 21,897.00"
+     * which matches the existing date+description+amount+balance pattern.
+     *
+     * @param  array  $rawResponse  Decoded JSON from the Vision annotate API
+     * @return string               Reconstructed text; '' if no word data present
+     */
+    private function reconstructTextFromVisionBoundingBoxes(array $rawResponse): string
+    {
+        $pages = $rawResponse['responses'][0]['fullTextAnnotation']['pages'] ?? [];
+        if (empty($pages)) return '';
+
+        // Collect every word with its Y-centre and X-left from all blocks/paragraphs
+        $words = [];
+        foreach ($pages as $page) {
+            foreach ($page['blocks'] ?? [] as $block) {
+                foreach ($block['paragraphs'] ?? [] as $para) {
+                    foreach ($para['words'] ?? [] as $word) {
+                        $verts = $word['boundingBox']['vertices'] ?? [];
+                        if (empty($verts)) continue;
+
+                        $ys = [];
+                        $xs = [];
+                        foreach ($verts as $v) {
+                            if (isset($v['y'])) $ys[] = (float)$v['y'];
+                            if (isset($v['x'])) $xs[] = (float)$v['x'];
+                        }
+                        if (empty($ys) || empty($xs)) continue;
+
+                        $wordText = '';
+                        foreach ($word['symbols'] ?? [] as $sym) {
+                            $wordText .= $sym['text'] ?? '';
+                        }
+                        if ($wordText === '') continue;
+
+                        $words[] = [
+                            'text' => $wordText,
+                            'y'    => (min($ys) + max($ys)) / 2.0,
+                            'x'    => min($xs),
+                        ];
+                    }
+                }
+            }
+        }
+
+        if (empty($words)) return '';
+
+        // Sort top-to-bottom
+        usort($words, function ($a, $b) { return $a['y'] <=> $b['y']; });
+
+        // Threshold: ~0.7% of page height ≈ 15px at 2200px (200 DPI letter page).
+        // Clamped to [8, 30] so slight DPI changes do not require code edits.
+        $pageHeight   = (float)($pages[0]['height'] ?? 2200);
+        $rowThreshold = (int)round($pageHeight * 0.007);
+        if ($rowThreshold < 8)  $rowThreshold = 8;
+        if ($rowThreshold > 30) $rowThreshold = 30;
+
+        // Group words into rows using a sliding Y-threshold
+        $rows   = [];
+        $rowBuf = [];
+        $rowY   = null;
+        $rowN   = 0;
+
+        foreach ($words as $w) {
+            if ($rowY === null || abs($w['y'] - $rowY) > $rowThreshold) {
+                if (!empty($rowBuf)) $rows[] = $rowBuf;
+                $rowBuf = [$w];
+                $rowY   = $w['y'];
+                $rowN   = 1;
+            } else {
+                $rowBuf[] = $w;
+                $rowN++;
+                $rowY = $rowY + ($w['y'] - $rowY) / $rowN; // rolling mean
+            }
+        }
+        if (!empty($rowBuf)) $rows[] = $rowBuf;
+
+        // Sort words within each row left-to-right, join with spaces
+        $lines = [];
+        foreach ($rows as $row) {
+            usort($row, function ($a, $b) { return $a['x'] <=> $b['x']; });
+            $lines[] = implode(' ', array_column($row, 'text'));
+        }
+
+        return implode("\n", $lines);
     }
 
     /**
