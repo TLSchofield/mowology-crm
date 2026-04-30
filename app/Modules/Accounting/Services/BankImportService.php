@@ -29,6 +29,9 @@ class BankImportService
 {
     private PDO $db;
 
+    /** Per-page raw OCR text captured during extractTextViaImagickOcr(). */
+    private array $rawPageTexts = [];
+
     // Known bank CSV presets — column mapping and skip-header-rows count
     private const BANK_PRESETS = [
         'td'        => ['name' => 'TD Bank',    'date' => 0, 'description' => 1, 'debit' => 2, 'credit' => 3, 'skip' => 1],
@@ -608,6 +611,99 @@ class BankImportService
     }
 
     /**
+     * Debug variant of previewPdf() — returns raw per-page OCR text and a log of
+     * every line that was rejected by the parser with the reason why.
+     *
+     * Only expose this via an admin-gated API endpoint.
+     *
+     * @return array {
+     *   rows: parsed transaction rows,
+     *   balance_check: balance strip data,
+     *   raw_pages: { page_number: raw_ocr_text, ... },
+     *   reject_log: [{ line: string, reason: string, ... }, ...],
+     *   joined_lines: all lines after the wrap-join step,
+     *   noise_lines_dropped: int,
+     * }
+     */
+    public function previewPdfDebug(string $filePath, string $bankName = ''): array
+    {
+        if (!defined('VENDOR_ROOT') || !is_file(VENDOR_ROOT . '/autoload.php')) {
+            throw new RuntimeException('Composer autoloader not found.');
+        }
+        require_once VENDOR_ROOT . '/autoload.php';
+
+        if (!class_exists('\Smalot\PdfParser\Parser')) {
+            throw new RuntimeException('smalot/pdfparser is not installed.');
+        }
+
+        $parser = new \Smalot\PdfParser\Parser();
+        $pdf    = $parser->parseFile($filePath);
+        $text   = $pdf->getText();
+
+        if ($this->isGarbledText($text)) {
+            $text = $this->extractTextFallback($filePath);
+        }
+
+        // Capture joined lines for inspection
+        $joinedLines = $this->getJoinedLinesDebug($text);
+
+        $parsed  = $this->parsePdfText($text, true);
+        $rows    = $parsed['rows'];
+        $balMeta = $parsed['balance_meta'];
+
+        $result = empty($rows) ? ['rows' => [], 'totals' => ['income' => 0, 'expenses' => 0, 'net' => 0]] : $this->enrichRows($rows, $bankName, 'pdf');
+        $result['balance_check']      = $this->computeBalanceCheck($balMeta, $result['totals'] ?? []);
+        $result['raw_pages']          = $this->rawPageTexts;
+        $result['reject_log']         = $parsed['reject_log'];
+        $result['joined_lines']       = $joinedLines;
+        $result['noise_lines_dropped'] = $balMeta['noise_lines_dropped'];
+        return $result;
+    }
+
+    /**
+     * Returns the lines array after the wrap-join step (for debug inspection).
+     * Duplicates the join loop without modifying any state.
+     */
+    private function getJoinedLinesDebug(string $text): array
+    {
+        $lines = preg_split('/\r?\n|\x0c/', $text);
+
+        $datePatterns = [
+            '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}',
+            '\d{1,2}\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?',
+            '\d{1,2}[\/\-]\d{1,2}',
+            '\d{4}-\d{2}-\d{2}',
+            '\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}',
+        ];
+        $datePat      = '(' . implode('|', $datePatterns) . ')';
+        $dateStartPat = '/^' . $datePat . '\s+/i';
+        $amtPat       = '([\-\+]?\$?\s*[\d,]+\s*\.\d{2})';
+        $pattern      = '/^' . $datePat . '\s+(.+?)\s+' . $amtPat . '(?:\s+' . $amtPat . ')?$/i';
+
+        $joined = [];
+        $buf    = '';
+        foreach ($lines as $raw) {
+            $l = trim($raw);
+            if ($l === '') {
+                if ($buf !== '') { $joined[] = $buf; $buf = ''; }
+                continue;
+            }
+            if (preg_match($dateStartPat, $l)) {
+                if ($buf !== '') $joined[] = $buf;
+                $buf = $l;
+            } elseif ($this->isNoiseLine($l)) {
+                // drop
+            } elseif ($buf !== '' && preg_match($pattern, $buf)) {
+                // Buffer is complete — trailing line is page-boundary noise
+            } else {
+                $buf = $buf !== '' ? rtrim($buf) . ' ' . $l : $l;
+            }
+        }
+        if ($buf !== '') $joined[] = $buf;
+        return $joined;
+    }
+
+    /**
      * Parse an image file (JPEG/PNG/WEBP) — a photo or scan of a bank statement.
      * Sends the image to the OCR pipeline and parses the resulting text.
      *
@@ -669,10 +765,11 @@ class BankImportService
      *     Lines have either a debit amount or a credit amount, never both.
      *     When both appear it means (debit=0, credit>0) — use the non-zero one.
      */
-    private function parsePdfText(string $text): array
+    private function parsePdfText(string $text, bool $debug = false): array
     {
-        $rows  = [];
-        $lines = preg_split('/\r?\n|\x0c/', $text);
+        $rows     = [];
+        $rejectLog = [];  // populated when $debug === true
+        $lines    = preg_split('/\r?\n|\x0c/', $text);
 
         // ── Date patterns ─────────────────────────────────────────────────────
         $datePatterns = [
@@ -775,10 +872,19 @@ class BankImportService
             if (preg_match($dateStartPat, $l)) {
                 if ($buf !== '') $joined[] = $buf;
                 $buf = $l;
-            } elseif (!$this->isNoiseLine($l)) {
-                $buf = $buf !== '' ? rtrim($buf) . ' ' . $l : $l;
-            } else {
+            } elseif ($this->isNoiseLine($l)) {
+                // Explicit noise — serial numbers, footer phrases, column headers, etc.
                 $noiseLinesDropped++;
+                if ($debug) $rejectLog[] = ['line' => $l, 'reason' => 'noise'];
+            } elseif ($buf !== '' && preg_match($pattern, $buf)) {
+                // The buffer already contains a COMPLETE transaction (date + desc + amount).
+                // Any subsequent non-date line is page-boundary continuation noise:
+                // reference codes, addresses, subsidiary account headers, etc.
+                // Dropping it is safe — the transaction data is already captured.
+                $noiseLinesDropped++;
+                if ($debug) $rejectLog[] = ['line' => $l, 'reason' => 'noise_after_complete_tx'];
+            } else {
+                $buf = $buf !== '' ? rtrim($buf) . ' ' . $l : $l;
             }
         }
         if ($buf !== '') $joined[] = $buf;
@@ -793,8 +899,14 @@ class BankImportService
         // ── Parse transaction lines ───────────────────────────────────────────
         foreach ($lines as $line) {
             $line = trim($line);
-            if (strlen($line) < 10) continue;
-            if (!preg_match($pattern, $line, $m)) continue;
+            if (strlen($line) < 10) {
+                if ($debug && $line !== '') $rejectLog[] = ['line' => $line, 'reason' => 'too_short'];
+                continue;
+            }
+            if (!preg_match($pattern, $line, $m)) {
+                if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'no_regex_match'];
+                continue;
+            }
 
             $dateRaw = trim($m[1]);
             $desc    = trim($m[2]);
@@ -806,8 +918,14 @@ class BankImportService
             if (preg_match(
                 '/\b(balance|total|opening|closing|brought forward|carried forward|subtotal)\b/',
                 $descLower
-            )) continue;
-            if (strlen($desc) < 3) continue;
+            )) {
+                if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'balance_summary_skip', 'desc' => $desc];
+                continue;
+            }
+            if (strlen($desc) < 3) {
+                if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'desc_too_short', 'desc' => $desc];
+                continue;
+            }
 
             // Parse date
             $dateStr = $dateRaw;
@@ -815,7 +933,10 @@ class BankImportService
                 $dateStr = $dateRaw . ' ' . $statementYear;
             }
             $date = $this->parseDate($dateStr);
-            if (!$date) continue;
+            if (!$date) {
+                if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'bad_date', 'raw_date' => $dateStr];
+                continue;
+            }
 
             // ── Determine type + amount ───────────────────────────────────────
             $type   = null;
@@ -865,7 +986,10 @@ class BankImportService
                 }
             } else {
                 $raw = $this->parseNumber($amt1Raw);
-                if ($raw === null || $raw == 0) continue;
+                if ($raw === null || $raw == 0) {
+                    if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'zero_or_null_amount', 'amt_raw' => $amt1Raw];
+                    continue;
+                }
                 if ($raw < 0) {
                     $type   = 'expense';
                     $amount = abs($raw);
@@ -878,7 +1002,10 @@ class BankImportService
                 }
             }
 
-            if ($type === null || $amount === null || $amount <= 0) continue;
+            if ($type === null || $amount === null || $amount <= 0) {
+                if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'no_amount_resolved', 'amt1' => $amt1Raw, 'amt2' => $amt2Raw];
+                continue;
+            }
 
             $rows[] = [
                 'date'            => $date,
@@ -923,6 +1050,7 @@ class BankImportService
 
         return [
             'rows'         => $rows,
+            'reject_log'   => $rejectLog,
             'balance_meta' => [
                 'opening'            => $openingBalance,
                 'closing'            => $closingBalance,
@@ -955,6 +1083,24 @@ class BankImportService
 
         // Serial/account/transit numbers: all digits and spaces, no punctuation/alpha
         if (preg_match('/^\d[\d\s]{5,}$/', $l)) return true;
+
+        // Vancity (and similar) internal tracking/reference codes that appear in
+        // page-continuation headers.  Pattern: VANA + letter + digits + underscore + digits.
+        // e.g. "VANAS11000_3986752_001 - 0036173 HRI- -03-01-17-- 118691"
+        // These lines have no date and must never be joined to a transaction buffer.
+        if (preg_match('/\bVANA[A-Z]\d{3,}[_\-]\d+\b/i', $l)) return true;
+
+        // Page-continuation marker: "INDEPENDENT BUSINESS ACCOUNT # 100058186801 (CONT.)"
+        // "(CONT.)" is the definitive signal — safe to drop unconditionally.
+        if (preg_match('/\(CONT\.?\)/i', $l)) return true;
+
+        // Subsidiary-account balance headers at the end of multi-account statements:
+        // "BUSINESS INVESTMENT SAVINGS # 100058186819 (RESERVE FUNDS) OPENING BALANCE 0.69"
+        // "BUSINESS JUMPSTART SAVINGS # 100058186827 (GST RESERVES) OPENING BALANCE 8.58"
+        // These non-date lines contaminate the last transaction on the final page.
+        // Note: balance extraction in parsePdfText() runs on the raw text *before* the
+        // join loop, so dropping these here does not affect opening/closing balance detection.
+        if (preg_match('/\b(opening|closing)\s+balance\b/i', $l)) return true;
 
         // Known footer/header boilerplate (Vancity + common Canadian banks)
         if (preg_match(
@@ -1200,6 +1346,7 @@ class BankImportService
 
         $useVision = $this->isGoogleVisionAvailable();
 
+        $this->rawPageTexts = [];
         $allText = '';
         for ($i = 0; $i < $numPages; $i++) {
             $im->setIteratorIndex($i);
@@ -1237,6 +1384,7 @@ class BankImportService
                 $pageText = $this->ocrImageBytes($jpegData, 'jpeg');
             }
 
+            $this->rawPageTexts[$i + 1] = $pageText; // 1-indexed page numbers
             $allText .= $pageText . "\n";
         }
         $im->destroy();

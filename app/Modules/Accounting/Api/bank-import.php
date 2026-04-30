@@ -58,6 +58,23 @@ try {
 
     switch ($action) {
 
+        // ── Debug OCR (admin only) ─────────────────────────────────────────────
+        // Returns raw per-page OCR text + per-line parse rejections.
+        // Use this when the parsed row count is lower than expected.
+        case 'debug_ocr':
+            if (($user['role'] ?? '') !== 'admin') throw new Exception('Admin only', 403);
+            $fileKey = !empty($_FILES['csv']) ? 'csv' : (!empty($_FILES['file']) ? 'file' : null);
+            if (!$fileKey) throw new Exception('No file uploaded');
+            $file = $_FILES[$fileKey];
+            if ($file['error'] !== UPLOAD_ERR_OK) throw new Exception('Upload error: ' . $file['error']);
+            if ($file['size'] > 20 * 1024 * 1024) throw new Exception('File too large (max 20MB)');
+            $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            if ($ext !== 'pdf') throw new Exception('debug_ocr only supports PDF files');
+            $bankName = htmlspecialchars($_POST['bank_name'] ?? '');
+            $debug = $importer->previewPdfDebug($file['tmp_name'], $bankName);
+            echo json_encode(['ok' => true, 'debug' => $debug], JSON_PRETTY_PRINT);
+            break;
+
         // ── Bank presets ──────────────────────────────────────────────────────
         case 'presets':
             echo json_encode(['ok' => true, 'presets' => $importer->getPresets()]);
@@ -126,23 +143,24 @@ try {
 
         // ── Commit import ──────────────────────────────────────────────────────
         case 'commit':
-            $rows        = $input['rows']         ?? [];
-            $bankName    = $input['bank_name']    ?? '';
-            $accountName = $input['account_name'] ?? '';
-            $skipDupes   = (bool)($input['skip_duplicates'] ?? true);
+            $rows          = $input['rows']            ?? [];
+            $bankName      = $input['bank_name']       ?? '';
+            $accountName   = $input['account_name']    ?? '';
+            $bankAccountId = (int)($input['bank_account_id'] ?? 0);
+            $skipDupes     = (bool)($input['skip_duplicates'] ?? true);
 
             if (empty($rows)) throw new Exception('No rows to import');
 
             // Re-validate: ensure account_id is set on every non-duplicate row
             foreach ($rows as &$row) {
                 if (empty($row['account_id'])) {
-                    $row['account_id'] = $row['type'] === 'income' ? null : null;
+                    $row['account_id'] = null;
                     $row['auto_cat']   = false;
                 }
             }
             unset($row);
 
-            $result = $importer->commit($rows, (int)$user['id'], $bankName, $accountName, $skipDupes);
+            $result = $importer->commit($rows, (int)$user['id'], $bankName, $accountName, $skipDupes, $bankAccountId);
             echo json_encode(['ok' => true, 'result' => $result]);
             break;
 

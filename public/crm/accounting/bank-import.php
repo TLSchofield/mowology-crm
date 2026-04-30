@@ -132,13 +132,37 @@ $activePage = 'accounting';
             </div>
         </div>
 
-        <div class="mt-3">
+        <div class="mt-3 d-flex align-items-center gap-2 flex-wrap">
             <button class="btn btn-primary" onclick="uploadAndPreview()" id="btn-preview">
                 <i data-feather="upload" class="mw-btn-icon"></i> Upload &amp; Preview
             </button>
+            <?php if (($user['role'] ?? '') === 'admin'): ?>
+            <button class="btn btn-outline-secondary btn-sm" onclick="runDebugOcr()" id="btn-debug-ocr" title="Show raw OCR text and parse rejection log">
+                <i data-feather="terminal" class="mw-btn-icon"></i> Debug OCR
+            </button>
+            <?php endif; ?>
         </div>
     </div>
 </div>
+
+<!-- Debug OCR modal (admin only) -->
+<?php if (($user['role'] ?? '') === 'admin'): ?>
+<div class="mw-modal-overlay" id="debug-ocr-modal" onclick="if(event.target===this)closeDebugOcr()">
+    <div class="mw-modal" style="max-width:900px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+        <div class="mw-modal-header d-flex justify-content-between align-items-center" style="flex-shrink:0">
+            <h5 class="mb-0">OCR Debug Output</h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="closeDebugOcr()">✕ Close</button>
+        </div>
+        <div style="overflow-y:auto;flex:1;padding:1rem">
+            <div id="debug-ocr-loading" class="text-center py-4 d-none">
+                <div class="spinner-border text-primary mb-2"></div>
+                <div class="text-muted small">Running OCR debug — this may take 30–60s…</div>
+            </div>
+            <div id="debug-ocr-content"></div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- ══════════════════════════════════════════════════════════════════════════ -->
 <!-- STEP 2 — Review & Categorize                                               -->
@@ -855,6 +879,87 @@ function esc(s) {
 document.addEventListener('change', e => {
     if (e.target.id === 'skip-duplicates') updateSelectedCount();
 });
+
+// ── Debug OCR (admin only) ────────────────────────────────────────────────────
+async function runDebugOcr() {
+    const fileInput = document.getElementById('csv-file');
+    if (!fileInput.files.length) { mwToast('Select a PDF file first', 'warning'); return; }
+    const file = fileInput.files[0];
+    if (!file.name.toLowerCase().endsWith('.pdf')) { mwToast('Debug OCR only works with PDF files', 'warning'); return; }
+
+    document.getElementById('debug-ocr-modal').classList.add('active');
+    const loading = document.getElementById('debug-ocr-loading');
+    const content = document.getElementById('debug-ocr-content');
+    loading.classList.remove('d-none');
+    content.innerHTML = '';
+
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('action', 'debug_ocr');
+
+    let data;
+    try {
+        const resp = await fetch('/app/Modules/Accounting/Api/bank-import.php', { method: 'POST', body: fd });
+        data = await resp.json();
+    } catch (err) {
+        loading.classList.add('d-none');
+        content.innerHTML = `<div class="alert alert-danger">Request failed: ${esc(err.message)}</div>`;
+        return;
+    }
+    loading.classList.add('d-none');
+
+    if (!data.ok) {
+        content.innerHTML = `<div class="alert alert-danger">${esc(data.error)}</div>`;
+        return;
+    }
+
+    const d = data.debug;
+    const rejectCount = (d.reject_log || []).length;
+    const rowCount    = (d.rows || []).length;
+    const pageCount   = Object.keys(d.raw_pages || {}).length;
+
+    let html = `<div class="alert alert-info mb-3">
+        <strong>${rowCount}</strong> transactions parsed · <strong>${rejectCount}</strong> lines rejected · <strong>${pageCount}</strong> pages OCR'd ·
+        noise dropped: <strong>${d.noise_lines_dropped || 0}</strong>
+    </div>`;
+
+    // Rejection log
+    if (rejectCount > 0) {
+        html += `<h6 class="mb-2">Rejected Lines (${rejectCount})</h6>
+        <div class="table-responsive mb-4">
+        <table class="table table-sm table-bordered" style="font-size:0.75rem;font-family:monospace">
+        <thead class="table-danger"><tr><th>Reason</th><th>Line</th><th>Extra</th></tr></thead><tbody>`;
+        for (const r of (d.reject_log || [])) {
+            const extra = Object.entries(r).filter(([k]) => k !== 'line' && k !== 'reason').map(([k,v]) => `${k}=${v}`).join(', ');
+            html += `<tr><td class="text-nowrap"><strong>${esc(r.reason)}</strong></td><td>${esc(r.line)}</td><td class="text-muted">${esc(extra)}</td></tr>`;
+        }
+        html += '</tbody></table></div>';
+    } else {
+        html += `<div class="alert alert-success mb-3">No lines rejected — all parsed lines are valid transactions. Missing rows are absent from OCR output.</div>`;
+    }
+
+    // Raw OCR per page (collapsible)
+    html += `<h6 class="mb-2">Raw OCR Text per Page</h6>`;
+    for (const [pageNum, rawText] of Object.entries(d.raw_pages || {})) {
+        const lineCount = (rawText || '').split('\n').length;
+        html += `<details class="mb-2">
+            <summary class="fw-semibold" style="cursor:pointer">Page ${pageNum} — ${lineCount} lines</summary>
+            <pre class="mt-2 p-2 border rounded" style="font-size:0.7rem;max-height:400px;overflow-y:auto;white-space:pre-wrap">${esc(rawText)}</pre>
+        </details>`;
+    }
+
+    // Joined lines (after wrap-join step)
+    html += `<h6 class="mb-2 mt-3">Lines After Wrap-Join (${(d.joined_lines||[]).length})</h6>
+    <details><summary style="cursor:pointer">Expand</summary>
+    <pre class="mt-2 p-2 border rounded" style="font-size:0.7rem;max-height:500px;overflow-y:auto;white-space:pre-wrap">${esc((d.joined_lines||[]).join('\n'))}</pre>
+    </details>`;
+
+    content.innerHTML = html;
+}
+
+function closeDebugOcr() {
+    document.getElementById('debug-ocr-modal').classList.remove('active');
+}
 </script>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
