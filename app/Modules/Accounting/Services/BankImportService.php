@@ -758,8 +758,14 @@ class BankImportService
         }
 
         // ── Join wrapped lines ────────────────────────────────────────────────
-        $joined = [];
-        $buf    = '';
+        // Non-date lines are appended to the current transaction buffer so that
+        // multi-line descriptions stay together.  Exception: page header/footer
+        // noise (serial numbers, "continued on next page", column headers) must
+        // be dropped — if joined, they corrupt the last transaction on each page
+        // and cause the $ -anchored regex to fail, silently losing the row.
+        $joined           = [];
+        $buf              = '';
+        $noiseLinesDropped = 0;
         foreach ($lines as $raw) {
             $l = trim($raw);
             if ($l === '') {
@@ -769,8 +775,10 @@ class BankImportService
             if (preg_match($dateStartPat, $l)) {
                 if ($buf !== '') $joined[] = $buf;
                 $buf = $l;
-            } else {
+            } elseif (!$this->isNoiseLine($l)) {
                 $buf = $buf !== '' ? rtrim($buf) . ' ' . $l : $l;
+            } else {
+                $noiseLinesDropped++;
             }
         }
         if ($buf !== '') $joined[] = $buf;
@@ -916,8 +924,9 @@ class BankImportService
         return [
             'rows'         => $rows,
             'balance_meta' => [
-                'opening' => $openingBalance,
-                'closing' => $closingBalance,
+                'opening'            => $openingBalance,
+                'closing'            => $closingBalance,
+                'noise_lines_dropped' => $noiseLinesDropped,
             ],
         ];
     }
@@ -925,6 +934,48 @@ class BankImportService
     // ══════════════════════════════════════════════════════════════════════════
     // PRIVATE HELPERS
     // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Returns true for lines that are page header/footer artifacts in OCR output:
+     * serial numbers, page numbers, "continued" text, column headers, disclaimers.
+     *
+     * These lines have no date and must NOT be appended to the previous transaction
+     * buffer.  If they are, the $-anchored transaction regex fails and the last
+     * transaction on the page is silently dropped (the root cause of the 6-row gap
+     * on the Vancity March 2026 statement).
+     *
+     * Safety: the all-numeric check only fires on lines that are ENTIRELY digits and
+     * spaces — it will not match amounts ("1,234.56"), vendor names, or descriptions
+     * that happen to contain numbers.
+     */
+    private function isNoiseLine(string $line): bool
+    {
+        $l = trim($line);
+        if (strlen($l) < 3) return true;
+
+        // Serial/account/transit numbers: all digits and spaces, no punctuation/alpha
+        if (preg_match('/^\d[\d\s]{5,}$/', $l)) return true;
+
+        // Known footer/header boilerplate (Vancity + common Canadian banks)
+        if (preg_match(
+            '/\b(continued on next page|continued on following page'
+            . '|page \d+ of \d+|branch transit'
+            . '|account number|account summary'
+            . '|please examine|please check this statement'
+            . '|if no error is reported|statement date'
+            . '|for the period|for period ending)\b/i',
+            $l
+        )) return true;
+
+        // Column header rows: a line composed entirely of table header keywords
+        if (preg_match(
+            '/^(DATE|DESCRIPTION|DEBIT|CREDIT|BALANCE|WITHDRAWALS?|DEPOSITS?)'
+            . '(\s+(DATE|DESCRIPTION|DEBIT|CREDIT|BALANCE|WITHDRAWALS?|DEPOSITS?))+$/i',
+            $l
+        )) return true;
+
+        return false;
+    }
 
     /**
      * Shared enrichment: categorize rows with RulesEngine, flag duplicates,
@@ -953,12 +1004,13 @@ class BankImportService
         $matches     = $discrepancy !== null && abs($discrepancy) < 0.02;
 
         return [
-            'available'   => true,
-            'opening'     => $opening,
-            'closing'     => $closing,
-            'computed'    => $computed,
-            'discrepancy' => $discrepancy,
-            'matches'     => $matches,
+            'available'          => true,
+            'opening'            => $opening,
+            'closing'            => $closing,
+            'computed'           => $computed,
+            'discrepancy'        => $discrepancy,
+            'matches'            => $matches,
+            'noise_lines_dropped' => (int)($balMeta['noise_lines_dropped'] ?? 0),
         ];
     }
 
