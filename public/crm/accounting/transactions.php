@@ -31,6 +31,15 @@ $csrfToken  = generateCSRFToken();
     </div>
 </div>
 
+<!-- ── Accounting Sub-Nav ────────────────────────────────────────────────────── -->
+<div class="mw-filter-tabs mb-3">
+    <a href="/crm/accounting_appstack.php" class="mw-filter-tab">Dashboard</a>
+    <a href="/crm/accounting/transactions.php" class="mw-filter-tab active">Transactions</a>
+    <a href="/crm/accounting/bank-import.php" class="mw-filter-tab">Bank Import</a>
+    <a href="/crm/accounting/reports.php" class="mw-filter-tab">Reports</a>
+    <a href="/crm/accounting/chart-of-accounts.php" class="mw-filter-tab">Chart of Accounts</a>
+</div>
+
 <!-- ── Filter Bar ──────────────────────────────────────────────────────────── -->
 <div class="card mb-3">
     <div class="card-body py-2">
@@ -369,8 +378,8 @@ function renderTable(rows) {
             stripeClass = 'mw-tx-stripe-pending';   // amber — needs attention
         } else if (tx.reference_type === 'bank_import') {
             stripeClass = tx.bank_match_exists == 1 ? 'mw-tx-stripe-cleared' : 'mw-tx-stripe-unmatched';
-        } else if (tx.vendor_id || tx.reference_type === 'invoice') {
-            stripeClass = 'mw-tx-stripe-cleared';   // green — vendor known or confirmed invoice
+        } else if (tx.vendor_id || tx.reference_type === 'invoice' || tx.reference_type === 'expense') {
+            stripeClass = 'mw-tx-stripe-cleared';   // green — vendor known, invoice, or tracked expense
         } else if (tx.is_auto_categorized == 1) {
             stripeClass = 'mw-tx-stripe-reconciled'; // blue — rules engine guessed
         }
@@ -393,13 +402,15 @@ function renderTable(rows) {
         }
 
         // Primary label:
-        //   expenses  → vendor name
-        //   invoices  → client (company > property name > address) — expandable, so show inv# in sub-line
-        //   bank/misc → raw description
+        //   expenses  → vendor name (row click navigates to expense)
+        //   invoices  → client name + address (row click navigates to invoice)
+        //   bank/misc → raw description (bank matched rows expand on click)
         let label, subLine;
         if (tx.vendor_name) {
             label   = `<strong>${esc(tx.vendor_name)}</strong>`;
-            subLine = esc(tx.description || '').substring(0, 80);
+            subLine = tx.reference_id
+                ? `<span class="text-muted" style="font-size:10px">click to expand</span>`
+                : esc(tx.description || '').substring(0, 80);
         } else if (isInvoice) {
             const client = tx.client_name || '';
             const addr   = tx.property_address || '';
@@ -418,15 +429,19 @@ function renderTable(rows) {
             subLine = '';
         }
 
-        // Expandable rows: invoices with a reference_id, or matched bank import rows
-        const isExpandable = (isInvoice && tx.reference_id) || (isBankImport && tx.bank_match_exists == 1);
-        const rowClass  = [
-            tx.needs_review == 1 ? 'mw-acct-row-review' : '',
-            isExpandable         ? 'mw-tx-main-row'      : '',
-        ].filter(Boolean).join(' ');
-        const expandAttr = isExpandable ? `onclick="toggleTxDetail(${tx.id})"` : '';
+        // All linked rows expand; clicking the strip navigates to the item
+        const isExpense = tx.reference_type === 'expense';
+        const isBankMatchExpandable = isBankImport && tx.bank_match_exists == 1;
+        const isExpandable = ((isInvoice || isExpense) && tx.reference_id) || isBankMatchExpandable;
 
-        const html = [`<tr class="${rowClass}" ${expandAttr}>
+        const rowClass = [
+            tx.needs_review == 1 ? 'mw-acct-row-review' : '',
+            isExpandable ? 'mw-tx-main-row' : '',
+        ].filter(Boolean).join(' ');
+
+        const clickAttr = isExpandable ? `onclick="toggleTxDetail(${tx.id})"` : '';
+
+        const html = [`<tr class="${rowClass}" ${clickAttr}>
             <td class="text-nowrap small ${stripeClass}">${tx.transaction_date}</td>
             <td><span class="badge ${typeClass}">${typeLabel}</span></td>
             <td>
@@ -442,7 +457,7 @@ function renderTable(rows) {
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();openRecat(${tx.id}, ${tx.account_id})">Change Account</a></li>
                         ${isInvoice ? `<li><a class="dropdown-item small" href="/crm/invoices/view.php?id=${tx.reference_id}" onclick="event.stopPropagation()">View Invoice</a></li>` : ''}
-                        ${tx.reference_type === 'expense' ? `<li><a class="dropdown-item small" href="/crm/expenses_appstack.php?highlight=${tx.reference_id}">View Expense</a></li>` : ''}
+                        ${tx.reference_type === 'expense' ? `<li><a class="dropdown-item small" href="/crm/expenses_appstack.php?edit=${tx.reference_id}" onclick="event.stopPropagation()">Edit Expense</a></li>` : ''}
                         <li><a class="dropdown-item small" href="#" onclick="event.stopPropagation();toggleReview(${tx.id}, ${tx.needs_review == 1 ? 0 : 1})">${tx.needs_review == 1 ? 'Clear Review Flag' : 'Flag for Review'}</a></li>
                         ${tx.reference_type === 'manual' ? `<li><hr class="dropdown-divider"></li><li><a class="dropdown-item small text-danger" href="#" onclick="event.stopPropagation();deleteTx(${tx.id})">Delete</a></li>` : ''}
                     </ul>
@@ -450,37 +465,45 @@ function renderTable(rows) {
             </td>
         </tr>`];
 
-        // Expand detail row
+        // Expand detail row — clicking the strip navigates to the matched item
         if (isExpandable) {
-            if (isBankImport) {
-                // Bank import: lazy-load the match via API on first expand
+            if (isBankMatchExpandable) {
+                // Bank import: lazy-load via API; fetchAndShowMatch will set onclick after fetch
                 html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
                     <td colspan="7">
-                        <div id="det-content-${tx.id}" class="text-muted small">Loading match…</div>
+                        <div id="det-content-${tx.id}" class="mw-tx-detail-strip text-muted">Loading match…</div>
+                    </td>
+                </tr>`);
+            } else if (isInvoice) {
+                const client = tx.client_name || tx.contact_name || '—';
+                const addr   = tx.property_address || '';
+                const inv    = tx.invoice_number   || '—';
+                html.push(`<tr class="mw-tx-detail-row mw-tx-detail-nav" id="det-${tx.id}" style="display:none"
+                    onclick="window.location='/crm/invoices/view.php?id=${tx.reference_id}'">
+                    <td colspan="7">
+                        <div class="mw-tx-detail-strip">
+                            <span class="mw-tx-detail-docref">${esc(inv)}</span>
+                            <span class="mw-tx-detail-client">${esc(client)}</span>
+                            ${addr ? `<span class="mw-tx-detail-addr">${esc(addr)}</span>` : ''}
+                            <div class="ms-auto d-flex align-items-center" style="gap:16px">
+                                <span class="mw-tx-detail-amount">${fmtMoney(tx.amount)}</span>
+                                ${tx.gst_amount > 0 ? `<span class="mw-tx-detail-addr">GST ${fmtMoney(tx.gst_amount)}</span>` : ''}
+                            </div>
+                        </div>
                     </td>
                 </tr>`);
             } else {
-                // Invoice: all data is already in the row
-                const client = tx.client_name    || tx.contact_name || '—';
-                const addr   = tx.property_address || '';
-                const inv    = tx.invoice_number   || '—';
-                html.push(`<tr class="mw-tx-detail-row" id="det-${tx.id}" style="display:none">
+                // Expense row
+                const vendor = tx.vendor_name || tx.description || '—';
+                html.push(`<tr class="mw-tx-detail-row mw-tx-detail-nav" id="det-${tx.id}" style="display:none"
+                    onclick="window.location='/crm/expenses_appstack.php?edit=${tx.reference_id}'">
                     <td colspan="7">
-                        <div class="d-flex gap-3 align-items-start">
-                            <div class="mw-tx-panel flex-fill">
-                                <div class="mw-tx-panel-label">🧾 Invoice ${esc(inv)}</div>
-                                <div class="fw-bold">${esc(client)}</div>
-                                ${addr ? `<div class="text-muted">${esc(addr)}</div>` : ''}
-                            </div>
-                            <div class="mw-tx-panel" style="min-width:140px;text-align:right">
-                                <div class="mw-tx-panel-label">Revenue</div>
-                                <div class="fw-bold ${amtClass}" style="font-size:15px">${fmtMoney(tx.amount)}</div>
-                                ${tx.gst_amount > 0 ? `<div class="text-muted" style="font-size:11px">GST ${fmtMoney(tx.gst_amount)}</div>` : ''}
-                            </div>
-                            <div class="mw-tx-panel d-flex align-items-center" style="padding:10px 14px">
-                                <a href="/crm/invoices/view.php?id=${tx.reference_id}"
-                                   class="btn btn-sm btn-outline-success"
-                                   onclick="event.stopPropagation()">View Invoice →</a>
+                        <div class="mw-tx-detail-strip">
+                            <span class="mw-tx-detail-docref">Receipt</span>
+                            <span class="mw-tx-detail-client">${esc(vendor)}</span>
+                            <div class="ms-auto d-flex align-items-center" style="gap:16px">
+                                <span class="mw-tx-detail-amount">${fmtMoney(tx.amount)}</span>
+                                ${tx.gst_amount > 0 ? `<span class="mw-tx-detail-addr">GST ${fmtMoney(tx.gst_amount)}</span>` : ''}
                             </div>
                         </div>
                     </td>
@@ -615,18 +638,27 @@ async function fetchAndShowMatch(txId, contentEl) {
         const m = d.match;
         const isInv = m.reference_type === 'invoice';
         const label = m.vendor_name || m.client_name || m.contact_name || m.description || '—';
-        const invLink = isInv
-            ? `<a href="/crm/invoices/view.php?id=${m.reference_id}" class="btn btn-xs btn-outline-success ms-2" onclick="event.stopPropagation()">View Invoice →</a>`
-            : `<a href="/crm/expenses_appstack.php?highlight=${m.reference_id}" class="btn btn-xs btn-outline-success ms-2" onclick="event.stopPropagation()">View Receipt →</a>`;
+        const docRef = isInv ? (m.invoice_number || 'Invoice') : 'Receipt';
+        const viewUrl = isInv
+            ? `/crm/invoices/view.php?id=${m.reference_id}`
+            : `/crm/expenses_appstack.php?edit=${m.reference_id}`;
+        const acctLabel = [m.account_code, m.account_name].filter(Boolean).join(' ');
+
+        // Make the entire detail row navigate to the matched item on click
+        const detRow = document.getElementById('det-' + txId);
+        if (detRow) {
+            detRow.classList.add('mw-tx-detail-nav');
+            detRow.onclick = () => { window.location = viewUrl; };
+        }
+
         contentEl.innerHTML = `
-            <div class="d-flex gap-3">
-                <div class="mw-tx-panel flex-fill">
-                    <div class="mw-tx-panel-label">${isInv ? '🧾 Matched Invoice' : '🧾 Matched Receipt'}</div>
-                    <div class="fw-bold">${esc(label)}</div>
-                    <div class="text-muted mt-1">${esc(m.transaction_date)} · ${esc(m.account_code || '')} ${esc(m.account_name || '')}</div>
-                </div>
-                <div class="mw-tx-panel d-flex align-items-center">
-                    ${invLink}
+            <div class="mw-tx-detail-strip">
+                <span class="mw-tx-detail-docref">${esc(docRef)}</span>
+                <span class="mw-tx-detail-client">${esc(label)}</span>
+                <span class="mw-tx-detail-addr">${esc(m.transaction_date)}${acctLabel ? ' · ' + esc(acctLabel) : ''}</span>
+                <div class="ms-auto d-flex align-items-center" style="gap:16px">
+                    <span class="mw-tx-detail-amount">${fmtMoney(m.amount)}</span>
+                    ${parseFloat(m.gst_amount) > 0 ? `<span class="mw-tx-detail-addr">GST ${fmtMoney(m.gst_amount)}</span>` : ''}
                 </div>
             </div>`;
     } catch (e) {

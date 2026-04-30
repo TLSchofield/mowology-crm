@@ -1542,6 +1542,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 { timeout: 10000, enableHighAccuracy: false }
             );
         }
+
+        // Deep-link: ?edit=ID opens the expense immediately in edit mode
+        var editId = new URLSearchParams(window.location.search).get('edit');
+        if (editId) {
+            editExpense(parseInt(editId, 10));
+        }
     }
 
     function calcTotalFor(prefix) {
