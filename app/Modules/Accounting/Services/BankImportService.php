@@ -1333,7 +1333,13 @@ class BankImportService
         $lines = [];
         foreach ($rows as $row) {
             usort($row, function ($a, $b) { return $a['x'] <=> $b['x']; });
-            $lines[] = implode(' ', array_column($row, 'text'));
+            $line = implode(' ', array_column($row, 'text'));
+            // Vision tokenises punctuation as separate words, leaving spaces inside
+            // brackets and before commas/periods.  Collapse those back.
+            $line = preg_replace('/\(\s+/', '(', $line);
+            $line = preg_replace('/\s+\)/', ')', $line);
+            $line = preg_replace('/\s+([,\.])/', '$1', $line);
+            $lines[] = $line;
         }
 
         return implode("\n", $lines);
