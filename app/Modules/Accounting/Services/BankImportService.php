@@ -1134,9 +1134,11 @@ class BankImportService
     private function extractTextViaImagickOcr(string $filePath): string
     {
         // OCR.space free key limit: 1 MB per request (base64 adds ~33% overhead).
-        // At 150 DPI, a letter page is 1275×1650 px — well under 700 KB at q70.
+        // At 200 DPI, a letter page is ~1700×2200 px — typically 400–650 KB at q70,
+        // comfortably under the 700 KB fallback threshold. Higher DPI captures
+        // text close to page margins that 150 DPI occasionally misses.
         $im = new \Imagick();
-        $im->setResolution(150, 150);
+        $im->setResolution(200, 200);
         $im->readImage('pdf:' . $filePath);
 
         $numPages = $im->getNumberImages();

@@ -216,7 +216,12 @@ $activePage = 'accounting';
         </div>
 
         <div class="card-footer d-flex justify-content-between align-items-center py-2">
-            <span class="text-muted small" id="selected-count">0 rows selected</span>
+            <div class="d-flex align-items-center gap-3">
+                <span class="text-muted small" id="selected-count">0 rows selected</span>
+                <button class="btn btn-xs btn-outline-secondary" onclick="addManualRow()" title="Add a transaction that wasn't parsed from the statement">
+                    <i data-feather="plus" class="mw-btn-icon"></i> Add missing row
+                </button>
+            </div>
             <button class="btn btn-success" onclick="commitImport()">
                 <i data-feather="check-circle" class="mw-btn-icon"></i> Import Selected Transactions
             </button>
@@ -272,9 +277,10 @@ $activePage = 'accounting';
 const API     = '/crm/api/accounting-bank-import.php';
 const API_ACC = '/crm/api/accounting-accounts.php';
 
-let previewRows   = [];
-let lastSessionId = null;
-let allAccounts   = [];
+let previewRows      = [];
+let lastSessionId    = null;
+let allAccounts      = [];
+let lastBalanceCheck = null;
 
 const PRESET_HINTS = {
     td:         'Columns: Date, Description, Debit, Credit, Balance',
@@ -491,6 +497,7 @@ function renderPreview(preview) {
     document.getElementById('count-dupe').textContent      = dupes;
 
     // Balance self-check
+    lastBalanceCheck = preview.balance_check || null;
     const bc    = preview.balance_check || {};
     const bcOk  = document.getElementById('balance-check-ok');
     const bcW   = document.getElementById('balance-check-warn');
@@ -548,6 +555,28 @@ function renderPreviewTable(rows) {
         .join('');
 
     tbody.innerHTML = rows.map((row, i) => {
+        // Manually added rows — always show, always editable
+        if (row.manual) {
+            return `<tr class="mw-bi-manual-row" data-idx="${i}">
+                <td><input type="checkbox" class="row-check" data-idx="${i}" checked onchange="updateSelectedCount()"></td>
+                <td><input type="date" class="form-control form-control-sm" value="${esc(row.date||'')}" oninput="updateManualRow(${i},'date',this.value)"></td>
+                <td><input type="text" class="form-control form-control-sm" placeholder="Description" value="${esc(row.description||'')}" oninput="updateManualRow(${i},'description',this.value)"></td>
+                <td>
+                    <select class="form-select form-select-sm" onchange="updateManualRow(${i},'type',this.value)">
+                        <option value="expense" ${row.type==='expense'?'selected':''}>expense</option>
+                        <option value="income"  ${row.type==='income' ?'selected':''}>income</option>
+                    </select>
+                </td>
+                <td><input type="number" class="form-control form-control-sm text-end" step="0.01" min="0" placeholder="0.00" value="${row.amount||''}" oninput="updateManualRow(${i},'amount',parseFloat(this.value)||0)"></td>
+                <td>
+                    <select class="form-select form-select-sm account-sel" data-idx="${i}" onchange="updateRowAccount(this)">
+                        ${accountOptions}
+                    </select>
+                </td>
+                <td><span class="badge bg-warning text-dark" style="font-size:9px">Manual</span></td>
+            </tr>`;
+        }
+
         const isDupe    = row.is_duplicate;
         const isMatched = !isDupe && row.match_candidate;
 
@@ -637,6 +666,63 @@ function updateRowAccount(sel) {
         previewRows[idx].account_id = parseInt(sel.value);
         previewRows[idx].auto_cat   = false;
     }
+}
+
+function updateManualRow(idx, field, value) {
+    if (previewRows[idx]) previewRows[idx][field] = value;
+    if (field === 'amount' || field === 'type') updateBalanceStrip();
+}
+
+function updateBalanceStrip() {
+    const bc = lastBalanceCheck;
+    if (!bc || !bc.available || bc.opening == null || bc.closing == null) return;
+    const fmt = v => '$' + parseFloat(v).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2});
+    let computed = parseFloat(bc.opening);
+    for (const r of previewRows) {
+        if (r.is_duplicate) continue;
+        const amt = parseFloat(r.amount) || 0;
+        computed += r.type === 'income' ? amt : -amt;
+    }
+    computed = Math.round(computed * 100) / 100;
+    const closing = parseFloat(bc.closing);
+    const disc    = Math.round((computed - closing) * 100) / 100;
+    const bcOk = document.getElementById('balance-check-ok');
+    const bcW  = document.getElementById('balance-check-warn');
+    if (Math.abs(disc) < 0.02) {
+        bcOk.classList.remove('d-none');
+        bcW.classList.add('d-none');
+        document.getElementById('balance-check-ok-msg').innerHTML =
+            `Balances verified &nbsp;·&nbsp; Opening <strong>${fmt(bc.opening)}</strong> → Closing <strong>${fmt(bc.closing)}</strong> &nbsp;·&nbsp; Computed ${fmt(computed)} ✓`;
+    } else {
+        bcOk.classList.add('d-none');
+        bcW.classList.remove('d-none');
+        const isLarge = Math.abs(disc) > 50;
+        bcW.className = 'mw-bi-balance-strip ' + (isLarge ? 'mw-bi-balance-strip--err' : 'mw-bi-balance-strip--warn');
+        document.getElementById('balance-check-warn-msg').innerHTML =
+            `Balance mismatch: Opening <strong>${fmt(bc.opening)}</strong>, closing <strong>${fmt(bc.closing)}</strong>, `
+            + `computed <strong>${fmt(computed)}</strong> (off by <strong>${fmt(disc)}</strong>).`
+            + (isLarge ? ' Some transactions may not have been parsed — review before importing.' : '');
+    }
+}
+
+function addManualRow() {
+    const today = new Date().toISOString().slice(0, 10);
+    const defaultAcct = allAccounts.find(a => a.sub_type !== 'header');
+    previewRows.push({
+        date: today, description: '', amount: 0,
+        type: 'expense', account_id: defaultAcct ? defaultAcct.id : null,
+        is_duplicate: false, manual: true,
+    });
+    renderPreviewTable(previewRows);
+    updateSelectedCount();
+    // Scroll to the new row and focus its date input
+    const tbl = document.querySelector('#preview-tbody').closest('.table-responsive');
+    if (tbl) tbl.scrollTop = tbl.scrollHeight;
+    const manualRows = document.querySelectorAll('.mw-bi-manual-row');
+    if (manualRows.length) {
+        manualRows[manualRows.length - 1].querySelector('input[type=date]')?.focus();
+    }
+    updateBalanceStrip();
 }
 
 function toggleAll(master) {

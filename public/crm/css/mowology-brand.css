@@ -24358,6 +24358,14 @@ a.mw-clock-timer-nav:hover {
   line-height:1;
 }
 
+/* Manual row added by user in the review step */
+.mw-bi-manual-row td {
+  background: #fffbeb;
+}
+.mw-bi-manual-row td:first-child {
+  border-left: 3px solid #f59e0b;
+}
+
 /* ── Transaction Ledger — status stripe, badges, expand row ──────────────── */
 /* Left-side coloured stripe on the Date <td> via ::before pseudo-element    */
 .mw-tx-stripe-cleared,
