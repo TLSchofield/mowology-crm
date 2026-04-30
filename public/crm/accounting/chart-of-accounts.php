@@ -27,6 +27,15 @@ $activePage = 'accounting';
     </div>
 </div>
 
+<!-- ── Accounting Sub-Nav ────────────────────────────────────────────────────── -->
+<div class="mw-filter-tabs mb-3">
+    <a href="/crm/accounting_appstack.php" class="mw-filter-tab">Dashboard</a>
+    <a href="/crm/accounting/transactions.php" class="mw-filter-tab">Transactions</a>
+    <a href="/crm/accounting/bank-import.php" class="mw-filter-tab">Bank Import</a>
+    <a href="/crm/accounting/reports.php" class="mw-filter-tab">Reports</a>
+    <a href="/crm/accounting/chart-of-accounts.php" class="mw-filter-tab active">Chart of Accounts</a>
+</div>
+
 <!-- ── Type Filter Tabs ─────────────────────────────────────────────────────── -->
 <div class="mw-filter-tabs mb-3">
     <button class="mw-filter-tab active" onclick="filterType('')">All</button>
@@ -35,6 +44,48 @@ $activePage = 'accounting';
     <button class="mw-filter-tab" onclick="filterType('asset')">Assets</button>
     <button class="mw-filter-tab" onclick="filterType('liability')">Liabilities</button>
     <button class="mw-filter-tab" onclick="filterType('equity')">Equity</button>
+</div>
+
+<!-- ── Guide Card: Chart of Accounts ─────────────────────────────────────────── -->
+<div class="mw-guide-card" data-guide-id="chart_of_accounts">
+    <div class="mw-guide-card-header">
+        <span class="mw-guide-card-icon">💡</span>
+        <span class="mw-guide-card-title">What is a Chart of Accounts? — Plain English</span>
+        <span class="mw-guide-card-caret">▼</span>
+        <button class="mw-guide-card-got-it" type="button">Got it</button>
+    </div>
+    <div class="mw-guide-card-body">
+        <div class="mw-guide-card-body-inner">
+            <div class="mw-guide-card-content">
+                <div class="mw-guide-card-tips">
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">1</span>
+                        <span><strong>Think of it as folders for your money.</strong> Every dollar that comes into or goes out of your business gets filed into one of these "accounts." Your accountant uses these to prepare your taxes and financial reports.</span>
+                    </div>
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">2</span>
+                        <span><strong>Revenue accounts</strong> — Money you EARN. Lawn cutting, hedge trimming, fall cleanup — every service you sell has a revenue account so you can see which services make you the most money.</span>
+                    </div>
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">3</span>
+                        <span><strong>Expense accounts</strong> — Money you SPEND. Fuel, equipment repairs, insurance, labour — every cost has an account so you know exactly where your money goes each month.</span>
+                    </div>
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">4</span>
+                        <span><strong>Asset accounts</strong> — Things your business OWNS. Your chequing account, savings, equipment, and vehicles. These have real dollar value that belongs to you.</span>
+                    </div>
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">5</span>
+                        <span><strong>Liability accounts</strong> — Money you OWE. GST/HST collected from customers (goes to CRA), accounts payable to suppliers, any loans. These are obligations, not income.</span>
+                    </div>
+                    <div class="mw-guide-card-tip">
+                        <span class="mw-guide-card-step">6</span>
+                        <span><strong>🔒 System accounts</strong> — The lock icon means the account was set up automatically and can't be deleted. You can add your own accounts any time by clicking <em>+ New Account</em> above.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- ── Account Table ──────────────────────────────────────────────────────────── -->
@@ -85,7 +136,7 @@ $activePage = 'accounting';
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small">Type <span class="text-danger">*</span></label>
-                        <select id="coa-type" class="form-select">
+                        <select id="coa-type" class="form-select" onchange="toggleAccountNumberField(this.value, document.getElementById('coa-subtype').value)">
                             <option value="asset">Asset</option>
                             <option value="liability">Liability</option>
                             <option value="equity">Equity</option>
@@ -95,7 +146,7 @@ $activePage = 'accounting';
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small">Sub-Type</label>
-                        <input type="text" id="coa-subtype" class="form-control" placeholder="e.g. vehicle, labour">
+                        <input type="text" id="coa-subtype" class="form-control" placeholder="e.g. vehicle, labour" oninput="toggleAccountNumberField(document.getElementById('coa-type').value, this.value)">
                     </div>
                     <div class="col-12">
                         <label class="form-label small">Description</label>
@@ -108,6 +159,11 @@ $activePage = 'accounting';
                     <div class="col-md-6">
                         <label class="form-label small">Category Alias <small class="text-muted">(links to expense system)</small></label>
                         <input type="text" id="coa-alias" class="form-control" placeholder="e.g. fuel, materials">
+                    </div>
+                    <div class="col-12" id="coa-account-number-row" style="display:none">
+                        <label class="form-label small">Bank Account Number <small class="text-muted">(for auto-detection during statement import)</small></label>
+                        <input type="text" id="coa-account-number" class="form-control" placeholder="e.g. 11504290" maxlength="50">
+                        <div class="form-text">Enter the account number exactly as it appears on your bank statements (spaces optional). Used to auto-select this account when importing PDFs.</div>
                     </div>
                     <div class="col-12" id="coa-status-row" style="display:none">
                         <div class="form-check">
@@ -193,17 +249,24 @@ function renderTable(accounts) {
     }).join('');
 }
 
+function toggleAccountNumberField(type, subType) {
+    var show = (type === 'asset' && subType === 'bank') || subType === 'bank';
+    document.getElementById('coa-account-number-row').style.display = show ? '' : 'none';
+}
+
 function openAddModal() {
     document.getElementById('coaModalTitle').textContent = 'New Account';
-    document.getElementById('coa-id').value       = '';
-    document.getElementById('coa-code').value     = '';
-    document.getElementById('coa-name').value     = '';
-    document.getElementById('coa-type').value     = 'expense';
-    document.getElementById('coa-subtype').value  = '';
-    document.getElementById('coa-desc').value     = '';
-    document.getElementById('coa-order').value    = '500';
-    document.getElementById('coa-alias').value    = '';
-    document.getElementById('coa-status-row').style.display = 'none';
+    document.getElementById('coa-id').value             = '';
+    document.getElementById('coa-code').value           = '';
+    document.getElementById('coa-name').value           = '';
+    document.getElementById('coa-type').value           = 'expense';
+    document.getElementById('coa-subtype').value        = '';
+    document.getElementById('coa-desc').value           = '';
+    document.getElementById('coa-order').value          = '500';
+    document.getElementById('coa-alias').value          = '';
+    document.getElementById('coa-account-number').value = '';
+    document.getElementById('coa-status-row').style.display         = 'none';
+    document.getElementById('coa-account-number-row').style.display = 'none';
     new bootstrap.Modal(document.getElementById('coaModal')).show();
 }
 
@@ -211,17 +274,19 @@ function openEditModal(id) {
     const a = allAccounts.find(x => x.id == id);
     if (!a) return;
 
-    document.getElementById('coaModalTitle').textContent = 'Edit Account';
-    document.getElementById('coa-id').value       = a.id;
-    document.getElementById('coa-code').value     = a.code;
-    document.getElementById('coa-name').value     = a.name;
-    document.getElementById('coa-type').value     = a.type;
-    document.getElementById('coa-subtype').value  = a.sub_type || '';
-    document.getElementById('coa-desc').value     = a.description || '';
-    document.getElementById('coa-order').value    = a.display_order;
-    document.getElementById('coa-alias').value    = a.expense_category_alias || '';
-    document.getElementById('coa-active').checked = a.is_active == 1;
+    document.getElementById('coaModalTitle').textContent    = 'Edit Account';
+    document.getElementById('coa-id').value                 = a.id;
+    document.getElementById('coa-code').value               = a.code;
+    document.getElementById('coa-name').value               = a.name;
+    document.getElementById('coa-type').value               = a.type;
+    document.getElementById('coa-subtype').value            = a.sub_type || '';
+    document.getElementById('coa-desc').value               = a.description || '';
+    document.getElementById('coa-order').value              = a.display_order;
+    document.getElementById('coa-alias').value              = a.expense_category_alias || '';
+    document.getElementById('coa-account-number').value     = a.account_number || '';
+    document.getElementById('coa-active').checked           = a.is_active == 1;
     document.getElementById('coa-status-row').style.display = '';
+    toggleAccountNumberField(a.type, a.sub_type || '');
     new bootstrap.Modal(document.getElementById('coaModal')).show();
 }
 
@@ -237,6 +302,7 @@ async function saveCoa() {
         description:             document.getElementById('coa-desc').value,
         display_order:           document.getElementById('coa-order').value,
         expense_category_alias:  document.getElementById('coa-alias').value,
+        account_number:          document.getElementById('coa-account-number').value,
         is_active:               document.getElementById('coa-active')?.checked ? 1 : 0,
     };
 

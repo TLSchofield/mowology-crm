@@ -90,6 +90,15 @@ $activePage = 'accounting';
                 <select id="bank-account-id" class="form-select">
                     <option value="">— Select account —</option>
                 </select>
+                <div id="account-detected-notice" class="d-none mt-1" style="font-size:0.8rem">
+                    <span class="text-success fw-semibold"><i data-feather="check-circle" style="width:12px;height:12px;vertical-align:-1px"></i> Auto-detected:</span>
+                    <span id="account-detected-label"></span>
+                </div>
+                <div id="account-unmatched-notice" class="d-none mt-1" style="font-size:0.8rem; color:var(--mw-orange)">
+                    <i data-feather="alert-circle" style="width:12px;height:12px;vertical-align:-1px"></i>
+                    Account <span id="account-unmatched-number"></span> detected — please select the matching account above,
+                    then <a href="/crm/accounting/chart-of-accounts.php" target="_blank">save the number in Chart of Accounts</a> for next time.
+                </div>
             </div>
         </div>
 
@@ -350,6 +359,30 @@ async function loadAccounts() {
     });
 }
 
+function applyDetectedAccount(preview) {
+    const detectedNotice  = document.getElementById('account-detected-notice');
+    const unmatchedNotice = document.getElementById('account-unmatched-notice');
+    detectedNotice.classList.add('d-none');
+    unmatchedNotice.classList.add('d-none');
+
+    const detectedNum = preview.detected_account_number;
+    if (!detectedNum) return; // Statement didn't contain a recognisable account number
+
+    if (preview.matched_account_id) {
+        // Great — we know which account this is
+        const sel = document.getElementById('bank-account-id');
+        sel.value = preview.matched_account_id;
+        document.getElementById('account-detected-label').textContent = preview.matched_account_name || '';
+        detectedNotice.classList.remove('d-none');
+        if (window.feather) feather.replace();
+    } else {
+        // Account number found but not stored in any CoA entry yet
+        document.getElementById('account-unmatched-number').textContent = detectedNum;
+        unmatchedNotice.classList.remove('d-none');
+        if (window.feather) feather.replace();
+    }
+}
+
 function updatePresetHint() {
     const preset = document.getElementById('preset').value;
     document.getElementById('preset-hint').textContent = PRESET_HINTS[preset] || '';
@@ -462,6 +495,9 @@ async function uploadAndPreview() {
 
         previewRows = d.preview.rows;
         renderPreview(d.preview);
+
+        // Auto-detect bank account from statement account number
+        applyDetectedAccount(d.preview);
 
         document.getElementById('step-upload').style.display  = 'none';
         document.getElementById('step-preview').style.display = '';

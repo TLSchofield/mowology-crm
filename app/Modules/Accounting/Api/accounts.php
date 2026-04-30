@@ -101,12 +101,17 @@ try {
             $stmt = $db->prepare("
                 INSERT INTO chart_of_accounts
                     (code, name, type, sub_type, normal_balance, parent_id,
-                     description, display_order, expense_category_alias)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     description, display_order, expense_category_alias, account_number)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $normalBalance = in_array($input['type'], ['revenue', 'liability', 'equity'])
                 ? 'credit' : 'debit';
+
+            // Normalize account number — strip spaces/dashes, digits only
+            $acctNum = isset($input['account_number'])
+                ? preg_replace('/\D/', '', $input['account_number']) ?: null
+                : null;
 
             $stmt->execute([
                 strtoupper(trim($input['code'])),
@@ -118,6 +123,7 @@ try {
                 $input['description']          ?? null,
                 (int)($input['display_order'] ?? 500),
                 $input['expense_category_alias'] ?? null,
+                $acctNum,
             ]);
 
             echo json_encode([
@@ -156,6 +162,10 @@ try {
             if (isset($input['expense_category_alias'])) {
                 $sets[]   = 'expense_category_alias = ?';
                 $params[] = $input['expense_category_alias'] ?: null;
+            }
+            if (isset($input['account_number'])) {
+                $sets[]   = 'account_number = ?';
+                $params[] = preg_replace('/\D/', '', $input['account_number']) ?: null;
             }
 
             if (empty($sets)) throw new Exception('Nothing to update');

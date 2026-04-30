@@ -607,6 +607,7 @@ class BankImportService
 
         $result = $this->enrichRows($rows, $bankName, 'pdf');
         $result['balance_check'] = $this->computeBalanceCheck($balMeta, $result['totals']);
+        $result += $this->detectAccountNumber($text);
         return $result;
     }
 
@@ -734,6 +735,7 @@ class BankImportService
 
         $result = $this->enrichRows($rows, $bankName, 'image');
         $result['balance_check'] = $this->computeBalanceCheck($balMeta, $result['totals']);
+        $result += $this->detectAccountNumber($text);
         return $result;
     }
 
@@ -2214,6 +2216,74 @@ class BankImportService
         $stmt = $this->db->prepare("SELECT id FROM chart_of_accounts WHERE code = ? LIMIT 1");
         $stmt->execute([$code]);
         return (int)$stmt->fetchColumn();
+    }
+
+    /**
+     * Scan raw statement text for a bank account number and look it up in
+     * chart_of_accounts. Returns an array with:
+     *   detected_account_number — normalized digits-only string, or null
+     *   matched_account_id      — chart_of_accounts.id if found, or null
+     *   matched_account_name    — display label if found, or null
+     */
+    private function detectAccountNumber(string $text): array
+    {
+        $result = [
+            'detected_account_number' => null,
+            'matched_account_id'      => null,
+            'matched_account_name'    => null,
+        ];
+
+        // Pattern list — ordered from most specific to most general.
+        // Each captures the raw account number (may include spaces/dashes).
+        $patterns = [
+            // "Account # 11504290" / "Account No. 1150 4290" / "Account: 1150-4290"
+            '/\bAccount\s*(?:#|No\.?|Number)\s*:?\s*([\d][\d\s\-]{4,18}[\d])/i',
+            // "ACCT # 12345678"
+            '/\bACCT\s*#?\s*([\d][\d\s\-]{4,18}[\d])/i',
+            // Vancity: "INDEPENDENT BUSINESS ACCOUNT # 11504290"
+            '/INDEPENDENT\s+BUSINESS\s+ACCOUNT\s*#?\s*([\d][\d\s\-]{4,14}[\d])/i',
+        ];
+
+        $raw = null;
+        foreach ($patterns as $pat) {
+            if (preg_match($pat, $text, $m)) {
+                $raw = $m[1];
+                break;
+            }
+        }
+
+        if ($raw === null) {
+            return $result;
+        }
+
+        // Normalize: digits only
+        $normalized = preg_replace('/\D/', '', $raw);
+        if (strlen($normalized) < 5) {
+            return $result; // Too short to be a real account number
+        }
+
+        $result['detected_account_number'] = $normalized;
+
+        // Look for a match in chart_of_accounts (bank sub-type accounts)
+        // Try exact match first, then suffix match (in case of transit+account concatenation)
+        $stmt = $this->db->prepare("
+            SELECT id, code, name
+            FROM chart_of_accounts
+            WHERE account_number IS NOT NULL
+              AND account_number != ''
+              AND (account_number = ? OR ? LIKE CONCAT('%', account_number))
+            ORDER BY LENGTH(account_number) DESC
+            LIMIT 1
+        ");
+        $stmt->execute([$normalized, $normalized]);
+        $match = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($match) {
+            $result['matched_account_id']   = (int)$match['id'];
+            $result['matched_account_name'] = $match['code'] . ' – ' . $match['name'];
+        }
+
+        return $result;
     }
 
     private function createSession(array $data): int
