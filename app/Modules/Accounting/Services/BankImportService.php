@@ -588,9 +588,13 @@ class BankImportService
         $text   = $pdf->getText();
 
         // Some bank PDFs (e.g. Vancity) use custom font encodings without a
-        // ToUnicode map. smalot returns garbled high-byte characters instead of
-        // readable text. Cascade through available fallback extractors.
-        if ($this->isGarbledText($text)) {
+        // ToUnicode map. Two variants:
+        //   A) Non-ASCII garbling: smalot returns high-byte characters (caught by isGarbledText).
+        //   B) Space-padded ASCII: all chars are ASCII but spaces are inserted between character
+        //      groups ("A UG", "7 .34") — same visual result, different encoding scheme
+        //      (seen in Vancity VCTY_16310 2025 statements). Caught by isSpacePaddedText.
+        // Both cases route through the OCR fallback which renders page images cleanly.
+        if ($this->isGarbledText($text) || $this->isSpacePaddedText($text)) {
             $text = $this->extractTextFallback($filePath);
         }
 
@@ -641,7 +645,7 @@ class BankImportService
         $pdf    = $parser->parseFile($filePath);
         $text   = $pdf->getText();
 
-        if ($this->isGarbledText($text)) {
+        if ($this->isGarbledText($text) || $this->isSpacePaddedText($text)) {
             $text = $this->extractTextFallback($filePath);
         }
 
@@ -1633,6 +1637,29 @@ class BankImportService
         if (strlen($printable) < 20) return false;
         $nonAscii = preg_match_all('/[^\x20-\x7E]/', $printable);
         return ($nonAscii / strlen($printable)) > 0.25;
+    }
+
+    /**
+     * Returns true when smalot/pdfparser extracted all-ASCII text but the PDF
+     * uses a custom encoding that inserts extra spaces between character groups.
+     *
+     * Distinguishing signal: amounts appear as "7 .34" or "25 ,947 .55" —
+     * a digit followed by whitespace followed by a period/comma and more digits.
+     * This never occurs in legitimate bank-statement text.
+     *
+     * Seen in Vancity VCTY_16310_YYYYMM01 statements (2025 and earlier format)
+     * where every character group is separated by spaces. The 2026+ VCTY_11504290
+     * format uses non-ASCII characters instead and is caught by isGarbledText().
+     *
+     * Threshold: ≥3 matches to avoid false-positives on edge-case formatting.
+     */
+    private function isSpacePaddedText(string $text): bool
+    {
+        // "7 .34" pattern — digit, whitespace, decimal point, two digits
+        $spacedDecimal = preg_match_all('/\d\s+\.\s*\d{2}\b/', $text);
+        // "25 ,947" pattern — digit, whitespace, comma, three digits
+        $spacedComma   = preg_match_all('/\d\s+,\s*\d{3}/', $text);
+        return ($spacedDecimal + $spacedComma) >= 3;
     }
 
     /**
