@@ -428,12 +428,12 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <?php if ($canEdit): ?>
                         <th style="width:32px;"><input type="checkbox" id="selectAllExpenses" title="Select all" onchange="toggleSelectAll(this.checked)"></th>
                         <?php endif; ?>
-                        <th>Date</th>
-                        <th>Vendor</th>
-                        <th>Category</th>
-                        <th class="text-end">Total</th>
+                        <th data-sort="date" onclick="sortExpenses('date')" class="mw-sortable mw-sort-desc">Date</th>
+                        <th data-sort="vendor" onclick="sortExpenses('vendor')" class="mw-sortable">Vendor</th>
+                        <th data-sort="category" onclick="sortExpenses('category')" class="mw-sortable">Category</th>
+                        <th data-sort="total" onclick="sortExpenses('total')" class="mw-sortable text-end">Total</th>
                         <th>Job</th>
-                        <th>Status</th>
+                        <th data-sort="status" onclick="sortExpenses('status')" class="mw-sortable">Status</th>
                         <th class="text-center" title="OCR Confidence">Conf</th>
                         <th>Receipt</th>
                         <th></th>
@@ -1425,6 +1425,8 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
     let categories = { accounting_categories: [], gbp_categories: [], payment_methods: [] };
     let currentPage = 1;
+    let currentSortBy  = 'date';
+    let currentSortDir = 'desc';
     let currentGpsLat = null;
     let currentGpsLng = null;
     var pendingReceiptInput = null; // tracks ephemeral file input for camera/gallery
@@ -2643,6 +2645,16 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         if (cat) params.set('category', cat);
         if (status) params.set('status', status);
         if (search) params.set('search', search);
+        params.set('sort_by', currentSortBy);
+        params.set('sort_dir', currentSortDir);
+
+        // Update sort indicators on headers using CSS classes
+        document.querySelectorAll('th[data-sort]').forEach(function(th) {
+            th.classList.remove('mw-sort-asc', 'mw-sort-desc');
+            if (th.dataset.sort === currentSortBy) {
+                th.classList.add(currentSortDir === 'asc' ? 'mw-sort-asc' : 'mw-sort-desc');
+            }
+        });
 
         try {
             var r = await fetch('/crm/api/expenses.php?' + params);
@@ -2654,6 +2666,17 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             document.getElementById('expensesTableBody').innerHTML =
                 '<tr><td colspan="10" class="text-center py-4 text-danger">' + e.message + '</td></tr>';
         }
+    };
+
+    window.sortExpenses = function(col) {
+        if (currentSortBy === col) {
+            currentSortDir = currentSortDir === 'desc' ? 'asc' : 'desc';
+        } else {
+            currentSortBy = col;
+            // Date & total: newest/largest first. Text columns: A→Z first.
+            currentSortDir = (col === 'date' || col === 'total') ? 'desc' : 'asc';
+        }
+        loadExpenses(1);
     };
 
     function buildExpenseRow(e, rowClass) {
