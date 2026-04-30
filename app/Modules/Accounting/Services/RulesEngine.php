@@ -33,10 +33,14 @@ class RulesEngine
      * Apply all active rules to eligible uncategorized transactions.
      * Returns total count of transactions recategorized.
      */
-    public function applyAll(): int
+    /**
+     * @param bool $force  When true, re-runs rules on already-auto-categorized
+     *                     transactions too (use after bulk rule changes).
+     */
+    public function applyAll(bool $force = false): int
     {
         $rules        = $this->getActiveRules();
-        $transactions = $this->getEligibleTransactions();
+        $transactions = $this->getEligibleTransactions($force);
         $updated      = 0;
 
         // Index vendor names for quick lookup
@@ -212,24 +216,42 @@ class RulesEngine
     /**
      * Fetch transactions using default/fallback accounts that haven't been
      * manually categorized.
+     *
+     * @param bool $force  When true, includes already-auto-categorized rows so
+     *                     that bulk rule changes propagate to existing transactions.
+     *                     Manually-categorized rows (reference_type='manual') are
+     *                     always excluded to preserve user overrides.
      */
-    private function getEligibleTransactions(): array
+    private function getEligibleTransactions(bool $force = false): array
     {
         // Build placeholders for default account codes
-        $codes       = self::DEFAULT_ACCOUNTS;
+        $codes        = self::DEFAULT_ACCOUNTS;
         $placeholders = implode(',', array_fill(0, count($codes), '?'));
 
-        $stmt = $this->db->prepare("
-            SELECT t.id, t.type, t.description, t.amount, t.vendor_id
-            FROM accounting_transactions t
-            JOIN chart_of_accounts coa ON coa.id = t.account_id
-            WHERE coa.code IN ($placeholders)
-              AND t.is_auto_categorized = 0
-              AND t.reference_type != 'manual'
-            ORDER BY t.transaction_date DESC
-            LIMIT 5000
-        ");
-        $stmt->execute($codes);
+        if ($force) {
+            // Re-apply to ALL bank-imported transactions that are currently in any
+            // account — but never touch manually-entered rows.
+            $stmt = $this->db->prepare("
+                SELECT t.id, t.type, t.description, t.amount, t.vendor_id
+                FROM accounting_transactions t
+                WHERE t.reference_type != 'manual'
+                ORDER BY t.transaction_date DESC
+                LIMIT 5000
+            ");
+            $stmt->execute([]);
+        } else {
+            $stmt = $this->db->prepare("
+                SELECT t.id, t.type, t.description, t.amount, t.vendor_id
+                FROM accounting_transactions t
+                JOIN chart_of_accounts coa ON coa.id = t.account_id
+                WHERE coa.code IN ($placeholders)
+                  AND t.is_auto_categorized = 0
+                  AND t.reference_type != 'manual'
+                ORDER BY t.transaction_date DESC
+                LIMIT 5000
+            ");
+            $stmt->execute($codes);
+        }
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -260,10 +282,14 @@ class RulesEngine
         switch ($field) {
             case 'vendor_name':
             case 'merchant_keyword':
-                $haystack = $vendorNames[(int)$tx['vendor_id']] ?? strtolower($tx['description'] ?? '');
+                $raw = $vendorNames[(int)$tx['vendor_id']] ?? strtolower($tx['description'] ?? '');
+                // Normalise so rules match regardless of punctuation style.
+                // "BILL PAYMENT - ONLINE (CRA GST)" → "bill payment online cra gst"
+                // "ETRANSFER DEBIT (TIM SCHOFIELD)"  → "etransfer debit tim schofield"
+                $haystack = $this->normaliseForMatch($raw);
                 break;
             case 'description':
-                $haystack = strtolower($tx['description'] ?? '');
+                $haystack = $this->normaliseForMatch(strtolower($tx['description'] ?? ''));
                 break;
             case 'amount_gt':
                 return (float)$tx['amount'] > (float)$rule['condition_value'];
@@ -285,6 +311,25 @@ class RulesEngine
         }
 
         return false;
+    }
+
+    /**
+     * Normalise a description string for rule matching.
+     *
+     * Strips punctuation that varies between bank formats so that rules written
+     * without punctuation still match real descriptions:
+     *   "BILL PAYMENT - ONLINE (CRA GST)"  → "bill payment online cra gst"
+     *   "ETRANSFER DEBIT (TIM SCHOFIELD)"  → "etransfer debit tim schofield"
+     *   "POINT OF SALE (LAWNBOY ENTS LTD)" → "point of sale lawnboy ents ltd"
+     */
+    private function normaliseForMatch(string $text): string
+    {
+        $s = strtolower($text);
+        $s = preg_replace('/[()]+/', ' ', $s);   // remove parentheses
+        $s = preg_replace('/-+/', ' ', $s);       // hyphens → space
+        $s = preg_replace('/[^\w\s]/', ' ', $s);  // other punctuation → space
+        $s = preg_replace('/\s{2,}/', ' ', $s);   // collapse whitespace
+        return trim($s);
     }
 
     /**

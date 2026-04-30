@@ -68,7 +68,8 @@ try {
 
         case 'apply':
             if (!$canEdit) throw new Exception('Permission denied');
-            $count = $engine->applyAll();
+            $force = !empty($_GET['force']) || !empty($input['force']);
+            $count = $engine->applyAll((bool)$force);
             echo json_encode(['ok' => true, 'updated' => $count, 'message' => "$count transactions recategorized"]);
             break;
 
