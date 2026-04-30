@@ -169,7 +169,7 @@ class AccountingService
             WHERE expense_category_alias IS NOT NULL AND is_active = 1
         ")->fetchAll(PDO::FETCH_ASSOC);
         foreach ($aliasRows as $r) {
-            $aliasMap[$r['expense_category_alias']] = (int)$r['id'];
+            $aliasMap[strtolower($r['expense_category_alias'])] = (int)$r['id'];
         }
 
         $synced  = 0;
@@ -194,11 +194,11 @@ class AccountingService
         ");
 
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            // Map category alias → account_id
+            // Map category alias → account_id (case-insensitive)
             $category   = $row['accounting_category'] ?? '';
-            $accountId  = $aliasMap[$category] ?? $defaultAccountId;
+            $accountId  = $aliasMap[strtolower($category)] ?? $defaultAccountId;
 
-            $isAutoCat  = isset($aliasMap[$category]) ? 1 : 0;
+            $isAutoCat  = isset($aliasMap[strtolower($category)]) ? 1 : 0;
 
             $result = $this->upsertTransaction([
                 'transaction_date' => $row['transaction_date'],
@@ -516,7 +516,8 @@ class AccountingService
             $params[] = $filters['date_to'];
         }
         if (!empty($filters['account_id'])) {
-            $where[] = 't.account_id = ?';
+            $where[] = '(t.account_id = ? OR t.bank_account_id = ?)';
+            $params[] = (int)$filters['account_id'];
             $params[] = (int)$filters['account_id'];
         }
         if (!empty($filters['status'])) {
@@ -558,7 +559,7 @@ class AccountingService
                 coa.code  AS account_code,
                 coa.name  AS account_name,
                 coa.type  AS account_type,
-                v.name    AS vendor_name,
+                COALESCE(v.name, e.vendor_name_raw) AS vendor_name,
                 CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
                 jp.plan_number AS job_number,
                 -- Invoice-specific client lookup (property/company on the invoice itself)
@@ -576,15 +577,29 @@ class AccountingService
                     (SELECT 1 FROM accounting_transactions sys
                      WHERE sys.reference_type IN ('expense', 'invoice')
                        AND sys.type = t.type
-                       AND ABS(sys.amount - t.amount) < 0.02
-                       AND sys.transaction_date BETWEEN
-                           DATE_SUB(t.transaction_date, INTERVAL 3 DAY) AND
-                           DATE_ADD(t.transaction_date, INTERVAL 3 DAY)
+                       AND (
+                           -- Exact match (within 2 cents, ±3 days)
+                           (ABS(sys.amount - t.amount) < 0.02
+                            AND sys.transaction_date BETWEEN
+                                DATE_SUB(t.transaction_date, INTERVAL 3 DAY) AND
+                                DATE_ADD(t.transaction_date, INTERVAL 3 DAY))
+                           OR
+                           -- Payment processor: invoice is up to 6.5% larger than net deposit.
+                           -- Invoice always predates bank settlement by 1-7 days.
+                           (sys.reference_type = 'invoice'
+                            AND sys.amount >= t.amount
+                            AND sys.amount <= t.amount * 1.065
+                            AND sys.transaction_date BETWEEN
+                                DATE_SUB(t.transaction_date, INTERVAL 7 DAY) AND
+                                DATE_ADD(t.transaction_date, INTERVAL 1 DAY)
+                            AND t.description REGEXP 'STRIPE|PAYPAL|SQUARE|MONERIS|PAYMENTECH')
+                       )
                      LIMIT 1)
                 ELSE NULL END) AS bank_match_exists
             FROM accounting_transactions t
             JOIN chart_of_accounts coa ON coa.id = t.account_id
             LEFT JOIN vendors    v    ON v.id    = t.vendor_id
+            LEFT JOIN expenses   e    ON e.id    = t.reference_id AND t.reference_type = 'expense'
             LEFT JOIN contacts   c    ON c.id    = t.contact_id
             LEFT JOIN job_plans  jp   ON jp.id   = t.job_id
             LEFT JOIN properties prop ON prop.id = jp.property_id
@@ -802,7 +817,11 @@ class AccountingService
         $bankTx = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$bankTx) return null;
 
-        // Find the closest match by date, then amount
+        $isProcessor = (bool)preg_match(
+            '/STRIPE|PAYPAL|SQUARE|MONERIS|PAYMENTECH/i',
+            $bankTx['description']
+        );
+
         $stmt = $this->db->prepare("
             SELECT
                 t.id, t.reference_type, t.reference_id, t.type,
@@ -810,31 +829,50 @@ class AccountingService
                 t.description, t.account_id,
                 coa.code  AS account_code,
                 coa.name  AS account_name,
-                v.name    AS vendor_name,
+                COALESCE(v.name, e.vendor_name_raw) AS vendor_name,
                 CONCAT(c.first_name, ' ', c.last_name) AS contact_name,
                 COALESCE(ico.company_name, ip.property_name, ip.address) AS client_name,
-                inv.invoice_number
+                inv.invoice_number,
+                CASE WHEN t.amount > ? THEN ROUND(t.amount - ?, 2) ELSE 0 END AS processing_fee
             FROM accounting_transactions t
             LEFT JOIN chart_of_accounts coa ON coa.id = t.account_id
             LEFT JOIN vendors   v   ON v.id   = t.vendor_id
+            LEFT JOIN expenses  e   ON e.id   = t.reference_id AND t.reference_type = 'expense'
             LEFT JOIN contacts  c   ON c.id   = t.contact_id
             LEFT JOIN invoices  inv ON inv.id = t.reference_id AND t.reference_type = 'invoice'
             LEFT JOIN properties ip  ON ip.id  = inv.property_id
             LEFT JOIN companies  ico ON ico.id = inv.company_id
             WHERE t.reference_type IN ('expense', 'invoice')
               AND t.type = ?
-              AND ABS(t.amount - ?) < 0.02
-              AND t.transaction_date BETWEEN
-                  DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY)
-            ORDER BY ABS(DATEDIFF(t.transaction_date, ?)) ASC, t.id ASC
+              AND (
+                  (ABS(t.amount - ?) < 0.02
+                   AND t.transaction_date BETWEEN
+                       DATE_SUB(?, INTERVAL 3 DAY) AND DATE_ADD(?, INTERVAL 3 DAY))
+                  OR
+                  (? = 1
+                   AND t.reference_type = 'invoice'
+                   AND t.amount >= ?
+                   AND t.amount <= ? * 1.065
+                   AND t.transaction_date BETWEEN
+                       DATE_SUB(?, INTERVAL 7 DAY) AND DATE_ADD(?, INTERVAL 1 DAY))
+              )
+            ORDER BY ABS(t.amount - ?) ASC, ABS(DATEDIFF(t.transaction_date, ?)) ASC
             LIMIT 1
         ");
         $stmt->execute([
-            $bankTx['type'],
-            $bankTx['amount'],
-            $bankTx['transaction_date'],
-            $bankTx['transaction_date'],
-            $bankTx['transaction_date'],
+            $bankTx['amount'],                // processing_fee calc a
+            $bankTx['amount'],                // processing_fee calc b
+            $bankTx['type'],                  // type match
+            $bankTx['amount'],                // exact: amount
+            $bankTx['transaction_date'],      // exact: date from
+            $bankTx['transaction_date'],      // exact: date to
+            $isProcessor ? 1 : 0,            // processor flag
+            $bankTx['amount'],                // processor: min amount
+            $bankTx['amount'],                // processor: max amount
+            $bankTx['transaction_date'],      // processor: date from
+            $bankTx['transaction_date'],      // processor: date to
+            $bankTx['amount'],                // order: amount diff
+            $bankTx['transaction_date'],      // order: date diff
         ]);
         $match = $stmt->fetch(PDO::FETCH_ASSOC);
         return $match ?: null;
