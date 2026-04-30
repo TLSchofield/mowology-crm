@@ -1146,7 +1146,9 @@ class BankImportService
             throw new RuntimeException('Imagick could not render any pages from this PDF.');
         }
 
-        $useVision = $this->isGoogleVisionAvailable();
+        // Vision returns structurally different text layout for multi-column bank
+        // statement tables — use OCR.space until the parser is tuned for Vision output.
+        $useVision = false;
 
         $allText = '';
         for ($i = 0; $i < $numPages; $i++) {
