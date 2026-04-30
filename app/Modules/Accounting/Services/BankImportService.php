@@ -1128,15 +1128,15 @@ class BankImportService
 
     /**
      * Render each PDF page to a JPEG via Imagick (needs Ghostscript in the
-     * Imagick build) then run each image through OCR.space to get plain text.
-     * Images are processed one page at a time to keep memory manageable.
+     * Imagick build) then run each image through the best available OCR engine:
+     * Google Cloud Vision (DOCUMENT_TEXT_DETECTION) if configured, otherwise
+     * OCR.space as fallback.  Images are processed one page at a time to keep
+     * memory manageable.
      */
     private function extractTextViaImagickOcr(string $filePath): string
     {
-        // OCR.space free key limit: 1 MB per request (base64 adds ~33% overhead).
-        // At 200 DPI, a letter page is ~1700×2200 px — typically 400–650 KB at q70,
-        // comfortably under the 700 KB fallback threshold. Higher DPI captures
-        // text close to page margins that 150 DPI occasionally misses.
+        // At 200 DPI, a letter page is ~1700×2200 px — typically 400–650 KB at
+        // q70.  Higher DPI captures text close to page margins more reliably.
         $im = new \Imagick();
         $im->setResolution(200, 200);
         $im->readImage('pdf:' . $filePath);
@@ -1146,22 +1146,23 @@ class BankImportService
             throw new RuntimeException('Imagick could not render any pages from this PDF.');
         }
 
+        $useVision = $this->isGoogleVisionAvailable();
+
         $allText = '';
         for ($i = 0; $i < $numPages; $i++) {
             $im->setIteratorIndex($i);
             $page = $im->getImage();
             $page->setImageFormat('jpeg');
-            $page->setImageCompressionQuality(70);
-            // Flatten to white background (PDFs may have transparency)
+            $page->setImageCompressionQuality(85); // higher quality for Vision accuracy
             $page->setImageBackgroundColor('white');
             $flat = $page->flattenImages();
             $jpegData = $flat->getImageBlob();
             $flat->destroy();
             $page->destroy();
 
-            // If still over ~700 KB (leaving headroom for base64 expansion to 1 MB),
-            // re-render at 100 DPI — readable but much smaller.
-            if (strlen($jpegData) > 700000) {
+            // For OCR.space: fall back to 100 DPI if still over ~700 KB.
+            // Google Vision handles larger images fine; skip the downgrade for Vision.
+            if (!$useVision && strlen($jpegData) > 700000) {
                 $im2 = new \Imagick();
                 $im2->setResolution(100, 100);
                 $im2->readImage('pdf:' . $filePath . '[' . $i . ']');
@@ -1174,11 +1175,61 @@ class BankImportService
                 $f2->destroy(); $p2->destroy(); $im2->destroy();
             }
 
-            $allText .= $this->ocrImageBytes($jpegData, 'jpeg') . "\n";
+            if ($useVision) {
+                $pageText = $this->ocrPageViaGoogleVision($jpegData);
+                if ($pageText === null) {
+                    // Vision call failed — fall back to OCR.space for this page
+                    $pageText = $this->ocrImageBytes($jpegData, 'jpeg');
+                }
+            } else {
+                $pageText = $this->ocrImageBytes($jpegData, 'jpeg');
+            }
+
+            $allText .= $pageText . "\n";
         }
         $im->destroy();
 
         return $allText;
+    }
+
+    /**
+     * Returns true if Google Cloud Vision is configured on this installation.
+     */
+    private function isGoogleVisionAvailable(): bool
+    {
+        return defined('GOOGLE_VISION_CREDENTIALS')
+            && !empty(GOOGLE_VISION_CREDENTIALS)
+            && function_exists('curl_init');
+    }
+
+    /**
+     * OCR a JPEG image using Google Cloud Vision DOCUMENT_TEXT_DETECTION.
+     * Writes bytes to a temp file, calls the shared ReceiptOCR service, cleans up.
+     * Returns null if the call fails (caller should fall back to OCR.space).
+     */
+    private function ocrPageViaGoogleVision(string $jpegData): ?string
+    {
+        static $visionLoaded = false;
+        if (!$visionLoaded) {
+            $rcptOcr = APP_ROOT . '/Services/Receipts/ReceiptOCR.php';
+            if (!file_exists($rcptOcr)) return null;
+            require_once $rcptOcr;
+            $visionLoaded = true;
+        }
+
+        $tmp = tempnam(sys_get_temp_dir(), 'mw_bi_') . '.jpg';
+        if (file_put_contents($tmp, $jpegData) === false) return null;
+
+        try {
+            $result = extractTextFromImage($tmp);
+        } catch (Throwable $e) {
+            @unlink($tmp);
+            return null;
+        }
+        @unlink($tmp);
+
+        if (!$result['success'] || $result['text'] === null) return null;
+        return $result['text'];
     }
 
     /**
