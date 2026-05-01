@@ -188,7 +188,8 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                     paid_at                   = NOW(),
                     payment_method            = 'stripe',
                     payment_reference         = ?,
-                    stripe_payment_intent_id  = ?
+                    stripe_payment_intent_id  = ?,
+                    stripe_charge_id          = COALESCE(stripe_charge_id, ?)
                 WHERE id = ?
             ");
             $updateInvoice->execute([
@@ -197,6 +198,7 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
                 $balanceDue,
                 $paymentIntentId,
                 $paymentIntentId,
+                $chargeId,          // ch_XXXXXXXX — used for deterministic bank import matching
                 $invoiceId,
             ]);
         }
@@ -256,8 +258,14 @@ function handlePaymentSucceeded(\Stripe\PaymentIntent $intent): void
             // This is what enables one-click saved-card pay on future invoices.
             // invoice-payment-intent.php reads customer->invoice_settings->default_payment_method
             // to offer the saved card UI. Without this call that field is always null.
+            //
+            // Stripe requires the PM to be attached to the customer before it can be
+            // set as default. Using a PM on a PaymentIntent without setup_future_usage
+            // (i.e. saved-card payments) does not guarantee attachment, so we
+            // explicitly attach first — the call is idempotent if already attached.
             if ($paymentMethodId) {
                 try {
+                    \Stripe\PaymentMethod::attach($paymentMethodId, ['customer' => $stripeCustomerIdFromIntent]);
                     \Stripe\Customer::update($stripeCustomerIdFromIntent, [
                         'invoice_settings' => ['default_payment_method' => $paymentMethodId],
                     ]);
