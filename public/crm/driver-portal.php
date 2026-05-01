@@ -152,6 +152,10 @@ if (!$weatherPM) {
 
 // ── CSRF ──────────────────────────────────────────────────────────────────────
 $csrf = generateCSRFToken();
+// Release the session file lock before the page's heavy DB queries (weather,
+// quiz, clock status). Holding it blocks concurrent API fetches (e.g. the
+// clock-in POST) on Android WebView, which has a ~5s session-lock timeout.
+session_write_close();
 
 $pageTitle  = 'Driver Portal';
 $activePage = 'driver';

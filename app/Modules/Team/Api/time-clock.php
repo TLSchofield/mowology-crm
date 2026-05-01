@@ -148,10 +148,21 @@ try {
             // Clear any stale entry from a prior day before attempting clock-in.
             resolveStaleClockEntry($targetUserId);
 
-            $entryId = clockIn($targetUserId, $lat, $lng);
+            // Idempotent: if already clocked in today, return the existing entry
+            // rather than throwing. This handles the case where the Capacitor bridge
+            // threw after a successful clock-in, leaving the driver in a stuck state
+            // where every retry gets "already clocked in" and the pre-trip never opens.
+            $existingEntry = getActiveClockEntry($targetUserId);
+            if ($existingEntry) {
+                $entryId = (int)$existingEntry['id'];
+                $alreadyClockedIn = true;
+            } else {
+                $entryId = clockIn($targetUserId, $lat, $lng);
+                $alreadyClockedIn = false;
+            }
 
-            // Log if admin clocked in someone else
-            if ($targetUserId !== $user['id']) {
+            // Log if admin clocked in someone else (skip if idempotent re-request)
+            if (!$alreadyClockedIn && $targetUserId !== $user['id']) {
                 logActivity($user['id'], null, 'Admin clock-in for user #' . $targetUserId, 'Clocked in by ' . ($user['name'] ?? 'admin'));
             }
 
@@ -185,11 +196,12 @@ try {
             }
 
             echo json_encode([
-                'success'           => true,
-                'message'           => 'Clocked in successfully',
-                'entry_id'          => $entryId,
-                'clock_in'          => date('Y-m-d H:i:s'),
-                'pre_trip_required' => $preTripRequired,
+                'success'            => true,
+                'message'            => $alreadyClockedIn ? 'Already clocked in' : 'Clocked in successfully',
+                'entry_id'           => $entryId,
+                'clock_in'           => date('Y-m-d H:i:s'),
+                'pre_trip_required'  => $preTripRequired,
+                'already_clocked_in' => $alreadyClockedIn,
             ]);
             break;
 
