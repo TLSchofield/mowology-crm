@@ -49,7 +49,8 @@ $stmt = $db->prepare("
            ct.stripe_card_last4  AS ct_card_last4,
            ct.stripe_card_exp    AS ct_card_exp
     FROM invoices i
-    LEFT JOIN contacts ct ON i.contact_id = ct.id
+    LEFT JOIN companies c  ON i.company_id = c.id
+    LEFT JOIN contacts ct  ON ct.id = COALESCE(i.contact_id, c.primary_contact_id)
     WHERE i.access_token = ?
       AND (i.token_expires_at IS NULL OR i.token_expires_at > NOW())
     LIMIT 1
