@@ -1208,6 +1208,8 @@ $extraHead = $apiKey ? '<script src="https://maps.googleapis.com/maps/api/js?key
                         if (data.properties.length === 0) {
                             propertySelect.innerHTML = '<option value="">No properties found for this client</option>';
                         }
+                        const propCount = data.properties.length;
+                        propertySummary.innerHTML = '<strong>' + escapeHtml(clientName) + '</strong><br><span class="text-muted">' + propCount + ' propert' + (propCount === 1 ? 'y' : 'ies') + '</span>';
                     }
                 });
 
