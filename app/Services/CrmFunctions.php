@@ -2707,15 +2707,30 @@ function getFieldChanges(string $entityType, int $entityId, int $limit = 50): ar
 }
 
 /**
- * Fetch all properties linked to a contact via site_contact_id.
+ * Fetch all properties linked to a contact.
  *
- * Returns the full column set including measurement subquery counts.
+ * Checks both site_contact_id (legacy FK) and property_contacts junction table,
+ * deduplicating by property id so each property appears once.
  * Pass $activeOnly = true for dropdown/form contexts that need only active properties.
- *
- * Phase 2 will add a property_contacts UNION here — callers do not need to change.
  */
 function getPropertiesForContact(int $contactId, PDO $db, bool $activeOnly = false): array {
     $statusClause = $activeOnly ? " AND p.status = 'active'" : '';
+    // Collect all matching property IDs from both sources, deduplicated
+    $stmt = $db->prepare("
+        SELECT DISTINCT p.id
+        FROM properties p
+        WHERE p.site_contact_id = ?{$statusClause}
+        UNION
+        SELECT DISTINCT p.id
+        FROM properties p
+        JOIN property_contacts pc ON pc.property_id = p.id
+        WHERE pc.contact_id = ?{$statusClause}
+    ");
+    $stmt->execute([$contactId, $contactId]);
+    $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    if (empty($ids)) return [];
+
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
     $stmt = $db->prepare("
         SELECT p.id, p.property_name, p.address, p.city, p.province,
                p.postal_code, p.latitude, p.longitude, p.property_type,
@@ -2728,21 +2743,20 @@ function getPropertiesForContact(int $contactId, PDO $db, bool $activeOnly = fal
                (SELECT COUNT(*) FROM property_measurements pm WHERE pm.property_id = p.id)                               AS measurement_count,
                (SELECT COUNT(*) FROM job_geofences jg  WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
         FROM properties p
-        WHERE p.site_contact_id = ?{$statusClause}
+        WHERE p.id IN ({$placeholders})
         ORDER BY p.address ASC
     ");
-    $stmt->execute([$contactId]);
+    $stmt->execute($ids);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
 /**
- * Fetch all properties linked to a company via its contacts' site_contact_id.
+ * Fetch all properties linked to a company.
  *
- * Resolves the company's primary_contact_id and billing_contact_id, then returns
- * all properties whose site_contact_id matches either.  Includes site_contact_id
- * in the result so the company view can attribute each property to its contact.
- *
- * Phase 2 will add a property_contacts UNION here — callers do not need to change.
+ * Resolves the company's primary_contact_id and billing_contact_id, then finds
+ * all properties linked to those contacts via either site_contact_id or the
+ * property_contacts junction table, deduplicating by property id.
+ * Includes site_contact_id so the company view can attribute each property to its contact.
  */
 function getPropertiesForCompany(int $companyId, PDO $db): array {
     $stmt = $db->prepare("SELECT primary_contact_id, billing_contact_id FROM companies WHERE id = ?");
@@ -2756,17 +2770,33 @@ function getPropertiesForCompany(int $companyId, PDO $db): array {
     ])));
     if (empty($contactIds)) return [];
 
-    $placeholders = implode(',', array_fill(0, count($contactIds), '?'));
+    $ph = implode(',', array_fill(0, count($contactIds), '?'));
+    // Collect all matching property IDs from both sources, deduplicated
+    $stmt = $db->prepare("
+        SELECT DISTINCT p.id
+        FROM properties p
+        WHERE p.site_contact_id IN ({$ph})
+        UNION
+        SELECT DISTINCT p.id
+        FROM properties p
+        JOIN property_contacts pc ON pc.property_id = p.id
+        WHERE pc.contact_id IN ({$ph})
+    ");
+    $stmt->execute(array_merge($contactIds, $contactIds));
+    $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    if (empty($ids)) return [];
+
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
     $stmt = $db->prepare("
         SELECT p.id, p.property_name, p.address, p.city, p.province,
                p.postal_code, p.latitude, p.longitude, p.property_type,
                p.lot_size_sqft, p.status, p.site_contact_id,
                (SELECT COUNT(*) FROM job_geofences jg WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
         FROM properties p
-        WHERE p.site_contact_id IN ({$placeholders})
+        WHERE p.id IN ({$placeholders})
         ORDER BY p.address ASC
     ");
-    $stmt->execute($contactIds);
+    $stmt->execute($ids);
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
