@@ -446,6 +446,12 @@ set_exception_handler(function (Throwable $e): void {
 
     _loginDebugLog("[CRM FATAL] $msg | $loc | user=$user | uri=$uri");
 
+    // CLI (cron) → plain text to stdout so cron emails show the real error
+    if (php_sapi_name() === 'cli') {
+        echo "[FATAL] " . get_class($e) . ": $msg\n  in $loc\n" . $e->getTraceAsString() . "\n";
+        exit(1);
+    }
+
     if (headers_sent()) {
         exit(1);
     }
