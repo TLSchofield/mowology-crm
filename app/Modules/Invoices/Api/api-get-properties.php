@@ -26,8 +26,7 @@ if (!defined('APP_ROOT')) {
 }
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
-require_once PUBLIC_ROOT . '/includes/functions.php';
-require_once APP_ROOT . '/Services/CrmFunctions.php';
+require_once PUBLIC_ROOT . '/crm/includes/functions.php';
 
 requireLogin();
 

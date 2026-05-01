@@ -12,6 +12,7 @@
  *   Returns properties linked to a specific company
  */
 require_once dirname(__DIR__) . '/../loginAuth/auth.php';
+require_once dirname(__DIR__) . '/includes/functions.php';
 requireLogin();
 
 $db = getDB();
