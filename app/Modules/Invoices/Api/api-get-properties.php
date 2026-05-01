@@ -27,6 +27,7 @@ if (!defined('APP_ROOT')) {
 
 require_once PUBLIC_ROOT . '/loginAuth/auth.php';
 require_once PUBLIC_ROOT . '/includes/functions.php';
+require_once APP_ROOT . '/Services/CrmFunctions.php';
 
 requireLogin();
 
@@ -56,7 +57,7 @@ try {
         'count'      => count($properties),
     ]);
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
