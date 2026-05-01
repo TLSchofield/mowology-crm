@@ -1294,6 +1294,14 @@ if ($action === 'view_contact' && $clientId) {
         if (empty($contactProperties)) $dataHealth[] = ['level' => 'critical', 'icon' => 'map-pin', 'text' => 'No properties linked'];
         if (empty($contactQuotes)) $dataHealth[] = ['level' => 'info', 'icon' => 'file-text', 'text' => 'No quotes created yet'];
         if ($activePlanCount === 0) $dataHealth[] = ['level' => 'info', 'icon' => 'clipboard', 'text' => 'No active job plans'];
+        $geocodedCount = 0;
+        $ungeocodedCount = 0;
+        foreach ($contactProperties as $_gp) {
+            $lat = floatval($_gp['latitude'] ?? 0);
+            $lng = floatval($_gp['longitude'] ?? 0);
+            if ($lat != 0 && $lng != 0) $geocodedCount++;
+            else $ungeocodedCount++;
+        }
         if ($ungeocodedCount > 0) $dataHealth[] = ['level' => 'warn', 'icon' => 'crosshair', 'text' => $ungeocodedCount . ' propert' . ($ungeocodedCount === 1 ? 'y' : 'ies') . ' not geocoded'];
         $missingBorderCount = 0;
         foreach ($contactProperties as $cp) {
@@ -2395,14 +2403,6 @@ $unconvertedRequests = $db->query("
             <!-- View Contact Profile -->
             <?php
               $contactName = trim(h($viewContact['first_name'] . ' ' . ($viewContact['last_name'] ?? '')));
-              $geocodedCount = 0;
-              $ungeocodedCount = 0;
-              foreach ($contactProperties as $p) {
-                  $lat = floatval($p['latitude'] ?? 0);
-                  $lng = floatval($p['longitude'] ?? 0);
-                  if ($lat != 0 && $lng != 0) $geocodedCount++;
-                  else $ungeocodedCount++;
-              }
             ?>
 
             <!-- Header -->
@@ -2551,13 +2551,13 @@ $unconvertedRequests = $db->query("
                     <div class="d-flex align-items-center">
                       <div class="mw-lifecycle-view-toggle mr-2" id="lifecycleViewToggle">
                         <button type="button" class="mw-lifecycle-view-btn active" data-view="accordion" title="Accordion view">
-                          <i data-feather="list" style="width:14px;height:14px;"></i>
+                          <i data-feather="list" class="mw-icon-xs"></i>
                         </button>
                         <button type="button" class="mw-lifecycle-view-btn" data-view="tabs" title="Tabbed view">
-                          <i data-feather="columns" style="width:14px;height:14px;"></i>
+                          <i data-feather="columns" class="mw-icon-xs"></i>
                         </button>
                         <button type="button" class="mw-lifecycle-view-btn" data-view="table" title="Table view">
-                          <i data-feather="grid" style="width:14px;height:14px;"></i>
+                          <i data-feather="grid" class="mw-icon-xs"></i>
                         </button>
                       </div>
                       <button type="button" class="btn btn-sm btn-success mr-1" data-toggle="modal" data-target="#addPropertyModal">
@@ -2594,8 +2594,8 @@ $unconvertedRequests = $db->query("
                         <div class="mw-lifecycle-accordion-item">
                           <div class="mw-lifecycle-prop-header" data-toggle="collapse" data-target="#lcProp_<?php echo $propId; ?>" aria-expanded="true">
                             <div class="mw-lifecycle-prop-title">
-                              <i data-feather="chevron-down" style="width:14px;height:14px;" class="mw-lifecycle-chevron"></i>
-                              <i data-feather="home" style="width:14px;height:14px;"></i>
+                              <i data-feather="chevron-down" class="mw-icon-xs mw-lifecycle-chevron"></i>
+                              <i data-feather="home" class="mw-icon-xs"></i>
                               <span><?php echo h($prop['address']); ?></span>
                               <span class="mw-lifecycle-counts">
                                 <?php if ($qCount > 0): ?><span class="mw-lifecycle-count-badge"><?php echo $qCount; ?> quote<?php echo $qCount !== 1 ? 's' : ''; ?></span><?php endif; ?>
@@ -2605,13 +2605,13 @@ $unconvertedRequests = $db->query("
                             <div class="d-flex align-items-center" onclick="event.stopPropagation();">
                               <?php if (floatval($prop['latitude'] ?? 0) == 0 || floatval($prop['longitude'] ?? 0) == 0): ?>
                                 <button type="button" class="btn btn-sm btn-outline-secondary mr-1" onclick="geocodeProperty(<?php echo $propId; ?>, this)" title="Geocode">
-                                  <i data-feather="crosshair" style="width:12px;height:12px;"></i>
+                                  <i data-feather="crosshair" class="mw-icon-xs"></i>
                                 </button>
                               <?php else: ?>
-                                <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" style="width:14px;height:14px;"></i></span>
+                                <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" class="mw-icon-xs"></i></span>
                               <?php endif; ?>
                               <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove or reassign">
-                                <i data-feather="x-circle" style="width:14px;height:14px;"></i>
+                                <i data-feather="x-circle" class="mw-icon-xs"></i>
                               </button>
                             </div>
                           </div>
@@ -2629,7 +2629,7 @@ $unconvertedRequests = $db->query("
                                   </span>
                                 <?php endforeach; ?>
                                 <button type="button" class="mw-property-tag-add-btn" onclick="showTagPicker(<?php echo $propId; ?>, this)" title="Add tag">
-                                  <i data-feather="plus" style="width:10px;height:10px;"></i>
+                                  <i data-feather="plus" class="mw-icon-xs"></i>
                                 </button>
                               </div>
                               <?php
@@ -2643,7 +2643,7 @@ $unconvertedRequests = $db->query("
                               <div class="mw-property-measurement-status" onclick="event.stopPropagation();">
                                 <?php if ($mCount > 0): ?>
                                   <span class="mw-measurement-badge mw-measurement-done" title="<?php echo $mCount; ?> area(s) measured">
-                                    <i data-feather="check-circle" style="width:11px;height:11px;"></i> Measured
+                                    <i data-feather="check-circle" class="mw-icon-xs"></i> Measured
                                   </span>
                                   <span class="mw-measurement-summary">
                                     <?php
@@ -2660,24 +2660,24 @@ $unconvertedRequests = $db->query("
                                   <?php endif; ?>
                                 <?php else: ?>
                                   <span class="mw-measurement-badge mw-measurement-pending">
-                                    <i data-feather="alert-circle" style="width:11px;height:11px;"></i> Not measured
+                                    <i data-feather="alert-circle" class="mw-icon-xs"></i> Not measured
                                   </span>
                                 <?php endif; ?>
                               </div>
                               <div class="mw-property-quick-actions" onclick="event.stopPropagation();">
                                 <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="mw-prop-action-btn mw-prop-action-primary" title="Measure, quote & auto-fill pricing">
-                                  <i data-feather="file-text" style="width:11px;height:11px;"></i> Quote &amp; Measure
+                                  <i data-feather="file-text" class="mw-icon-xs"></i> Quote &amp; Measure
                                 </a>
                                 <a href="jobs/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="mw-prop-action-btn" title="Create job plan">
-                                  <i data-feather="clipboard" style="width:11px;height:11px;"></i> Create Plan
+                                  <i data-feather="clipboard" class="mw-icon-xs"></i> Create Plan
                                 </a>
                                 <button type="button" class="mw-prop-action-btn mw-prop-action-geofence" title="Draw work zones" onclick="openWorkZoneModal(<?php echo $propId; ?>, <?php echo floatval($prop['latitude'] ?? 0); ?>, <?php echo floatval($prop['longitude'] ?? 0); ?>)">
-                                  <i data-feather="map-pin" style="width:11px;height:11px;"></i> Work Zone
+                                  <i data-feather="map-pin" class="mw-icon-xs"></i> Work Zone
                                 </button>
                                 <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0 && (int)($prop['has_arrival_border'] ?? 0) === 0): ?>
                                 <a href="jobs/zone-editor.php?property_id=<?php echo $propId; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_contact&id=' . (int)$clientId); ?>"
                                    class="mw-prop-action-btn mw-prop-action-border-missing" title="Draw arrival border">
-                                  <i data-feather="alert-triangle" style="width:11px;height:11px;"></i> No Arrival Border
+                                  <i data-feather="alert-triangle" class="mw-icon-xs"></i> No Arrival Border
                                 </a>
                                 <?php endif; ?>
                               </div>
@@ -2753,20 +2753,20 @@ $unconvertedRequests = $db->query("
                         <div class="mw-lifecycle-tabbed-card mb-3">
                           <div class="mw-lifecycle-tabbed-header">
                             <div class="mw-lifecycle-tabbed-title" onclick="focusProperty(<?php echo $propId; ?>)">
-                              <i data-feather="home" style="width:14px;height:14px;"></i>
+                              <i data-feather="home" class="mw-icon-xs"></i>
                               <?php echo h($prop['address']); ?>
                               <span class="text-muted small ml-1"><?php echo h($prop['city'] ?? ''); ?><?php echo !empty($prop['province']) ? ', ' . h($prop['province']) : ''; ?></span>
                             </div>
                             <div class="d-flex align-items-center" onclick="event.stopPropagation();">
                               <?php if (floatval($prop['latitude'] ?? 0) == 0 || floatval($prop['longitude'] ?? 0) == 0): ?>
                                 <button type="button" class="btn btn-sm btn-outline-secondary mr-1" onclick="geocodeProperty(<?php echo $propId; ?>, this)" title="Geocode">
-                                  <i data-feather="crosshair" style="width:12px;height:12px;"></i>
+                                  <i data-feather="crosshair" class="mw-icon-xs"></i>
                                 </button>
                               <?php else: ?>
-                                <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" style="width:14px;height:14px;"></i></span>
+                                <span class="text-success mr-1" title="Geocoded"><i data-feather="check-circle" class="mw-icon-xs"></i></span>
                               <?php endif; ?>
                               <button type="button" class="mw-property-unlink-btn" onclick="showUnlinkProperty(<?php echo $propId; ?>, '<?php echo addslashes(h($prop['address'])); ?>')" title="Remove">
-                                <i data-feather="x-circle" style="width:14px;height:14px;"></i>
+                                <i data-feather="x-circle" class="mw-icon-xs"></i>
                               </button>
                             </div>
                           </div>
@@ -2797,7 +2797,7 @@ $unconvertedRequests = $db->query("
                                     </span>
                                   <?php endforeach; ?>
                                   <button type="button" class="mw-property-tag-add-btn" onclick="showTagPicker(<?php echo $propId; ?>, this)" title="Add tag">
-                                    <i data-feather="plus" style="width:10px;height:10px;"></i>
+                                    <i data-feather="plus" class="mw-icon-xs"></i>
                                   </button>
                                 </div>
                                 <?php
@@ -2811,7 +2811,7 @@ $unconvertedRequests = $db->query("
                                 <div class="mw-property-measurement-status mb-2">
                                   <?php if ($mCount > 0): ?>
                                     <span class="mw-measurement-badge mw-measurement-done" title="<?php echo $mCount; ?> area(s) measured">
-                                      <i data-feather="check-circle" style="width:11px;height:11px;"></i> Measured
+                                      <i data-feather="check-circle" class="mw-icon-xs"></i> Measured
                                     </span>
                                     <span class="mw-measurement-summary">
                                       <?php
@@ -2828,24 +2828,24 @@ $unconvertedRequests = $db->query("
                                     <?php endif; ?>
                                   <?php else: ?>
                                     <span class="mw-measurement-badge mw-measurement-pending">
-                                      <i data-feather="alert-circle" style="width:11px;height:11px;"></i> Not measured
+                                      <i data-feather="alert-circle" class="mw-icon-xs"></i> Not measured
                                     </span>
                                   <?php endif; ?>
                                 </div>
                                 <div class="mw-property-quick-actions">
                                   <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="mw-prop-action-btn mw-prop-action-primary">
-                                    <i data-feather="file-text" style="width:11px;height:11px;"></i> Quote &amp; Measure
+                                    <i data-feather="file-text" class="mw-icon-xs"></i> Quote &amp; Measure
                                   </a>
                                   <a href="jobs/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="mw-prop-action-btn">
-                                    <i data-feather="clipboard" style="width:11px;height:11px;"></i> Create Plan
+                                    <i data-feather="clipboard" class="mw-icon-xs"></i> Create Plan
                                   </a>
                                   <button type="button" class="mw-prop-action-btn mw-prop-action-geofence" onclick="openWorkZoneModal(<?php echo $propId; ?>, <?php echo floatval($prop['latitude'] ?? 0); ?>, <?php echo floatval($prop['longitude'] ?? 0); ?>)">
-                                    <i data-feather="map-pin" style="width:11px;height:11px;"></i> Work Zone
+                                    <i data-feather="map-pin" class="mw-icon-xs"></i> Work Zone
                                   </button>
                                   <?php if (floatval($prop['latitude'] ?? 0) != 0 && floatval($prop['longitude'] ?? 0) != 0 && (int)($prop['has_arrival_border'] ?? 0) === 0): ?>
                                   <a href="jobs/zone-editor.php?property_id=<?php echo $propId; ?>&return_to=<?php echo urlencode('clients_appstack.php?action=view_contact&id=' . (int)$clientId); ?>"
                                      class="mw-prop-action-btn mw-prop-action-border-missing">
-                                    <i data-feather="alert-triangle" style="width:11px;height:11px;"></i> No Arrival Border
+                                    <i data-feather="alert-triangle" class="mw-icon-xs"></i> No Arrival Border
                                   </a>
                                   <?php endif; ?>
                                 </div>
@@ -2938,7 +2938,7 @@ $unconvertedRequests = $db->query("
                             ?>
                               <tr class="mw-lifecycle-group-header" onclick="focusProperty(<?php echo $propId; ?>)">
                                 <td colspan="4">
-                                  <i data-feather="home" style="width:13px;height:13px;"></i>
+                                  <i data-feather="home" class="mw-icon-xs"></i>
                                   <strong><?php echo h($prop['address']); ?></strong>
                                   <span class="text-muted small ml-1"><?php echo h($prop['city'] ?? ''); ?></span>
                                   <?php
@@ -2956,13 +2956,13 @@ $unconvertedRequests = $db->query("
                                 </td>
                                 <td class="text-right text-nowrap" onclick="event.stopPropagation();">
                                   <a href="quote-workflow.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="btn btn-sm btn-outline-success py-0 px-1 mr-1" title="Quote & Measure">
-                                    <i data-feather="file-text" style="width:11px;height:11px;"></i>
+                                    <i data-feather="file-text" class="mw-icon-xs"></i>
                                   </a>
                                   <a href="jobs/create.php?contact_id=<?php echo (int)$clientId; ?>&property_id=<?php echo $propId; ?>" class="btn btn-sm btn-outline-secondary py-0 px-1 mr-1" title="Create Plan">
-                                    <i data-feather="clipboard" style="width:11px;height:11px;"></i>
+                                    <i data-feather="clipboard" class="mw-icon-xs"></i>
                                   </a>
                                   <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Work Zone" onclick="openWorkZoneModal(<?php echo $propId; ?>, <?php echo floatval($prop['latitude'] ?? 0); ?>, <?php echo floatval($prop['longitude'] ?? 0); ?>)">
-                                    <i data-feather="map-pin" style="width:11px;height:11px;"></i>
+                                    <i data-feather="map-pin" class="mw-icon-xs"></i>
                                   </button>
                                 </td>
                               </tr>
@@ -3208,7 +3208,7 @@ $unconvertedRequests = $db->query("
                                     </span>
                                     <?php if (!empty($row['receipt'])): ?>
                                       <a href="<?php echo h($row['receipt']); ?>" target="_blank" class="ml-1 small text-muted" title="Stripe receipt">
-                                        <i data-feather="external-link" style="width:11px;height:11px;"></i>
+                                        <i data-feather="external-link" class="mw-icon-xs"></i>
                                       </a>
                                     <?php endif; ?>
                                   <?php endif; ?>
@@ -3346,7 +3346,7 @@ $unconvertedRequests = $db->query("
                     }
                     ?>
                     <a href="<?php echo $timelineLink; ?>" class="btn btn-sm btn-outline-success">
-                      View All <i data-feather="arrow-right" style="width:14px;height:14px;"></i>
+                      View All <i data-feather="arrow-right" class="mw-icon-xs"></i>
                     </a>
                   </div>
                   <div class="card-body p-2">
@@ -3781,7 +3781,7 @@ $unconvertedRequests = $db->query("
                   </div>
                   <div class="modal-footer">
                     <button type="button" class="btn btn-secondary btn-sm" onclick="skipArrivalBorder()">Skip for Now</button>
-                    <a href="#" id="drawBorderNowBtn" class="btn btn-warning btn-sm"><i data-feather="edit-3" style="width:14px;height:14px;"></i> Draw Border Now</a>
+                    <a href="#" id="drawBorderNowBtn" class="btn btn-warning btn-sm"><i data-feather="edit-3" class="mw-icon-xs"></i> Draw Border Now</a>
                   </div>
                 </div>
               </div>
@@ -3852,6 +3852,7 @@ $unconvertedRequests = $db->query("
                 var hasMarkers = false;
 
                 gmap = new google.maps.Map(mapEl, {
+                  gestureHandling: 'greedy',
                   zoom: 12,
                   center: { lat: 49.2827, lng: -123.1207 },
                   mapTypeId: google.maps.MapTypeId.ROADMAP,
@@ -4190,7 +4191,7 @@ $unconvertedRequests = $db->query("
               window.geocodeProperty = function(propertyId, btn) {
                 if (btn) {
                   btn.disabled = true;
-                  btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:12px;height:12px;"></span>';
+                  btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
                 }
                 geocodePropertyAjax(propertyId)
                   .then(function(data) {
@@ -4198,12 +4199,12 @@ $unconvertedRequests = $db->query("
                       location.reload();
                     } else {
                       alert('Geocoding failed: ' + (data.error || 'Unknown error'));
-                      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" style="width:12px;height:12px;"></i>'; feather.replace(); }
+                      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" class="mw-icon-xs"></i>'; feather.replace(); }
                     }
                   })
                   .catch(function(err) {
                     alert('Error: ' + err.message);
-                    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" style="width:12px;height:12px;"></i>'; feather.replace(); }
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" class="mw-icon-xs"></i>'; feather.replace(); }
                   });
               };
 
@@ -5160,6 +5161,7 @@ $unconvertedRequests = $db->query("
                 var hasMarkers = false;
 
                 compGmap = new google.maps.Map(mapEl, {
+                  gestureHandling: 'greedy',
                   zoom: 12,
                   center: { lat: 49.2827, lng: -123.1207 },
                   mapTypeId: google.maps.MapTypeId.ROADMAP,
@@ -5264,7 +5266,7 @@ $unconvertedRequests = $db->query("
               window.geocodeCompanyProperty = function(propertyId, btn) {
                 if (btn) {
                   btn.disabled = true;
-                  btn.innerHTML = '<span class="spinner-border spinner-border-sm" style="width:12px;height:12px;"></span>';
+                  btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
                 }
                 geocodeCompanyPropertyAjax(propertyId)
                   .then(function(data) {
@@ -5272,12 +5274,12 @@ $unconvertedRequests = $db->query("
                       location.reload();
                     } else {
                       alert('Geocoding failed: ' + (data.error || 'Unknown error'));
-                      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" style="width:12px;height:12px;"></i>'; feather.replace(); }
+                      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" class="mw-icon-xs"></i>'; feather.replace(); }
                     }
                   })
                   .catch(function(err) {
                     alert('Error: ' + err.message);
-                    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" style="width:12px;height:12px;"></i>'; feather.replace(); }
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-feather="crosshair" class="mw-icon-xs"></i>'; feather.replace(); }
                   });
               };
 
@@ -5489,7 +5491,7 @@ $unconvertedRequests = $db->query("
             <!-- ── Duplicates Review View ─────────────────────────────────── -->
             <div class="mb-3">
               <a href="clients_appstack.php" class="btn btn-outline-secondary btn-sm">
-                <i data-feather="arrow-left" style="width:14px;height:14px;"></i> Back to Client List
+                <i data-feather="arrow-left" class="mw-icon-xs"></i> Back to Client List
               </a>
             </div>
 
@@ -5511,10 +5513,10 @@ $unconvertedRequests = $db->query("
                 <?php
                   $reasons = $dupeMatchReasons[$groupIdx] ?? [];
                   $reasonLabels = [];
-                  if (isset($reasons['email'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="mail" style="width:12px;height:12px;"></i> Email: ' . $reasons['email'] . '</span>';
-                  if (isset($reasons['phone'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="phone" style="width:12px;height:12px;"></i> Phone: ' . $reasons['phone'] . '</span>';
-                  if (isset($reasons['address'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="map-pin" style="width:12px;height:12px;"></i> Address</span>';
-                  if (isset($reasons['name'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="user" style="width:12px;height:12px;"></i> Name: ' . $reasons['name'] . '</span>';
+                  if (isset($reasons['email'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="mail" class="mw-icon-xs"></i> Email: ' . $reasons['email'] . '</span>';
+                  if (isset($reasons['phone'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="phone" class="mw-icon-xs"></i> Phone: ' . $reasons['phone'] . '</span>';
+                  if (isset($reasons['address'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="map-pin" class="mw-icon-xs"></i> Address</span>';
+                  if (isset($reasons['name'])) $reasonLabels[] = '<span class="badge badge-info mr-1"><i data-feather="user" class="mw-icon-xs"></i> Name: ' . $reasons['name'] . '</span>';
                 ?>
                 <div class="card mb-3 mw-dupe-group-card">
                   <div class="card-header d-flex justify-content-between align-items-center" style="background:var(--mw-light);">
@@ -5577,7 +5579,7 @@ $unconvertedRequests = $db->query("
                   </div>
                   <div class="card-footer text-center">
                     <button class="btn btn-warning" onclick="showMergeModal(<?php echo (int)$groupIds[0]; ?>)">
-                      <i data-feather="git-merge" style="width:16px;height:16px;"></i> Review &amp; Merge
+                      <i data-feather="git-merge" class="mw-icon-sm"></i> Review &amp; Merge
                     </button>
                   </div>
                 </div>
@@ -5771,7 +5773,7 @@ $unconvertedRequests = $db->query("
               <div class="card-body">
                 <?php if (!empty($duplicateGroups) && ($_GET['view'] ?? '') !== 'duplicates'): ?>
                   <div class="alert alert-warning d-flex align-items-center mb-3" role="alert">
-                    <i data-feather="alert-triangle" class="mr-2 flex-shrink-0" style="width:20px;height:20px;"></i>
+                    <i data-feather="alert-triangle" class="mr-2 flex-shrink-0 mw-icon-md"></i>
                     <div class="flex-grow-1">
                       <strong><?php echo count($duplicateGroups); ?> potential duplicate<?php echo count($duplicateGroups) > 1 ? 's' : ''; ?> found</strong>
                       — merge duplicates to keep your client list clean.
@@ -6388,7 +6390,7 @@ $unconvertedRequests = $db->query("
                   var warningEl = document.getElementById(warningId);
                   if (!warningEl) return;
                   if (data.exists) {
-                    warningEl.innerHTML = '<i data-feather="alert-triangle" style="width:14px;height:14px;"></i> <strong>Address already exists</strong> — linked to ' +
+                    warningEl.innerHTML = '<i data-feather="alert-triangle" class="mw-icon-xs"></i> <strong>Address already exists</strong> — linked to ' +
                       (data.contact_name ? data.contact_name : 'an existing property') +
                       (data.property_id ? ' (Property #' + data.property_id + ')' : '') +
                       '. Saving will link this contact to the existing property.';
@@ -6833,7 +6835,7 @@ $unconvertedRequests = $db->query("
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="workZoneModalLabel">
-          <i data-feather="map-pin" style="width:18px;height:18px;"></i> Work Zone — Auto Clock-In Area
+          <i data-feather="map-pin" class="mw-icon-sm"></i> Work Zone — Auto Clock-In Area
         </h5>
         <button type="button" class="close" data-dismiss="modal" aria-label="Close">
           <span aria-hidden="true">&times;</span>
@@ -6898,7 +6900,7 @@ $unconvertedRequests = $db->query("
         <!-- ── Drawing Tips (collapsed by default, shown during draw) ────── -->
         <div id="wz-draw-tips" class="mw-wz-draw-tips mt-2" style="display:none;">
           <div class="mw-wz-draw-tips-title">
-            <i data-feather="crosshair" style="width:12px;height:12px;"></i> Drawing mode active
+            <i data-feather="crosshair" class="mw-icon-xs"></i> Drawing mode active
           </div>
           <ul class="mw-wz-draw-tips-list">
             <li><strong>Click</strong> anywhere on the map to add a corner point</li>
@@ -6912,7 +6914,7 @@ $unconvertedRequests = $db->query("
       <div class="modal-footer d-flex justify-content-between align-items-center">
         <button type="button" class="btn btn-outline-danger btn-sm" id="wz-delete-btn" disabled
                 onclick="wzDeleteZone()">
-          <i data-feather="trash-2" style="width:14px;height:14px;"></i> Delete Zone
+          <i data-feather="trash-2" class="mw-icon-xs"></i> Delete Zone
         </button>
         <div class="d-flex gap-2">
           <button type="button" class="btn btn-outline-secondary btn-sm mr-2" id="wz-cancel-draw-btn"
@@ -6921,11 +6923,11 @@ $unconvertedRequests = $db->query("
           </button>
           <button type="button" class="btn btn-outline-primary btn-sm mr-2" id="wz-draw-btn" disabled
                   onclick="wzStartDraw()">
-            <i data-feather="edit-2" style="width:14px;height:14px;"></i> Draw Zone
+            <i data-feather="edit-2" class="mw-icon-xs"></i> Draw Zone
           </button>
           <button type="button" class="btn btn-success btn-sm" id="wz-save-btn" disabled
                   onclick="wzSave()">
-            <i data-feather="save" style="width:14px;height:14px;"></i> Save Zone
+            <i data-feather="save" class="mw-icon-xs"></i> Save Zone
           </button>
         </div>
       </div>
