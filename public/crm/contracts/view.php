@@ -119,11 +119,6 @@ $csrfToken  = generateCSRFToken();
 $pageTitle  = $contract['contract_number'] . ' — Contract';
 $activePage = 'contracts';
 
-// Load Leaflet if we'll show the border draw modal
-if ($hasPropCoords && !$hasBorder) {
-    $extraHead  = '<link rel="stylesheet" href="/crm/js/leaflet/leaflet.min.css">';
-    $extraHead .= '<script src="/crm/js/leaflet/leaflet.min.js"></script>';
-}
 ?>
 <?php include dirname(__DIR__) . '/includes/appstack_head.php'; ?>
 
@@ -151,9 +146,9 @@ if ($hasPropCoords && !$hasBorder) {
                       Crew cannot auto clock-in without a property boundary. Draw it once — it activates GPS tracking for every plan at this property.
                   </div>
               </div>
-              <button type="button" class="mw-border-prompt-btn" data-toggle="modal" data-target="#ctrBorderModal">
+              <a href="/crm/jobs/zone-editor.php?property_id=<?php echo (int)$contract['property_id']; ?>&return_to=contracts/view.php?id=<?php echo $contractId; ?>" class="mw-border-prompt-btn">
                   Draw Border Now
-              </button>
+              </a>
           </div>
           <?php elseif ($hasPropCoords && $hasBorder): ?>
           <div class="mw-border-ok mb-3">
@@ -162,8 +157,8 @@ if ($hasPropCoords && !$hasBorder) {
                   <polyline points="20 6 9 17 4 12"/>
               </svg>
               Property border drawn — crew auto clock-in is active
-              <?php if ($firstPlanId): ?>
-                  <a href="../jobs/view.php?id=<?php echo $firstPlanId; ?>" class="mw-border-ok-link">Manage zones →</a>
+              <?php if ($contract['property_id']): ?>
+                  <a href="/crm/jobs/zone-editor.php?property_id=<?php echo (int)$contract['property_id']; ?>&return_to=contracts/view.php?id=<?php echo $contractId; ?>" class="mw-border-ok-link">Manage zones →</a>
               <?php endif; ?>
           </div>
           <?php endif; ?>
@@ -594,201 +589,5 @@ if ($hasPropCoords && !$hasBorder) {
     </div>
 </div>
 
-<?php if ($hasPropCoords && !$hasBorder): ?>
-<!-- ══════════════════════════════════════════════════════
-     PROPERTY BORDER DRAW MODAL
-     ══════════════════════════════════════════════════════ -->
-<div class="modal fade" id="ctrBorderModal" tabindex="-1" role="dialog" aria-hidden="true">
-    <div class="modal-dialog mw-modal-fullscreen" role="document">
-        <div class="modal-content">
-
-            <div class="modal-header py-2 px-3">
-                <h5 class="modal-title">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-                         fill="none" stroke="var(--mw-orange)" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;">
-                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                        <circle cx="12" cy="10" r="3"/>
-                    </svg>
-                    Draw Property Border
-                    <span class="text-muted font-weight-normal small ml-2">
-                        <?php echo htmlspecialchars($contract['property_address'] . ', ' . $contract['property_city']); ?>
-                    </span>
-                </h5>
-                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
-            </div>
-
-            <!-- Map fills modal body -->
-            <div style="flex:1;position:relative;overflow:hidden;">
-                <div id="ctr-border-map" style="position:absolute;inset:0;width:100%;height:100%;"></div>
-            </div>
-
-            <!-- Footer: hint + controls -->
-            <div class="modal-footer py-2 px-3 d-flex align-items-center" style="flex-shrink:0;gap:8px;">
-                <div id="ctr-hint" class="mw-wz-hint mw-wz-hint--info flex-grow-1 mr-2"
-                     style="border-radius:5px;margin:0;">
-                    <span id="ctr-hint-text">Click <strong>Draw Border</strong> then click the map to trace the property boundary.</span>
-                </div>
-                <div class="flex-shrink-0 d-flex" style="gap:6px;">
-                    <button class="btn btn-sm btn-outline-secondary" id="ctr-cancel-btn"
-                            style="display:none;" onclick="ctrCancelDraw()">Cancel Draw</button>
-                    <button class="btn btn-sm btn-outline-success" id="ctr-finish-btn"
-                            style="display:none;" onclick="ctrFinishDraw()" disabled>✓ Finish Drawing</button>
-                    <button class="btn btn-sm btn-outline-primary" id="ctr-draw-btn"
-                            onclick="ctrStartDraw()" disabled>Draw Border</button>
-                    <button class="btn btn-sm btn-success" id="ctr-save-btn"
-                            style="display:none;" onclick="ctrSave()">
-                        <span id="ctr-save-spinner" style="display:none;">⏳ </span>Save Border
-                    </button>
-                </div>
-            </div>
-
-        </div>
-    </div>
-</div>
-
-<script src="/crm/js/geofence/geofence-manager.js?v=3"></script>
-<script>
-(function() {
-    var CTR_PROP_ID  = <?php echo (int)$contract['property_id']; ?>;
-    var CTR_PROP_LAT = <?php echo (float)($contract['latitude']  ?? 49.2827); ?>;
-    var CTR_PROP_LNG = <?php echo (float)($contract['longitude'] ?? -123.1207); ?>;
-    var CTR_CSRF     = <?php echo json_encode(generateCSRFToken()); ?>;
-    var CTR_API      = '/crm/api/geofence.php';
-
-    var ctrMgr        = null;
-    var ctrRing       = null;
-    var ctrIsSaving   = false;
-    var ctrVertices   = 0;
-
-    document.addEventListener('DOMContentLoaded', function() {
-        $('#ctrBorderModal').on('shown.bs.modal', function() {
-            ctrInitMap();
-        });
-        $('#ctrBorderModal').on('hidden.bs.modal', function() {
-            if (ctrMgr) { ctrMgr.destroy(); ctrMgr = null; }
-            ctrRing     = null;
-            ctrVertices = 0;
-        });
-    });
-
-    function ctrInitMap() {
-        if (ctrMgr) { ctrMgr.destroy(); ctrMgr = null; }
-        ctrMgr = new GeofenceManager({
-            mapContainer: 'ctr-border-map',
-            apiBase:      CTR_API,
-            csrfToken:    CTR_CSRF,
-            planId:       null,
-            mode:         'edit',
-            center:       [CTR_PROP_LAT, CTR_PROP_LNG],
-            zoom:         18,
-            strokeColor:  '#e85d04',
-            fillColor:    '#e85d04',
-            onDraw: function(ring) {
-                ctrRing = ring;
-                // Show save button
-                document.getElementById('ctr-draw-btn').style.display   = 'inline-flex';
-                document.getElementById('ctr-cancel-btn').style.display  = 'none';
-                document.getElementById('ctr-finish-btn').style.display  = 'none';
-                document.getElementById('ctr-save-btn').style.display    = 'inline-flex';
-                ctrSetHint('Border traced (' + ring.length + ' points). Click <strong>Save Border</strong> to activate auto clock-in.', 'success');
-            },
-        });
-        ctrMgr.init();
-
-        // Track vertices so we can enable Finish button after 3+
-        if (ctrMgr._map) {
-            ctrMgr._map.on('click', function() {
-                if (ctrVertices >= 0) {
-                    ctrVertices++;
-                    var fBtn = document.getElementById('ctr-finish-btn');
-                    if (fBtn) fBtn.disabled = (ctrVertices < 3);
-                }
-            });
-        }
-
-        document.getElementById('ctr-draw-btn').disabled = false;
-        ctrSetHint('Click <strong>Draw Border</strong> then click the map to trace the property boundary. Double-click to close the shape.', 'info');
-    }
-
-    window.ctrStartDraw = function() {
-        if (!ctrMgr) return;
-        ctrRing     = null;
-        ctrVertices = 0;
-        ctrMgr.startDraw();
-        document.getElementById('ctr-draw-btn').style.display   = 'none';
-        document.getElementById('ctr-cancel-btn').style.display  = 'inline-flex';
-        document.getElementById('ctr-finish-btn').style.display  = 'inline-flex';
-        document.getElementById('ctr-save-btn').style.display    = 'none';
-        document.getElementById('ctr-finish-btn').disabled = true;
-        ctrSetHint('Click map to add corner points. Double-click (or Finish) to close the shape.', 'draw');
-    };
-
-    window.ctrFinishDraw = function() {
-        if (!ctrMgr) return;
-        ctrMgr.finishDraw();
-    };
-
-    window.ctrCancelDraw = function() {
-        if (!ctrMgr) return;
-        ctrVertices = 0;
-        ctrMgr.cancelDraw();
-        ctrMgr.setPolygon([]);
-        document.getElementById('ctr-draw-btn').style.display   = 'inline-flex';
-        document.getElementById('ctr-cancel-btn').style.display  = 'none';
-        document.getElementById('ctr-finish-btn').style.display  = 'none';
-        document.getElementById('ctr-save-btn').style.display    = 'none';
-        ctrSetHint('Cancelled. Click <strong>Draw Border</strong> to try again.', 'info');
-    };
-
-    window.ctrSave = function() {
-        if (!ctrRing || ctrIsSaving) return;
-        ctrIsSaving = true;
-        var spinner = document.getElementById('ctr-save-spinner');
-        var saveBtn = document.getElementById('ctr-save-btn');
-        if (spinner) spinner.style.display = 'inline';
-        if (saveBtn) saveBtn.disabled = true;
-        ctrSetHint('Saving property border…', 'info');
-
-        fetch(CTR_API, {
-            method:      'POST',
-            headers:     { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body:        JSON.stringify({
-                action:      'save_zone',
-                csrf_token:  CTR_CSRF,
-                property_id: CTR_PROP_ID,
-                zone_type:   'arrival_border',
-                plan_id:     null,
-                ring:        ctrRing,
-                label:       null,
-            }),
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (!data.success) throw new Error(data.error || 'Save failed');
-            // Reload so the banner disappears and the green indicator shows
-            window.location.reload();
-        })
-        .catch(function(err) {
-            ctrIsSaving = false;
-            if (spinner) spinner.style.display = 'none';
-            if (saveBtn) saveBtn.disabled = false;
-            ctrSetHint('Save failed: ' + err.message, 'error');
-        });
-    };
-
-    function ctrSetHint(html, variant) {
-        var el   = document.getElementById('ctr-hint');
-        var span = document.getElementById('ctr-hint-text');
-        if (!el || !span) return;
-        span.innerHTML = html;
-        el.className = 'mw-wz-hint mw-wz-hint--' + (variant || 'info') + ' flex-grow-1 mr-2';
-        el.style.borderRadius = '5px';
-        el.style.margin = '0';
-    }
-})();
-</script>
-<?php endif; ?>
 
 <?php include dirname(__DIR__) . '/includes/appstack_footer.php'; ?>
