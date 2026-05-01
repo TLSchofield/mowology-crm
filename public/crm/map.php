@@ -304,6 +304,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
 
     function initMap() {
         gmap = new google.maps.Map(document.getElementById('crewMapContainer'), {
+            gestureHandling: 'greedy',
             zoom: 12,
             center: { lat: 49.2827, lng: -123.1207 }, // Vancouver default
             mapTypeId: google.maps.MapTypeId.ROADMAP,
@@ -435,9 +436,9 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
     }
 
     function getMarkerColor(secondsAgo, isClocked) {
-        if (!isClocked) return '#9ca3af';
-        if (secondsAgo > 300) return '#f59e0b';
-        return '#22c55e';
+        if (secondsAgo <= 300) return '#22c55e';   // <5 min: Active regardless of clock-in
+        if (isClocked) return '#f59e0b';            // >5 min, clocked in: Stale
+        return '#9ca3af';                           // >5 min, not clocked in: Offline
     }
 
     function createCrewIcon(color, initial) {
@@ -459,8 +460,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         var ago = secondsAgo < 60 ? secondsAgo + 's ago' : Math.floor(secondsAgo / 60) + 'm ago';
         var accuracy = member.accuracy_meters ? member.accuracy_meters + 'm' : 'unknown';
         var isClocked = parseInt(member.is_clocked_in) === 1;
-        var status = isClocked ? (secondsAgo > 300 ? 'Stale' : 'Active') : 'Offline';
-        var statusColor = isClocked ? (secondsAgo > 300 ? '#f59e0b' : '#22c55e') : '#9ca3af';
+        var status = secondsAgo <= 300 ? 'Active' : (isClocked ? 'Stale' : 'Offline');
+        var statusColor = secondsAgo <= 300 ? '#22c55e' : (isClocked ? '#f59e0b' : '#9ca3af');
 
         return '<div style="padding:8px;min-width:180px;">' +
             '<h6 style="margin:0 0 6px 0;color:var(--mw-forest,#0D3B2E);">' + escapeHtml(member.full_name) + '</h6>' +
@@ -489,7 +490,7 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
             var isClocked = parseInt(member.is_clocked_in) === 1;
             var color = getMarkerColor(secondsAgo, isClocked);
             var ago = secondsAgo < 60 ? secondsAgo + 's' : Math.floor(secondsAgo / 60) + 'm';
-            var status = isClocked ? (secondsAgo > 300 ? 'Stale' : 'Active') : 'Offline';
+            var status = secondsAgo <= 300 ? 'Active' : (isClocked ? 'Stale' : 'Offline');
             var initial = (member.full_name || 'U').charAt(0).toUpperCase();
 
             html += '<div class="mw-crew-list-item" onclick="locateCrew(' + member.user_id + ')">' +

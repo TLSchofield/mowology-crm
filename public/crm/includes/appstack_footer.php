@@ -36,6 +36,7 @@
     </div><!-- /.main -->
   </div><!-- /.wrapper -->
 
+  <script src="/crm/js/feather.min.js"></script>
   <script src="/crm/js/feather-helper.js"></script>
   <script src="/crm/js/app.js"></script>
 
@@ -87,7 +88,7 @@
         '</div>';
       document.body.appendChild(el);
       document.getElementById('mwConfirmCancel').addEventListener('click', _close);
-      document.getElementById('mwConfirmOk').addEventListener('click', function() { _close(); if (_cb) _cb(); });
+      document.getElementById('mwConfirmOk').addEventListener('click', function() { var cb = _cb; _close(); if (cb) cb(); });
       el.addEventListener('click', function(e) { if (e.target === el) _close(); });
       if (typeof feather !== 'undefined') feather.replace();
     }
@@ -114,7 +115,7 @@
   </script>
   <script src="/crm/js/mw-layout-manager.js?v=20260306" defer></script>
   <script src="/crm/js/mw-toast.js?v=20260306c"></script>
-  <script src="/crm/js/time-clock-widget.min.js?v=20260429a"></script>
+  <script src="/crm/js/time-clock-widget.min.js?v=20260430a"></script>
   <script src="/crm/js/capacitor-bridge.js?v=20260309a"></script>
   <!-- Photo Queue: durable storage + background upload engine (must load before media-uploader.js) -->
   <script src="/crm/js/photo-queue.js?v=20260401a"></script>
@@ -365,6 +366,31 @@
       row.addEventListener('click', function(e){
         if (e.target.closest('a,button,input,select,textarea,label')) return;
         window.location.href = row.dataset.href;
+      });
+    });
+  })();
+  </script>
+
+  <!-- Guide Card: collapse / dismiss system (shared across all CRM pages) -->
+  <script>
+  (function(){
+    document.querySelectorAll('.mw-guide-card[data-guide-id]').forEach(function(card){
+      var id  = card.getAttribute('data-guide-id');
+      var key = 'mw_guide_' + id;
+      // Restore collapsed state from localStorage
+      if (localStorage.getItem(key) === '1') card.classList.add('is-collapsed');
+      // Toggle on header click
+      var hdr = card.querySelector('.mw-guide-card-header');
+      if (hdr) hdr.addEventListener('click', function(e){
+        if (e.target.closest('.mw-guide-card-got-it')) return;
+        card.classList.toggle('is-collapsed');
+      });
+      // "Got it" — collapse + persist
+      var btn = card.querySelector('.mw-guide-card-got-it');
+      if (btn) btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        card.classList.add('is-collapsed');
+        localStorage.setItem(key, '1');
       });
     });
   })();

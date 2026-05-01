@@ -20,6 +20,7 @@
 
     // ── Device & Tracking State ──
     var deviceType = 'personal'; // 'personal' or 'truck'
+    var isDriver = false;        // is_driver flag — tracks without clock-in like trucks
     var trackingEnabled = false;
     var gpsWatchId = null;
     var trackingInterval = null;
@@ -79,6 +80,7 @@
             }
             trackingEnabled = !!data.location_tracking_enabled;
             deviceType = data.device_type || 'personal';
+            isDriver = !!data.is_driver;
             hasActiveJobTimer = !!(data.active_job);
 
             // Store configurable GPS intervals from server
@@ -102,8 +104,9 @@
 
             // Start GPS based on device profile
             if (trackingEnabled) {
-                if (deviceType === 'truck' || data.clocked_in) {
+                if (deviceType === 'truck' || isDriver || data.clocked_in) {
                     // Truck: always track when app is open
+                    // is_driver: tracks without clock-in (mirrors server-side bypass)
                     // Personal: track whenever clocked in (not just during job timers)
                     startTracking();
                 } else {
@@ -921,8 +924,8 @@
     document.addEventListener('visibilitychange', function() {
         if (window.MwNative) return; // Native plugin handles background GPS
         if (document.visibilityState !== 'visible' || !trackingEnabled) return;
-        // Truck: always restart. Personal: restart whenever clocked in.
-        if (deviceType === 'truck' || clockInTime !== null) {
+        // Truck/is_driver: always restart. Personal: restart whenever clocked in.
+        if (deviceType === 'truck' || isDriver || clockInTime !== null) {
             stopTracking();
             startTracking();
         }
@@ -931,7 +934,7 @@
     window.addEventListener('pageshow', function(event) {
         if (window.MwNative) return; // Native plugin handles background GPS
         if (!event.persisted || !trackingEnabled) return;
-        if (deviceType === 'truck' || clockInTime !== null) {
+        if (deviceType === 'truck' || isDriver || clockInTime !== null) {
             stopTracking();
             startTracking();
         }

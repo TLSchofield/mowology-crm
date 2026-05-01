@@ -112,6 +112,7 @@ try {
                 'success' => true,
                 'location_tracking_enabled' => $locationTrackingEnabled,
                 'device_type' => $deviceType,
+                'is_driver' => !empty($user['is_driver']),
                 'gps_interval_standard_ms' => $gpsIntervalStandard,
                 'gps_interval_heightened_ms' => $gpsIntervalHeightened,
                 'auto_arrival_enabled' => getTimeClockSetting('auto_arrival_enabled', '1') === '1',
