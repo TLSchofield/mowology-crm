@@ -72,18 +72,13 @@ if ($quote && $quote['property_id']) {
     if ($propContact && $propContact['site_contact_id']) {
         $prefilledContactId = intval($propContact['site_contact_id']);
         $prefilledContactName = trim($propContact['first_name'] . ' ' . $propContact['last_name']);
-        // Load that contact's properties
-        $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
-        $stmt->execute([$prefilledContactId]);
-        $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $prefilledProperties = getPropertiesForContact($prefilledContactId, $db, true);
     }
 } elseif ($quoteRequest && $quoteRequest['contact_id']) {
     // Creating from quote request — pre-fill the contact
     $prefilledContactId = intval($quoteRequest['contact_id']);
     $prefilledContactName = trim(($quoteRequest['first_name'] ?? '') . ' ' . ($quoteRequest['last_name'] ?? ''));
-    $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
-    $stmt->execute([$prefilledContactId]);
-    $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $prefilledProperties = getPropertiesForContact($prefilledContactId, $db, true);
 } elseif (!empty($_GET['contact_id']) && !empty($_GET['property_id'])) {
     // Direct entry from client page — pre-fill contact + property
     $directContactId = intval($_GET['contact_id']);
@@ -95,9 +90,7 @@ if ($quote && $quote['property_id']) {
         $prefilledContactId = $directContactId;
         $prefilledContactName = trim($directContact['first_name'] . ' ' . $directContact['last_name']);
         $prefilledPropertyId = $directPropertyId;
-        $stmt = $db->prepare("SELECT id, address, city, province, postal_code, property_type, status, latitude, longitude FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
-        $stmt->execute([$prefilledContactId]);
-        $prefilledProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $prefilledProperties = getPropertiesForContact($prefilledContactId, $db, true);
     }
 }
 

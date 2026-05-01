@@ -865,24 +865,8 @@ if ($action === 'view_contact' && $clientId) {
         $messageType = 'error';
         $action = null;
     } else {
-        // Fetch properties linked via site_contact_id
-        $stmt = $db->prepare("
-            SELECT p.id, p.property_name, p.address, p.city, p.province,
-                   p.postal_code, p.latitude, p.longitude, p.property_type,
-                   p.lot_size_sqft, p.status, p.notes,
-                   COALESCE(p.total_lawn_sqft, 0) AS total_lawn_sqft,
-                   COALESCE(p.total_hard_surface_sqft, 0) AS total_hard_surface_sqft,
-                   COALESCE(p.total_hedge_linear_ft, 0) AS total_hedge_linear_ft,
-                   COALESCE(p.total_other_sqft, 0) AS total_other_sqft,
-                   p.measurements_updated_at,
-                   (SELECT COUNT(*) FROM property_measurements pm WHERE pm.property_id = p.id) AS measurement_count,
-                   (SELECT COUNT(*) FROM job_geofences jg WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
-            FROM properties p
-            WHERE p.site_contact_id = ?
-            ORDER BY p.address ASC
-        ");
-        $stmt->execute([$clientId]);
-        $contactProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Fetch properties linked to this contact
+        $contactProperties = getPropertiesForContact($clientId, $db);
 
         // Fetch tags for all properties (property_access + property_warning groups)
         $propertyTagMap = [];
@@ -1526,20 +1510,8 @@ if ($action === 'view_company' && $clientId) {
             $companyContacts = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
 
-        // Fetch properties linked to those contacts
-        if (!empty($contactIds)) {
-            $stmt = $db->prepare("
-                SELECT p.id, p.property_name, p.address, p.city, p.province,
-                       p.postal_code, p.latitude, p.longitude, p.property_type,
-                       p.lot_size_sqft, p.status, p.site_contact_id,
-                       (SELECT COUNT(*) FROM job_geofences jg WHERE jg.property_id = p.id AND jg.zone_type = 'arrival_border') AS has_arrival_border
-                FROM properties p
-                WHERE p.site_contact_id IN ({$cPlaceholders})
-                ORDER BY p.address ASC
-            ");
-            $stmt->execute(array_values($contactIds));
-            $companyProperties = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        }
+        // Fetch properties linked to this company
+        $companyProperties = getPropertiesForCompany($clientId, $db);
 
         // Fetch tags for company properties (same pattern as contact view)
         $companyPropertyTagMap = [];

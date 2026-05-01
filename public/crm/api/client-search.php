@@ -96,15 +96,9 @@ switch ($action) {
         $companyId = isset($_GET['company_id']) ? intval($_GET['company_id']) : 0;
 
         if ($contactId) {
-            $stmt = $db->prepare("
-                SELECT p.id, p.address, p.city, p.province, p.postal_code,
-                       p.property_type, p.status, p.latitude, p.longitude
-                FROM properties p
-                WHERE p.site_contact_id = ?
-                  AND p.status = 'active'
-                ORDER BY p.address ASC
-            ");
-            $stmt->execute([$contactId]);
+            $properties = getPropertiesForContact($contactId, $db, true);
+            echo json_encode(['success' => true, 'properties' => $properties]);
+            break;
         } elseif ($companyId) {
             $stmt = $db->prepare("
                 SELECT p.id, p.address, p.city, p.province, p.postal_code,

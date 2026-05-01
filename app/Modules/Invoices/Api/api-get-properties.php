@@ -45,39 +45,10 @@ try {
     $db = getDB();
 
     if ($contactId) {
-        // Primary: look up properties by site_contact_id (production model)
-        $stmt = $db->prepare("
-            SELECT
-                p.id,
-                p.address,
-                p.city,
-                p.province,
-                p.postal_code,
-                p.property_type
-            FROM properties p
-            WHERE p.site_contact_id = ?
-            ORDER BY p.city, p.address
-        ");
-        $stmt->execute([$contactId]);
+        $properties = getPropertiesForContact($contactId, $db);
     } else {
-        // Company fallback: join via company_properties junction table
-        $stmt = $db->prepare("
-            SELECT
-                p.id,
-                p.address,
-                p.city,
-                p.province,
-                p.postal_code,
-                p.property_type
-            FROM properties p
-            JOIN company_properties cp ON cp.property_id = p.id
-            WHERE cp.company_id = ?
-            ORDER BY p.city, p.address
-        ");
-        $stmt->execute([$companyId]);
+        $properties = getPropertiesForCompany($companyId, $db);
     }
-
-    $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     echo json_encode([
         'success'    => true,

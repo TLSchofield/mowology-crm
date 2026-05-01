@@ -71,9 +71,7 @@ if ($quote) {
         $prefilledContactId   = $directContactId;
         $prefilledContactName = trim($dc['first_name'] . ' ' . $dc['last_name']);
         $prefilledPropertyId  = $directPropertyId;
-        $stmt2 = $db->prepare("SELECT id, address, city, province, postal_code, property_type FROM properties WHERE site_contact_id = ? AND status = 'active' ORDER BY address");
-        $stmt2->execute([$directContactId]);
-        $prefilledProperties = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+        $prefilledProperties = getPropertiesForContact($directContactId, $db, true);
     }
 }
 
