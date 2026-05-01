@@ -1175,6 +1175,17 @@ function mwReconsentSendBatch() {
     mwConfirm('Send re-consent emails to the ' + remaining + ' contacts shown below?', function() {
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Sending...';
+        // Pulse each email cell sequentially while server sends (200ms matches server usleep)
+        var sendingRows = document.querySelectorAll('#mw-reconsent-table tbody tr');
+        sendingRows.forEach(function(row, i) {
+            setTimeout(function() {
+                var cell = row.querySelector('.mw-rc-email');
+                if (!cell) return;
+                cell.style.transition = 'background-color 0.25s';
+                cell.style.backgroundColor = 'var(--mw-light)';
+                setTimeout(function() { cell.style.backgroundColor = ''; }, 400);
+            }, i * 220);
+        });
         fetch('/crm/api/jobber-reconsent.php?action=trigger-send', {
             method: 'POST',
             credentials: 'same-origin',
