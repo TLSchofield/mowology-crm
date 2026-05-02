@@ -2150,6 +2150,9 @@ if ($hasPropCoords) {
                         </div>
                     </div>
 
+                    <!-- Route Intelligence Hint — populated by JS on DOW/crew change -->
+                    <div id="editRouteHint" style="display:none;"></div>
+
                     <!-- Custom unit picker -->
                     <div id="editCustomUnitWrap" style="<?php echo $editIsCustom ? '' : 'display:none;'; ?>" class="mb-2">
                         <select name="recurrence_interval_unit" id="editRecurrenceUnit" class="form-control form-control-sm" style="width:140px;">
@@ -2509,6 +2512,10 @@ if ($hasPropCoords) {
             });
         });
 
+        // Property coordinates (used by route hint)
+        var PLAN_PROP_LAT = <?php echo (float)($plan['latitude']  ?? 0); ?>;
+        var PLAN_PROP_LNG = <?php echo (float)($plan['longitude'] ?? 0); ?>;
+
         // ── Contract value from server ────────────────────────
         var editContractTotal = <?php echo json_encode($contractTotal); ?>; // null or float (raw per-cycle amount)
         var editContractLabel = <?php echo json_encode($contractLabel); ?>; // "CTR-2026-0001" etc.
@@ -2562,6 +2569,7 @@ if ($hasPropCoords) {
                 editUpdateSummaryText();
                 editCalcContractHelper();
                 editUpdateRevenuePreview();
+                editRouteHintUpdate(d);
             });
         });
 
@@ -2683,6 +2691,65 @@ if ($hasPropCoords) {
             container.innerHTML = html;
             document.getElementById('editDefaultCrewIdHidden').value = editAssignedCrew.length > 0 ? editAssignedCrew[0].id : '';
             editUpdateRevenuePreview();
+            editRouteHintUpdate();
+        }
+
+        // ── Route Intelligence Hint ───────────────────────────────
+        var editHintTimer = null;
+
+        function editRouteHintUpdate(clickedDow) {
+            var dow = (clickedDow !== undefined && clickedDow !== null)
+                ? clickedDow
+                : (editSelectedDows.length > 0 ? editSelectedDows[0] : null);
+
+            var el = document.getElementById('editRouteHint');
+            if (dow === null || dow === undefined || !el) return;
+
+            if (editHintTimer) clearTimeout(editHintTimer);
+            editHintTimer = setTimeout(function() { editRouteHintFetch(dow); }, 250);
+        }
+
+        function editRouteHintFetch(dow) {
+            var el = document.getElementById('editRouteHint');
+            if (!el) return;
+            el.innerHTML = '<span class="mw-route-hint-loading">Checking route…</span>';
+            el.style.display = 'block';
+
+            var url = '/crm/api/route-day-hint.php?dow=' + dow
+                + '&prop_lat=' + PLAN_PROP_LAT
+                + '&prop_lng=' + PLAN_PROP_LNG;
+            var crewId = editAssignedCrew.length > 0 ? editAssignedCrew[0].id : null;
+            if (crewId) url += '&crew_id=' + crewId;
+
+            fetch(url, { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data || !data.success) { el.style.display = 'none'; return; }
+                    editRouteHintRender(el, data);
+                })
+                .catch(function() { el.style.display = 'none'; });
+        }
+
+        function editRouteHintRender(el, data) {
+            if (!data.stop_count || data.feasibility === 'empty') {
+                el.innerHTML = '<div class="mw-route-hint mw-route-hint-empty">'
+                    + '<span class="mw-route-hint-dot"></span>'
+                    + 'No stops scheduled on ' + escHtml(data.date_label) + ' yet'
+                    + '</div>';
+                el.style.display = 'block';
+                return;
+            }
+            var stops = data.stop_count === 1 ? '1 stop' : data.stop_count + ' stops';
+            var load  = Math.round(data.day_load_pct) + '% day load';
+            var near  = data.nearest_km !== null
+                ? ' · ' + (data.nearest_km < 1 ? '< 1km' : data.nearest_km.toFixed(1) + 'km') + ' to nearest'
+                : '';
+            el.innerHTML = '<div class="mw-route-hint mw-route-hint-' + data.feasibility + '">'
+                + '<span class="mw-route-hint-dot"></span>'
+                + '<strong>' + escHtml(data.date_label) + '</strong>: '
+                + stops + ' · ' + load + near
+                + '</div>';
+            el.style.display = 'block';
         }
 
         // ── Contract Rate Calculator ──────────────────────────────
@@ -3598,6 +3665,18 @@ if ($hasPropCoords) {
             };
 
             loadJobExpenses();
+        })();
+
+        // Pre-load route hint for the already-selected day when modal first opens
+        (function() {
+            var editBtn = document.querySelector('[onclick="showModal(\'editPlanModal\')"]');
+            if (editBtn) {
+                editBtn.addEventListener('click', function() {
+                    if (editSelectedDows.length > 0) {
+                        editRouteHintUpdate(editSelectedDows[0]);
+                    }
+                });
+            }
         })();
     </script>
 
