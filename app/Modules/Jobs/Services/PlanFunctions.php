@@ -2626,6 +2626,46 @@ function setPlanCrewAssignments(int $planId, array $crewIds, ?int $leadId = null
     $upStmt->execute([$leadId, $planId]);
 }
 
+function getVisitCrewAssignments(int $visitId): array {
+    $db = getDB();
+    $stmt = $db->prepare("
+        SELECT vca.user_id, vca.role, u.full_name, u.email, u.role AS user_role
+        FROM visit_crew_assignments vca
+        JOIN users u ON vca.user_id = u.id
+        WHERE vca.visit_id = ?
+        ORDER BY FIELD(vca.role, 'lead', 'crew'), u.full_name
+    ");
+    $stmt->execute([$visitId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function setVisitCrewAssignments(int $visitId, array $crewIds, ?int $leadId = null): void {
+    $db = getDB();
+
+    $crewIds = array_values(array_unique(array_filter(array_map('intval', $crewIds), function($id) { return $id > 0; })));
+
+    $stmt = $db->prepare("DELETE FROM visit_crew_assignments WHERE visit_id = ?");
+    $stmt->execute([$visitId]);
+
+    if (empty($crewIds)) {
+        $stmt = $db->prepare("UPDATE job_visits SET assigned_crew_id = NULL WHERE id = ?");
+        $stmt->execute([$visitId]);
+        return;
+    }
+
+    if (!$leadId || !in_array($leadId, $crewIds, true)) {
+        $leadId = $crewIds[0];
+    }
+
+    $stmt = $db->prepare("INSERT INTO visit_crew_assignments (visit_id, user_id, role) VALUES (?, ?, ?)");
+    foreach ($crewIds as $userId) {
+        $stmt->execute([$visitId, $userId, ($userId === $leadId) ? 'lead' : 'crew']);
+    }
+
+    $upStmt = $db->prepare("UPDATE job_visits SET assigned_crew_id = ? WHERE id = ?");
+    $upStmt->execute([$leadId, $visitId]);
+}
+
 // ─── Unscheduled Jobs Tray ────────────────────────────────────────────────────
 
 /**

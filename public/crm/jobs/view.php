@@ -415,29 +415,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verifyCSRFToken($_POST['csrf_token'
         $newDate = $_POST['visit_date'] ?? '';
         $newTimeStart = !empty($_POST['visit_time_start']) ? $_POST['visit_time_start'] : null;
         $newTimeEnd = !empty($_POST['visit_time_end']) ? $_POST['visit_time_end'] : null;
-        $newCrewId = !empty($_POST['visit_crew_id']) ? intval($_POST['visit_crew_id']) : null;
+        $newCrewIds = !empty($_POST['visit_crew_ids']) && is_array($_POST['visit_crew_ids'])
+            ? array_values(array_filter(array_map('intval', $_POST['visit_crew_ids']), function($id) { return $id > 0; }))
+            : [];
 
         if ($visitId && $newDate) {
-            $moved = moveVisit($visitId, $newDate, $newTimeStart, $user['id']);
+            moveVisit($visitId, $newDate, $newTimeStart, $user['id']);
 
-            // Also update time end and crew
-            $updates = [];
-            $updateParams = [];
             if ($newTimeEnd !== null) {
-                $updates[] = "scheduled_time_end = ?";
-                $updateParams[] = $newTimeEnd;
+                $stmt = $db->prepare("UPDATE job_visits SET scheduled_time_end = ? WHERE id = ?");
+                $stmt->execute([$newTimeEnd, $visitId]);
             }
-            if ($newCrewId !== null) {
-                $updates[] = "assigned_crew_id = ?";
-                $updateParams[] = $newCrewId;
-            } elseif (isset($_POST['visit_crew_id']) && $_POST['visit_crew_id'] === '') {
-                $updates[] = "assigned_crew_id = NULL";
-            }
-            if (!empty($updates)) {
-                $updateParams[] = $visitId;
-                $stmt = $db->prepare("UPDATE job_visits SET " . implode(', ', $updates) . " WHERE id = ?");
-                $stmt->execute($updateParams);
-            }
+
+            setVisitCrewAssignments($visitId, $newCrewIds);
 
             header("Location: view.php?id={$planId}&visit_updated=1");
             exit;
@@ -482,6 +472,18 @@ $profitability = getPlanProfitability($planId);
 
 // Get visits
 $visits = getPlanVisits($planId, null, 200, 0);
+
+// Batch-load multi-crew assignments for all visits
+$visitCrewMap = [];
+if (!empty($visits)) {
+    $visitIds = array_column($visits, 'id');
+    $placeholders = implode(',', array_fill(0, count($visitIds), '?'));
+    $vcStmt = $db->prepare("SELECT vca.visit_id, vca.user_id, vca.role, u.full_name FROM visit_crew_assignments vca JOIN users u ON vca.user_id = u.id WHERE vca.visit_id IN ($placeholders) ORDER BY FIELD(vca.role,'lead','crew')");
+    $vcStmt->execute($visitIds);
+    foreach ($vcStmt->fetchAll(PDO::FETCH_ASSOC) as $vcRow) {
+        $visitCrewMap[$vcRow['visit_id']][] = $vcRow;
+    }
+}
 
 // Get plan line items
 $planLineItems = getPlanLineItems($planId);
@@ -1332,7 +1334,17 @@ if ($hasPropCoords) {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <?php echo htmlspecialchars($visit['crew_name'] ?? 'Unassigned'); ?>
+                                                <?php
+                                                $vCrew = $visitCrewMap[$visit['id']] ?? [];
+                                                if (!empty($vCrew)) {
+                                                    $names = array_column($vCrew, 'full_name');
+                                                    echo htmlspecialchars(count($names) > 2
+                                                        ? $names[0] . ' +' . (count($names) - 1)
+                                                        : implode(', ', $names));
+                                                } else {
+                                                    echo htmlspecialchars($visit['crew_name'] ?? 'Unassigned');
+                                                }
+                                                ?>
                                             </td>
                                             <td>
                                                 <?php if ($visit['status'] === 'completed' && empty($visit['invoice_id']) && empty($plan['contract_id'])): ?>
@@ -1369,7 +1381,7 @@ if ($hasPropCoords) {
                                             <td class="text-right">
                                                 <?php if ($visit['status'] === 'scheduled'): ?>
                                                     <button type="button" class="btn btn-sm btn-outline-primary"
-                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>', '<?php echo $visit['assigned_crew_id'] ?? ''; ?>')"
+                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>')"
                                                             title="Edit visit">
                                                         <i data-feather="edit-2" style="width: 12px; height: 12px;"></i>
                                                     </button>
@@ -1409,7 +1421,7 @@ if ($hasPropCoords) {
                                                         <?php echo $visit['completed_at'] ? formatDateTime($visit['completed_at']) : ''; ?>
                                                     </span>
                                                     <button type="button" class="btn btn-sm btn-outline-secondary"
-                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>', '<?php echo $visit['assigned_crew_id'] ?? ''; ?>')"
+                                                            onclick="openEditVisitModal(<?php echo (int)$visit['id']; ?>, '<?php echo htmlspecialchars($visit['visit_number'], ENT_QUOTES); ?>', '<?php echo $visit['scheduled_date']; ?>', '<?php echo $visit['scheduled_time_start'] ?? ''; ?>', '<?php echo $visit['scheduled_time_end'] ?? ''; ?>')"
                                                             title="Edit visit">
                                                         <i data-feather="edit-2" style="width: 12px; height: 12px;"></i>
                                                     </button>
@@ -2394,12 +2406,23 @@ if ($hasPropCoords) {
                 </div>
                 <div class="form-group">
                     <label class="form-label">Crew</label>
-                    <select name="visit_crew_id" id="editVisitCrew" class="form-control">
-                        <option value="">Unassigned</option>
-                        <?php foreach ($staff as $s): ?>
-                            <option value="<?php echo $s['id']; ?>"><?php echo htmlspecialchars($s['full_name']); ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <div class="mw-crew-wrapper">
+                        <div class="mw-crew-chips" id="visitEditCrewChips">
+                            <button type="button" class="mw-crew-add-btn" onclick="visitEditToggleCrewDropdown()">+ Assign</button>
+                        </div>
+                        <div class="mw-crew-dropdown" id="visitEditCrewDropdown">
+                            <?php foreach ($staff as $s): ?>
+                                <div class="mw-crew-dropdown-item"
+                                     data-id="<?php echo (int)$s['id']; ?>"
+                                     data-name="<?php echo htmlspecialchars($s['full_name'], ENT_QUOTES); ?>"
+                                     onclick="visitEditAssignCrew(<?php echo (int)$s['id']; ?>, this.dataset.name)">
+                                    <?php echo htmlspecialchars($s['full_name']); ?>
+                                    <small class="text-muted"><?php echo htmlspecialchars($s['role']); ?></small>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <small class="text-muted">First person assigned is the crew lead.</small>
                 </div>
 
                 <div class="mw-modal-actions">
@@ -2949,16 +2972,75 @@ if ($hasPropCoords) {
         });
 
         // ── Edit Visit modal ────────────────────────────────
-        function openEditVisitModal(visitId, visitNumber, date, timeStart, timeEnd, crewId) {
+        var visitCrewData = <?php
+            $visitCrewJs = [];
+            foreach ($visits as $v) {
+                $vCrew = $visitCrewMap[$v['id']] ?? [];
+                if (empty($vCrew) && !empty($v['assigned_crew_id'])) {
+                    $vCrew = [['user_id' => (int)$v['assigned_crew_id'], 'full_name' => $v['crew_name'] ?? '']];
+                }
+                $visitCrewJs[(int)$v['id']] = array_map(function($c) {
+                    return ['id' => (int)$c['user_id'], 'name' => $c['full_name']];
+                }, $vCrew);
+            }
+            echo json_encode($visitCrewJs);
+        ?>;
+
+        var visitEditAssignedCrew = [];
+
+        function openEditVisitModal(visitId, visitNumber, date, timeStart, timeEnd) {
             document.getElementById('editVisitId').value = visitId;
             document.getElementById('editVisitNumber').textContent = visitNumber;
             document.getElementById('editVisitDate').value = date;
             document.getElementById('editVisitTimeStart').value = timeStart || '';
             document.getElementById('editVisitTimeEnd').value = timeEnd || '';
-            var crewSelect = document.getElementById('editVisitCrew');
-            crewSelect.value = crewId || '';
+            visitEditAssignedCrew = visitCrewData[visitId] ? visitCrewData[visitId].slice() : [];
+            visitEditRenderCrewChips();
             showModal('editVisitModal');
         }
+
+        function visitEditToggleCrewDropdown() {
+            var dd = document.getElementById('visitEditCrewDropdown');
+            dd.classList.toggle('show');
+            dd.querySelectorAll('.mw-crew-dropdown-item').forEach(function(item) {
+                var id = parseInt(item.dataset.id);
+                item.classList.toggle('disabled', visitEditAssignedCrew.some(function(c) { return c.id === id; }));
+            });
+        }
+
+        function visitEditAssignCrew(id, name) {
+            if (visitEditAssignedCrew.some(function(c) { return c.id === id; })) return;
+            visitEditAssignedCrew.push({ id: id, name: name });
+            visitEditRenderCrewChips();
+            document.getElementById('visitEditCrewDropdown').classList.remove('show');
+        }
+
+        function visitEditRemoveCrew(id) {
+            visitEditAssignedCrew = visitEditAssignedCrew.filter(function(c) { return c.id !== id; });
+            visitEditRenderCrewChips();
+        }
+
+        function visitEditRenderCrewChips() {
+            var container = document.getElementById('visitEditCrewChips');
+            var html = '';
+            visitEditAssignedCrew.forEach(function(c, idx) {
+                var isLead = (idx === 0);
+                html += '<span class="mw-crew-chip ' + (isLead ? 'mw-crew-lead' : '') + '">' +
+                    escHtml(c.name) + (isLead ? ' (Lead)' : '') +
+                    '<button type="button" class="mw-crew-chip-remove" onclick="visitEditRemoveCrew(' + c.id + ')">&times;</button>' +
+                    '<input type="hidden" name="visit_crew_ids[]" value="' + c.id + '">' +
+                    '</span>';
+            });
+            html += '<button type="button" class="mw-crew-add-btn" onclick="visitEditToggleCrewDropdown()">+ Assign</button>';
+            container.innerHTML = html;
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('#visitEditCrewChips') && !e.target.closest('#visitEditCrewDropdown')) {
+                var dd = document.getElementById('visitEditCrewDropdown');
+                if (dd) dd.classList.remove('show');
+            }
+        });
 
         // ── Edit Line Items ─────────────────────────────────
         var editItemIndex = <?php echo count($planLineItems); ?>;
