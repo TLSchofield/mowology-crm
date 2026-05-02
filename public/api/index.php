@@ -150,6 +150,9 @@ $actionAliases = [
     'schedule' => [
         'day'                => 'day',
         'week'               => 'week',
+        'timer'              => 'timer',
+        'clock'              => 'clock',
+        'location'           => 'location',
     ],
 ];
 
