@@ -267,10 +267,10 @@ $activePage = 'team';
                     <div class="form-group">
                         <label>Device Type</label>
                         <select class="form-control" name="device_type" id="empDeviceType">
-                            <option value="personal">Personal (Phone) — GPS only during jobs</option>
-                            <option value="truck">Truck (Tablet) — GPS tracks continuously</option>
+                            <option value="personal">Personal (Phone) — GPS all shift while clocked in</option>
+                            <option value="truck">Truck (Tablet) — GPS always on (app open)</option>
                         </select>
-                        <small class="form-text text-muted">Truck devices track GPS whenever the app is open, regardless of clock-in status.</small>
+                        <small class="form-text text-muted">Personal phones track GPS from clock-in to clock-out. Truck tablets track GPS whenever the app is open, regardless of clock-in status.</small>
                     </div>
 
                     <div class="row">

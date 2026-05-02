@@ -1408,8 +1408,8 @@ if ($apiKey) {
                     <div>
                         <label class="mw-hr-label">Device Type</label>
                         <select class="form-control form-control-sm" onchange="accUpdate('device_type', this.value)">
-                            <option value="personal" <?php echo ($emp['device_type'] ?? 'personal') === 'personal' ? 'selected' : ''; ?>>Personal Phone — GPS during jobs only</option>
-                            <option value="truck"    <?php echo ($emp['device_type'] ?? 'personal') === 'truck'    ? 'selected' : ''; ?>>Truck Tablet — GPS continuous</option>
+                            <option value="personal" <?php echo ($emp['device_type'] ?? 'personal') === 'personal' ? 'selected' : ''; ?>>Personal Phone — GPS all shift while clocked in</option>
+                            <option value="truck"    <?php echo ($emp['device_type'] ?? 'personal') === 'truck'    ? 'selected' : ''; ?>>Truck Tablet — GPS always on (app open)</option>
                         </select>
                     </div>
                 </div>
