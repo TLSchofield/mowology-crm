@@ -3,80 +3,94 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 54;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		C31DEF4417604F19A6AAE747 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 051099AC9B7E4FFD89215F29 /* LocationManager.swift */; };
-		2E30FFCDC9954EDE8C673DAB /* PingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C37FD2B8DA474CBE4A0CBB /* PingQueue.swift */; };
-		E2B4D6F8A0C3E5A7C9E1B3D5 /* PendingTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8C1E3B5D7A9C2E4F6B8D0A /* PendingTransition.swift */; };
-		A4D6E8F0B2A5D7C9E1A3C5E7 /* TransitionQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E5A7D9F1B2C4E6A8D0F2B /* TransitionQueue.swift */; };
-		B2C3D4E5F6A7B8C9D0E1F2A3 /* VersionCheckService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* VersionCheckService.swift */; };
-		D4E5F6A7B8C9D0E1F2A3B4C5 /* AppUpdateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6A7B8C9D0E1F2A3B4 /* AppUpdateView.swift */; };
 		040D77CC7FC7DDF02E82AD32 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D67877BC393CECB2E02474 /* KeychainStore.swift */; };
 		06A537ABBFB8D5873812BDD2 /* StopCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73A09E1281950C78A2D0821 /* StopCardView.swift */; };
-		06E4BC05DFD54A0CA2312460 /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38750727DE3044DB93371E5E /* TimeClockModels.swift */; };
-		12035649CFC144AAA44B253B /* TimeClockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70034B3B2AAB4FDC8528944C /* TimeClockView.swift */; };
 		14EB12BAF8F5CB77D7A4DF95 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44859802708EFA50B0DE7353 /* RootView.swift */; };
 		16136063FF479A7B6236094C /* ScheduleDay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816872EBC5C2A53815D7E212 /* ScheduleDay.swift */; };
 		1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */; };
 		1D762428510570A1A0D08B4C /* DayListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0E0EE6C511F5B6548BA7FB0 /* DayListView.swift */; };
 		2FBD157C6E8D45ACE46C8079 /* AuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11B9496B9E804E3CD0342C49 /* AuthSession.swift */; };
+		351D8A7C9D72F008F0DD24CC /* PendingTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A66186FA7B72C0E2DE4F3208 /* PendingTransition.swift */; };
 		42FE3CC920D2D08E173E259C /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2318C0D8CC141570D7D494B /* APIError.swift */; };
 		4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68D4D6F730154942832B001A /* WeekStripView.swift */; };
-		4F1A2B3C4D5E6F7A8B9C0D1E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */; };
 		50553DCBC50019B902081947 /* MowologyCRMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */; };
+		51EE3493C4054F68A55A3791 /* ArrivalMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5F8DDDD742A43A1EAAE7A2 /* ArrivalMonitor.swift */; };
+		53692A746795599535BF90C5 /* VisitDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B1F4DFF661307A98228D10E /* VisitDetailViewModel.swift */; };
 		559940D1EF1EF0CFE5B02CCF /* APIEndpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */; };
-		57EA21CBE1164BEDB2AC5D83 /* TimeClockViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AF6353F6BE14966A66AC621 /* TimeClockViewModel.swift */; };
-		58369293EFCF4784AAB48702 /* VisitDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B24729FAB10D423F84EECCEE /* VisitDetailViewModel.swift */; };
+		6881EC1D48D828499C14141B /* VersionCheckService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3914DFABD5F183B4DC1E39D /* VersionCheckService.swift */; };
 		8DA04E42442B3D09E704A1CA /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7C92CC6796BADE174216F5 /* APIClient.swift */; };
 		91FBDAEEE518FB75A1B8618F /* ScheduleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6974DEA9D3487E5FED73FB01 /* ScheduleView.swift */; };
+		94B59F73A0682ED1CD8AC10B /* TimeClockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E6B8B9FAA059A2B8E0D18BB /* TimeClockView.swift */; };
 		97A54DA2AA9F9A04CA89CD15 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BC0B66BE87B94B74DD29C05 /* LoginView.swift */; };
 		98CACC8E6F7BCCE057B7ECE3 /* Stop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84917CCF5BF871EC2B745DC4 /* Stop.swift */; };
+		9BF8231179B2D42C3B2FB208 /* TransitionQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */; };
+		ABDBDE4BD9E38E90A1C48150 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47AF8B2A204E50B9D3125AC4 /* LocationManager.swift */; };
+		AC262C96AEC72A40D96A78DD /* PingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE716DE714937E2614370F75 /* PingQueue.swift */; };
+		B659D3009851109F21A1D830 /* TimeClockViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AD39E1B3611B5D04E228868 /* TimeClockViewModel.swift */; };
 		BC6EBC60EA41994E7ACED719 /* ScheduleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */; };
 		CA4E4AC42424C3DDC72267B8 /* LoginViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */; };
+		D19153AE246923974F17958E /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ADD8A18FF486977AA4DB924 /* MainTabView.swift */; };
 		E9B866846859D619AEF25219 /* Visit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46E2EA872345FA9825A6DF2E /* Visit.swift */; };
+		EEBE85EF323D09C7CB7AB4E7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = C8040C6DF2C66988040204FE /* Assets.xcassets */; };
+		F15F7146DF34D7E2CBD8CF76 /* AppUpdateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92AA5A01A2F642A2561CFFD9 /* AppUpdateView.swift */; };
 		F6DE13FCED1F010D001CEC2D /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C49661C41333A49EE1D301 /* User.swift */; };
-		DF0EAAF4C40444A5A5AA6E2D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 11353CB94986434D9EBD2A20 /* Assets.xcassets */; };
+		FBBA8A2663D90AF691D24800 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEFBC83ADF17258DCA610C2 /* RouteStore.swift */; };
+		FEC47F5526ACC47E8A074ADF /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		11B9496B9E804E3CD0342C49 /* AuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSession.swift; sourceTree = "<group>"; };
-		1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		1B1F4DFF661307A98228D10E /* VisitDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitDetailViewModel.swift; sourceTree = "<group>"; };
+		2AD39E1B3611B5D04E228868 /* TimeClockViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockViewModel.swift; sourceTree = "<group>"; };
 		2E7C92CC6796BADE174216F5 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
-		38750727DE3044DB93371E5E /* TimeClockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockModels.swift; sourceTree = "<group>"; };
+		3E6B8B9FAA059A2B8E0D18BB /* TimeClockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockView.swift; sourceTree = "<group>"; };
 		44859802708EFA50B0DE7353 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		46E2EA872345FA9825A6DF2E /* Visit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Visit.swift; sourceTree = "<group>"; };
-		5AF6353F6BE14966A66AC621 /* TimeClockViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockViewModel.swift; sourceTree = "<group>"; };
+		47AF8B2A204E50B9D3125AC4 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		68D4D6F730154942832B001A /* WeekStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekStripView.swift; sourceTree = "<group>"; };
 		68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIEndpoints.swift; sourceTree = "<group>"; };
 		6974DEA9D3487E5FED73FB01 /* ScheduleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleView.swift; sourceTree = "<group>"; };
+		6ADD8A18FF486977AA4DB924 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		6BC0B66BE87B94B74DD29C05 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
-		70034B3B2AAB4FDC8528944C /* TimeClockView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockView.swift; sourceTree = "<group>"; };
+		6E5F8DDDD742A43A1EAAE7A2 /* ArrivalMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArrivalMonitor.swift; sourceTree = "<group>"; };
 		73D67877BC393CECB2E02474 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		816872EBC5C2A53815D7E212 /* ScheduleDay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleDay.swift; sourceTree = "<group>"; };
 		82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginViewModel.swift; sourceTree = "<group>"; };
 		84917CCF5BF871EC2B745DC4 /* Stop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Stop.swift; sourceTree = "<group>"; };
+		92AA5A01A2F642A2561CFFD9 /* AppUpdateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateView.swift; sourceTree = "<group>"; };
 		9DD091BEACD0F5E731BE8B0E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		11353CB94986434D9EBD2A20 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A3914DFABD5F183B4DC1E39D /* VersionCheckService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionCheckService.swift; sourceTree = "<group>"; };
+		A66186FA7B72C0E2DE4F3208 /* PendingTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTransition.swift; sourceTree = "<group>"; };
 		A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MowologyCRMApp.swift; sourceTree = "<group>"; };
-		AC8522EE94548B7FD4F1982E /* MowologyCRM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MowologyCRM.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC8522EE94548B7FD4F1982E /* MowologyCRM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MowologyCRM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitDetailView.swift; sourceTree = "<group>"; };
-		B24729FAB10D423F84EECCEE /* VisitDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitDetailViewModel.swift; sourceTree = "<group>"; };
+		AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockModels.swift; sourceTree = "<group>"; };
 		C0E0EE6C511F5B6548BA7FB0 /* DayListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayListView.swift; sourceTree = "<group>"; };
+		C8040C6DF2C66988040204FE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C9C49661C41333A49EE1D301 /* User.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = User.swift; sourceTree = "<group>"; };
+		CE716DE714937E2614370F75 /* PingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingQueue.swift; sourceTree = "<group>"; };
 		DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleViewModel.swift; sourceTree = "<group>"; };
+		DFEFBC83ADF17258DCA610C2 /* RouteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStore.swift; sourceTree = "<group>"; };
 		E2318C0D8CC141570D7D494B /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
+		F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitionQueue.swift; sourceTree = "<group>"; };
 		F73A09E1281950C78A2D0821 /* StopCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopCardView.swift; sourceTree = "<group>"; };
-		051099AC9B7E4FFD89215F29 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
-		22C37FD2B8DA474CBE4A0CBB /* PingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingQueue.swift; sourceTree = "<group>"; };
-		FA8C1E3B5D7A9C2E4F6B8D0A /* PendingTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTransition.swift; sourceTree = "<group>"; };
-		BC3E5A7D9F1B2C4E6A8D0F2B /* TransitionQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitionQueue.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F6A7B8C9D0E1F2 /* VersionCheckService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionCheckService.swift; sourceTree = "<group>"; };
-		C3D4E5F6A7B8C9D0E1F2A3B4 /* AppUpdateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		146DA49BE70A00338AC2B82B /* Offline */ = {
+			isa = PBXGroup;
+			children = (
+				A66186FA7B72C0E2DE4F3208 /* PendingTransition.swift */,
+				CE716DE714937E2614370F75 /* PingQueue.swift */,
+				F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */,
+			);
+			path = Offline;
+			sourceTree = "<group>";
+		};
 		1885D2A87980EFA37DB91388 = {
 			isa = PBXGroup;
 			children = (
@@ -91,27 +105,9 @@
 				2E7C92CC6796BADE174216F5 /* APIClient.swift */,
 				68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */,
 				E2318C0D8CC141570D7D494B /* APIError.swift */,
-				A1B2C3D4E5F6A7B8C9D0E1F2 /* VersionCheckService.swift */,
+				A3914DFABD5F183B4DC1E39D /* VersionCheckService.swift */,
 			);
 			path = Network;
-			sourceTree = "<group>";
-		};
-		AE753C448F384B8B90ED3CF8 /* Location */ = {
-			isa = PBXGroup;
-			children = (
-				051099AC9B7E4FFD89215F29 /* LocationManager.swift */,
-			);
-			path = Location;
-			sourceTree = "<group>";
-		};
-		D6D5926062D24582BC16E907 /* Offline */ = {
-			isa = PBXGroup;
-			children = (
-				22C37FD2B8DA474CBE4A0CBB /* PingQueue.swift */,
-				FA8C1E3B5D7A9C2E4F6B8D0A /* PendingTransition.swift */,
-				BC3E5A7D9F1B2C4E6A8D0F2B /* TransitionQueue.swift */,
-			);
-			path = Offline;
 			sourceTree = "<group>";
 		};
 		51F215642B22B1FCC54B663F /* MowologyCRM */ = {
@@ -128,12 +124,22 @@
 		54688D29E559F2DD07C235D7 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */,
+				92AA5A01A2F642A2561CFFD9 /* AppUpdateView.swift */,
+				6ADD8A18FF486977AA4DB924 /* MainTabView.swift */,
 				A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */,
 				44859802708EFA50B0DE7353 /* RootView.swift */,
-				C3D4E5F6A7B8C9D0E1F2A3B4 /* AppUpdateView.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		60FDE181ECEDC4A86003201A /* Location */ = {
+			isa = PBXGroup;
+			children = (
+				6E5F8DDDD742A43A1EAAE7A2 /* ArrivalMonitor.swift */,
+				47AF8B2A204E50B9D3125AC4 /* LocationManager.swift */,
+				DFEFBC83ADF17258DCA610C2 /* RouteStore.swift */,
+			);
+			path = Location;
 			sourceTree = "<group>";
 		};
 		636F64D13F9CF99C7CCAD7EA /* Products */ = {
@@ -144,23 +150,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		65A9B7DBF36447DDBA8555A5 /* TimeClock */ = {
-			isa = PBXGroup;
-			children = (
-				70034B3B2AAB4FDC8528944C /* TimeClockView.swift */,
-				5AF6353F6BE14966A66AC621 /* TimeClockViewModel.swift */,
-			);
-			path = TimeClock;
-			sourceTree = "<group>";
-		};
 		69C62806CCCCD991CDBCA787 /* Core */ = {
 			isa = PBXGroup;
 			children = (
 				6F2222B3A02473B1F4FB7FA3 /* Auth */,
+				60FDE181ECEDC4A86003201A /* Location */,
 				FA9C633C7B7B0D0E5CBAEA59 /* Models */,
 				3CAC498CFC84EC47A1CECC6B /* Network */,
-				AE753C448F384B8B90ED3CF8 /* Location */,
-				D6D5926062D24582BC16E907 /* Offline */,
+				146DA49BE70A00338AC2B82B /* Offline */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -174,6 +171,15 @@
 			path = Auth;
 			sourceTree = "<group>";
 		};
+		72C8560F970C9C517EFD669D /* TimeClock */ = {
+			isa = PBXGroup;
+			children = (
+				3E6B8B9FAA059A2B8E0D18BB /* TimeClockView.swift */,
+				2AD39E1B3611B5D04E228868 /* TimeClockViewModel.swift */,
+			);
+			path = TimeClock;
+			sourceTree = "<group>";
+		};
 		77C42B8E19B50F970FF6A5FB /* Schedule */ = {
 			isa = PBXGroup;
 			children = (
@@ -182,7 +188,7 @@
 				DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */,
 				F73A09E1281950C78A2D0821 /* StopCardView.swift */,
 				AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */,
-				B24729FAB10D423F84EECCEE /* VisitDetailViewModel.swift */,
+				1B1F4DFF661307A98228D10E /* VisitDetailViewModel.swift */,
 				68D4D6F730154942832B001A /* WeekStripView.swift */,
 			);
 			path = Schedule;
@@ -202,7 +208,7 @@
 			children = (
 				CE20BCAEE842327D670D075B /* Auth */,
 				77C42B8E19B50F970FF6A5FB /* Schedule */,
-				65A9B7DBF36447DDBA8555A5 /* TimeClock */,
+				72C8560F970C9C517EFD669D /* TimeClock */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -212,7 +218,7 @@
 			children = (
 				816872EBC5C2A53815D7E212 /* ScheduleDay.swift */,
 				84917CCF5BF871EC2B745DC4 /* Stop.swift */,
-				38750727DE3044DB93371E5E /* TimeClockModels.swift */,
+				AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */,
 				C9C49661C41333A49EE1D301 /* User.swift */,
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
 			);
@@ -222,7 +228,7 @@
 		FB0806EF10DF19FBF92400BE /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				11353CB94986434D9EBD2A20 /* Assets.xcassets */,
+				C8040C6DF2C66988040204FE /* Assets.xcassets */,
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
 			);
 			path = Resources;
@@ -236,7 +242,7 @@
 			buildConfigurationList = 05682076AD4FBB9FAC85319E /* Build configuration list for PBXNativeTarget "MowologyCRM" */;
 			buildPhases = (
 				ECA6CAB465C1A98FD53545D2 /* Sources */,
-				C7539647D06E4BB2A8964F54 /* Resources */,
+				54576281ECFBCBA30CDC435B /* Resources */,
 			);
 			buildRules = (
 			);
@@ -257,6 +263,7 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					B894F8507D292A0047B6D7C1 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -278,6 +285,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		54576281ECFBCBA30CDC435B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EEBE85EF323D09C7CB7AB4E7 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		ECA6CAB465C1A98FD53545D2 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -286,48 +304,39 @@
 				8DA04E42442B3D09E704A1CA /* APIClient.swift in Sources */,
 				559940D1EF1EF0CFE5B02CCF /* APIEndpoints.swift in Sources */,
 				42FE3CC920D2D08E173E259C /* APIError.swift in Sources */,
+				F15F7146DF34D7E2CBD8CF76 /* AppUpdateView.swift in Sources */,
+				51EE3493C4054F68A55A3791 /* ArrivalMonitor.swift in Sources */,
 				2FBD157C6E8D45ACE46C8079 /* AuthSession.swift in Sources */,
 				1D762428510570A1A0D08B4C /* DayListView.swift in Sources */,
 				040D77CC7FC7DDF02E82AD32 /* KeychainStore.swift in Sources */,
+				ABDBDE4BD9E38E90A1C48150 /* LocationManager.swift in Sources */,
 				97A54DA2AA9F9A04CA89CD15 /* LoginView.swift in Sources */,
 				CA4E4AC42424C3DDC72267B8 /* LoginViewModel.swift in Sources */,
-				4F1A2B3C4D5E6F7A8B9C0D1E /* MainTabView.swift in Sources */,
+				D19153AE246923974F17958E /* MainTabView.swift in Sources */,
 				50553DCBC50019B902081947 /* MowologyCRMApp.swift in Sources */,
+				351D8A7C9D72F008F0DD24CC /* PendingTransition.swift in Sources */,
+				AC262C96AEC72A40D96A78DD /* PingQueue.swift in Sources */,
 				14EB12BAF8F5CB77D7A4DF95 /* RootView.swift in Sources */,
+				FBBA8A2663D90AF691D24800 /* RouteStore.swift in Sources */,
 				16136063FF479A7B6236094C /* ScheduleDay.swift in Sources */,
 				91FBDAEEE518FB75A1B8618F /* ScheduleView.swift in Sources */,
 				BC6EBC60EA41994E7ACED719 /* ScheduleViewModel.swift in Sources */,
 				98CACC8E6F7BCCE057B7ECE3 /* Stop.swift in Sources */,
 				06A537ABBFB8D5873812BDD2 /* StopCardView.swift in Sources */,
+				FEC47F5526ACC47E8A074ADF /* TimeClockModels.swift in Sources */,
+				94B59F73A0682ED1CD8AC10B /* TimeClockView.swift in Sources */,
+				B659D3009851109F21A1D830 /* TimeClockViewModel.swift in Sources */,
+				9BF8231179B2D42C3B2FB208 /* TransitionQueue.swift in Sources */,
 				F6DE13FCED1F010D001CEC2D /* User.swift in Sources */,
+				6881EC1D48D828499C14141B /* VersionCheckService.swift in Sources */,
 				E9B866846859D619AEF25219 /* Visit.swift in Sources */,
-				06E4BC05DFD54A0CA2312460 /* TimeClockModels.swift in Sources */,
-				12035649CFC144AAA44B253B /* TimeClockView.swift in Sources */,
-				57EA21CBE1164BEDB2AC5D83 /* TimeClockViewModel.swift in Sources */,
 				1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */,
-				58369293EFCF4784AAB48702 /* VisitDetailViewModel.swift in Sources */,
+				53692A746795599535BF90C5 /* VisitDetailViewModel.swift in Sources */,
 				4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */,
-				C31DEF4417604F19A6AAE747 /* LocationManager.swift in Sources */,
-				2E30FFCDC9954EDE8C673DAB /* PingQueue.swift in Sources */,
-				E2B4D6F8A0C3E5A7C9E1B3D5 /* PendingTransition.swift in Sources */,
-				A4D6E8F0B2A5D7C9E1A3C5E7 /* TransitionQueue.swift in Sources */,
-				B2C3D4E5F6A7B8C9D0E1F2A3 /* VersionCheckService.swift in Sources */,
-				D4E5F6A7B8C9D0E1F2A3B4C5 /* AppUpdateView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXResourcesBuildPhase section */
-		C7539647D06E4BB2A8964F54 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				DF0EAAF4C40444A5A5AA6E2D /* Assets.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		676019409CEFA2C8658F7108 /* Release */ = {
@@ -336,7 +345,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = FFJBDJKQ9H;
 				INFOPLIST_FILE = MowologyCRM/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -415,7 +423,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = FFJBDJKQ9H;
 				INFOPLIST_FILE = MowologyCRM/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
