@@ -37,7 +37,7 @@ $autoHours = max(1, (int) getTimeClockSetting('auto_clock_out_hours', 10));
 
 $staleStmt = $db->prepare("
     SELECT tce.id, tce.user_id, tce.clock_in,
-           u.full_name, u.mobile, u.receive_sms, u.first_name
+           u.full_name, u.phone, u.first_name
     FROM time_clock_entries tce
     JOIN users u ON u.id = tce.user_id
     WHERE tce.status     = 'active'
@@ -80,13 +80,13 @@ foreach ($entries as $entry) {
         ")->execute([$entry['user_id'], $clockInDate]);
 
         // SMS notification — no URLs, 160 chars max
-        if (!empty($entry['receive_sms']) && !empty($entry['mobile'])) {
+        if (!empty($entry['phone'])) {
             $firstName = $entry['first_name'] ?: explode(' ', $entry['full_name'])[0];
             $dayStr    = date('M j', strtotime($entry['clock_in']));
             $msg       = "Hi $firstName, your {$dayStr} shift was auto-closed after {$autoHours}h. Questions? Call (778) 846-9273";
             if (strlen($msg) <= 160) {
                 try {
-                    sendSms($entry['mobile'], $msg);
+                    sendSms($entry['phone'], $msg);
                 } catch (Throwable $smsErr) {
                     error_log('[auto_clockout] SMS failed for user #' . $entry['user_id'] . ': ' . $smsErr->getMessage());
                 }
