@@ -23,6 +23,7 @@ if (!defined('APP_ROOT')) {
 
 try {
     require_once PUBLIC_ROOT . '/loginAuth/auth.php';
+    require_once APP_ROOT . '/Core/IdempotencyHelper.php';
     require_once CRM_INCLUDES . '/functions.php';
     require_once CRM_INCLUDES . '/timeclock-functions.php';
     require_once CRM_INCLUDES . '/plan-functions.php';
@@ -36,6 +37,9 @@ try {
     requireLogin();
     $user = getCurrentUser();
     requirePermission('timer.start');
+
+    // Idempotency key — sent by iOS/Capacitor clients as a UUID per action attempt.
+    $idempKey = trim($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? '');
 
     if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         $action = $_GET['action'] ?? '';
@@ -68,6 +72,13 @@ try {
                 throw new Exception('visit_id is required');
             }
 
+            // Return cached response if this key was already processed.
+            if ($idempKey) {
+                $db = getDB();
+                $cached = idempotencyCheck($db, $idempKey, $user['id']);
+                if ($cached !== null) { echo $cached; exit; }
+            }
+
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
             $lng = isset($input['lng']) ? (float)$input['lng'] : null;
             $autoStarted = !empty($input['auto_started']);
@@ -78,6 +89,7 @@ try {
             $autoClockInPerformed = false;
             $autoClockInTime      = null;
             try {
+                if (!isset($db)) $db = getDB();
                 $ckChk = $db->prepare(
                     "SELECT id FROM time_clock_entries
                      WHERE user_id = ? AND status = 'active' AND clock_out IS NULL
@@ -103,7 +115,7 @@ try {
                 $trackingReqs = resolveTrackingRequirements($visitId);
             }
 
-            echo json_encode([
+            $responseStart = json_encode([
                 'success' => true,
                 'message' => 'Visit timer started',
                 'entry_id' => $entryId,
@@ -118,12 +130,24 @@ try {
                 'auto_clock_in_performed' => $autoClockInPerformed,
                 'auto_clock_in_time'      => $autoClockInTime,
             ]);
+            if ($idempKey) {
+                if (!isset($db)) $db = getDB();
+                idempotencyStore($db, $idempKey, $user['id'], 'job-timer', 'start', $responseStart);
+            }
+            echo $responseStart;
             break;
 
         case 'stop':
             $visitId = (int)($input['visit_id'] ?? 0);
             if (!$visitId) {
                 throw new Exception('visit_id is required');
+            }
+
+            // Return cached response if this key was already processed.
+            if ($idempKey) {
+                $db = getDB();
+                $cached = idempotencyCheck($db, $idempKey, $user['id']);
+                if ($cached !== null) { echo $cached; exit; }
             }
 
             $lat = isset($input['lat']) ? (float)$input['lat'] : null;
@@ -133,7 +157,7 @@ try {
 
             $duration = stopVisitTimer($visitId, $user['id'], $lat, $lng, $notes, (bool)$completeVisit);
 
-            echo json_encode([
+            $responseStop = json_encode([
                 'success' => true,
                 'message' => 'Visit timer stopped',
                 'visit_id' => $visitId,
@@ -141,6 +165,11 @@ try {
                 'duration_formatted' => formatMinutesAsHours($duration),
                 'visit_completed' => (bool)$completeVisit,
             ]);
+            if ($idempKey) {
+                if (!isset($db)) $db = getDB();
+                idempotencyStore($db, $idempKey, $user['id'], 'job-timer', 'stop', $responseStop);
+            }
+            echo $responseStop;
             break;
 
         case 'pause':

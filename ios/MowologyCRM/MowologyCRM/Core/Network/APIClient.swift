@@ -65,7 +65,8 @@ final class APIClient: ObservableObject {
     func request<T: Decodable>(
         _ endpoint: APIEndpoint,
         method: String? = nil,
-        body: [String: Any]? = nil
+        body: [String: Any]? = nil,
+        extraHeaders: [String: String] = [:]
     ) async throws -> T {
         guard let url = endpoint.url else {
             throw APIError.invalidURL
@@ -75,6 +76,11 @@ final class APIClient: ObservableObject {
         urlRequest.httpMethod = method ?? endpoint.httpMethod
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        // Inject caller-supplied extra headers (e.g. Idempotency-Key).
+        for (key, value) in extraHeaders {
+            urlRequest.setValue(value, forHTTPHeaderField: key)
+        }
 
         // Inject Bearer token for authenticated endpoints.
         if endpoint.requiresAuth {
