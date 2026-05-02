@@ -102,8 +102,8 @@ try {
 
             $stmt = $db->prepare(
                 "INSERT INTO time_clock_entries
-                 (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at, updated_at)
-                 VALUES (?, NOW(), ?, ?, 'active', NOW(), NOW())"
+                 (user_id, clock_in, clock_in_lat, clock_in_lng, status, created_at)
+                 VALUES (?, NOW(), ?, ?, 'active', NOW())"
             );
             $stmt->execute([$userId, $lat, $lng]);
             $entryId = (int)$db->lastInsertId();
@@ -138,7 +138,7 @@ try {
             $db->prepare(
                 "UPDATE time_clock_entries
                  SET clock_out = NOW(), clock_out_lat = ?, clock_out_lng = ?,
-                     total_minutes = ?, notes = ?, status = 'completed', updated_at = NOW()
+                     total_minutes = ?, notes = ?, status = 'completed'
                  WHERE id = ?"
             )->execute([$lat, $lng, $total, $notes, (int)$entry['id']]);
 
