@@ -11,6 +11,8 @@
 		2E30FFCDC9954EDE8C673DAB /* PingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C37FD2B8DA474CBE4A0CBB /* PingQueue.swift */; };
 		E2B4D6F8A0C3E5A7C9E1B3D5 /* PendingTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8C1E3B5D7A9C2E4F6B8D0A /* PendingTransition.swift */; };
 		A4D6E8F0B2A5D7C9E1A3C5E7 /* TransitionQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC3E5A7D9F1B2C4E6A8D0F2B /* TransitionQueue.swift */; };
+		B2C3D4E5F6A7B8C9D0E1F2A3 /* VersionCheckService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* VersionCheckService.swift */; };
+		D4E5F6A7B8C9D0E1F2A3B4C5 /* AppUpdateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6A7B8C9D0E1F2A3B4 /* AppUpdateView.swift */; };
 		040D77CC7FC7DDF02E82AD32 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D67877BC393CECB2E02474 /* KeychainStore.swift */; };
 		06A537ABBFB8D5873812BDD2 /* StopCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F73A09E1281950C78A2D0821 /* StopCardView.swift */; };
 		06E4BC05DFD54A0CA2312460 /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38750727DE3044DB93371E5E /* TimeClockModels.swift */; };
@@ -70,6 +72,8 @@
 		22C37FD2B8DA474CBE4A0CBB /* PingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingQueue.swift; sourceTree = "<group>"; };
 		FA8C1E3B5D7A9C2E4F6B8D0A /* PendingTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTransition.swift; sourceTree = "<group>"; };
 		BC3E5A7D9F1B2C4E6A8D0F2B /* TransitionQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitionQueue.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* VersionCheckService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionCheckService.swift; sourceTree = "<group>"; };
+		C3D4E5F6A7B8C9D0E1F2A3B4 /* AppUpdateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -87,6 +91,7 @@
 				2E7C92CC6796BADE174216F5 /* APIClient.swift */,
 				68F3A974B3D602E24E8A79E8 /* APIEndpoints.swift */,
 				E2318C0D8CC141570D7D494B /* APIError.swift */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* VersionCheckService.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -126,6 +131,7 @@
 				1F2E3D4C5B6A7980A1B2C3D4 /* MainTabView.swift */,
 				A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */,
 				44859802708EFA50B0DE7353 /* RootView.swift */,
+				C3D4E5F6A7B8C9D0E1F2A3B4 /* AppUpdateView.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -305,6 +311,8 @@
 				2E30FFCDC9954EDE8C673DAB /* PingQueue.swift in Sources */,
 				E2B4D6F8A0C3E5A7C9E1B3D5 /* PendingTransition.swift in Sources */,
 				A4D6E8F0B2A5D7C9E1A3C5E7 /* TransitionQueue.swift in Sources */,
+				B2C3D4E5F6A7B8C9D0E1F2A3 /* VersionCheckService.swift in Sources */,
+				D4E5F6A7B8C9D0E1F2A3B4C5 /* AppUpdateView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

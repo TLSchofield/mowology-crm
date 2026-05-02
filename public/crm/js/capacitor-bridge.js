@@ -710,4 +710,85 @@
         }
     })();
 
+    // ── Force Update Check ──────────────────────────────────────────────────
+    // Compare the installed build against the server's minimum required version.
+    // If the installed version is too old (or force_update=true on the server),
+    // inject a full-screen overlay the crew CANNOT dismiss — they must download
+    // the new APK to continue using the app.
+    (function() {
+        var installed = _nativeVersion; // string like "1.1.0" from MwNativeAndroid.getVersion()
+
+        fetch('/crm/api/app-version.php', { method: 'GET', cache: 'no-store' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var android = data.android || data; // handle both nested and legacy flat format
+                var minVersion  = android.min_version || android.version || null;
+                var forceUpdate = android.force_update === true;
+
+                if (forceUpdate) {
+                    _showUpdateOverlay(android);
+                    return;
+                }
+
+                // If we can't read the installed version, allow through — avoids
+                // blocking on older APKs that predate the getVersion() interface.
+                if (!minVersion || !installed) return;
+
+                if (_semverLessThan(installed, minVersion)) {
+                    _showUpdateOverlay(android);
+                }
+            })
+            .catch(function() {
+                // Network error — never block the app, crew may be offline
+            });
+    })();
+
+    function _semverLessThan(a, b) {
+        var ap = (a || '0').split('.').map(Number);
+        var bp = (b || '0').split('.').map(Number);
+        for (var i = 0; i < 3; i++) {
+            var av = ap[i] || 0, bv = bp[i] || 0;
+            if (av < bv) return true;
+            if (av > bv) return false;
+        }
+        return false;
+    }
+
+    function _showUpdateOverlay(data) {
+        if (document.getElementById('mw-force-update')) return;
+
+        var apkUrl  = data.apk_url || '/crm/downloads/mowology-crew.apk';
+        var version = data.version ? ' v' + data.version : '';
+        var notes   = data.release_notes
+            ? '<p style="margin:0 0 1.5rem;font-size:.83rem;color:#93c9b8;max-width:300px;line-height:1.55;">'
+              + data.release_notes.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>'
+            : '<div style="margin-bottom:1.5rem;"></div>';
+
+        var el = document.createElement('div');
+        el.id  = 'mw-force-update';
+        el.setAttribute('style',
+            'position:fixed;inset:0;background:#0D3B2E;z-index:2147483647;' +
+            'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+            'padding:2rem 1.5rem;box-sizing:border-box;text-align:center;' +
+            'color:#fff;font-family:system-ui,-apple-system,sans-serif;');
+
+        el.innerHTML =
+            '<img src="/assets/favicon/android-chrome-192x192.png" ' +
+                'style="width:80px;height:80px;border-radius:20px;margin-bottom:1.25rem;" alt="">' +
+            '<h2 style="margin:0 0 .4rem;font-size:1.5rem;color:#7FD858;font-weight:700;">Update Required</h2>' +
+            '<p style="margin:0 0 .9rem;font-size:1rem;color:#c8e8de;">Mowology Crew' + version + ' is now available.</p>' +
+            notes +
+            '<a href="' + apkUrl + '" ' +
+                'style="display:inline-block;background:#7FD858;color:#0D3B2E;font-weight:700;' +
+                'padding:.85rem 2.5rem;border-radius:10px;font-size:1rem;text-decoration:none;' +
+                '-webkit-tap-highlight-color:transparent;min-width:200px;">' +
+                'Download Update' +
+            '</a>' +
+            '<p style="margin:1.25rem 0 0;font-size:.75rem;color:#5a8870;">You must update to continue using this app.</p>';
+
+        document.body.style.overflow = 'hidden';
+        document.body.appendChild(el);
+        console.log('[MwNative] Force update overlay shown — installed:', installed, 'required:', data.min_version || data.version);
+    }
+
 })();

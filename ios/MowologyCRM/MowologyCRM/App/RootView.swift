@@ -1,19 +1,15 @@
-//
-//  RootView.swift
-//  MowologyCRM
-//
-//  Created by Mowology on 2026-03-03.
-//
-
 import SwiftUI
 
 struct RootView: View {
 
     @EnvironmentObject private var authSession: AuthSession
+    @State private var updateResult: VersionCheckResult? = nil
 
     var body: some View {
         Group {
-            if authSession.isAuthenticated {
+            if let result = updateResult, result.mustUpdate {
+                AppUpdateView(result: result)
+            } else if authSession.isAuthenticated {
                 MainTabView()
                     .environmentObject(authSession)
             } else {
@@ -21,6 +17,12 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: authSession.isAuthenticated)
+        .task {
+            let result = await VersionCheckService.shared.check()
+            if result.mustUpdate {
+                updateResult = result
+            }
+        }
     }
 }
 
