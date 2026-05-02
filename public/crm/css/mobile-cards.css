@@ -2187,6 +2187,72 @@
         opacity: 0;
     }
 
+    /* ── Compact Receipt Thumbnail (replaces collapsible wrap) ── */
+    .mw-mc-expense-review-img-compact {
+        height: 52px;
+        overflow: hidden;
+        cursor: pointer;
+        border-radius: 8px;
+        margin: 8px 12px 4px;
+        -webkit-tap-highlight-color: transparent;
+        transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .mw-mc-expense-review-img-compact img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: top;
+        border-radius: 8px;
+    }
+    .mw-mc-expense-review-img-compact.mw-mc-expense-review-img-expanded {
+        height: 220px;
+    }
+    .mw-mc-expense-review-img-compact.mw-mc-expense-review-img-expanded img {
+        object-fit: contain;
+        background: #fafaf8;
+    }
+
+    /* ── Collapsible Tax Section ── */
+    .mw-mc-expense-tax-section {
+        margin-bottom: 10px;
+    }
+    .mw-mc-expense-tax-toggle {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--mw-light);
+        border: none;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+        color: var(--mw-green);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .mw-mc-expense-tax-summary-text {
+        font-weight: 500;
+    }
+    .mw-mc-expense-tax-toggle .mw-mc-expense-chevron {
+        transition: transform 0.2s ease;
+        flex-shrink: 0;
+        margin-left: 8px;
+        stroke: var(--mw-green);
+    }
+    .mw-mc-expense-tax-fields {
+        padding-top: 6px;
+    }
+    .mw-mc-expense-tax-toggle.mw-mc-expense-tax-warn {
+        background: #fff3e0;
+        color: var(--mw-orange);
+    }
+    .mw-mc-expense-tax-toggle.mw-mc-expense-tax-warn .mw-mc-expense-chevron {
+        stroke: var(--mw-orange);
+    }
+    .mw-mc-expense-tax-toggle.mw-mc-expense-tax-warn .mw-mc-expense-tax-summary-text::before {
+        content: '⚠ ';
+    }
+
     /* ── Review Form ── */
     .mw-mc-expense-review-form {
         padding: 14px 16px 16px;

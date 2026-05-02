@@ -712,36 +712,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         <input type="hidden" id="mobileRvPropertyId">
         <input type="hidden" id="mobileRvContactId">
 
-        <!-- ═══ Quick Send Card (shown in quick mode after OCR) ═══ -->
-        <div class="mw-mc-expense-quick-card" id="mobileQuickCard" style="display:none;">
-            <div class="mw-mc-expense-quick-summary">
-                <div class="mw-mc-expense-quick-row">
-                    <div class="mw-mc-expense-quick-vendor" id="quickVendorName">—</div>
-                    <div class="mw-mc-expense-quick-total">$<span id="quickTotal">0.00</span></div>
-                </div>
-                <div class="mw-mc-expense-quick-row mw-mc-expense-quick-meta-row">
-                    <span id="quickGst" class="text-muted"></span>
-                    <span id="quickDate" class="text-muted"></span>
-                </div>
-            </div>
-            <div class="mw-mc-expense-quick-job" id="quickJobSection" style="display:none;">
-                <div class="mw-mc-expense-quick-job-label">Matched Job:</div>
-                <div class="mw-mc-expense-quick-job-pills" id="quickJobPills"></div>
-            </div>
-            <div class="mw-mc-expense-quick-category" id="quickCategoryRow">
-                <span id="quickCategory"></span>
-                <span class="mw-mc-expense-quick-sep">&middot;</span>
-                <span id="quickPayment"></span>
-            </div>
-            <div class="mw-mc-expense-quick-actions">
-                <button type="button" class="mw-mc-expense-edit-link" data-haptic="tap" onclick="expandQuickToFull()">Edit Details</button>
-                <button type="button" class="mw-mc-expense-quick-send" data-haptic="success" onclick="quickSend()">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                    SEND
-                </button>
-            </div>
-        </div>
-
         <!-- Mobile Review Panel (hidden until receipt captured) -->
         <div class="mw-mc-expense-review" id="mobileReviewPanel" style="display:none;">
             <div class="mw-mc-expense-review-header">
@@ -754,13 +724,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 </button>
             </div>
 
-            <!-- Collapsible Receipt Image -->
-            <div class="mw-mc-expense-review-img-wrap" id="mobileReceiptWrap" onclick="toggleMobileReceiptExpand()">
+            <!-- Receipt thumbnail — compact strip, tap to view full size -->
+            <div class="mw-mc-expense-review-img-compact" id="mobileReceiptWrap" onclick="toggleMobileReceiptExpand()">
                 <img id="mobileReceiptImg" src="" alt="Receipt">
-                <div class="mw-mc-expense-review-img-hint">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-                    <span>Tap to expand</span>
-                </div>
             </div>
 
             <div class="mw-mc-expense-review-form">
@@ -774,25 +740,36 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     </div>
                 </div>
 
-                <!-- Amount / Tax — two 2-column rows (avoids flex-wrap specificity issues) -->
-                <div class="mw-mc-expense-field-row">
-                    <div class="mw-mc-expense-field">
-                        <label>Subtotal</label>
-                        <input type="number" id="mobileRvAmount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
-                    </div>
-                    <div class="mw-mc-expense-field">
-                        <label>GST</label>
-                        <input type="number" id="mobileRvGst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
-                    </div>
-                </div>
-                <div class="mw-mc-expense-field-row">
-                    <div class="mw-mc-expense-field">
-                        <label>PST</label>
-                        <input type="number" id="mobileRvPst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
-                    </div>
-                    <div class="mw-mc-expense-field">
-                        <label>Recycling</label>
-                        <input type="number" id="mobileRvRecyclingTax" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                <!-- Tax breakdown — collapsed by default, auto-opens when taxes detected or math fails -->
+                <div class="mw-mc-expense-tax-section" id="mobileTaxSection">
+                    <button type="button" class="mw-mc-expense-tax-toggle" onclick="toggleMobileTaxes()">
+                        <span id="mobileTaxSummary" class="mw-mc-expense-tax-summary-text">Add tax breakdown</span>
+                        <svg class="mw-mc-expense-chevron" id="mobileTaxChevron" width="14" height="14"
+                             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </button>
+                    <div class="mw-mc-expense-tax-fields" id="mobileTaxFields" style="display:none;">
+                        <div class="mw-mc-expense-field-row">
+                            <div class="mw-mc-expense-field">
+                                <label>Subtotal</label>
+                                <input type="number" id="mobileRvAmount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
+                            </div>
+                            <div class="mw-mc-expense-field">
+                                <label>GST</label>
+                                <input type="number" id="mobileRvGst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                            </div>
+                        </div>
+                        <div class="mw-mc-expense-field-row">
+                            <div class="mw-mc-expense-field">
+                                <label>PST</label>
+                                <input type="number" id="mobileRvPst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                            </div>
+                            <div class="mw-mc-expense-field">
+                                <label>Recycling</label>
+                                <input type="number" id="mobileRvRecyclingTax" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -2027,38 +2004,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                 document.getElementById('mobileRvContactId').value = job ? (job.contact_id || '') : '';
             });
 
-            // ── Quick Mode: populate compact card instead of scrolling review ──
-            if (QUICK_MODE) {
-                var qCard = document.getElementById('mobileQuickCard');
-                if (qCard) {
-                    document.getElementById('quickVendorName').textContent = s.vendor_name || p.vendor_hint || 'Unknown Vendor';
-                    document.getElementById('quickTotal').textContent = p.total ? parseFloat(p.total).toFixed(2) : '0.00';
-                    var qGst = document.getElementById('quickGst');
-                    if (qGst) {
-                        if (p.gst_exempt) {
-                            qGst.innerHTML = '<span class="badge bg-secondary">GST Exempt</span>';
-                        } else if (p.gst && parseFloat(p.gst) > 0) {
-                            qGst.textContent = 'GST $' + parseFloat(p.gst).toFixed(2);
-                        } else {
-                            qGst.textContent = '';
-                        }
-                    }
-                    document.getElementById('quickDate').textContent = p.date || new Date().toISOString().slice(0, 10);
-                    document.getElementById('quickCategory').textContent = s.accounting_category || 'Materials';
-                    document.getElementById('quickPayment').textContent = formatPaymentLabel(p.payment_method || 'company_card');
-
-                    // Quick card job pills
-                    renderJobPills('quickJobPills', lastJobSuggestions, function(job) {
-                        selectedJobSuggestion = job;
-                        document.getElementById('mobileRvJobId').value = job ? (job.plan_id || '') : '';
-                        document.getElementById('mobileRvPropertyId').value = job ? (job.property_id || '') : '';
-                        document.getElementById('mobileRvContactId').value = job ? (job.contact_id || '') : '';
-                    });
-                    var qJobSection = document.getElementById('quickJobSection');
-                    if (qJobSection) qJobSection.style.display = lastJobSuggestions.length > 0 ? 'block' : 'none';
-
-                    qCard.style.display = 'block';
-                }
+            // ── Tax section: update summary and auto-open when needed ──
+            updateMobileTaxSummary();
+            var hasTax  = (parseFloat(document.getElementById('mobileRvGst').value) || 0) +
+                          (parseFloat(document.getElementById('mobileRvPst').value) || 0) +
+                          (parseFloat(document.getElementById('mobileRvRecyclingTax').value) || 0) > 0;
+            var noTotal = !(parseFloat(document.getElementById('mobileRvTotal').value) > 0);
+            var mathBad = data.gst_validation && !data.gst_validation.valid;
+            if (hasTax || noTotal || mathBad) {
+                document.getElementById('mobileTaxFields').style.display = 'block';
+                var taxChev = document.getElementById('mobileTaxChevron');
+                if (taxChev) taxChev.style.transform = 'rotate(180deg)';
+            }
+            if (mathBad) {
+                var taxTog = document.querySelector('.mw-mc-expense-tax-toggle');
+                if (taxTog) taxTog.classList.add('mw-mc-expense-tax-warn');
             }
 
             // Scroll to review panel
@@ -4135,9 +4095,20 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var imgWrap = document.getElementById('mobileReceiptWrap');
         if (imgWrap) imgWrap.classList.remove('mw-mc-expense-review-img-expanded');
 
-        // Hide quick card
-        var qCard = document.getElementById('mobileQuickCard');
-        if (qCard) qCard.style.display = 'none';
+        // Reset tax section to collapsed state
+        var taxFields = document.getElementById('mobileTaxFields');
+        if (taxFields) taxFields.style.display = 'none';
+        var taxChev = document.getElementById('mobileTaxChevron');
+        if (taxChev) taxChev.style.transform = '';
+        var taxTog = document.querySelector('.mw-mc-expense-tax-toggle');
+        if (taxTog) taxTog.classList.remove('mw-mc-expense-tax-warn');
+        var taxSummary = document.getElementById('mobileTaxSummary');
+        if (taxSummary) taxSummary.textContent = 'Add tax breakdown';
+
+        // Clear PST/Recycling (not in the main field clear list above)
+        ['mobileRvPst', 'mobileRvRecyclingTax'].forEach(function(id) {
+            var el = document.getElementById(id); if (el) el.value = '';
+        });
 
         // Clear job pills + hidden fields
         // mobileJobPills has a static "No Job" button — only remove dynamic pills
@@ -4147,8 +4118,6 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
             var noneBtn = document.getElementById('mobileJobNoneBtn');
             if (noneBtn) noneBtn.classList.add('mw-mc-expense-job-pill-active');
         }
-        var quickJobPills = document.getElementById('quickJobPills');
-        if (quickJobPills) { quickJobPills.innerHTML = ''; quickJobPills.style.display = 'none'; }
         ['mobileRvPropertyId', 'mobileRvContactId'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.value = '';
@@ -4661,107 +4630,31 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         return labels[method] || method || '';
     }
 
-    // ── Quick Send (one-tap save + redirect) ──────────────────────
-    window.quickSend = async function() {
-        var sendBtn = document.querySelector('.mw-mc-expense-quick-send');
-        if (sendBtn) { sendBtn.disabled = true; sendBtn.classList.add('mw-mc-expense-btn-loading'); }
-
-        var review = document.getElementById('mobileReviewPanel');
-        var p = {};
-        try { p = JSON.parse(review?.dataset.ocrParsed || '{}'); } catch(e) {}
-        var s = {};
-
-        // Gather data from the mobile form fields (already populated by showReviewPanel)
-        var data = {
-            action: 'create',
-            csrf_token: CSRF,
-            expense_date: document.getElementById('mobileRvDate').value || new Date().toISOString().slice(0, 10),
-            vendor_id: document.getElementById('mobileRvVendorId').value || null,
-            vendor_name_raw: document.getElementById('mobileRvVendor').value,
-            payment_method: document.getElementById('mobileRvPayment').value || 'company_card',
-            amount: document.getElementById('mobileRvAmount').value,
-            gst_amount: document.getElementById('mobileRvGst').value,
-            pst_amount: document.getElementById('mobileRvPst')?.value || '0',
-            recycling_tax: document.getElementById('mobileRvRecyclingTax')?.value || '0',
-            total: document.getElementById('mobileRvTotal').value,
-            accounting_category: document.getElementById('mobileRvCategory').value || 'Materials',
-            job_id: document.getElementById('mobileRvJobId').value || null,
-            property_id: document.getElementById('mobileRvPropertyId').value || null,
-            contact_id: document.getElementById('mobileRvContactId').value || null,
-            description: document.getElementById('mobileRvDescription').value || '',
-            receipt_media_id: review ? (review.dataset.mediaId || null) : null,
-            receipt_lat: currentGpsLat,
-            receipt_lng: currentGpsLng,
-            raw_ocr_json: review ? (review.dataset.ocrText || null) : null,
-            ocr_parsed: review ? (review.dataset.ocrParsed || null) : null,
-            status: 'draft',
-            line_items: (window.currentMobileLineItems || []).map(function(li) {
-                return {
-                    name: li.name || 'Unknown',
-                    quantity: li.quantity || 1,
-                    unit_price: li.unit_price || null,
-                    line_total: li.amount || li.line_total || 0,
-                    sku_raw: li.sku_raw || null,
-                    product_id: li.product_id || null,
-                };
-            }),
-        };
-
-        if (!data.total || parseFloat(data.total) <= 0) {
-            mobileToast('Please enter a total amount', true);
-            if (sendBtn) { sendBtn.disabled = false; sendBtn.classList.remove('mw-mc-expense-btn-loading'); }
-            return;
+    // ── Tax Section — summary label + toggle ─────────────────
+    function updateMobileTaxSummary() {
+        var gst      = parseFloat(document.getElementById('mobileRvGst').value) || 0;
+        var pst      = parseFloat(document.getElementById('mobileRvPst').value) || 0;
+        var recycling = parseFloat(document.getElementById('mobileRvRecyclingTax').value) || 0;
+        var total    = gst + pst + recycling;
+        var summary  = document.getElementById('mobileTaxSummary');
+        if (!summary) return;
+        if (total <= 0) {
+            summary.textContent = 'Add tax breakdown';
+        } else if (pst <= 0 && recycling <= 0) {
+            summary.textContent = 'GST $' + gst.toFixed(2);
+        } else {
+            summary.textContent = 'Taxes $' + total.toFixed(2);
         }
+    }
 
-        try {
-            var r = await fetch('/crm/api/expenses.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
-            });
-            var d = await r.json();
-            if (!d.success) throw new Error(d.error);
-
-            // Also send to accountant immediately
-            if (d.expense_id) {
-                try {
-                    await fetch('/crm/api/receipt-send.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ csrf_token: CSRF, expense_id: d.expense_id }),
-                    });
-                } catch(e) { /* send failure is non-blocking */ }
-            }
-
-            mobileToast('Receipt sent!');
-
-            // Redirect back to schedule after brief delay
-            if (RETURN_TO === 'schedule') {
-                setTimeout(function() {
-                    window.location.href = '/crm/jobs/schedule.php';
-                }, 800);
-            } else {
-                setTimeout(function() {
-                    mobileResetReview();
-                    loadExpenses(1);
-                    loadStats();
-                    loadSendLog();
-                }, 600);
-            }
-        } catch(e) {
-            mobileToast('Error: ' + e.message, true);
-        } finally {
-            if (sendBtn) { sendBtn.disabled = false; sendBtn.classList.remove('mw-mc-expense-btn-loading'); }
-        }
-    };
-
-    // ── Expand quick card to full review form ─────────────────────
-    window.expandQuickToFull = function() {
-        var qCard = document.getElementById('mobileQuickCard');
-        if (qCard) qCard.style.display = 'none';
-        // The mobile review panel is already populated by showReviewPanel — just make sure it's visible
-        var review = document.getElementById('mobileReviewPanel');
-        if (review) review.style.display = 'block';
+    window.toggleMobileTaxes = function() {
+        var fields  = document.getElementById('mobileTaxFields');
+        var chevron = document.getElementById('mobileTaxChevron');
+        if (!fields) return;
+        var open = fields.style.display !== 'none';
+        fields.style.display = open ? 'none' : 'block';
+        if (chevron) chevron.style.transform = open ? '' : 'rotate(180deg)';
+        if (open) updateMobileTaxSummary();
     };
 
     // ── Haptic Feedback ───────────────────────────────────────
