@@ -37,7 +37,14 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSLocationWhenInUseUsageDescription: "Used to show your location on the job map."
+        NSLocationWhenInUseUsageDescription: "Used to log your GPS location when starting and completing jobs."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Used to send your location to dispatch every 30–120 seconds while you have an active job, even when the app is in the background."
+        NSMotionUsageDescription: "Used to detect whether you are walking, driving, or stationary so the app can adjust GPS frequency and save battery during your shift."
+        UIBackgroundModes:
+          - location
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - ca.mowology.gps-refresh
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false
     settings:

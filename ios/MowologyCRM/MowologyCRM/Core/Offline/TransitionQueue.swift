@@ -22,7 +22,6 @@ import SwiftData
 @MainActor
 final class TransitionQueue {
 
-    // Separate container so PendingTransition doesn't collide with PendingPing.
     private let container: ModelContainer
 
     init() {
@@ -51,6 +50,13 @@ final class TransitionQueue {
             ctx.delete(t)
             try? ctx.save()
         }
+    }
+
+    /// Returns true if there is a pending (unconfirmed) transition for this visit + action.
+    /// Used on reconnect to auto-retry transitions that failed while offline.
+    func hasPending(visitId: Int, action: String) -> Bool {
+        let ctx = ModelContext(container)
+        return pendingTransition(visitId: visitId, action: action, ctx: ctx) != nil
     }
 
     // MARK: - Private

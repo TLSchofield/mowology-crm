@@ -24,8 +24,30 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+
+	<!-- Location -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Used to show your location on the job map.</string>
+	<string>Used to log your GPS location when starting and completing jobs.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Used to send your location to dispatch every 30–120 seconds while you have an active job, even when the app is in the background.</string>
+
+	<!-- Motion (CMMotionActivityManager — adaptive ping cadence) -->
+	<key>NSMotionUsageDescription</key>
+	<string>Used to detect whether you are walking, driving, or stationary so the app can adjust GPS frequency and save battery during your shift.</string>
+
+	<!-- Background modes -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+	</array>
+
+	<!-- BGTaskScheduler — GPS staleness check every 8 minutes in background -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>ca.mowology.gps-refresh</string>
+	</array>
+
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

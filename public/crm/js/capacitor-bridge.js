@@ -32,28 +32,38 @@
     var App = Plugins.App; // For hardware back button + app state
 
     // ── Location Processor (JS-side noise filter) ──────────
-    // Supplements the native accuracy gating with JS-side smoothing
+    // Supplements the native activity-based distance filter with JS-side
+    // quality gating. Two tiers:
+    //   Hard reject  — accuracy > 80 m (indoor/tunnel noise, cold GPS)
+    //   Soft reject  — accuracy > 50 m AND speed < 0.5 m/s (stationary bad fix)
+    //   Teleport     — apparent speed > 60 m/s vs previous accepted fix
     var locationProcessor = {
-        ACCURACY_THRESHOLD: 200, // meters — reject only wildly inaccurate fixes
-        SPEED_MAX_MPS: 42,       // ~150 km/h — reject teleports
-        MIN_DISTANCE: 5,         // meters — skip tiny jitters when still
+        ACCURACY_HARD:  80,   // meters — always reject above this
+        ACCURACY_SOFT:  50,   // meters — reject if speed is below SPEED_FLOOR
+        SPEED_FLOOR:   0.5,   // m/s — below this the device is effectively still
+        SPEED_TELEPORT: 60,   // m/s (~216 km/h) — physically impossible on foot/bike
+        MIN_DISTANCE:    5,   // meters — suppress micro-jitter when still
         lastAccepted: null,
         stationaryCount: 0,
-        totalReceived: 0,        // Always accept first 3 fixes for fast startup
+        totalReceived: 0,
 
         process: function(pos) {
             this.totalReceived++;
 
-            // Always accept the first 3 positions so latestPosition gets set quickly.
-            // Without this, accuracy gating on startup (indoors, cold GPS) can block
-            // ALL positions and leave the tracking widget permanently stale.
+            // Always accept the first 3 fixes so the UI populates quickly on cold start.
             if (this.totalReceived <= 3) {
                 this.lastAccepted = pos;
                 return true;
             }
 
-            // Accuracy gate — relaxed to 200m to handle indoors/urban canyon
-            if (pos.accuracy > this.ACCURACY_THRESHOLD) {
+            // Hard accuracy reject
+            if (pos.accuracy > this.ACCURACY_HARD) {
+                return false;
+            }
+
+            // Soft accuracy reject: bad fix while stationary
+            var speed = pos.speed || 0;
+            if (pos.accuracy > this.ACCURACY_SOFT && speed < this.SPEED_FLOOR) {
                 return false;
             }
 
@@ -64,12 +74,12 @@
                 );
                 var timeDelta = (pos.timestamp - this.lastAccepted.timestamp) / 1000;
 
-                // Speed sanity check
-                if (timeDelta > 0 && dist / timeDelta > this.SPEED_MAX_MPS) {
-                    return false; // GPS teleport
+                // Teleport detection (GPS multi-path artifact)
+                if (timeDelta > 0 && dist / timeDelta > this.SPEED_TELEPORT) {
+                    return false;
                 }
 
-                // Jitter filter when stationary — accept every 3rd (was 10th)
+                // Jitter filter when stationary — accept every 3rd sub-threshold fix
                 if (dist < this.MIN_DISTANCE) {
                     this.stationaryCount++;
                     if (this.stationaryCount % 3 !== 0) {
@@ -82,6 +92,103 @@
 
             this.lastAccepted = pos;
             return true;
+        }
+    };
+
+    // ── Route Buffer ────────────────────────────────────────
+    // Stores one accepted fix per minute (max 600 = 10-hour shift).
+    // Dispatcher can call MwNative.route.points(visitId) to get the
+    // full polyline for route replay.
+    var routeBuffer = {
+        points:        [],
+        lastPointMs:   0,
+        lastPingMs:    0,
+        MIN_INTERVAL:  60 * 1000,  // 1 point per minute
+        MAX_POINTS:    600,        // 10-hour shift ceiling
+
+        add: function(pos, visitId) {
+            var now = Date.now();
+            this.lastPingMs = now;
+            if (now - this.lastPointMs < this.MIN_INTERVAL) return;
+            this.lastPointMs = now;
+            this.points.push({
+                lat:      pos.lat,
+                lng:      pos.lng,
+                accuracy: pos.accuracy,
+                heading:  pos.heading  || 0,
+                speed:    pos.speed    || 0,
+                ts:       now,
+                visitId:  visitId || null
+            });
+            if (this.points.length > this.MAX_POINTS) this.points.shift();
+        },
+
+        getPoints: function(visitId) {
+            if (visitId == null) return this.points.slice();
+            return this.points.filter(function(p) { return p.visitId === visitId; });
+        },
+
+        reset: function(visitId) {
+            if (visitId == null) {
+                this.points = [];
+            } else {
+                this.points = this.points.filter(function(p) { return p.visitId !== visitId; });
+            }
+        },
+
+        minutesSinceLastPing: function() {
+            return this.lastPingMs ? (Date.now() - this.lastPingMs) / 60000 : Infinity;
+        }
+    };
+
+    // ── Arrival + Dwell Tracker ─────────────────────────────
+    // Tracks dispatcher-trust metrics for one visit at a time.
+    // Reset via arrivalTracker.configure(lat, lng) on job start.
+    var arrivalTracker = {
+        siteCoord:     null,  // { lat, lng }
+        arrivalTime:   null,  // ms — first fix within 30 m
+        jobStartTime:  null,  // ms — when clock-in was confirmed
+        jobEndTime:    null,  // ms — when clock-out was confirmed
+        worstAccuracy: 0,     // metres
+        ARRIVAL_RADIUS: 30,   // metres
+
+        configure: function(lat, lng) {
+            this.siteCoord     = { lat: lat, lng: lng };
+            this.arrivalTime   = null;
+            this.jobStartTime  = null;
+            this.jobEndTime    = null;
+            this.worstAccuracy = 0;
+        },
+
+        observe: function(pos) {
+            if (!this.siteCoord) return;
+            if (pos.accuracy > this.worstAccuracy) this.worstAccuracy = pos.accuracy;
+            if (!this.arrivalTime) {
+                var dist = haversineDistance(
+                    pos.lat, pos.lng,
+                    this.siteCoord.lat, this.siteCoord.lng
+                );
+                if (dist <= this.ARRIVAL_RADIUS) this.arrivalTime = Date.now();
+            }
+        },
+
+        jobStarted:   function() { this.jobStartTime = Date.now(); },
+        jobCompleted: function() { this.jobEndTime   = Date.now(); },
+
+        metrics: function() {
+            var badge = this.worstAccuracy <= 25 ? 'High Accuracy'
+                      : this.worstAccuracy <= 50 ? 'Normal'
+                      : 'Verify';
+            var arrivalMin = (this.arrivalTime && this.jobStartTime)
+                ? Math.round((this.jobStartTime - this.arrivalTime) / 60000) : null;
+            var dwellMin = (this.jobStartTime && this.jobEndTime)
+                ? Math.round((this.jobEndTime - this.jobStartTime) / 60000) : null;
+            return {
+                accuracy_badge:          badge,
+                arrival_confidence_min:  arrivalMin,
+                dwell_minutes:           dwellMin,
+                worst_fix_accuracy_m:    Math.round(this.worstAccuracy)
+            };
         }
     };
 
@@ -202,6 +309,12 @@
                     if (!locationProcessor.process(pos)) {
                         return; // Filtered out
                     }
+
+                    // Route replay — 1 point/min, tied to active visit if known
+                    routeBuffer.add(pos, window.MwNative.pow._visitId || null);
+
+                    // Arrival + dwell tracking
+                    arrivalTracker.observe(pos);
 
                     // Store in native Room DB via MwTracking plugin
                     if (MwTracking) {
@@ -626,11 +739,27 @@
          * Piggy-backs on the existing background tracking watcher.
          * @param {number} visitId
          */
+        _inactivityTimer: null,
+
         startVisitTracking: function(visitId) {
             if (this._active) return;
             this._visitId = visitId;
             this._active  = true;
             console.log('[MwNative.pow] Visit tracking started for visit', visitId);
+
+            // Inactivity check — fires every 5 min while visit is active.
+            // If no accepted fix for >8 min, nudge the crew via local notification.
+            var self = this;
+            this._inactivityTimer = setInterval(function() {
+                if (!self._active) return;
+                if (routeBuffer.minutesSinceLastPing() > 8) {
+                    window.MwNative.notifications.notify(
+                        'Mowology GPS',
+                        'GPS tracking paused. Open the app to resume.',
+                        99901
+                    );
+                }
+            }, 5 * 60 * 1000);
 
             // If background tracking is already running (from clock-in session),
             // hook into the existing stream via the activityChanged/location events.
@@ -666,6 +795,10 @@
             if (!this._active) return;
             this._active  = false;
             this._visitId = null;
+            if (this._inactivityTimer) {
+                clearInterval(this._inactivityTimer);
+                this._inactivityTimer = null;
+            }
             console.log('[MwNative.pow] Visit tracking stopped');
             // Note: do NOT stop the background watcher here — the clock-in
             // session may still need it. The visit-work.php JS handles
@@ -692,6 +825,24 @@
                 }
             }));
         }
+    };
+
+    // ── Route + Accountability Public API ──────────────────────────────────
+    // Called by schedule-pill-workflow.js and clock-in/out handlers.
+    //
+    //   MwNative.route.setJobSite(lat, lng)   — configure arrival tracker
+    //   MwNative.route.jobStarted()            — record job-start timestamp
+    //   MwNative.route.jobCompleted()          — record job-end timestamp
+    //   MwNative.route.points(visitId)         — get route-replay polyline array
+    //   MwNative.route.metrics()               — get { accuracy_badge, arrival_confidence_min, dwell_minutes }
+    //   MwNative.route.reset(visitId)          — clear route buffer for a visit
+    window.MwNative.route = {
+        setJobSite:   function(lat, lng)  { arrivalTracker.configure(lat, lng); },
+        jobStarted:   function()          { arrivalTracker.jobStarted();   },
+        jobCompleted: function()          { arrivalTracker.jobCompleted(); },
+        points:       function(visitId)   { return routeBuffer.getPoints(visitId); },
+        metrics:      function()          { return arrivalTracker.metrics(); },
+        reset:        function(visitId)   { routeBuffer.reset(visitId); }
     };
 
     // Auto-detect visit page and start tracking
