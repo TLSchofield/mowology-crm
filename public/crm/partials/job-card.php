@@ -43,13 +43,16 @@ if (!empty($stop['visits'])) {
 }
 
 // Footer targets the first schedulable visit (in_progress or scheduled).
-// If $stop['visits'][0] is already completed, the "Complete Job" button would
-// call end_visit on a completed visit and fail with "cannot be ended" error.
+// If all visits are already completed (stop status not yet propagated), hide
+// the Complete Job button — calling end_visit on a completed visit returns
+// "cannot be ended from current status".
 $footerVisitId = $visitId;
+$hasSchedulableVisit = false;
 foreach ($stop['visits'] as $_fv) {
     $_fvStatus = $_fv['visit_status'] ?? 'scheduled';
     if ($_fvStatus === 'scheduled' || $_fvStatus === 'in_progress') {
         $footerVisitId = (int)($_fv['visit_id'] ?? $visitId);
+        $hasSchedulableVisit = true;
         break;
     }
 }
@@ -345,7 +348,83 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
             <?php endif; ?>
         </button>
 
-        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit):
+            $apNotes   = trim($stop['property_notes'] ?? $stop['notes'] ?? '');
+            $apVisible = ($visitStatus === 'in_progress');
+        ?>
+        <!-- ── Active Job Panel (shown after clock-in; hidden until timer starts for manual jobs) ── -->
+        <div class="mw-mc-active-panel"
+             data-ap-visit="<?php echo (int)$footerVisitId; ?>"
+             <?php echo $apVisible ? '' : 'style="display:none;"'; ?>>
+            <div class="mw-mc-ap-hero">
+                <div class="mw-mc-ap-header-row">
+                    <div class="mw-mc-ap-badge">
+                        <span class="mw-mc-ap-pulse-dot"></span> On Job
+                    </div>
+                    <div class="mw-mc-ap-stop-label">Stop <?php echo (int)($stop['sequence_number'] ?? 1); ?></div>
+                </div>
+                <div class="mw-mc-ap-address"><?php echo htmlspecialchars($streetAddress); ?></div>
+                <?php if ($clientName): ?>
+                    <div class="mw-mc-ap-client"><?php echo $clientName; ?></div>
+                <?php endif; ?>
+                <div class="mw-mc-ap-timer-row">
+                    <div class="mw-mc-ap-timer" data-ap-timer="<?php echo (int)$footerVisitId; ?>">0:00</div>
+                    <div class="mw-mc-ap-timer-lbl">elapsed</div>
+                </div>
+                <button type="button" class="mw-mc-ap-pause-btn" data-ap-pause="<?php echo (int)$footerVisitId; ?>">
+                    <span class="mw-mc-ap-pause-icon">⏸</span>
+                    <span class="mw-mc-ap-pause-label">Pause</span>
+                </button>
+            </div>
+            <div class="mw-mc-ap-body">
+                <div class="mw-mc-ap-section-lbl">Photos</div>
+                <div class="mw-mc-ap-photo-row">
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="before" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">Before</span>
+                    </button>
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="after" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">After</span>
+                    </button>
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="additional" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">Additional</span>
+                    </button>
+                </div>
+                <?php if ($lawnSqFtDisplay || $durationDisplay || $lastVisitDisplay): ?>
+                <div class="mw-mc-ap-stats">
+                    <?php if ($lawnSqFtDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($lawnSqFtDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Lawn</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($durationDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($durationDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Est.</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($lastVisitDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($lastVisitDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Last Visit</div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+                <?php if ($apNotes): ?>
+                <div class="mw-mc-ap-notes">📝 <?php echo htmlspecialchars($apNotes); ?></div>
+                <?php endif; ?>
+                <button type="button" class="mw-mc-ap-finish-btn" data-ap-finish="<?php echo (int)$footerVisitId; ?>">
+                    ✓ Complete Job
+                </button>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit): ?>
         <!-- ── Card Action Footer: Clock In / Timer + Complete ── -->
         <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $footerVisitId; ?>">
             <div class="mw-mc-footer-timer" data-footer-timer="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">
@@ -601,7 +680,83 @@ $orStatusLabel = ($orStatus === 'enrolled') ? 'Active Program' : (($orStatus ===
             <?php endif; ?>
         </div>
 
-        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped'): ?>
+        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit):
+            $apNotes   = trim($stop['property_notes'] ?? $stop['notes'] ?? '');
+            $apVisible = ($visitStatus === 'in_progress');
+        ?>
+        <!-- ── Active Job Panel (shown after clock-in) ── -->
+        <div class="mw-mc-active-panel"
+             data-ap-visit="<?php echo (int)$footerVisitId; ?>"
+             <?php echo $apVisible ? '' : 'style="display:none;"'; ?>>
+            <div class="mw-mc-ap-hero">
+                <div class="mw-mc-ap-header-row">
+                    <div class="mw-mc-ap-badge">
+                        <span class="mw-mc-ap-pulse-dot"></span> On Job
+                    </div>
+                    <div class="mw-mc-ap-stop-label">Stop <?php echo (int)($stop['sequence_number'] ?? 1); ?></div>
+                </div>
+                <div class="mw-mc-ap-address"><?php echo htmlspecialchars($streetAddress); ?></div>
+                <?php if ($clientName): ?>
+                    <div class="mw-mc-ap-client"><?php echo $clientName; ?></div>
+                <?php endif; ?>
+                <div class="mw-mc-ap-timer-row">
+                    <div class="mw-mc-ap-timer" data-ap-timer="<?php echo (int)$footerVisitId; ?>">0:00</div>
+                    <div class="mw-mc-ap-timer-lbl">elapsed</div>
+                </div>
+                <button type="button" class="mw-mc-ap-pause-btn" data-ap-pause="<?php echo (int)$footerVisitId; ?>">
+                    <span class="mw-mc-ap-pause-icon">⏸</span>
+                    <span class="mw-mc-ap-pause-label">Pause</span>
+                </button>
+            </div>
+            <div class="mw-mc-ap-body">
+                <div class="mw-mc-ap-section-lbl">Photos</div>
+                <div class="mw-mc-ap-photo-row">
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="before" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">Before</span>
+                    </button>
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="after" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">After</span>
+                    </button>
+                    <button type="button" class="mw-mc-ap-photo-btn" data-ap-photo="additional" data-ap-pv="<?php echo (int)$footerVisitId; ?>">
+                        <span class="mw-mc-ap-photo-icon">📷</span>
+                        <span class="mw-mc-ap-photo-lbl">Additional</span>
+                    </button>
+                </div>
+                <?php if ($lawnSqFtDisplay || $durationDisplay || $lastVisitDisplay): ?>
+                <div class="mw-mc-ap-stats">
+                    <?php if ($lawnSqFtDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($lawnSqFtDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Lawn</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($durationDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($durationDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Est.</div>
+                    </div>
+                    <?php endif; ?>
+                    <?php if ($lastVisitDisplay): ?>
+                    <div class="mw-mc-ap-stat">
+                        <div class="mw-mc-ap-stat-val"><?php echo htmlspecialchars($lastVisitDisplay); ?></div>
+                        <div class="mw-mc-ap-stat-lbl">Last Visit</div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+                <?php if ($apNotes): ?>
+                <div class="mw-mc-ap-notes">📝 <?php echo htmlspecialchars($apNotes); ?></div>
+                <?php endif; ?>
+                <button type="button" class="mw-mc-ap-finish-btn" data-ap-finish="<?php echo (int)$footerVisitId; ?>">
+                    ✓ Complete Job
+                </button>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($stopStatus !== 'completed' && $stopStatus !== 'skipped' && $hasSchedulableVisit): ?>
         <!-- ── Card Action Footer: Clock In / Timer + Complete ── -->
         <div class="mw-mc-card-footer" data-footer-stop="<?php echo (int)$stop['stop_id']; ?>" data-footer-visit="<?php echo $footerVisitId; ?>">
             <div class="mw-mc-footer-timer" data-footer-timer="<?php echo (int)$stop['stop_id']; ?>" style="display:none;">

@@ -70,7 +70,9 @@
                 timerInterval: null,
                 beforeThumb: null,
                 afterThumb: null,
-                additionalThumbs: []
+                additionalThumbs: [],
+                paused: false,
+                pausedElapsedMs: 0
             };
 
             // Restore in-progress timer from page load state
@@ -83,6 +85,11 @@
                 startPillTimer(visitId);
                 // Sync per-visit section footer (deferred: DOM may not be ready until initPerVisitFooters runs)
                 setTimeout(function() { pvSetTiming(visitId); }, 0);
+                // Show active panel (deferred so DOM is ready)
+                setTimeout(function() {
+                    var c = visits[visitId] && visits[visitId].pill ? visits[visitId].pill.closest('.mw-mc-card') : null;
+                    if (c) showActivePanel(visitId, c);
+                }, 50);
             } else if (visitStatus === 'in_progress') {
                 // Visit is in-progress (maybe another user's timer) — show visual only
                 updatePillVisual(visitId, 'in_progress');
@@ -547,6 +554,9 @@
                         activeDrawer = drawer;
                         activeDrawerVisitId = visitId;
                     }
+
+                    // Show the persistent active job panel
+                    if (card) showActivePanel(visitId, card);
                 } else {
                     showToast('Could not start timer: ' + (data.error || data.message || 'Unknown error'));
                     if (btn) {
@@ -606,6 +616,9 @@
                     // Check if ALL visits on this stop are now completed
                     var card = visits[visitId].pill.closest('.mw-mc-card');
                     checkStopComplete(card);
+
+                    // Fade out the active job panel
+                    if (card) hideActivePanel(visitId, card);
 
                     // Sync footer to completed state
                     var stopIdForFooter = card ? parseInt(card.dataset.stopId, 10) : 0;
@@ -1139,6 +1152,9 @@
                             visits[visitId].additionalThumbs.push(thumbUrl);
                         }
                     }
+                    // Reflect photo state in the active panel buttons
+                    var apPanel = document.querySelector('[data-ap-visit="' + visitId + '"]');
+                    if (apPanel) updateActivePanelPhotos(visitId, apPanel);
                 }
                 flashPillFeedback(visitId, 'Photo saved');
                 callback(true, thumbUrl);
@@ -1187,6 +1203,144 @@
     }
 
     // ═══════════════════════════════════════════════════════
+    //  ACTIVE JOB PANEL
+    // ═══════════════════════════════════════════════════════
+
+    function showActivePanel(visitId, card) {
+        var panel = card.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (!panel) return;
+        panel.style.display = '';
+
+        var footerClockIn = card.querySelector('[data-footer-clockin]');
+        if (footerClockIn) footerClockIn.style.display = 'none';
+
+        panel.querySelectorAll('[data-ap-photo]').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var cat = btn.getAttribute('data-ap-photo');
+                if (cat === 'additional') {
+                    triggerBatchCamera(visitId);
+                } else if (cat === 'after') {
+                    var v = visits[visitId];
+                    if (!v) return;
+                    v.status = 'prompt_after';
+                    markPhotoPrompt(visitId, 'after');
+                    triggerCamera(visitId, 'after');
+                } else {
+                    triggerCamera(visitId, cat);
+                }
+            });
+        });
+
+        var pauseBtn = panel.querySelector('[data-ap-pause]');
+        if (pauseBtn) {
+            pauseBtn.addEventListener('click', function() {
+                var v = visits[visitId];
+                if (!v) return;
+                if (v.paused) resumeTimer(visitId);
+                else pauseTimer(visitId);
+            });
+        }
+
+        var finishBtn = panel.querySelector('[data-ap-finish]');
+        if (finishBtn) {
+            finishBtn.addEventListener('click', function() {
+                var v = visits[visitId];
+                if (!v) return;
+                v.status = 'prompt_after';
+                markPhotoPrompt(visitId, 'after');
+                var drawer = card.querySelector('.mw-mc-pill-drawer');
+                if (drawer) renderPhotoPrompt(drawer, visitId, 'after');
+            });
+        }
+
+        updateActivePanelPhotos(visitId, panel);
+
+        var v = visits[visitId];
+        if (v && v.status === 'prompt_before') markPhotoPrompt(visitId, 'before');
+        if (v && v.status === 'prompt_after')  markPhotoPrompt(visitId, 'after');
+    }
+
+    function hideActivePanel(visitId, card) {
+        var panel = card.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (!panel) return;
+        panel.style.opacity = '0';
+        panel.style.transition = 'opacity 0.3s';
+        setTimeout(function() {
+            panel.style.display = 'none';
+            panel.style.opacity = '';
+            panel.style.transition = '';
+        }, 300);
+    }
+
+    function markPhotoPrompt(visitId, category) {
+        var panel = document.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (!panel) return;
+        panel.querySelectorAll('[data-ap-photo]').forEach(function(btn) {
+            btn.classList.remove('mw-mc-ap-photo-prompt');
+        });
+        var target = panel.querySelector('[data-ap-photo="' + category + '"]');
+        if (target) target.classList.add('mw-mc-ap-photo-prompt');
+    }
+
+    function updateActivePanelPhotos(visitId, panel) {
+        var v = visits[visitId];
+        if (!v || !panel) return;
+        var map = { before: v.beforeThumb, after: v.afterThumb };
+        Object.keys(map).forEach(function(cat) {
+            var btn = panel.querySelector('[data-ap-photo="' + cat + '"]');
+            if (!btn) return;
+            if (map[cat]) {
+                btn.classList.add('mw-mc-ap-photo-taken');
+                btn.classList.remove('mw-mc-ap-photo-prompt');
+                btn.querySelector('.mw-mc-ap-photo-icon').textContent = '✅';
+            }
+        });
+        if (v.additionalThumbs && v.additionalThumbs.length > 0) {
+            var addBtn = panel.querySelector('[data-ap-photo="additional"]');
+            if (addBtn) {
+                addBtn.classList.add('mw-mc-ap-photo-taken');
+                addBtn.querySelector('.mw-mc-ap-photo-lbl').textContent = 'Additional (' + v.additionalThumbs.length + ')';
+            }
+        }
+    }
+
+    function pauseTimer(visitId) {
+        var v = visits[visitId];
+        if (!v || v.paused) return;
+        clearInterval(v.timerInterval);
+        v.timerInterval = null;
+        v.paused = true;
+        v.pausedElapsedMs = Date.now() - v.startTime.getTime();
+
+        var panel = document.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (panel) {
+            panel.classList.add('mw-mc-ap-paused');
+            var lbl = panel.querySelector('.mw-mc-ap-pause-label');
+            var icon = panel.querySelector('.mw-mc-ap-pause-icon');
+            if (lbl) lbl.textContent = 'Resume';
+            if (icon) icon.textContent = '▶';
+        }
+    }
+
+    function resumeTimer(visitId) {
+        var v = visits[visitId];
+        if (!v || !v.paused) return;
+        v.startTime = new Date(Date.now() - v.pausedElapsedMs);
+        v.paused = false;
+        v.pausedElapsedMs = 0;
+        startPillTimer(visitId);
+
+        var panel = document.querySelector('[data-ap-visit="' + visitId + '"]');
+        if (panel) {
+            panel.classList.remove('mw-mc-ap-paused');
+            var lbl = panel.querySelector('.mw-mc-ap-pause-label');
+            var icon = panel.querySelector('.mw-mc-ap-pause-icon');
+            if (lbl) lbl.textContent = 'Pause';
+            if (icon) icon.textContent = '⏸';
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
     //  PILL TIMER DISPLAY
     // ═══════════════════════════════════════════════════════
 
@@ -1208,6 +1362,9 @@
             v.pill.innerHTML =
                 '<span class="mw-mc-pill-label">' + escHtml(serviceLabel) + '</span> ' +
                 '<span class="mw-mc-pill-timer">' + timeStr + '</span>';
+            // Also drive the active panel timer display
+            var apTimer = document.querySelector('[data-ap-timer="' + visitId + '"]');
+            if (apTimer) apTimer.textContent = timeStr;
         }
 
         updateDisplay(); // Show immediately

@@ -4967,3 +4967,282 @@ button.mw-mc-or-full-tile:active { opacity: 0.82; }
 
 /* Hero card: match 110px photo tile height */
 .mw-mc-card-hero .mw-mc-or-full-tile { height: 110px; }
+
+/* ═══════════════════════════════════════════════════════════
+   ACTIVE JOB PANEL
+   Persistent on-job control surface — shown after clock-in.
+   Hidden by default; JS reveals it via showActivePanel().
+   ═══════════════════════════════════════════════════════════ */
+
+.mw-mc-active-panel {
+    overflow: hidden;
+}
+
+/* ── Hero (forest green header) ─────────────────────────── */
+.mw-mc-ap-hero {
+    background: linear-gradient(160deg, #0D3B2E 0%, #1A5F4A 100%);
+    padding: 14px 18px 18px;
+}
+
+.mw-mc-ap-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.mw-mc-ap-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(127, 216, 88, 0.15);
+    border: 1px solid rgba(127, 216, 88, 0.35);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #7FD858;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+}
+
+.mw-mc-ap-pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #7FD858;
+    flex-shrink: 0;
+    animation: mw-ap-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes mw-ap-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.4; transform: scale(0.65); }
+}
+
+.mw-mc-ap-stop-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.35);
+    font-weight: 500;
+}
+
+.mw-mc-ap-address {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.2;
+    margin-bottom: 2px;
+}
+
+.mw-mc-ap-client {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.55);
+    margin-bottom: 10px;
+}
+
+.mw-mc-ap-timer-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.mw-mc-ap-timer {
+    font-size: 44px;
+    font-weight: 200;
+    color: #fff;
+    letter-spacing: 3px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    transition: opacity 0.3s;
+}
+
+.mw-mc-ap-timer-lbl {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    align-self: center;
+}
+
+.mw-mc-ap-pause-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 20px;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+    cursor: pointer;
+    min-height: 36px;
+    transition: background 0.2s, border-color 0.2s, color 0.2s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mc-ap-pause-icon {
+    font-size: 13px;
+    line-height: 1;
+}
+
+/* ── Paused state ────────────────────────────────────────── */
+.mw-mc-active-panel.mw-mc-ap-paused .mw-mc-ap-hero {
+    background: linear-gradient(160deg, #1a2e28 0%, #243d35 100%);
+}
+
+.mw-mc-active-panel.mw-mc-ap-paused .mw-mc-ap-timer {
+    opacity: 0.5;
+}
+
+.mw-mc-active-panel.mw-mc-ap-paused .mw-mc-ap-pulse-dot {
+    animation: none;
+    opacity: 0.3;
+}
+
+.mw-mc-active-panel.mw-mc-ap-paused .mw-mc-ap-pause-btn {
+    background: rgba(255, 195, 0, 0.15);
+    border-color: rgba(255, 195, 0, 0.4);
+    color: #ffc300;
+}
+
+/* ── Body (light section below hero) ────────────────────── */
+.mw-mc-ap-body {
+    background: #F4F7F5;
+    padding: 14px 16px 16px;
+}
+
+.mw-mc-ap-section-lbl {
+    font-size: 10px;
+    font-weight: 700;
+    color: #2D8659;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+}
+
+/* ── Photo row ───────────────────────────────────────────── */
+.mw-mc-ap-photo-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.mw-mc-ap-photo-btn {
+    min-height: 72px;
+    background: #fff;
+    border: 1.5px solid #D4E8DE;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, transform 0.1s;
+    -webkit-tap-highlight-color: transparent;
+    padding: 8px 4px;
+}
+
+.mw-mc-ap-photo-btn:active {
+    transform: scale(0.96);
+}
+
+.mw-mc-ap-photo-icon {
+    font-size: 22px;
+    display: block;
+    line-height: 1;
+}
+
+.mw-mc-ap-photo-lbl {
+    font-size: 11px;
+    font-weight: 600;
+    color: #1A5F4A;
+}
+
+/* Photo taken state */
+.mw-mc-ap-photo-btn.mw-mc-ap-photo-taken {
+    border-color: #2D8659;
+    background: #EAF5ED;
+}
+
+.mw-mc-ap-photo-btn.mw-mc-ap-photo-taken .mw-mc-ap-photo-lbl {
+    color: #2D8659;
+}
+
+/* Prompt state — pulsing call-to-action */
+.mw-mc-ap-photo-btn.mw-mc-ap-photo-prompt {
+    border-color: #2D8659;
+    animation: mw-ap-photo-prompt 1.6s ease-in-out infinite;
+}
+
+@keyframes mw-ap-photo-prompt {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(45, 134, 89, 0); }
+    50%       { box-shadow: 0 0 0 5px rgba(45, 134, 89, 0.22); }
+}
+
+/* ── Stats strip ─────────────────────────────────────────── */
+.mw-mc-ap-stats {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.mw-mc-ap-stat {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #D4E8DE;
+    border-radius: 10px;
+    padding: 10px 6px;
+    text-align: center;
+}
+
+.mw-mc-ap-stat-val {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0D3B2E;
+    line-height: 1.1;
+}
+
+.mw-mc-ap-stat-lbl {
+    font-size: 9px;
+    color: #AAA;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 3px;
+}
+
+/* ── Notes box ───────────────────────────────────────────── */
+.mw-mc-ap-notes {
+    background: #fff;
+    border: 1px solid #D4E8DE;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: #555;
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+
+/* ── Complete Job button ─────────────────────────────────── */
+.mw-mc-ap-finish-btn {
+    width: 100%;
+    background: #2D8659;
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    padding: 14px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    transition: background 0.15s, transform 0.1s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mw-mc-ap-finish-btn:active {
+    background: #1A5F4A;
+    transform: scale(0.98);
+}
