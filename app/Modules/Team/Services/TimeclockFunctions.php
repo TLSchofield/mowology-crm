@@ -562,7 +562,7 @@ function haversineDistance(float $lat1, float $lng1, float $lat2, float $lng2): 
  *
  * @return array|null  Null if no auto-start; otherwise array with visit details
  */
-function checkProximityAutoStart(int $userId, float $lat, float $lng, float $accuracy = 50.0): ?array {
+function checkProximityAutoStart(int $userId, float $lat, float $lng, float $accuracy = 50.0, ?array $preloadedVisits = null): ?array {
     // Guard 1: master toggle
     $autoArrivalEnabled = getTimeClockSetting('auto_arrival_enabled', '1');
     if ($autoArrivalEnabled !== '1') {
@@ -595,12 +595,16 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
         return null;
     }
 
-    // Guard 5: get today's visits (use session cache, 60s TTL)
+    // Guard 5: get today's visits
+    // $preloadedVisits: JWT/mobile callers pass this to skip the session cache entirely.
+    // Session-based callers leave it null and get the existing 60s cache behaviour.
     $cacheKey = 'proximity_visits_cache';
     $cacheTsKey = 'proximity_visits_cache_ts';
     $today = date('Y-m-d');
 
-    if (isset($_SESSION[$cacheKey], $_SESSION[$cacheTsKey])
+    if ($preloadedVisits !== null) {
+        $allVisits = $preloadedVisits;
+    } elseif (isset($_SESSION[$cacheKey], $_SESSION[$cacheTsKey])
         && $_SESSION[$cacheTsKey] > time() - 60
         && ($_SESSION['proximity_visits_date'] ?? '') === $today) {
         $allVisits = $_SESSION[$cacheKey];
@@ -719,7 +723,10 @@ function checkProximityAutoStart(int $userId, float $lat, float $lng, float $acc
     }
 
     // Invalidate session cache so next check sees the updated visit status
-    unset($_SESSION[$cacheKey]);
+    // (No-op for JWT callers who passed $preloadedVisits — they have no session.)
+    if ($preloadedVisits === null) {
+        unset($_SESSION[$cacheKey]);
+    }
 
     return [
         'visit_id'        => $visitId,

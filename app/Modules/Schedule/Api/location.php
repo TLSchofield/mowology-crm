@@ -10,11 +10,10 @@ declare(strict_types=1);
  * Authorization: Bearer <jwt>
  * Body: { "lat": float, "lng": float, "accuracy": float?, "visit_id": int? }
  *
- * Stores a ping in crew_location_history so dispatch map stays live.
- * Mirrors the session-based crew-location.php POST path but accepts JWT
- * for iOS native clients.
+ * Stores a ping in crew_location_history and runs proximity auto-start check
+ * (same logic as crew-location.php POST, but session-free for JWT/iOS clients).
  *
- * Response 200: { "success": true, "id": int }
+ * Response 200: { "success": true, "id": int, "auto_started": null|{...} }
  * Response 200: { "success": true, "skipped": true, "reason": "rate_limited" }
  */
 
@@ -36,6 +35,9 @@ header('X-Content-Type-Options: nosniff');
 try {
     require_once APP_ROOT . '/Core/config.php';
     require_once APP_ROOT . '/Core/Auth/JwtAuth.php';
+    require_once CRM_INCLUDES . '/functions.php';
+    require_once CRM_INCLUDES . '/timeclock-functions.php';
+    require_once CRM_INCLUDES . '/plan-functions.php';
 
     $jwtUser = requireJwt();
     $userId  = (int)$jwtUser['id'];
@@ -49,7 +51,7 @@ try {
     $input    = json_decode(file_get_contents('php://input'), true) ?? [];
     $lat      = isset($input['lat'])      ? (float)$input['lat']      : null;
     $lng      = isset($input['lng'])      ? (float)$input['lng']      : null;
-    $accuracy = isset($input['accuracy']) ? (float)$input['accuracy'] : null;
+    $accuracy = isset($input['accuracy']) ? (float)$input['accuracy'] : 50.0;
     $visitId  = isset($input['visit_id']) ? (int)$input['visit_id']   : null;
 
     if ($lat === null || $lng === null) {
@@ -58,7 +60,6 @@ try {
         exit;
     }
 
-    // Basic sanity bounds
     if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Coordinates out of range']);
@@ -82,14 +83,29 @@ try {
         exit;
     }
 
+    // Store the ping
     $stmt = $db->prepare("
         INSERT INTO crew_location_history (crew_id, latitude, longitude, accuracy_meters, visit_id, timestamp)
         VALUES (?, ?, ?, ?, ?, NOW())
     ");
-    $stmt->execute([$userId, $lat, $lng, $accuracy, $visitId ?: null]);
+    $stmt->execute([$userId, $lat, $lng, (int)round($accuracy), $visitId ?: null]);
     $insertId = (int)$db->lastInsertId();
 
-    echo json_encode(['success' => true, 'id' => $insertId]);
+    // Proximity auto-start — uses existing CRM logic, session-free via $preloadedVisits.
+    // Only runs when there is no active job timer (guard is inside the function).
+    // We load today's visits fresh (no session cache) — acceptable at 30s mobile ping rate.
+    $autoStartResult = null;
+    $activeTimer = getActiveJobTimer($userId);
+    if (!$activeTimer) {
+        $todayVisits    = getAllJobsForDate(date('Y-m-d'));
+        $autoStartResult = checkProximityAutoStart($userId, $lat, $lng, $accuracy, $todayVisits);
+    }
+
+    echo json_encode([
+        'success'      => true,
+        'id'           => $insertId,
+        'auto_started' => $autoStartResult,
+    ]);
 
 } catch (Throwable $e) {
     error_log('[schedule/location] ' . $e->getMessage());
