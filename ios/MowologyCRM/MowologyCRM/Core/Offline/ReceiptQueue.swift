@@ -75,7 +75,7 @@ final class ReceiptQueue: ObservableObject {
         monitor.start(queue: queue)
     }
 
-    func drain(uploadHandler: (Data, Double?, Double?, Int?) async throws -> ReceiptIntakeResponse) async {
+    func drain(uploadHandler: @escaping (Data, Double?, Double?, Int?) async throws -> ReceiptIntakeResponse) async {
         guard uploadTask == nil else { return }
         uploadTask = Task {
             let pending = items

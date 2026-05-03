@@ -26,7 +26,7 @@ struct ReceiptIntakeResponse: Decodable {
     }
 }
 
-struct ParsedReceipt: Decodable {
+struct ParsedReceipt: Codable {
     let total: String?
     let gst: String?
     let subtotal: String?
