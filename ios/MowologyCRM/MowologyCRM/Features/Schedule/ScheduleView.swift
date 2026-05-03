@@ -31,6 +31,39 @@ struct ScheduleView: View {
         NavigationStack {
             VStack(spacing: 0) {
 
+                // MARK: Week Navigation
+                HStack(spacing: 0) {
+                    Button {
+                        Task { await viewModel.advanceWeek(by: -1) }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(mwGreen)
+                            .frame(width: 44, height: 44)
+                    }
+                    .disabled(viewModel.isLoading)
+
+                    Spacer()
+
+                    Text(viewModel.weekRangeLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    Spacer()
+
+                    Button {
+                        Task { await viewModel.advanceWeek(by: 1) }
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(mwGreen)
+                            .frame(width: 44, height: 44)
+                    }
+                    .disabled(viewModel.isLoading)
+                }
+                .padding(.horizontal, 4)
+                .background(Color(.systemBackground))
+
                 // MARK: Week Strip
                 WeekStripView(
                     selectedDate: weekStripBinding,
@@ -49,8 +82,9 @@ struct ScheduleView: View {
                 )
                 .navigationDestination(for: Stop.self) { stop in
                     VisitDetailView(
-                        stop:    stop,
-                        isAdmin: authSession.user?.isAdmin ?? false
+                        stop:        stop,
+                        isAdmin:     authSession.user?.isAdmin ?? false,
+                        authSession: authSession
                     )
                 }
             }

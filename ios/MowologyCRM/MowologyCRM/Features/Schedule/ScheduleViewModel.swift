@@ -143,6 +143,26 @@ final class ScheduleViewModel: ObservableObject {
         await refresh()
     }
 
+    /// Moves the selected date forward or backward by the given number of weeks.
+    func advanceWeek(by weeks: Int) async {
+        let newDate = calendar.date(byAdding: .weekOfYear, value: weeks, to: selectedDate) ?? selectedDate
+        await selectDate(newDate)
+    }
+
+    /// Short label for the current week range, e.g. "Apr 28 – May 4".
+    var weekRangeLabel: String {
+        let monday = mondayOf(week: selectedDate)
+        let sunday = calendar.date(byAdding: .day, value: 6, to: monday) ?? monday
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_CA")
+        let mMonth = calendar.component(.month, from: monday)
+        let sMonth = calendar.component(.month, from: sunday)
+        f.dateFormat = mMonth == sMonth ? "MMM d" : "MMM d"
+        let start = f.string(from: monday)
+        let end   = f.string(from: sunday)
+        return "\(start) – \(end)"
+    }
+
     // MARK: - Date Utilities
 
     private var calendar: Calendar {
