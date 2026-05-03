@@ -922,7 +922,7 @@ async function runDebugOcr() {
     const file = fileInput.files[0];
     if (!file.name.toLowerCase().endsWith('.pdf')) { mwToast('Debug OCR only works with PDF files', 'warning'); return; }
 
-    document.getElementById('debug-ocr-modal').classList.add('active');
+    document.getElementById('debug-ocr-modal').classList.add('show');
     const loading = document.getElementById('debug-ocr-loading');
     const content = document.getElementById('debug-ocr-content');
     loading.classList.remove('d-none');
@@ -993,7 +993,7 @@ async function runDebugOcr() {
 }
 
 function closeDebugOcr() {
-    document.getElementById('debug-ocr-modal').classList.remove('active');
+    document.getElementById('debug-ocr-modal').classList.remove('show');
 }
 </script>
 
