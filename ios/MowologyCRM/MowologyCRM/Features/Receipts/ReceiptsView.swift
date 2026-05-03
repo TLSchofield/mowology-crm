@@ -4,16 +4,22 @@
 //
 
 import SwiftUI
+import CoreLocation
+import PhotosUI
 
 struct ReceiptsView: View {
 
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ReceiptsViewModel
 
-    @State private var showCapture   = false
-    @State private var showReview    = false
+    // Camera as fullScreenCover — must be on the root view, not inside a sheet.
+    @State private var showCamera   = false
+    @State private var showLibrary  = false
+    @State private var showReview   = false
+    @State private var pickerItem: PhotosPickerItem?
 
-    private let impact = UIImpactFeedbackGenerator(style: .medium)
+    private let impact          = UIImpactFeedbackGenerator(style: .medium)
+    private let locationManager = CLLocationManager()
 
     init(authSession: AuthSession? = nil) {
         let session = authSession ?? AuthSession()
@@ -31,14 +37,66 @@ struct ReceiptsView: View {
             .toolbar { toolbarContent }
         }
         .task { await viewModel.loadExpenses() }
-        .sheet(isPresented: $showCapture) {
-            ReceiptCaptureView(viewModel: viewModel, showCapture: $showCapture, showReview: $showReview)
+        // Camera opens as fullScreenCover directly on this view — no intermediate sheet.
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker(
+                onCapture: { image in
+                    showCamera = false
+                    guard let jpeg = image.jpegData(compressionQuality: 0.9) else { return }
+                    Task { await handleCapture(jpeg) }
+                },
+                onCancel: { showCamera = false }
+            )
+            .ignoresSafeArea()
         }
+        // Library fallback (PhotosPicker sheet)
+        .sheet(isPresented: $showLibrary) {
+            librarySheet
+        }
+        // Review sheet shown after successful OCR upload
         .sheet(isPresented: $showReview) {
             if let intake = viewModel.intakeResponse {
                 ReceiptReviewView(viewModel: viewModel, intake: intake, isPresented: $showReview)
             }
         }
+        // Upload spinner overlay
+        .overlay {
+            if viewModel.isUploading {
+                uploadOverlay
+            }
+        }
+        .onChange(of: pickerItem) { _, newItem in
+            guard let newItem else { return }
+            showLibrary = false
+            Task {
+                guard let data = try? await newItem.loadTransferable(type: Data.self) else { return }
+                await handleCapture(data)
+            }
+        }
+    }
+
+    // MARK: - Capture handler
+
+    private func handleCapture(_ data: Data) async {
+        let compressed = compressToJpeg(data, maxBytes: 1_500_000)
+        locationManager.requestWhenInUseAuthorization()
+        let loc = locationManager.location
+        await viewModel.uploadImage(
+            compressed,
+            lat: loc?.coordinate.latitude,
+            lng: loc?.coordinate.longitude
+        )
+        if viewModel.intakeResponse != nil { showReview = true }
+    }
+
+    private func compressToJpeg(_ data: Data, maxBytes: Int) -> Data {
+        guard let img = UIImage(data: data) else { return data }
+        var q: CGFloat = 0.85
+        while q > 0.1 {
+            if let jpeg = img.jpegData(compressionQuality: q), jpeg.count <= maxBytes { return jpeg }
+            q -= 0.15
+        }
+        return img.jpegData(compressionQuality: 0.1) ?? data
     }
 
     // MARK: - List
@@ -87,7 +145,8 @@ struct ReceiptsView: View {
     private var captureButton: some View {
         Button {
             impact.impactOccurred()
-            showCapture = true
+            viewModel.uploadError = nil
+            showCamera = true
         } label: {
             Image(systemName: "camera.fill")
                 .font(.system(size: 22, weight: .semibold))
@@ -98,6 +157,57 @@ struct ReceiptsView: View {
                 .shadow(color: Color.MW.green.opacity(0.4), radius: 8, y: 4)
         }
         .padding(24)
+        .contextMenu {
+            Button {
+                pickerItem = nil
+                showLibrary = true
+            } label: {
+                Label("Choose from Library", systemImage: "photo.on.rectangle")
+            }
+        }
+    }
+
+    // MARK: - Library sheet
+
+    private var librarySheet: some View {
+        NavigationStack {
+            PhotosPicker(
+                selection: $pickerItem,
+                matching: .images,
+                photoLibrary: .shared()
+            ) {
+                Label("Select Photo", systemImage: "photo.on.rectangle")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(Color.MW.green)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .padding()
+            }
+            .navigationTitle("Choose from Library")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showLibrary = false }
+                        .foregroundStyle(Color.MW.green)
+                }
+            }
+        }
+        .presentationDetents([.height(160)])
+    }
+
+    // MARK: - Upload overlay
+
+    private var uploadOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.45).ignoresSafeArea()
+            VStack(spacing: 14) {
+                ProgressView().scaleEffect(1.5).tint(.white)
+                Text("Reading receipt…")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+            }
+        }
     }
 
     // MARK: - Toolbar
@@ -106,8 +216,7 @@ struct ReceiptsView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .principal) {
             HStack(spacing: 6) {
-                Text("Receipts")
-                    .font(.headline.weight(.semibold))
+                Text("Receipts").font(.headline.weight(.semibold))
                 if ReceiptQueue.shared.pendingCount > 0 {
                     Text("\(ReceiptQueue.shared.pendingCount) pending")
                         .font(.caption2.weight(.semibold))
