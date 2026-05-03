@@ -48,7 +48,13 @@ final class RouteStore {
     private let minInterval: TimeInterval   = 60   // seconds between stored points
 
     private init() {
-        container = try! ModelContainer(for: RoutePoint.self)
+        do {
+            container = try ModelContainer(for: RoutePoint.self)
+        } catch {
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            container = try! ModelContainer(for: RoutePoint.self, configurations: config)
+            print("[RouteStore] SwiftData init failed, using in-memory fallback: \(error)")
+        }
         purgeExpired()
     }
 

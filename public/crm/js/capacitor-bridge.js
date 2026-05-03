@@ -733,6 +733,7 @@
     window.MwNative.pow = {
         _visitId: null,
         _active:  false,
+        _locationListenerAttached: false,
 
         /**
          * Start Proof-of-Work GPS emission for a specific visit.
@@ -770,8 +771,11 @@
                     window.MwNative.pow._emit(pos);
                 }, { distanceFilter: 5 }); // 5m for walk-level granularity
             } else {
-                // Existing watcher active — listen via MwTracking native events
-                if (MwTracking && MwTracking.addListener) {
+                // Existing watcher active — listen via MwTracking native events.
+                // Guard prevents duplicate listeners if startVisitTracking is
+                // called more than once in a session (e.g., after a reconnect).
+                if (!this._locationListenerAttached && MwTracking && MwTracking.addListener) {
+                    this._locationListenerAttached = true;
                     MwTracking.addListener('locationUpdate', function(data) {
                         if (!window.MwNative.pow._active) return;
                         var pos = {

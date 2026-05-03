@@ -25,7 +25,13 @@ final class TransitionQueue {
     private let container: ModelContainer
 
     init() {
-        container = try! ModelContainer(for: PendingTransition.self)
+        do {
+            container = try ModelContainer(for: PendingTransition.self)
+        } catch {
+            let config = ModelConfiguration(isStoredInMemoryOnly: true)
+            container = try! ModelContainer(for: PendingTransition.self, configurations: config)
+            print("[TransitionQueue] SwiftData init failed, using in-memory fallback: \(error)")
+        }
     }
 
     // MARK: - Public API

@@ -107,11 +107,8 @@ final class ArrivalMonitor {
             worstAccuracy = fix.horizontalAccuracy
         }
 
-        guard siteCoordinate != nil, arrivalTime == nil else { return }
-        let site = CLLocation(
-            latitude:  siteCoordinate!.latitude,
-            longitude: siteCoordinate!.longitude
-        )
+        guard let coord = siteCoordinate, arrivalTime == nil else { return }
+        let site = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
         if fix.distance(from: site) <= ARRIVAL_RADIUS_M {
             arrivalTime = fix.timestamp
         }
