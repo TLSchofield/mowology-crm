@@ -32,17 +32,13 @@ struct ScheduleView: View {
         NavigationStack {
             VStack(spacing: 0) {
 
-                // MARK: Week Navigation + Strip (swipeable area)
-                // The swipe gesture wraps BOTH the nav bar and the chip row so
-                // any horizontal drag in this region changes the week — no
-                // competing ScrollView underneath.
-                VStack(spacing: 0) {
-                    weekNavBar
-                    WeekStripView(
-                        selectedDate: weekStripBinding,
-                        weekDays: viewModel.weekDays
-                    )
-                }
+                // MARK: Week Strip
+                // Swipe left/right to advance weeks. No competing ScrollView
+                // inside, so the gesture fires reliably.
+                WeekStripView(
+                    selectedDate: weekStripBinding,
+                    weekDays: viewModel.weekDays
+                )
                 .gesture(
                     DragGesture(minimumDistance: 20)
                         .onEnded { value in
@@ -72,7 +68,6 @@ struct ScheduleView: View {
                     )
                 }
             }
-            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .background(Color(.systemGroupedBackground))
@@ -83,57 +78,6 @@ struct ScheduleView: View {
         .sheet(isPresented: $showDatePicker) {
             datePicker
         }
-    }
-
-    // MARK: - Week Nav Bar
-
-    private var weekNavBar: some View {
-        HStack(spacing: 0) {
-            Button {
-                impactMedium.impactOccurred()
-                Task { await viewModel.advanceWeek(by: -1) }
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.MW.green)
-                    .frame(width: 44, height: 44)
-            }
-            .disabled(viewModel.isLoading)
-
-            Spacer()
-
-            // Tap to open full calendar picker
-            Button {
-                pickerDate = viewModel.selectedDate
-                showDatePicker = true
-            } label: {
-                HStack(spacing: 5) {
-                    Text(viewModel.weekRangeLabel)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Image(systemName: "calendar")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color.MW.green)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Button {
-                impactMedium.impactOccurred()
-                Task { await viewModel.advanceWeek(by: 1) }
-            } label: {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.MW.green)
-                    .frame(width: 44, height: 44)
-            }
-            .disabled(viewModel.isLoading)
-        }
-        .padding(.horizontal, 4)
-        .background(Color(.systemBackground))
     }
 
     // MARK: - Date Picker Sheet
@@ -182,13 +126,6 @@ struct ScheduleView: View {
         )
     }
 
-    private var navigationTitle: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
-        formatter.locale     = Locale(identifier: "en_CA")
-        return formatter.string(from: viewModel.selectedDate)
-    }
-
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
@@ -202,6 +139,24 @@ struct ScheduleView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Color.MW.green)
             }
+        }
+
+        // Week range label doubles as the calendar jump button.
+        ToolbarItem(placement: .principal) {
+            Button {
+                pickerDate = viewModel.selectedDate
+                showDatePicker = true
+            } label: {
+                HStack(spacing: 5) {
+                    Text(viewModel.weekRangeLabel)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Image(systemName: "calendar")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.MW.green)
+                }
+            }
+            .buttonStyle(.plain)
         }
 
         ToolbarItem(placement: .navigationBarTrailing) {

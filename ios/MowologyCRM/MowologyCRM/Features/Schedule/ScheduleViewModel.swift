@@ -149,18 +149,24 @@ final class ScheduleViewModel: ObservableObject {
         await selectDate(newDate)
     }
 
-    /// Short label for the current week range, e.g. "Apr 28 – May 4".
+    /// Week range label shown in the nav bar principal slot.
+    /// Same month:   "Jun 8\u201314, 2026"
+    /// Cross-month:  "May 28 \u2013 Jun 3, 2026"
     var weekRangeLabel: String {
         let monday = mondayOf(week: selectedDate)
         let sunday = calendar.date(byAdding: .day, value: 6, to: monday) ?? monday
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_CA")
-        let mMonth = calendar.component(.month, from: monday)
-        let sMonth = calendar.component(.month, from: sunday)
-        f.dateFormat = mMonth == sMonth ? "MMM d" : "MMM d"
-        let start = f.string(from: monday)
-        let end   = f.string(from: sunday)
-        return "\(start) – \(end)"
+        let f      = DateFormatter()
+        f.dateFormat = "MMM d"
+        f.locale     = Locale(identifier: "en_CA")
+        let year   = calendar.component(.year,  from: sunday)
+        let sMonth = calendar.component(.month, from: monday)
+        let eMonth = calendar.component(.month, from: sunday)
+        if sMonth == eMonth {
+            let endDay = calendar.component(.day, from: sunday)
+            return "\(f.string(from: monday))\u2013\(endDay), \(year)"
+        } else {
+            return "\(f.string(from: monday)) \u2013 \(f.string(from: sunday)), \(year)"
+        }
     }
 
     // MARK: - Date Utilities
