@@ -146,7 +146,7 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
             // If customer opts to save card, UPDATE the existing intent with
             // setup_future_usage so elements.fetchUpdates() picks up the change.
             // Stripe docs: setup_future_usage can be updated before confirmation.
-            if ($saveCard && $stripeCustomerIdFromIntent && !$existing->setup_future_usage) {
+            if ($saveCard && $stripeCustomerId && !$existing->setup_future_usage) {
                 try {
                     $existing = \Stripe\PaymentIntent::update($existing->id, [
                         'setup_future_usage' => 'off_session',
@@ -180,6 +180,22 @@ if (!empty($invoice['stripe_payment_intent_id'])) {
 
     } catch (\Stripe\Exception\ApiErrorException $e) {
         writeSystemLog('warning', 'stripe', 'Could not retrieve existing PaymentIntent', ['pi_id' => $invoice['stripe_payment_intent_id'], 'error' => $e->getMessage()]);
+        // Clear the stale ID (e.g. test-mode PI used with live keys) so we create a fresh one below
+        $db->prepare("UPDATE invoices SET stripe_payment_intent_id = NULL WHERE id = ?")
+           ->execute([$invoice['id']]);
+        $invoice['stripe_payment_intent_id'] = null;
+
+        // The customer ID may also be stale (same mode mismatch) — validate before using it below
+        if ($stripeCustomerId && $contactId) {
+            try {
+                \Stripe\Customer::retrieve($stripeCustomerId);
+            } catch (\Stripe\Exception\ApiErrorException $custEx) {
+                writeSystemLog('warning', 'stripe', 'Clearing stale Stripe Customer ID', ['stripe_customer_id' => $stripeCustomerId, 'contact_id' => $contactId, 'error' => $custEx->getMessage()]);
+                $db->prepare("UPDATE contacts SET stripe_customer_id = NULL WHERE id = ?")
+                   ->execute([$contactId]);
+                $stripeCustomerId = null;
+            }
+        }
     }
 }
 
