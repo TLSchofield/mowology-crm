@@ -150,8 +150,8 @@ final class ScheduleViewModel: ObservableObject {
     }
 
     /// Week range label shown in the nav bar principal slot.
-    /// Same month:   "Jun 8\u201314, 2026"
-    /// Cross-month:  "May 28 \u2013 Jun 3, 2026"
+    /// Same month:   "Jun 8–14, 2026"
+    /// Cross-month:  "May 28 – Jun 3, 2026"
     var weekRangeLabel: String {
         let monday = mondayOf(week: selectedDate)
         let sunday = calendar.date(byAdding: .day, value: 6, to: monday) ?? monday
@@ -163,9 +163,9 @@ final class ScheduleViewModel: ObservableObject {
         let eMonth = calendar.component(.month, from: sunday)
         if sMonth == eMonth {
             let endDay = calendar.component(.day, from: sunday)
-            return "\(f.string(from: monday))\u2013\(endDay), \(year)"
+            return "\(f.string(from: monday))–\(endDay), \(year)"
         } else {
-            return "\(f.string(from: monday)) \u2013 \(f.string(from: sunday)), \(year)"
+            return "\(f.string(from: monday)) – \(f.string(from: sunday)), \(year)"
         }
     }
 
