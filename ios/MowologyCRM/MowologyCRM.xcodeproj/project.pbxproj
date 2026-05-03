@@ -198,6 +198,7 @@
 				AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */,
 				1B1F4DFF661307A98228D10E /* VisitDetailViewModel.swift */,
 				68D4D6F730154942832B001A /* WeekStripView.swift */,
+				A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */,
 			);
 			path = Schedule;
 			sourceTree = "<group>";
@@ -207,7 +208,6 @@
 			children = (
 				6BC0B66BE87B94B74DD29C05 /* LoginView.swift */,
 				82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */,
-							A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */,
 );
 			path = Auth;
 			sourceTree = "<group>";
