@@ -58,7 +58,21 @@ This is a critical constraint for all SQL queries and schema changes:
 
 ---
 
-## 1b. Deployment Workflow — Commit, Push, Verify
+## 1b. Git Worktree Operations — MANDATORY PATH RULE
+
+When the primary working directory contains `.claude/worktrees/`, you are inside a **git worktree**.
+The worktree is a completely separate checkout on its own branch. The parent repo directory is on a **different branch** and contains **different file versions** — reading or editing files there will silently operate on the wrong code.
+
+**Rules (no exceptions):**
+- **ALL `Read`, `Edit`, `Write`, `Bash` file operations MUST use the worktree path as root.** The worktree path is the `Primary working directory` shown at session start (e.g. `/Users/.../mowology-crm/.claude/worktrees/<name>/`).
+- **NEVER use the parent project root** (`/Users/timschofield/Projects/mowology-crm/`) for file operations while in a worktree.
+- **When spawning Explore or other agents**, pass the worktree path explicitly as the search root — do NOT pass the parent project path.
+- **Git commands** (`git add`, `git commit`, `git push`) must run in the worktree directory (the shell cwd), which is correct by default. Never `cd` up to the parent repo and run git there.
+- Verify you're operating in the right tree: `pwd` should return a path containing `.claude/worktrees/`.
+
+---
+
+## 1c. Deployment Workflow — Commit, Push, Verify
 
 **After completing any code changes, ALWAYS follow this workflow:**
 
