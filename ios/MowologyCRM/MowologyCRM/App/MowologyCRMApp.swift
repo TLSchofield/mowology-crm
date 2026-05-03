@@ -13,9 +13,7 @@ struct MowologyCRMApp: App {
     @StateObject private var authSession = AuthSession()
     @Environment(\.scenePhase) private var scenePhase
 
-    private let kJobTimerActive = "mw.jobTimerActive"
-    private let kLastPingAt     = "mw.lastPingAt"
-    private let bgTaskId        = "ca.mowology.gps-refresh"
+    private let bgTaskId = "ca.mowology.gps-refresh"
 
     // MARK: - Init
 
@@ -58,7 +56,7 @@ struct MowologyCRMApp: App {
     /// Schedule the next GPS-staleness check for 8 minutes from now.
     /// Only schedules when a job timer is active.
     private func scheduleGPSRefreshIfNeeded() {
-        guard UserDefaults.standard.bool(forKey: kJobTimerActive) else { return }
+        guard UserDefaults.standard.bool(forKey: GPSTrackingService.kShiftActive) else { return }
         let request = BGAppRefreshTaskRequest(identifier: bgTaskId)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 8 * 60)
         try? BGTaskScheduler.shared.submit(request)
@@ -69,8 +67,8 @@ struct MowologyCRMApp: App {
         // Re-schedule immediately so the chain continues on next background entry.
         scheduleGPSRefreshIfNeeded()
 
-        let jobActive = UserDefaults.standard.bool(forKey: kJobTimerActive)
-        let lastPing  = UserDefaults.standard.double(forKey: kLastPingAt)
+        let jobActive = UserDefaults.standard.bool(forKey: GPSTrackingService.kShiftActive)
+        let lastPing  = UserDefaults.standard.double(forKey: GPSTrackingService.kLastPingAt)
         let elapsed   = lastPing > 0 ? Date().timeIntervalSince1970 - lastPing : 0
 
         // If a job is active and we haven't pinged in >8 minutes, nudge the crew.
@@ -91,6 +89,10 @@ struct MowologyCRMApp: App {
             )
             try? await UNUserNotificationCenter.current().add(request)
         }
+
+        // Attempt a single fresh ping so the server has a recent location
+        // even when the foreground ping loop was suspended.
+        if jobActive { await GPSTrackingService.shared.sendPing() }
 
         task.setTaskCompleted(success: true)
     }

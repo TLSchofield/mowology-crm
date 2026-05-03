@@ -9,36 +9,6 @@ import CoreLocation
 import UIKit
 import UserNotifications
 
-// MARK: - Response models (file-private)
-
-private struct AutoStartedPayload: Decodable {
-    let visitId: Int
-    let jobTitle: String?
-    let propertyAddress: String?
-    let distanceMeters: Int?
-    let clockInCreated: Bool?
-
-    enum CodingKeys: String, CodingKey {
-        case visitId         = "visit_id"
-        case jobTitle        = "job_title"
-        case propertyAddress = "property_address"
-        case distanceMeters  = "distance_meters"
-        case clockInCreated  = "clock_in_created"
-    }
-}
-
-private struct LocationPingResponse: Decodable {
-    let success: Bool
-    let skipped: Bool?
-    let autoStarted: AutoStartedPayload?
-
-    enum CodingKeys: String, CodingKey {
-        case success
-        case skipped
-        case autoStarted = "auto_started"
-    }
-}
-
 // MARK: - VisitDetailViewModel
 
 @MainActor
@@ -58,47 +28,32 @@ final class VisitDetailViewModel: ObservableObject {
 
     private let stop: Stop
     private let apiClient: APIClient
-    private let locationManager: LocationManager
     private let transitionQueue  = TransitionQueue()
     private let haptic           = UINotificationFeedbackGenerator()
-    private var tickTimer:         AnyCancellable?
-    private var pingTask:          Task<Void, Never>?
-    private var connectivityObserver: NSObjectProtocol?
+    private var tickTimer:        AnyCancellable?
+    private var autoStartSink:    AnyCancellable?
 
-    // UserDefaults keys shared with MowologyCRMApp BGTask handler
-    private let kJobTimerActive = "mw.jobTimerActive"
-    private let kLastPingAt     = "mw.lastPingAt"
+    private var gps: GPSTrackingService { GPSTrackingService.shared }
 
     // MARK: - Init
 
     init(stop: Stop, apiClient: APIClient) {
-        self.stop            = stop
-        self.apiClient       = apiClient
-        self.locationManager = LocationManager()
+        self.stop      = stop
+        self.apiClient = apiClient
 
         for visit in stop.visits {
             visitStatuses[visit.visitId] = visit.visitStatus
         }
-        locationManager.requestWhenInUsePermission()
+        gps.locationManager.requestWhenInUsePermission()
 
-        // On reconnect: drain queued GPS pings AND retry any failed job transitions.
-        connectivityObserver = NotificationCenter.default.addObserver(
-            forName: .mwPingQueueOnline,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task {
-                await PingQueue.shared.drain(using: self.apiClient)
-                await self.drainPendingTransitions()
+        // On reconnect: retry any failed job transitions.
+        // GPS ping drain is handled centrally by GPSTrackingService.
+        autoStartSink = NotificationCenter.default.publisher(for: .mwPingQueueOnline)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                Task { await self.drainPendingTransitions() }
             }
-        }
-    }
-
-    deinit {
-        if let obs = connectivityObserver {
-            NotificationCenter.default.removeObserver(obs)
-        }
     }
 
     // MARK: - Job Lifecycle
@@ -107,9 +62,8 @@ final class VisitDetailViewModel: ObservableObject {
         isLoading    = true
         errorMessage = nil
 
-        locationManager.resetSessionMetrics()
-
         // Give ArrivalMonitor the job-site coordinate so it can detect arrival.
+        // resetSessionMetrics is called by GPSTrackingService.setActiveVisit().
         if let lat = stop.latitude, let lon = stop.longitude {
             ArrivalMonitor.shared.configure(
                 site: CLLocationCoordinate2D(latitude: lat, longitude: lon)
@@ -140,18 +94,11 @@ final class VisitDetailViewModel: ObservableObject {
                 elapsedSeconds         = 0
                 startTicking()
                 ArrivalMonitor.shared.jobStarted()
+                gps.setActiveVisit(visitId)
 
                 if response.autoClockIn == true {
                     autoClockInNotice = "You've been automatically clocked in."
                 }
-
-                // Signal the BGAppRefreshTask that a job is active.
-                UserDefaults.standard.set(true,                          forKey: kJobTimerActive)
-                UserDefaults.standard.set(Date().timeIntervalSince1970,  forKey: kLastPingAt)
-
-                locationManager.requestAlwaysPermission()
-                locationManager.startBackgroundTracking()
-                startPingLoop(visitId: visitId)
             } else {
                 setError(response.message ?? "Failed to start job.")
             }
@@ -177,7 +124,7 @@ final class VisitDetailViewModel: ObservableObject {
             "action":         "stop",
             "visit_id":       visitId,
             "complete_visit": true,
-            "accuracy_badge": locationManager.accuracyBadge.rawValue
+            "accuracy_badge": gps.locationManager.accuracyBadge.rawValue
         ]
         if let lat { body["lat"] = lat }
         if let lng { body["lng"] = lng }
@@ -201,9 +148,7 @@ final class VisitDetailViewModel: ObservableObject {
                     activeTimerVisitId = nil
                     stopTicking()
                 }
-                stopPingLoop()
-                locationManager.stopBackgroundTracking()
-                UserDefaults.standard.set(false, forKey: kJobTimerActive)
+                gps.setActiveVisit(nil)
             } else {
                 setError(response.message ?? "Failed to complete job.")
             }
@@ -280,80 +225,6 @@ final class VisitDetailViewModel: ObservableObject {
         tickTimer = nil
     }
 
-    // MARK: - Adaptive GPS Ping Loop
-
-    /// Interval adapts every iteration from the current motion-activity state:
-    ///   walking/running → 20–30 s | automotive → 45 s | unknown → 60 s | stationary → 120 s
-    private func startPingLoop(visitId: Int) {
-        stopPingLoop()
-        pingTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { break }
-                let interval = self.locationManager.currentActivity.pingInterval
-                try? await Task.sleep(for: .seconds(interval))
-                guard !Task.isCancelled else { break }
-                await self.sendLocationPing(visitId: visitId)
-            }
-        }
-    }
-
-    private func stopPingLoop() {
-        pingTask?.cancel()
-        pingTask = nil
-    }
-
-    private func sendLocationPing(visitId: Int) async {
-        guard let loc = locationManager.lastLocation else { return }
-
-        let lat      = loc.coordinate.latitude
-        let lng      = loc.coordinate.longitude
-        let accuracy = loc.horizontalAccuracy >= 0 ? loc.horizontalAccuracy : 50.0
-
-        // Route replay — one point per minute stored locally.
-        RouteStore.shared.record(visitId: visitId, location: loc)
-
-        // Arrival / dwell monitoring.
-        ArrivalMonitor.shared.observe(fix: loc)
-
-        // Timestamp for BGTask inactivity detection.
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: kLastPingAt)
-
-        var body: [String: Any] = [
-            "lat":      lat,
-            "lng":      lng,
-            "accuracy": accuracy,
-            "visit_id": visitId,
-            "activity": locationManager.currentActivity.rawValue
-        ]
-
-        do {
-            let response: LocationPingResponse = try await apiClient.request(
-                .scheduleLocation, body: body
-            )
-            if let autoStart = response.autoStarted {
-                haptic.notificationOccurred(.success)
-                let vid = autoStart.visitId
-                visitStatuses[vid] = "in_progress"
-                activeTimerVisitId  = vid
-                elapsedSeconds      = 0
-                startTicking()
-                if autoStart.clockInCreated == true {
-                    autoClockInNotice = "You've been automatically clocked in."
-                }
-                UserDefaults.standard.set(true, forKey: kJobTimerActive)
-                locationManager.requestAlwaysPermission()
-                locationManager.startBackgroundTracking()
-                startPingLoop(visitId: vid)
-            }
-        } catch let error as APIError {
-            if case .networkError = error {
-                PingQueue.shared.store(lat: lat, lng: lng, accuracy: accuracy, visitId: visitId)
-            }
-        } catch {
-            PingQueue.shared.store(lat: lat, lng: lng, accuracy: accuracy, visitId: visitId)
-        }
-    }
-
     // MARK: - Helpers
 
     func status(for visit: Visit) -> String {
@@ -370,8 +241,8 @@ final class VisitDetailViewModel: ObservableObject {
     }
 
     private func safeLocation() async -> (Double?, Double?) {
-        guard locationManager.canUseLocation else { return (nil, nil) }
-        if let loc = try? await locationManager.currentLocation() {
+        guard gps.locationManager.canUseLocation else { return (nil, nil) }
+        if let loc = try? await gps.locationManager.currentLocation() {
             return (loc.coordinate.latitude, loc.coordinate.longitude)
         }
         return (nil, nil)
