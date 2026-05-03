@@ -12,11 +12,14 @@ struct ScheduleView: View {
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ScheduleViewModel
 
-    @State private var showDatePicker  = false
-    @State private var pickerDate      = Date()
+    @State private var showDatePicker = false
+    @State private var pickerDate     = Date()
+    @State private var viewMode       = ViewMode.list
 
     private let impactLight  = UIImpactFeedbackGenerator(style: .light)
     private let impactMedium = UIImpactFeedbackGenerator(style: .medium)
+
+    private enum ViewMode { case list, map }
 
     // MARK: - Init
 
@@ -33,8 +36,6 @@ struct ScheduleView: View {
             VStack(spacing: 0) {
 
                 // MARK: Week Strip
-                // Swipe left/right to advance weeks. No competing ScrollView
-                // inside, so the gesture fires reliably.
                 WeekStripView(
                     selectedDate: weekStripBinding,
                     weekDays: viewModel.weekDays
@@ -50,23 +51,42 @@ struct ScheduleView: View {
                         }
                 )
 
+                // MARK: View Mode Toggle
+                Picker("View", selection: $viewMode) {
+                    Label("List", systemImage: "list.bullet").tag(ViewMode.list)
+                    Label("Map",  systemImage: "map").tag(ViewMode.map)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Color(.systemBackground))
+
                 Divider()
 
-                // MARK: Day List
-                DayListView(
-                    stops:        viewModel.stops,
-                    isLoading:    viewModel.isLoading,
-                    errorMessage: viewModel.errorMessage,
-                    isAdmin:      authSession.user?.isAdmin ?? false,
-                    onRefresh:    { await viewModel.refresh() }
-                )
-                .navigationDestination(for: Stop.self) { stop in
-                    VisitDetailView(
-                        stop:        stop,
-                        isAdmin:     authSession.user?.isAdmin ?? false,
-                        authSession: authSession
+                // MARK: Content
+                if viewMode == .list {
+                    DayListView(
+                        stops:        viewModel.stops,
+                        isLoading:    viewModel.isLoading,
+                        errorMessage: viewModel.errorMessage,
+                        isAdmin:      authSession.user?.isAdmin ?? false,
+                        onRefresh:    { await viewModel.refresh() }
+                    )
+                } else {
+                    DayMapView(
+                        stops:     viewModel.stops,
+                        isLoading: viewModel.isLoading,
+                        isAdmin:   authSession.user?.isAdmin ?? false
                     )
                 }
+            }
+            // Single navigationDestination covers both list and map modes.
+            .navigationDestination(for: Stop.self) { stop in
+                VisitDetailView(
+                    stop:        stop,
+                    isAdmin:     authSession.user?.isAdmin ?? false,
+                    authSession: authSession
+                )
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -141,7 +161,6 @@ struct ScheduleView: View {
             }
         }
 
-        // Week range label doubles as the calendar jump button.
         ToolbarItem(placement: .principal) {
             Button {
                 pickerDate = viewModel.selectedDate

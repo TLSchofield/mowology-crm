@@ -42,6 +42,7 @@
 		6BD49E1E63D34A44ACF095A6 /* GPSTrackingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C547C4C433774E19B449B943 /* GPSTrackingService.swift */; };
 		FEC47F5526ACC47E8A074ADF /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */; };
 		B4E3D9C25F6A7B8901234567 /* MWTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2C8D14E5B6A7890123456 /* MWTheme.swift */; };
+		B161D21DEEAF8DED7311CA9C /* DayMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -82,6 +83,7 @@
 		F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitionQueue.swift; sourceTree = "<group>"; };
 		F73A09E1281950C78A2D0821 /* StopCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopCardView.swift; sourceTree = "<group>"; };
 		A3F2C8D14E5B6A7890123456 /* MWTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MWTheme.swift; sourceTree = "<group>"; };
+		A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayMapView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -205,7 +207,8 @@
 			children = (
 				6BC0B66BE87B94B74DD29C05 /* LoginView.swift */,
 				82CAF080C57ADDAE06034F25 /* LoginViewModel.swift */,
-			);
+							A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */,
+);
 			path = Auth;
 			sourceTree = "<group>";
 		};
