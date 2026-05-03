@@ -36,13 +36,13 @@ struct ReceiptReviewView: View {
 
         let p = intake.parsed
         let s = intake.suggestions
-        _vendorName    = State(initialValue: s.vendorName ?? p.vendorHint ?? "")
-        _expenseDate   = State(initialValue: Self.parseDate(p.date))
-        _amount        = State(initialValue: p.subtotal ?? p.total ?? "")
-        _gst           = State(initialValue: p.gst ?? "")
-        _total         = State(initialValue: p.total ?? "")
-        _category      = State(initialValue: s.accountingCategory ?? "")
-        _paymentMethod = State(initialValue: p.paymentMethod ?? "credit_card")
+        _vendorName    = State(initialValue: s?.vendorName ?? p?.vendorHint ?? "")
+        _expenseDate   = State(initialValue: Self.parseDate(p?.date))
+        _amount        = State(initialValue: p?.subtotal ?? p?.total ?? "")
+        _gst           = State(initialValue: p?.gst ?? "")
+        _total         = State(initialValue: p?.total ?? "")
+        _category      = State(initialValue: s?.accountingCategory ?? "")
+        _paymentMethod = State(initialValue: p?.paymentMethod ?? "credit_card")
         _notes         = State(initialValue: "")
     }
 
@@ -92,7 +92,7 @@ struct ReceiptReviewView: View {
         Section {
             HStack {
                 Spacer()
-                AsyncImage(url: URL(string: "https://mowology.ca\(intake.parsed.vendorHint ?? "")")) { img in
+                AsyncImage(url: URL(string: "https://mowology.ca\(intake.parsed?.vendorHint ?? "")")) { img in
                     img.resizable().scaledToFit().frame(maxHeight: 180).clipShape(RoundedRectangle(cornerRadius: 10))
                 } placeholder: {
                     RoundedRectangle(cornerRadius: 10)
@@ -117,7 +117,7 @@ struct ReceiptReviewView: View {
         Section("Vendor") {
             HStack {
                 TextField("Vendor name", text: $vendorName)
-                if let conf = intake.suggestions.vendorConfidence, conf > 0 {
+                if let conf = intake.suggestions?.vendorConfidence, conf > 0 {
                     confidenceDot(conf)
                 }
             }
@@ -185,7 +185,7 @@ struct ReceiptReviewView: View {
     private func save() async {
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
         let saved = await viewModel.saveExpense(
-            vendorId:      intake.suggestions.vendorId,
+            vendorId:      intake.suggestions?.vendorId,
             vendorName:    vendorName,
             date:          fmt.string(from: expenseDate),
             amount:        Double(amount) ?? 0,

@@ -198,8 +198,8 @@ try {
 
     $ocrAvailable = $ocrResult['success'];
     $ocrText      = $ocrResult['text'] ?? '';
-    $parsed       = [];
-    $suggestions  = [];
+    $parsed       = new stdClass();
+    $suggestions  = new stdClass();
 
     if ($ocrAvailable && !empty($ocrText)) {
         $parsed      = parseReceiptText($ocrText, $ocrResult['raw_response'] ?? null);
@@ -257,7 +257,7 @@ try {
     }
 
     // Suggest nearby job from schedule
-    $jobSuggestions = [];
+    $jobSuggestions = null;
     try {
         $jobSuggestions = suggestJobFromSchedule($userId, $lat, $lng);
     } catch (Throwable $e) {

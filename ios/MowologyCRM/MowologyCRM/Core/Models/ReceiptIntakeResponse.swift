@@ -10,8 +10,8 @@ struct ReceiptIntakeResponse: Decodable {
     let mediaId: Int
     let ocrAvailable: Bool
     let ocrSource: String?
-    let parsed: ParsedReceipt
-    let suggestions: ReceiptSuggestions
+    let parsed: ParsedReceipt?
+    let suggestions: ReceiptSuggestions?
     let jobSuggestions: [JobSuggestion]?
     let duplicateImage: DuplicateImageInfo?
 
