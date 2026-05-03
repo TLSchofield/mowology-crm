@@ -802,7 +802,7 @@ class BankImportService
         // The old "a2 > a1 * 5" heuristic fails for large transactions (e.g. $9,590
         // deposit with $20,145 balance → ratio only 2.1x, not caught).
         $is3Col = (bool)preg_match(
-            '/WITHDRAWALS?\s+DEPOSITS?\s+BALANCE|DEBIT\s+CREDIT\s+BALANCE/i',
+            '/WITHDRAWALS?\s+DEPOSITS?\s+BALANCE|DEBITS?\s+CREDITS?\s+BALANCE/i',
             $text
         );
 
@@ -919,11 +919,14 @@ class BankImportService
             $amt1Raw = trim($m[3]);
             $amt2Raw = isset($m[4]) ? trim($m[4]) : '';
 
-            // Skip balance / summary rows
-            $descLower = strtolower($desc);
+            // Skip balance-forward / summary rows.
+            // Match only lines whose description IS a balance indicator, not ones that
+            // merely contain the word — e.g. "BALANCE PROTECTION INSURANCE" must not drop.
             if (preg_match(
-                '/\b(balance|total|opening|closing|brought forward|carried forward|subtotal)\b/',
-                $descLower
+                '/^(balance\s+(brought|carried|forward)|opening\s+balance|closing\s+balance'
+                . '|brought\s+forward|carried\s+forward|subtotal\b'
+                . '|total\s+deposits?|total\s+withdrawals?|total\s+debits?|total\s+credits?)/i',
+                $desc
             )) {
                 if ($debug) $rejectLog[] = ['line' => $line, 'reason' => 'balance_summary_skip', 'desc' => $desc];
                 continue;
@@ -974,6 +977,11 @@ class BankImportService
                             $runningBalances[]   = $a2;
                             $prevRunningBalance  = $a2;
                         }
+                    } elseif ($a1 !== null && $a1 == 0 && $a2 !== null && $a2 > 0) {
+                        // a1 is an explicit zero withdrawal column; a2 is the deposit amount.
+                        // Regex captured only 2 amounts so no running balance is available.
+                        $type   = 'income';
+                        $amount = $a2;
                     }
                 } else {
                     // 2-column or unknown: use ratio heuristic as fallback
@@ -1704,6 +1712,11 @@ class BankImportService
         $out = shell_exec("{$bin} -layout {$escaped} - 2>/dev/null");
         if ($out === null || trim($out) === '') {
             throw new RuntimeException('pdftotext failed to extract text from this PDF.');
+        }
+        // Populate rawPageTexts so the debug modal can show extracted text per page.
+        $pages = preg_split('/\f/', $out);
+        foreach ($pages as $i => $pageText) {
+            $this->rawPageTexts[$i + 1] = $pageText;
         }
         return $out;
     }

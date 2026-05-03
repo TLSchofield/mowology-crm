@@ -739,7 +739,6 @@ function updateBalanceStrip() {
     const fmt = v => '$' + parseFloat(v).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2});
     let computed = parseFloat(bc.opening);
     for (const r of previewRows) {
-        if (r.is_duplicate) continue;
         const amt = parseFloat(r.amount) || 0;
         computed += r.type === 'income' ? amt : -amt;
     }
@@ -935,7 +934,7 @@ async function runDebugOcr() {
 
     let data;
     try {
-        const resp = await fetch('/app/Modules/Accounting/Api/bank-import.php', { method: 'POST', body: fd });
+        const resp = await fetch(API, { method: 'POST', body: fd });
         data = await resp.json();
     } catch (err) {
         loading.classList.add('d-none');
