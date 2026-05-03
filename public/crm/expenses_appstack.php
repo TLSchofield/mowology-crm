@@ -19,7 +19,7 @@ $activePage = 'expenses';
 $csrfToken = generateCSRFToken();
 $mapsApiKey = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : '';
 $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) . '">'
-           . '<link href="/crm/css/mobile-cards.css?v=20260502a" rel="stylesheet">'
+           . '<link href="/crm/css/mobile-cards.css?v=20260502b" rel="stylesheet">'
            . '<script src="/crm/js/offline-receipts.js?v=20260227b" defer></script>'
            . '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmlspecialchars($mapsApiKey, ENT_QUOTES, 'UTF-8') . '&libraries=places" async defer></script>';
 ?>
@@ -735,7 +735,7 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                     <label>Total</label>
                     <div class="mw-mc-expense-total-input-wrap">
                         <span class="mw-mc-expense-currency">$</span>
-                        <input type="number" id="mobileRvTotal" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
+                        <input type="number" id="mobileRvTotal" step="0.01" min="0" inputmode="decimal" placeholder="0.00" oninput="recalcMobileSubtotal(); clearMobileFieldError(this.closest('.mw-mc-expense-total-input-wrap'))">
                         <span class="mw-mc-expense-conf-dot" id="mobileConfTotal"></span>
                     </div>
                 </div>
@@ -753,21 +753,21 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
                         <div class="mw-mc-expense-field-row">
                             <div class="mw-mc-expense-field">
                                 <label>Subtotal</label>
-                                <input type="number" id="mobileRvAmount" step="0.01" min="0" inputmode="decimal" placeholder="0.00">
+                                <input type="number" id="mobileRvAmount" step="0.01" min="0" inputmode="decimal" placeholder="0.00" oninput="recalcMobileTotal()">
                             </div>
                             <div class="mw-mc-expense-field">
                                 <label>GST</label>
-                                <input type="number" id="mobileRvGst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                                <input type="number" id="mobileRvGst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00" oninput="recalcMobileTotal()">
                             </div>
                         </div>
                         <div class="mw-mc-expense-field-row">
                             <div class="mw-mc-expense-field">
                                 <label>PST</label>
-                                <input type="number" id="mobileRvPst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                                <input type="number" id="mobileRvPst" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00" oninput="recalcMobileTotal()">
                             </div>
                             <div class="mw-mc-expense-field">
                                 <label>Recycling</label>
-                                <input type="number" id="mobileRvRecyclingTax" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00">
+                                <input type="number" id="mobileRvRecyclingTax" step="0.01" min="0" value="0" inputmode="decimal" placeholder="0.00" oninput="recalcMobileTotal()">
                             </div>
                         </div>
                     </div>
@@ -4095,6 +4095,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var imgWrap = document.getElementById('mobileReceiptWrap');
         if (imgWrap) imgWrap.classList.remove('mw-mc-expense-review-img-expanded');
 
+        // Clear any field error states
+        clearMobileFieldError(document.querySelector('#mobileReviewPanel .mw-mc-expense-total-input-wrap'));
+
         // Reset tax section to collapsed state
         var taxFields = document.getElementById('mobileTaxFields');
         if (taxFields) taxFields.style.display = 'none';
@@ -4382,7 +4385,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         };
 
         if (!data.total || parseFloat(data.total) <= 0) {
-            mobileToast('Please enter a total amount', true);
+            var totalWrap = document.querySelector('#mobileReviewPanel .mw-mc-expense-total-input-wrap');
+            setMobileFieldError(totalWrap);
+            document.getElementById('mobileRvTotal').focus();
             return;
         }
 
@@ -4629,6 +4634,40 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         };
         return labels[method] || method || '';
     }
+
+    // ── Bidirectional Tax Math ────────────────────────────────
+    window.recalcMobileTotal = function() {
+        var sub = parseFloat(document.getElementById('mobileRvAmount').value) || 0;
+        var gst = parseFloat(document.getElementById('mobileRvGst').value) || 0;
+        var pst = parseFloat(document.getElementById('mobileRvPst').value) || 0;
+        var rec = parseFloat(document.getElementById('mobileRvRecyclingTax').value) || 0;
+        var total = sub + gst + pst + rec;
+        var totalEl = document.getElementById('mobileRvTotal');
+        if (totalEl) {
+            totalEl.value = total > 0 ? total.toFixed(2) : '';
+            if (total > 0) window.clearMobileFieldError(totalEl.closest('.mw-mc-expense-total-input-wrap'));
+        }
+        updateMobileTaxSummary();
+    };
+
+    window.recalcMobileSubtotal = function() {
+        var total = parseFloat(document.getElementById('mobileRvTotal').value) || 0;
+        var gst = parseFloat(document.getElementById('mobileRvGst').value) || 0;
+        var pst = parseFloat(document.getElementById('mobileRvPst').value) || 0;
+        var rec = parseFloat(document.getElementById('mobileRvRecyclingTax').value) || 0;
+        var sub = total - gst - pst - rec;
+        var amtEl = document.getElementById('mobileRvAmount');
+        if (amtEl) amtEl.value = sub > 0 ? sub.toFixed(2) : '';
+        updateMobileTaxSummary();
+    };
+
+    window.setMobileFieldError = function(el) {
+        if (el) el.classList.add('mw-mc-field-error');
+    };
+
+    window.clearMobileFieldError = function(el) {
+        if (el) el.classList.remove('mw-mc-field-error');
+    };
 
     // ── Tax Section — summary label + toggle ─────────────────
     function updateMobileTaxSummary() {

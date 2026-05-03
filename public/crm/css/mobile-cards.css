@@ -2212,6 +2212,13 @@
         background: #fafaf8;
     }
 
+    /* ── Field Error State ── */
+    .mw-mc-field-error {
+        background: #ffeaea !important;
+        border-color: #e53e3e !important;
+        border-radius: 8px;
+    }
+
     /* ── Collapsible Tax Section ── */
     .mw-mc-expense-tax-section {
         margin-bottom: 10px;
