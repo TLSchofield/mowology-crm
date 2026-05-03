@@ -29,6 +29,10 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<false/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Used to photograph receipts for expense tracking.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Used to select receipt photos from your library.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Used to send your location to dispatch every 30–120 seconds while you have an active job, even when the app is in the background.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
