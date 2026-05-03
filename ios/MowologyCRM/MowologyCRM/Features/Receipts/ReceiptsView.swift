@@ -17,6 +17,7 @@ struct ReceiptsView: View {
     @State private var showLibrary  = false
     @State private var showReview   = false
     @State private var pickerItem: PhotosPickerItem?
+    @State private var showErrorAlert = false
 
     private let impact          = UIImpactFeedbackGenerator(style: .medium)
     private let locationManager = CLLocationManager()
@@ -75,6 +76,14 @@ struct ReceiptsView: View {
             if viewModel.isUploading {
                 uploadOverlay
             }
+        }
+        .onChange(of: viewModel.uploadError) { _, err in
+            if err != nil { showErrorAlert = true }
+        }
+        .alert("Upload Failed", isPresented: $showErrorAlert) {
+            Button("OK") { viewModel.uploadError = nil }
+        } message: {
+            Text(viewModel.uploadError ?? "")
         }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
