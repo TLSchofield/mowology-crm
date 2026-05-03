@@ -76,6 +76,7 @@ try {
             UPLOAD_ERR_NO_TMP_DIR => 'Server temp directory missing',
             UPLOAD_ERR_CANT_WRITE => 'Failed to write file',
         ][$errCode] ?? 'Upload error';
+        http_response_code(400);
         echo json_encode(['success' => false, 'error' => $errMsg]);
         exit;
     }
@@ -84,10 +85,12 @@ try {
     $mimeType = mime_content_type($file['tmp_name']);
     $allowed  = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
     if (!in_array($mimeType, $allowed)) {
+        http_response_code(415);
         echo json_encode(['success' => false, 'error' => 'Only image files accepted (JPEG, PNG, GIF, WebP, HEIC)']);
         exit;
     }
     if ($file['size'] > 10 * 1024 * 1024) {
+        http_response_code(413);
         echo json_encode(['success' => false, 'error' => 'File too large (max 10MB)']);
         exit;
     }
@@ -102,6 +105,7 @@ try {
     $webPath    = '/uploads/receipts/' . $storedName;
 
     if (!move_uploaded_file($file['tmp_name'], $filePath)) {
+        http_response_code(500);
         echo json_encode(['success' => false, 'error' => 'Failed to save uploaded file']);
         exit;
     }

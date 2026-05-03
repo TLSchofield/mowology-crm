@@ -46,12 +46,7 @@ struct ReceiptsView: View {
                     Task {
                         // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread
                         let compressed: Data = await Task.detached(priority: .userInitiated) {
-                            guard let raw = image.jpegData(compressionQuality: 0.85) else { return Data() }
-                            if raw.count <= 1_500_000 { return raw }
-                            for q: CGFloat in [0.7, 0.55, 0.4, 0.25, 0.1] {
-                                if let d = image.jpegData(compressionQuality: q), d.count <= 1_500_000 { return d }
-                            }
-                            return image.jpegData(compressionQuality: 0.1) ?? raw
+                            ReceiptsView.resizeAndCompress(image)
                         }.value
                         guard !compressed.isEmpty else { return }
                         await handleCapture(compressed)
@@ -91,12 +86,7 @@ struct ReceiptsView: View {
             Task {
                 guard let raw = try? await newItem.loadTransferable(type: Data.self) else { return }
                 let compressed: Data = await Task.detached(priority: .userInitiated) {
-                    guard let img = UIImage(data: raw) else { return raw }
-                    if raw.count <= 1_500_000 { return raw }
-                    for q: CGFloat in [0.85, 0.7, 0.55, 0.4, 0.25, 0.1] {
-                        if let d = img.jpegData(compressionQuality: q), d.count <= 1_500_000 { return d }
-                    }
-                    return img.jpegData(compressionQuality: 0.1) ?? raw
+                    ReceiptsView.resizeAndCompress(UIImage(data: raw) ?? UIImage())
                 }.value
                 await handleCapture(compressed)
             }
@@ -249,6 +239,27 @@ struct ReceiptsView: View {
             }
             .disabled(viewModel.isLoadingList)
         }
+    }
+
+    // MARK: - Image resize + compress
+
+    // Matches Capacitor behaviour: max 1920px wide, 78% JPEG quality → ~200-600 KB
+    static func resizeAndCompress(_ image: UIImage) -> Data {
+        let maxDim: CGFloat = 1920
+        let size = image.size
+        let scale = size.width > maxDim || size.height > maxDim
+            ? min(maxDim / size.width, maxDim / size.height) : 1.0
+        let target = scale < 1.0
+            ? CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+            : size
+        let renderer = UIGraphicsImageRenderer(size: target)
+        let resized  = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
+        // Try 78% first (Capacitor default), fall back if still over 1.5 MB
+        if let d = resized.jpegData(compressionQuality: 0.78), d.count <= 1_500_000 { return d }
+        for q: CGFloat in [0.6, 0.45, 0.3, 0.15] {
+            if let d = resized.jpegData(compressionQuality: q), d.count <= 1_500_000 { return d }
+        }
+        return resized.jpegData(compressionQuality: 0.15) ?? Data()
     }
 }
 
