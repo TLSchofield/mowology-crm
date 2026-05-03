@@ -42,8 +42,19 @@ struct ReceiptsView: View {
             CameraPicker(
                 onCapture: { image in
                     showCamera = false
-                    guard let jpeg = image.jpegData(compressionQuality: 0.9) else { return }
-                    Task { await handleCapture(jpeg) }
+                    Task {
+                        // Encode + compress off @MainActor — 12MP photos take ~1-2s on main thread
+                        let compressed: Data = await Task.detached(priority: .userInitiated) {
+                            guard let raw = image.jpegData(compressionQuality: 0.85) else { return Data() }
+                            if raw.count <= 1_500_000 { return raw }
+                            for q: CGFloat in [0.7, 0.55, 0.4, 0.25, 0.1] {
+                                if let d = image.jpegData(compressionQuality: q), d.count <= 1_500_000 { return d }
+                            }
+                            return image.jpegData(compressionQuality: 0.1) ?? raw
+                        }.value
+                        guard !compressed.isEmpty else { return }
+                        await handleCapture(compressed)
+                    }
                 },
                 onCancel: { showCamera = false }
             )
@@ -69,17 +80,23 @@ struct ReceiptsView: View {
             guard let newItem else { return }
             showLibrary = false
             Task {
-                guard let data = try? await newItem.loadTransferable(type: Data.self) else { return }
-                await handleCapture(data)
+                guard let raw = try? await newItem.loadTransferable(type: Data.self) else { return }
+                let compressed: Data = await Task.detached(priority: .userInitiated) {
+                    guard let img = UIImage(data: raw) else { return raw }
+                    if raw.count <= 1_500_000 { return raw }
+                    for q: CGFloat in [0.85, 0.7, 0.55, 0.4, 0.25, 0.1] {
+                        if let d = img.jpegData(compressionQuality: q), d.count <= 1_500_000 { return d }
+                    }
+                    return img.jpegData(compressionQuality: 0.1) ?? raw
+                }.value
+                await handleCapture(compressed)
             }
         }
     }
 
     // MARK: - Capture handler
 
-    private func handleCapture(_ data: Data) async {
-        let compressed = compressToJpeg(data, maxBytes: 1_500_000)
-        locationManager.requestWhenInUseAuthorization()
+    private func handleCapture(_ compressed: Data) async {
         let loc = locationManager.location
         await viewModel.uploadImage(
             compressed,
@@ -87,16 +104,6 @@ struct ReceiptsView: View {
             lng: loc?.coordinate.longitude
         )
         if viewModel.intakeResponse != nil { showReview = true }
-    }
-
-    private func compressToJpeg(_ data: Data, maxBytes: Int) -> Data {
-        guard let img = UIImage(data: data) else { return data }
-        var q: CGFloat = 0.85
-        while q > 0.1 {
-            if let jpeg = img.jpegData(compressionQuality: q), jpeg.count <= maxBytes { return jpeg }
-            q -= 0.15
-        }
-        return img.jpegData(compressionQuality: 0.1) ?? data
     }
 
     // MARK: - List
