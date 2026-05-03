@@ -2,12 +2,53 @@
 //  ReceiptCaptureView.swift
 //  MowologyCRM
 //
-//  Camera and photo-library picker. Compresses to JPEG before upload.
-//
 
 import SwiftUI
 import PhotosUI
+import UIKit
 import CoreLocation
+
+// MARK: - UIImagePickerController wrapper
+
+private struct CameraPicker: UIViewControllerRepresentable {
+    var onCapture: (UIImage) -> Void
+    var onCancel:  () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker           = UIImagePickerController()
+        picker.sourceType    = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
+        picker.delegate      = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject,
+                             UIImagePickerControllerDelegate,
+                             UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ parent: CameraPicker) { self.parent = parent }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            if let image = (info[.editedImage] ?? info[.originalImage]) as? UIImage {
+                parent.onCapture(image)
+            } else {
+                parent.onCancel()
+            }
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.onCancel()
+        }
+    }
+}
+
+// MARK: - ReceiptCaptureView
 
 struct ReceiptCaptureView: View {
 
@@ -15,8 +56,9 @@ struct ReceiptCaptureView: View {
     @Binding var showCapture: Bool
     @Binding var showReview:  Bool
 
+    // Camera opens after sheet finishes animating (same as Capacitor setTimeout 300ms).
+    @State private var showCamera  = false
     @State private var pickerItem: PhotosPickerItem?
-    @State private var showCamera = false
 
     private let locationManager = CLLocationManager()
 
@@ -26,7 +68,7 @@ struct ReceiptCaptureView: View {
                 if viewModel.isUploading {
                     uploadingView
                 } else {
-                    sourceButtons
+                    fallbackButtons
                 }
                 if let err = viewModel.uploadError {
                     Text(err)
@@ -48,19 +90,45 @@ struct ReceiptCaptureView: View {
                 }
             }
         }
+        // Camera opens immediately and covers the sheet.
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker(
+                onCapture: { image in
+                    showCamera = false
+                    guard let data = image.jpegData(compressionQuality: 0.9) else { return }
+                    Task { await handleImageData(data) }
+                },
+                onCancel: {
+                    showCamera = false
+                    showCapture = false
+                }
+            )
+            .ignoresSafeArea()
+        }
         .onChange(of: pickerItem) { _, newItem in
             guard let newItem else { return }
-            Task { await handlePickedItem(newItem) }
+            Task {
+                guard let data = try? await newItem.loadTransferable(type: Data.self) else { return }
+                await handleImageData(data)
+            }
+        }
+        // Delay mirrors Capacitor setTimeout(triggerCamera, 300) so the sheet
+        // animation finishes before the fullScreenCover is presented.
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { showCamera = true }
         }
         .presentationDetents([.medium])
     }
 
-    // MARK: - Source Buttons
+    // MARK: - Fallback buttons (shown only when camera is dismissed without capture)
 
-    private var sourceButtons: some View {
+    private var fallbackButtons: some View {
         VStack(spacing: 16) {
-            PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
-                Label("Camera / Library", systemImage: "camera.fill")
+            Button {
+                viewModel.uploadError = nil
+                showCamera = true
+            } label: {
+                Label("Take Photo", systemImage: "camera.fill")
                     .font(.headline)
                     .frame(maxWidth: .infinity, minHeight: 52)
                     .background(Color.MW.green)
@@ -68,7 +136,20 @@ struct ReceiptCaptureView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             }
 
-            Text("Point at a receipt and capture it — the app will read the amounts automatically.")
+            PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                Label("Choose from Library", systemImage: "photo.on.rectangle")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .foregroundStyle(Color.MW.green)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.MW.green, lineWidth: 1.5)
+                    )
+            }
+
+            Text("Point at a receipt — the app reads amounts automatically.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -76,34 +157,29 @@ struct ReceiptCaptureView: View {
         }
     }
 
-    // MARK: - Uploading view
+    // MARK: - Uploading indicator
 
     private var uploadingView: some View {
         VStack(spacing: 16) {
-            ProgressView()
-                .scaleEffect(1.5)
+            ProgressView().scaleEffect(1.5)
             Text("Reading receipt…")
                 .font(.headline)
                 .foregroundStyle(.secondary)
         }
     }
 
-    // MARK: - Handle picked photo
+    // MARK: - Image processing
 
-    private func handlePickedItem(_ item: PhotosPickerItem) async {
-        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-
-        // Compress to ≤ 1.5 MB JPEG
+    private func handleImageData(_ data: Data) async {
         let compressed = compressToJpeg(data, maxBytes: 1_500_000)
-
-        let location = await currentLocation()
-        await viewModel.uploadImage(compressed, lat: location?.coordinate.latitude, lng: location?.coordinate.longitude)
-
-        // Dismiss capture sheet; if upload succeeded show review
+        let location   = await currentLocation()
+        await viewModel.uploadImage(
+            compressed,
+            lat: location?.coordinate.latitude,
+            lng: location?.coordinate.longitude
+        )
         showCapture = false
-        if viewModel.intakeResponse != nil {
-            showReview = true
-        }
+        if viewModel.intakeResponse != nil { showReview = true }
     }
 
     private func compressToJpeg(_ data: Data, maxBytes: Int) -> Data {
