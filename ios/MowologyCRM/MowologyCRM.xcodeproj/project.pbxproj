@@ -107,6 +107,7 @@
 				A66186FA7B72C0E2DE4F3208 /* PendingTransition.swift */,
 				CE716DE714937E2614370F75 /* PingQueue.swift */,
 				F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */,
+				20334B98F42E1FA61C896430 /* ReceiptQueue.swift */,
 			);
 			path = Offline;
 			sourceTree = "<group>";
@@ -116,8 +117,7 @@
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
-							20334B98F42E1FA61C896430 /* ReceiptQueue.swift */,
-);
+			);
 			sourceTree = "<group>";
 		};
 		3CAC498CFC84EC47A1CECC6B /* Network */ = {
@@ -233,6 +233,7 @@
 				CE20BCAEE842327D670D075B /* Auth */,
 				77C42B8E19B50F970FF6A5FB /* Schedule */,
 				72C8560F970C9C517EFD669D /* TimeClock */,
+				A8B19292E74114A1A37EDE2C /* Receipts */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -245,8 +246,9 @@
 				AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */,
 				C9C49661C41333A49EE1D301 /* User.swift */,
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
-							A8B19292E74114A1A37EDE2C /* Receipts */,
-);
+				15B038E603948161013BAE5A /* ReceiptIntakeResponse.swift */,
+				D2304800F25344F166EF4441 /* Expense.swift */,
+			);
 			path = Models;
 			sourceTree = "<group>";
 		};
@@ -255,9 +257,7 @@
 			children = (
 				C8040C6DF2C66988040204FE /* Assets.xcassets */,
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
-							15B038E603948161013BAE5A /* ReceiptIntakeResponse.swift */,
-				D2304800F25344F166EF4441 /* Expense.swift */,
-);
+			);
 			path = Resources;
 			sourceTree = "<group>";
 		};
@@ -273,6 +273,9 @@
 			isa = PBXGroup;
 			children = (
 				B66D635A5EA948A73D504CD1 /* ReceiptsViewModel.swift */,
+				41A00EA0662C14163182538D /* ReceiptsView.swift */,
+				C0ED400491FC08BF80DB7ED9 /* ReceiptCaptureView.swift */,
+				020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */,
 			);
 			path = Receipts;
 			sourceTree = "<group>";
