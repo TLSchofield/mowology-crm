@@ -12,20 +12,11 @@ struct WeekStripView: View {
     @Binding var selectedDate: Date
     let weekDays: [ScheduleDay]
 
-    // Mowology brand colors.
-    private let mwGreen  = Color(red: 0.176, green: 0.525, blue: 0.349)
-    private let mwOrange = Color(red: 0.910, green: 0.365, blue: 0.016)
-
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(weekDays) { day in
-                    DayChip(
-                        day: day,
-                        isSelected: isSelected(day),
-                        mwGreen: mwGreen,
-                        mwOrange: mwOrange
-                    ) {
+                    DayChip(day: day, isSelected: isSelected(day)) {
                         selectDay(day)
                     }
                 }
@@ -70,8 +61,6 @@ private struct DayChip: View {
 
     let day: ScheduleDay
     let isSelected: Bool
-    let mwGreen: Color
-    let mwOrange: Color
     let action: () -> Void
 
     var body: some View {
@@ -86,15 +75,14 @@ private struct DayChip: View {
                 // Day number (e.g. "3")
                 Text("\(day.dayNumber)")
                     .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundStyle(isSelected ? .white : (day.isToday ? mwGreen : .primary))
+                    .foregroundStyle(isSelected ? .white : (day.isToday ? Color.MW.green : .primary))
 
                 // Activity dot
                 if day.stopCount > 0 {
                     Circle()
-                        .fill(day.hasIncomplete ? mwOrange : mwGreen)
+                        .fill(day.hasIncomplete ? Color.MW.orange : Color.MW.green)
                         .frame(width: 6, height: 6)
                 } else {
-                    // Invisible placeholder to keep chip heights uniform.
                     Circle()
                         .fill(Color.clear)
                         .frame(width: 6, height: 6)
@@ -103,12 +91,12 @@ private struct DayChip: View {
             .frame(width: 48, height: 72)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(isSelected ? mwGreen : (day.isToday ? mwGreen.opacity(0.08) : Color(.systemGray6)))
+                    .fill(isSelected ? Color.MW.green : (day.isToday ? Color.MW.green.opacity(0.08) : Color(.systemGray6)))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(
-                        day.isToday && !isSelected ? mwGreen.opacity(0.4) : Color.clear,
+                        day.isToday && !isSelected ? Color.MW.green.opacity(0.4) : Color.clear,
                         lineWidth: 1.5
                     )
             )

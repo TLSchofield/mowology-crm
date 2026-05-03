@@ -5,18 +5,18 @@ struct AppUpdateView: View {
 
     var body: some View {
         ZStack {
-            Color(red: 0.051, green: 0.231, blue: 0.180)
+            Color.MW.forest
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 Image(systemName: "arrow.down.app.fill")
                     .font(.system(size: 64))
-                    .foregroundColor(Color(red: 0.498, green: 0.847, blue: 0.345))
+                    .foregroundColor(Color.MW.lime)
                     .padding(.bottom, 20)
 
                 Text("Update Required")
                     .font(.system(size: 26, weight: .bold))
-                    .foregroundColor(Color(red: 0.498, green: 0.847, blue: 0.345))
+                    .foregroundColor(Color.MW.lime)
                     .padding(.bottom, 8)
 
                 if !result.latestVersion.isEmpty {
@@ -46,8 +46,8 @@ struct AppUpdateView: View {
                         .frame(minWidth: 220)
                         .padding(.vertical, 14)
                         .padding(.horizontal, 36)
-                        .background(Color(red: 0.498, green: 0.847, blue: 0.345))
-                        .foregroundColor(Color(red: 0.051, green: 0.231, blue: 0.180))
+                        .background(Color.MW.lime)
+                        .foregroundColor(Color.MW.forest)
                         .cornerRadius(12)
                 } else {
                     VStack(spacing: 6) {
@@ -57,7 +57,7 @@ struct AppUpdateView: View {
                             .multilineTextAlignment(.center)
                         Text("(778) 846-9273")
                             .font(.system(size: 17, weight: .semibold))
-                            .foregroundColor(Color(red: 0.498, green: 0.847, blue: 0.345))
+                            .foregroundColor(Color.MW.lime)
                     }
                     .padding(.horizontal, 40)
                 }

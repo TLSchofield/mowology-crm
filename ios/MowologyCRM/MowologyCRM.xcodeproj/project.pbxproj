@@ -161,7 +161,8 @@
 				FA9C633C7B7B0D0E5CBAEA59 /* Models */,
 				3CAC498CFC84EC47A1CECC6B /* Network */,
 				146DA49BE70A00338AC2B82B /* Offline */,
-			);
+							C6D4E0B37F8C9A0B12345678 /* Design */,
+);
 			path = Core;
 			sourceTree = "<group>";
 		};
@@ -321,6 +322,7 @@
 				14EB12BAF8F5CB77D7A4DF95 /* RootView.swift in Sources */,
 				FBBA8A2663D90AF691D24800 /* RouteStore.swift in Sources */,
 				6BD49E1E63D34A44ACF095A6 /* GPSTrackingService.swift in Sources */,
+				B4E3D9C25F6A7B8901234567 /* MWTheme.swift in Sources */,
 				16136063FF479A7B6236094C /* ScheduleDay.swift in Sources */,
 				91FBDAEEE518FB75A1B8618F /* ScheduleView.swift in Sources */,
 				BC6EBC60EA41994E7ACED719 /* ScheduleViewModel.swift in Sources */,

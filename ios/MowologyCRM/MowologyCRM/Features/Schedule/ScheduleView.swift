@@ -12,7 +12,6 @@ struct ScheduleView: View {
     @EnvironmentObject private var authSession: AuthSession
     @StateObject private var viewModel: ScheduleViewModel
 
-    private let mwGreen = Color(red: 0.176, green: 0.525, blue: 0.349)
 
     // MARK: - Init
 
@@ -38,7 +37,7 @@ struct ScheduleView: View {
                     } label: {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(mwGreen)
+                            .foregroundStyle(Color.MW.green)
                             .frame(width: 44, height: 44)
                     }
                     .disabled(viewModel.isLoading)
@@ -56,7 +55,7 @@ struct ScheduleView: View {
                     } label: {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(mwGreen)
+                            .foregroundStyle(Color.MW.green)
                             .frame(width: 44, height: 44)
                     }
                     .disabled(viewModel.isLoading)
@@ -129,7 +128,7 @@ struct ScheduleView: View {
             } label: {
                 Text("Today")
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(mwGreen)
+                    .foregroundStyle(Color.MW.green)
             }
         }
 
@@ -139,7 +138,7 @@ struct ScheduleView: View {
                 Task { await viewModel.invalidateAndRefresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .foregroundStyle(mwGreen)
+                    .foregroundStyle(Color.MW.green)
             }
             .disabled(viewModel.isLoading)
         }

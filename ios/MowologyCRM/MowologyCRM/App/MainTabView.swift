@@ -11,7 +11,6 @@ struct MainTabView: View {
 
     @EnvironmentObject private var authSession: AuthSession
 
-    private let mwGreen = Color(red: 0.176, green: 0.525, blue: 0.349)
 
     var body: some View {
         TabView {
@@ -20,8 +19,7 @@ struct MainTabView: View {
                     Label("Schedule", systemImage: "calendar")
                 }
 
-            // Placeholder — v2 will add time clock
-            comingSoonTab(title: "Time Clock", icon: "clock.fill")
+            TimeClockView(authSession: authSession)
                 .tabItem {
                     Label("Time Clock", systemImage: "clock.fill")
                 }
@@ -38,10 +36,10 @@ struct MainTabView: View {
                     Label("Account", systemImage: "person.fill")
                 }
         }
-        .tint(mwGreen)
+        .tint(Color.MW.green)
     }
 
-    // MARK: - Coming Soon Placeholder
+    // MARK: - Placeholder
 
     private func comingSoonTab(title: String, icon: String) -> some View {
         NavigationStack {
@@ -75,7 +73,7 @@ struct MainTabView: View {
                         HStack(spacing: 14) {
                             Image(systemName: "person.circle.fill")
                                 .font(.system(size: 44))
-                                .foregroundStyle(mwGreen)
+                                .foregroundStyle(Color.MW.green)
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(user.name)
