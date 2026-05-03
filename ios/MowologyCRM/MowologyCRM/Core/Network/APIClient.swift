@@ -132,6 +132,46 @@ final class APIClient: ObservableObject {
         }
     }
 
+
+    // MARK: - Multipart Upload
+
+    /// Uploads a receipt image as multipart/form-data and returns OCR suggestions.
+    func uploadReceipt(imageData: Data, lat: Double?, lng: Double?, jobId: Int?) async throws -> ReceiptIntakeResponse {
+        guard let url = APIEndpoint.receiptUpload.url else { throw APIError.invalidURL }
+
+        let boundary = "MwBoundary-\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var request  = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let token = authSession?.token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+        body.appendField(name: "receipt_photo", filename: "receipt.jpg", mimeType: "image/jpeg", data: imageData, boundary: boundary)
+        if let lat = lat { body.appendField(name: "lat", value: "\(lat)", boundary: boundary) }
+        if let lng = lng { body.appendField(name: "lng", value: "\(lng)", boundary: boundary) }
+        if let jobId = jobId { body.appendField(name: "job_id", value: "\(jobId)", boundary: boundary) }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch { throw APIError.networkError(error) }
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 { authSession?.logout(); throw APIError.unauthorized }
+            if !(200..<300).contains(http.statusCode) {
+                let msg = extractErrorMessage(from: data) ?? "Upload failed (\(http.statusCode))"
+                throw APIError.serverError(msg)
+            }
+        }
+
+        do { return try decoder.decode(ReceiptIntakeResponse.self, from: data) }
+        catch { throw APIError.decodingError(error) }
+    }
+
     // MARK: - Private Helpers
 
     private func extractErrorMessage(from data: Data) -> String? {
@@ -140,5 +180,24 @@ final class APIClient: ObservableObject {
         }
         return json["message"] as? String
             ?? json["error"] as? String
+    }
+}
+
+// MARK: - Data multipart helpers
+
+private extension Data {
+    mutating func appendField(name: String, filename: String, mimeType: String, data: Data, boundary: String) {
+        append("--\(boundary)\r\n".data(using: .utf8)!)
+        append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+        append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        append(data)
+        append("\r\n".data(using: .utf8)!)
+    }
+
+    mutating func appendField(name: String, value: String, boundary: String) {
+        append("--\(boundary)\r\n".data(using: .utf8)!)
+        append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+        append(value.data(using: .utf8)!)
+        append("\r\n".data(using: .utf8)!)
     }
 }

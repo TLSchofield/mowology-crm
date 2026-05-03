@@ -35,6 +35,15 @@ enum APIEndpoint {
     /// GET /api/schedule/clock?action=status — current clock-in state.
     case scheduleClockStatus
 
+    /// POST /api/expenses/receipt-upload — upload a receipt image and run OCR (JWT).
+    case receiptUpload
+
+    /// POST /api/expenses/expense-save — save a reviewed expense record (JWT).
+    case expenseSave
+
+    /// GET /api/expenses/expense-list — paginated list of the user's expenses (JWT).
+    case expenseList(page: Int)
+
     // MARK: - URL
 
     /// Builds the full URL for the endpoint. Returns `nil` only if the base
@@ -67,6 +76,17 @@ enum APIEndpoint {
             var components = URLComponents(string: "\(baseURLString)/schedule/clock")
             components?.queryItems = [URLQueryItem(name: "action", value: "status")]
             return components?.url
+
+        case .receiptUpload:
+            return URL(string: "\(baseURLString)/expenses/receipt-upload")
+
+        case .expenseSave:
+            return URL(string: "\(baseURLString)/expenses/expense-save")
+
+        case .expenseList(let page):
+            var components = URLComponents(string: "\(baseURLString)/expenses/expense-list")
+            components?.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
+            return components?.url
         }
     }
 
@@ -81,7 +101,10 @@ enum APIEndpoint {
              .scheduleTimer,
              .scheduleLocation,
              .scheduleClock,
-             .scheduleClockStatus: return true
+             .scheduleClockStatus,
+             .receiptUpload,
+             .expenseSave,
+             .expenseList: return true
         }
     }
 
@@ -97,7 +120,11 @@ enum APIEndpoint {
 
         case .scheduleTimer,
              .scheduleLocation,
-             .scheduleClock:       return "POST"
+             .scheduleClock,
+             .receiptUpload,
+             .expenseSave:         return "POST"
+
+        case .expenseList:         return "GET"
         }
     }
 }

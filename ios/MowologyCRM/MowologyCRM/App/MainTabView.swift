@@ -24,10 +24,10 @@ struct MainTabView: View {
                     Label("Time Clock", systemImage: "clock.fill")
                 }
 
-            // Placeholder — v2 will add photo capture
-            comingSoonTab(title: "Photos", icon: "camera.fill")
+            ReceiptsView(authSession: authSession)
+                .environmentObject(authSession)
                 .tabItem {
-                    Label("Photos", systemImage: "camera.fill")
+                    Label("Receipts", systemImage: "doc.text.image")
                 }
 
             // Account / sign out

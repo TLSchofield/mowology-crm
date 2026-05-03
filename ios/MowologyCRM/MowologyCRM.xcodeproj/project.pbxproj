@@ -43,6 +43,13 @@
 		FEC47F5526ACC47E8A074ADF /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */; };
 		B4E3D9C25F6A7B8901234567 /* MWTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2C8D14E5B6A7890123456 /* MWTheme.swift */; };
 		B161D21DEEAF8DED7311CA9C /* DayMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */; };
+		93E391A3F948150485F22F58 /* ReceiptIntakeResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B038E603948161013BAE5A /* ReceiptIntakeResponse.swift */; };
+		49645AA7886A3ED4FD566566 /* Expense.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2304800F25344F166EF4441 /* Expense.swift */; };
+		4681461D8C647D016A721BAD /* ReceiptQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20334B98F42E1FA61C896430 /* ReceiptQueue.swift */; };
+		59F63DF93D0D83CCF97DC0EE /* ReceiptsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B66D635A5EA948A73D504CD1 /* ReceiptsViewModel.swift */; };
+		4E54D67307C034ED0D6F0505 /* ReceiptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41A00EA0662C14163182538D /* ReceiptsView.swift */; };
+		F036B900A7BBD78F6D09B729 /* ReceiptCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ED400491FC08BF80DB7ED9 /* ReceiptCaptureView.swift */; };
+		52B9F6F7B03C21A7B3B2D326 /* ReceiptReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -84,6 +91,13 @@
 		F73A09E1281950C78A2D0821 /* StopCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopCardView.swift; sourceTree = "<group>"; };
 		A3F2C8D14E5B6A7890123456 /* MWTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MWTheme.swift; sourceTree = "<group>"; };
 		A16DCCA87E60FAD86C6FAE71 /* DayMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayMapView.swift; sourceTree = "<group>"; };
+		15B038E603948161013BAE5A /* ReceiptIntakeResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptIntakeResponse.swift; sourceTree = "<group>"; };
+		D2304800F25344F166EF4441 /* Expense.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Expense.swift; sourceTree = "<group>"; };
+		20334B98F42E1FA61C896430 /* ReceiptQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptQueue.swift; sourceTree = "<group>"; };
+		B66D635A5EA948A73D504CD1 /* ReceiptsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsViewModel.swift; sourceTree = "<group>"; };
+		41A00EA0662C14163182538D /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
+		C0ED400491FC08BF80DB7ED9 /* ReceiptCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCaptureView.swift; sourceTree = "<group>"; };
+		020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptReviewView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -102,7 +116,8 @@
 			children = (
 				51F215642B22B1FCC54B663F /* MowologyCRM */,
 				636F64D13F9CF99C7CCAD7EA /* Products */,
-			);
+							20334B98F42E1FA61C896430 /* ReceiptQueue.swift */,
+);
 			sourceTree = "<group>";
 		};
 		3CAC498CFC84EC47A1CECC6B /* Network */ = {
@@ -230,7 +245,8 @@
 				AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */,
 				C9C49661C41333A49EE1D301 /* User.swift */,
 				46E2EA872345FA9825A6DF2E /* Visit.swift */,
-			);
+							A8B19292E74114A1A37EDE2C /* Receipts */,
+);
 			path = Models;
 			sourceTree = "<group>";
 		};
@@ -239,7 +255,9 @@
 			children = (
 				C8040C6DF2C66988040204FE /* Assets.xcassets */,
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
-			);
+							15B038E603948161013BAE5A /* ReceiptIntakeResponse.swift */,
+				D2304800F25344F166EF4441 /* Expense.swift */,
+);
 			path = Resources;
 			sourceTree = "<group>";
 		};
@@ -249,6 +267,14 @@
 				A3F2C8D14E5B6A7890123456 /* MWTheme.swift */,
 			);
 			path = Design;
+			sourceTree = "<group>";
+		};
+		A8B19292E74114A1A37EDE2C /* Receipts */ = {
+			isa = PBXGroup;
+			children = (
+				B66D635A5EA948A73D504CD1 /* ReceiptsViewModel.swift */,
+			);
+			path = Receipts;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -352,6 +378,13 @@
 				1A500E3E80626FB6683AA6F1 /* VisitDetailView.swift in Sources */,
 				53692A746795599535BF90C5 /* VisitDetailViewModel.swift in Sources */,
 				4D2F723DF88B7B1C76F9826A /* WeekStripView.swift in Sources */,
+				49645AA7886A3ED4FD566566 /* Expense.swift in Sources */,
+				F036B900A7BBD78F6D09B729 /* ReceiptCaptureView.swift in Sources */,
+				93E391A3F948150485F22F58 /* ReceiptIntakeResponse.swift in Sources */,
+				4681461D8C647D016A721BAD /* ReceiptQueue.swift in Sources */,
+				52B9F6F7B03C21A7B3B2D326 /* ReceiptReviewView.swift in Sources */,
+				4E54D67307C034ED0D6F0505 /* ReceiptsView.swift in Sources */,
+				59F63DF93D0D83CCF97DC0EE /* ReceiptsViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
