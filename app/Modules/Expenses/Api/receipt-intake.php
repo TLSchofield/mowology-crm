@@ -157,7 +157,7 @@ try {
         $suggestions = [];
         if ($ocrResult['success'] && !empty($ocrText)) {
             $parsed      = parseReceiptText($ocrText, $ocrResult['raw_response'] ?? null);
-            $suggestions = suggestReceiptMeta($ocrText, null, null, null);
+            $suggestions = suggestReceiptMeta($ocrText, null, null, null, $parsed);
             if (!empty($suggestions['vendor_id'])) {
                 $parsed = applyLearnedPatterns((int)$suggestions['vendor_id'], $parsed, $ocrText);
                 $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
@@ -473,7 +473,7 @@ try {
     if ($ocrAvailable && !empty($ocrText)) {
         $rawResponse = $ocrResult['raw_response'] ?? null;
         $parsed = parseReceiptText($ocrText, $rawResponse);
-        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId);
+        $suggestions = suggestReceiptMeta($ocrText, $lat, $lng, $jobId, $parsed);
 
         // Apply learned vendor-specific patterns to enhance parsed results
         if (!empty($suggestions['vendor_id'])) {
@@ -481,6 +481,16 @@ try {
 
             // Match OCR text against vendor's known product catalog
             $parsed = matchVendorProducts((int)$suggestions['vendor_id'], $ocrText, $parsed);
+
+            // Re-run category inference after product matching (may have enriched line_items)
+            if (!empty($parsed['product_matches']) && empty($suggestions['category_from_line_items'])) {
+                $enrichedSuggestions = suggestReceiptMeta($ocrText, null, null, null, $parsed);
+                if (!empty($enrichedSuggestions['category_from_line_items'])) {
+                    $suggestions['accounting_category']      = $enrichedSuggestions['accounting_category'];
+                    $suggestions['category_confidence']      = $enrichedSuggestions['category_confidence'];
+                    $suggestions['category_from_line_items'] = true;
+                }
+            }
 
             // Back-fill location if vendor has none yet
             try {

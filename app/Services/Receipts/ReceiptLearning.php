@@ -97,6 +97,62 @@ function recordCorrections(?int $vendorId, ?string $vendorName, array $ocrParsed
         }
     }
 
+    // ── Line item name corrections ─────────────────────────────────────
+    // Compare OCR-extracted item names with user-saved names (by position).
+    // Corrections feed into receipt_parse_lessons and eventually into vendor_products.ocr_aliases.
+    if ($vendorId) {
+        $ocrItems  = $ocrParsed['line_items']  ?? [];
+        $userItems = $userSaved['line_items']   ?? [];
+        if (is_string($userItems)) {
+            $userItems = json_decode($userItems, true) ?: [];
+        }
+        $pairCount = min(count($ocrItems), count($userItems));
+        for ($i = 0; $i < $pairCount; $i++) {
+            $ocrName  = strtoupper(trim($ocrItems[$i]['name'] ?? ''));
+            $userName = strtoupper(trim($userItems[$i]['name'] ?? ''));
+            if (empty($ocrName) || empty($userName) || $ocrName === $userName) continue;
+
+            $existing = findExistingLesson($db, $vendorId, 'line_item_name', $ocrName, $userName);
+            if ($existing) {
+                $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+                   ->execute([$existing['id']]);
+            } else {
+                $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, 'line_item_name', ?, ?, ?)")
+                   ->execute([$vendorId, $vendorName, $ocrName, $userName, $ocrName . ' → ' . $userName]);
+            }
+            $hadCorrections = true;
+        }
+    }
+
+    // ── Accounting category corrections ────────────────────────────────
+    // If the user changed the auto-suggested category, record it.
+    // After 2+ identical corrections, the learned category overrides vendor default.
+    if ($vendorId) {
+        $ocrCategory  = $ocrParsed['accounting_category']  ?? null;
+        $userCategory = $userSaved['accounting_category']  ?? null;
+        if (!empty($userCategory) && $ocrCategory !== $userCategory) {
+            $existing = findExistingLesson($db, $vendorId, 'accounting_category', $ocrCategory, $userCategory);
+            if ($existing) {
+                $db->prepare("UPDATE receipt_parse_lessons SET times_seen = times_seen + 1, updated_at = NOW() WHERE id = ?")
+                   ->execute([$existing['id']]);
+                // Promote to vendor profile after 2+ consistent corrections
+                if ((int)$existing['times_seen'] >= 2) {
+                    $db->prepare("
+                        INSERT INTO vendor_parse_profiles (vendor_id, learned_accounting_category, category_correction_count)
+                        VALUES (?, ?, 1)
+                        ON DUPLICATE KEY UPDATE
+                            learned_accounting_category = VALUES(learned_accounting_category),
+                            category_correction_count = category_correction_count + 1,
+                            updated_at = NOW()
+                    ")->execute([$vendorId, $userCategory]);
+                }
+            } else {
+                $db->prepare("INSERT INTO receipt_parse_lessons (vendor_id, vendor_name, field_name, ocr_value, corrected_value, ocr_context) VALUES (?, ?, 'accounting_category', ?, ?, '')")
+                   ->execute([$vendorId, $vendorName, $ocrCategory, $userCategory]);
+            }
+        }
+    }
+
     // Update vendor parse profile stats
     if ($vendorId) {
         updateVendorProfile($db, $vendorId, $fieldMap, $hadCorrections);
@@ -169,11 +225,44 @@ function applyLearnedPatterns(?int $vendorId, array $parsed, string $ocrText): a
         if (empty($parsed[$field]) && !empty($fix['corrected_value']) && $fix['times_seen'] >= 3) {
             // Don't auto-fill amounts — those change per receipt
             // Only auto-fill structural patterns (labels, formats)
-            if (!in_array($field, ['total', 'gst', 'subtotal'])) {
+            if (!in_array($field, ['total', 'gst', 'subtotal', 'line_item_name', 'accounting_category'])) {
                 $parsed[$field] = $fix['corrected_value'];
                 $parsed[$field . '_source'] = 'learned';
             }
         }
+    }
+
+    // ── Apply learned line item name corrections ───────────────────────
+    // After 2+ corrections of an OCR misread → correct name, apply automatically.
+    if (!empty($parsed['line_items'])) {
+        try {
+            $stmt = $db->prepare("
+                SELECT ocr_value, corrected_value FROM receipt_parse_lessons
+                WHERE vendor_id = ? AND field_name = 'line_item_name' AND times_seen >= 2
+            ");
+            $stmt->execute([$vendorId]);
+            $nameMap = [];
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $nameMap[strtoupper(trim($row['ocr_value']))] = $row['corrected_value'];
+            }
+            if (!empty($nameMap)) {
+                foreach ($parsed['line_items'] as &$item) {
+                    $key = strtoupper(trim($item['name'] ?? ''));
+                    if (isset($nameMap[$key])) {
+                        $item['name']        = $nameMap[$key];
+                        $item['name_source'] = 'learned';
+                    }
+                }
+                unset($item);
+            }
+        } catch (Throwable $e) { /* non-fatal */ }
+    }
+
+    // ── Apply learned accounting category ─────────────────────────────
+    // Override suggested category if the user has consistently corrected it (2+).
+    if (!empty($profile['learned_accounting_category']) && (int)($profile['category_correction_count'] ?? 0) >= 2) {
+        $parsed['accounting_category']        = $profile['learned_accounting_category'];
+        $parsed['accounting_category_source'] = 'learned';
     }
 
     return $parsed;
@@ -356,6 +445,67 @@ function deriveVendorPatterns(PDO $db, int $vendorId): void
         if ($stmt->fetch()) {
             $updates['has_pst'] = 1;
             $updates['pst_label'] = 'PST/QST';
+        }
+
+        // ── Auto-derive Tesseract threshold from accuracy history ──────
+        $pfStmt = $db->prepare("SELECT accuracy_rate, total_receipts FROM vendor_parse_profiles WHERE vendor_id = ?");
+        $pfStmt->execute([$vendorId]);
+        $pf = $pfStmt->fetch(PDO::FETCH_ASSOC);
+        if ($pf && (int)$pf['total_receipts'] >= 5) {
+            $rate = (float)$pf['accuracy_rate'];
+            $updates['tesseract_threshold'] = $rate >= 80 ? 55 : ($rate < 50 ? 80 : 70);
+        }
+
+        // ── Auto-update vendor aliases from OCR name misreads ──────────
+        // When OCR consistently misreads a vendor name (3+ times), add the misread
+        // as an alias so future receipts match at higher confidence.
+        $vendorNameFixes = $db->prepare("
+            SELECT ocr_value FROM receipt_parse_lessons
+            WHERE vendor_id = ? AND field_name = 'vendor' AND times_seen >= 3
+        ");
+        $vendorNameFixes->execute([$vendorId]);
+        $ocrMisreads = $vendorNameFixes->fetchAll(PDO::FETCH_COLUMN);
+        if (!empty($ocrMisreads)) {
+            $vendorRow = $db->prepare("SELECT aliases FROM vendors WHERE id = ?");
+            $vendorRow->execute([$vendorId]);
+            $vendor = $vendorRow->fetch(PDO::FETCH_ASSOC);
+            if ($vendor !== false) {
+                $existingAliases = array_map('strtolower', array_filter(explode(',', $vendor['aliases'] ?? '')));
+                $toAdd = [];
+                foreach ($ocrMisreads as $misread) {
+                    $mis = strtolower(trim($misread));
+                    if (!empty($mis) && !in_array($mis, $existingAliases, true)) {
+                        $toAdd[] = $mis;
+                    }
+                }
+                if (!empty($toAdd)) {
+                    $newAliases = trim(($vendor['aliases'] ?? '') . ',' . implode(',', $toAdd), ',');
+                    $db->prepare("UPDATE vendors SET aliases = ? WHERE id = ?")->execute([$newAliases, $vendorId]);
+                }
+            }
+        }
+
+        // ── Promote line item name corrections into vendor_products aliases ──
+        // After 3+ corrections of the same OCR misread, add it as an OCR alias
+        // so VendorProductMatch picks it up automatically going forward.
+        $aliasStmt = $db->prepare("
+            SELECT ocr_value, corrected_value FROM receipt_parse_lessons
+            WHERE vendor_id = ? AND field_name = 'line_item_name' AND times_seen >= 3
+        ");
+        $aliasStmt->execute([$vendorId]);
+        foreach ($aliasStmt->fetchAll(PDO::FETCH_ASSOC) as $correction) {
+            $correctedUpper = strtoupper(trim($correction['corrected_value']));
+            $ocrLower       = strtolower(trim($correction['ocr_value']));
+            $prodStmt = $db->prepare("SELECT id, ocr_aliases FROM vendor_products WHERE vendor_id = ? AND UPPER(name) = ?");
+            $prodStmt->execute([$vendorId, $correctedUpper]);
+            $product = $prodStmt->fetch(PDO::FETCH_ASSOC);
+            if ($product) {
+                $existingProdAliases = array_map('strtolower', array_filter(explode(',', $product['ocr_aliases'] ?? '')));
+                if (!in_array($ocrLower, $existingProdAliases, true)) {
+                    $newAliases = trim(($product['ocr_aliases'] ?? '') . ',' . $ocrLower, ',');
+                    $db->prepare("UPDATE vendor_products SET ocr_aliases = ? WHERE id = ?")->execute([$newAliases, $product['id']]);
+                }
+            }
         }
 
         // Apply derived patterns to profile
@@ -557,4 +707,51 @@ function checkAccuracyDegradation(int $vendorId, ?PDO $db = null): ?array
     }
 
     return null;
+}
+
+
+/**
+ * Return the Tesseract confidence threshold for a specific vendor.
+ *
+ * High-accuracy vendors get a lower threshold (trust Tesseract more → fewer Vision API calls).
+ * Low-accuracy vendors get a higher threshold (prefer Vision for better extraction).
+ * Uses the manually-set tesseract_threshold from vendor_parse_profiles if present;
+ * otherwise auto-derives from accuracy history once 5+ receipts have been processed.
+ *
+ * @param int|null $vendorId
+ * @return int Threshold 0–100; default 70
+ */
+function getVendorTesseractThreshold(?int $vendorId): int
+{
+    if (!$vendorId) return 70;
+
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("
+            SELECT tesseract_threshold, accuracy_rate, total_receipts
+            FROM vendor_parse_profiles WHERE vendor_id = ?
+        ");
+        $stmt->execute([$vendorId]);
+        $profile = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$profile) return 70;
+
+        // Use manually-set threshold if present
+        if ($profile['tesseract_threshold'] !== null) {
+            return (int)$profile['tesseract_threshold'];
+        }
+
+        // Auto-derive from accuracy history — need 5+ receipts for reliable stats
+        $rate  = (float)($profile['accuracy_rate']  ?? 0);
+        $count = (int)($profile['total_receipts'] ?? 0);
+
+        if ($count >= 5) {
+            if ($rate >= 80) return 55; // High accuracy: trust Tesseract more, skip Vision sooner
+            if ($rate <  50) return 80; // Low accuracy: force Vision more often
+        }
+    } catch (Throwable $e) {
+        error_log('getVendorTesseractThreshold: ' . $e->getMessage());
+    }
+
+    return 70; // Safe default
 }

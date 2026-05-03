@@ -1785,10 +1785,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         };
         reader.readAsDataURL(file);
 
-        // Store media ID and OCR text
+        // Store media ID and OCR text.
+        // Merge suggestions.accounting_category into parsed so category corrections can be learned.
         document.getElementById('intakeMediaId').value = data.media_id;
         document.getElementById('intakeOcrText').value = data.ocr_text || '';
-        document.getElementById('intakeOcrParsed').value = data.parsed ? JSON.stringify(data.parsed) : '';
+        var parsedForLearning = Object.assign({}, data.parsed || {});
+        if (data.suggestions && data.suggestions.accounting_category) {
+            parsedForLearning.accounting_category = data.suggestions.accounting_category;
+        }
+        document.getElementById('intakeOcrParsed').value = JSON.stringify(parsedForLearning);
 
         // OCR status badge + show rescan button
         var statusEl   = document.getElementById('ocrStatusBadge');
@@ -1809,9 +1814,15 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var p = data.parsed || {};
         var s = data.suggestions || {};
 
+        // Vision API per-field confidence scores (0.0–1.0 → 0–100%)
+        var fc = data.field_confidences || {};
+        function visionConf(fieldKey, staticFallback) {
+            return fc[fieldKey] !== undefined ? Math.round(fc[fieldKey] * 100) : staticFallback;
+        }
+
         // Date — safeDate() ensures YYYY-MM-DD format for <input type="date">
         document.getElementById('rvDate').value = safeDate(p.date);
-        setConfidence('confDate', p.date ? 70 : 0);
+        setConfidence('confDate', p.date ? visionConf('date', 70) : 0);
 
         // Vendor
         if (s.vendor_id) {
@@ -1826,11 +1837,11 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Total/Tax/Amount
         if (p.total) {
             document.getElementById('rvTotal').value = p.total;
-            setConfidence('confTotal', 70);
+            setConfidence('confTotal', visionConf('total', 70));
         }
         if (p.gst) {
             document.getElementById('rvGst').value = p.gst;
-            setConfidence('confGst', 60);
+            setConfidence('confGst', visionConf('gst', 60));
         }
         if (p.subtotal) {
             document.getElementById('rvAmount').value = p.subtotal;
@@ -1857,7 +1868,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         // Categories
         if (s.accounting_category) {
             document.getElementById('rvAcctCategory').value = s.accounting_category;
-            setConfidence('confCategory', s.category_confidence || 0);
+            var catConf = s.category_confidence || 0;
+            // Annotate the confidence dot title when category came from line items or learned profile
+            var catDot = document.getElementById('confCategory');
+            setConfidence('confCategory', catConf);
+            if (catDot) {
+                if (s.accounting_category_source === 'learned') catDot.title += ' (learned)';
+                else if (s.category_from_line_items) catDot.title += ' (from items)';
+            }
         }
         if (s.gbp_category) {
             document.getElementById('rvGbpCategory').value = s.gbp_category;
