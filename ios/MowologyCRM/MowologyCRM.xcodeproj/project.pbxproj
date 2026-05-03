@@ -41,6 +41,7 @@
 		FBBA8A2663D90AF691D24800 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEFBC83ADF17258DCA610C2 /* RouteStore.swift */; };
 		6BD49E1E63D34A44ACF095A6 /* GPSTrackingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C547C4C433774E19B449B943 /* GPSTrackingService.swift */; };
 		FEC47F5526ACC47E8A074ADF /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */; };
+		B4E3D9C25F6A7B8901234567 /* MWTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3F2C8D14E5B6A7890123456 /* MWTheme.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -80,6 +81,7 @@
 		E2318C0D8CC141570D7D494B /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitionQueue.swift; sourceTree = "<group>"; };
 		F73A09E1281950C78A2D0821 /* StopCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopCardView.swift; sourceTree = "<group>"; };
+		A3F2C8D14E5B6A7890123456 /* MWTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MWTheme.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -236,6 +238,14 @@
 				9DD091BEACD0F5E731BE8B0E /* Info.plist */,
 			);
 			path = Resources;
+			sourceTree = "<group>";
+		};
+		C6D4E0B37F8C9A0B12345678 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				A3F2C8D14E5B6A7890123456 /* MWTheme.swift */,
+			);
+			path = Design;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
