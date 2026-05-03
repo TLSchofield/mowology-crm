@@ -11,8 +11,10 @@ $canSend = userHasPermission('expenses.send');
 $canApprove = userHasPermission('expenses.approve');
 
 // Quick mode: activated from schedule page "Receipt" button
-$quickMode = ($_GET['mode'] ?? '') === 'quick';
-$returnTo = $_GET['return'] ?? '';
+$quickMode  = ($_GET['mode'] ?? '') === 'quick';
+$returnTo   = $_GET['return'] ?? '';
+// Auto-camera: navigate here from topbar button with ?trigger=camera — fire camera on load
+$autoCamera = isset($_GET['trigger']) && $_GET['trigger'] === 'camera';
 
 $pageTitle = $quickMode ? 'Snap Receipt' : 'Expenses';
 $activePage = 'expenses';
@@ -1369,8 +1371,9 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     'use strict';
 
     let CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const QUICK_MODE = <?php echo $quickMode ? 'true' : 'false'; ?>;
-    const RETURN_TO = '<?php echo htmlspecialchars($returnTo); ?>';
+    const QUICK_MODE  = <?php echo $quickMode  ? 'true' : 'false'; ?>;
+    const AUTO_CAMERA = <?php echo $autoCamera ? 'true' : 'false'; ?>;
+    const RETURN_TO   = '<?php echo htmlspecialchars($returnTo); ?>';
     var lastJobSuggestions = []; // Stored from receipt-intake response
     var selectedJobSuggestion = null; // Currently selected job pill
     const CAN_EDIT = <?php echo $canEdit ? 'true' : 'false'; ?>;
@@ -1484,6 +1487,10 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         var galleryInput = document.getElementById('receiptGalleryInput');
         if (galleryInput) galleryInput.addEventListener('change', handleReceiptFile);
 
+        // Auto-trigger camera when navigated from topbar Receipt button (?trigger=camera)
+        // Works reliably on Capacitor/Android; browser PWA falls through to visible capture area
+        if (AUTO_CAMERA) setTimeout(triggerCamera, 300);
+
         // Gallery link click — same create-and-destroy pattern (no capture attr)
         var galleryLink = document.querySelector('.mw-gallery-link');
         if (galleryLink) {
@@ -1550,7 +1557,43 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
         input.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;';
         document.body.appendChild(input);
 
+        var fileChosen = false;
+        var cancelTimer = null;
+
+        function detachListeners() {
+            window.removeEventListener('focus', onFocus);
+            document.removeEventListener('visibilitychange', onVisible);
+            if (cancelTimer) { clearTimeout(cancelTimer); cancelTimer = null; }
+        }
+
+        function onCancelled() {
+            if (fileChosen) return;
+            detachListeners();
+            if (input.parentNode) input.parentNode.removeChild(input);
+            pendingReceiptInput = null;
+            window.showExpenseHistory();
+        }
+
+        function scheduleCheck() {
+            if (cancelTimer) clearTimeout(cancelTimer);
+            cancelTimer = setTimeout(onCancelled, 400);
+        }
+
+        function onFocus() {
+            window.removeEventListener('focus', onFocus);
+            scheduleCheck();
+        }
+
+        function onVisible() {
+            if (document.visibilityState === 'visible') {
+                document.removeEventListener('visibilitychange', onVisible);
+                scheduleCheck();
+            }
+        }
+
         var handler = function() {
+            fileChosen = true;
+            detachListeners();
             input.removeEventListener('change', handler);
             if (input.parentNode) input.parentNode.removeChild(input);
             pendingReceiptInput = null;
@@ -1559,6 +1602,14 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
 
         pendingReceiptInput = { input: input, handler: handler };
         input.addEventListener('change', handler);
+
+        // Attach cancel listeners after the picker has had time to open
+        setTimeout(function() {
+            if (fileChosen) return;
+            window.addEventListener('focus', onFocus);
+            document.addEventListener('visibilitychange', onVisible);
+        }, 600);
+
         input.click();
     };
 
@@ -4079,6 +4130,24 @@ $extraHead = '<meta name="csrf-token" content="' . htmlspecialchars($csrfToken) 
     window.mobileScrollToExpenses = function() {
         var label = document.getElementById('mobileExpenseListLabel');
         if (label) label.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    // Hide capture area + review; scroll to expense history (used on camera cancel)
+    window.showExpenseHistory = function() {
+        var cap    = document.getElementById('mobileCaptureArea');
+        var review = document.getElementById('mobileReviewPanel');
+        var spin   = document.getElementById('mobileAnalyzeSpinner');
+        var label  = document.getElementById('mobileExpenseListLabel');
+        var list   = document.getElementById('mobileExpenseList');
+        if (cap)    cap.style.display    = 'none';
+        if (review) review.style.display = 'none';
+        if (spin)   spin.style.display   = 'none';
+        if (label)  label.style.display  = '';
+        if (list)   list.style.display   = '';
+        setTimeout(function() {
+            var target = label || list;
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 50);
     };
 
     window.mobileResetReview = function() {

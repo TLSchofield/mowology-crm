@@ -35,12 +35,11 @@ if (!isset($user)) $user = ['name' => 'Admin'];
 
     <!-- Snap Receipt Quick-Access Button -->
     <?php if (isset($user) && function_exists('userHasPermission') && userHasPermission('expenses.edit')): ?>
-    <a href="/crm/expenses_appstack.php?mode=quick&amp;return=<?php echo urlencode($_SERVER['REQUEST_URI'] ?? '/crm/dashboard_appstack.php'); ?>"
-       class="mw-snap-receipt-btn"
-       title="Snap Receipt">
+    <button type="button" class="mw-snap-receipt-btn" title="Snap Receipt"
+        onclick="if(typeof window.triggerCamera==='function'){triggerCamera();}else{window.location='/crm/expenses_appstack.php?mode=quick&trigger=camera&return='+encodeURIComponent(window.location.pathname+window.location.search);}">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
         <span class="mw-snap-receipt-label">Receipt</span>
-    </a>
+    </button>
     <?php endif; ?>
 
     <!-- Right cluster — margin-left:auto pushes to far right.
@@ -52,6 +51,40 @@ if (!isset($user)) $user = ['name' => 'Admin'];
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
             <span class="mw-spotlight-trigger-text">Search...</span>
             <kbd class="mw-spotlight-trigger-kbd"><?php echo PHP_OS === 'Darwin' || stripos($_SERVER['HTTP_USER_AGENT'] ?? '', 'mac') !== false ? '⌘K' : 'Ctrl+K'; ?></kbd>
+        </button>
+
+        <!-- Debug Panel Toggle -->
+        <?php
+        $mw_debug_on     = isset($_COOKIE['debug_panel']) && $_COOKIE['debug_panel'] === 'enabled';
+        $mw_debug_errors = class_exists('CRMErrorHandler') && CRMErrorHandler::hasRequestErrors();
+        ?>
+        <button
+          class="mw-debug-toggle<?php echo $mw_debug_on ? ' mw-debug-toggle--on' : ''; ?>"
+          id="mwDebugToggleBtn"
+          title="<?php echo $mw_debug_on ? 'Debug panel ON — click to disable' : 'Debug panel OFF — click to enable'; ?>"
+          onclick="(function(){
+            var on = '<?php echo $mw_debug_on ? '1' : '0'; ?>';
+            if (on === '1') {
+              document.cookie = 'debug_panel=; Max-Age=0; path=/; SameSite=Lax';
+            } else {
+              document.cookie = 'debug_panel=enabled; Max-Age=604800; path=/; SameSite=Lax';
+            }
+            location.reload();
+          })()">
+          <!-- Bug / ladybug icon -->
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a4 4 0 0 1 4 4"></path><path d="M8 6a4 4 0 0 1 4-4"></path>
+            <path d="M12 18c-4 0-7-2.686-7-6v-2a7 7 0 0 1 14 0v2c0 3.314-3 6-7 6z"></path>
+            <line x1="12" y1="18" x2="12" y2="22"></line>
+            <line x1="8" y1="20" x2="16" y2="20"></line>
+            <line x1="5" y1="10" x2="2" y2="9"></line>
+            <line x1="19" y1="10" x2="22" y2="9"></line>
+            <line x1="5" y1="14" x2="2" y2="15"></line>
+            <line x1="19" y1="14" x2="22" y2="15"></line>
+          </svg>
+          <?php if ($mw_debug_on && $mw_debug_errors): ?>
+          <span class="mw-debug-badge">!</span>
+          <?php endif; ?>
         </button>
 
         <!-- User / Settings icon dropdown -->
