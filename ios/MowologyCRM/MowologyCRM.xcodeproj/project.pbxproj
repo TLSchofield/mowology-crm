@@ -324,6 +324,7 @@
 				51EE3493C4054F68A55A3791 /* ArrivalMonitor.swift in Sources */,
 				2FBD157C6E8D45ACE46C8079 /* AuthSession.swift in Sources */,
 				1D762428510570A1A0D08B4C /* DayListView.swift in Sources */,
+				B161D21DEEAF8DED7311CA9C /* DayMapView.swift in Sources */,
 				040D77CC7FC7DDF02E82AD32 /* KeychainStore.swift in Sources */,
 				ABDBDE4BD9E38E90A1C48150 /* LocationManager.swift in Sources */,
 				97A54DA2AA9F9A04CA89CD15 /* LoginView.swift in Sources */,
