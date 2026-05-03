@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 54;
+	objectVersion = 56;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -39,6 +39,7 @@
 		F15F7146DF34D7E2CBD8CF76 /* AppUpdateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92AA5A01A2F642A2561CFFD9 /* AppUpdateView.swift */; };
 		F6DE13FCED1F010D001CEC2D /* User.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9C49661C41333A49EE1D301 /* User.swift */; };
 		FBBA8A2663D90AF691D24800 /* RouteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEFBC83ADF17258DCA610C2 /* RouteStore.swift */; };
+		6BD49E1E63D34A44ACF095A6 /* GPSTrackingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C547C4C433774E19B449B943 /* GPSTrackingService.swift */; };
 		FEC47F5526ACC47E8A074ADF /* TimeClockModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */; };
 /* End PBXBuildFile section */
 
@@ -66,7 +67,7 @@
 		A3914DFABD5F183B4DC1E39D /* VersionCheckService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VersionCheckService.swift; sourceTree = "<group>"; };
 		A66186FA7B72C0E2DE4F3208 /* PendingTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingTransition.swift; sourceTree = "<group>"; };
 		A756819D930BDD10EFFEC4FA /* MowologyCRMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MowologyCRMApp.swift; sourceTree = "<group>"; };
-		AC8522EE94548B7FD4F1982E /* MowologyCRM.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MowologyCRM.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AC8522EE94548B7FD4F1982E /* MowologyCRM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MowologyCRM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC8674D3A1F9F01248ECB134 /* VisitDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitDetailView.swift; sourceTree = "<group>"; };
 		AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeClockModels.swift; sourceTree = "<group>"; };
 		C0E0EE6C511F5B6548BA7FB0 /* DayListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayListView.swift; sourceTree = "<group>"; };
@@ -75,6 +76,7 @@
 		CE716DE714937E2614370F75 /* PingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PingQueue.swift; sourceTree = "<group>"; };
 		DEA3E082EB582E2D8825C262 /* ScheduleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleViewModel.swift; sourceTree = "<group>"; };
 		DFEFBC83ADF17258DCA610C2 /* RouteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteStore.swift; sourceTree = "<group>"; };
+		C547C4C433774E19B449B943 /* GPSTrackingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPSTrackingService.swift; sourceTree = "<group>"; };
 		E2318C0D8CC141570D7D494B /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		F33171690DA9721C3D67B8E9 /* TransitionQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitionQueue.swift; sourceTree = "<group>"; };
 		F73A09E1281950C78A2D0821 /* StopCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StopCardView.swift; sourceTree = "<group>"; };
@@ -138,6 +140,7 @@
 				6E5F8DDDD742A43A1EAAE7A2 /* ArrivalMonitor.swift */,
 				47AF8B2A204E50B9D3125AC4 /* LocationManager.swift */,
 				DFEFBC83ADF17258DCA610C2 /* RouteStore.swift */,
+				C547C4C433774E19B449B943 /* GPSTrackingService.swift */,
 			);
 			path = Location;
 			sourceTree = "<group>";
@@ -263,7 +266,6 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					B894F8507D292A0047B6D7C1 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -318,6 +320,7 @@
 				AC262C96AEC72A40D96A78DD /* PingQueue.swift in Sources */,
 				14EB12BAF8F5CB77D7A4DF95 /* RootView.swift in Sources */,
 				FBBA8A2663D90AF691D24800 /* RouteStore.swift in Sources */,
+				6BD49E1E63D34A44ACF095A6 /* GPSTrackingService.swift in Sources */,
 				16136063FF479A7B6236094C /* ScheduleDay.swift in Sources */,
 				91FBDAEEE518FB75A1B8618F /* ScheduleView.swift in Sources */,
 				BC6EBC60EA41994E7ACED719 /* ScheduleViewModel.swift in Sources */,
@@ -345,6 +348,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FFJBDJKQ9H;
 				INFOPLIST_FILE = MowologyCRM/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -423,6 +427,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FFJBDJKQ9H;
 				INFOPLIST_FILE = MowologyCRM/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
