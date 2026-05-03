@@ -71,7 +71,6 @@ try {
                 LEFT JOIN time_clock_entries tce
                     ON tce.user_id = u.id AND tce.status = 'active' AND tce.clock_out IS NULL
                 WHERE u.is_active = 1
-                  AND u.location_tracking_enabled = 1
                 ORDER BY u.full_name ASC
             ");
             $crew = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -118,7 +117,6 @@ try {
                 FROM crew_location_history clh
                 INNER JOIN users u ON u.id = clh.crew_id
                 WHERE u.is_active = 1
-                  AND u.location_tracking_enabled = 1
                   AND UNIX_TIMESTAMP(clh.timestamp) >= ?
                   AND UNIX_TIMESTAMP(clh.timestamp) <= ?
                 ORDER BY clh.crew_id ASC, clh.timestamp ASC
@@ -175,20 +173,25 @@ try {
             throw new Exception('Latitude and longitude required');
         }
 
-        // Check user's tracking settings and device type
+        // Check user's device type and tracking settings
         $trackStmt = $db->prepare("SELECT location_tracking_enabled, IFNULL(device_type, 'personal') AS device_type FROM users WHERE id = ?");
         $trackStmt->execute([$user['id']]);
         $trackRow = $trackStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$trackRow || !$trackRow['location_tracking_enabled']) {
-            throw new Exception('Tracking not enabled');
+        if (!$trackRow) {
+            throw new Exception('User not found');
         }
 
         $isTruck = ($trackRow['device_type'] === 'truck');
 
-        // Truck devices can report GPS without being clocked in.
-        // Personal devices must be clocked in — UNLESS this is a proximity-only check
-        // (the proximity engine handles auto-clock-in itself).
-        if (!$isTruck && !$isProximityOnly) {
+        if ($isTruck) {
+            // Truck/driver devices ping continuously without clock-in.
+            // location_tracking_enabled is the admin gate for always-on truck tracking.
+            if (!$trackRow['location_tracking_enabled']) {
+                throw new Exception('Tracking not enabled for this device');
+            }
+        } elseif (!$isProximityOnly) {
+            // Personal devices (including iOS crew members): clock-in IS the tracking gate.
+            // No separate location_tracking_enabled flag required — being on shift is enough.
             $clockEntry = getActiveClockEntry($user['id']);
             if (!$clockEntry) {
                 throw new Exception('Not clocked in');
