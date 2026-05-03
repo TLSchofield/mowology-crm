@@ -32,24 +32,23 @@ struct ScheduleView: View {
         NavigationStack {
             VStack(spacing: 0) {
 
-                // MARK: Week Navigation
-                weekNavBar
-
-                // MARK: Week Strip
-                WeekStripView(
-                    selectedDate: weekStripBinding,
-                    weekDays: viewModel.weekDays
-                )
-                // Horizontal swipe on the strip navigates weeks.
-                // minimumDistance:20 lets the inner horizontal scroll still work
-                // for small movements; the gesture only fires on deliberate
-                // side-swipes that are more horizontal than vertical.
+                // MARK: Week Navigation + Strip (swipeable area)
+                // The swipe gesture wraps BOTH the nav bar and the chip row so
+                // any horizontal drag in this region changes the week — no
+                // competing ScrollView underneath.
+                VStack(spacing: 0) {
+                    weekNavBar
+                    WeekStripView(
+                        selectedDate: weekStripBinding,
+                        weekDays: viewModel.weekDays
+                    )
+                }
                 .gesture(
-                    DragGesture(minimumDistance: 30)
+                    DragGesture(minimumDistance: 20)
                         .onEnded { value in
                             let dx = value.translation.width
                             let dy = abs(value.translation.height)
-                            guard abs(dx) > dy * 1.2, abs(dx) > 40 else { return }
+                            guard abs(dx) > dy * 1.5, abs(dx) > 40 else { return }
                             impactMedium.impactOccurred()
                             Task { await viewModel.advanceWeek(by: dx < 0 ? 1 : -1) }
                         }

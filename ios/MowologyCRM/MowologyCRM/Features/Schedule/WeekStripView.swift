@@ -13,17 +13,18 @@ struct WeekStripView: View {
     let weekDays: [ScheduleDay]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(weekDays) { day in
-                    DayChip(day: day, isSelected: isSelected(day)) {
-                        selectDay(day)
-                    }
+        // No ScrollView — 7 chips fill available width so there's no competing
+        // horizontal pan gesture to steal swipes meant for week navigation.
+        HStack(spacing: 4) {
+            ForEach(weekDays) { day in
+                DayChip(day: day, isSelected: isSelected(day)) {
+                    selectDay(day)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .background(Color(.systemBackground))
     }
 
@@ -88,7 +89,7 @@ private struct DayChip: View {
                         .frame(width: 6, height: 6)
                 }
             }
-            .frame(width: 48, height: 72)
+            .frame(maxWidth: .infinity, minHeight: 72)
             .background(
                 RoundedRectangle(cornerRadius: 14)
                     .fill(isSelected ? Color.MW.green : (day.isToday ? Color.MW.green.opacity(0.08) : Color(.systemGray6)))
