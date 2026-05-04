@@ -512,8 +512,8 @@ $extraHead = '<script src="https://maps.googleapis.com/maps/api/js?key=' . htmls
         document.getElementById('crewCount').textContent = count;
         document.getElementById('crewPlural').textContent = count === 1 ? '' : 's';
         var now = new Date();
-        document.getElementById('lastUpdate').textContent =
-            pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
+        var statusEl = document.getElementById('mwMapStatus');
+        if (statusEl) statusEl.textContent = 'Live · updated ' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());
     }
 
     // Global function for crew list click
