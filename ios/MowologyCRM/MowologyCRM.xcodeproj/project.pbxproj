@@ -50,6 +50,7 @@
 		4E54D67307C034ED0D6F0505 /* ReceiptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41A00EA0662C14163182538D /* ReceiptsView.swift */; };
 		F036B900A7BBD78F6D09B729 /* ReceiptCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0ED400491FC08BF80DB7ED9 /* ReceiptCaptureView.swift */; };
 		52B9F6F7B03C21A7B3B2D326 /* ReceiptReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */; };
+		28DDF3EB718E233882AA85C8 /* CrewTrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFA16A03CBB34877128A74E /* CrewTrail.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -98,6 +99,7 @@
 		41A00EA0662C14163182538D /* ReceiptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptsView.swift; sourceTree = "<group>"; };
 		C0ED400491FC08BF80DB7ED9 /* ReceiptCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptCaptureView.swift; sourceTree = "<group>"; };
 		020A7702F7F98D53EF42EBAC /* ReceiptReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiptReviewView.swift; sourceTree = "<group>"; };
+		EAFA16A03CBB34877128A74E /* CrewTrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrewTrail.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -241,6 +243,7 @@
 		FA9C633C7B7B0D0E5CBAEA59 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				EAFA16A03CBB34877128A74E /* CrewTrail.swift */,
 				816872EBC5C2A53815D7E212 /* ScheduleDay.swift */,
 				84917CCF5BF871EC2B745DC4 /* Stop.swift */,
 				AD88E66FE7C3D2F54EEB6953 /* TimeClockModels.swift */,
@@ -388,6 +391,7 @@
 				52B9F6F7B03C21A7B3B2D326 /* ReceiptReviewView.swift in Sources */,
 				4E54D67307C034ED0D6F0505 /* ReceiptsView.swift in Sources */,
 				59F63DF93D0D83CCF97DC0EE /* ReceiptsViewModel.swift in Sources */,
+				28DDF3EB718E233882AA85C8 /* CrewTrail.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
