@@ -35,7 +35,7 @@ struct StopCardView: View {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(arrival)
                             .font(.subheadline.monospacedDigit().bold())
-                            .foregroundStyle(mwGreen)
+                            .foregroundStyle(Color.MW.green)
 
                         Text("est. arrival")
                             .font(.caption2)
